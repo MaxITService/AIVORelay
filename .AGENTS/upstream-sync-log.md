@@ -6,6 +6,20 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-08-08):
+- Refreshed `Q:\Handy-upstream`; current upstream HEAD is `db003f38`.
+- Safe review cursor for the next `upstream -> main` intake is now `db003f38`.
+- Reviewed the full corridor from `76736d5` to `db003f38` (21 non-merge commits).
+- Integrated or manually adapted nine Windows/core fixes: capture-worker recovery,
+  non-blocking CPAL access and lock-free recording status, explicit non-streaming
+  post-processing requests, preserved HTTP error causes, hidden-overlay rendering,
+  Windows microphone-permission precedence, multi-channel microphone selection,
+  the `js-yaml` security update, and idle always-on audio processing.
+- `09aaf4d3` was already covered by the fork's authoritative final-text handling.
+  `b1b2d9f9` targets an upstream paste subsystem absent from this fork, and
+  `6d3239e0` targets an absent What's New screen. Skipped Linux/Nix/AppImage,
+  upstream housekeeping/release commits, and the optional model-filter UX.
+
 Audit note (2026-08-01):
 - Refreshed `Q:\Handy-upstream`; current upstream HEAD is `76736d5`.
 - Safe review cursor for the next `upstream -> main` intake is now `76736d5`.
@@ -49,16 +63,16 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-08-08 | 2026-08-08 | `db003f38` | fix(audio): skip level meter and resampler while idle in always-on mode (#1873) | fix(audio): skip idle level-meter and resampler work | manual port; retained gain, noise cancellation, and stream callbacks |
+| 2026-08-08 | 2026-08-07 | `d9615937` | fix: update js-yaml to address quadratic parsing (#1865) | fix(deps): update js-yaml to 4.3.1 | Bun lock only; fork has no Nix lock metadata |
+| 2026-08-08 | 2026-08-06 | `12f02e2a` | fix: add input channel selection for multi-channel audio interfaces (#1254) | fix(audio): add input channel selection for multi-channel interfaces | manual port; retained fork capture-source routing |
+| 2026-08-08 | 2026-08-05 | `3f24f4b2` | fix: prioritize NonPackaged key in Windows mic permission check (#1284) (#1308) | fix: prioritize NonPackaged key in Windows mic permission check (#1284) (#1308) | clean cherry-pick |
+| 2026-08-08 | 2026-08-05 | `16caad7a` | fix(overlay): stop rendering animations while hidden (#1445) | fix(overlay): stop rendering animations while hidden | manual placement after all fork hooks |
+| 2026-08-08 | 2026-08-05 | `4223e7ac` | fix: preserve HTTP transport error causes (#1823) | fix: preserve HTTP transport error causes (#1823) | manual port; retained reasoning API and URL sanitization |
+| 2026-08-08 | 2026-08-05 | `b4453a29` | fix(audio): move blocking cpal work off the main thread + lock-free is_recording (#1716) | fix(audio): move blocking cpal work off the main thread + lock-free is_recording (#1716) | manual port; retained fork tray/device handling |
+| 2026-08-08 | 2026-08-05 | `2211da65` | request stream: false, for post processing | request stream: false, for post processing | manual one-field port |
+| 2026-08-08 | 2026-08-03 | `a4348beb` | fix: recover microphone stream after the capture worker dies (#1838) | fix: recover microphone stream after the capture worker dies (#1838) | manual port; retained capture selection and media controls |
 | 2026-08-01 | 2026-07-30 | `16e5d48e` | dont fire bindings when recording (#1811) | fix(shortcuts): suspend all bindings during shortcut capture | manual port; retained legacy single-binding commands for old frontend bundles |
-| 2026-08-01 | 2026-07-28 | `292db647` | Harden Hugging Face downloads and use mirror fallback (#1773) | feat(models): harden downloads with pinned catalog mirrors | manual port; retained the fork model manager and kept the Aivo-only MOSS catalog entry |
-| 2026-08-01 | 2026-07-31 | `76b44d83` | fix(audio): recalibrate mic level meter so speech moves the bars (#1813) | fix(build): complete legacy Whisper transcribe.cpp migration | included with the build migration commit; no build dependency |
-| 2026-08-01 | 2026-08-01 | `70327582` | bump handy-keys to 0.3.3 | fix(build): complete legacy Whisper transcribe.cpp migration | included with the build migration commit; dependency freshness only |
-| 2026-07-22 | 2026-07-22 | `8a362e9` | fix mute bug (#1760) | fix(audio): preserve system mute state after recording | manual port; retained fork capture-source checks and media pause/resume behavior |
-| 2026-07-22 | 2026-07-21 | `e8c73ba` | update catalog | feat(models): add latest transcribe.cpp catalog models | manual catalog/generator port; kept all quantizations and fork Whisper translation support |
-| 2026-07-22 | 2026-07-21 | `68af495` | dont use hf env | fix(models): ignore stale credentials for public downloads | manual client-builder port; retained fork cancellable parallel download implementation |
-| 2026-07-22 | 2026-07-21 | `46d6a2a` | guard vulkan so only available to true x86 host, not emulated (#1731) | fix(acceleration): disable GGML GPU paths under x64-on-ARM | manual port; covered fork whisper.cpp and transcribe.cpp paths; fork workflow has no upstream package-smoke block |
-| 2026-07-22 | 2026-07-21 | `0470d9a` | fix windows not shutting down cleanly because of handy (#1732) | fix(windows): allow clean system shutdown | manual tao patch port; retained fork Tauri 2.11.5 and resolved Cargo lock locally |
-| 2026-07-22 | 2026-07-20 | `59ec695` | bump tauri global shortcut package.json | chore(deps): update frontend global-shortcut plugin to 2.3.2 | manual package and Bun lock port; retained fork dependency graph |
 
 Entry template:
 
