@@ -966,15 +966,18 @@ fn run_consumer(
             _ => continue,
         };
 
-        if let Some(buckets) = visualizer.feed(&raw) {
-            if let Some(cb) = &level_cb {
-                cb(buckets);
+        // In always-on mode the capture stream remains open while idle. The
+        // level meter has no idle consumer and handle_frame discards idle
+        // output, so skip both expensive paths until Cmd::Start resets them.
+        if recording {
+            if let Some(buckets) = visualizer.feed(&raw) {
+                if let Some(cb) = &level_cb {
+                    cb(buckets);
+                }
             }
-        }
 
-        frame_resampler.push(&raw, &mut |frame: &[f32]| {
-            let adjusted = apply_input_gain_if_needed(frame, source, &microphone_input_gain);
-            if recording {
+            frame_resampler.push(&raw, &mut |frame: &[f32]| {
+                let adjusted = apply_input_gain_if_needed(frame, source, &microphone_input_gain);
                 let enhanced = apply_noise_cancellation_if_needed(
                     adjusted,
                     source,
@@ -983,9 +986,7 @@ fn run_consumer(
                 );
                 emit_stream_frame(&stream_frame_cb, enhanced.as_ref());
                 handle_frame(enhanced.as_ref(), true, &vad, &mut processed_samples)
-            } else {
-                handle_frame(adjusted.as_ref(), false, &vad, &mut processed_samples)
-            }
-        });
+            });
+        }
     }
 }
