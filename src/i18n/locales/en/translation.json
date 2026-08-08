@@ -45,8 +45,8 @@
     "debug": "Test features, inspect diagnostic information, and troubleshoot problems.",
     "liveSoundTranscription": "Transcribe computer audio live while it plays.",
     "transcribeFile": "Turn an audio or video file into text.",
-    "textToSpeech": "Read selected text aloud with the configured speech provider.",
-    "ttsFiles": "Turn text files into MP3 or WAV audio."
+    "textToSpeech": "Choose a provider, voice, and shortcut, then read selected text aloud from any app.",
+    "ttsFiles": "Convert text or Markdown files into MP3 or WAV, one file, many files, or a folder."
   },
   "help": {
     "title": "Help",
@@ -108,11 +108,11 @@
       },
       "speakSelectedText": {
         "title": "Select text. Press a key. Hear it spoken.",
-        "summary": "Select text and press its shortcut. A voice reads the text aloud."
+        "summary": "Open Speak selected text, choose a provider, and start with its recommended preset. Assign a shortcut under Actions, then select text in any app and press the shortcut to hear it aloud. You can also adjust the voice, speed, playback, and History settings."
       },
       "textFileToMp3": {
         "title": "Choose text files. Get MP3 or WAV audio.",
-        "summary": "Choose a text or Markdown file. AivoRelay creates MP3 or WAV audio."
+        "summary": "Open Text file to mp3, choose a provider, and select a text or Markdown file. Choose MP3 or WAV, select where to save it, and start conversion. The page also supports multiple files, folders, resumable work, folder automation, and File History."
       },
       "voiceCommands": {
         "title": "Speak a command. AivoRelay performs it.",
