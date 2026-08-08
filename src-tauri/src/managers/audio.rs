@@ -548,6 +548,8 @@ fn create_audio_recorder(
         recorder = recorder.with_vad(Box::new(smoothed_vad));
     }
 
+    recorder = recorder.with_selected_channel(settings.selected_channel);
+
     recorder = recorder.with_level_callback({
         let app_handle = app_handle.clone();
         move |levels| {
@@ -1138,6 +1140,49 @@ impl AudioRecordingManager {
             let selection = self.resolve_selection_for_binding(&settings, None);
             self.start_stream_for_selection(selection, &settings)?;
         }
+        Ok(())
+    }
+
+    pub fn update_selected_channel(
+        &self,
+        selected_channel: Option<u16>,
+    ) -> Result<(), anyhow::Error> {
+        // Restarting capture would discard an active recording, so serialize
+        // the change against recording start/stop.
+        let state = self.state.lock().unwrap();
+        if !matches!(*state, RecordingState::Idle) {
+            return Err(anyhow::anyhow!(
+                "Cannot change the input channel while recording"
+            ));
+        }
+
+        let previous_channel = get_settings(&self.app_handle).selected_channel;
+        let restart_selection = self.active_selection.lock().unwrap().clone();
+        let restart_microphone = *self.is_open.lock().unwrap()
+            && restart_selection
+                .as_ref()
+                .is_some_and(|selection| selection.source == AudioCaptureSource::Microphone);
+
+        if restart_microphone {
+            self.stop_microphone_stream();
+        }
+        if let Some(recorder) = self.recorder.lock().unwrap().as_mut() {
+            recorder.set_selected_channel(selected_channel);
+        }
+
+        if restart_microphone {
+            let settings = get_settings(&self.app_handle);
+            let selection = restart_selection
+                .unwrap_or_else(|| self.resolve_selection_for_binding(&settings, None));
+            if let Err(error) = self.start_stream_for_selection(selection, &settings) {
+                if let Some(recorder) = self.recorder.lock().unwrap().as_mut() {
+                    recorder.set_selected_channel(previous_channel);
+                }
+                return Err(error);
+            }
+        }
+
+        drop(state);
         Ok(())
     }
 

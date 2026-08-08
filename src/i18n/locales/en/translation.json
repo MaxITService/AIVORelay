@@ -1881,6 +1881,12 @@
           "reset": "Reset microphone mask"
         }
       },
+      "channel": {
+        "title": "Input Channel",
+        "description": "Select which input channel to record from. Use this if your audio interface has multiple inputs.",
+        "average": "Average all channels",
+        "channel": "Channel {{n}}"
+      },
       "audioFeedback": {
         "sectionTitle": "Recording and result sounds",
         "sectionDescription": "These are separate signals. The recording Stop sound means only that microphone capture ended; transcription may still be running. The Result-ready sound means transcription, optional post-processing, and final text delivery have completed. Enable either or both. They use the output device and volume below; choose the cue under Settings → Debug → Sound Theme.",
