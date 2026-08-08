@@ -138,8 +138,9 @@ commands.
 
 ## 9. Connect to an LLM chat open in Chrome via the separate extension.
 
-The **Connector** sends text to an LLM chat open in Chrome through a separate
-extension. Open Connector to set up that connection.
+The **Connector** sends text from AivoRelay to a web chat, such as ChatGPT or
+Claude, open in Chrome through a separate extension. Open Connector to set up
+that connection.
 
 Console commands: no direct command is documented for the connector page.
 

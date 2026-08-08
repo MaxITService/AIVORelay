@@ -103,7 +103,7 @@ const HELP_SEARCH_RECORDS: readonly HelpSearchRecord[] = [
     anchor: "help-connector",
     title: "Connect to an LLM chat open in Chrome via the separate extension.",
     summary:
-      "The Connector sends text to an LLM chat open in Chrome through a separate extension. Open Connector to set up that connection.",
+      "The Connector sends text from AivoRelay to a web chat, such as ChatGPT or Claude, open in Chrome through a separate extension. Open Connector to set up that connection.",
     destination: "Connector",
     keywords: ["Chrome", "extension", "browser", "ChatGPT", "Claude", "connector"],
   },
