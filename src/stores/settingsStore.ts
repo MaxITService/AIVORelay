@@ -25,6 +25,7 @@ interface SettingsStore {
   updateSetting: <K extends keyof Settings>(
     key: K,
     value: Settings[K],
+    options?: { throwOnError?: boolean },
   ) => Promise<void>;
   resetSetting: (key: keyof Settings) => Promise<void>;
   refreshSettings: () => Promise<void>;
@@ -1146,6 +1147,7 @@ export const useSettingsStore = create<SettingsStore>()(
     updateSetting: async <K extends keyof Settings>(
       key: K,
       value: Settings[K],
+      options?: { throwOnError?: boolean },
     ) => {
       const { setUpdating } = get();
       const updateKey = String(key);
@@ -1180,6 +1182,9 @@ export const useSettingsStore = create<SettingsStore>()(
               ? { ...state.settings, [key]: originalValue }
               : state.settings,
         }));
+        if (options?.throwOnError) {
+          throw error;
+        }
       } finally {
         setUpdating(updateKey, false);
       }

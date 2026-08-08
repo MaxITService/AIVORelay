@@ -42,15 +42,41 @@ pub fn build_hotkey_guide_sections(settings: &AppSettings) -> Vec<HotkeyGuideSec
         feature_gates,
         categories,
     } = manifest;
+    let mut guide_bindings: Vec<ShortcutBinding> = settings.bindings.values().cloned().collect();
+    if settings.text_replacement_decapitalize_after_edit_key_enabled {
+        guide_bindings.push(ShortcutBinding {
+            id: "text_replacement_decapitalize_after_edit_key".to_string(),
+            name: "Decapitalize monitored key".to_string(),
+            description: "Primary passive edit key used by Decapitalize After Manual Edit"
+                .to_string(),
+            default_binding: "backspace".to_string(),
+            current_binding: settings
+                .text_replacement_decapitalize_after_edit_key
+                .clone(),
+        });
+
+        if settings.text_replacement_decapitalize_after_edit_secondary_key_enabled {
+            guide_bindings.push(ShortcutBinding {
+                id: "text_replacement_decapitalize_after_edit_secondary_key".to_string(),
+                name: "Decapitalize secondary monitored key".to_string(),
+                description:
+                    "Secondary passive edit key used by Decapitalize After Manual Edit"
+                        .to_string(),
+                default_binding: "delete".to_string(),
+                current_binding: settings
+                    .text_replacement_decapitalize_after_edit_secondary_key
+                    .clone(),
+            });
+        }
+    }
 
     categories
         .into_iter()
         .filter_map(|category| {
             let binding_ids: HashSet<&str> =
                 category.binding_ids.iter().map(|id| id.as_str()).collect();
-            let bindings: Vec<_> = settings
-                .bindings
-                .values()
+            let bindings: Vec<_> = guide_bindings
+                .iter()
                 .filter(|binding| {
                     !binding.current_binding.trim().is_empty()
                         && is_binding_enabled_for_guide(settings, &feature_gates, &binding.id)

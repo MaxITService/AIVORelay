@@ -240,6 +240,56 @@ export const normalizeKey = (key: string): string => {
   return key;
 };
 
+const CAPTURE_MODIFIER_ORDER = ["ctrl", "shift", "alt", "win"] as const;
+
+export const canonicalizeHotkeyToken = (token: string): string => {
+  const trimmed = token.trim().toLowerCase();
+  if (!trimmed) return "";
+
+  switch (trimmed) {
+    case "control":
+      return "ctrl";
+    case "option":
+      return "alt";
+    case "command":
+    case "meta":
+    case "super":
+      return "win";
+    default:
+      return trimmed;
+  }
+};
+
+/** Canonicalize, deduplicate, and order a browser-captured hotkey string. */
+export const normalizeHotkeyString = (value: string): string => {
+  if (!value || typeof value !== "string") return "";
+
+  const seen = new Set<string>();
+  const modifiersPresent = new Set<string>();
+  const nonModifiers: string[] = [];
+
+  for (const rawPart of value.split("+")) {
+    const part = canonicalizeHotkeyToken(rawPart);
+    if (!part || seen.has(part)) continue;
+
+    seen.add(part);
+    if (
+      CAPTURE_MODIFIER_ORDER.includes(
+        part as (typeof CAPTURE_MODIFIER_ORDER)[number],
+      )
+    ) {
+      modifiersPresent.add(part);
+    } else {
+      nonModifiers.push(part);
+    }
+  }
+
+  const orderedModifiers = CAPTURE_MODIFIER_ORDER.filter((modifier) =>
+    modifiersPresent.has(modifier),
+  );
+  return [...orderedModifiers, ...nonModifiers].join("+");
+};
+
 const MODIFIER_KEY_NAMES = new Set([
   "alt",
   "cmd",

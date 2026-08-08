@@ -203,11 +203,19 @@ export const HotkeySidebar: React.FC = () => {
   return (
     <>
       {/* Edge Handle - Samsung Edge style tab */}
-      <div
+      <button
+        type="button"
         className="fixed top-1/2 -translate-y-1/2 z-50 cursor-pointer select-none transition-all duration-300 ease-out"
         style={{ right: shouldShow ? width : 0 }}
         onMouseDown={handleMouseDown}
         onClick={handleToggleOpen}
+        aria-controls="hotkey-sidebar-panel"
+        aria-expanded={shouldShow}
+        aria-label={
+          shouldShow
+            ? t("hotkeySidebar.closeSidebar")
+            : t("hotkeySidebar.openSidebar")
+        }
         title={
           shouldShow
             ? t("hotkeySidebar.closeSidebar")
@@ -225,11 +233,15 @@ export const HotkeySidebar: React.FC = () => {
             <ChevronLeft className="w-4 h-4 text-[#808080]" />
           )}
         </div>
-      </div>
+      </button>
 
       {/* Sidebar Panel */}
       <div
+        id="hotkey-sidebar-panel"
         ref={sidebarRef}
+        role="complementary"
+        aria-label={t("hotkeySidebar.title")}
+        aria-hidden={!shouldShow}
         className={`fixed top-0 right-0 h-full z-40 transition-transform duration-300 ease-out ${
           shouldShow ? "translate-x-0" : "translate-x-full"
         }`}
@@ -250,7 +262,13 @@ export const HotkeySidebar: React.FC = () => {
               </h2>
             </div>
             <button
+              type="button"
               onClick={handleTogglePin}
+              aria-label={
+                isPinned
+                  ? t("hotkeySidebar.unpinSidebar")
+                  : t("hotkeySidebar.pinSidebar")
+              }
               className={`p-2 rounded-lg transition-colors ${
                 isPinned
                   ? "bg-[#ff6b9d]/20 text-[#ff6b9d]"

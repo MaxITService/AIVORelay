@@ -13,6 +13,7 @@ import { Slider } from "@/components/ui/Slider";
 import { TellMeMore } from "@/components/ui/TellMeMore";
 import { HotkeyCapture } from "@/components/ui/HotkeyCapture";
 import { formatKeyCombination, type OSType } from "@/lib/utils/keyboard";
+import { getShortcutAnchorId } from "@/lib/shortcutAnchors";
 
 interface TextReplacementRule {
   id: string;
@@ -63,6 +64,10 @@ export const TextReplacementSettings: React.FC = () => {
   const [editTo, setEditTo] = useState("");
   const [capturingDecapTarget, setCapturingDecapTarget] =
     useState<DecapCaptureTarget | null>(null);
+  const [decapCaptureError, setDecapCaptureError] = useState<{
+    target: DecapCaptureTarget;
+    message: string;
+  } | null>(null);
 
   const osKind = getOsType();
   const hotkeyOsType: OSType =
@@ -98,6 +103,39 @@ export const TextReplacementSettings: React.FC = () => {
     (updateSetting as any)("output_whitespace_leading_mode", mode);
   const setTrailingWhitespaceMode = (mode: OutputWhitespaceMode) =>
     (updateSetting as any)("output_whitespace_trailing_mode", mode);
+
+  const saveDecapMonitoredKey = async (
+    target: DecapCaptureTarget,
+    settingKey:
+      | "text_replacement_decapitalize_after_edit_key"
+      | "text_replacement_decapitalize_after_edit_secondary_key",
+    hotkey: string,
+  ) => {
+    setDecapCaptureError(null);
+    try {
+      await updateSetting(settingKey, hotkey, { throwOnError: true });
+      setCapturingDecapTarget(null);
+    } catch (error) {
+      console.error("Failed to save monitored key:", error);
+      const errorText = error instanceof Error ? error.message : String(error);
+      const unsupportedKey = /unknown key|unsupported|not supported/i.test(
+        errorText,
+      );
+      setDecapCaptureError({
+        target,
+        message: unsupportedKey
+          ? t(
+              "textReplacement.decapitalizeAfterEditUnsupportedKey",
+              "This key is not supported. The previous monitored key was restored. Press another key or Escape to cancel.",
+            )
+          : t(
+              "textReplacement.decapitalizeAfterEditKeySaveFailed",
+              "This monitored key could not be saved. The previous key was restored. {{error}}",
+              { error: errorText },
+            ),
+      });
+    }
+  };
 
   const monitoredDecapBindings = useMemo(() => {
     const bindings = [decapitalizeAfterEditKey];
@@ -174,6 +212,7 @@ export const TextReplacementSettings: React.FC = () => {
   useEffect(() => {
     if (!decapitalizeAfterEditEnabled) {
       setCapturingDecapTarget(null);
+      setDecapCaptureError(null);
       return;
     }
 
@@ -383,7 +422,13 @@ export const TextReplacementSettings: React.FC = () => {
               </div>
             )}
 
-            <div className="px-4 py-3 border-t border-white/[0.05]">
+            <div
+              id={getShortcutAnchorId(
+                "text_replacement_decapitalize_after_edit_key",
+              )}
+              tabIndex={-1}
+              className="px-4 py-3 border-t border-white/[0.05]"
+            >
               <div className="space-y-2">
                 <div className="text-sm font-medium text-[#f5f5f5]">
                   {t("textReplacement.decapitalizeAfterEditKeyLabel", "Monitored Key")}
@@ -403,15 +448,30 @@ export const TextReplacementSettings: React.FC = () => {
                 <HotkeyCapture
                   value={decapitalizeAfterEditKey}
                   isCapturing={capturingDecapTarget === "primary"}
-                  onStartCapture={() => setCapturingDecapTarget("primary")}
-                  onCaptured={(hotkey) => {
-                    void (updateSetting as any)("text_replacement_decapitalize_after_edit_key", hotkey);
-                    setCapturingDecapTarget(null);
+                  onStartCapture={() => {
+                    setDecapCaptureError(null);
+                    setCapturingDecapTarget("primary");
                   }}
+                  onCaptured={(hotkey) =>
+                    saveDecapMonitoredKey(
+                      "primary",
+                      "text_replacement_decapitalize_after_edit_key",
+                      hotkey,
+                    )
+                  }
                   onCancel={() => setCapturingDecapTarget(null)}
                   disabled={isUpdating("text_replacement_decapitalize_after_edit_key")}
                   osType={hotkeyOsType}
                 />
+                {decapCaptureError?.target === "primary" && (
+                  <div
+                    role="alert"
+                    aria-live="assertive"
+                    className="mt-2 text-xs text-red-200"
+                  >
+                    {decapCaptureError.message}
+                  </div>
+                )}
 
                 <div className="mt-3 rounded-md border border-white/[0.08] bg-white/[0.02] px-3 py-3">
                   <ToggleSwitch
@@ -437,7 +497,13 @@ export const TextReplacementSettings: React.FC = () => {
                   />
 
                   {decapitalizeAfterEditSecondaryKeyEnabled && (
-                    <div className="mt-3 space-y-2">
+                    <div
+                      id={getShortcutAnchorId(
+                        "text_replacement_decapitalize_after_edit_secondary_key",
+                      )}
+                      tabIndex={-1}
+                      className="mt-3 space-y-2"
+                    >
                       <div className="text-xs text-[#b8b8b8]">
                         {t(
                           "textReplacement.decapitalizeAfterEditSecondaryKeyDescription",
@@ -447,15 +513,30 @@ export const TextReplacementSettings: React.FC = () => {
                       <HotkeyCapture
                         value={decapitalizeAfterEditSecondaryKey}
                         isCapturing={capturingDecapTarget === "secondary"}
-                        onStartCapture={() => setCapturingDecapTarget("secondary")}
-                        onCaptured={(hotkey) => {
-                          void (updateSetting as any)("text_replacement_decapitalize_after_edit_secondary_key", hotkey);
-                          setCapturingDecapTarget(null);
+                        onStartCapture={() => {
+                          setDecapCaptureError(null);
+                          setCapturingDecapTarget("secondary");
                         }}
+                        onCaptured={(hotkey) =>
+                          saveDecapMonitoredKey(
+                            "secondary",
+                            "text_replacement_decapitalize_after_edit_secondary_key",
+                            hotkey,
+                          )
+                        }
                         onCancel={() => setCapturingDecapTarget(null)}
                         disabled={isUpdating("text_replacement_decapitalize_after_edit_secondary_key")}
                         osType={hotkeyOsType}
                       />
+                      {decapCaptureError?.target === "secondary" && (
+                        <div
+                          role="alert"
+                          aria-live="assertive"
+                          className="text-xs text-red-200"
+                        >
+                          {decapCaptureError.message}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

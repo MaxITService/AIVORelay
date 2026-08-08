@@ -781,7 +781,12 @@
     "categories": {
       "recording": "Запись",
       "actions": "Действия",
+      "textEditing": "Редактирование текста",
       "profiles": "Профили"
+    },
+    "bindings": {
+      "text_replacement_decapitalize_after_edit_key": "Отслеживаемая клавиша снижения регистра",
+      "text_replacement_decapitalize_after_edit_secondary_key": "Вторая отслеживаемая клавиша снижения регистра"
     },
     "visibleHints": {
       "repasteLastNetworkRetry": "Снова вставляет последний текст. При сетевой ошибке заново отправляет запись и пробует ещё раз."
@@ -932,6 +937,8 @@
     "decapitalizeAfterEditKeyLabel": "Отслеживаемая клавиша",
     "decapitalizeAfterEditKeyDescription": "Нажмите поле и затем любую клавишу или комбинацию. Мониторинг пассивный, и любая комбинация с этой клавишей тоже считается.",
     "decapitalizeAfterEditComboHint": "Если выбрана Backspace, то Ctrl+Backspace тоже сработает.",
+    "decapitalizeAfterEditUnsupportedKey": "Эта клавиша не поддерживается. Предыдущая отслеживаемая клавиша восстановлена. Нажмите другую клавишу или Escape для отмены.",
+    "decapitalizeAfterEditKeySaveFailed": "Не удалось сохранить отслеживаемую клавишу. Предыдущая клавиша восстановлена. {{error}}",
     "decapitalizeAfterEditSecondaryKeyEnableLabel": "Включить вторую отслеживаемую клавишу (ИЛИ)",
     "decapitalizeAfterEditSecondaryKeyEnableDescription": "По умолчанию выключено. Когда включено, нажатие основной или второй клавиши запускает мониторинг декапитализации.",
     "decapitalizeAfterEditSecondaryKeyDescription": "Дополнительная вторая клавиша. Работает по логике ИЛИ вместе с основной.",

@@ -3,12 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { type } from "@tauri-apps/plugin-os";
 import {
-  getKeyName,
   formatKeyCombination,
   isModifierOnlyShortcut,
-  normalizeKey,
   type OSType,
 } from "../../lib/utils/keyboard";
+import { useKeyboardCapture } from "@/hooks/useKeyboardCapture";
 import { ResetButton } from "../ui/ResetButton";
 import { SettingContainer } from "../ui/SettingContainer";
 import { useSettings } from "../../hooks/useSettings";
@@ -37,14 +36,11 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
   const { t } = useTranslation();
   const { getSetting, updateBinding, resetBinding, isUpdating, isLoading } =
     useSettings();
-  const [keyPressed, setKeyPressed] = useState<string[]>([]);
-  const [recordedKeys, setRecordedKeys] = useState<string[]>([]);
   const [editingShortcutId, setEditingShortcutId] = useState<string | null>(
     null,
   );
   const [originalBinding, setOriginalBinding] = useState<string>("");
   const [osType, setOsType] = useState<OSType>("unknown");
-  const shortcutRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
   const suspensionRef = useRef<BindingSuspension | null>(null);
 
   const bindings = getSetting("bindings") || {};
@@ -104,162 +100,93 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
     };
   }, [releaseBindingSuspension]);
 
-  useEffect(() => {
-    if (editingShortcutId === null) return;
+  const finishRecording = useCallback(() => {
+    setEditingShortcutId(null);
+    setOriginalBinding("");
+  }, []);
 
-    let cleanup = false;
+  const cancelRecording = useCallback(async () => {
+    if (editingShortcutId && originalBinding) {
+      try {
+        await updateBinding(editingShortcutId, originalBinding);
+      } catch (error) {
+        toast.error(
+          t("settings.general.shortcut.errors.restore", {
+            error: String(error),
+          }),
+        );
+      }
+    }
+    await releaseBindingSuspension();
+    finishRecording();
+  }, [
+    editingShortcutId,
+    finishRecording,
+    originalBinding,
+    releaseBindingSuspension,
+    t,
+    updateBinding,
+  ]);
 
-    const handleKeyDown = async (e: KeyboardEvent) => {
-      if (cleanup) return;
-      if (e.repeat) return;
-      if (e.key === "Escape") {
-        if (editingShortcutId && originalBinding) {
-          try {
-            await updateBinding(editingShortcutId, originalBinding);
-          } catch (error) {
-            toast.error(
-              t("settings.general.shortcut.errors.restore", {
-                error: String(error),
-              }),
-            );
-          }
-        }
+  const saveCapturedShortcut = useCallback(
+    async (newShortcut: string) => {
+      const activeShortcutId = editingShortcutId;
+      if (!activeShortcutId || !bindings[activeShortcutId]) {
         await releaseBindingSuspension();
-        setEditingShortcutId(null);
-        setKeyPressed([]);
-        setRecordedKeys([]);
-        setOriginalBinding("");
+        finishRecording();
         return;
       }
-      e.preventDefault();
 
-      const rawKey = getKeyName(e, osType);
-      const key = normalizeKey(rawKey);
+      try {
+        await updateBinding(activeShortcutId, newShortcut);
 
-      if (!keyPressed.includes(key)) {
-        setKeyPressed((prev) => [...prev, key]);
-        if (!recordedKeys.includes(key)) {
-          setRecordedKeys((prev) => [...prev, key]);
+        if (
+          osType === "windows" &&
+          isModifierOnlyShortcut(newShortcut)
+        ) {
+          toast.warning(t("settings.general.shortcut.warnings.modifierOnly"), {
+            duration: 6000,
+          });
         }
-      }
-    };
+      } catch (error) {
+        console.error("Failed to change binding:", error);
+        showShortcutSetErrorToast(error, configuredShortcutEngine, t);
 
-    const handleKeyUp = async (e: KeyboardEvent) => {
-      if (cleanup) return;
-      e.preventDefault();
-
-      const rawKey = getKeyName(e, osType);
-      const key = normalizeKey(rawKey);
-
-      setKeyPressed((prev) => prev.filter((k) => k !== key));
-
-      const updatedKeyPressed = keyPressed.filter((k) => k !== key);
-      if (updatedKeyPressed.length === 0 && recordedKeys.length > 0) {
-        const modifiers = [
-          "ctrl",
-          "control",
-          "shift",
-          "alt",
-          "option",
-          "meta",
-          "command",
-          "cmd",
-          "super",
-          "win",
-          "windows",
-        ];
-        const sortedKeys = recordedKeys.sort((a, b) => {
-          const aIsModifier = modifiers.includes(a.toLowerCase());
-          const bIsModifier = modifiers.includes(b.toLowerCase());
-          if (aIsModifier && !bIsModifier) return -1;
-          if (!aIsModifier && bIsModifier) return 1;
-          return 0;
-        });
-        const newShortcut = sortedKeys.join("+");
-
-        if (editingShortcutId && bindings[editingShortcutId]) {
+        if (originalBinding) {
           try {
-            await updateBinding(editingShortcutId, newShortcut);
-
-            if (osType === "windows") {
-              if (isModifierOnlyShortcut(newShortcut)) {
-                toast.warning(
-                  t("settings.general.shortcut.warnings.modifierOnly"),
-                  { duration: 6000 },
-                );
-              }
-            }
-          } catch (error) {
-            console.error("Failed to change binding:", error);
-            showShortcutSetErrorToast(error, configuredShortcutEngine, t);
-
-            if (originalBinding) {
-              try {
-                await updateBinding(editingShortcutId, originalBinding);
-              } catch (resetError) {
-                toast.error(
-                  t("settings.general.shortcut.errors.reset", {
-                    error: String(resetError),
-                  }),
-                );
-              }
-            }
-          }
-
-          await releaseBindingSuspension();
-
-          setEditingShortcutId(null);
-          setKeyPressed([]);
-          setRecordedKeys([]);
-          setOriginalBinding("");
-        }
-      }
-    };
-
-    const handleClickOutside = async (e: MouseEvent) => {
-      if (cleanup) return;
-      const activeElement = shortcutRefs.current.get(editingShortcutId);
-      if (activeElement && !activeElement.contains(e.target as Node)) {
-        if (editingShortcutId && originalBinding) {
-          try {
-            await updateBinding(editingShortcutId, originalBinding);
-          } catch (error) {
+            await updateBinding(activeShortcutId, originalBinding);
+          } catch (resetError) {
             toast.error(
-              t("settings.general.shortcut.errors.restore", {
-                error: String(error),
+              t("settings.general.shortcut.errors.reset", {
+                error: String(resetError),
               }),
             );
           }
         }
-        await releaseBindingSuspension();
-        setEditingShortcutId(null);
-        setKeyPressed([]);
-        setRecordedKeys([]);
-        setOriginalBinding("");
       }
-    };
 
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    window.addEventListener("click", handleClickOutside);
+      await releaseBindingSuspension();
+      finishRecording();
+    },
+    [
+      bindings,
+      configuredShortcutEngine,
+      editingShortcutId,
+      finishRecording,
+      originalBinding,
+      osType,
+      releaseBindingSuspension,
+      t,
+      updateBinding,
+    ],
+  );
 
-    return () => {
-      cleanup = true;
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-      window.removeEventListener("click", handleClickOutside);
-    };
-  }, [
-    keyPressed,
-    recordedKeys,
-    editingShortcutId,
-    bindings,
-    originalBinding,
-    updateBinding,
+  const { containerRef, displayKeys } = useKeyboardCapture({
+    isCapturing: editingShortcutId === shortcutId,
     osType,
-    t,
-    releaseBindingSuspension,
-  ]);
+    onCaptured: saveCapturedShortcut,
+    onCancel: cancelRecording,
+  });
 
   const startRecording = async (id: string) => {
     if (editingShortcutId !== null || suspensionRef.current) return;
@@ -291,20 +218,6 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
 
     setOriginalBinding(bindings[id]?.current_binding || "");
     setEditingShortcutId(id);
-    setKeyPressed([]);
-    setRecordedKeys([]);
-  };
-
-  const formatCurrentKeys = (): string => {
-    if (recordedKeys.length === 0) {
-      return t("settings.general.shortcut.pressKeys");
-    }
-
-    return formatKeyCombination(recordedKeys.join("+"), osType);
-  };
-
-  const setShortcutRef = (id: string, ref: HTMLDivElement | null) => {
-    shortcutRefs.current.set(id, ref);
   };
 
   if (isLoading) {
@@ -374,20 +287,24 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
       <div className="flex items-center space-x-1">
         {editingShortcutId === shortcutId ? (
           <div
-            ref={(ref) => setShortcutRef(shortcutId, ref)}
+            ref={containerRef}
+            role="status"
+            aria-live="polite"
             className="px-2 py-1 text-sm font-semibold border border-logo-primary bg-logo-primary/30 rounded min-w-[120px] text-center"
           >
-            {formatCurrentKeys()}
+            {displayKeys || t("settings.general.shortcut.pressKeys")}
           </div>
         ) : (
-          <div
+          <button
+            type="button"
             className="px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 hover:bg-logo-primary/10 rounded cursor-pointer hover:border-logo-primary min-w-[120px] text-center"
             onClick={() => startRecording(shortcutId)}
+            disabled={disabled}
           >
             {binding.current_binding
               ? formatKeyCombination(binding.current_binding, osType)
               : t("settings.general.shortcut.notSet")}
-          </div>
+          </button>
         )}
         <ResetButton
           onClick={() => resetBinding(shortcutId)}
