@@ -2851,6 +2851,20 @@
     },
     "debug": {
       "title": "Debug",
+      "experimentalFeatures": {
+        "title": "Experimental Features",
+        "warning": "These features are experimental and may change or be removed in future versions."
+      },
+      "voiceCommands": {
+        "title": "Voice Commands",
+        "description": "Execute scripts and commands using voice triggers",
+        "warningTitle": "⚠️ Advanced Users Only",
+        "warningMessage": "Voice Commands can execute <strong>any script or command</strong> on your computer. Go to <strong>Voice Commands</strong> in the sidebar to configure.",
+        "confirmationTitle": "☢️ ENABLE AT YOUR OWN RISK ☢️",
+        "confirmationMessage": "⚠️ EXTREME DANGER: Voice Commands is an experimental feature that executes arbitrary PowerShell scripts based on voice input. 💀 Malicious or incorrect triggers could PERMANENTLY WIPE YOUR DATA, RENDER YOUR SYSTEM COMPLETELY UNUSABLE, or CREATE BACKDOORS for hackers to silently control your PC and cause infinite harm. ☢️ This feature is intended for EXPERT DEVELOPERS ONLY. Do not enable this unless you are a PowerShell professional and fully comprehend the potentially catastrophic risks to your system and security. ☣️",
+        "confirm": "I AGREE, I TAKE THE RISK",
+        "cancel": "Cancel"
+      },
       "sessionToasts": {
         "title": "Session toast history · {{count}}",
         "description": "Error and warning toasts captured in memory during this app session. This history clears when AivoRelay restarts.",
