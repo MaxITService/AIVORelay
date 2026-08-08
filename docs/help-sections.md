@@ -8,8 +8,8 @@ documented for that task. It does not add or change commands.
 
 AivoRelay turns speech into text when you press a shortcut. It can clean up
 that text, replace selected text, read text aloud, transcribe files, monitor
-computer audio, send text to a Chrome extension, keep history, and control how
-the app behaves.
+computer audio, send text to a web chat through a Chrome extension, keep
+history, and control how the app behaves.
 
 Transcription is the name for turning speech into text. A local model works on
 this computer. A cloud provider processes the recording online.
@@ -106,16 +106,22 @@ Console commands: no direct command is documented for the live monitor page.
 
 ## 6. Select text. Press a key. Hear it spoken.
 
-Select text and press its shortcut. **Speak selected text** reads the text aloud
-with the configured voice.
+Open **Speak selected text** and choose a cloud provider, an installed Windows
+voice, or an optional local model. Start with the recommended preset, then
+assign a keyboard shortcut under **Actions**. Select text in any application and
+press the shortcut to hear it aloud; optional settings control the voice, speed,
+playback, and History.
 
 Console commands: selected-text reading has no direct console command in the
 current CLI documentation.
 
 ## 7. Choose text files. Get MP3 or WAV audio.
 
-Choose a text or Markdown file. **Text file to mp3** creates MP3 or WAV audio.
-The output extension chooses the format.
+Open **Text file to mp3** and choose a cloud provider, an installed Windows
+voice, or an optional local model. Select a text or Markdown file, inspect its
+characters and planned chunks, choose MP3 or WAV and an output path, then start
+the conversion. The page also supports multiple files, folders, resumable
+conversions, folder automation, and File History.
 
 Console commands:
 
