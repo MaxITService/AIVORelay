@@ -37,7 +37,7 @@
     "postprocessing": "Use an LLM to clean up transcriptions after they are created.",
     "aiReplace": "Select text, speak an instruction, and replace the selection with the result.",
     "voiceCommands": "Configure voice commands that can run actions after you speak.",
-    "browserConnector": "Connect AivoRelay to an LLM chat open in Chrome through the extension.",
+    "browserConnector": "Connect AivoRelay to a web chat such as ChatGPT or Claude open in Chrome through the extension.",
     "textReplacement": "Add automatic text corrections that run when results are inserted.",
     "userInterface": "Choose how the overlay and other results look and behave.",
     "history": "Review previous transcriptions and manage saved recordings.",
@@ -120,7 +120,7 @@
       },
       "connector": {
         "title": "Connect to an LLM chat open in Chrome via the separate extension.",
-        "summary": "The Connector sends text to an LLM chat open in Chrome through a separate extension. Open Connector to set up that connection."
+        "summary": "The Connector sends text from AivoRelay to a web chat, such as ChatGPT or Claude, open in Chrome through a separate extension. Open Connector to set up that connection."
       },
       "textProcessing": {
         "title": "Add corrections once. Apply them automatically.",
