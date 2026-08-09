@@ -586,8 +586,13 @@ export const RecordingOverlaySettings: React.FC = () => {
       const anchorRect = anchorElement.getBoundingClientRect();
       const panelWidth = 360;
       const gap = 28;
-      const minLeft = 170;
+      const edgeGap = 20;
       const buttonSize = 52;
+      const navigationRight =
+        document
+          .querySelector<HTMLElement>(".adobe-sidebar")
+          ?.getBoundingClientRect().right ?? 0;
+      const safeContentLeft = navigationRight + edgeGap;
       const nextDockLeft = Math.round(anchorRect.left - panelWidth - gap);
       const panelHeight = floatingPreviewPanelRef.current?.offsetHeight ?? 0;
       const maxDockTop = Math.max(24, window.innerHeight - panelHeight - 24);
@@ -595,12 +600,20 @@ export const RecordingOverlaySettings: React.FC = () => {
         Math.min(Math.max(anchorRect.top, 24), maxDockTop),
       );
       const nextDockedVisible =
-        window.innerWidth >= 1280 && nextDockLeft >= minLeft;
+        window.innerWidth >= 1280 && nextDockLeft >= safeContentLeft;
+      const gutterButtonLeft = anchorRect.left - buttonSize - 18;
+      const preferredButtonLeft =
+        gutterButtonLeft >= safeContentLeft
+          ? gutterButtonLeft
+          : anchorRect.left + 18;
+      const maxButtonLeft = window.innerWidth - buttonSize - edgeGap;
       const nextButtonLeft = Math.round(
-        Math.min(
-          Math.max(anchorRect.left - buttonSize - 18, 20),
-          window.innerWidth - buttonSize - 20,
-        ),
+        maxButtonLeft >= safeContentLeft
+          ? Math.min(
+              Math.max(preferredButtonLeft, safeContentLeft),
+              maxButtonLeft,
+            )
+          : Math.max(edgeGap, maxButtonLeft),
       );
       const nextButtonTop = Math.round(
         Math.min(
@@ -608,17 +621,17 @@ export const RecordingOverlaySettings: React.FC = () => {
           window.innerHeight - buttonSize - 20,
         ),
       );
-      const preferredOverlayLeft = nextButtonLeft + buttonSize + 14;
-      const fallbackOverlayLeft = nextButtonLeft - panelWidth - 14;
+      const freeGutterOverlayLeft = anchorRect.left - panelWidth - gap;
+      const maxOverlayLeft = window.innerWidth - panelWidth - edgeGap;
       const nextOverlayLeft = Math.round(
-        preferredOverlayLeft + panelWidth <= window.innerWidth - 20
-          ? preferredOverlayLeft
-          : fallbackOverlayLeft >= 20
-            ? fallbackOverlayLeft
-            : Math.max(20, Math.min(
-                (window.innerWidth - panelWidth) / 2,
-                window.innerWidth - panelWidth - 20,
-              )),
+        freeGutterOverlayLeft >= safeContentLeft
+          ? freeGutterOverlayLeft
+          : maxOverlayLeft >= safeContentLeft
+            ? Math.min(
+                Math.max(anchorRect.left, safeContentLeft),
+                maxOverlayLeft,
+              )
+            : Math.max(edgeGap, maxOverlayLeft),
       );
       const overlayHeight = panelHeight || 320;
       const nextOverlayTop = Math.round(
@@ -673,7 +686,12 @@ export const RecordingOverlaySettings: React.FC = () => {
       window.removeEventListener("resize", scheduleLayoutUpdate);
       scrollParent?.removeEventListener("scroll", scheduleLayoutUpdate);
     };
-  }, [previewState, showDecapIndicatorInPreview, isCollapsedPreviewOpen]);
+  }, [
+    previewState,
+    showDecapIndicatorInPreview,
+    isCollapsedPreviewOpen,
+    isRecordingOverlayCollapsed,
+  ]);
 
   React.useEffect(() => {
     if (floatingPreviewLayout.dockedVisible && isCollapsedPreviewOpen) {
@@ -1001,6 +1019,9 @@ export const RecordingOverlaySettings: React.FC = () => {
 
   return (
     <>
+    {isRecordingOverlayCollapsed && (
+      <div ref={floatingPreviewAnchorRef} className="h-0" aria-hidden="true" />
+    )}
     <SettingsGroup
       title={t(
         "settings.userInterface.recordingOverlay.title",
