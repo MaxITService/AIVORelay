@@ -1,6 +1,9 @@
 import assert from "node:assert";
 import type { AppSettings } from "@/bindings";
-import { getPostProcessingAvailability } from "./postProcessingAvailability";
+import {
+  getActiveProfilePostProcessingEnabled,
+  getPostProcessingAvailability,
+} from "./postProcessingAvailability";
 
 const settings = (overrides: Partial<AppSettings>): AppSettings =>
   overrides as AppSettings;
@@ -13,6 +16,44 @@ assert.equal(
       soniox_live_enabled: false,
     }),
   ).available,
+  true,
+);
+
+assert.equal(
+  getActiveProfilePostProcessingEnabled(
+    settings({
+      active_profile_id: "default",
+      post_process_enabled: true,
+      transcription_profiles: [],
+    }),
+  ),
+  true,
+);
+
+assert.equal(
+  getActiveProfilePostProcessingEnabled(
+    settings({
+      active_profile_id: "profile-1",
+      post_process_enabled: false,
+      transcription_profiles: [
+        {
+          id: "profile-1",
+          llm_post_process_enabled: true,
+        } as any,
+      ],
+    }),
+  ),
+  true,
+);
+
+assert.equal(
+  getActiveProfilePostProcessingEnabled(
+    settings({
+      active_profile_id: "missing-profile",
+      post_process_enabled: true,
+      transcription_profiles: [],
+    }),
+  ),
   true,
 );
 

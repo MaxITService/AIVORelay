@@ -2,7 +2,10 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { useSettings } from "../../hooks/useSettings";
-import { getPostProcessingAvailability } from "../../lib/postProcessingAvailability";
+import {
+  getActiveProfilePostProcessingEnabled,
+  getPostProcessingAvailability,
+} from "../../lib/postProcessingAvailability";
 
 interface PostProcessingToggleProps {
   descriptionMode?: "inline" | "tooltip";
@@ -12,9 +15,9 @@ interface PostProcessingToggleProps {
 export const PostProcessingToggle: React.FC<PostProcessingToggleProps> =
   React.memo(({ descriptionMode = "tooltip", grouped = false }) => {
     const { t } = useTranslation();
-    const { settings, getSetting, updateSetting, isUpdating } = useSettings();
+    const { settings, updateSetting, isUpdating } = useSettings();
 
-    const configuredEnabled = getSetting("post_process_enabled") || false;
+    const configuredEnabled = getActiveProfilePostProcessingEnabled(settings);
     const availability = getPostProcessingAvailability(settings);
     const enabled = availability.available && configuredEnabled;
 

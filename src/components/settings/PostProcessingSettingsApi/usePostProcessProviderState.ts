@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useSettings } from "../../../hooks/useSettings";
 import { commands, type PostProcessProvider } from "@/bindings";
 import { sessionToast as toast } from "@/lib/sessionToast";
+import { getActiveProfilePostProcessingEnabled } from "@/lib/postProcessingAvailability";
 import type { ModelOption } from "./types";
 import type { DropdownOption } from "../../ui/Dropdown";
 
@@ -44,7 +45,7 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
     postProcessModelOptions,
   } = useSettings();
 
-  const enabled = settings?.post_process_enabled || false;
+  const enabled = getActiveProfilePostProcessingEnabled(settings);
 
   // Settings are guaranteed to have providers after migration
   const providers = settings?.post_process_providers || [];

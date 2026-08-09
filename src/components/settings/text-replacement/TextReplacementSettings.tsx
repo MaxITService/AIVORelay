@@ -14,6 +14,7 @@ import { TellMeMore } from "@/components/ui/TellMeMore";
 import { HotkeyCapture } from "@/components/ui/HotkeyCapture";
 import { formatKeyCombination, type OSType } from "@/lib/utils/keyboard";
 import { getShortcutAnchorId } from "@/lib/shortcutAnchors";
+import { getActiveProfilePostProcessingEnabled } from "@/lib/postProcessingAvailability";
 
 interface TextReplacementRule {
   id: string;
@@ -698,7 +699,7 @@ export const TextReplacementSettings: React.FC = () => {
         </div>
 
         {/* Apply Before LLM Toggle - only show when post-processing is enabled */}
-        {settings?.post_process_enabled && (
+        {getActiveProfilePostProcessingEnabled(settings) && (
           <div className="px-4 py-3 border-t border-white/[0.05]">
             <ToggleSwitch
               checked={settings?.text_replacements_before_llm ?? false}

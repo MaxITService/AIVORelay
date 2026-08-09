@@ -8,6 +8,31 @@ import type {
 import { commands } from "@/bindings";
 import { invoke } from "@tauri-apps/api/core";
 import { invalidateModelDownloadActivationIntent } from "@/lib/modelDownloadActivation";
+import { getActiveProfilePostProcessingEnabled } from "@/lib/postProcessingAvailability";
+
+const withActiveProfilePostProcessingEnabled = (
+  settings: Settings,
+  enabled: boolean,
+): Settings => {
+  const activeProfileId = settings.active_profile_id || "default";
+  const profiles = settings.transcription_profiles ?? [];
+  const hasActiveCustomProfile =
+    activeProfileId !== "default" &&
+    profiles.some((profile) => profile.id === activeProfileId);
+
+  if (!hasActiveCustomProfile) {
+    return { ...settings, post_process_enabled: enabled };
+  }
+
+  return {
+    ...settings,
+    transcription_profiles: profiles.map((profile) =>
+      profile.id === activeProfileId
+        ? { ...profile, llm_post_process_enabled: enabled }
+        : profile,
+    ),
+  };
+};
 
 interface SettingsStore {
   settings: Settings | null;
@@ -1152,12 +1177,24 @@ export const useSettingsStore = create<SettingsStore>()(
       const { setUpdating } = get();
       const updateKey = String(key);
       const originalValue = get().settings?.[key];
+      const updatesActiveProfilePostProcessing = key === "post_process_enabled";
+      const originalActiveProfilePostProcessing =
+        updatesActiveProfilePostProcessing
+          ? getActiveProfilePostProcessingEnabled(get().settings)
+          : false;
 
       setUpdating(updateKey, true);
 
       try {
         set((state) => ({
-          settings: state.settings ? { ...state.settings, [key]: value } : null,
+          settings: state.settings
+            ? updatesActiveProfilePostProcessing
+              ? withActiveProfilePostProcessingEnabled(
+                  state.settings,
+                  Boolean(value),
+                )
+              : { ...state.settings, [key]: value }
+            : null,
         }));
 
         const updater = settingUpdaters[key];
@@ -1176,12 +1213,25 @@ export const useSettingsStore = create<SettingsStore>()(
         }
       } catch (error) {
         console.error(`Failed to update setting ${String(key)}:`, error);
-        set((state) => ({
-          settings:
-            state.settings && Object.is(state.settings[key], value)
-              ? { ...state.settings, [key]: originalValue }
-              : state.settings,
-        }));
+        set((state) => {
+          if (!state.settings) return state;
+
+          if (updatesActiveProfilePostProcessing) {
+            return getActiveProfilePostProcessingEnabled(state.settings) ===
+              Boolean(value)
+              ? {
+                  settings: withActiveProfilePostProcessingEnabled(
+                    state.settings,
+                    originalActiveProfilePostProcessing,
+                  ),
+                }
+              : state;
+          }
+
+          return Object.is(state.settings[key], value)
+            ? { settings: { ...state.settings, [key]: originalValue } }
+            : state;
+        });
         if (options?.throwOnError) {
           throw error;
         }

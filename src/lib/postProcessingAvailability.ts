@@ -17,6 +17,29 @@ const REALTIME_OPENAI_MODELS = new Set([
 ]);
 
 /**
+ * Returns the saved LLM post-processing choice for the profile used by the
+ * main Transcribe action. The default profile owns the global setting; custom
+ * profiles own their individual setting.
+ */
+export const getActiveProfilePostProcessingEnabled = (
+  settings: AppSettings | null | undefined,
+): boolean => {
+  if (!settings) return false;
+
+  const activeProfileId = String(settings.active_profile_id || "default");
+  if (activeProfileId !== "default") {
+    const activeProfile = settings.transcription_profiles?.find(
+      (profile) => profile.id === activeProfileId,
+    );
+    if (activeProfile) {
+      return Boolean(activeProfile.llm_post_process_enabled);
+    }
+  }
+
+  return Boolean(settings.post_process_enabled);
+};
+
+/**
  * Mirrors the backend's output-route capability rule.
  *
  * Post-processing is available while the complete transcript is still held in
