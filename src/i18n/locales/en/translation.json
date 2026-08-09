@@ -2678,6 +2678,7 @@
       },
       "sonioxWarning": "You are using the Soniox real-time provider. LLM post-processing is skipped during real-time streaming. These settings will apply when you switch to a local model or OpenAI-compatible provider.",
       "deepgramWarning": "You are using Deepgram live transcription. LLM post-processing is skipped during the standard live cycle.",
+      "unavailableDirectRealtime": "LLM post-processing is unavailable while realtime text is inserted directly into the target application. Use Preview or a non-live output route. Your saved choice is preserved for compatible routes.",
       "disabledNotice": "Post processing is currently disabled. Enable it in Debug settings to configure.",
       "api": {
         "title": "API Configuration",

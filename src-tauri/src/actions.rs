@@ -1239,17 +1239,50 @@ fn resolve_history_post_process_requested(
         .map(|p| p.llm_post_process_enabled)
         .unwrap_or(settings.post_process_enabled);
 
-    enabled && post_process_allowed_for_provider(settings)
+    enabled && post_process_allowed_for_output_route(settings, profile)
 }
 
-fn post_process_allowed_for_provider(settings: &AppSettings) -> bool {
-    settings.transcription_provider != TranscriptionProvider::RemoteSoniox
-        && !(settings.transcription_provider == TranscriptionProvider::RemoteDeepgram
-            && settings.deepgram_live_enabled)
+/// LLM post-processing is safe only while the complete transcription is still
+/// reversible. Direct realtime output has already been inserted into the target
+/// application chunk by chunk, so changing only the final/history text would
+/// create two different results. Preview output remains reversible and may be
+/// post-processed once at finalization. Soniox/Deepgram non-live routes are also
+/// final-only and therefore allow post-processing.
+///
+/// Local preview auto-flush is intentionally not part of this decision: it is a
+/// preview transport, not direct insertion into the target application.
+fn post_process_allowed_for_output_route(
+    settings: &AppSettings,
+    profile: Option<&TranscriptionProfile>,
+) -> bool {
+    let output_is_held_in_preview = should_route_output_to_preview(settings, profile);
+
+    let inserts_realtime_text_directly = match settings.transcription_provider {
+        // Native live output takes precedence over Preview in the recording path.
+        TranscriptionProvider::Local => native_streaming_live_output_enabled(settings),
+        TranscriptionProvider::RemoteSoniox => {
+            settings.soniox_live_enabled
+                && SonioxRealtimeManager::is_realtime_model(&settings.soniox_model)
+                && !output_is_held_in_preview
+        }
+        TranscriptionProvider::RemoteDeepgram => {
+            settings.deepgram_live_enabled
+                && DeepgramRealtimeManager::is_realtime_model(&settings.deepgram_model)
+                && !output_is_held_in_preview
+        }
+        TranscriptionProvider::RemoteOpenAiCompatible => {
+            should_use_openai_realtime_whisper_live(settings) && !output_is_held_in_preview
+        }
+    };
+
+    !inserts_realtime_text_directly
 }
 
-fn resolve_forced_post_process_requested(settings: &AppSettings) -> bool {
-    post_process_allowed_for_provider(settings)
+fn resolve_forced_post_process_requested(
+    settings: &AppSettings,
+    profile: Option<&TranscriptionProfile>,
+) -> bool {
+    post_process_allowed_for_output_route(settings, profile)
 }
 
 pub(crate) struct ProcessedTranscription {
@@ -5480,8 +5513,9 @@ fn should_run_transcription_post_process(post_process_requested: bool, text: &st
 mod transcription_post_process_tests {
     use super::{
         is_blank_transcription, parse_openai_realtime_keywords,
-        should_run_transcription_post_process,
+        post_process_allowed_for_output_route, should_run_transcription_post_process,
     };
+    use crate::settings::{get_default_settings, TranscriptionProvider};
 
     #[test]
     fn blank_transcription_is_detected() {
@@ -5517,6 +5551,85 @@ mod transcription_post_process_tests {
     }
 
     #[test]
+    fn allows_post_process_for_soniox_non_live_routes() {
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::RemoteSoniox;
+        settings.soniox_model = "stt-rt-v5".to_string();
+        settings.soniox_live_enabled = false;
+
+        assert!(post_process_allowed_for_output_route(&settings, None));
+
+        settings.soniox_live_enabled = true;
+        settings.soniox_model = "stt-async-v4".to_string();
+        assert!(post_process_allowed_for_output_route(&settings, None));
+    }
+
+    #[test]
+    fn allows_post_process_for_soniox_live_preview_only() {
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::RemoteSoniox;
+        settings.soniox_model = "stt-rt-v5".to_string();
+        settings.soniox_live_enabled = true;
+        settings.preview_output_only_enabled = false;
+        settings.soniox_live_preview_enabled = false;
+
+        assert!(!post_process_allowed_for_output_route(&settings, None));
+
+        settings.preview_output_only_enabled = true;
+        assert!(post_process_allowed_for_output_route(&settings, None));
+    }
+
+    #[test]
+    fn skips_post_process_for_native_direct_live_output() {
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::Local;
+        settings.selected_model = "streaming-model".to_string();
+        settings.native_streaming_live_output_models = vec![settings.selected_model.clone()];
+
+        assert!(!post_process_allowed_for_output_route(&settings, None));
+
+        settings.native_streaming_live_output_models.clear();
+        settings.preview_output_only_enabled = true;
+        settings.local_preview_auto_flush_enabled = true;
+        assert!(post_process_allowed_for_output_route(&settings, None));
+    }
+
+    #[test]
+    fn allows_post_process_for_deepgram_live_preview_only() {
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::RemoteDeepgram;
+        settings.deepgram_model = "nova-3".to_string();
+        settings.deepgram_live_enabled = true;
+        settings.preview_output_only_enabled = false;
+        settings.soniox_live_preview_enabled = false;
+
+        assert!(!post_process_allowed_for_output_route(&settings, None));
+
+        settings.soniox_live_preview_enabled = true;
+        assert!(post_process_allowed_for_output_route(&settings, None));
+
+        settings.soniox_live_preview_enabled = false;
+        settings.deepgram_live_enabled = false;
+        assert!(post_process_allowed_for_output_route(&settings, None));
+    }
+
+    #[test]
+    fn allows_post_process_for_openai_realtime_preview_only() {
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::RemoteOpenAiCompatible;
+        settings.remote_stt.provider_preset = "openai".to_string();
+        settings.remote_stt.model_id = "gpt-live-transcribe".to_string();
+        settings.openai_realtime_whisper_flatten_enabled = false;
+        settings.preview_output_only_enabled = false;
+        settings.soniox_live_preview_enabled = false;
+
+        assert!(!post_process_allowed_for_output_route(&settings, None));
+
+        settings.preview_output_only_enabled = true;
+        assert!(post_process_allowed_for_output_route(&settings, None));
+    }
+
+    #[test]
     fn filters_openai_realtime_keywords_by_line_and_rejects_invalid_characters() {
         assert_eq!(
             parse_openai_realtime_keywords(
@@ -5549,7 +5662,7 @@ pub(crate) async fn process_transcription_output(
         .filter(|id| *id != "default")
         .and_then(|id| settings.transcription_profile(id));
     let post_process_requested = if force_post_process {
-        resolve_forced_post_process_requested(settings)
+        resolve_forced_post_process_requested(settings, profile)
     } else {
         resolve_history_post_process_requested(settings, profile)
     };

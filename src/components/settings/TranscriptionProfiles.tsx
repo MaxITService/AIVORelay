@@ -44,6 +44,7 @@ import { LANGUAGES, type Language } from "../../lib/constants/languages";
 import { isLanguageSupportedBySoniox } from "../../lib/constants/sonioxLanguages";
 import { getModelPromptInfo } from "./TranscriptionSystemPrompt";
 import { useNavigationStore } from "../../stores/navigationStore";
+import { getPostProcessingAvailability } from "../../lib/postProcessingAvailability";
 
 /** Navigate to the User Interface section and scroll to the Live Preview settings anchor. */
 const openLivePreviewSettings = () => {
@@ -116,6 +117,7 @@ interface ProfileCardProps {
   defaultLlmPrompt: string;
   showSonioxLanguageFallbackWarning: boolean;
   isSonioxProvider: boolean;
+  postProcessingAvailable: boolean;
   globalSonioxLanguageHintsStrict: boolean;
   // Note: resolvedOsLanguage removed - language is detected at transcription time, not in UI
 }
@@ -140,10 +142,13 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   defaultLlmPrompt,
   showSonioxLanguageFallbackWarning,
   isSonioxProvider,
+  postProcessingAvailable,
   globalSonioxLanguageHintsStrict,
 }) => {
   const { t } = useTranslation();
   const [isUpdating, setIsUpdating] = useState(false);
+  const effectiveLlmEnabled =
+    postProcessingAvailable && (profile.llm_post_process_enabled ?? false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(profile.name);
   // Track whether user has a custom override (non-null) or uses global (null)
@@ -857,7 +862,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {/* Status badges */}
-                  {profile.llm_post_process_enabled && (
+                  {effectiveLlmEnabled && (
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 whitespace-nowrap">
                         {t(
@@ -887,9 +892,9 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   )}
                   <div onClick={(e) => e.stopPropagation()}>
                     <ToggleSwitch
-                      checked={profile.llm_post_process_enabled ?? false}
+                      checked={effectiveLlmEnabled}
                       onChange={handleLlmEnabledChange}
-                      disabled={isUpdating}
+                      disabled={isUpdating || !postProcessingAvailable}
                     />
                   </div>
                 </div>
@@ -901,15 +906,16 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   )}
                 </p>
 
-                {isSonioxProvider && (
+                {!postProcessingAvailable && (
                   <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
                     {t(
-                      "settings.transcriptionProfiles.llmPostProcessing.sonioxWarning",
+                      "settings.postProcessing.unavailableDirectRealtime",
+                      "LLM post-processing is unavailable while realtime text is inserted directly into the target application. Use Preview or a non-live output route. Your saved choice is preserved for compatible routes.",
                     )}
                   </div>
                 )}
 
-                {profile.llm_post_process_enabled && (
+                {effectiveLlmEnabled && (
                   <div className="space-y-3">
                     {/* Prompt Override */}
                     <div className="space-y-1">
@@ -1251,8 +1257,9 @@ export const TranscriptionProfiles: React.FC = () => {
     activeProvider !== "remote_deepgram" &&
     !openAiTranscriptionOnlyModel;
   const isSonioxProvider = activeProvider === "remote_soniox";
-  const isLiveCloudNoPostProcessProvider =
-    activeProvider === "remote_soniox" || activeProvider === "remote_deepgram";
+  const newPostProcessingAvailability = getPostProcessingAvailability(settings, {
+    profilePreviewOutputOnlyEnabled: newPreviewOutputOnly,
+  });
 
   const filteredLanguages = useMemo(() => {
     if (isSonioxProvider) {
@@ -2028,6 +2035,12 @@ export const TranscriptionProfiles: React.FC = () => {
               isFetchingModels={isFetchingModels}
               defaultLlmPrompt={globalPromptText}
               isSonioxProvider={isSonioxProvider}
+              postProcessingAvailable={
+                getPostProcessingAvailability(settings, {
+                  profilePreviewOutputOnlyEnabled:
+                    profile.preview_output_only_enabled ?? false,
+                }).available
+              }
               globalSonioxLanguageHintsStrict={Boolean((settings as any)?.soniox_language_hints_strict)}
               showSonioxLanguageFallbackWarning={
                 !filteredLanguages.some(
@@ -2360,7 +2373,7 @@ export const TranscriptionProfiles: React.FC = () => {
                   />
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {newLlmEnabled && (
+                  {newPostProcessingAvailability.available && newLlmEnabled && (
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 whitespace-nowrap">
                         {t(
@@ -2391,9 +2404,13 @@ export const TranscriptionProfiles: React.FC = () => {
                   {/* stopPropagation prevents details toggle when clicking the switch */}
                   <div onClick={(e) => e.stopPropagation()}>
                     <ToggleSwitch
-                      checked={newLlmEnabled}
+                      checked={
+                        newPostProcessingAvailability.available && newLlmEnabled
+                      }
                       onChange={setNewLlmEnabled}
-                      disabled={isCreating}
+                      disabled={
+                        isCreating || !newPostProcessingAvailability.available
+                      }
                     />
                   </div>
                 </div>
@@ -2405,20 +2422,16 @@ export const TranscriptionProfiles: React.FC = () => {
                   )}
                 </p>
 
-                {isLiveCloudNoPostProcessProvider && (
+                {!newPostProcessingAvailability.available && (
                   <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
-                    {activeProvider === "remote_deepgram"
-                      ? t(
-                          "settings.transcriptionProfiles.llmPostProcessing.deepgramWarning",
-                          "Deepgram live transcription skips LLM post-processing in the standard live cycle.",
-                        )
-                      : t(
-                          "settings.transcriptionProfiles.llmPostProcessing.sonioxWarning",
-                        )}
+                    {t(
+                      "settings.postProcessing.unavailableDirectRealtime",
+                      "LLM post-processing is unavailable while realtime text is inserted directly into the target application. Use Preview or a non-live output route. Your saved choice is preserved for compatible routes.",
+                    )}
                   </div>
                 )}
 
-                {newLlmEnabled && (
+                {newPostProcessingAvailability.available && newLlmEnabled && (
                   <div className="space-y-3">
                     {/* Prompt Override */}
                     <div className="space-y-1">
