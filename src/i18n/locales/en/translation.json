@@ -108,11 +108,11 @@
       },
       "speakSelectedText": {
         "title": "Select text. Press a key. Hear it spoken.",
-        "summary": "Open Speak selected text, choose a provider, and start with its recommended preset. Assign a shortcut under Actions, then select text in any app and press the shortcut to hear it aloud. You can also adjust the voice, speed, playback, and History settings."
+        "summary": "Open Speak selected text, choose a provider, and start with its recommended preset. Assign a shortcut under Actions, then select text in any app and press the shortcut to hear it aloud. You can read the clipboard, copy selected text first, or read a selection directly where Windows supports it; cloud providers send text online, while Windows voices and local models keep speech generation on this computer."
       },
       "textFileToMp3": {
         "title": "Choose text files. Get MP3 or WAV audio.",
-        "summary": "Open Text file to mp3, choose a provider, and select a text or Markdown file. Choose MP3 or WAV, select where to save it, and start conversion. The page also supports multiple files, folders, resumable work, folder automation, and File History."
+        "summary": "Open Text file to mp3, choose a provider, and select a text or Markdown file. Choose MP3 or WAV, select where to save it, and start conversion; File Operations has its own settings, while synthesis presets can be shared with Speak selected text. The page also supports multiple files, folders, resumable work, folder automation, and File History; optional LLM cleanup can send text online."
       },
       "voiceCommands": {
         "title": "Speak a command. AivoRelay performs it.",
