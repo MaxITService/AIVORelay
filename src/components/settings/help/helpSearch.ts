@@ -9,7 +9,6 @@ interface HelpSearchRecord {
   summary: string;
   destination: string;
   keywords: readonly string[];
-  voiceCommandsOnly?: boolean;
 }
 
 const HELP_SEARCH_RECORDS: readonly HelpSearchRecord[] = [
@@ -25,9 +24,30 @@ const HELP_SEARCH_RECORDS: readonly HelpSearchRecord[] = [
     anchor: "help-models",
     title: "Choose a local model or cloud provider.",
     summary:
-      "A local model works on this computer. A cloud provider processes the recording online.",
+      "Local models run on your computer. They usually do not need an online account or usage payments, but they need enough disk space, memory, and processing power. Cloud/API providers run online. You usually need to sign in to the provider’s website or console, enable the service, create an API key, and usually add a payment method or credits. Cloud providers may charge for each request. They can have free plans with limits. AivoRelay does not control provider prices. Check the provider’s pricing and usage limits before using it. Never share your API key: it can let someone use your provider account and spend your money on API requests. Software or network problems can also cause API credits to be used unexpectedly. Avoid adding large amounts of money to an API account, and set spending limits or usage caps wherever the provider allows them.",
     destination: "Models",
-    keywords: ["model", "local", "cloud", "provider", "speech to text", "STT"],
+    keywords: [
+      "model",
+      "local",
+      "cloud",
+      "provider",
+      "speech to text",
+      "STT",
+      "account",
+      "sign in",
+      "console",
+      "API key",
+      "billing",
+      "payment",
+      "credits",
+      "price",
+      "cost",
+      "free plan",
+      "usage limits",
+      "spending limit",
+      "usage cap",
+      "unexpected usage",
+    ],
   },
   {
     anchor: "help-speech-processing",
@@ -134,10 +154,21 @@ const HELP_SEARCH_RECORDS: readonly HelpSearchRecord[] = [
     anchor: "help-voice-commands",
     title: "Speak a command. AivoRelay performs it.",
     summary:
-      "Say an instruction and AivoRelay can perform the enabled action.",
-    destination: "Voice Commands",
-    keywords: ["voice command", "command", "action", "automation"],
-    voiceCommandsOnly: true,
+      "Voice Commands lets AivoRelay run a saved script or an AI-generated PowerShell command after you speak. It is Windows-only and experimental; open Debug → Experimental Features → Voice Commands, accept the warning, then turn on Enable Voice Commands on the Voice Commands page. This Help entry stays visible while the feature is off so you can find these instructions.",
+    destination: "Debug",
+    keywords: [
+      "voice command",
+      "command",
+      "action",
+      "automation",
+      "enable",
+      "PowerShell",
+      "script",
+      "risk",
+      "warning",
+      "experimental",
+      "Debug",
+    ],
   },
   {
     anchor: "help-connector",
@@ -187,41 +218,34 @@ const normalize = (value: string) =>
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "");
 
-export const searchHelp = (
-  query: string,
-  options: { includeVoiceCommands?: boolean } = {},
-): HelpSearchResult[] => {
+export const searchHelp = (query: string): HelpSearchResult[] => {
   const normalizedQuery = normalize(query.trim());
   if (!normalizedQuery) return [];
 
   const words = normalizedQuery.split(/\s+/).filter(Boolean);
-  const includeVoiceCommands = options.includeVoiceCommands ?? false;
 
-  return HELP_SEARCH_RECORDS.filter(
-    (record) => includeVoiceCommands || !record.voiceCommandsOnly,
-  )
-    .map((record) => {
-      const fields = [
-        { value: normalize(record.title), weight: 8 },
-        { value: normalize(record.summary), weight: 5 },
-        { value: normalize(record.destination), weight: 7 },
-        ...record.keywords.map((keyword) => ({
-          value: normalize(keyword),
-          weight: 3,
-        })),
-      ];
+  return HELP_SEARCH_RECORDS.map((record) => {
+    const fields = [
+      { value: normalize(record.title), weight: 8 },
+      { value: normalize(record.summary), weight: 5 },
+      { value: normalize(record.destination), weight: 7 },
+      ...record.keywords.map((keyword) => ({
+        value: normalize(keyword),
+        weight: 3,
+      })),
+    ];
 
-      let score = 0;
-      for (const word of words) {
-        const matchingField = fields.find((field) => field.value.includes(word));
-        if (matchingField) score += matchingField.weight;
-      }
+    let score = 0;
+    for (const word of words) {
+      const matchingField = fields.find((field) => field.value.includes(word));
+      if (matchingField) score += matchingField.weight;
+    }
 
-      if (normalize(record.title).includes(normalizedQuery)) score += 8;
-      if (normalize(record.destination) === normalizedQuery) score += 10;
+    if (normalize(record.title).includes(normalizedQuery)) score += 8;
+    if (normalize(record.destination) === normalizedQuery) score += 10;
 
-      return { anchor: record.anchor, score };
-    })
+    return { anchor: record.anchor, score };
+  })
     .filter((result) => result.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 8);

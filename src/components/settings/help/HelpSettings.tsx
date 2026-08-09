@@ -1,9 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Search, Sparkles } from "lucide-react";
-import { type } from "@tauri-apps/plugin-os";
+import {
+  AlertTriangle,
+  Cloud,
+  Laptop,
+  Search,
+  Settings2,
+  Sparkles,
+  Volume2,
+  Wrench,
+} from "lucide-react";
 import { Button } from "../../ui/Button";
-import { useSettings } from "../../../hooks/useSettings";
 import { useNavigationStore } from "../../../stores/navigationStore";
 import { scrollAndFocusAnchor } from "../../../lib/anchorNavigation";
 import {
@@ -19,22 +26,50 @@ type HelpSearchModule = typeof import("./helpSearch");
 
 const SMART_HELP_ACTIONS = [
   {
-    labelKey: "help.smartHelp.actions.transcription",
+    icon: Settings2,
+    labelKey: "help.smartHelp.actions.setupTranscription",
+    descriptionKey:
+      "help.smartHelp.actions.setupTranscriptionDescription",
     anchor: "help-transcription",
+    destination: "general",
+    destinationLabelKey: "sidebar.general",
   },
   {
-    labelKey: "help.smartHelp.actions.cleanup",
-    anchor: "help-post-processing",
+    icon: Laptop,
+    labelKey: "help.smartHelp.actions.localModel",
+    descriptionKey: "help.smartHelp.actions.localModelDescription",
+    anchor: "help-models",
+    destination: "models",
+    destinationLabelKey: "sidebar.models",
   },
   {
+    icon: Cloud,
+    labelKey: "help.smartHelp.actions.onlineProvider",
+    descriptionKey: "help.smartHelp.actions.onlineProviderDescription",
+    anchor: "help-models",
+    destination: "models",
+    destinationLabelKey: "sidebar.models",
+  },
+  {
+    icon: Volume2,
     labelKey: "help.smartHelp.actions.readAloud",
+    descriptionKey: "help.smartHelp.actions.readAloudDescription",
     anchor: "help-speak-selected-text",
+    destination: "textToSpeech",
+    destinationLabelKey: "sidebar.textToSpeech",
+  },
+  {
+    icon: Wrench,
+    labelKey: "help.smartHelp.actions.troubleshoot",
+    descriptionKey: "help.smartHelp.actions.troubleshootDescription",
+    anchor: "help-debug",
+    destination: "debug",
+    destinationLabelKey: "sidebar.debug",
   },
 ] as const;
 
 export const HelpSettings: React.FC = () => {
   const { t } = useTranslation();
-  const { settings } = useSettings();
   const setSection = useNavigationStore((state) => state.setSection);
   const pendingHelpAnchor = useNavigationStore(
     (state) => state.pendingHelpAnchor,
@@ -42,17 +77,7 @@ export const HelpSettings: React.FC = () => {
   const consumePendingHelpAnchor = useNavigationStore(
     (state) => state.consumePendingHelpAnchor,
   );
-  const isVoiceCommandsEnabled =
-    type() === "windows" && Boolean(settings?.beta_voice_commands_enabled);
-
-  const visibleSections = useMemo(
-    () =>
-      HELP_SECTIONS.filter(
-        (section) =>
-          section.id !== "voiceCommands" || isVoiceCommandsEnabled,
-      ),
-    [isVoiceCommandsEnabled],
-  );
+  const visibleSections = HELP_SECTIONS;
   const helpEntryByAnchor = useMemo(() => {
     const entries = new Map<string, HelpEntry>();
     for (const section of visibleSections) {
@@ -137,9 +162,7 @@ export const HelpSettings: React.FC = () => {
         .then((module) => {
           if (latestQueryRef.current !== nextQuery) return;
           const nextResults = module
-            .searchHelp(nextQuery, {
-              includeVoiceCommands: isVoiceCommandsEnabled,
-            })
+            .searchHelp(nextQuery)
             .filter((result) => helpEntryByAnchor.has(result.anchor));
           setSearchResults(nextResults);
         })
@@ -149,7 +172,7 @@ export const HelpSettings: React.FC = () => {
           }
         });
     },
-    [ensureSearchLoaded, helpEntryByAnchor, isVoiceCommandsEnabled],
+    [ensureSearchLoaded, helpEntryByAnchor],
   );
 
   const chooseSearchResult = useCallback(
@@ -363,19 +386,48 @@ export const HelpSettings: React.FC = () => {
             </p>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2 pl-7">
-          {SMART_HELP_ACTIONS.map((action) => (
-            <Button
-              key={action.anchor}
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => scrollToHelpAnchor(action.anchor)}
-              className="whitespace-nowrap"
-            >
-              {t(action.labelKey)}
-            </Button>
-          ))}
+        <div className="mt-4 grid gap-2 pl-7 sm:grid-cols-2">
+          {SMART_HELP_ACTIONS.map((action) => {
+            const Icon = action.icon;
+
+            return (
+              <div
+                key={action.labelKey}
+                className="rounded-lg border border-[#333333] bg-[#151515] p-3 transition-colors hover:border-[#ff4d8d]/45"
+              >
+                <button
+                  type="button"
+                  onClick={() => scrollToHelpAnchor(action.anchor)}
+                  className="flex w-full items-start gap-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#151515]"
+                >
+                  <span className="mt-0.5 rounded-md bg-[#ff4d8d]/10 p-1.5 text-[#ff8ebb]">
+                    <Icon aria-hidden="true" className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-semibold leading-snug text-[#f5f5f5]">
+                      {t(action.labelKey)}
+                    </span>
+                    <span className="mt-1 block text-xs leading-relaxed text-[#a0a0a0]">
+                      {t(action.descriptionKey)}
+                    </span>
+                  </span>
+                </button>
+                <div className="mt-2 pl-9">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSection(action.destination)}
+                    className="px-0 text-[#ff8ebb] hover:bg-transparent hover:text-[#ffc0d5]"
+                  >
+                    {t("help.smartHelp.openSettings", {
+                      destination: t(action.destinationLabelKey),
+                    })}
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </section>
 
@@ -445,6 +497,27 @@ export const HelpSettings: React.FC = () => {
                 <p className="mt-1.5 text-sm leading-relaxed text-[#b8b8b8]">
                   {t(section.summaryKey)}
                 </p>
+                {section.id === "voiceCommands" && (
+                  <div className="mt-3 rounded-lg border border-red-500/35 bg-red-500/10 p-3 text-xs leading-relaxed text-red-100">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle
+                        aria-hidden="true"
+                        className="mt-0.5 h-4 w-4 shrink-0 text-red-300"
+                      />
+                      <div className="space-y-1.5">
+                        <p className="font-semibold text-red-200">
+                          {t("help.sections.voiceCommands.warningTitle")}
+                        </p>
+                        <p>
+                          {t("help.sections.voiceCommands.warning")}
+                        </p>
+                        <p className="text-red-100/85">
+                          {t("help.sections.voiceCommands.enablePath")}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
               {renderDestinationButton(section)}
             </div>
@@ -467,6 +540,15 @@ export const HelpSettings: React.FC = () => {
                       </p>
                       {renderDestinationButton(subsection)}
                     </div>
+                    {subsection.warningKey && (
+                      <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-500/35 bg-amber-500/10 p-2 text-xs leading-relaxed text-amber-100">
+                        <AlertTriangle
+                          aria-hidden="true"
+                          className="mt-0.5 h-4 w-4 shrink-0 text-amber-300"
+                        />
+                        <p>{t(subsection.warningKey)}</p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
