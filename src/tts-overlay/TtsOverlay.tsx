@@ -64,6 +64,8 @@ type TtsOverlayState = {
   playHistoryWhenOverlayClosed: boolean;
   stopHotkey: string;
   autoplay: boolean;
+  autoHideEnabled: boolean;
+  autoHideDelaySeconds: number;
   playbackPitch: number;
   playbackEffect: TtsPlaybackEffect;
 };
@@ -88,6 +90,8 @@ const EMPTY_STATE: TtsOverlayState = {
   playHistoryWhenOverlayClosed: false,
   stopHotkey: "",
   autoplay: true,
+  autoHideEnabled: true,
+  autoHideDelaySeconds: 4,
   playbackPitch: 1,
   playbackEffect: "none",
 };
@@ -242,6 +246,24 @@ function normalizeState(raw: unknown): TtsOverlayState | null {
       typeof (data.autoplay ?? data.auto_play) === "boolean"
         ? Boolean(data.autoplay ?? data.auto_play)
         : true,
+    autoHideEnabled: readBoolean(
+      data,
+      "autoHideEnabled",
+      "auto_hide_enabled",
+      true,
+    ),
+    autoHideDelaySeconds: Math.min(
+      300,
+      Math.max(
+        1,
+        readNumber(
+          data,
+          "autoHideDelaySeconds",
+          "auto_hide_delay_seconds",
+          4,
+        ),
+      ),
+    ),
     playbackPitch: Math.min(
       2,
       Math.max(
@@ -312,8 +334,10 @@ export default function TtsOverlay() {
   const [state, setState] = useState<TtsOverlayState>(EMPTY_STATE);
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeChunkIndex, setActiveChunkIndex] = useState<number | null>(null);
-  const [playbackTime, setPlaybackTime] = useState(0);
   const [playbackDuration, setPlaybackDuration] = useState(0);
+  const [playbackProgress, setPlaybackProgress] = useState(0);
+  const [completedPlaybackOperationId, setCompletedPlaybackOperationId] =
+    useState("");
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [playbackRate, setPlaybackRate] = useState<PlaybackRate>(
     DEFAULT_PLAYBACK_RATE,
@@ -356,8 +380,8 @@ export default function TtsOverlay() {
         activeChunkIndexRef.current = snapshot.chunkIndex;
         setActiveChunkIndex(snapshot.chunkIndex);
         setIsPlaying(snapshot.isPlaying);
-        setPlaybackTime(snapshot.playbackTime);
         setPlaybackDuration(snapshot.playbackDuration);
+        setPlaybackProgress(snapshot.playbackProgress);
       },
       onChunkStart: (chunkIndex: number) => {
         activeChunkIndexRef.current = chunkIndex;
@@ -368,6 +392,7 @@ export default function TtsOverlay() {
       onCompleted: (chunkIndex: number) => {
         desiredPlayingRef.current = false;
         setIsPlaying(false);
+        setCompletedPlaybackOperationId(operationIdRef.current);
         reportPlaybackState("completed", chunkIndex);
       },
       onError: (error: unknown, chunkIndex: number) => {
@@ -396,8 +421,8 @@ export default function TtsOverlay() {
     activeChunkIndexRef.current = null;
     setActiveChunkIndex(null);
     setIsPlaying(false);
-    setPlaybackTime(0);
     setPlaybackDuration(0);
+    setPlaybackProgress(0);
   }, []);
 
   const startAudio = useCallback(
@@ -435,6 +460,7 @@ export default function TtsOverlay() {
           next.status !== "stopped" &&
           next.status !== "error";
         setPlaybackError(null);
+        setCompletedPlaybackOperationId("");
         lastLoggedProviderErrorRef.current = "";
       } else if (!operationIdRef.current && next.operationId) {
         operationIdRef.current = next.operationId;
@@ -580,6 +606,43 @@ export default function TtsOverlay() {
     };
   }, [closeOverlay]);
 
+  useEffect(() => {
+    if (
+      !state.autoHideEnabled ||
+      state.status !== "completed" ||
+      !state.operationId ||
+      completedPlaybackOperationId !== state.operationId
+    ) {
+      return;
+    }
+
+    const completedOperationId = state.operationId;
+    const timeout = window.setTimeout(() => {
+      void overlayWindow
+        .hide()
+        .then(() => {
+          if (
+            stateRef.current.operationId === completedOperationId &&
+            stateRef.current.status === "completed"
+          ) {
+            resetAudio();
+          }
+        })
+        .catch((error) => {
+          console.error("Unable to auto-hide the TTS overlay:", error);
+        });
+    }, state.autoHideDelaySeconds * 1_000);
+
+    return () => window.clearTimeout(timeout);
+  }, [
+    completedPlaybackOperationId,
+    resetAudio,
+    state.autoHideDelaySeconds,
+    state.autoHideEnabled,
+    state.operationId,
+    state.status,
+  ]);
+
   const cyclePlaybackRate = useCallback(() => {
     const nextRate = nextPlaybackRate(playbackRateRef.current);
     playbackRateRef.current = nextRate;
@@ -653,26 +716,22 @@ export default function TtsOverlay() {
     state.status !== "stopped";
   const seekValue =
     !streamLengthPending && playbackDuration > 0
-      ? Math.min(playbackDuration, Math.max(0, playbackTime))
+      ? Math.min(1, Math.max(0, playbackProgress))
       : 0;
-  const seekMaximum =
-    !streamLengthPending && playbackDuration > 0 ? playbackDuration : 100;
-  const seekPercent =
-    seekMaximum > 0
-      ? Math.min(100, Math.max(0, (seekValue / seekMaximum) * 100))
-      : 0;
+  const seekPercent = seekValue * 100;
   const seekPlayback = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       if (!playerRef.current || playbackDuration <= 0) {
         return;
       }
-      const nextTime = Number(event.target.value);
-      if (!Number.isFinite(nextTime)) {
+      const nextProgress = Number(event.target.value);
+      if (!Number.isFinite(nextProgress)) {
         return;
       }
-      const boundedTime = Math.min(playbackDuration, Math.max(0, nextTime));
-      playerRef.current.seek(boundedTime);
-      setPlaybackTime(boundedTime);
+      const actualProgress = playerRef.current.seek(nextProgress);
+      if (actualProgress !== null) {
+        setPlaybackProgress(actualProgress);
+      }
     },
     [playbackDuration],
   );
@@ -807,8 +866,8 @@ export default function TtsOverlay() {
         className="tts-overlay__progress"
         aria-label={t("textToSpeech.overlayPlayer.progress")}
         min={0}
-        max={seekMaximum}
-        step={playbackDuration > 0 ? 0.01 : 1}
+        max={1}
+        step={playbackDuration > 0 ? 0.001 : 1}
         value={seekValue}
         disabled={streamLengthPending || playbackDuration <= 0}
         onChange={seekPlayback}

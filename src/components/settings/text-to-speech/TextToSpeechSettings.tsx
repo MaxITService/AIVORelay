@@ -231,6 +231,8 @@ type TtsSettings = {
   inter_chunk_pause_ms: number;
   paragraph_pause_ms: number;
   autoplay: boolean;
+  overlay_auto_hide_enabled: boolean;
+  overlay_auto_hide_delay_seconds: number;
   playback_pitch: number;
   playback_effect: TtsPlaybackEffect;
   output_format: TtsOutputFormat;
@@ -423,6 +425,8 @@ const DEFAULT_TTS_SETTINGS: TtsSettings = {
   inter_chunk_pause_ms: 120,
   paragraph_pause_ms: 350,
   autoplay: true,
+  overlay_auto_hide_enabled: true,
+  overlay_auto_hide_delay_seconds: 4,
   playback_pitch: 1,
   playback_effect: "none",
   output_format: "mp3",
@@ -5428,6 +5432,10 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     description: t("textToSpeech.help.autoplayDescription"),
                   },
                   {
+                    term: t("textToSpeech.help.autoHide"),
+                    description: t("textToSpeech.help.autoHideDescription"),
+                  },
+                  {
                     term: t("textToSpeech.help.hotkeys"),
                     description: t("textToSpeech.help.hotkeysDescription"),
                   },
@@ -5445,6 +5453,50 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               description={t("textToSpeech.overlay.autoplayDescription")}
               descriptionMode="inline"
             />
+            <ToggleSwitch
+              grouped
+              checked={tts.overlay_auto_hide_enabled}
+              onChange={(overlay_auto_hide_enabled) =>
+                void updateTts(
+                  { overlay_auto_hide_enabled },
+                  "overlay_auto_hide_enabled",
+                )
+              }
+              isUpdating={savingField === "overlay_auto_hide_enabled"}
+              label={t("textToSpeech.overlay.autoHideLabel")}
+              description={t("textToSpeech.overlay.autoHideDescription")}
+              descriptionMode="inline"
+            />
+            <SettingContainer
+              grouped
+              title={t("textToSpeech.overlay.autoHideDelayTitle")}
+              description={t("textToSpeech.overlay.autoHideDelayDescription")}
+            >
+              <Input
+                className="w-28"
+                type="number"
+                min={1}
+                max={300}
+                step={1}
+                value={tts.overlay_auto_hide_delay_seconds}
+                disabled={
+                  !tts.overlay_auto_hide_enabled || savingField !== null
+                }
+                onChange={(event) =>
+                  void updateTts(
+                    {
+                      overlay_auto_hide_delay_seconds: clampNumber(
+                        event.target.value,
+                        1,
+                        300,
+                        4,
+                      ),
+                    },
+                    "overlay_auto_hide_delay_seconds",
+                  )
+                }
+              />
+            </SettingContainer>
             <SettingContainer
               grouped
               title={t("textToSpeech.overlay.playPauseTitle")}
