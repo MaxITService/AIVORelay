@@ -21,6 +21,7 @@ import { useSettings } from "../../../hooks/useSettings";
 import { usePersistedSettingText } from "../../../hooks/usePersistedSettingText";
 import { ExtendedThinkingSection } from "../ExtendedThinkingSection";
 import { LlmConfigSection } from "../PostProcessingSettingsApi/LlmConfigSection";
+import { getPostProcessingAvailability } from "../../../lib/postProcessingAvailability";
 
 
 
@@ -732,23 +733,17 @@ PostProcessingSettingsPrompts.displayName = "PostProcessingSettingsPrompts";
 
 export const PostProcessingSettings: React.FC = () => {
   const { t } = useTranslation();
-  const { getSetting } = useSettings();
-  const transcriptionProvider = String(
-    getSetting("transcription_provider") || "local",
-  );
-  const isSonioxProvider = transcriptionProvider === "remote_soniox";
-  const isDeepgramProvider = transcriptionProvider === "remote_deepgram";
+  const { settings } = useSettings();
+  const availability = getPostProcessingAvailability(settings);
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
-      {(isSonioxProvider || isDeepgramProvider) && (
+      {!availability.available && (
         <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-sm text-yellow-400">
-          {isDeepgramProvider
-            ? t(
-                "settings.postProcessing.deepgramWarning",
-                "You are using Deepgram live transcription. LLM post-processing is skipped during the standard live cycle.",
-              )
-            : t("settings.postProcessing.sonioxWarning")}
+          {t(
+            "settings.postProcessing.unavailableDirectRealtime",
+            "LLM post-processing is unavailable while realtime text is inserted directly into the target application. Use Preview or a non-live output route. Your saved choice is preserved for compatible routes.",
+          )}
         </div>
       )}
 
