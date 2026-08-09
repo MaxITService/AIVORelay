@@ -1849,6 +1849,10 @@ pub struct TtsSettings {
     pub stop_hotkey: String,
     #[serde(default = "default_true")]
     pub autoplay: bool,
+    #[serde(default = "default_true")]
+    pub overlay_auto_hide_enabled: bool,
+    #[serde(default = "default_tts_overlay_auto_hide_delay_seconds")]
+    pub overlay_auto_hide_delay_seconds: u32,
     /// Pitch-only overlay playback transform. The stored/generated audio is unchanged.
     #[serde(default = "default_tts_playback_pitch")]
     pub playback_pitch: f32,
@@ -1956,6 +1960,8 @@ impl Default for TtsSettings {
             play_history_when_overlay_closed: false,
             stop_hotkey: default_tts_stop_hotkey(),
             autoplay: true,
+            overlay_auto_hide_enabled: true,
+            overlay_auto_hide_delay_seconds: default_tts_overlay_auto_hide_delay_seconds(),
             playback_pitch: default_tts_playback_pitch(),
             playback_effect: TtsPlaybackEffect::default(),
             output_format: TtsOutputFormat::default(),
@@ -4192,6 +4198,10 @@ fn default_tts_play_pause_hotkey() -> String {
 
 fn default_tts_stop_hotkey() -> String {
     "escape".to_string()
+}
+
+fn default_tts_overlay_auto_hide_delay_seconds() -> u32 {
+    4
 }
 
 fn default_tts_mp3_bitrate_kbps() -> u16 {
@@ -6843,6 +6853,8 @@ mod tests {
             TtsSettings::default().playback_effect,
             TtsPlaybackEffect::None
         );
+        assert!(TtsSettings::default().overlay_auto_hide_enabled);
+        assert_eq!(TtsSettings::default().overlay_auto_hide_delay_seconds, 4);
     }
 
     #[test]

@@ -108,6 +108,8 @@ pub struct TtsOverlayState {
     pub play_history_when_overlay_closed: bool,
     pub stop_hotkey: String,
     pub autoplay: bool,
+    pub auto_hide_enabled: bool,
+    pub auto_hide_delay_seconds: u32,
     pub playback_pitch: f32,
     pub playback_effect: TtsPlaybackEffect,
 }
@@ -130,6 +132,8 @@ impl Default for TtsOverlayState {
             play_history_when_overlay_closed: false,
             stop_hotkey: String::new(),
             autoplay: true,
+            auto_hide_enabled: true,
+            auto_hide_delay_seconds: 4,
             playback_pitch: 1.0,
             playback_effect: TtsPlaybackEffect::None,
         }
@@ -442,6 +446,8 @@ pub fn play_pause_or_replay_latest_history(app: &AppHandle) -> Result<(), String
             play_history_when_overlay_closed: settings.play_history_when_overlay_closed,
             stop_hotkey: settings.stop_hotkey,
             autoplay: true,
+            auto_hide_enabled: settings.overlay_auto_hide_enabled,
+            auto_hide_delay_seconds: settings.overlay_auto_hide_delay_seconds,
             playback_pitch: settings.playback_pitch,
             playback_effect: settings.playback_effect,
         };
@@ -586,6 +592,8 @@ fn prepare_overlay(
             play_history_when_overlay_closed: settings.play_history_when_overlay_closed,
             stop_hotkey: settings.stop_hotkey.clone(),
             autoplay: settings.autoplay,
+            auto_hide_enabled: settings.overlay_auto_hide_enabled,
+            auto_hide_delay_seconds: settings.overlay_auto_hide_delay_seconds,
             playback_pitch: settings.playback_pitch,
             playback_effect: settings.playback_effect,
         };
@@ -677,6 +685,8 @@ pub(crate) fn report_tts_error(app: &AppHandle, error: impl std::fmt::Display) {
             play_history_when_overlay_closed: settings.play_history_when_overlay_closed,
             stop_hotkey: settings.stop_hotkey,
             autoplay: settings.autoplay,
+            auto_hide_enabled: settings.overlay_auto_hide_enabled,
+            auto_hide_delay_seconds: settings.overlay_auto_hide_delay_seconds,
             playback_pitch: settings.playback_pitch,
             playback_effect: settings.playback_effect,
         };
@@ -959,6 +969,8 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.retry_base_delay_ms = settings.retry_base_delay_ms.clamp(100, 30_000);
     settings.inter_chunk_pause_ms = settings.inter_chunk_pause_ms.min(5_000);
     settings.paragraph_pause_ms = settings.paragraph_pause_ms.min(10_000);
+    settings.overlay_auto_hide_delay_seconds =
+        settings.overlay_auto_hide_delay_seconds.clamp(1, 300);
     settings.watch_settle_delay_ms = settings.watch_settle_delay_ms.clamp(100, 60_000);
     settings.disk_reserve_mb = settings.disk_reserve_mb.min(1_048_576);
     settings.interactive_history_max_entries =
@@ -2586,6 +2598,23 @@ mod tests {
             &enabled_previous,
             &enabled_current
         ));
+    }
+
+    #[test]
+    fn normalization_bounds_overlay_auto_hide_delay() {
+        let mut settings = TtsSettings::default();
+        settings.overlay_auto_hide_delay_seconds = 0;
+        assert_eq!(
+            normalize_settings(settings).overlay_auto_hide_delay_seconds,
+            1
+        );
+
+        let mut settings = TtsSettings::default();
+        settings.overlay_auto_hide_delay_seconds = u32::MAX;
+        assert_eq!(
+            normalize_settings(settings).overlay_auto_hide_delay_seconds,
+            300
+        );
     }
 
     #[test]

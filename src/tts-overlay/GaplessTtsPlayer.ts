@@ -16,6 +16,7 @@ export type GaplessPlaybackSnapshot = {
   isPlaying: boolean;
   playbackTime: number;
   playbackDuration: number;
+  playbackProgress: number;
 };
 
 type GaplessPlayerCallbacks = {
@@ -154,6 +155,7 @@ export class GaplessTtsPlayer {
       isPlaying: false,
       playbackTime: position?.playbackTime ?? 0,
       playbackDuration: position?.playbackDuration ?? 0,
+      playbackProgress: position?.playbackProgress ?? 0,
     });
   }
 
@@ -183,15 +185,17 @@ export class GaplessTtsPlayer {
       isPlaying: false,
       playbackTime: 0,
       playbackDuration: 0,
+      playbackProgress: 0,
     });
   }
 
-  seek(playbackTime: number) {
-    const target = this.resolveSeekTarget(playbackTime);
+  seek(playbackProgress: number): number | null {
+    const target = this.resolveSeekTarget(playbackProgress);
     if (!target) {
-      return;
+      return null;
     }
     this.restartFrom(target.chunkIndex, target.sourceOffset);
+    return target.playbackProgress;
   }
 
   setPlaybackRate(playbackRate: number) {
@@ -435,10 +439,37 @@ export class GaplessTtsPlayer {
       playbackTime:
         targetStart + boundedSourceOffset * target.pitchCompensation,
       playbackDuration: elapsed,
+      playbackProgress: this.progressForPosition(
+        chunkIndex,
+        boundedSourceOffset,
+        target.buffer.duration,
+      ),
     };
   }
 
-  private resolveSeekTarget(playbackTime: number) {
+  private progressForPosition(
+    chunkIndex: number,
+    sourceOffset: number,
+    sourceDuration: number,
+  ) {
+    // Decoded duration grows as streamed chunks arrive. Anchor the visible
+    // progress to the fixed chunk plan so adding buffered audio cannot move
+    // the seek thumb backwards.
+    const totalChunks = this.expectedTotal || this.chunks.length;
+    if (totalChunks <= 0) {
+      return 0;
+    }
+    const chunkProgress =
+      sourceDuration > 0
+        ? Math.min(1, Math.max(0, sourceOffset / sourceDuration))
+        : 0;
+    return Math.min(
+      1,
+      Math.max(0, (chunkIndex + chunkProgress) / totalChunks),
+    );
+  }
+
+  private resolveSeekTarget(playbackProgress: number) {
     const available = this.chunks.flatMap((chunk) => {
       const prepared = this.decoded.get(chunk.index);
       return prepared ? [{ chunk, prepared }] : [];
@@ -446,32 +477,39 @@ export class GaplessTtsPlayer {
     if (available.length === 0) {
       return null;
     }
-    const totalDuration = available.reduce(
-      (total, { prepared }) =>
-        total + prepared.buffer.duration * prepared.pitchCompensation,
-      0,
+    const totalChunks = this.expectedTotal || this.chunks.length;
+    const boundedProgress = Math.min(1, Math.max(0, playbackProgress));
+    const plannedPosition = boundedProgress * totalChunks;
+    const targetChunkIndex = Math.min(
+      totalChunks - 1,
+      Math.floor(plannedPosition),
     );
-    const targetTime = Math.min(
-      totalDuration,
-      Math.max(0, playbackTime),
+    const exactTarget = available.find(
+      ({ chunk }) => chunk.index === targetChunkIndex,
     );
-    let elapsed = 0;
-    for (let index = 0; index < available.length; index += 1) {
-      const { chunk, prepared } = available[index];
-      const duration =
-        prepared.buffer.duration * prepared.pitchCompensation;
-      const end = elapsed + duration;
-      if (targetTime < end || index === available.length - 1) {
-        return {
-          chunkIndex: chunk.index,
-          sourceOffset:
-            Math.min(duration, Math.max(0, targetTime - elapsed)) /
-            prepared.pitchCompensation,
-        };
-      }
-      elapsed = end;
-    }
-    return null;
+    const target =
+      exactTarget ??
+      [...available]
+        .reverse()
+        .find(({ chunk }) => chunk.index < targetChunkIndex) ??
+      available[0];
+    const targetFraction = exactTarget
+      ? targetChunkIndex === totalChunks - 1 && boundedProgress === 1
+        ? 1
+        : plannedPosition - targetChunkIndex
+      : 1;
+    const sourceOffset =
+      target.prepared.buffer.duration *
+      Math.min(1, Math.max(0, targetFraction));
+    return {
+      chunkIndex: target.chunk.index,
+      sourceOffset,
+      playbackProgress: this.progressForPosition(
+        target.chunk.index,
+        sourceOffset,
+        target.prepared.buffer.duration,
+      ),
+    };
   }
 
   private startMonitor() {
@@ -500,6 +538,7 @@ export class GaplessTtsPlayer {
           isPlaying,
           playbackTime: position?.playbackTime ?? 0,
           playbackDuration: position?.playbackDuration ?? 0,
+          playbackProgress: position?.playbackProgress ?? 0,
         });
       }
       if (active && this.lastStartedChunk !== active.chunk.index) {
@@ -549,6 +588,7 @@ export class GaplessTtsPlayer {
         isPlaying: false,
         playbackTime: finalPosition.playbackTime,
         playbackDuration: finalPosition.playbackDuration,
+        playbackProgress: finalPosition.playbackProgress,
       });
     }
     this.callbacks.onCompleted(last.chunk.index);
