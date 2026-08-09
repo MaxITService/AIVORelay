@@ -62,12 +62,20 @@
     },
     "smartHelp": {
       "label": "Smart Help",
-      "title": "Start with the task you want.",
-      "description": "Choose a task below. Each choice explains the task and opens the matching settings page.",
+      "title": "Choose what you want to do.",
+      "description": "Each card explains what you need, shows the relevant Help section, and opens the matching settings page.",
+      "openSettings": "Open {{destination}} settings",
       "actions": {
-        "transcription": "Speak to text",
-        "cleanup": "Clean up text",
-        "readAloud": "Read text aloud"
+        "setupTranscription": "I want to set up my microphone and shortcut",
+        "setupTranscriptionDescription": "Start here if you want to dictate but have not configured the basic recording controls yet.",
+        "localModel": "I want to use a local model that turns voice into text",
+        "localModelDescription": "The model runs on this computer. It usually needs no provider account or usage payments, but it needs enough disk space, memory, and processing power.",
+        "onlineProvider": "I want to use an online provider that turns voice into text",
+        "onlineProviderDescription": "The provider runs online. You usually need its console account, an API key, and possibly a payment method or credits; check prices and free limits. Set a spending limit or usage cap if the provider offers one.",
+        "readAloud": "I want to read text aloud",
+        "readAloudDescription": "Choose a voice and provider, assign a shortcut, then hear selected text from another app.",
+        "troubleshoot": "Something is not working",
+        "troubleshootDescription": "Open tests, logs, and diagnostic tools to find out what went wrong."
       }
     },
     "contents": {
@@ -79,7 +87,8 @@
         "summary": "Set a microphone and shortcut in Speech / Mic. Choose where speech becomes text in Models: a local model works on this computer, while a cloud provider works online.",
         "models": {
           "title": "Choose a local model or cloud provider.",
-          "summary": "A local model works on this computer. A cloud provider processes the recording online."
+          "summary": "Local models run on your computer. They usually do not need an online account or usage payments, but they need enough disk space, memory, and processing power. Cloud/API providers run online. You usually need to sign in to the provider’s website or console, enable the service, create an API key, and usually add a payment method or credits. Cloud providers may charge for each request. They can have free plans with limits. AivoRelay does not control provider prices. Check the provider’s pricing and usage limits before using it.",
+          "warning": "Never share your API key. It is a secret code that can let someone use your provider account and spend your money on API requests. If the key is exposed, revoke it in the provider’s console and create a new one. Software or network problems can also cause API credits to be used unexpectedly. Avoid adding large amounts of money to an API account, and set spending limits or usage caps wherever the provider allows them."
         },
         "speechProcessing": {
           "title": "Improve microphone audio.",
@@ -116,7 +125,10 @@
       },
       "voiceCommands": {
         "title": "Speak a command. AivoRelay performs it.",
-        "summary": "Say an instruction and AivoRelay can perform the enabled action. This page appears only when Voice Commands is enabled."
+        "summary": "Voice Commands lets AivoRelay run a saved script or an AI-generated PowerShell command after you speak. It is Windows-only and experimental; open Debug → Experimental Features → Voice Commands, accept the warning, then turn on Enable Voice Commands on the Voice Commands page. This Help entry stays visible while the feature is off so you can find these instructions.",
+        "warningTitle": "⚠️ High-risk experimental feature",
+        "warning": "Voice Commands can execute arbitrary PowerShell scripts or commands from voice input. A wrong or malicious trigger could change or delete data, damage the system, or create a security problem. Enable it only if you understand PowerShell and review every command.",
+        "enablePath": "To enable it: open Debug → Experimental Features → Voice Commands and accept the risk confirmation. Then open Voice Commands from the sidebar and turn on Enable Voice Commands."
       },
       "connector": {
         "title": "Connect to an LLM chat open in Chrome via the separate extension.",

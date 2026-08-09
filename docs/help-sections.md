@@ -16,8 +16,16 @@ this computer. A cloud provider processes the recording online.
 
 ## Smart Help
 
-Smart Help gives beginners three direct starting points: speak to text, clean
-up text, or read text aloud. Each choice jumps to the matching Help section.
+Smart Help gives beginners five direct starting points:
+
+- **I want to set up my microphone and shortcut** — start the basic dictation setup.
+- **I want to use a local model that turns voice into text** — keep processing on this computer.
+- **I want to use an online provider that turns voice into text** — use a provider account and API key, with possible usage costs.
+- **I want to read text aloud** — choose a voice and shortcut for selected text.
+- **Something is not working** — open tests, logs, and diagnostic tools.
+
+Each card explains what is needed, jumps to the matching Help section, and has a
+button for the related settings page.
 
 ## Contents
 
@@ -46,8 +54,25 @@ works online.
 
 ### Choose a local model or cloud provider.
 
-**Models** chooses where speech becomes text. A local model works on this
-computer. A cloud provider processes the recording online.
+**Models** chooses where speech becomes text.
+
+Local models run on your computer. They usually do not need an online account or
+usage payments, but they need enough disk space, memory, and processing power.
+
+Cloud/API providers run online. You usually need to sign in to the provider's
+website or console, enable the service, create an API key, and usually add a
+payment method or credits. Cloud providers may charge for each request. They can
+have free plans with limits.
+
+AivoRelay does not control provider prices. Check the provider's pricing and
+usage limits before using it.
+
+⚠️ **Warning:** Never share your API key. It is a secret code that can let
+someone use your provider account and spend your money on API requests. If the
+key is exposed, revoke it in the provider's console and create a new one.
+Software or network problems can also cause API credits to be used unexpectedly.
+Avoid adding large amounts of money to an API account, and set spending limits
+or usage caps wherever the provider allows them.
 
 Console commands: no direct command is documented for changing this setting.
 
@@ -146,8 +171,20 @@ overrides, safe output handling, and local voice engines.
 
 ## 8. Speak a command. AivoRelay performs it.
 
-**Voice Commands** lets a spoken instruction trigger an enabled app action. This
-page appears only when Voice Commands is enabled.
+**Voice Commands** is a Windows-only experimental feature. The Help entry stays
+visible while the feature is off so you can find these instructions.
+
+To turn it on:
+
+1. Open **Settings → Debug**.
+2. Open **Experimental Features → Voice Commands**.
+3. Read the warning and accept the risk confirmation.
+4. Open **Voice Commands** from the sidebar and turn on **Enable Voice Commands**.
+
+⚠️ **Warning:** Voice Commands can execute arbitrary PowerShell scripts or
+commands from voice input. A wrong or malicious trigger could change or delete
+data, damage the system, or create a security problem. Enable it only if you
+understand PowerShell and review every command.
 
 Console commands: no direct command is documented for configuring voice
 commands.

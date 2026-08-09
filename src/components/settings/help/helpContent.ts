@@ -5,6 +5,7 @@ export interface HelpSubsectionDefinition {
   anchor: string;
   titleKey: string;
   summaryKey: string;
+  warningKey?: string;
   destination: SidebarSection;
   destinationLabelKey: string;
 }
@@ -33,6 +34,7 @@ export const HELP_SECTIONS: readonly HelpSectionDefinition[] = [
         anchor: "help-models",
         titleKey: "help.sections.transcription.models.title",
         summaryKey: "help.sections.transcription.models.summary",
+        warningKey: "help.sections.transcription.models.warning",
         destination: "models",
         destinationLabelKey: "sidebar.models",
       },
@@ -107,8 +109,8 @@ export const HELP_SECTIONS: readonly HelpSectionDefinition[] = [
     anchor: "help-voice-commands",
     titleKey: "help.sections.voiceCommands.title",
     summaryKey: "help.sections.voiceCommands.summary",
-    destination: "voiceCommands",
-    destinationLabelKey: "sidebar.voiceCommands",
+    destination: "debug",
+    destinationLabelKey: "sidebar.debug",
   },
   {
     id: "connector",
