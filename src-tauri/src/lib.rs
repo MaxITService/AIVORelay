@@ -1800,6 +1800,12 @@ pub fn run(cli_args: CliArgs) {
                 save_main_window_geometry(window, false, true);
             }
             tauri::WindowEvent::CloseRequested { api, .. } => {
+                #[cfg(target_os = "windows")]
+                if window.label() == "region_capture" {
+                    region_capture::on_region_window_closed(&window.app_handle());
+                    return;
+                }
+
                 // Only the main window should be hidden-to-tray on close.
                 // Auxiliary windows (e.g. voice activation button) must be allowed to close.
                 if window.label() == "main" {
@@ -1826,6 +1832,12 @@ pub fn run(cli_args: CliArgs) {
                             log::error!("Failed to set activation policy: {}", e);
                         }
                     }
+                }
+            }
+            tauri::WindowEvent::Destroyed => {
+                #[cfg(target_os = "windows")]
+                if window.label() == "region_capture" {
+                    region_capture::on_region_window_closed(&window.app_handle());
                 }
             }
             tauri::WindowEvent::ThemeChanged(theme) => {

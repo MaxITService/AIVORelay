@@ -78,6 +78,33 @@ impl Default for RegionCaptureState {
 
 pub type ManagedRegionCaptureState = std::sync::Mutex<RegionCaptureState>;
 
+type PendingRegionCapture = (
+    Option<oneshot::Sender<RegionCaptureResult>>,
+    Option<VirtualScreenInfo>,
+    Option<Vec<u8>>,
+);
+
+/// Atomically claims and clears the current picker state.
+fn take_pending_region_capture(app: &AppHandle) -> PendingRegionCapture {
+    let state = app.state::<ManagedRegionCaptureState>();
+    let mut guard = state.lock().unwrap();
+
+    (
+        guard.result_sender.take(),
+        guard.virtual_info.take(),
+        guard.screenshot_data.take(),
+    )
+}
+
+/// Completes the current picker as cancelled, if it is still pending.
+fn cancel_pending_region_capture(app: &AppHandle) {
+    let (sender, _, _) = take_pending_region_capture(app);
+
+    if let Some(sender) = sender {
+        let _ = sender.send(RegionCaptureResult::Cancelled);
+    }
+}
+
 /// Gets the virtual screen info (all monitors combined).
 #[cfg(target_os = "windows")]
 pub fn get_virtual_screen_info() -> Result<VirtualScreenInfo, String> {
@@ -375,11 +402,7 @@ pub async fn open_region_picker(
         Err(e) => {
             error!("Failed to create region capture window: {}", e);
             // Clean up state
-            let state = app.state::<ManagedRegionCaptureState>();
-            let mut guard = state.lock().unwrap();
-            guard.result_sender = None;
-            guard.screenshot_data = None;
-            guard.virtual_info = None;
+            let _ = take_pending_region_capture(app);
             return RegionCaptureResult::Error(format!("Failed to create overlay: {}", e));
         }
     }
@@ -403,21 +426,15 @@ pub async fn open_region_picker(
 
 /// Called from the overlay when user selects a region.
 pub fn on_region_selected(app: &AppHandle, region: SelectedRegion) {
+    // Claim the pending result before destroying the window. The Destroyed event
+    // can then safely run the cancellation path without racing this confirmation.
+    let (sender, virtual_info, screenshot_data) = take_pending_region_capture(app);
+
     // Hide/close the overlay window immediately so it won't be included in the capture.
     if let Some(window) = app.get_webview_window("region_capture") {
         let _ = window.hide();
         let _ = window.destroy();
     }
-
-    let state = app.state::<ManagedRegionCaptureState>();
-    let (sender, virtual_info, screenshot_data) = {
-        let mut guard = state.lock().unwrap();
-        (
-            guard.result_sender.take(),
-            guard.virtual_info.take(),
-            guard.screenshot_data.take(),
-        )
-    };
 
     let Some(sender) = sender else {
         return;
@@ -456,20 +473,17 @@ pub fn on_region_selected(app: &AppHandle, region: SelectedRegion) {
 
 /// Called from the overlay when user cancels.
 pub fn on_region_cancelled(app: &AppHandle) {
-    let state = app.state::<ManagedRegionCaptureState>();
-    let mut guard = state.lock().unwrap();
-
-    if let Some(sender) = guard.result_sender.take() {
-        let _ = sender.send(RegionCaptureResult::Cancelled);
-    }
-
-    guard.screenshot_data = None;
-    guard.virtual_info = None;
+    cancel_pending_region_capture(app);
 
     // Close the overlay window
     if let Some(window) = app.get_webview_window("region_capture") {
         let _ = window.destroy();
     }
+}
+
+/// Called when the window manager closes or destroys the picker window.
+pub fn on_region_window_closed(app: &AppHandle) {
+    cancel_pending_region_capture(app);
 }
 
 /// Forces a window to be topmost using Win32 API (Windows only).
