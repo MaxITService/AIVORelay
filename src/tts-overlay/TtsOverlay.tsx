@@ -5,6 +5,7 @@ import { type as getOsType } from "@tauri-apps/plugin-os";
 import {
   type ChangeEvent,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useRef,
@@ -21,8 +22,6 @@ import {
 import {
   DEFAULT_PLAYBACK_RATE,
   formatPlaybackRate,
-  nextPlaybackRate,
-  type PlaybackRate,
 } from "../lib/utils/playbackRate";
 import type { TtsPlaybackEffect } from "../lib/utils/ttsPlaybackEffects";
 import {
@@ -338,12 +337,15 @@ export default function TtsOverlay() {
   const [playbackProgress, setPlaybackProgress] = useState(0);
   const [completedPlaybackOperationId, setCompletedPlaybackOperationId] =
     useState("");
+  const [autoHideActivityRevision, setAutoHideActivityRevision] = useState(0);
+  const [pointerInteractionActive, setPointerInteractionActive] =
+    useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
-  const [playbackRate, setPlaybackRate] = useState<PlaybackRate>(
-    DEFAULT_PLAYBACK_RATE,
-  );
+  const [playbackRate, setPlaybackRate] = useState<number>(DEFAULT_PLAYBACK_RATE);
+  const [rateSliderOpen, setRateSliderOpen] = useState(false);
   const playerRef = useRef<GaplessTtsPlayer | null>(null);
-  const playbackRateRef = useRef<PlaybackRate>(DEFAULT_PLAYBACK_RATE);
+  const playbackRateRef = useRef<number>(DEFAULT_PLAYBACK_RATE);
+  const playbackProgressRef = useRef(0);
   const stateRef = useRef(state);
   const desiredPlayingRef = useRef(false);
   const activeChunkIndexRef = useRef<number | null>(null);
@@ -381,6 +383,7 @@ export default function TtsOverlay() {
         setActiveChunkIndex(snapshot.chunkIndex);
         setIsPlaying(snapshot.isPlaying);
         setPlaybackDuration(snapshot.playbackDuration);
+        playbackProgressRef.current = snapshot.playbackProgress;
         setPlaybackProgress(snapshot.playbackProgress);
       },
       onChunkStart: (chunkIndex: number) => {
@@ -422,6 +425,7 @@ export default function TtsOverlay() {
     setActiveChunkIndex(null);
     setIsPlaying(false);
     setPlaybackDuration(0);
+    playbackProgressRef.current = 0;
     setPlaybackProgress(0);
   }, []);
 
@@ -461,6 +465,7 @@ export default function TtsOverlay() {
           next.status !== "error";
         setPlaybackError(null);
         setCompletedPlaybackOperationId("");
+        setRateSliderOpen(false);
         lastLoggedProviderErrorRef.current = "";
       } else if (!operationIdRef.current && next.operationId) {
         operationIdRef.current = next.operationId;
@@ -552,6 +557,7 @@ export default function TtsOverlay() {
     }
 
     desiredPlayingRef.current = true;
+    setCompletedPlaybackOperationId("");
     setPlaybackError(null);
     player.configure(
       stateRef.current.playbackPitch,
@@ -562,6 +568,16 @@ export default function TtsOverlay() {
       stateRef.current.chunks,
       stateRef.current.totalChunks,
     );
+    if (
+      stateRef.current.status === "completed" &&
+      playbackProgressRef.current >= 1
+    ) {
+      const restartedProgress = player.seek(0);
+      if (restartedProgress !== null) {
+        playbackProgressRef.current = restartedProgress;
+        setPlaybackProgress(restartedProgress);
+      }
+    }
     if (stateRef.current.chunks.length > 0) {
       startAudio(player);
     }
@@ -606,11 +622,46 @@ export default function TtsOverlay() {
     };
   }, [closeOverlay]);
 
+  const recordOverlayActivity = useCallback(() => {
+    if (stateRef.current.status === "completed") {
+      setAutoHideActivityRevision((revision) => revision + 1);
+    }
+  }, []);
+
+  const beginPointerInteraction = useCallback(() => {
+    setPointerInteractionActive(true);
+    recordOverlayActivity();
+  }, [recordOverlayActivity]);
+
+  const endPointerInteraction = useCallback(() => {
+    setPointerInteractionActive(false);
+    recordOverlayActivity();
+  }, [recordOverlayActivity]);
+
+  const handleDragGripPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      beginPointerInteraction();
+      void overlayWindow
+        .startDragging()
+        .catch((error) => {
+          console.error("Unable to drag the TTS overlay:", error);
+        })
+        .finally(endPointerInteraction);
+    },
+    [beginPointerInteraction, endPointerInteraction],
+  );
+
   useEffect(() => {
     if (
       !state.autoHideEnabled ||
       state.status !== "completed" ||
       !state.operationId ||
+      pointerInteractionActive ||
       completedPlaybackOperationId !== state.operationId
     ) {
       return;
@@ -635,7 +686,9 @@ export default function TtsOverlay() {
 
     return () => window.clearTimeout(timeout);
   }, [
+    autoHideActivityRevision,
     completedPlaybackOperationId,
+    pointerInteractionActive,
     resetAudio,
     state.autoHideDelaySeconds,
     state.autoHideEnabled,
@@ -643,12 +696,20 @@ export default function TtsOverlay() {
     state.status,
   ]);
 
-  const cyclePlaybackRate = useCallback(() => {
-    const nextRate = nextPlaybackRate(playbackRateRef.current);
-    playbackRateRef.current = nextRate;
-    setPlaybackRate(nextRate);
-    playerRef.current?.setPlaybackRate(nextRate);
-  }, []);
+  const changePlaybackRate = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const requestedRate = Number(event.target.value);
+      if (!Number.isFinite(requestedRate)) {
+        return;
+      }
+      const nextRate = Math.min(3, Math.max(0.75, requestedRate));
+      playbackRateRef.current = nextRate;
+      setPlaybackRate(nextRate);
+      playerRef.current?.setPlaybackRate(nextRate);
+      recordOverlayActivity();
+    },
+    [recordOverlayActivity],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -672,6 +733,7 @@ export default function TtsOverlay() {
       if (!document.hasFocus() || event.repeat) {
         return;
       }
+      recordOverlayActivity();
       const currentHotkey = buildPreviewHotkeyFromKeyboardEvent(event, osType);
       if (!currentHotkey) {
         return;
@@ -701,6 +763,7 @@ export default function TtsOverlay() {
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [
     osType,
+    recordOverlayActivity,
     state.playHistoryWhenOverlayClosed,
     state.playPauseHotkey,
     state.stopHotkey,
@@ -730,10 +793,12 @@ export default function TtsOverlay() {
       }
       const actualProgress = playerRef.current.seek(nextProgress);
       if (actualProgress !== null) {
+        playbackProgressRef.current = actualProgress;
         setPlaybackProgress(actualProgress);
+        recordOverlayActivity();
       }
     },
-    [playbackDuration],
+    [playbackDuration, recordOverlayActivity],
   );
   const waitingForChunk =
     desiredPlayingRef.current &&
@@ -750,9 +815,6 @@ export default function TtsOverlay() {
   const canPlay =
     state.status !== "stopped" &&
     state.status !== "error" &&
-    (state.status !== "completed" ||
-      isPlaying ||
-      desiredPlayingRef.current) &&
     (state.chunks.length > 0 ||
       state.status === "loading" ||
       state.status === "retrying");
@@ -786,26 +848,42 @@ export default function TtsOverlay() {
   ]
     .filter(Boolean)
     .join(" · ");
-  const nextRate = nextPlaybackRate(playbackRate);
   const playbackRateLabel = formatPlaybackRate(playbackRate);
 
   return (
-    <main className={`tts-overlay tts-overlay--${state.status}`}>
-      <div className="tts-overlay__header" data-tauri-drag-region>
-        <div className="tts-overlay__identity" data-tauri-drag-region>
+    <main
+      className={`tts-overlay tts-overlay--${state.status}`}
+      onPointerDown={beginPointerInteraction}
+      onPointerUp={endPointerInteraction}
+      onPointerCancel={endPointerInteraction}
+    >
+      <div className="tts-overlay__grip-row">
+        <button
+          type="button"
+          className="tts-overlay__grip"
+          aria-label={t("textToSpeech.overlayPlayer.dragToMove")}
+          title={t("textToSpeech.overlayPlayer.dragToMove")}
+          onPointerDown={handleDragGripPointerDown}
+        >
+          {Array.from({ length: 6 }).map((_, index) => (
+            <span key={index} className="tts-overlay__grip-dot" />
+          ))}
+        </button>
+      </div>
+
+      <div className="tts-overlay__header">
+        <div className="tts-overlay__identity">
           <span className="tts-overlay__pulse" aria-hidden="true" />
-          <div data-tauri-drag-region>
-            <div className="tts-overlay__status" data-tauri-drag-region>
+          <div>
+            <div className="tts-overlay__status">
               {label}
             </div>
             <div
               className="tts-overlay__provider"
-              data-tauri-drag-region
               title={identityTitle}
             >
               <span
                 className="tts-overlay__provider-name"
-                data-tauri-drag-region
               >
                 {state.provider || "AivoRelay"}
               </span>
@@ -817,7 +895,7 @@ export default function TtsOverlay() {
                   >
                     ·
                   </span>
-                  <span data-tauri-drag-region>
+                  <span>
                     {t("textToSpeech.overlayPlayer.activeModel", {
                       model: state.model,
                     })}
@@ -832,7 +910,7 @@ export default function TtsOverlay() {
                   >
                     ·
                   </span>
-                  <span data-tauri-drag-region>
+                  <span>
                     {t("textToSpeech.overlayPlayer.activeVoice", {
                       voice: state.voice,
                     })}
@@ -917,18 +995,35 @@ export default function TtsOverlay() {
           {t("textToSpeech.overlayPlayer.stop")}
           {stopHotkeyLabel && <kbd>{stopHotkeyLabel}</kbd>}
         </button>
-        <button
-          type="button"
-          className="tts-overlay__button tts-overlay__rate"
-          onClick={cyclePlaybackRate}
-          aria-label={t("textToSpeech.overlayPlayer.playbackRate", {
-            rate: playbackRateLabel,
-            nextRate: formatPlaybackRate(nextRate),
-          })}
-          title={t("textToSpeech.overlayPlayer.playbackRateDescription")}
-        >
-          {playbackRateLabel}
-        </button>
+        <div className="tts-overlay__rate-control">
+          {rateSliderOpen && (
+            <div className="tts-overlay__rate-panel">
+              <input
+                type="range"
+                className="tts-overlay__rate-slider"
+                aria-label={t("textToSpeech.overlayPlayer.playbackRateSlider")}
+                aria-valuetext={playbackRateLabel}
+                min={0.75}
+                max={3}
+                step={0.05}
+                value={playbackRate}
+                onChange={changePlaybackRate}
+              />
+            </div>
+          )}
+          <button
+            type="button"
+            className="tts-overlay__button tts-overlay__rate"
+            onClick={() => setRateSliderOpen((open) => !open)}
+            aria-expanded={rateSliderOpen}
+            aria-label={t("textToSpeech.overlayPlayer.playbackRate", {
+              rate: playbackRateLabel,
+            })}
+            title={t("textToSpeech.overlayPlayer.playbackRateDescription")}
+          >
+            {playbackRateLabel}
+          </button>
+        </div>
       </div>
     </main>
   );
