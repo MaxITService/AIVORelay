@@ -210,7 +210,7 @@
       "autoplay": "Autoplay",
       "autoplayDescription": "Starts the first completed chunk immediately, while later chunks may still be generated.",
       "autoHide": "Automatic close",
-      "autoHideDescription": "Hides the playback overlay after the audio finishes. The delay is configurable and defaults to four seconds.",
+      "autoHideDescription": "Hides the playback overlay after the audio finishes and the configured delay passes without interaction. The delay defaults to four seconds.",
       "hotkeys": "Hotkeys",
       "hotkeysDescription": "Playback keys normally act while the overlay is visible. The History fallback can make Play/Pause global.",
       "conversionSummary": "Manual conversion inspects a text or Markdown file, applies the File Operations settings, and writes MP3 or WAV without publishing an incomplete final file.",
@@ -486,9 +486,9 @@
       "autoplayLabel": "Start playback automatically",
       "autoplayDescription": "Play the first synthesized chunk as soon as it is ready.",
       "autoHideLabel": "Hide the overlay after playback",
-      "autoHideDescription": "Automatically close the overlay after the audio finishes playing.",
+      "autoHideDescription": "Automatically close the overlay after playback and a period without interaction.",
       "autoHideDelayTitle": "Auto-hide delay (seconds)",
-      "autoHideDelayDescription": "Choose how long the completed overlay remains visible, from 1 to 300 seconds.",
+      "autoHideDelayDescription": "Choose how long the completed overlay remains visible after your last interaction, from 1 to 300 seconds.",
       "pitchTitle": "Playback pitch",
       "pitchDescription": "Shift pitch from 0.5× to 2× during overlay and History playback. Generated and exported audio files are not changed; very long History audio plays unchanged for memory safety.",
       "effectTitle": "Playback effect",
@@ -788,8 +788,10 @@
       "playPauseWithHotkey": "Play or pause ({{hotkey}})",
       "stop": "Stop",
       "stopWithHotkey": "Stop ({{hotkey}})",
-      "playbackRate": "Playback speed {{rate}}. Activate to use {{nextRate}}.",
-      "playbackRateDescription": "Changes playback speed only. Speech synthesis speed is unchanged."
+      "playbackRate": "Playback speed {{rate}}. Activate to show the speed slider.",
+      "playbackRateSlider": "Playback speed",
+      "playbackRateDescription": "Changes playback speed only. Speech synthesis speed is unchanged.",
+      "dragToMove": "Drag to move overlay"
     },
     "history": {
       "title": "TTS History",

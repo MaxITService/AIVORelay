@@ -18,6 +18,6 @@ export function applyPlaybackRate(audio: HTMLAudioElement, rate: number) {
   audio.preservesPitch = true;
 }
 
-export function formatPlaybackRate(rate: PlaybackRate): string {
+export function formatPlaybackRate(rate: number): string {
   return `${rate}×`;
 }

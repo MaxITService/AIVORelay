@@ -285,6 +285,38 @@ pub fn force_overlay_topmost(overlay_window: &tauri::webview::WebviewWindow) {
 }
 
 #[cfg(target_os = "windows")]
+fn remove_tts_overlay_native_frame(overlay_window: &tauri::webview::WebviewWindow) {
+    use windows::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE,
+        DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
+    };
+
+    let Ok(hwnd) = overlay_window.hwnd() else {
+        return;
+    };
+    let border_color = DWMWA_COLOR_NONE;
+    let corner_preference = DWMWCP_DONOTROUND;
+    unsafe {
+        if let Err(error) = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR,
+            &border_color as *const u32 as *const core::ffi::c_void,
+            std::mem::size_of_val(&border_color) as u32,
+        ) {
+            log::debug!("Unable to remove the native TTS overlay border: {error}");
+        }
+        if let Err(error) = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &corner_preference as *const _ as *const core::ffi::c_void,
+            std::mem::size_of_val(&corner_preference) as u32,
+        ) {
+            log::debug!("Unable to disable native TTS overlay corner rounding: {error}");
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn apply_recording_overlay_geometry_native(
     overlay_window: &tauri::webview::WebviewWindow,
     geometry: RecordingOverlayWindowGeometry,
@@ -1735,6 +1767,7 @@ pub fn create_tts_overlay_window(app_handle: &AppHandle) {
     .closable(false)
     .accept_first_mouse(true)
     .decorations(false)
+    .shadow(false)
     .always_on_top(true)
     .skip_taskbar(true)
     .transparent(true)
@@ -1772,6 +1805,8 @@ pub fn create_tts_overlay_window(app_handle: &AppHandle) {
     match builder.build() {
         Ok(window) => {
             crate::webview_hardening::disable_browser_accelerator_keys(&window);
+            #[cfg(target_os = "windows")]
+            remove_tts_overlay_native_frame(&window);
             log::debug!("Text-to-Speech overlay window created successfully (hidden)");
         }
         Err(error) => log::error!("Failed to create Text-to-Speech overlay window: {error}"),
