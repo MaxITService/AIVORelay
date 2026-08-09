@@ -2431,6 +2431,10 @@ pub fn tts_overlay_playback_state(
         }
         runtime.playback_status = Some(status.clone());
         runtime.state.status = status;
+        // Autoplay is a one-shot request. Once the renderer has started or
+        // explicitly controlled playback, a renderer reload must not replay
+        // the retained audio snapshot.
+        runtime.state.autoplay = false;
         if let Some(current_chunk) = current_chunk {
             runtime.state.current_chunk = current_chunk.saturating_add(1);
         }
