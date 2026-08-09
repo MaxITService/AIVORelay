@@ -110,7 +110,12 @@ Open **Speak selected text** and choose a cloud provider, an installed Windows
 voice, or an optional local model. Start with the recommended preset, then
 assign a keyboard shortcut under **Actions**. Select text in any application and
 press the shortcut to hear it aloud; optional settings control the voice, speed,
-playback, and History.
+playback, and History. You can read existing clipboard text, copy the selection
+temporarily and then read it, or read a selection directly on supported Windows
+apps.
+
+Cloud providers send text online. Windows voices and local TTS models keep speech
+generation on this computer, but optional LLM cleanup can still send text online.
 
 Console commands: selected-text reading has no direct console command in the
 current CLI documentation.
@@ -121,7 +126,12 @@ Open **Text file to mp3** and choose a cloud provider, an installed Windows
 voice, or an optional local model. Select a text or Markdown file, inspect its
 characters and planned chunks, choose MP3 or WAV and an output path, then start
 the conversion. The page also supports multiple files, folders, resumable
-conversions, folder automation, and File History.
+conversions, folder automation, and File History. File Operations has its own
+settings; saved synthesis presets can also be shared with **Speak selected text**.
+
+Cloud providers send file text online. Windows voices and local TTS models keep
+speech generation on this computer, but optional LLM cleanup can still send text
+online.
 
 Console commands:
 

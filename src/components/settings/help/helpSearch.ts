@@ -80,7 +80,7 @@ const HELP_SEARCH_RECORDS: readonly HelpSearchRecord[] = [
     anchor: "help-speak-selected-text",
     title: "Select text. Press a key. Hear it spoken.",
     summary:
-      "Open Speak selected text, choose a provider, and start with its recommended preset. Assign a shortcut under Actions, then select text in any app and press the shortcut to hear it aloud. You can also adjust the voice, speed, playback, and History settings.",
+      "Open Speak selected text, choose a provider, and start with its recommended preset. Assign a shortcut under Actions, then select text in any app and press the shortcut to hear it aloud. You can read the clipboard, copy selected text first, or read a selection directly where Windows supports it; cloud providers send text online, while Windows voices and local models keep speech generation on this computer.",
     destination: "Speak selected text",
     keywords: [
       "text to speech",
@@ -93,6 +93,11 @@ const HELP_SEARCH_RECORDS: readonly HelpSearchRecord[] = [
       "speed",
       "playback",
       "history",
+      "read clipboard",
+      "copy and read",
+      "direct selection",
+      "local",
+      "cloud",
       "clipboard",
     ],
   },
@@ -100,7 +105,7 @@ const HELP_SEARCH_RECORDS: readonly HelpSearchRecord[] = [
     anchor: "help-text-file-to-mp3",
     title: "Choose text files. Get MP3 or WAV audio.",
     summary:
-      "Open Text file to mp3, choose a provider, and select a text or Markdown file. Choose MP3 or WAV, select where to save it, and start conversion. The page also supports multiple files, folders, resumable work, folder automation, and File History.",
+      "Open Text file to mp3, choose a provider, and select a text or Markdown file. Choose MP3 or WAV, select where to save it, and start conversion; File Operations has its own settings, while synthesis presets can be shared with Speak selected text. The page also supports multiple files, folders, resumable work, folder automation, and File History; optional LLM cleanup can send text online.",
     destination: "Text file to mp3",
     keywords: [
       "text file",
@@ -117,6 +122,11 @@ const HELP_SEARCH_RECORDS: readonly HelpSearchRecord[] = [
       "resume",
       "history",
       "bitrate",
+      "file operations",
+      "synthesis preset",
+      "LLM cleanup",
+      "local",
+      "cloud",
       "CLI",
     ],
   },
