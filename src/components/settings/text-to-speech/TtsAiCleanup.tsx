@@ -12,6 +12,7 @@ import { commands } from "@/bindings";
 import { ApiKeyEditor, StoredApiKeyDisplay } from "../ApiKeyControls";
 import { ModelSelect } from "../PostProcessingSettingsApi/ModelSelect";
 import { TtsHelpDisclosure } from "./TtsHelpDisclosure";
+import { CommittedNumberInput } from "./CommittedNumberInput";
 import { Button } from "@/components/ui/Button";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { Input } from "@/components/ui/Input";
@@ -838,25 +839,18 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
           "Large documents are split at paragraph or sentence boundaries before cleanup.",
         )}
       >
-        <Input
+        <CommittedNumberInput
           className="w-32"
-          type="number"
           min={1000}
           max={50000}
           step={500}
           value={value.chunk_target_chars}
-          onChange={(event) =>
+          onCommit={(chunk_target_chars) =>
             void patch(
-              {
-                chunk_target_chars: Math.min(
-                  50000,
-                  Math.max(1000, Number(event.target.value) || 12000),
-                ),
-              },
+              { chunk_target_chars },
               "llm_preprocessing.chunk_target_chars",
             )
           }
-          onBlur={() => void flushPendingSettingsWrites()}
         />
       </SettingContainer>
 
@@ -894,28 +888,18 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
             title={item.label}
             description={item.description}
           >
-            <Input
+            <CommittedNumberInput
               className="w-28"
-              type="number"
               min={item.min}
               max={item.max}
               step={item.step}
               value={value[item.key]}
-              onChange={(event) =>
+              onCommit={(nextValue) =>
                 void patch(
-                  {
-                    [item.key]: Math.min(
-                      item.max,
-                      Math.max(
-                        item.min,
-                        Number(event.target.value) || item.min,
-                      ),
-                    ),
-                  },
+                  { [item.key]: nextValue },
                   `llm_preprocessing.${item.key}`,
                 )
               }
-              onBlur={() => void flushPendingSettingsWrites()}
             />
           </SettingContainer>
         ))}

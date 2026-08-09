@@ -26,7 +26,6 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/Button";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { Input } from "@/components/ui/Input";
 import { SettingContainer } from "@/components/ui/SettingContainer";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
@@ -35,6 +34,7 @@ import {
   type TtsProvider,
 } from "@/lib/tts/ttsProviderMetadata";
 import type { TtsLlmPreprocessingSettings } from "./TtsAiCleanup";
+import { CommittedNumberInput } from "./CommittedNumberInput";
 import { TtsHelpDisclosure } from "./TtsHelpDisclosure";
 import { applyPlaybackRate } from "@/lib/utils/playbackRate";
 import {
@@ -243,17 +243,6 @@ const formatPlaybackTime = (seconds: number) => {
     Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
   const minutes = Math.floor(safeSeconds / 60);
   return `${minutes}:${String(safeSeconds % 60).padStart(2, "0")}`;
-};
-
-const asBoundedInteger = (
-  value: string,
-  minimum: number,
-  maximum: number,
-  fallback: number,
-) => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(maximum, Math.max(minimum, Math.round(parsed)));
 };
 
 const providerLabel = (provider: TtsProvider) => {
@@ -916,23 +905,15 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
           description={t("textToSpeech.history.maxEntriesDescription")}
           descriptionMode="inline"
         >
-          <Input
+          <CommittedNumberInput
             className="w-28"
-            type="number"
             min={1}
             max={100000}
             step={1}
             value={historyMaxEntries}
-            onChange={(event) =>
+            onCommit={(maxEntries) =>
               void updateTts(
-                {
-                  [maxEntriesField]: asBoundedInteger(
-                    event.target.value,
-                    1,
-                    100000,
-                    100,
-                  ),
-                },
+                { [maxEntriesField]: maxEntries },
                 maxEntriesField,
               )
             }
@@ -946,23 +927,15 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
           descriptionMode="inline"
         >
           <div className="flex items-center gap-2">
-            <Input
+            <CommittedNumberInput
               className="w-28"
-              type="number"
               min={1}
               max={1048576}
               step={128}
               value={historyMaxStorageMb}
-              onChange={(event) =>
+              onCommit={(maxStorageMb) =>
                 void updateTts(
-                  {
-                    [maxStorageField]: asBoundedInteger(
-                      event.target.value,
-                      1,
-                      1048576,
-                      1024,
-                    ),
-                  },
+                  { [maxStorageField]: maxStorageMb },
                   maxStorageField,
                 )
               }

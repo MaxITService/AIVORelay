@@ -245,6 +245,7 @@ button {
 
 .tts-overlay__progress {
   --tts-seek-progress: 0%;
+  --tts-ready-progress: 0%;
   appearance: none;
   -webkit-appearance: none;
   width: 100%;
@@ -258,10 +259,45 @@ button {
     90deg,
     var(--tts-accent) 0,
     #ff89b2 var(--tts-seek-progress),
-    rgba(255, 255, 255, 0.09) var(--tts-seek-progress),
+    rgba(255, 137, 178, 0.32) var(--tts-seek-progress),
+    rgba(255, 137, 178, 0.32) var(--tts-ready-progress),
+    rgba(255, 255, 255, 0.09) var(--tts-ready-progress),
     rgba(255, 255, 255, 0.09) 100%
   );
   cursor: pointer;
+}
+
+.tts-overlay__timeline {
+  display: grid;
+  gap: 5px;
+}
+
+.tts-overlay__timeline-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  overflow: hidden;
+  color: rgba(247, 247, 251, 0.5);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tts-overlay__timeline-meta span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tts-overlay__progress--pending {
+  background: repeating-linear-gradient(
+    110deg,
+    rgba(255, 77, 141, 0.3) 0 8px,
+    rgba(255, 137, 178, 0.12) 8px 16px,
+    rgba(255, 255, 255, 0.09) 16px 24px
+  );
+  background-size: 48px 100%;
+  animation: tts-stream-pending 1.2s linear infinite;
 }
 
 .tts-overlay__progress:disabled {
@@ -463,6 +499,12 @@ button {
   }
 }
 
+@keyframes tts-stream-pending {
+  to {
+    background-position: 48px 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tts-overlay__pulse {
     animation: none !important;
@@ -470,5 +512,9 @@ button {
 
   .tts-overlay__button {
     transition: none;
+  }
+
+  .tts-overlay__progress--pending {
+    animation: none;
   }
 }

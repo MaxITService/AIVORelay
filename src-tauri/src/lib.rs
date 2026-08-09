@@ -1376,6 +1376,7 @@ pub fn run(cli_args: CliArgs) {
         commands::tts::delete_local_tts,
         commands::tts::get_windows_tts_voice_catalog,
         commands::tts::get_tts_voice_catalog,
+        commands::tts::preview_tts_voice,
         commands::tts::inspect_tts_text_file,
         commands::tts::convert_tts_text_file,
         commands::tts::list_tts_file_jobs,
