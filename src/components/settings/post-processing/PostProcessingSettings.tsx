@@ -444,7 +444,6 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
   const [draftName, setDraftName] = useState("");
   const [draftText, setDraftText] = useState("");
 
-  const enabled = getSetting("post_process_enabled") || false;
   const prompts = getSetting("post_process_prompts") || [];
   const selectedPromptId = getSetting("post_process_selected_prompt_id") || "";
   const selectedPrompt =

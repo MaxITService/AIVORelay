@@ -3447,9 +3447,25 @@ pub fn change_remote_stt_debug_mode_setting(app: AppHandle, mode: String) -> Res
 
 #[tauri::command]
 #[specta::specta]
+/// Updates the configured LLM post-processing state for the active profile.
+/// The default profile owns `post_process_enabled`; custom profiles own their
+/// individual `llm_post_process_enabled` value.
 pub fn change_post_process_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    settings.post_process_enabled = enabled;
+    let active_profile_id = settings.active_profile_id.clone();
+    if active_profile_id == "default" {
+        settings.post_process_enabled = enabled;
+    } else if let Some(profile) = settings
+        .transcription_profiles
+        .iter_mut()
+        .find(|profile| profile.id == active_profile_id)
+    {
+        profile.llm_post_process_enabled = enabled;
+    } else {
+        // Match transcription-time resolution: an invalid/missing custom
+        // profile falls back to the default profile's global setting.
+        settings.post_process_enabled = enabled;
+    }
     settings::write_settings(&app, settings);
     Ok(())
 }
