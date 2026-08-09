@@ -710,10 +710,10 @@ fn set_model_and_voice(
             TtsProvider::ElevenLabs => {
                 if !matches!(
                     model.as_str(),
-                    "eleven_v3" | "eleven_multilingual_v2"
+                    "eleven_flash_v2_5" | "eleven_v3" | "eleven_multilingual_v2"
                 ) {
                     return Err(
-                        "ElevenLabs model must be eleven_v3 or eleven_multilingual_v2"
+                        "ElevenLabs model must be eleven_flash_v2_5, eleven_v3, or eleven_multilingual_v2"
                             .to_string(),
                     );
                 }

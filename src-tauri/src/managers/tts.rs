@@ -24,9 +24,9 @@ use crate::managers::windows_tts::{self, WINDOWS_TTS_PROVIDER_LIMIT};
 use crate::settings::{
     apply_text_replacements, ElevenLabsTextNormalization, TtsKeySource, TtsLlmScope,
     TtsOutputFormat, TtsProvider, TtsSettings, DEFAULT_TTS_CARTESIA_VOICE,
-    DEFAULT_TTS_ELEVENLABS_VOICE, DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE,
-    DEFAULT_TTS_OPENAI_COMPATIBLE_MODEL, DEFAULT_TTS_OPENAI_COMPATIBLE_VOICE,
-    DEFAULT_TTS_OPENAI_VOICE, DEFAULT_TTS_SONIOX_VOICE,
+    DEFAULT_TTS_ELEVENLABS_MODEL, DEFAULT_TTS_ELEVENLABS_VOICE, DEFAULT_TTS_MURF_GEN2_VOICE,
+    DEFAULT_TTS_MURF_VOICE, DEFAULT_TTS_OPENAI_COMPATIBLE_MODEL,
+    DEFAULT_TTS_OPENAI_COMPATIBLE_VOICE, DEFAULT_TTS_OPENAI_VOICE, DEFAULT_TTS_SONIOX_VOICE,
 };
 
 #[allow(dead_code)]
@@ -72,6 +72,7 @@ pub const OPENAI_CHARACTER_LIMIT: usize = 4_096;
 pub const MURF_CHARACTER_LIMIT: usize = 3_000;
 pub const ELEVENLABS_V3_CHARACTER_LIMIT: usize = 5_000;
 pub const ELEVENLABS_MULTILINGUAL_V2_CHARACTER_LIMIT: usize = 10_000;
+pub const ELEVENLABS_FLASH_V2_5_CHARACTER_LIMIT: usize = 40_000;
 pub const CARTESIA_CONSERVATIVE_CHARACTER_LIMIT: usize = 4_000;
 pub const SONIOX_TTS_MODEL_MAX_CHARS: usize = 50;
 pub const SONIOX_TTS_LANGUAGE_MAX_CHARS: usize = 50;
@@ -490,6 +491,7 @@ impl TtsManager {
             TtsProvider::OpenAi | TtsProvider::OpenAiCompatible => OPENAI_CHARACTER_LIMIT,
             TtsProvider::Murf => MURF_CHARACTER_LIMIT,
             TtsProvider::ElevenLabs => match model.trim() {
+                "eleven_flash_v2_5" => ELEVENLABS_FLASH_V2_5_CHARACTER_LIMIT,
                 "eleven_multilingual_v2" => ELEVENLABS_MULTILINGUAL_V2_CHARACTER_LIMIT,
                 "eleven_v3" => ELEVENLABS_V3_CHARACTER_LIMIT,
                 _ => ELEVENLABS_V3_CHARACTER_LIMIT,
@@ -591,7 +593,7 @@ impl TtsManager {
         if settings.provider == TtsProvider::ElevenLabs {
             if !matches!(
                 settings.elevenlabs_model.as_str(),
-                "eleven_v3" | "eleven_multilingual_v2"
+                "eleven_v3" | "eleven_multilingual_v2" | "eleven_flash_v2_5"
             ) {
                 return Err(anyhow!(
                     "Unsupported ElevenLabs TTS model: {}",
@@ -3454,7 +3456,7 @@ impl TtsManager {
                     "text": text,
                     "model_id": nonempty_or(
                         &settings.elevenlabs_model,
-                        "eleven_multilingual_v2"
+                        DEFAULT_TTS_ELEVENLABS_MODEL
                     ),
                     "voice_settings": voice_settings,
                     "apply_text_normalization": elevenlabs_normalization_value(
@@ -5912,6 +5914,13 @@ mod tests {
                 "eleven_multilingual_v2"
             ),
             ELEVENLABS_MULTILINGUAL_V2_CHARACTER_LIMIT
+        );
+        assert_eq!(
+            TtsManager::provider_character_limit(
+                TtsProvider::ElevenLabs,
+                "eleven_flash_v2_5"
+            ),
+            ELEVENLABS_FLASH_V2_5_CHARACTER_LIMIT
         );
         assert_eq!(
             TtsManager::provider_character_limit(TtsProvider::Cartesia, "sonic-3.5"),
