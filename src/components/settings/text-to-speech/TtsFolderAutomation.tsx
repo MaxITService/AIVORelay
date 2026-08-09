@@ -10,6 +10,7 @@ import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { AIVORELAY_TTS_GUIDE_URL } from "@/lib/tts/ttsProviderMetadata";
+import { CommittedNumberInput } from "./CommittedNumberInput";
 import { TtsHelpDisclosure } from "./TtsHelpDisclosure";
 
 type TtsFolderAutomationProps = {
@@ -23,17 +24,6 @@ const ActionTooltip: React.FC<{
   children: React.ReactNode;
 }> = ({ content, children }) =>
   content ? <Tooltip content={content}>{children}</Tooltip> : children;
-
-const asBoundedNumber = (
-  value: string,
-  minimum: number,
-  maximum: number,
-  fallback: number,
-) => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(maximum, Math.max(minimum, Math.round(parsed)));
-};
 
 export const TtsFolderAutomation: React.FC<TtsFolderAutomationProps> = ({
   tts,
@@ -212,24 +202,16 @@ export const TtsFolderAutomation: React.FC<TtsFolderAutomationProps> = ({
         disabled={!enabled}
       >
         <div className="flex items-center gap-2">
-          <Input
+          <CommittedNumberInput
             className="w-28"
-            type="number"
             min={100}
             max={60000}
             step={100}
             value={settleDelayMs}
             disabled={!enabled}
-            onChange={(event) =>
+            onCommit={(watch_settle_delay_ms) =>
               void updateTts(
-                {
-                  watch_settle_delay_ms: asBoundedNumber(
-                    event.target.value,
-                    100,
-                    60000,
-                    1500,
-                  ),
-                },
+                { watch_settle_delay_ms },
                 "watch_settle_delay_ms",
               )
             }
@@ -248,24 +230,16 @@ export const TtsFolderAutomation: React.FC<TtsFolderAutomationProps> = ({
         disabled={!enabled}
       >
         <div className="flex items-center gap-2">
-          <Input
+          <CommittedNumberInput
             className="w-28"
-            type="number"
             min={0}
             max={1048576}
             step={128}
             value={diskReserveMb}
             disabled={!enabled}
-            onChange={(event) =>
+            onCommit={(disk_reserve_mb) =>
               void updateTts(
-                {
-                  disk_reserve_mb: asBoundedNumber(
-                    event.target.value,
-                    0,
-                    1048576,
-                    512,
-                  ),
-                },
+                { disk_reserve_mb },
                 "disk_reserve_mb",
               )
             }

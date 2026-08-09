@@ -325,6 +325,12 @@ function statusLabel(
   }
 }
 
+function formatPlaybackTime(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  return `${minutes}:${String(safeSeconds % 60).padStart(2, "0")}`;
+}
+
 export default function TtsOverlay() {
   const { t } = useTranslation();
   const osKind = getOsType();
@@ -335,6 +341,7 @@ export default function TtsOverlay() {
   const [state, setState] = useState<TtsOverlayState>(EMPTY_STATE);
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeChunkIndex, setActiveChunkIndex] = useState<number | null>(null);
+  const [playbackTime, setPlaybackTime] = useState(0);
   const [playbackDuration, setPlaybackDuration] = useState(0);
   const [playbackProgress, setPlaybackProgress] = useState(0);
   const [completedPlaybackOperationId, setCompletedPlaybackOperationId] =
@@ -385,6 +392,7 @@ export default function TtsOverlay() {
         activeChunkIndexRef.current = snapshot.chunkIndex;
         setActiveChunkIndex(snapshot.chunkIndex);
         setIsPlaying(snapshot.isPlaying);
+        setPlaybackTime(snapshot.playbackTime);
         setPlaybackDuration(snapshot.playbackDuration);
         playbackProgressRef.current = snapshot.playbackProgress;
         setPlaybackProgress(snapshot.playbackProgress);
@@ -427,6 +435,7 @@ export default function TtsOverlay() {
     activeChunkIndexRef.current = null;
     setActiveChunkIndex(null);
     setIsPlaying(false);
+    setPlaybackTime(0);
     setPlaybackDuration(0);
     playbackProgressRef.current = 0;
     setPlaybackProgress(0);
@@ -820,8 +829,8 @@ export default function TtsOverlay() {
   ]);
 
   const streamLengthPending =
-    state.chunks.length > 0 &&
     state.totalChunks === 0 &&
+    state.status !== "idle" &&
     state.status !== "completed" &&
     state.status !== "error" &&
     state.status !== "stopped";
@@ -830,15 +839,58 @@ export default function TtsOverlay() {
       ? Math.min(1, Math.max(0, playbackProgress))
       : 0;
   const seekPercent = seekValue * 100;
+  const readyChunkCount = state.chunks.length;
+  const plannedChunkCount =
+    state.totalChunks > 0
+      ? state.totalChunks
+      : state.status === "completed"
+        ? readyChunkCount
+        : 0;
+  const readyProgress =
+    plannedChunkCount > 0
+      ? Math.min(1, readyChunkCount / plannedChunkCount)
+      : state.status === "completed" && readyChunkCount > 0
+        ? 1
+        : 0;
+  const readyPercent = Math.max(seekPercent, readyProgress * 100);
+  const pendingChunkCount = Math.max(
+    0,
+    plannedChunkCount - readyChunkCount,
+  );
+  const allChunksReady =
+    state.status === "completed" ||
+    (plannedChunkCount > 0 && readyChunkCount >= plannedChunkCount);
+  const elapsedLabel = formatPlaybackTime(playbackTime);
+  const durationLabel = formatPlaybackTime(playbackDuration);
+  const timelineTimeLabel = allChunksReady
+    ? `${elapsedLabel} / ${durationLabel}`
+    : t("textToSpeech.overlayPlayer.generatedTime", {
+        elapsed: elapsedLabel,
+        duration: durationLabel,
+      });
+  const chunkAvailabilityLabel =
+    plannedChunkCount > 0
+      ? t("textToSpeech.overlayPlayer.chunksAvailable", {
+          ready: readyChunkCount,
+          total: plannedChunkCount,
+          pending: pendingChunkCount,
+        })
+      : t("textToSpeech.overlayPlayer.chunksAvailableUnknown", {
+          ready: readyChunkCount,
+        });
   const seekPlayback = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       if (!playerRef.current || playbackDuration <= 0) {
         return;
       }
-      const nextProgress = Number(event.target.value);
-      if (!Number.isFinite(nextProgress)) {
+      const requestedProgress = Number(event.target.value);
+      if (!Number.isFinite(requestedProgress)) {
         return;
       }
+      const nextProgress = Math.min(
+        requestedProgress,
+        allChunksReady ? 1 : readyProgress,
+      );
       const actualProgress = playerRef.current.seek(nextProgress);
       if (actualProgress !== null) {
         playbackProgressRef.current = actualProgress;
@@ -846,7 +898,7 @@ export default function TtsOverlay() {
         recordOverlayActivity();
       }
     },
-    [playbackDuration, recordOverlayActivity],
+    [allChunksReady, playbackDuration, readyProgress, recordOverlayActivity],
   );
   const waitingForChunk =
     desiredPlayingRef.current &&
@@ -990,18 +1042,32 @@ export default function TtsOverlay() {
         </p>
       )}
 
-      <input
-        type="range"
-        className="tts-overlay__progress"
-        aria-label={t("textToSpeech.overlayPlayer.progress")}
-        min={0}
-        max={1}
-        step={playbackDuration > 0 ? 0.001 : 1}
-        value={seekValue}
-        disabled={streamLengthPending || playbackDuration <= 0}
-        onChange={seekPlayback}
-        style={{ "--tts-seek-progress": `${seekPercent}%` } as CSSProperties}
-      />
+      <div className="tts-overlay__timeline">
+        <input
+          type="range"
+          className={`tts-overlay__progress${
+            streamLengthPending ? " tts-overlay__progress--pending" : ""
+          }`}
+          aria-label={t("textToSpeech.overlayPlayer.progress")}
+          aria-valuetext={`${timelineTimeLabel}. ${chunkAvailabilityLabel}`}
+          min={0}
+          max={1}
+          step={playbackDuration > 0 ? 0.001 : 1}
+          value={seekValue}
+          disabled={streamLengthPending || playbackDuration <= 0}
+          onChange={seekPlayback}
+          style={
+            {
+              "--tts-seek-progress": `${seekPercent}%`,
+              "--tts-ready-progress": `${readyPercent}%`,
+            } as CSSProperties
+          }
+        />
+        <div className="tts-overlay__timeline-meta" aria-hidden="true">
+          <span>{timelineTimeLabel}</span>
+          <span>{chunkAvailabilityLabel}</span>
+        </div>
+      </div>
 
       {visibleError && (
         <div className="tts-overlay__error" role="alert">

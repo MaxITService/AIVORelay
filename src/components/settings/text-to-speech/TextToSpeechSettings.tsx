@@ -22,7 +22,9 @@ import {
   RefreshCw,
   Save as SaveIcon,
   Sparkles,
+  Square,
   Trash2,
+  Volume2,
 } from "lucide-react";
 
 import { useSettings } from "@/hooks/useSettings";
@@ -35,6 +37,7 @@ import { TtsBetaBanner } from "./TtsBetaBanner";
 import { TtsHelpDisclosure } from "./TtsHelpDisclosure";
 import { TtsHistory } from "./TtsHistory";
 import { TtsUnfinishedJobs } from "./TtsUnfinishedJobs";
+import { CommittedNumberInput } from "./CommittedNumberInput";
 import {
   DEFAULT_TTS_LLM_PREPROCESSING,
   TtsAiCleanup,
@@ -1150,18 +1153,6 @@ const defaultTtsOutputPath = (
   return `${directory}${baseName}.${outputFormat}`;
 };
 
-const clampNumber = (
-  value: string,
-  min: number,
-  max: number,
-  fallback: number,
-) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed)
-    ? Math.min(max, Math.max(min, parsed))
-    : fallback;
-};
-
 const operationScope = (
   mode: TextToSpeechSettingsProps["mode"],
 ): TtsOperationScope => (mode === "files" ? "file" : "interactive");
@@ -1763,6 +1754,15 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const [voiceCatalogError, setVoiceCatalogError] = useState<string | null>(
     null,
   );
+  const [voicePreviewText, setVoicePreviewText] = useState(() =>
+    t("textToSpeech.voice.previewDefaultText"),
+  );
+  const [voicePreviewBusy, setVoicePreviewBusy] = useState(false);
+  const [voicePreviewStopping, setVoicePreviewStopping] = useState(false);
+  const [voicePreviewError, setVoicePreviewError] = useState<string | null>(
+    null,
+  );
+  const voicePreviewCancelRequestedRef = useRef(false);
   const [capturingHotkey, setCapturingHotkey] = useState<
     "play_pause" | "stop" | null
   >(null);
@@ -2371,6 +2371,47 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     }
     await updateTts({}, "__tts_settings_flush__");
   }, [updateTts]);
+
+  const runVoicePreview = useCallback(async () => {
+    const text = voicePreviewText.trim();
+    if (!text) {
+      setVoicePreviewError(t("textToSpeech.voice.previewEmpty"));
+      return;
+    }
+
+    voicePreviewCancelRequestedRef.current = false;
+    setVoicePreviewBusy(true);
+    setVoicePreviewStopping(false);
+    setVoicePreviewError(null);
+    try {
+      await flushPendingSettingsWrites();
+      if (voicePreviewCancelRequestedRef.current) {
+        return;
+      }
+      await invoke("preview_tts_voice", { text });
+    } catch (error) {
+      if (!voicePreviewCancelRequestedRef.current) {
+        setVoicePreviewError(asErrorMessage(error));
+      }
+    } finally {
+      voicePreviewCancelRequestedRef.current = false;
+      setVoicePreviewBusy(false);
+      setVoicePreviewStopping(false);
+    }
+  }, [flushPendingSettingsWrites, t, voicePreviewText]);
+
+  const cancelVoicePreview = useCallback(async () => {
+    voicePreviewCancelRequestedRef.current = true;
+    setVoicePreviewStopping(true);
+    setVoicePreviewError(null);
+    try {
+      await invoke("cancel_tts_operation", { operationId: null });
+    } catch (error) {
+      voicePreviewCancelRequestedRef.current = false;
+      setVoicePreviewError(asErrorMessage(error));
+      setVoicePreviewStopping(false);
+    }
+  }, []);
 
   const refreshKeyStatus = useCallback(async () => {
     const generation = ++keyStatusGenerationRef.current;
@@ -3328,76 +3369,6 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 </div>
               </div>
             )}
-            <SettingContainer
-              grouped
-              layout="stacked"
-              title={t("textToSpeech.conversion.sourceTitle")}
-              description={t("textToSpeech.conversion.sourceDescription")}
-              descriptionMode="inline"
-            >
-              <div className="flex gap-2">
-                <Input
-                  className="min-w-0 flex-1"
-                  readOnly
-                  value={inputPath}
-                  placeholder={t("textToSpeech.conversion.noFileSelected")}
-                />
-                <ActionTooltip
-                  content={
-                    conversionBusy
-                      ? t("textToSpeech.conversion.disabledWhileRunning")
-                      : null
-                  }
-                >
-                  <Button
-                    variant="secondary"
-                    disabled={conversionBusy}
-                    onClick={() => void chooseInputFile()}
-                  >
-                    <FileText className="mr-2 inline h-4 w-4" />
-                    {t("textToSpeech.conversion.chooseFile")}
-                  </Button>
-                </ActionTooltip>
-              </div>
-              {inputPath && inspecting && (
-                <div
-                  role="status"
-                  aria-live="polite"
-                  className="mt-3 flex items-center gap-2 text-xs text-[#a0a0a0]"
-                >
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {t("textToSpeech.conversion.inspect")}
-                </div>
-              )}
-              {inspection && (
-                <div className="mt-3 grid grid-cols-3 gap-3">
-                  {[
-                    [
-                      t("textToSpeech.conversion.sourceCharacters"),
-                      characterCount(inspection, "source"),
-                    ],
-                    [
-                      t("textToSpeech.conversion.processedCharacters"),
-                      characterCount(inspection, "processed"),
-                    ],
-                    [
-                      t("textToSpeech.conversion.chunks"),
-                      chunkCount(inspection),
-                    ],
-                  ].map(([label, value]) => (
-                    <div
-                      key={String(label)}
-                      className="rounded-lg border border-white/[0.06] bg-black/15 p-3"
-                    >
-                      <div className="text-xs text-[#808080]">{label}</div>
-                      <div className="mt-1 text-lg font-semibold text-[#f5f5f5]">
-                        {value ?? "—"}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </SettingContainer>
           </SettingsGroup>
         )}
 
@@ -4828,25 +4799,14 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   maximum: speedMaximum,
                 })}
               >
-                <Input
+                <CommittedNumberInput
                   className="w-28"
-                  type="number"
                   min={speedMinimum}
                   max={speedMaximum}
                   step={0.05}
                   value={tts.speed}
-                  onChange={(event) =>
-                    void updateTts(
-                      {
-                        speed: clampNumber(
-                          event.target.value,
-                          speedMinimum,
-                          speedMaximum,
-                          1,
-                        ),
-                      },
-                      "speed",
-                    )
+                  onCommit={(speed) =>
+                    void updateTts({ speed }, "speed")
                   }
                 />
               </SettingContainer>
@@ -4858,22 +4818,14 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 title={t("textToSpeech.voice.murfRateTitle")}
                 description={t("textToSpeech.voice.murfRateDescription")}
               >
-                <Input
+                <CommittedNumberInput
                   className="w-28"
-                  type="number"
                   min={-50}
                   max={50}
                   step={1}
                   value={tts.murf_rate}
-                  onChange={(event) =>
-                    void updateTts(
-                      {
-                        murf_rate: Math.round(
-                          clampNumber(event.target.value, -50, 50, 0),
-                        ),
-                      },
-                      "murf_rate",
-                    )
+                  onCommit={(murf_rate) =>
+                    void updateTts({ murf_rate }, "murf_rate")
                   }
                 />
               </SettingContainer>
@@ -4882,22 +4834,14 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 title={t("textToSpeech.voice.murfPitchTitle")}
                 description={t("textToSpeech.voice.murfPitchDescription")}
               >
-                <Input
+                <CommittedNumberInput
                   className="w-28"
-                  type="number"
                   min={-50}
                   max={50}
                   step={1}
                   value={tts.murf_pitch}
-                  onChange={(event) =>
-                    void updateTts(
-                      {
-                        murf_pitch: Math.round(
-                          clampNumber(event.target.value, -50, 50, 0),
-                        ),
-                      },
-                      "murf_pitch",
-                    )
+                  onCommit={(murf_pitch) =>
+                    void updateTts({ murf_pitch }, "murf_pitch")
                   }
                 />
               </SettingContainer>
@@ -4909,22 +4853,14 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     "textToSpeech.voice.murfVariationDescription",
                   )}
                 >
-                  <Input
+                  <CommittedNumberInput
                     className="w-28"
-                    type="number"
                     min={0}
                     max={5}
                     step={1}
                     value={tts.murf_variation}
-                    onChange={(event) =>
-                      void updateTts(
-                        {
-                          murf_variation: Math.round(
-                            clampNumber(event.target.value, 0, 5, 1),
-                          ),
-                        },
-                        "murf_variation",
-                      )
+                    onCommit={(murf_variation) =>
+                      void updateTts({ murf_variation }, "murf_variation")
                     }
                   />
                 </SettingContainer>
@@ -4964,23 +4900,15 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   "textToSpeech.voice.elevenStabilityDescription",
                 )}
               >
-                <Input
+                <CommittedNumberInput
                   className="w-28"
-                  type="number"
                   min={0}
                   max={1}
                   step={0.05}
                   value={tts.elevenlabs_stability}
-                  onChange={(event) =>
+                  onCommit={(elevenlabs_stability) =>
                     void updateTts(
-                      {
-                        elevenlabs_stability: clampNumber(
-                          event.target.value,
-                          0,
-                          1,
-                          0.5,
-                        ),
-                      },
+                      { elevenlabs_stability },
                       "elevenlabs_stability",
                     )
                   }
@@ -4994,23 +4922,15 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     "textToSpeech.voice.elevenSimilarityDescription",
                   )}
                 >
-                  <Input
+                  <CommittedNumberInput
                     className="w-28"
-                    type="number"
                     min={0}
                     max={1}
                     step={0.05}
                     value={tts.elevenlabs_similarity_boost}
-                    onChange={(event) =>
+                    onCommit={(elevenlabs_similarity_boost) =>
                       void updateTts(
-                        {
-                          elevenlabs_similarity_boost: clampNumber(
-                            event.target.value,
-                            0,
-                            1,
-                            0.75,
-                          ),
-                        },
+                        { elevenlabs_similarity_boost },
                         "elevenlabs_similarity_boost",
                       )
                     }
@@ -5022,23 +4942,15 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 title={t("textToSpeech.voice.elevenStyleTitle")}
                 description={t("textToSpeech.voice.elevenStyleDescription")}
               >
-                <Input
+                <CommittedNumberInput
                   className="w-28"
-                  type="number"
                   min={0}
                   max={1}
                   step={0.05}
                   value={tts.elevenlabs_style}
-                  onChange={(event) =>
+                  onCommit={(elevenlabs_style) =>
                     void updateTts(
-                      {
-                        elevenlabs_style: clampNumber(
-                          event.target.value,
-                          0,
-                          1,
-                          0,
-                        ),
-                      },
+                      { elevenlabs_style },
                       "elevenlabs_style",
                     )
                   }
@@ -5117,23 +5029,15 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   "textToSpeech.voice.cartesiaVolumeDescription",
                 )}
               >
-                <Input
+                <CommittedNumberInput
                   className="w-28"
-                  type="number"
                   min={0.5}
                   max={2}
                   step={0.05}
                   value={tts.cartesia_volume}
-                  onChange={(event) =>
+                  onCommit={(cartesia_volume) =>
                     void updateTts(
-                      {
-                        cartesia_volume: clampNumber(
-                          event.target.value,
-                          0.5,
-                          2,
-                          1,
-                        ),
-                      },
+                      { cartesia_volume },
                       "cartesia_volume",
                     )
                   }
@@ -5177,6 +5081,77 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 />
               </SettingContainer>
             </>
+          )}
+          {mode === "interactive" && (
+            <SettingContainer
+              grouped
+              layout="stacked"
+              title={t("textToSpeech.voice.previewTitle")}
+              description={t("textToSpeech.voice.previewDescription")}
+              descriptionMode="inline"
+            >
+              <Textarea
+                className="min-h-[84px] w-full"
+                variant="compact"
+                rows={3}
+                maxLength={500}
+                value={voicePreviewText}
+                disabled={voicePreviewBusy}
+                aria-describedby="tts-voice-preview-note"
+                onChange={(event) => {
+                  setVoicePreviewText(event.target.value);
+                  setVoicePreviewError(null);
+                }}
+              />
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Button
+                  variant="secondary"
+                  disabled={
+                    voicePreviewStopping ||
+                    (!voicePreviewBusy && !voicePreviewText.trim())
+                  }
+                  onClick={() =>
+                    void (voicePreviewBusy
+                      ? cancelVoicePreview()
+                      : runVoicePreview())
+                  }
+                >
+                  {voicePreviewBusy ? (
+                    <>
+                      {voicePreviewStopping ? (
+                        <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                      ) : (
+                        <Square className="mr-2 inline h-4 w-4" />
+                      )}
+                      {t(
+                        voicePreviewStopping
+                          ? "textToSpeech.voice.previewStopping"
+                          : "textToSpeech.voice.previewCancel",
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <Volume2 className="mr-2 inline h-4 w-4" />
+                      {t("textToSpeech.voice.previewPlay")}
+                    </>
+                  )}
+                </Button>
+                <p
+                  id="tts-voice-preview-note"
+                  className="min-w-64 flex-1 text-xs leading-relaxed text-text/60"
+                >
+                  {t("textToSpeech.voice.previewCostDisclosure")}
+                </p>
+              </div>
+              {voicePreviewError && (
+                <p
+                  className="mt-2 text-xs leading-relaxed text-red-300"
+                  role="alert"
+                >
+                  {voicePreviewError}
+                </p>
+              )}
+            </SettingContainer>
           )}
           <SettingContainer
             grouped
@@ -5375,18 +5350,15 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
             title={t("textToSpeech.overlay.pitchTitle")}
             description={t("textToSpeech.overlay.pitchDescription")}
           >
-            <Input
+            <CommittedNumberInput
               className="w-28"
-              type="number"
               min={0.5}
               max={2}
               step={0.05}
               value={tts.playback_pitch}
-              onChange={(event) =>
+              onCommit={(playback_pitch) =>
                 void updateTts(
-                  {
-                    playback_pitch: clampNumber(event.target.value, 0.5, 2, 1),
-                  },
+                  { playback_pitch },
                   "playback_pitch",
                 )
               }
@@ -5481,9 +5453,8 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               title={t("textToSpeech.overlay.autoHideDelayTitle")}
               description={t("textToSpeech.overlay.autoHideDelayDescription")}
             >
-              <Input
+              <CommittedNumberInput
                 className="w-28"
-                type="number"
                 min={1}
                 max={300}
                 step={1}
@@ -5491,16 +5462,9 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 disabled={
                   !tts.overlay_auto_hide_enabled || savingField !== null
                 }
-                onChange={(event) =>
+                onCommit={(overlay_auto_hide_delay_seconds) =>
                   void updateTts(
-                    {
-                      overlay_auto_hide_delay_seconds: clampNumber(
-                        event.target.value,
-                        1,
-                        300,
-                        2,
-                      ),
-                    },
+                    { overlay_auto_hide_delay_seconds },
                     "overlay_auto_hide_delay_seconds",
                   )
                 }
@@ -5834,23 +5798,15 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               title={item.title}
               description={item.description}
             >
-              <Input
+              <CommittedNumberInput
                 className="w-28"
-                type="number"
                 min={item.min}
                 max={item.max}
                 step={item.step}
                 value={tts[item.key]}
-                onChange={(event) =>
+                onCommit={(value) =>
                   void updateTts(
-                    {
-                      [item.key]: clampNumber(
-                        event.target.value,
-                        item.min,
-                        item.max,
-                        DEFAULT_TTS_SETTINGS[item.key],
-                      ),
-                    },
+                    { [item.key]: value },
                     item.key,
                   )
                 }
@@ -5906,22 +5862,6 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
             />
           }
         >
-          <SettingContainer
-            grouped
-            title={t("textToSpeech.provider.title")}
-            description={t("textToSpeech.provider.description")}
-          >
-            <Select
-              className="w-full md:w-72"
-              value={tts.provider}
-              options={providerSelectOptions}
-              onChange={(value) => {
-                if (value) void chooseProvider(value as TtsProvider);
-              }}
-              isClearable={false}
-              disabled={savingField !== null}
-            />
-          </SettingContainer>
           <SettingContainer
             grouped
             layout="stacked"

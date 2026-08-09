@@ -771,13 +771,34 @@ pub(crate) async fn start_tts_text_at(
     text: String,
     activation_started_at: Instant,
 ) -> Result<(), String> {
-    let settings = get_settings(&app)
+    start_tts_text_with_options(app, text, activation_started_at, true, true, false)
+        .await
+}
+
+async fn start_tts_text_with_options(
+    app: AppHandle,
+    text: String,
+    activation_started_at: Instant,
+    require_enabled: bool,
+    capture_history: bool,
+    force_autoplay: bool,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app)
         .tts
         .effective_for_scope(TtsOperationScope::Interactive);
-    if !settings.enabled {
+    if require_enabled && !settings.enabled {
         let error = "Text to Speech is disabled".to_string();
         report_tts_error(&app, &error);
         return Err(error);
+    }
+    if !require_enabled {
+        settings.enabled = true;
+    }
+    if !capture_history {
+        settings.interactive_history_enabled = false;
+    }
+    if force_autoplay {
+        settings.autoplay = true;
     }
     if text.trim().is_empty() {
         let error = "There is no clipboard text to read".to_string();
@@ -830,7 +851,7 @@ pub(crate) async fn start_tts_text_at(
     };
     let synthesis = resolved.value;
     let settings = resolved.settings;
-    if settings.interactive_history_enabled {
+    if capture_history && settings.interactive_history_enabled {
         if let Some(audio_path) = synthesis.combined_audio_path {
             let _ = save_passive_history(
                 &app,
@@ -860,6 +881,24 @@ pub(crate) async fn start_tts_text_at(
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn preview_tts_voice(app: AppHandle, text: String) -> Result<(), String> {
+    const MAX_PREVIEW_CHARACTERS: usize = 500;
+
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Err("Enter sample text to preview the voice".to_string());
+    }
+    if text.chars().count() > MAX_PREVIEW_CHARACTERS {
+        return Err(format!(
+            "Voice preview is limited to {MAX_PREVIEW_CHARACTERS} characters"
+        ));
+    }
+
+    start_tts_text_with_options(app, text, Instant::now(), false, false, true).await
 }
 
 fn parse_provider(provider: &str) -> Result<TtsProvider, String> {
