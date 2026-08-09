@@ -491,6 +491,77 @@
   animation: glow-pulse 2s ease-in-out infinite;
 }
 
+@keyframes create-prompt-border-run {
+  to {
+    transform: translate(-50%, -50%) rotate(1turn);
+  }
+}
+
+@keyframes create-prompt-ready-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 8px rgba(255, 77, 141, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 14px rgba(255, 77, 141, 0.65),
+      0 0 24px rgba(155, 93, 229, 0.35);
+  }
+}
+
+.create-prompt-button-shell {
+  position: relative;
+  display: inline-flex;
+  margin: -2px;
+  padding: 2px;
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: 0.5rem;
+}
+
+.create-prompt-button-shell > button {
+  position: relative;
+  z-index: 1;
+}
+
+.create-prompt-button-shell--ready {
+  animation: create-prompt-ready-pulse 6.4s ease-in-out infinite;
+}
+
+.create-prompt-button-shell--ready::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: 50%;
+  left: 50%;
+  width: 180%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background: conic-gradient(
+    transparent 0deg 35deg,
+    rgba(255, 255, 255, 0.95) 52deg,
+    #ff4d8d 68deg,
+    transparent 100deg 215deg,
+    rgba(255, 255, 255, 0.9) 232deg,
+    #9b5de5 248deg,
+    transparent 280deg 360deg
+  );
+  animation: create-prompt-border-run 6s linear infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .create-prompt-button-shell--ready {
+    background: #ff4d8d;
+    box-shadow: 0 0 12px rgba(255, 77, 141, 0.5);
+    animation: none;
+  }
+
+  .create-prompt-button-shell--ready::before {
+    display: none;
+  }
+}
+
 .hotkey-edge-nudge {
   overflow: hidden;
   border-color: rgba(255, 77, 141, 0.65);

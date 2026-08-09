@@ -529,14 +529,19 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
   };
 
   const handleStartCreate = () => {
+    const defaultPrompt = prompts.find(
+      (prompt) => prompt.id === "default_improve_transcriptions",
+    );
+
     setIsCreating(true);
     setDraftName("");
-    setDraftText("");
+    setDraftText(defaultPrompt?.prompt ?? "");
   };
 
 
 
   const hasPrompts = prompts.length > 0;
+  const isCreatePromptReady = !!draftName.trim() && !!draftText.trim();
   const isDirty =
     !!selectedPrompt &&
     (draftName.trim() !== selectedPrompt.name ||
@@ -686,14 +691,20 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
             </div>
 
             <div className="flex gap-2 pt-2">
-              <Button
-                onClick={handleCreatePrompt}
-                variant="primary"
-                size="md"
-                disabled={!draftName.trim() || !draftText.trim()}
+              <div
+                className={`create-prompt-button-shell ${
+                  isCreatePromptReady ? "create-prompt-button-shell--ready" : ""
+                }`}
               >
-                {t("settings.postProcessing.prompts.createPrompt")}
-              </Button>
+                <Button
+                  onClick={handleCreatePrompt}
+                  variant="primary"
+                  size="md"
+                  disabled={!isCreatePromptReady}
+                >
+                  {t("settings.postProcessing.prompts.createPrompt")}
+                </Button>
+              </div>
               <Button
                 onClick={handleCancelCreate}
                 variant="secondary"
