@@ -22,6 +22,8 @@ import {
 import {
   DEFAULT_PLAYBACK_RATE,
   formatPlaybackRate,
+  normalizePlaybackRate,
+  PLAYBACK_RATES,
 } from "../lib/utils/playbackRate";
 import type { TtsPlaybackEffect } from "../lib/utils/ttsPlaybackEffects";
 import {
@@ -344,6 +346,7 @@ export default function TtsOverlay() {
   const [playbackRate, setPlaybackRate] = useState<number>(DEFAULT_PLAYBACK_RATE);
   const [rateSliderOpen, setRateSliderOpen] = useState(false);
   const playerRef = useRef<GaplessTtsPlayer | null>(null);
+  const rateSliderRef = useRef<HTMLInputElement | null>(null);
   const playbackRateRef = useRef<number>(DEFAULT_PLAYBACK_RATE);
   const playbackProgressRef = useRef(0);
   const stateRef = useRef(state);
@@ -460,9 +463,10 @@ export default function TtsOverlay() {
         operationIdRef.current = next.operationId;
         desiredPlayingRef.current =
           next.autoplay &&
-          next.status !== "paused" &&
-          next.status !== "stopped" &&
-          next.status !== "error";
+          (next.status === "loading" ||
+            next.status === "preprocessing" ||
+            next.status === "retrying" ||
+            next.status === "ready");
         setPlaybackError(null);
         setCompletedPlaybackOperationId("");
         setRateSliderOpen(false);
@@ -696,13 +700,9 @@ export default function TtsOverlay() {
     state.status,
   ]);
 
-  const changePlaybackRate = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      const requestedRate = Number(event.target.value);
-      if (!Number.isFinite(requestedRate)) {
-        return;
-      }
-      const nextRate = Math.min(3, Math.max(0.75, requestedRate));
+  const applyOverlayPlaybackRate = useCallback(
+    (requestedRate: number) => {
+      const nextRate = normalizePlaybackRate(requestedRate);
       playbackRateRef.current = nextRate;
       setPlaybackRate(nextRate);
       playerRef.current?.setPlaybackRate(nextRate);
@@ -710,6 +710,54 @@ export default function TtsOverlay() {
     },
     [recordOverlayActivity],
   );
+
+  const changePlaybackRate = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const requestedIndex = Number(event.target.value);
+      const nextIndex = Math.min(
+        PLAYBACK_RATES.length - 1,
+        Math.max(0, Math.round(requestedIndex)),
+      );
+      applyOverlayPlaybackRate(PLAYBACK_RATES[nextIndex]);
+    },
+    [applyOverlayPlaybackRate],
+  );
+
+  const changePlaybackRateWithWheel = useCallback(
+    (event: WheelEvent) => {
+      const wheelDelta =
+        Math.abs(event.deltaY) >= Math.abs(event.deltaX)
+          ? event.deltaY
+          : event.deltaX;
+      if (wheelDelta === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const currentRate = normalizePlaybackRate(playbackRateRef.current);
+      const currentIndex = PLAYBACK_RATES.indexOf(currentRate);
+      const nextIndex = Math.min(
+        PLAYBACK_RATES.length - 1,
+        Math.max(0, currentIndex + (wheelDelta < 0 ? 1 : -1)),
+      );
+      applyOverlayPlaybackRate(PLAYBACK_RATES[nextIndex]);
+    },
+    [applyOverlayPlaybackRate],
+  );
+
+  useEffect(() => {
+    if (!rateSliderOpen) return;
+    const slider = rateSliderRef.current;
+    if (!slider) return;
+    slider.addEventListener("wheel", changePlaybackRateWithWheel, {
+      passive: false,
+    });
+    const frame = window.requestAnimationFrame(() => {
+      slider.focus({ preventScroll: true });
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      slider.removeEventListener("wheel", changePlaybackRateWithWheel);
+    };
+  }, [changePlaybackRateWithWheel, rateSliderOpen]);
 
   useEffect(() => {
     let disposed = false;
@@ -849,6 +897,9 @@ export default function TtsOverlay() {
     .filter(Boolean)
     .join(" · ");
   const playbackRateLabel = formatPlaybackRate(playbackRate);
+  const playbackRateIndex = PLAYBACK_RATES.indexOf(
+    normalizePlaybackRate(playbackRate),
+  );
 
   return (
     <main
@@ -999,14 +1050,15 @@ export default function TtsOverlay() {
           {rateSliderOpen && (
             <div className="tts-overlay__rate-panel">
               <input
+                ref={rateSliderRef}
                 type="range"
                 className="tts-overlay__rate-slider"
                 aria-label={t("textToSpeech.overlayPlayer.playbackRateSlider")}
                 aria-valuetext={playbackRateLabel}
-                min={0.75}
-                max={3}
-                step={0.05}
-                value={playbackRate}
+                min={0}
+                max={PLAYBACK_RATES.length - 1}
+                step={1}
+                value={playbackRateIndex}
                 onChange={changePlaybackRate}
               />
             </div>
