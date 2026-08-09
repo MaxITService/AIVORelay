@@ -4243,7 +4243,7 @@ fn default_tts_stop_hotkey() -> String {
 }
 
 fn default_tts_overlay_auto_hide_delay_seconds() -> u32 {
-    4
+    2
 }
 
 fn default_tts_mp3_bitrate_kbps() -> u16 {
@@ -6948,7 +6948,7 @@ mod tests {
             TtsPlaybackEffect::None
         );
         assert!(TtsSettings::default().overlay_auto_hide_enabled);
-        assert_eq!(TtsSettings::default().overlay_auto_hide_delay_seconds, 4);
+        assert_eq!(TtsSettings::default().overlay_auto_hide_delay_seconds, 2);
     }
 
     #[test]

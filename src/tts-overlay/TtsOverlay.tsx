@@ -92,7 +92,7 @@ const EMPTY_STATE: TtsOverlayState = {
   stopHotkey: "",
   autoplay: true,
   autoHideEnabled: true,
-  autoHideDelaySeconds: 4,
+  autoHideDelaySeconds: 2,
   playbackPitch: 1,
   playbackEffect: "none",
 };
@@ -261,7 +261,7 @@ function normalizeState(raw: unknown): TtsOverlayState | null {
           data,
           "autoHideDelaySeconds",
           "auto_hide_delay_seconds",
-          4,
+          2,
         ),
       ),
     ),

@@ -134,7 +134,7 @@ impl Default for TtsOverlayState {
             stop_hotkey: String::new(),
             autoplay: true,
             auto_hide_enabled: true,
-            auto_hide_delay_seconds: 4,
+            auto_hide_delay_seconds: 2,
             playback_pitch: 1.0,
             playback_effect: TtsPlaybackEffect::None,
         }
