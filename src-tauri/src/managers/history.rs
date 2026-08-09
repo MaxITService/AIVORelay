@@ -1,12 +1,12 @@
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local, Utc};
 use log::{debug, error, info};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use rusqlite_migration::{Migrations, M};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 
 use crate::audio_toolkit::save_wav_file;
@@ -81,6 +81,77 @@ pub struct HistoryEntry {
     /// For AI Replace: the AI response (None if request failed/never received)
     pub ai_response: Option<String>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryDeleteFailureReason {
+    FileInUse,
+    FileLocked,
+    AccessDenied,
+    ReadOnly,
+    WriteProtected,
+    DatabaseError,
+    IoError,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct HistoryDeleteFailure {
+    pub reason: HistoryDeleteFailureReason,
+    pub file_name: Option<String>,
+    pub processes: Vec<String>,
+    pub os_error: Option<i32>,
+    pub details: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct HistoryDeleteError {
+    pub failures: Vec<HistoryDeleteFailure>,
+    pub deleted_count: usize,
+    pub remaining_count: usize,
+}
+
+impl HistoryDeleteError {
+    fn single(failure: HistoryDeleteFailure) -> Self {
+        Self {
+            failures: vec![failure],
+            deleted_count: 0,
+            remaining_count: 1,
+        }
+    }
+
+    fn database(error: impl std::fmt::Display, remaining_count: usize) -> Self {
+        Self::single(HistoryDeleteFailure {
+            reason: HistoryDeleteFailureReason::DatabaseError,
+            file_name: None,
+            processes: Vec::new(),
+            os_error: None,
+            details: error.to_string(),
+        })
+        .with_remaining_count(remaining_count)
+    }
+
+    fn with_remaining_count(mut self, remaining_count: usize) -> Self {
+        self.remaining_count = remaining_count;
+        self
+    }
+}
+
+impl std::fmt::Display for HistoryDeleteError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let details = self
+            .failures
+            .first()
+            .map(|failure| failure.details.as_str())
+            .unwrap_or("unknown deletion error");
+        write!(
+            formatter,
+            "History deletion failed (deleted {}, kept {}): {}",
+            self.deleted_count, self.remaining_count, details
+        )
+    }
+}
+
+impl std::error::Error for HistoryDeleteError {}
 
 pub struct HistoryManager {
     app_handle: AppHandle,
@@ -384,39 +455,16 @@ impl HistoryManager {
             return Ok(0);
         }
 
-        let conn = self.get_connection()?;
         let mut deleted_count = 0;
 
-        for (id, file_name) in entries {
-            // Delete database entry
-            conn.execute(
-                "DELETE FROM transcription_history WHERE id = ?1",
-                params![id],
-            )?;
-            self.emit_history_deleted(*id);
-
-            // Delete WAV file only if no other entries refer to it. If the
-            // lookup fails, preserve the file rather than risking data loss.
-            let has_other = match Self::has_file_reference(&conn, file_name) {
-                Ok(has_other) => has_other,
-                Err(err) => {
-                    error!(
-                        "Failed to check remaining history references for {}: {}",
-                        file_name, err
-                    );
-                    true
-                }
-            };
-
-            if !has_other {
-                let file_path = self.recordings_dir.join(file_name);
-                if file_path.exists() {
-                    if let Err(e) = fs::remove_file(&file_path) {
-                        error!("Failed to delete WAV file {}: {}", file_name, e);
-                    } else {
-                        debug!("Deleted old WAV file: {}", file_name);
-                        deleted_count += 1;
-                    }
+        for (id, _) in entries {
+            match self.delete_entry(*id) {
+                Ok(true) => deleted_count += 1,
+                Ok(false) => {}
+                Err(error) => {
+                    // Retention cleanup is best-effort. Keep both the database
+                    // row and audio file so a later cleanup can retry safely.
+                    error!("Failed to clean up history entry {}: {}", id, error);
                 }
             }
         }
@@ -440,6 +488,8 @@ impl HistoryManager {
         for row in rows {
             entries.push(row?);
         }
+        drop(stmt);
+        drop(conn);
 
         if entries.len() > limit {
             let entries_to_delete = &entries[limit..];
@@ -481,6 +531,8 @@ impl HistoryManager {
         for row in rows {
             entries_to_delete.push(row?);
         }
+        drop(stmt);
+        drop(conn);
 
         let deleted_count = self.delete_entries_and_files(&entries_to_delete)?;
 
@@ -699,72 +751,145 @@ impl HistoryManager {
         Ok(entry)
     }
 
-    pub async fn delete_entry(&self, id: i64) -> Result<()> {
-        let conn = self.get_connection()?;
+    /// Deletes a history row only when its last-referenced managed audio file
+    /// was deleted or was already missing. The database deletion stays inside
+    /// an uncommitted transaction while the filesystem operation runs, so a
+    /// sharing or permission error rolls the row back and leaves it retryable.
+    pub fn delete_entry(&self, id: i64) -> std::result::Result<bool, HistoryDeleteError> {
+        let mut conn = self
+            .get_connection()
+            .map_err(|error| HistoryDeleteError::database(error, 1))?;
+        let transaction = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| HistoryDeleteError::database(error, 1))?;
 
-        // Get the entry to find the file name
-        let entry_opt = self.get_entry_by_id(id).await?;
+        let file_name = transaction
+            .query_row(
+                "SELECT file_name FROM transcription_history WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| HistoryDeleteError::database(error, 1))?;
+        let Some(file_name) = file_name else {
+            return Ok(false);
+        };
 
-        // Delete from database first
-        conn.execute(
-            "DELETE FROM transcription_history WHERE id = ?1",
-            params![id],
-        )?;
+        let deleted = transaction
+            .execute(
+                "DELETE FROM transcription_history WHERE id = ?1",
+                params![id],
+            )
+            .map_err(|error| HistoryDeleteError::database(error, 1))?;
+        debug_assert_eq!(deleted, 1);
 
+        let has_other = Self::has_file_reference(&transaction, &file_name)
+            .map_err(|error| HistoryDeleteError::database(error, 1))?;
+        if !has_other {
+            self.remove_history_audio(&file_name)?;
+        }
+
+        transaction
+            .commit()
+            .map_err(|error| HistoryDeleteError::database(error, 1))?;
         debug!("Deleted history entry with id: {}", id);
         self.emit_history_deleted(id);
+        Ok(true)
+    }
 
-        if let Some(entry) = entry_opt {
-            // Check if another entry uses the same file_name
-            let has_other = match Self::has_file_reference(&conn, &entry.file_name) {
-                Ok(has_other) => has_other,
-                Err(err) => {
-                    error!(
-                        "Failed to check remaining history references for {}: {}",
-                        entry.file_name, err
-                    );
-                    true
-                }
-            };
+    /// Deletes every entry it can safely remove. Entries whose audio is locked
+    /// or protected stay in History, while unrelated entries still succeed.
+    pub fn delete_all_entries(&self) -> std::result::Result<usize, HistoryDeleteError> {
+        let ids = {
+            let conn = self
+                .get_connection()
+                .map_err(|error| HistoryDeleteError::database(error, 0))?;
+            let mut statement = conn
+                .prepare("SELECT id FROM transcription_history ORDER BY id")
+                .map_err(|error| HistoryDeleteError::database(error, 0))?;
+            let rows = statement
+                .query_map([], |row| row.get::<_, i64>(0))
+                .map_err(|error| HistoryDeleteError::database(error, 0))?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|error| HistoryDeleteError::database(error, 0))?
+        };
 
-            if !has_other {
-                let file_path = self.get_audio_file_path(&entry.file_name);
-                if file_path.exists() {
-                    if let Err(e) = fs::remove_file(&file_path) {
-                        error!("Failed to delete audio file {}: {}", entry.file_name, e);
+        let requested_count = ids.len();
+        let mut deleted_count = 0;
+        let mut failures = Vec::new();
+
+        for id in ids {
+            match self.delete_entry(id) {
+                Ok(true) => deleted_count += 1,
+                Ok(false) => {}
+                Err(error) => {
+                    let database_failed = error
+                        .failures
+                        .iter()
+                        .any(|failure| failure.reason == HistoryDeleteFailureReason::DatabaseError);
+                    failures.extend(error.failures);
+                    if database_failed {
+                        break;
                     }
                 }
             }
         }
 
-        Ok(())
+        let remaining_count = self
+            .get_connection()
+            .and_then(|conn| {
+                conn.query_row("SELECT COUNT(*) FROM transcription_history", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .map_err(Into::into)
+            })
+            .map(|count| count.max(0) as usize)
+            .unwrap_or_else(|_| requested_count.saturating_sub(deleted_count));
+
+        if failures.is_empty() && remaining_count == 0 {
+            debug!("Deleted all history entries: {}", deleted_count);
+            self.emit_history_cleared();
+            Ok(deleted_count)
+        } else {
+            if failures.is_empty() {
+                failures.push(HistoryDeleteFailure {
+                    reason: HistoryDeleteFailureReason::DatabaseError,
+                    file_name: None,
+                    processes: Vec::new(),
+                    os_error: None,
+                    details: "History changed while Delete all was running".to_string(),
+                });
+            }
+            Err(HistoryDeleteError {
+                failures,
+                deleted_count,
+                remaining_count,
+            })
+        }
     }
 
-    pub async fn delete_all_entries(&self) -> Result<usize> {
-        let conn = self.get_connection()?;
-        let mut stmt = conn.prepare("SELECT DISTINCT file_name FROM transcription_history")?;
-        let rows = stmt.query_map([], |row| row.get::<_, String>("file_name"))?;
-
-        let mut file_names: Vec<String> = Vec::new();
-        for row in rows {
-            file_names.push(row?);
+    fn remove_history_audio(&self, file_name: &str) -> std::result::Result<(), HistoryDeleteError> {
+        let relative_path = Path::new(file_name);
+        if relative_path.file_name().and_then(|name| name.to_str()) != Some(file_name) {
+            return Err(HistoryDeleteError::single(HistoryDeleteFailure {
+                reason: HistoryDeleteFailureReason::IoError,
+                file_name: Some(file_name.to_string()),
+                processes: Vec::new(),
+                os_error: None,
+                details: format!("Refusing unsafe history audio filename: {file_name}"),
+            }));
         }
 
-        let deleted_count = conn.execute("DELETE FROM transcription_history", [])?;
-
-        for file_name in &file_names {
-            let file_path = self.recordings_dir.join(file_name);
-            if file_path.exists() {
-                if let Err(e) = fs::remove_file(&file_path) {
-                    error!("Failed to delete audio file {}: {}", file_name, e);
-                }
+        let file_path = self.recordings_dir.join(relative_path);
+        match fs::remove_file(&file_path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => {
+                let failure = history_file_delete_failure(file_name, &file_path, &error);
+                error!("{}", failure.details);
+                Err(HistoryDeleteError::single(failure))
             }
         }
-
-        debug!("Deleted all history entries: {}", deleted_count);
-        self.emit_history_cleared();
-
-        Ok(deleted_count)
     }
 
     /// Save an AI Replace operation to history (no audio file, just the text data)
@@ -813,6 +938,182 @@ impl HistoryManager {
             format!("Recording {}", timestamp)
         }
     }
+}
+
+fn history_file_delete_failure(
+    file_name: &str,
+    file_path: &Path,
+    error: &std::io::Error,
+) -> HistoryDeleteFailure {
+    let read_only = file_path
+        .metadata()
+        .map(|metadata| metadata.permissions().readonly())
+        .unwrap_or(false);
+    let reason = classify_history_delete_error(error, read_only);
+    let processes = if matches!(
+        reason,
+        HistoryDeleteFailureReason::FileInUse | HistoryDeleteFailureReason::FileLocked
+    ) {
+        locking_process_names(file_path)
+    } else {
+        Vec::new()
+    };
+
+    HistoryDeleteFailure {
+        reason,
+        file_name: Some(file_name.to_string()),
+        processes,
+        os_error: error.raw_os_error(),
+        details: format!(
+            "Failed to delete history audio {}: {}",
+            file_path.display(),
+            error
+        ),
+    }
+}
+
+fn classify_history_delete_error(
+    error: &std::io::Error,
+    read_only: bool,
+) -> HistoryDeleteFailureReason {
+    match error.raw_os_error() {
+        // Windows ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION.
+        Some(32) => HistoryDeleteFailureReason::FileInUse,
+        Some(33) => HistoryDeleteFailureReason::FileLocked,
+        // Windows ERROR_WRITE_PROTECT.
+        Some(19) => HistoryDeleteFailureReason::WriteProtected,
+        // Windows reports both ACL failures and read-only files as access denied.
+        Some(5) if read_only => HistoryDeleteFailureReason::ReadOnly,
+        Some(5) => HistoryDeleteFailureReason::AccessDenied,
+        _ if read_only => HistoryDeleteFailureReason::ReadOnly,
+        _ if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            HistoryDeleteFailureReason::AccessDenied
+        }
+        _ => HistoryDeleteFailureReason::IoError,
+    }
+}
+
+#[cfg(windows)]
+fn locking_process_names(file_path: &Path) -> Vec<String> {
+    use std::collections::BTreeSet;
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::{PCWSTR, PWSTR};
+    use windows::Win32::Foundation::{ERROR_MORE_DATA, ERROR_SUCCESS};
+    use windows::Win32::System::RestartManager::{
+        RmEndSession, RmGetList, RmRegisterResources, RmStartSession, CCH_RM_SESSION_KEY,
+        RM_PROCESS_INFO,
+    };
+
+    struct RestartManagerSession(u32);
+
+    impl Drop for RestartManagerSession {
+        fn drop(&mut self) {
+            // SAFETY: The handle was returned by RmStartSession and is ended once.
+            unsafe {
+                let _ = RmEndSession(self.0);
+            }
+        }
+    }
+
+    let mut session_handle = 0_u32;
+    let mut session_key = vec![0_u16; (CCH_RM_SESSION_KEY + 1) as usize];
+    // SAFETY: Both pointers reference writable storage of the sizes required by
+    // Restart Manager for the duration of the call.
+    let start_status =
+        unsafe { RmStartSession(&mut session_handle, None, PWSTR(session_key.as_mut_ptr())) };
+    if start_status != ERROR_SUCCESS {
+        return Vec::new();
+    }
+    let session = RestartManagerSession(session_handle);
+
+    let wide_path = file_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let resources = [PCWSTR(wide_path.as_ptr())];
+    // SAFETY: The PCWSTR points to the NUL-terminated wide_path buffer, which
+    // stays alive for this call. No process shutdown is ever requested.
+    let register_status = unsafe { RmRegisterResources(session.0, Some(&resources), None, None) };
+    if register_status != ERROR_SUCCESS {
+        return Vec::new();
+    }
+
+    let mut needed = 0_u32;
+    let mut count = 0_u32;
+    let mut reboot_reasons = 0_u32;
+    // SAFETY: Null process storage is intentional for the documented sizing call.
+    let list_status = unsafe {
+        RmGetList(
+            session.0,
+            &mut needed,
+            &mut count,
+            None,
+            &mut reboot_reasons,
+        )
+    };
+    if list_status == ERROR_SUCCESS && needed == 0 {
+        return Vec::new();
+    }
+    if list_status != ERROR_MORE_DATA || needed == 0 {
+        return Vec::new();
+    }
+
+    let mut process_info = vec![RM_PROCESS_INFO::default(); needed as usize];
+    let mut list_completed = false;
+    for _ in 0..3 {
+        count = process_info.len() as u32;
+        // SAFETY: process_info has count writable RM_PROCESS_INFO elements and
+        // remains allocated until the API call returns.
+        let status = unsafe {
+            RmGetList(
+                session.0,
+                &mut needed,
+                &mut count,
+                Some(process_info.as_mut_ptr()),
+                &mut reboot_reasons,
+            )
+        };
+        if status == ERROR_SUCCESS {
+            process_info.truncate(count as usize);
+            list_completed = true;
+            break;
+        }
+        if status != ERROR_MORE_DATA || needed == 0 {
+            return Vec::new();
+        }
+        process_info.resize(needed as usize, RM_PROCESS_INFO::default());
+    }
+    if !list_completed {
+        return Vec::new();
+    }
+
+    process_info
+        .into_iter()
+        .filter_map(|process| {
+            let end = process
+                .strAppName
+                .iter()
+                .position(|character| *character == 0)
+                .unwrap_or(process.strAppName.len());
+            let name = String::from_utf16_lossy(&process.strAppName[..end])
+                .trim()
+                .to_string();
+            if name.is_empty() {
+                Some(format!("PID {}", process.Process.dwProcessId))
+            } else {
+                Some(name)
+            }
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(5)
+        .collect()
+}
+
+#[cfg(not(windows))]
+fn locking_process_names(_file_path: &Path) -> Vec<String> {
+    Vec::new()
 }
 
 #[cfg(test)]
@@ -1090,6 +1391,30 @@ mod tests {
         assert!(
             HistoryManager::has_file_reference(&conn, "missing.wav").is_err(),
             "callers must treat query failures as referenced and preserve audio"
+        );
+    }
+
+    #[test]
+    fn delete_error_classification_distinguishes_windows_failure_modes() {
+        assert_eq!(
+            classify_history_delete_error(&std::io::Error::from_raw_os_error(32), false),
+            HistoryDeleteFailureReason::FileInUse
+        );
+        assert_eq!(
+            classify_history_delete_error(&std::io::Error::from_raw_os_error(33), false),
+            HistoryDeleteFailureReason::FileLocked
+        );
+        assert_eq!(
+            classify_history_delete_error(&std::io::Error::from_raw_os_error(5), false),
+            HistoryDeleteFailureReason::AccessDenied
+        );
+        assert_eq!(
+            classify_history_delete_error(&std::io::Error::from_raw_os_error(5), true),
+            HistoryDeleteFailureReason::ReadOnly
+        );
+        assert_eq!(
+            classify_history_delete_error(&std::io::Error::from_raw_os_error(19), false),
+            HistoryDeleteFailureReason::WriteProtected
         );
     }
 }
