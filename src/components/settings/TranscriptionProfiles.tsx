@@ -109,7 +109,6 @@ interface ProfileCardProps {
   promptLimit: number;
   isActive: boolean;
   onSetActive: (id: string) => Promise<void>;
-  llmConfigured: boolean;
   llmModelOptions: ModelOption[];
   globalLlmModel: string;
   onRefreshModels: () => void;
@@ -134,7 +133,6 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   promptLimit,
   isActive,
   onSetActive,
-  llmConfigured,
   llmModelOptions,
   globalLlmModel,
   onRefreshModels,
@@ -842,8 +840,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
           )}
 
           {/* LLM Post-Processing Section — collapsible */}
-          {llmConfigured && (
-            <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+          <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
               <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
                 <div className="flex items-center gap-2 min-w-0">
                   <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
@@ -1107,8 +1104,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   </div>
                 )}
               </div>
-            </details>
-          )}
+          </details>
         </div>
       )}
     </div>
@@ -1323,21 +1319,6 @@ export const TranscriptionProfiles: React.FC = () => {
 
   // LLM Post-Processing configuration
   const currentLlmProviderId = settings?.post_process_provider_id || "";
-
-  // Show LLM section if post-processing is enabled globally (user has configured it)
-  const isLlmConfigured = useMemo(() => {
-    // If global post-process is enabled, the user has set it up
-    if (settings?.post_process_enabled) return true;
-    // Also check if provider is configured with API key
-    if (!currentLlmProviderId) return false;
-    if (currentLlmProviderId === APPLE_PROVIDER_ID) return true;
-    const apiKey = settings?.post_process_api_keys?.[currentLlmProviderId];
-    return !!apiKey?.trim();
-  }, [
-    settings?.post_process_enabled,
-    currentLlmProviderId,
-    settings?.post_process_api_keys,
-  ]);
 
   const llmModelOptions = useMemo<ModelOption[]>(() => {
     const models = postProcessModelOptions[currentLlmProviderId] || [];
@@ -2041,7 +2022,6 @@ export const TranscriptionProfiles: React.FC = () => {
               promptLimit={promptLimit}
               isActive={activeProfileId === profile.id}
               onSetActive={handleSetActive}
-              llmConfigured={isLlmConfigured}
               llmModelOptions={llmModelOptions}
               globalLlmModel={globalLlmModel}
               onRefreshModels={handleRefreshModels}
@@ -2364,8 +2344,7 @@ export const TranscriptionProfiles: React.FC = () => {
           )}
 
           {/* LLM Post-Processing Section — collapsible */}
-          {isLlmConfigured && (
-            <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+          <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
               <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
                 <div className="flex items-center gap-2 min-w-0">
                   <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
@@ -2631,8 +2610,7 @@ export const TranscriptionProfiles: React.FC = () => {
                   </div>
                 )}
               </div>
-            </details>
-          )}
+          </details>
 
           {newProfileError && (
             <p className="text-xs text-red-400">{newProfileError}</p>
