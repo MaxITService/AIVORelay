@@ -1165,6 +1165,11 @@ async changeRemoteSttDebugModeSetting(mode: string) : Promise<Result<null, strin
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Updates the configured LLM post-processing state for the active profile.
+ * The default profile owns `post_process_enabled`; custom profiles own their
+ * individual `llm_post_process_enabled` value.
+ */
 async changePostProcessEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_post_process_enabled_setting", { enabled }) };
@@ -2690,6 +2695,14 @@ async getWindowsTtsVoiceCatalog() : Promise<WindowsVoiceCatalog> {
 async getTtsVoiceCatalog(provider: TtsProvider, scope: TtsOperationScope | null, model: string | null) : Promise<Result<TtsVoiceCatalog, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_tts_voice_catalog", { provider, scope, model }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async previewTtsVoice(text: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("preview_tts_voice", { text }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -4592,7 +4605,7 @@ export type TtsModelSynthesisSettings = { model_key: string; config: TtsSynthesi
 export type TtsOperationScope = "interactive" | "file"
 export type TtsOutputFormat = "mp3" | "wav"
 export type TtsOverlayChunk = { index: number; path: string; pause_after_ms: number }
-export type TtsOverlayState = { operation_id: string; status: string; provider: string; model: string; voice: string; text_preview: string; chunks: TtsOverlayChunk[]; current_chunk: number; total_chunks: number; retry_attempt: number; error: string | null; play_pause_hotkey: string; play_history_when_overlay_closed: boolean; stop_hotkey: string; autoplay: boolean; playback_pitch: number; playback_effect: TtsPlaybackEffect }
+export type TtsOverlayState = { operation_id: string; status: string; provider: string; model: string; voice: string; text_preview: string; chunks: TtsOverlayChunk[]; current_chunk: number; total_chunks: number; retry_attempt: number; error: string | null; play_pause_hotkey: string; play_history_when_overlay_closed: boolean; stop_hotkey: string; autoplay: boolean; auto_hide_enabled: boolean; auto_hide_delay_seconds: number; playback_pitch: number; playback_effect: TtsPlaybackEffect }
 export type TtsPlaybackEffect = "none" | "radio" | "retro"
 export type TtsPromptPreset = { id: string; name: string; instructions: string }
 export type TtsProvider = "soniox" | "deepgram" | "openai" | "murf" | "elevenlabs" | "cartesia" | "openai_compatible" | "edge" | "local_qwen" | "local_kokoro" | "windows"
@@ -4613,7 +4626,7 @@ windows_voice_id?: string; windows_voice_language?: string; openai_instructions?
  * Version of the built-in synthesis-preset seed already applied.
  * This is separate from the preset list so user deletion is permanent.
  */
-synthesis_presets_seed_version?: number; interactive_synthesis?: TtsScopeSynthesisSettings; file_synthesis?: TtsScopeSynthesisSettings; speed?: number; llm_preprocessing?: TtsLlmPreprocessingSettings; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; interactive_target_chars?: number; file_target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; play_pause_hotkey?: string; play_history_when_overlay_closed?: boolean; stop_hotkey?: string; autoplay?: boolean;
+synthesis_presets_seed_version?: number; interactive_synthesis?: TtsScopeSynthesisSettings; file_synthesis?: TtsScopeSynthesisSettings; speed?: number; llm_preprocessing?: TtsLlmPreprocessingSettings; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; interactive_target_chars?: number; file_target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; play_pause_hotkey?: string; play_history_when_overlay_closed?: boolean; stop_hotkey?: string; autoplay?: boolean; overlay_auto_hide_enabled?: boolean; overlay_auto_hide_delay_seconds?: number;
 /**
  * Pitch-only overlay playback transform. The stored/generated audio is unchanged.
  */
