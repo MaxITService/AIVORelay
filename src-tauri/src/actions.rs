@@ -7504,6 +7504,7 @@ impl ShortcutAction for SendToExtensionAction {
                 app,
                 crate::plus_overlay_state::OverlayErrorCategory::ExtensionOffline,
             );
+            reset_toggle_state(app, binding_id);
             return;
         }
 
@@ -7641,6 +7642,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                 app,
                 crate::plus_overlay_state::OverlayErrorCategory::ExtensionOffline,
             );
+            reset_toggle_state(app, binding_id);
             return;
         }
 
@@ -8063,6 +8065,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                 app,
                 crate::plus_overlay_state::OverlayErrorCategory::ExtensionOffline,
             );
+            reset_toggle_state(app, binding_id);
             return;
         }
 

@@ -64,6 +64,7 @@ export default function CommandConfirmOverlay() {
   // Double-Enter detection state
   const [enterPressedOnce, setEnterPressedOnce] = useState(false);
   const enterTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const destroyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Whether auto-run is active for current payload
   const isAutoRunActive =
@@ -77,6 +78,10 @@ export default function CommandConfirmOverlay() {
     const unlisten = listen<CommandConfirmPayload>(
       "show-command-confirm",
       (event) => {
+        if (destroyTimeoutRef.current) {
+          clearTimeout(destroyTimeoutRef.current);
+          destroyTimeoutRef.current = null;
+        }
         setPayload(event.payload);
         setEditedCommand(event.payload.command);
         setIsEditing(false);
@@ -101,6 +106,10 @@ export default function CommandConfirmOverlay() {
     );
 
     return () => {
+      if (destroyTimeoutRef.current) {
+        clearTimeout(destroyTimeoutRef.current);
+        destroyTimeoutRef.current = null;
+      }
       unlisten.then((fn) => fn());
     };
   }, []);
@@ -202,7 +211,11 @@ export default function CommandConfirmOverlay() {
         } as VoiceCommandResultPayload);
 
         // Release the renderer after success.
-        setTimeout(() => {
+        if (destroyTimeoutRef.current) {
+          clearTimeout(destroyTimeoutRef.current);
+        }
+        destroyTimeoutRef.current = setTimeout(() => {
+          destroyTimeoutRef.current = null;
           destroyWindow();
         }, 1000);
       } else {
