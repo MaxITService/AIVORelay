@@ -4845,6 +4845,54 @@ fn end_streaming_paste_session_after_main_thread_queue(
     true
 }
 
+/// Queue successful streaming clipboard finalization behind every pending
+/// chunk paste. Unlike the cancellation helper above, this publishes the
+/// complete transcript once to Win+V (when allowed) before restoring the
+/// operation's clipboard backup.
+fn finalize_streaming_paste_session_after_main_thread_queue(
+    app: &AppHandle,
+    operation_id: u64,
+    operation_stamp: OperationStamp,
+    timeout_ms: u64,
+    final_text: String,
+) -> bool {
+    let app_for_finalize = app.clone();
+    let output_finalized = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let output_finalized_in_queue = Arc::clone(&output_finalized);
+    if let Err(err) = run_on_main_thread_sync(app, timeout_ms, move || {
+        if operation_stamp.was_cancelled(&app_for_finalize) {
+            output_finalized_in_queue.store(false, std::sync::atomic::Ordering::Release);
+            if let Err(restore_err) = crate::clipboard::end_streaming_paste_session_if_matches(
+                &app_for_finalize,
+                operation_id,
+            ) {
+                warn!(
+                    "Failed to restore clipboard for cancelled streaming session: {}",
+                    restore_err
+                );
+            }
+            return;
+        }
+        if let Err(finalize_err) = crate::clipboard::finalize_streaming_paste_session_if_matches(
+            &app_for_finalize,
+            operation_id,
+            &final_text,
+        ) {
+            warn!(
+                "Failed to finalize streaming clipboard session: {}",
+                finalize_err
+            );
+        }
+    }) {
+        warn!(
+            "{}; clipboard finalization remains queued behind pending streaming pastes",
+            err
+        );
+        return false;
+    }
+    output_finalized.load(std::sync::atomic::Ordering::Acquire)
+}
+
 pub(crate) fn transcribe_action_for_binding(binding_id: &str) -> Option<Arc<dyn ShortcutAction>> {
     ACTION_MAP.get(binding_id).cloned().or_else(|| {
         if binding_id.starts_with("transcribe_") {
@@ -6919,8 +6967,6 @@ impl ShortcutAction for TranscribeAction {
 
                 let stream_trailing_adjustment =
                     resolve_stream_trailing_adjustment(&recording_settings, &transcription);
-                let exclude_final_from_history =
-                    crate::clipboard::exclude_final_write_from_history(&recording_settings);
                 let transcription_before_post_process = transcription.clone();
                 let preview_processing_before_insert = should_show_preview_processing_before_insert(
                     &recording_settings,
@@ -7019,22 +7065,6 @@ impl ShortcutAction for TranscribeAction {
                                     final_text_for_ui.clone(),
                                     ah_clone.clone(),
                                 );
-                                // The replay chunk above is the complete text; in
-                                // SaveFinalTextOnly mode it must be re-written
-                                // visibly so the history captures it once.
-                                if !exclude_final_from_history {
-                                    let _ = crate::clipboard::write_final_transcription_text(
-                                        &ah_clone,
-                                        &final_text_for_ui,
-                                        exclude_final_from_history,
-                                    );
-                                }
-                            } else {
-                                let _ = crate::clipboard::write_final_transcription_text(
-                                    &ah_clone,
-                                    &final_text_for_ui,
-                                    exclude_final_from_history,
-                                );
                             }
                         } else {
                             if recovered_from_soniox_replay {
@@ -7044,16 +7074,6 @@ impl ShortcutAction for TranscribeAction {
                                     final_text_for_ui.clone(),
                                     ah_clone.clone(),
                                 );
-                                // The replay chunk is the complete text; in
-                                // SaveFinalTextOnly mode it must be re-written
-                                // visibly so the history captures it once.
-                                if !exclude_final_from_history {
-                                    let _ = crate::clipboard::write_final_transcription_text(
-                                        &ah_clone,
-                                        &final_text_for_ui,
-                                        exclude_final_from_history,
-                                    );
-                                }
                             } else {
                                 // Soniox live mode already inserted text incrementally while
                                 // chunks arrived. Apply only the final boundary adjustment.
@@ -7061,13 +7081,6 @@ impl ShortcutAction for TranscribeAction {
                                     &ah_clone,
                                     stream_trailing_adjustment,
                                 );
-                                if !exclude_final_from_history {
-                                    let _ = crate::clipboard::write_final_transcription_text(
-                                        &ah_clone,
-                                        &final_text_for_ui,
-                                        exclude_final_from_history,
-                                    );
-                                }
                             }
                         }
                     }
@@ -7116,10 +7129,12 @@ impl ShortcutAction for TranscribeAction {
                 }
 
                 if !preview_output_only_enabled {
-                    let output_finalized = end_streaming_paste_session_after_main_thread_queue(
+                    let output_finalized = finalize_streaming_paste_session_after_main_thread_queue(
                         &ah,
                         recording_operation_id,
+                        operation_stamp,
                         streaming_clipboard_timeout_ms,
+                        final_text.clone(),
                     );
                     if output_finalized {
                         play_result_ready_sound(&ah);
@@ -7344,11 +7359,6 @@ impl ShortcutAction for TranscribeAction {
             } else {
                 StreamTrailingAdjustment::None
             };
-            let stream_exclude_final_from_history = if is_soniox_streaming_insert {
-                Some(crate::clipboard::exclude_final_write_from_history(&recording_settings))
-            } else {
-                None
-            };
             let preview_processing_before_insert = should_show_preview_processing_before_insert(
                 &recording_settings,
                 profile_id_for_postprocess.as_deref(),
@@ -7427,15 +7437,9 @@ impl ShortcutAction for TranscribeAction {
                 }
                 if uses_streaming_insert && !preview_output_only_enabled {
                     // Streaming paths already inserted only committed text incrementally.
-                    // Apply only boundary-level trailing adjustment at finalization.
+                    // Apply only boundary-level trailing adjustment here; the
+                    // operation-scoped session finalizer owns the clipboard.
                     apply_stream_trailing_adjustment(&ah_clone, stream_trailing_adjustment);
-                    if let Some(exclude_final_from_history) = stream_exclude_final_from_history {
-                        let _ = crate::clipboard::write_final_transcription_text(
-                            &ah_clone,
-                            &final_text_for_ui,
-                            exclude_final_from_history,
-                        );
-                    }
                 } else if !preview_output_only_enabled {
                     match utils::paste(final_text_for_ui.clone(), ah_clone.clone()) {
                         Ok(()) => play_result_ready_sound(&ah_clone),
@@ -7473,10 +7477,12 @@ impl ShortcutAction for TranscribeAction {
             }
 
             if uses_streaming_insert && !preview_output_only_enabled {
-                let output_finalized = end_streaming_paste_session_after_main_thread_queue(
+                let output_finalized = finalize_streaming_paste_session_after_main_thread_queue(
                     &ah,
                     recording_operation_id,
+                    operation_stamp,
                     streaming_clipboard_timeout_ms,
+                    final_text.clone(),
                 );
                 if output_finalized {
                     play_result_ready_sound(&ah);

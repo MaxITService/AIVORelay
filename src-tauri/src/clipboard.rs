@@ -1,7 +1,5 @@
 use crate::input::{self, EnigoState};
-use crate::settings::{
-    get_settings, AppSettings, AutoSubmitKey, ClipboardHandling, PasteMethod,
-};
+use crate::settings::{get_settings, AppSettings, AutoSubmitKey, ClipboardHandling, PasteMethod};
 use enigo::{Direction, Enigo, Key, Keyboard};
 use log::{debug, info, warn};
 use once_cell::sync::Lazy;
@@ -20,12 +18,19 @@ use std::process::Command;
 // the user's original clipboard replaces it.
 const CLIPBOARD_CONSUMER_GRACE: Duration = Duration::from_millis(200);
 
+// Windows clipboard history observes clipboard updates asynchronously. Keep a
+// history-eligible final transcript current briefly before restoring the
+// user's previous clipboard so Win+V can capture the complete text once.
+#[cfg(target_os = "windows")]
+const CLIPBOARD_HISTORY_CAPTURE_GRACE: Duration = Duration::from_millis(200);
+
 struct StreamingPasteSession {
     operation_id: u64,
     paste_method: PasteMethod,
     clipboard_handling: ClipboardHandling,
     paste_delay_ms: u64,
     convert_lf_to_crlf: bool,
+    exclude_final_from_history: bool,
     text_backup: String,
     last_clipboard_paste_sent_at: Option<Instant>,
     #[cfg(target_os = "windows")]
@@ -261,7 +266,6 @@ mod win_clipboard {
         })
     }
 
-    /// Restore all backed-up clipboard formats
     const CF_UNICODETEXT_ID: u32 = 13;
 
     /// Registers a clipboard-history marker format (honored by the Windows
@@ -283,21 +287,32 @@ mod win_clipboard {
         }
     }
 
-    /// Writes UTF-16 text to the clipboard and marks it to be skipped by the
-    /// Windows clipboard history (Win+V) and cloud clipboard sync.
-    pub fn write_text_excluded_from_history(text: &str) -> Result<(), String> {
+    unsafe fn write_history_exclusion_markers() {
+        write_history_marker("ExcludeClipboardContentFromMonitorProcessing", 1);
+        write_history_marker("CanIncludeInClipboardHistory", 0);
+        write_history_marker("CanUploadToCloudClipboard", 0);
+    }
+
+    /// Writes UTF-16 text with an explicit Windows clipboard-history policy.
+    /// Excluded writes are also omitted from clipboard monitors and cloud sync;
+    /// included writes explicitly request eligibility for local Win+V history.
+    pub fn write_text_with_history_policy(
+        text: &str,
+        exclude_from_history: bool,
+    ) -> Result<(), String> {
         unsafe {
             OpenClipboard(None).map_err(|e| format!("Failed to open clipboard: {}", e))?;
             let result = (|| {
                 EmptyClipboard().map_err(|e| format!("Failed to empty clipboard: {}", e))?;
                 let mut wide: Vec<u16> = text.encode_utf16().collect();
                 wide.push(0);
-                let bytes =
-                    std::slice::from_raw_parts(wide.as_ptr() as *const u8, wide.len() * 2);
+                let bytes = std::slice::from_raw_parts(wide.as_ptr() as *const u8, wide.len() * 2);
                 write_global_memory(CF_UNICODETEXT_ID, bytes)?;
-                write_history_marker("ExcludeClipboardContentFromMonitorProcessing", 1);
-                write_history_marker("CanIncludeInClipboardHistory", 0);
-                write_history_marker("CanUploadToCloudClipboard", 0);
+                if exclude_from_history {
+                    write_history_exclusion_markers();
+                } else {
+                    write_history_marker("CanIncludeInClipboardHistory", 1);
+                }
                 Ok(())
             })();
             let _ = CloseClipboard();
@@ -305,6 +320,9 @@ mod win_clipboard {
         }
     }
 
+    /// Restores all backed-up formats as a transient app-owned update. The
+    /// exclusion markers prevent restoration itself from duplicating or
+    /// reordering the user's Windows clipboard history.
     pub fn restore_all_formats(
         mut backup: ClipboardBackup,
         owner: Option<HWND>,
@@ -348,6 +366,8 @@ mod win_clipboard {
                     debug!("Restored clipboard format {}", format);
                 }
             }
+
+            write_history_exclusion_markers();
 
             let _ = CloseClipboard();
 
@@ -487,7 +507,6 @@ fn restore_advanced_clipboard_with_text_fallback(
     text_backup: &str,
     use_documented_owner: bool,
 ) -> Result<(), String> {
-    let clipboard = app_handle.clipboard();
     let restore_result = if use_documented_owner {
         clipboard_owner_hwnd(app_handle)
             .and_then(|owner| win_clipboard::restore_all_formats(backup, Some(owner)))
@@ -519,8 +538,7 @@ fn restore_advanced_clipboard_with_text_fallback(
     };
 
     if needs_text_fallback {
-        clipboard
-            .write_text(text_backup)
+        restore_plain_text_without_history(app_handle, text_backup)
             .map_err(|e| format!("Fallback text clipboard restore failed: {}", e))?;
         info!("Fallback text clipboard restore completed");
     }
@@ -551,6 +569,15 @@ fn restores_all_clipboard_formats(handling: ClipboardHandling) -> bool {
     matches!(
         handling,
         ClipboardHandling::RestoreAdvanced | ClipboardHandling::RestoreAdvancedOwned
+    )
+}
+
+fn restores_clipboard_contents(handling: ClipboardHandling) -> bool {
+    matches!(
+        handling,
+        ClipboardHandling::RestorePlainText
+            | ClipboardHandling::RestoreAdvanced
+            | ClipboardHandling::RestoreAdvancedOwned
     )
 }
 
@@ -598,35 +625,53 @@ fn write_transcription_text(
     exclude_from_history: bool,
 ) -> Result<(), String> {
     #[cfg(target_os = "windows")]
-    if exclude_from_history {
-        return win_clipboard::write_text_excluded_from_history(text);
+    {
+        let _ = app_handle;
+        return win_clipboard::write_text_with_history_policy(text, exclude_from_history);
     }
+
     #[cfg(not(target_os = "windows"))]
-    let _ = exclude_from_history;
-    app_handle
-        .clipboard()
-        .write_text(text)
-        .map_err(|e| format!("Failed to write to clipboard: {}", e))
+    {
+        let _ = exclude_from_history;
+        app_handle
+            .clipboard()
+            .write_text(text)
+            .map_err(|e| format!("Failed to write to clipboard: {}", e))
+    }
 }
 
 /// Whether the final full-text write is excluded from the clipboard history.
 /// In KeepTranscription mode the final text is always recorded (matching the
 /// legacy copy_to_clipboard behavior); in the restore modes it follows the
 /// user's history toggle.
-pub fn exclude_final_write_from_history(settings: &AppSettings) -> bool {
+fn exclude_final_write_from_history(settings: &AppSettings) -> bool {
     settings.clipboard_handling != ClipboardHandling::KeepTranscription
         && !settings.clipboard_history_allowed
 }
 
 /// Final full-text transcription write at the end of an operation. Unless
 /// excluded, the clipboard always ends with the complete final text and the
-/// history captures it once.
-pub fn write_final_transcription_text(
+/// history can capture it as one complete item.
+fn write_final_transcription_text(
     app_handle: &AppHandle,
     text: &str,
     exclude_from_history: bool,
 ) -> Result<(), String> {
     write_transcription_text(app_handle, text, exclude_from_history)
+}
+
+fn restore_plain_text_without_history(app_handle: &AppHandle, text: &str) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = app_handle;
+        return win_clipboard::write_text_with_history_policy(text, true);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    app_handle
+        .clipboard()
+        .write_text(text)
+        .map_err(|e| format!("Failed to restore clipboard: {}", e))
 }
 
 fn paste_via_clipboard_no_restore(
@@ -668,14 +713,27 @@ fn wait_for_clipboard_consumer(paste_sent_at: Option<Instant>) {
     }
 }
 
-fn restore_streaming_session(
+fn wait_for_clipboard_history_capture(
+    exclude_from_history: bool,
+    clipboard_handling: ClipboardHandling,
+) {
+    #[cfg(target_os = "windows")]
+    if !exclude_from_history && restores_clipboard_contents(clipboard_handling) {
+        debug!(
+            "Waiting {}ms for Windows clipboard history to capture final transcription",
+            CLIPBOARD_HISTORY_CAPTURE_GRACE.as_millis()
+        );
+        std::thread::sleep(CLIPBOARD_HISTORY_CAPTURE_GRACE);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    let _ = (exclude_from_history, clipboard_handling);
+}
+
+fn restore_streaming_session_backup(
     session: StreamingPasteSession,
     app_handle: &AppHandle,
 ) -> Result<(), String> {
-    wait_for_clipboard_consumer(session.last_clipboard_paste_sent_at);
-
-    let clipboard = app_handle.clipboard();
-
     if restores_all_clipboard_formats(session.clipboard_handling) {
         #[cfg(target_os = "windows")]
         if let Some(backup) = session.advanced_backup {
@@ -688,18 +746,19 @@ fn restore_streaming_session(
         }
     }
 
-    if matches!(
-        session.clipboard_handling,
-        ClipboardHandling::RestorePlainText
-            | ClipboardHandling::RestoreAdvanced
-            | ClipboardHandling::RestoreAdvancedOwned
-    ) {
-        clipboard
-            .write_text(&session.text_backup)
-            .map_err(|e| format!("Failed to restore clipboard: {}", e))?;
+    if restores_clipboard_contents(session.clipboard_handling) {
+        restore_plain_text_without_history(app_handle, &session.text_backup)?;
     }
 
     Ok(())
+}
+
+fn restore_streaming_session(
+    session: StreamingPasteSession,
+    app_handle: &AppHandle,
+) -> Result<(), String> {
+    wait_for_clipboard_consumer(session.last_clipboard_paste_sent_at);
+    restore_streaming_session_backup(session, app_handle)
 }
 
 pub fn begin_streaming_paste_session(
@@ -771,6 +830,7 @@ pub fn begin_streaming_paste_session(
         clipboard_handling: settings.clipboard_handling,
         paste_delay_ms: settings.paste_delay_ms,
         convert_lf_to_crlf: settings.convert_lf_to_crlf,
+        exclude_final_from_history: exclude_final_write_from_history(&settings),
         text_backup,
         last_clipboard_paste_sent_at: None,
         #[cfg(target_os = "windows")]
@@ -811,6 +871,56 @@ pub fn end_streaming_paste_session_if_matches(
     }
 
     Ok(false)
+}
+
+/// Completes an operation-scoped streaming clipboard session. The complete
+/// transcript is written once with the captured history policy, then a restore
+/// mode puts the user's previous clipboard back without creating another Win+V
+/// entry. Cancellation paths use `end_streaming_paste_session_if_matches`
+/// instead and never publish a partial transcript as final history.
+pub fn finalize_streaming_paste_session_if_matches(
+    app_handle: &AppHandle,
+    operation_id: u64,
+    final_text: &str,
+) -> Result<bool, String> {
+    let mut guard = STREAMING_PASTE_SESSION
+        .lock()
+        .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
+    if !guard
+        .as_ref()
+        .is_some_and(|session| session.operation_id == operation_id)
+    {
+        return Ok(false);
+    }
+
+    let Some(session) = guard.take() else {
+        return Ok(false);
+    };
+    wait_for_clipboard_consumer(session.last_clipboard_paste_sent_at);
+
+    let clipboard_handling = session.clipboard_handling;
+    let exclude_final_from_history = session.exclude_final_from_history;
+    let final_text = convert_text_for_clipboard(final_text, session.convert_lf_to_crlf);
+    let final_write_result =
+        write_final_transcription_text(app_handle, &final_text, exclude_final_from_history);
+    if final_write_result.is_ok() {
+        wait_for_clipboard_history_capture(exclude_final_from_history, clipboard_handling);
+    }
+
+    // Always attempt restoration, even if the final history write failed.
+    let restore_result = restore_streaming_session_backup(session, app_handle);
+    match (final_write_result, restore_result) {
+        (Ok(()), Ok(())) => Ok(true),
+        (Err(write_error), Ok(())) => Err(format!(
+            "Failed to write final streaming transcription to clipboard: {}",
+            write_error
+        )),
+        (Ok(()), Err(restore_error)) => Err(restore_error),
+        (Err(write_error), Err(restore_error)) => Err(format!(
+            "Failed to write final streaming transcription to clipboard: {}; clipboard restoration also failed: {}",
+            write_error, restore_error
+        )),
+    }
 }
 
 /// Pastes text using the clipboard: saves current content, writes text, sends paste keystroke, restores clipboard.
@@ -891,9 +1001,7 @@ fn paste_via_clipboard(
             | ClipboardHandling::RestoreAdvanced
             | ClipboardHandling::RestoreAdvancedOwned
     ) {
-        clipboard
-            .write_text(&text_backup)
-            .map_err(|e| format!("Failed to restore clipboard: {}", e))?;
+        restore_plain_text_without_history(app_handle, &text_backup)?;
     }
 
     Ok(())
@@ -1333,9 +1441,7 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
         .lock()
         .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
 
-    if let Some((paste_method, paste_delay_ms, convert_lf_to_crlf)) =
-        active_stream_config
-    {
+    if let Some((paste_method, paste_delay_ms, convert_lf_to_crlf)) = active_stream_config {
         match paste_method {
             PasteMethod::None => {
                 info!("PasteMethod::None selected - skipping streaming chunk paste");
