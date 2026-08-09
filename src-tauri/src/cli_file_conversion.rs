@@ -695,9 +695,12 @@ fn apply_tts_provider_override(
                 settings.murf_model = model.to_string();
             }
             TtsProvider::ElevenLabs => {
-                if !matches!(model, "eleven_v3" | "eleven_multilingual_v2") {
+                if !matches!(
+                    model,
+                    "eleven_flash_v2_5" | "eleven_v3" | "eleven_multilingual_v2"
+                ) {
                     return Err(CliFailure::usage(
-                        "--tts-model for elevenlabs must be eleven_v3 or eleven_multilingual_v2",
+                        "--tts-model for elevenlabs must be eleven_flash_v2_5, eleven_v3, or eleven_multilingual_v2",
                     ));
                 }
                 settings.elevenlabs_model = model.to_string();
@@ -2132,6 +2135,19 @@ mod tests {
             .expect_err("Multilingual v2 language override must fail");
         assert!(error.message.contains("infers language"), "{}", error.message);
 
+        let flash = CliArgs {
+            tts_provider: Some(CliTtsProvider::Elevenlabs),
+            tts_model: Some("eleven_flash_v2_5".to_string()),
+            tts_language: Some("en".to_string()),
+            tts_speed: Some(1.1),
+            ..CliArgs::default()
+        };
+        let mut settings = TtsSettings::default();
+        apply_tts_provider_override(&flash, &mut settings).unwrap();
+        apply_tts_conversion_overrides(&flash, &mut settings).unwrap();
+        assert_eq!(settings.elevenlabs_model, "eleven_flash_v2_5");
+        assert_eq!(settings.elevenlabs_language, "en");
+        assert_eq!(settings.speed, 1.1);
     }
 
     #[test]

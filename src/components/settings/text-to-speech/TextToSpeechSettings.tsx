@@ -451,13 +451,20 @@ const providerInputLimit = (provider: TtsProvider, model: string): number => ({
   openai: 4096,
   openai_compatible: 4096,
   murf: 3000,
-  elevenlabs: model === "eleven_multilingual_v2" ? 10000 : 5000,
+  elevenlabs:
+    model === "eleven_flash_v2_5"
+      ? 40000
+      : model === "eleven_multilingual_v2"
+        ? 10000
+        : 5000,
   cartesia: 4000,
   edge: 4096,
   local_qwen: 4096,
   local_kokoro: 4096,
   windows: 4096,
 })[provider];
+const providerPublishesInputLimit = (provider: TtsProvider): boolean =>
+  ["soniox", "deepgram", "openai", "murf", "elevenlabs"].includes(provider);
 const PROVIDER_CAPABILITIES: Record<
   TtsProvider,
   {
@@ -908,9 +915,11 @@ const ELEVENLABS_MODEL_SELECT_OPTIONS: SelectOption[] =
   ELEVENLABS_MODEL_OPTIONS.map((value) => ({
     value,
     label:
-      value === "eleven_multilingual_v2"
-        ? "Multilingual v2"
-        : "Eleven v3",
+      value === "eleven_flash_v2_5"
+        ? "Flash v2.5"
+        : value === "eleven_multilingual_v2"
+          ? "Multilingual v2"
+          : "Eleven v3",
   }));
 
 const CARTESIA_MODEL_SELECT_OPTIONS: SelectOption[] =
@@ -5723,15 +5732,21 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
 
       <SettingsGroup
         title={t("textToSpeech.chunking.title")}
-        description={t("textToSpeech.chunking.description", {
-          limit: providerInputLimit(tts.provider, modelValue),
-        })}
+        description={t(
+          providerPublishesInputLimit(tts.provider)
+            ? "textToSpeech.chunking.description"
+            : "textToSpeech.help.chunkingSafetyCapSummary",
+          {
+            provider: providerLabel,
+            limit: providerInputLimit(tts.provider, modelValue),
+          },
+        )}
         help={
           <TtsHelpDisclosure
             summary={t(
-              tts.provider === "cartesia"
-                ? "textToSpeech.help.chunkingSafetyCapSummary"
-                : "textToSpeech.help.chunkingSummary",
+              providerPublishesInputLimit(tts.provider)
+                ? "textToSpeech.help.chunkingSummary"
+                : "textToSpeech.help.chunkingSafetyCapSummary",
               {
                 provider: providerLabel,
                 limit: providerInputLimit(tts.provider, modelValue),

@@ -727,10 +727,17 @@ pub(crate) const DEFAULT_TTS_OPENAI_COMPATIBLE_MODEL: &str = "tts-1";
 pub(crate) const DEFAULT_TTS_OPENAI_COMPATIBLE_VOICE: &str = "alloy";
 pub(crate) const DEFAULT_TTS_MURF_VOICE: &str = "Gordon";
 pub(crate) const DEFAULT_TTS_MURF_GEN2_VOICE: &str = "en-US-natalie";
+pub(crate) const DEFAULT_TTS_ELEVENLABS_MODEL: &str = "eleven_flash_v2_5";
 pub(crate) const DEFAULT_TTS_ELEVENLABS_VOICE: &str = "JBFqnCBsd6RMkjVDRZzb";
 pub(crate) const DEFAULT_TTS_CARTESIA_VOICE: &str =
     "f786b574-daa5-4673-aa0c-cbe3e8534c02";
-const DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION: u8 = 2;
+const DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION: u8 = 3;
+// Deepgram recommends requests close to its 2,000-character maximum when
+// chunking long input: https://developers.deepgram.com/docs/text-to-speech-latency
+const DEEPGRAM_RECOMMENDED_INTERACTIVE_TARGET_CHARS: u32 = 2_000;
+// ElevenLabs recommends requests below 1,000 characters for low latency. Keep
+// the target on the UI's 50-character step: https://elevenlabs.io/text-to-speech-api
+const ELEVENLABS_RECOMMENDED_INTERACTIVE_TARGET_CHARS: u32 = 950;
 
 impl Default for TtsProvider {
     fn default() -> Self {
@@ -752,6 +759,16 @@ impl TtsProvider {
             Self::LocalQwen => "local_qwen",
             Self::LocalKokoro => "local_kokoro",
             Self::Windows => "windows",
+        }
+    }
+
+    /// Provider-documented request size guidance for latency-sensitive TTS.
+    /// Providers without a numeric recommendation retain the user setting.
+    pub const fn recommended_interactive_target_chars(self) -> Option<u32> {
+        match self {
+            Self::Deepgram => Some(DEEPGRAM_RECOMMENDED_INTERACTIVE_TARGET_CHARS),
+            Self::ElevenLabs => Some(ELEVENLABS_RECOMMENDED_INTERACTIVE_TARGET_CHARS),
+            _ => None,
         }
     }
 
@@ -1378,7 +1395,9 @@ fn builtin_tts_synthesis_preset(
             voice_prompt_preset_id: String::new(),
             preprocessing_enabled: true,
             preprocessing_rules: Vec::new(),
-            target_chars: default_tts_interactive_target_chars(),
+            target_chars: provider
+                .recommended_interactive_target_chars()
+                .unwrap_or_else(default_tts_interactive_target_chars),
             retry_count: default_tts_retry_count(),
             retry_base_delay_ms: default_tts_retry_base_delay_ms(),
             inter_chunk_pause_ms: default_tts_inter_chunk_pause_ms(),
@@ -1478,8 +1497,17 @@ fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
             1.0,
         ),
         builtin_tts_synthesis_preset(
+            "builtin_tts_elevenlabs_flash_v2_5",
+            "ElevenLabs — Flash v2.5 (Interactive)",
+            TtsProvider::ElevenLabs,
+            "eleven_flash_v2_5",
+            DEFAULT_TTS_ELEVENLABS_VOICE,
+            "en",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
             "builtin_tts_elevenlabs_multilingual_v2",
-            "ElevenLabs — Multilingual v2 (Recommended)",
+            "ElevenLabs — Multilingual v2 (Long-form)",
             TtsProvider::ElevenLabs,
             "eleven_multilingual_v2",
             DEFAULT_TTS_ELEVENLABS_VOICE,
@@ -1579,10 +1607,24 @@ fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
     ]
 }
 
-fn recommended_tts_synthesis_preset(provider: TtsProvider) -> Option<TtsSynthesisPreset> {
+fn recommended_tts_synthesis_preset(
+    provider: TtsProvider,
+    scope: TtsOperationScope,
+) -> Option<TtsSynthesisPreset> {
     default_tts_synthesis_presets()
         .into_iter()
-        .find(|preset| preset.config.provider == provider)
+        .find(|preset| {
+            preset.config.provider == provider
+                && (provider != TtsProvider::ElevenLabs
+                    || match scope {
+                        TtsOperationScope::Interactive => {
+                            preset.config.model == "eleven_flash_v2_5"
+                        }
+                        TtsOperationScope::File => {
+                            preset.config.model == "eleven_multilingual_v2"
+                        }
+                    })
+        })
 }
 
 fn legacy_tts_model_key(provider: TtsProvider, model: &str) -> String {
@@ -2096,7 +2138,7 @@ impl TtsSettings {
         let (mut config, selected_preset_id) = if let Some(config) = remembered {
             (config, String::new())
         } else if !initialized {
-            if let Some(preset) = recommended_tts_synthesis_preset(provider) {
+            if let Some(preset) = recommended_tts_synthesis_preset(provider, scope) {
                 let selected_preset_id = self
                     .synthesis_presets
                     .iter()
@@ -4011,7 +4053,7 @@ fn default_tts_murf_variation() -> u8 {
 }
 
 fn default_tts_elevenlabs_model() -> String {
-    "eleven_multilingual_v2".to_string()
+    DEFAULT_TTS_ELEVENLABS_MODEL.to_string()
 }
 
 fn default_tts_elevenlabs_voice() -> String {
@@ -5908,8 +5950,13 @@ fn ensure_default_tts_synthesis_presets(settings: &mut AppSettings) -> bool {
         "builtin_tts_elevenlabs_v3_expressive",
         "builtin_tts_cartesia_sonic_3_5",
     ];
+    const VERSION_THREE_PRESET_IDS: [&str; 1] = ["builtin_tts_elevenlabs_flash_v2_5"];
     for preset in default_tts_synthesis_presets().into_iter().filter(|preset| {
-        previous_seed_version == 0 || VERSION_TWO_PRESET_IDS.contains(&preset.id.as_str())
+        previous_seed_version == 0
+            || (previous_seed_version < 2
+                && VERSION_TWO_PRESET_IDS.contains(&preset.id.as_str()))
+            || (previous_seed_version < 3
+                && VERSION_THREE_PRESET_IDS.contains(&preset.id.as_str()))
     }) {
         if settings.tts.synthesis_presets.len() >= 100 {
             break;
@@ -5960,6 +6007,52 @@ fn ensure_builtin_file_tts_target_chars(settings: &mut AppSettings) -> bool {
     }
     settings.tts.file_target_chars = target_chars;
     true
+}
+
+fn ensure_provider_recommended_interactive_target_chars(settings: &mut AppSettings) -> bool {
+    let legacy_target = default_tts_interactive_target_chars();
+    let mut changed = false;
+
+    for preset in &mut settings.tts.synthesis_presets {
+        if !preset.id.starts_with("builtin_tts_") || preset.config.target_chars != legacy_target {
+            continue;
+        }
+        if let Some(target) = preset
+            .config
+            .provider
+            .recommended_interactive_target_chars()
+        {
+            preset.config.target_chars = target;
+            changed = true;
+        }
+    }
+
+    for entry in &mut settings.tts.interactive_synthesis.models {
+        if entry.config.target_chars != legacy_target {
+            continue;
+        }
+        if let Some(target) = entry
+            .config
+            .provider
+            .recommended_interactive_target_chars()
+        {
+            entry.config.target_chars = target;
+            changed = true;
+        }
+    }
+
+    if settings.tts.interactive_target_chars == legacy_target {
+        if let Some(target) = settings
+            .tts
+            .provider
+            .recommended_interactive_target_chars()
+        {
+            settings.tts.interactive_target_chars = target;
+            changed = true;
+        }
+    }
+
+    changed
 }
 
 fn ensure_preview_delete_last_word_binding(settings: &mut AppSettings) -> bool {
@@ -6101,6 +6194,7 @@ fn repair_runtime_settings(settings: &mut AppSettings) -> bool {
     let mut changed = false;
     changed |= ensure_default_bindings(settings);
     changed |= ensure_default_tts_synthesis_presets(settings);
+    changed |= ensure_provider_recommended_interactive_target_chars(settings);
     changed |= ensure_builtin_file_tts_target_chars(settings);
     changed |= ensure_preview_delete_last_word_binding(settings);
     changed |= migrate_legacy_settings_fields(settings);
@@ -6869,7 +6963,7 @@ mod tests {
         assert_eq!(settings.openai_voice, "marin");
         assert_eq!(settings.murf_model, "falcon-2");
         assert_eq!(settings.murf_voice, DEFAULT_TTS_MURF_VOICE);
-        assert_eq!(settings.elevenlabs_model, "eleven_multilingual_v2");
+        assert_eq!(settings.elevenlabs_model, "eleven_flash_v2_5");
         assert_eq!(settings.elevenlabs_voice, DEFAULT_TTS_ELEVENLABS_VOICE);
         assert_eq!(settings.cartesia_model, "sonic-3.5");
         assert_eq!(settings.cartesia_voice, DEFAULT_TTS_CARTESIA_VOICE);
@@ -6971,7 +7065,7 @@ mod tests {
         assert_eq!(settings.tts.synthesis_presets_seed_version, 0);
 
         assert!(ensure_default_tts_synthesis_presets(&mut settings));
-        assert_eq!(settings.tts.synthesis_presets.len(), 19);
+        assert_eq!(settings.tts.synthesis_presets.len(), 20);
         assert_eq!(
             settings.tts.synthesis_presets_seed_version,
             DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION
@@ -6988,7 +7082,6 @@ mod tests {
             TtsProvider::Deepgram,
             TtsProvider::OpenAi,
             TtsProvider::Murf,
-            TtsProvider::ElevenLabs,
             TtsProvider::Edge,
             TtsProvider::LocalQwen,
             TtsProvider::LocalKokoro,
@@ -6996,6 +7089,7 @@ mod tests {
         ] {
             assert_eq!(provider_counts.get(provider.as_str()), Some(&2));
         }
+        assert_eq!(provider_counts.get(TtsProvider::ElevenLabs.as_str()), Some(&3));
         assert_eq!(provider_counts.get(TtsProvider::Cartesia.as_str()), Some(&1));
 
         let edge_aria = settings
@@ -7026,7 +7120,7 @@ mod tests {
     }
 
     #[test]
-    fn preset_seed_version_two_adds_only_the_new_provider_presets() {
+    fn older_preset_seed_adds_only_later_provider_presets() {
         let mut settings = get_default_settings();
         assert!(ensure_default_tts_synthesis_presets(&mut settings));
         settings
@@ -7040,7 +7134,7 @@ mod tests {
         settings.tts.synthesis_presets_seed_version = 1;
 
         assert!(ensure_default_tts_synthesis_presets(&mut settings));
-        assert_eq!(settings.tts.synthesis_presets.len(), 18);
+        assert_eq!(settings.tts.synthesis_presets.len(), 19);
         assert!(!settings
             .tts
             .synthesis_presets
@@ -7056,7 +7150,7 @@ mod tests {
                     TtsProvider::Murf | TtsProvider::ElevenLabs | TtsProvider::Cartesia
                 ))
                 .count(),
-            5
+            6
         );
     }
 
@@ -7089,6 +7183,118 @@ mod tests {
 
         assert_eq!(settings.murf_rate, 12);
         assert!(settings.interactive_synthesis.selected_preset_id.is_empty());
+    }
+
+    #[test]
+    fn provider_recommended_interactive_chunk_targets_are_selected_by_default() {
+        let mut app_settings = get_default_settings();
+        assert!(ensure_default_tts_synthesis_presets(&mut app_settings));
+        let settings = &mut app_settings.tts;
+        settings.ensure_synthesis_scopes();
+
+        settings
+            .select_scope_provider(TtsOperationScope::Interactive, TtsProvider::Deepgram)
+            .unwrap();
+        assert_eq!(
+            settings.interactive_target_chars,
+            DEEPGRAM_RECOMMENDED_INTERACTIVE_TARGET_CHARS
+        );
+
+        settings
+            .select_scope_provider(
+                TtsOperationScope::Interactive,
+                TtsProvider::ElevenLabs,
+            )
+            .unwrap();
+        assert_eq!(settings.elevenlabs_model, "eleven_flash_v2_5");
+        assert_eq!(
+            settings.interactive_target_chars,
+            ELEVENLABS_RECOMMENDED_INTERACTIVE_TARGET_CHARS
+        );
+
+        settings
+            .select_scope_provider(TtsOperationScope::File, TtsProvider::ElevenLabs)
+            .unwrap();
+        assert_eq!(settings.elevenlabs_model, "eleven_multilingual_v2");
+        assert_eq!(settings.file_target_chars, default_tts_file_target_chars());
+    }
+
+    #[test]
+    fn legacy_provider_chunk_targets_migrate_without_overwriting_custom_values() {
+        let mut settings = get_default_settings();
+        assert!(ensure_default_tts_synthesis_presets(&mut settings));
+        let legacy_target = default_tts_interactive_target_chars();
+
+        settings.tts.provider = TtsProvider::Deepgram;
+        settings.tts.interactive_target_chars = legacy_target;
+        for preset in &mut settings.tts.synthesis_presets {
+            if preset.config.provider == TtsProvider::Deepgram {
+                preset.config.target_chars = legacy_target;
+            }
+        }
+
+        let mut deepgram = recommended_tts_synthesis_preset(
+            TtsProvider::Deepgram,
+            TtsOperationScope::Interactive,
+        )
+            .unwrap()
+            .config;
+        deepgram.target_chars = legacy_target;
+        let deepgram_key = deepgram.model_key();
+        let mut elevenlabs = recommended_tts_synthesis_preset(
+            TtsProvider::ElevenLabs,
+            TtsOperationScope::Interactive,
+        )
+            .unwrap()
+            .config;
+        elevenlabs.target_chars = 700;
+        let elevenlabs_key = elevenlabs.model_key();
+        settings.tts.interactive_synthesis.models = vec![
+            TtsModelSynthesisSettings {
+                model_key: deepgram_key.clone(),
+                config: deepgram,
+            },
+            TtsModelSynthesisSettings {
+                model_key: elevenlabs_key.clone(),
+                config: elevenlabs,
+            },
+        ];
+        settings.tts.interactive_synthesis.active_model_key = deepgram_key.clone();
+
+        assert!(ensure_provider_recommended_interactive_target_chars(
+            &mut settings
+        ));
+        assert_eq!(
+            settings.tts.interactive_target_chars,
+            DEEPGRAM_RECOMMENDED_INTERACTIVE_TARGET_CHARS
+        );
+        assert_eq!(
+            settings
+                .tts
+                .interactive_synthesis
+                .models
+                .iter()
+                .find(|entry| entry.model_key == deepgram_key)
+                .unwrap()
+                .config
+                .target_chars,
+            DEEPGRAM_RECOMMENDED_INTERACTIVE_TARGET_CHARS
+        );
+        assert_eq!(
+            settings
+                .tts
+                .interactive_synthesis
+                .models
+                .iter()
+                .find(|entry| entry.model_key == elevenlabs_key)
+                .unwrap()
+                .config
+                .target_chars,
+            700
+        );
+        assert!(!ensure_provider_recommended_interactive_target_chars(
+            &mut settings
+        ));
     }
 
     #[test]

@@ -76,7 +76,7 @@ export const TTS_PROVIDER_DEFAULTS: Record<
     speed: 1,
   },
   elevenlabs: {
-    model: "eleven_multilingual_v2",
+    model: "eleven_flash_v2_5",
     voice: "JBFqnCBsd6RMkjVDRZzb",
     language: "en",
     speed: 1,
@@ -233,6 +233,7 @@ export const OPENAI_MODEL_OPTIONS = [
 export const MURF_MODEL_OPTIONS = ["falcon-2", "gen2"];
 
 export const ELEVENLABS_MODEL_OPTIONS = [
+  "eleven_flash_v2_5",
   "eleven_multilingual_v2",
   "eleven_v3",
 ];

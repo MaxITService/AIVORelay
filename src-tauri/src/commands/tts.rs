@@ -22,8 +22,9 @@ use crate::settings::{
     get_settings, write_settings, LlmPostProcessBenchmarkResult, TtsLlmScope, TtsOperationScope,
     TtsOutputFormat, TtsPlaybackEffect, TtsProvider, TtsScopeSynthesisSettings, TtsSettings,
     TtsSynthesisConfig, APPLE_INTELLIGENCE_PROVIDER_ID, DEFAULT_TTS_CARTESIA_VOICE,
-    DEFAULT_TTS_ELEVENLABS_VOICE, DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE,
-    DEFAULT_TTS_OPENAI_VOICE, DEFAULT_TTS_SONIOX_VOICE,
+    DEFAULT_TTS_ELEVENLABS_MODEL, DEFAULT_TTS_ELEVENLABS_VOICE,
+    DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE, DEFAULT_TTS_OPENAI_VOICE,
+    DEFAULT_TTS_SONIOX_VOICE,
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -895,8 +896,10 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.murf_pitch = settings.murf_pitch.clamp(-50, 50);
     settings.murf_variation = settings.murf_variation.min(5);
     settings.murf_style = normalize_optional_setting(settings.murf_style);
-    settings.elevenlabs_model =
-        nonempty_setting(settings.elevenlabs_model, "eleven_multilingual_v2");
+    settings.elevenlabs_model = nonempty_setting(
+        settings.elevenlabs_model,
+        DEFAULT_TTS_ELEVENLABS_MODEL,
+    );
     settings.elevenlabs_voice = nonempty_setting(
         settings.elevenlabs_voice,
         DEFAULT_TTS_ELEVENLABS_VOICE,
@@ -1067,7 +1070,7 @@ fn normalize_synthesis_config(
         TtsProvider::ElevenLabs => {
             config.model = nonempty_setting(
                 std::mem::take(&mut config.model),
-                "eleven_multilingual_v2",
+                DEFAULT_TTS_ELEVENLABS_MODEL,
             );
             config.voice = nonempty_setting(
                 std::mem::take(&mut config.voice),
