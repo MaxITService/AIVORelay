@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { AudioPlayer, AudioPlayerGroup } from "../../ui/AudioPlayer";
 import { Button } from "../../ui/Button";
 import { ConfirmationModal } from "../../ui/ConfirmationModal";
@@ -29,6 +30,151 @@ import { SettingContainer } from "../../ui/SettingContainer";
 import { useSettings } from "@/hooks/useSettings";
 
 const PAGE_SIZE = 30;
+
+type HistoryDeleteFailureReason =
+  | "file_in_use"
+  | "file_locked"
+  | "access_denied"
+  | "read_only"
+  | "write_protected"
+  | "database_error"
+  | "io_error";
+
+interface HistoryDeleteFailurePayload {
+  reason: HistoryDeleteFailureReason;
+  file_name: string | null;
+  processes: string[];
+  os_error: number | null;
+  details: string;
+}
+
+interface HistoryDeleteErrorPayload {
+  failures: HistoryDeleteFailurePayload[];
+  deleted_count: number;
+  remaining_count: number;
+}
+
+const UNKNOWN_HISTORY_DELETE_FAILURE: HistoryDeleteFailurePayload = {
+  reason: "io_error",
+  file_name: null,
+  processes: [],
+  os_error: null,
+  details: "History deletion failed",
+};
+
+class HistoryDeleteCommandError extends Error {
+  readonly payload: HistoryDeleteErrorPayload;
+
+  constructor(payload: HistoryDeleteErrorPayload) {
+    super(payload.failures[0]?.details ?? "History deletion failed");
+    this.name = "HistoryDeleteCommandError";
+    this.payload = payload;
+  }
+}
+
+const fallbackDeleteFailure = (details: string): HistoryDeleteErrorPayload => ({
+  failures: [
+    {
+      ...UNKNOWN_HISTORY_DELETE_FAILURE,
+      details,
+    },
+  ],
+  deleted_count: 0,
+  remaining_count: 1,
+});
+
+const toHistoryDeleteCommandError = (
+  error: unknown,
+): HistoryDeleteCommandError => {
+  if (error instanceof HistoryDeleteCommandError) {
+    return error;
+  }
+
+  const details = error instanceof Error ? error.message : String(error);
+  try {
+    const parsed = JSON.parse(details) as Partial<HistoryDeleteErrorPayload>;
+    if (
+      Array.isArray(parsed.failures) &&
+      typeof parsed.deleted_count === "number" &&
+      typeof parsed.remaining_count === "number"
+    ) {
+      return new HistoryDeleteCommandError(parsed as HistoryDeleteErrorPayload);
+    }
+  } catch {
+    // Older backends and transport failures return plain text.
+  }
+
+  return new HistoryDeleteCommandError(fallbackDeleteFailure(details));
+};
+
+const deleteFailureDescription = (
+  t: TFunction,
+  failure: HistoryDeleteFailurePayload,
+) => {
+  switch (failure.reason) {
+    case "file_in_use":
+    case "file_locked":
+      return failure.processes.length > 0
+        ? t("settings.history.deleteFailure.fileInUseProcess", {
+            processes: failure.processes.join(", "),
+          })
+        : t("settings.history.deleteFailure.fileInUse");
+    case "access_denied":
+      return t("settings.history.deleteFailure.accessDenied");
+    case "read_only":
+      return t("settings.history.deleteFailure.readOnly");
+    case "write_protected":
+      return t("settings.history.deleteFailure.writeProtected");
+    case "database_error":
+      return t("settings.history.deleteFailure.databaseError");
+    default:
+      return t("settings.history.deleteFailure.ioError");
+  }
+};
+
+const showHistoryDeleteFailure = (
+  t: TFunction,
+  error: unknown,
+  retry: () => void,
+) => {
+  const deletionError = toHistoryDeleteCommandError(error);
+  const { payload } = deletionError;
+  const failure = payload.failures[0] ?? UNKNOWN_HISTORY_DELETE_FAILURE;
+  const isPartial = payload.deleted_count > 0;
+  const isPermissionFailure =
+    failure.reason === "access_denied" ||
+    failure.reason === "read_only" ||
+    failure.reason === "write_protected";
+  const help = isPermissionFailure
+    ? t("settings.history.deleteFailure.permissionHelp")
+    : failure.reason === "file_in_use" || failure.reason === "file_locked"
+      ? t("settings.history.deleteFailure.fileInUseHelp")
+      : t("settings.history.deleteFailure.retryHelp");
+
+  toast.error(
+    isPartial
+      ? t("settings.history.deleteFailure.partialTitle", {
+          deleted: payload.deleted_count,
+          remaining: payload.remaining_count,
+        })
+      : t("settings.history.deleteFailure.title"),
+    {
+      description: `${deleteFailureDescription(t, failure)} ${help}`,
+      duration: 12000,
+      action: isPermissionFailure
+        ? {
+            label: t("settings.history.deleteFailure.openFolderAction"),
+            onClick: () => {
+              void commands.openRecordingsFolder();
+            },
+          }
+        : {
+            label: t("settings.history.deleteFailure.retryAction"),
+            onClick: retry,
+          },
+    },
+  );
+};
 
 interface PaginatedHistory {
   entries: HistoryEntry[];
@@ -869,25 +1015,7 @@ export const HistorySettings: React.FC = () => {
 
     setHistoryEntries((prev) => prev.filter((entry) => entry.id !== id));
 
-    try {
-      const result = await commands.deleteHistoryEntry(id);
-      if (result.status === "error") {
-        setHistoryEntries((prev) => {
-          if (!deletedEntry || prev.some((entry) => entry.id === id)) {
-            return prev;
-          }
-
-          const nextEntries = [...prev];
-          nextEntries.splice(
-            Math.min(deletedIndex, nextEntries.length),
-            0,
-            deletedEntry,
-          );
-          return nextEntries;
-        });
-      }
-    } catch (error) {
-      console.error("Failed to delete audio entry:", error);
+    const restoreDeletedEntry = () => {
       setHistoryEntries((prev) => {
         if (!deletedEntry || prev.some((entry) => entry.id === id)) {
           return prev;
@@ -901,7 +1029,17 @@ export const HistorySettings: React.FC = () => {
         );
         return nextEntries;
       });
-      throw error;
+    };
+
+    try {
+      const result = await commands.deleteHistoryEntry(id);
+      if (result.status === "error") {
+        throw toHistoryDeleteCommandError(result.error);
+      }
+    } catch (error) {
+      console.error("Failed to delete audio entry:", error);
+      restoreDeletedEntry();
+      throw toHistoryDeleteCommandError(error);
     }
   };
 
@@ -911,14 +1049,17 @@ export const HistorySettings: React.FC = () => {
     try {
       const result = await commands.deleteAllHistoryEntries();
       if (result.status === "error") {
-        throw new Error(result.error);
+        throw toHistoryDeleteCommandError(result.error);
       }
       setHistoryEntries([]);
       setHasMore(false);
       toast.success(t("settings.history.deleteAllSuccess"));
     } catch (error) {
       console.error("Failed to delete all history entries:", error);
-      toast.error(t("settings.history.deleteAllError"));
+      await loadHistoryEntries();
+      showHistoryDeleteFailure(t, error, () => {
+        void deleteAllHistoryEntries();
+      });
     } finally {
       setIsDeletingAll(false);
     }
@@ -1103,7 +1244,9 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
       await deleteAudio(entry.id);
     } catch (error) {
       console.error("Failed to delete entry:", error);
-      toast.error(t("settings.history.deleteError"));
+      showHistoryDeleteFailure(t, error, () => {
+        void handleDeleteEntry();
+      });
     }
   };
 

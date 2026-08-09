@@ -57,8 +57,8 @@ pub async fn delete_history_entry(
 ) -> Result<(), String> {
     history_manager
         .delete_entry(id)
-        .await
-        .map_err(|e| e.to_string())
+        .map(|_| ())
+        .map_err(serialize_history_delete_error)
 }
 
 #[tauri::command]
@@ -69,8 +69,11 @@ pub async fn delete_all_history_entries(
 ) -> Result<usize, String> {
     history_manager
         .delete_all_entries()
-        .await
-        .map_err(|e| e.to_string())
+        .map_err(serialize_history_delete_error)
+}
+
+fn serialize_history_delete_error(error: crate::managers::history::HistoryDeleteError) -> String {
+    serde_json::to_string(&error).unwrap_or_else(|_| error.to_string())
 }
 
 #[tauri::command]
