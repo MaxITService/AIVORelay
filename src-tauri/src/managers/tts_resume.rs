@@ -4,7 +4,10 @@
 //! verified PCM prefix. Each PCM segment is synced before an alternating JSON
 //! checkpoint is atomically published.
 
-use super::tts::{TtsChunk, TtsManager, MAX_TTS_TEXT_INPUT_BYTES, PROVIDER_PCM_SAMPLE_RATE};
+use super::tts::{
+    TtsChunk, TtsManager, MAX_TTS_PROCESSED_TEXT_BYTES, MAX_TTS_TEXT_INPUT_BYTES,
+    PROVIDER_PCM_SAMPLE_RATE,
+};
 use crate::settings::{
     ElevenLabsTextNormalization, TtsKeySource, TtsProvider, TtsSettings,
 };
@@ -33,10 +36,14 @@ const LEASE_FILE: &str = "lease.lock";
 const UI_JOBS_ROOT: &str = "ui-file-jobs";
 const UI_JOB_SLOTS: [&str; 2] = ["job-0.json", "job-1.json"];
 const UI_JOB_SOURCE_FILE: &str = "source.txt";
+const UI_LLM_CLEANUP_PREFIX: &str = "llm-cleanup-";
+const UI_LLM_CLEANUP_SUFFIX: &str = ".json";
+const UI_LLM_CLEANUP_REVISION: &str = "verified-cleaned-text-v1";
+const MAX_UI_LLM_CLEANUP_CHECKPOINT_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_UI_JOB_SOURCE_BYTES: usize = MAX_TTS_TEXT_INPUT_BYTES * 2;
-// The source snapshot is stored separately. A manifest keeps one processed
-// chunk copy; 64 MiB still accommodates the worst JSON escaping expansion of
-// an otherwise valid 8 MiB input without allowing unbounded recovery files.
+// The source snapshot and per-part AI cleanup checkpoints are stored
+// separately. The manifest retains the processed speech chunk plan; 64 MiB
+// accommodates a bounded plan without allowing unbounded recovery files.
 const MAX_UI_JOB_BYTES: u64 = 64 * 1024 * 1024;
 static UI_JOB_NONCE: AtomicU64 = AtomicU64::new(0);
 
@@ -68,6 +75,13 @@ pub enum UiFileJobStatus {
     Completed,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UiFileJobProgressStage {
+    AiCleanup,
+    Speech,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct UiFileJobManifest {
     schema_version: u32,
@@ -81,6 +95,10 @@ pub(crate) struct UiFileJobManifest {
     pub processed_text: Option<String>,
     #[serde(default)]
     pub processed_character_count: Option<usize>,
+    #[serde(default)]
+    pub cleanup_completed_chunks: usize,
+    #[serde(default)]
+    pub cleanup_total_chunks: usize,
     pub chunks: Vec<TtsChunk>,
     pub settings: TtsSettings,
     pub status: UiFileJobStatus,
@@ -101,6 +119,7 @@ pub struct UiFileJobSummary {
     pub status: UiFileJobStatus,
     pub completed_chunks: usize,
     pub total_chunks: usize,
+    pub progress_stage: UiFileJobProgressStage,
     pub partial_available: bool,
     pub last_error: Option<String>,
     pub created_at_ms: i64,
@@ -109,6 +128,20 @@ pub struct UiFileJobSummary {
 
 impl UiFileJobManifest {
     pub fn summary(&self) -> UiFileJobSummary {
+        let cleanup_pending = self.chunks.is_empty() && self.cleanup_total_chunks > 0;
+        let (completed_chunks, total_chunks, progress_stage) = if cleanup_pending {
+            (
+                self.cleanup_completed_chunks.min(self.cleanup_total_chunks),
+                self.cleanup_total_chunks,
+                UiFileJobProgressStage::AiCleanup,
+            )
+        } else {
+            (
+                self.completed_chunks.min(self.chunks.len()),
+                self.chunks.len(),
+                UiFileJobProgressStage::Speech,
+            )
+        };
         UiFileJobSummary {
             job_id: self.job_id.clone(),
             source_path: self.source_path.clone(),
@@ -116,8 +149,9 @@ impl UiFileJobManifest {
             provider: self.settings.provider,
             output_format: self.settings.output_format,
             status: self.status,
-            completed_chunks: self.completed_chunks.min(self.chunks.len()),
-            total_chunks: self.chunks.len(),
+            completed_chunks,
+            total_chunks,
+            progress_stage,
             partial_available: self.completed_chunks > 0 && !self.output_path.exists(),
             last_error: self.last_error.clone(),
             created_at_ms: self.created_at_ms,
@@ -148,6 +182,19 @@ struct ResumeCheckpoint {
     total_chunks: usize,
     origin: ResumeOrigin,
     segments: Vec<ResumeSegment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct UiLlmCleanupCheckpoint {
+    schema_version: u32,
+    pipeline_revision: String,
+    cleanup_fingerprint: String,
+    total_chunks: usize,
+    chunk_index: usize,
+    input_sha256: String,
+    output_sha256: String,
+    output_character_count: usize,
+    output: String,
 }
 
 #[derive(Serialize)]
@@ -602,6 +649,8 @@ pub(crate) fn create_ui_file_job(
         source_text,
         processed_text: None,
         processed_character_count: None,
+        cleanup_completed_chunks: 0,
+        cleanup_total_chunks: 0,
         chunks: Vec::new(),
         settings,
         status: UiFileJobStatus::Planned,
@@ -869,6 +918,268 @@ pub fn discard_ui_file_job(cache_root: &Path, job_id: &str) -> Result<()> {
 
 fn ui_job_root(cache_root: &Path, job_id: &str) -> PathBuf {
     cache_root.join(UI_JOBS_ROOT).join(job_id)
+}
+
+pub(crate) fn load_ui_llm_cleanup_prefix(
+    cache_root: &Path,
+    job_id: &str,
+    cleanup_fingerprint: &str,
+    chunks: &[TtsChunk],
+) -> Result<Vec<String>> {
+    validate_ui_job_id(job_id)?;
+    if cleanup_fingerprint.trim().is_empty() {
+        return Err(anyhow!("The TTS AI cleanup fingerprint is empty"));
+    }
+    let root = ui_job_root(cache_root, job_id);
+    reject_link_if_present(&root)?;
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+    cleanup_ui_llm_temporaries(&root)?;
+
+    let mut outputs = Vec::with_capacity(chunks.len());
+    let mut total_output_bytes = 0usize;
+    for chunk in chunks {
+        let checkpoint_path = ui_llm_cleanup_checkpoint_path(&root, chunk.index);
+        let checkpoint = match read_ui_llm_cleanup_checkpoint(&checkpoint_path) {
+            Ok(Some(checkpoint)) => checkpoint,
+            Ok(None) => {
+                clear_ui_llm_cleanup_from(&root, chunk.index)?;
+                break;
+            }
+            Err(error) => {
+                log::warn!(
+                    "Discarding invalid TTS AI cleanup checkpoints from part {}: {}",
+                    chunk.index,
+                    error
+                );
+                clear_ui_llm_cleanup_from(&root, chunk.index)?;
+                break;
+            }
+        };
+        let validation = validate_ui_llm_cleanup_checkpoint(
+            &checkpoint,
+            cleanup_fingerprint,
+            chunk,
+            chunks.len(),
+        );
+        if let Err(error) = validation {
+            log::warn!(
+                "Discarding stale TTS AI cleanup checkpoints from part {}: {}",
+                chunk.index,
+                error
+            );
+            clear_ui_llm_cleanup_from(&root, chunk.index)?;
+            break;
+        }
+        let separator_bytes = if outputs.is_empty() { 0 } else { 2 };
+        total_output_bytes = total_output_bytes
+            .checked_add(separator_bytes)
+            .and_then(|value| value.checked_add(checkpoint.output.len()))
+            .ok_or_else(|| anyhow!("Saved TTS AI cleanup output size overflowed"))?;
+        if total_output_bytes > MAX_TTS_PROCESSED_TEXT_BYTES {
+            log::warn!(
+                "Discarding TTS AI cleanup checkpoints beyond the 16 MiB processed-text limit"
+            );
+            clear_ui_llm_cleanup_from(&root, chunk.index)?;
+            break;
+        }
+        outputs.push(checkpoint.output);
+    }
+    clear_ui_llm_cleanup_from(&root, chunks.len().saturating_add(1))?;
+    Ok(outputs)
+}
+
+pub(crate) fn persist_ui_llm_cleanup_chunk(
+    cache_root: &Path,
+    job_id: &str,
+    cleanup_fingerprint: &str,
+    chunk: &TtsChunk,
+    total_chunks: usize,
+    output: &str,
+) -> Result<()> {
+    validate_ui_job_id(job_id)?;
+    if cleanup_fingerprint.trim().is_empty()
+        || chunk.index == 0
+        || chunk.index > total_chunks
+        || output.trim().is_empty()
+        || output.len() > MAX_TTS_PROCESSED_TEXT_BYTES
+    {
+        return Err(anyhow!("Refusing an invalid TTS AI cleanup checkpoint"));
+    }
+    let root = ui_job_root(cache_root, job_id);
+    reject_link_if_present(&root)?;
+    let metadata = fs::metadata(&root)
+        .with_context(|| format!("Missing TTS job directory {}", root.display()))?;
+    if !metadata.is_dir() {
+        return Err(anyhow!("The TTS job path is not a directory"));
+    }
+
+    let checkpoint = UiLlmCleanupCheckpoint {
+        schema_version: SCHEMA_VERSION,
+        pipeline_revision: UI_LLM_CLEANUP_REVISION.to_string(),
+        cleanup_fingerprint: cleanup_fingerprint.to_string(),
+        total_chunks,
+        chunk_index: chunk.index,
+        input_sha256: crate::managers::tts_llm::input_chunk_sha256(&chunk.text),
+        output_sha256: sha256_hex(output.as_bytes()),
+        output_character_count: output.chars().count(),
+        output: output.to_string(),
+    };
+    let bytes = serde_json::to_vec(&checkpoint)
+        .context("Failed to serialize a TTS AI cleanup checkpoint")?;
+    if bytes.len() as u64 > MAX_UI_LLM_CLEANUP_CHECKPOINT_BYTES {
+        return Err(anyhow!(
+            "The TTS AI cleanup checkpoint exceeds the 2 MiB safety limit"
+        ));
+    }
+
+    let destination = ui_llm_cleanup_checkpoint_path(&root, chunk.index);
+    reject_link_if_present(&destination)?;
+    if destination.exists() {
+        let existing = fs::read(&destination)?;
+        if existing == bytes {
+            return Ok(());
+        }
+        remove_owned_file_if_present(&destination)?;
+    }
+    let temporary = root.join(format!(
+        ".llm-cleanup-{}-{}-{}.partial",
+        chunk.index,
+        std::process::id(),
+        unique_nonce()
+    ));
+    let result = (|| -> Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        file.write_all(&bytes)?;
+        file.flush()?;
+        file.sync_all()?;
+        drop(file);
+        crate::no_clobber::publish_new_file(&temporary, &destination)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result.with_context(|| {
+        format!(
+            "Failed to save TTS AI cleanup checkpoint {}",
+            chunk.index
+        )
+    })
+}
+
+fn ui_llm_cleanup_checkpoint_path(root: &Path, chunk_index: usize) -> PathBuf {
+    root.join(format!(
+        "{UI_LLM_CLEANUP_PREFIX}{chunk_index:08}{UI_LLM_CLEANUP_SUFFIX}"
+    ))
+}
+
+fn read_ui_llm_cleanup_checkpoint(path: &Path) -> Result<Option<UiLlmCleanupCheckpoint>> {
+    reject_link_if_present(path)?;
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.is_file() || metadata.len() > MAX_UI_LLM_CLEANUP_CHECKPOINT_BYTES {
+        return Err(anyhow!("Invalid TTS AI cleanup checkpoint file"));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    File::open(path)?
+        .take(MAX_UI_LLM_CLEANUP_CHECKPOINT_BYTES.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_UI_LLM_CLEANUP_CHECKPOINT_BYTES {
+        return Err(anyhow!("TTS AI cleanup checkpoint is too large"));
+    }
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .context("Failed to parse a TTS AI cleanup checkpoint")
+}
+
+fn validate_ui_llm_cleanup_checkpoint(
+    checkpoint: &UiLlmCleanupCheckpoint,
+    cleanup_fingerprint: &str,
+    chunk: &TtsChunk,
+    total_chunks: usize,
+) -> Result<()> {
+    if checkpoint.schema_version != SCHEMA_VERSION
+        || checkpoint.pipeline_revision != UI_LLM_CLEANUP_REVISION
+        || checkpoint.cleanup_fingerprint != cleanup_fingerprint
+        || checkpoint.total_chunks != total_chunks
+        || checkpoint.chunk_index != chunk.index
+        || checkpoint.input_sha256
+            != crate::managers::tts_llm::input_chunk_sha256(&chunk.text)
+        || checkpoint.output.trim().is_empty()
+        || checkpoint.output.len() > MAX_TTS_PROCESSED_TEXT_BYTES
+        || checkpoint.output_character_count != checkpoint.output.chars().count()
+        || checkpoint.output_sha256 != sha256_hex(checkpoint.output.as_bytes())
+    {
+        return Err(anyhow!("TTS AI cleanup checkpoint verification failed"));
+    }
+    Ok(())
+}
+
+fn clear_ui_llm_cleanup_from(root: &Path, first_chunk_index: usize) -> Result<()> {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let Some(index) = ui_llm_cleanup_file_index(&entry.file_name()) else {
+            continue;
+        };
+        if index < first_chunk_index {
+            continue;
+        }
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() || !file_type.is_file() {
+            return Err(anyhow!(
+                "Refusing unexpected TTS AI cleanup checkpoint path {}",
+                entry.path().display()
+            ));
+        }
+        fs::remove_file(entry.path())?;
+    }
+    Ok(())
+}
+
+fn cleanup_ui_llm_temporaries(root: &Path) -> Result<()> {
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with(".llm-cleanup-") || !name.ends_with(".partial") {
+            continue;
+        }
+        let file_type = entry.file_type()?;
+        if file_type.is_file() {
+            fs::remove_file(entry.path())?;
+        } else if file_type.is_symlink() {
+            return Err(anyhow!(
+                "Refusing symbolic-link TTS AI cleanup temporary {}",
+                entry.path().display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn ui_llm_cleanup_file_index(name: &std::ffi::OsStr) -> Option<usize> {
+    let name = name.to_str()?;
+    let digits = name
+        .strip_prefix(UI_LLM_CLEANUP_PREFIX)?
+        .strip_suffix(UI_LLM_CLEANUP_SUFFIX)?;
+    if digits.len() != 8 || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let index = digits.parse::<usize>().ok()?;
+    (index > 0).then_some(index)
 }
 
 fn ui_job_completed_chunks(manifest: &UiFileJobManifest) -> Result<usize> {
@@ -2002,6 +2313,96 @@ mod tests {
         }
         let loaded = load_ui_file_job(&directory, &manifest.job_id).unwrap();
         assert_eq!(loaded.source_text, source_text);
+        remove_ui_file_job_record(&directory, &manifest.job_id).unwrap();
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn ui_job_recovers_only_the_verified_ai_cleanup_prefix() {
+        let directory = temp_directory("llm-cleanup-prefix");
+        fs::create_dir(&directory).unwrap();
+        let manifest = create_ui_file_job(
+            &directory,
+            directory.join("book.txt"),
+            directory.join("book.mp3"),
+            "First part. Second part.".to_string(),
+            TtsSettings::default(),
+        )
+        .unwrap();
+        let chunks = vec![
+            TtsChunk {
+                index: 1,
+                text: "First part.".to_string(),
+                character_count: 11,
+                boundary_after: TtsBoundary::Sentence,
+            },
+            TtsChunk {
+                index: 2,
+                text: " Second part.".to_string(),
+                character_count: 13,
+                boundary_after: TtsBoundary::End,
+            },
+        ];
+        for (chunk, output) in chunks.iter().zip(["Clean first.", "Clean second."]) {
+            persist_ui_llm_cleanup_chunk(
+                &directory,
+                &manifest.job_id,
+                "fingerprint",
+                chunk,
+                chunks.len(),
+                output,
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            load_ui_llm_cleanup_prefix(
+                &directory,
+                &manifest.job_id,
+                "fingerprint",
+                &chunks,
+            )
+            .unwrap(),
+            vec!["Clean first.".to_string(), "Clean second.".to_string()]
+        );
+
+        let root = ui_job_root(&directory, &manifest.job_id);
+        fs::write(ui_llm_cleanup_checkpoint_path(&root, 2), b"corrupt").unwrap();
+        assert_eq!(
+            load_ui_llm_cleanup_prefix(
+                &directory,
+                &manifest.job_id,
+                "fingerprint",
+                &chunks,
+            )
+            .unwrap(),
+            vec!["Clean first.".to_string()]
+        );
+        assert!(!ui_llm_cleanup_checkpoint_path(&root, 2).exists());
+
+        remove_ui_file_job_record(&directory, &manifest.job_id).unwrap();
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn ui_job_summary_reports_ai_cleanup_before_speech_progress() {
+        let directory = temp_directory("llm-cleanup-summary");
+        fs::create_dir(&directory).unwrap();
+        let mut manifest = create_ui_file_job(
+            &directory,
+            directory.join("book.txt"),
+            directory.join("book.mp3"),
+            "Narration".to_string(),
+            TtsSettings::default(),
+        )
+        .unwrap();
+        manifest.cleanup_completed_chunks = 3;
+        manifest.cleanup_total_chunks = 8;
+        let summary = manifest.summary();
+
+        assert_eq!(summary.completed_chunks, 3);
+        assert_eq!(summary.total_chunks, 8);
+        assert_eq!(summary.progress_stage, UiFileJobProgressStage::AiCleanup);
+
         remove_ui_file_job_record(&directory, &manifest.job_id).unwrap();
         fs::remove_dir_all(directory).unwrap();
     }

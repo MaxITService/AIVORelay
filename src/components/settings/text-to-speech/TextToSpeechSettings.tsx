@@ -266,6 +266,12 @@ type FileInspection = {
   processedCharacterCount?: number;
   chunk_count?: number;
   chunkCount?: number;
+  llm_cleanup_enabled?: boolean;
+  llmCleanupEnabled?: boolean;
+  llm_cleanup_chunk_count?: number;
+  llmCleanupChunkCount?: number;
+  counts_are_estimates?: boolean;
+  countsAreEstimates?: boolean;
 };
 
 type ConversionProgress = {
@@ -1625,6 +1631,17 @@ const characterCount = (
 const chunkCount = (inspection: FileInspection | null) =>
   inspection?.chunk_count ?? inspection?.chunkCount ?? null;
 
+const llmCleanupEnabled = (inspection: FileInspection | null) =>
+  inspection?.llm_cleanup_enabled ?? inspection?.llmCleanupEnabled ?? false;
+
+const llmCleanupChunkCount = (inspection: FileInspection | null) =>
+  inspection?.llm_cleanup_chunk_count ??
+  inspection?.llmCleanupChunkCount ??
+  0;
+
+const inspectionCountsAreEstimates = (inspection: FileInspection | null) =>
+  inspection?.counts_are_estimates ?? inspection?.countsAreEstimates ?? false;
+
 export interface TextToSpeechSettingsProps {
   mode?: "interactive" | "files";
 }
@@ -2510,12 +2527,15 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
             }
             const normalizedProgress: ConversionProgress = {
               ...progress,
-              status: progress.status ?? progress.phase,
               attempt:
                 progress.attempt ??
                 progress.current_attempt ??
                 progress.currentAttempt,
             };
+            const reportedStatus = progress.status ?? progress.phase;
+            if (reportedStatus !== undefined) {
+              normalizedProgress.status = reportedStatus;
+            }
             setConversionProgress((previous) => ({
               ...previous,
               ...normalizedProgress,
@@ -2967,7 +2987,8 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         retryBaseDelayMs: tts.retry_base_delay_ms,
         interChunkPauseMs: tts.inter_chunk_pause_ms,
         paragraphPauseMs: tts.paragraph_pause_ms,
-        llmPreprocessing: tts.llm_preprocessing,
+        llmCleanupEnabled: tts.llm_preprocessing.file_enabled,
+        llmChunkTargetChars: tts.llm_preprocessing.chunk_target_chars,
         outputFormat,
         mp3Bitrate,
       }),
@@ -2980,7 +3001,8 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       tts.edge_voice_language,
       tts.file_target_chars,
       tts.inter_chunk_pause_ms,
-      tts.llm_preprocessing,
+      tts.llm_preprocessing.chunk_target_chars,
+      tts.llm_preprocessing.file_enabled,
       tts.local_kokoro_language,
       tts.local_kokoro_voice,
       tts.local_qwen_language,
@@ -3190,20 +3212,39 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const totalChunks =
     conversionProgress?.total_chunks ??
     conversionProgress?.totalChunks ??
-    chunkCount(inspection) ??
-    0;
+    (conversionBusy && llmCleanupEnabled(inspection)
+      ? llmCleanupChunkCount(inspection)
+      : (chunkCount(inspection) ?? 0));
   const progressPercent =
     totalChunks > 0
       ? Math.min(100, Math.round((completedChunks / totalChunks) * 100))
       : 0;
+  const conversionPhase =
+    conversionProgress?.phase ?? conversionProgress?.status ?? "preparing";
   const conversionStatus =
-    conversionProgress?.status === "retrying"
+    conversionPhase === "preprocessing"
+      ? t("textToSpeech.conversion.aiCleanup")
+      : conversionPhase === "retrying"
       ? t("textToSpeech.overlayPlayer.retryingAttempt", {
           attempt: conversionProgress.attempt ?? 1,
         })
-      : conversionProgress?.status === "preparing"
+      : conversionPhase === "preparing"
         ? t("textToSpeech.overlayPlayer.preparing")
-        : t("textToSpeech.conversion.converting");
+        : conversionPhase === "ready" &&
+            totalChunks > 0 &&
+            completedChunks >= totalChunks
+          ? t("textToSpeech.conversion.encoding")
+          : t("textToSpeech.conversion.speechGeneration");
+  const conversionProgressLabel =
+    conversionPhase === "preprocessing"
+      ? t("textToSpeech.conversion.aiPartProgress", {
+          completed: completedChunks,
+          total: totalChunks,
+        })
+      : t("textToSpeech.conversion.speechChunkProgress", {
+          completed: completedChunks,
+          total: totalChunks,
+        });
   const keySourceLabel =
     tts.provider === "openai" || tts.provider === "openai_compatible"
       ? t("textToSpeech.api.sameAsOpenAi")
@@ -3469,6 +3510,13 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 conversionBusy ? completedChunks : undefined
               }
               activeTotalChunks={conversionBusy ? totalChunks : undefined}
+              activeProgressStage={
+                conversionBusy && conversionPhase === "preprocessing"
+                  ? "ai_cleanup"
+                  : conversionBusy
+                    ? "speech"
+                    : undefined
+              }
             />
             <SettingsGroup
               title={t("textToSpeech.conversion.title")}
@@ -3536,32 +3584,55 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   </div>
                 )}
                 {inspection && (
-                  <div className="mt-3 grid grid-cols-3 gap-3">
-                    {[
-                      [
-                        t("textToSpeech.conversion.sourceCharacters"),
-                        characterCount(inspection, "source"),
-                      ],
-                      [
-                        t("textToSpeech.conversion.processedCharacters"),
-                        characterCount(inspection, "processed"),
-                      ],
-                      [
-                        t("textToSpeech.conversion.chunks"),
-                        chunkCount(inspection),
-                      ],
-                    ].map(([label, value]) => (
-                      <div
-                        key={String(label)}
-                        className="rounded-lg border border-white/[0.06] bg-black/15 p-3"
-                      >
-                        <div className="text-xs text-[#808080]">{label}</div>
-                        <div className="mt-1 text-lg font-semibold text-[#f5f5f5]">
-                          {value ?? "—"}
+                  <>
+                    <div className="mt-3 grid grid-cols-2 gap-3 xl:grid-cols-4">
+                      {[
+                        [
+                          t("textToSpeech.conversion.sourceCharacters"),
+                          characterCount(inspection, "source"),
+                        ],
+                        [
+                          inspectionCountsAreEstimates(inspection)
+                            ? t(
+                                "textToSpeech.conversion.estimatedProcessedCharacters",
+                              )
+                            : t(
+                                "textToSpeech.conversion.processedCharacters",
+                              ),
+                          characterCount(inspection, "processed"),
+                        ],
+                        [
+                          t("textToSpeech.conversion.aiCleanupRequests"),
+                          llmCleanupChunkCount(inspection),
+                        ],
+                        [
+                          inspectionCountsAreEstimates(inspection)
+                            ? t(
+                                "textToSpeech.conversion.estimatedSpeechRequests",
+                              )
+                            : t("textToSpeech.conversion.speechRequests"),
+                          chunkCount(inspection),
+                        ],
+                      ].map(([label, value]) => (
+                        <div
+                          key={String(label)}
+                          className="rounded-lg border border-white/[0.06] bg-black/15 p-3"
+                        >
+                          <div className="text-xs text-[#808080]">{label}</div>
+                          <div className="mt-1 text-lg font-semibold text-[#f5f5f5]">
+                            {typeof value === "number"
+                              ? value.toLocaleString()
+                              : "—"}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-xs leading-relaxed text-[#909090]">
+                      {inspectionCountsAreEstimates(inspection)
+                        ? t("textToSpeech.conversion.localEstimateDisclosure")
+                        : t("textToSpeech.conversion.localInspectionDisclosure")}
+                    </p>
+                  </>
                 )}
               </SettingContainer>
               <details className="group border-b border-white/[0.05] px-6 py-4">
@@ -3686,11 +3757,8 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   <div className="flex items-center justify-between text-xs text-[#b8b8b8]">
                     <span>
                       {conversionStatus}{" "}
-                      {totalChunks > 0
-                        ? t("textToSpeech.conversion.chunkProgress", {
-                            completed: completedChunks,
-                            total: totalChunks,
-                          })
+                      {totalChunks > 0 && conversionPhase !== "preparing"
+                        ? conversionProgressLabel
                         : ""}
                     </span>
                     <span>{progressPercent}%</span>
