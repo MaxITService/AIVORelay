@@ -813,7 +813,7 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
               <Textarea
                 value={selectedPrompt.prompt}
                 maxLength={32768}
-                className="min-h-40"
+                className="min-h-40 w-full"
                 placeholder={t(
                   "textToSpeech.aiCleanup.promptInstructions",
                   "Instructions sent as the system prompt",
@@ -961,7 +961,7 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
         >
           <Textarea
             value={benchmarkText}
-            className="min-h-32"
+            className="min-h-32 w-full"
             maxLength={50000}
             onChange={(event) =>
               void patch(
