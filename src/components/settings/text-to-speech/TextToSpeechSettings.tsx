@@ -3226,7 +3226,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       ? t("textToSpeech.conversion.aiCleanup")
       : conversionPhase === "retrying"
       ? t("textToSpeech.overlayPlayer.retryingAttempt", {
-          attempt: conversionProgress.attempt ?? 1,
+          attempt: conversionProgress?.attempt ?? 1,
         })
       : conversionPhase === "preparing"
         ? t("textToSpeech.overlayPlayer.preparing")
