@@ -5,13 +5,10 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Expanded Text to Speech with Murf AI, ElevenLabs, Cartesia, and OpenAI-compatible providers, alongside improved file conversion and workflow-specific settings.
-- Made streamed speech smoother and easier to control with stable ready/pending progress, safer seeking, voice previews, playback-speed controls, and automatic overlay hiding.
-- Improved microphone, clipboard, and transcription reliability, including input-channel selection, microphone recovery, native-streaming History fixes, and lower idle resource usage.
-- Made LLM post-processing correctly follow the active transcription profile and available output route.
-- Redesigned Help with task-based guidance, clearer cloud-provider and API-key safety information, and always-accessible Voice Commands risk instructions.
-- Fixed several interface and reliability issues involving History cleanup, connector state, region selection, and overlay placement.
-- Included the latest upstream Handy improvements and fixes.
+- Made long Text to Speech conversions easier to plan with local character, chunk, and request estimates plus clear size safeguards.
+- Made AI cleanup for long documents more efficient and resumable: text is packed at natural boundaries, verified cleanup output is checkpointed, and interrupted jobs continue without repeating completed cleanup or speech work.
+- Made completed audio output easier to find and expanded the AI cleanup prompt editor for longer instructions.
+- No new upstream Handy intake is included since v1.0.29.
 
 ---
 
