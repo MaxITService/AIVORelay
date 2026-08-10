@@ -35,6 +35,7 @@ type TtsFileJob = {
   status: JobStatus;
   completedChunks: number;
   totalChunks: number;
+  progressStage: "ai_cleanup" | "speech";
   partialAvailable: boolean;
   lastError?: string | null;
   createdAtMs: number;
@@ -56,6 +57,7 @@ type TtsUnfinishedJobsProps = {
   activeOperationId?: string | null;
   activeCompletedChunks?: number;
   activeTotalChunks?: number;
+  activeProgressStage?: "ai_cleanup" | "speech";
 };
 
 const isInFlight = (job: TtsFileJob) =>
@@ -83,6 +85,7 @@ export const TtsUnfinishedJobs: React.FC<TtsUnfinishedJobsProps> = ({
   activeOperationId: parentOperationId = null,
   activeCompletedChunks,
   activeTotalChunks,
+  activeProgressStage,
 }) => {
   const { t } = useTranslation();
   const [jobs, setJobs] = useState<TtsFileJob[]>([]);
@@ -93,6 +96,7 @@ export const TtsUnfinishedJobs: React.FC<TtsUnfinishedJobsProps> = ({
   const [liveProgress, setLiveProgress] = useState<{
     completed: number;
     total: number;
+    stage: "ai_cleanup" | "speech";
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const activeJobIdRef = useRef<string | null>(null);
@@ -117,6 +121,7 @@ export const TtsUnfinishedJobs: React.FC<TtsUnfinishedJobsProps> = ({
           setLiveProgress({
             completed: runningJob.completedChunks,
             total: runningJob.totalChunks,
+            stage: runningJob.progressStage,
           });
         }
         setError(null);
@@ -140,21 +145,31 @@ export const TtsUnfinishedJobs: React.FC<TtsUnfinishedJobsProps> = ({
     activeJobIdRef.current = runningJob.jobId;
     setActiveJobId(runningJob.jobId);
     updateOperationId(parentOperationId);
-    setLiveProgress((previous) => ({
-      completed: Math.max(
-        previous?.completed ?? 0,
-        runningJob.completedChunks,
-        activeCompletedChunks ?? 0,
-      ),
-      total: Math.max(
-        previous?.total ?? 0,
-        runningJob.totalChunks,
-        activeTotalChunks ?? 0,
-      ),
-    }));
+    setLiveProgress((previous) => {
+      const stage = activeProgressStage ?? runningJob.progressStage;
+      const stageChanged = previous !== null && previous.stage !== stage;
+      return {
+        completed: stageChanged
+          ? (activeCompletedChunks ?? 0)
+          : Math.max(
+              previous?.completed ?? 0,
+              runningJob.completedChunks,
+              activeCompletedChunks ?? 0,
+            ),
+        total: stageChanged
+          ? (activeTotalChunks ?? 0)
+          : Math.max(
+              previous?.total ?? 0,
+              runningJob.totalChunks,
+              activeTotalChunks ?? 0,
+            ),
+        stage,
+      };
+    });
     setError(null);
   }, [
     activeCompletedChunks,
+    activeProgressStage,
     activeTotalChunks,
     jobs,
     parentOperationId,
@@ -186,10 +201,28 @@ export const TtsUnfinishedJobs: React.FC<TtsUnfinishedJobsProps> = ({
         event.payload.completedChunks ?? event.payload.completed_chunks ?? 0;
       const reportedTotal =
         event.payload.totalChunks ?? event.payload.total_chunks ?? 0;
-      setLiveProgress((previous) => ({
-        completed: Math.max(previous?.completed ?? 0, reportedCompleted),
-        total: Math.max(previous?.total ?? 0, reportedTotal),
-      }));
+      setLiveProgress((previous) => {
+        const reportedStage =
+          event.payload.phase === "preprocessing"
+            ? "ai_cleanup"
+            : event.payload.phase === "synthesizing" ||
+                event.payload.phase === "retrying" ||
+                event.payload.phase === "ready" ||
+                event.payload.phase === "completed"
+              ? "speech"
+              : (previous?.stage ?? "speech");
+        const stageChanged =
+          previous !== null && previous.stage !== reportedStage;
+        return {
+          completed: stageChanged
+            ? reportedCompleted
+            : Math.max(previous?.completed ?? 0, reportedCompleted),
+          total: stageChanged
+            ? reportedTotal
+            : Math.max(previous?.total ?? 0, reportedTotal),
+          stage: reportedStage,
+        };
+      });
       if (
         event.payload.phase === "completed" ||
         event.payload.phase === "cancelled" ||
@@ -215,6 +248,7 @@ export const TtsUnfinishedJobs: React.FC<TtsUnfinishedJobsProps> = ({
     setLiveProgress({
       completed: job.completedChunks,
       total: job.totalChunks,
+      stage: job.progressStage,
     });
     setError(null);
     try {
@@ -404,6 +438,9 @@ export const TtsUnfinishedJobs: React.FC<TtsUnfinishedJobsProps> = ({
         const total = active
           ? (liveProgress?.total ?? job.totalChunks)
           : job.totalChunks;
+        const progressStage = active
+          ? (liveProgress?.stage ?? job.progressStage)
+          : job.progressStage;
         const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
         return (
           <div
@@ -429,11 +466,16 @@ export const TtsUnfinishedJobs: React.FC<TtsUnfinishedJobsProps> = ({
                   </span>
                 </div>
                 <div className="mt-2 text-xs text-[#b8b8b8]">
-                  {t("textToSpeech.unfinishedJobs.progress", {
-                    completed,
-                    total,
-                    percent,
-                  })}
+                  {t(
+                    progressStage === "ai_cleanup"
+                      ? "textToSpeech.unfinishedJobs.cleanupProgress"
+                      : "textToSpeech.unfinishedJobs.speechProgress",
+                    {
+                      completed,
+                      total,
+                      percent,
+                    },
+                  )}
                 </div>
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#252525]">
                   <div

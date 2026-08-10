@@ -97,7 +97,7 @@ The "Default Profile" uses your global settings (Settings → Speech). It cannot
 
 ### 🔊 Text to Speech (App can also do that!)
 
-**Want to turn your text into an audiobook? You can do that now.** AivoRelay can speak selected text from any Windows application or convert complete `.txt` and `.md` documents into MP3 or WAV. For especially natural speech, choose one of the supported cloud TTS APIs; cloud synthesis is often inexpensive for personal-sized projects, although each provider sets its own pricing. For offline or private use, choose installed Windows voices or an optional local model instead.
+**Read text aloud or turn complete documents into narrated MP3 or WAV files.** AivoRelay can speak clipboard or selected text in most Windows applications and convert `.txt` and `.md` documents with cloud, Windows, or optional local voices. Cloud services receive the supplied text and set their own pricing; Windows voices and local models keep synthesis on the device.
 
 You do not need to understand every setting to begin. AivoRelay includes ready-made presets for every TTS provider and automatically opens the recommended preset the first time you select a provider on each TTS page.
 
@@ -107,11 +107,11 @@ You do not need to understand every setting to begin. AivoRelay includes ready-m
 2. Choose a provider. Its recommended preset is loaded automatically the first time; you can select a different preset later.
 3. Add an API key if the selected cloud provider requires one. Windows voices and the unofficial Microsoft Read Aloud integration do not require a key; local models keep synthesis on the device after installation.
 4. Assign a keyboard shortcut under **Actions**. Other settings can stay at their defaults.
-5. Select text in any application and press the shortcut to hear it.
+5. Select text in a supported application and press the shortcut to hear it.
 
 #### Text file to MP3 or WAV
 
-Open **Settings → Text file to mp3** to convert existing `.txt` or `.md` documents. Select one or multiple files with the native Windows file picker, scan a whole folder once, optionally include subfolders, and cancel a running batch. Every source file gets its own audio result, and existing outputs are never overwritten. The same workflow is also available from the [TTS file-conversion CLI](CLI-TEXT-TO-SPEECH.md).
+Open **Settings → Text file to mp3** to convert one or more `.txt` or `.md` documents, scan folders with optional subfolders, or automate a watched folder. Long documents are split at natural boundaries, and interrupted jobs can resume from saved progress. Optional AI cleanup may send text to the configured LLM and incur provider costs. Existing outputs are never overwritten. The workflow is also available from the [TTS file-conversion CLI](CLI-TEXT-TO-SPEECH.md).
 
 Available choices include Soniox, Deepgram, OpenAI, OpenAI-compatible custom servers, Murf AI (Falcon 2 and Gen2), ElevenLabs (Eleven v3 and Multilingual v2), Cartesia Sonic 3.5, Windows installed voices, the unofficial Microsoft Read Aloud integration, and optional local Qwen or Kokoro models. File conversion and interactive speech keep separate active settings while sharing saved presets.
 

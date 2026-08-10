@@ -113,6 +113,9 @@ const MAX_MURF_GEN2_JSON_BYTES: usize = 36 * 1024 * 1024;
 // Long enough for multi-million-character book sources while bounding the
 // additional copies created by Unicode chunking and preprocessing.
 pub(crate) const MAX_TTS_TEXT_INPUT_BYTES: usize = 8 * 1024 * 1024;
+// Processed narration may grow during cleanup, but remains bounded separately
+// from the original source so chunking and resumable manifests stay finite.
+pub(crate) const MAX_TTS_PROCESSED_TEXT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TTS_BATCH_FILES: usize = 100_000;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
@@ -248,6 +251,9 @@ pub struct TextFileInspection {
     pub source_character_count: usize,
     pub processed_character_count: usize,
     pub chunk_count: usize,
+    pub llm_cleanup_enabled: bool,
+    pub llm_cleanup_chunk_count: usize,
+    pub counts_are_estimates: bool,
     pub encoding: String,
 }
 
@@ -1191,6 +1197,7 @@ impl TtsManager {
         text: &str,
         settings: &TtsSettings,
         scope: TtsLlmScope,
+        mut ui_job: Option<&mut tts_resume::UiFileJobManifest>,
     ) -> Result<String> {
         let mut app_settings = crate::settings::get_settings(&self.app_handle);
         // CLI and History regeneration may supply temporary TTS overrides.
@@ -1199,9 +1206,55 @@ impl TtsManager {
         app_settings.tts = settings.clone();
         let config = tts_llm::resolve_config(&app_settings, scope)?;
         let llm_output = if let Some(config) = config {
-            let cleanup = tts_llm::preprocess_text(text, &config, |progress| {
-                self.update_preprocessing_progress(operation_id, progress);
-            });
+            let input_chunks = tts_llm::input_chunks(text, config.chunk_target_chars);
+            if input_chunks.is_empty() {
+                return Err(anyhow!("There is no text for TTS AI cleanup"));
+            }
+            let cleanup_fingerprint = tts_llm::cleanup_fingerprint(&config, &input_chunks)?;
+            let resumed_cleanup = if let Some(job) = ui_job.as_deref_mut() {
+                let resumed = tts_resume::load_ui_llm_cleanup_prefix(
+                    &self.cache_root,
+                    &job.job_id,
+                    &cleanup_fingerprint,
+                    &input_chunks,
+                )?;
+                job.cleanup_completed_chunks = resumed.len();
+                job.cleanup_total_chunks = input_chunks.len();
+                job.status = tts_resume::UiFileJobStatus::Preparing;
+                job.last_error = None;
+                tts_resume::touch_ui_job(job);
+                tts_resume::persist_ui_file_job(&self.cache_root, job)?;
+                resumed
+            } else {
+                Vec::new()
+            };
+            let cleanup = tts_llm::preprocess_chunks(
+                &input_chunks,
+                &config,
+                resumed_cleanup,
+                |progress| {
+                    self.update_preprocessing_progress(operation_id, progress);
+                },
+                |chunk, output| {
+                    if let Some(job) = ui_job.as_deref_mut() {
+                        tts_resume::persist_ui_llm_cleanup_chunk(
+                            &self.cache_root,
+                            &job.job_id,
+                            &cleanup_fingerprint,
+                            chunk,
+                            input_chunks.len(),
+                            output,
+                        )?;
+                        job.cleanup_completed_chunks = chunk.index;
+                        job.cleanup_total_chunks = input_chunks.len();
+                        job.status = tts_resume::UiFileJobStatus::Preparing;
+                        job.last_error = None;
+                        tts_resume::touch_ui_job(job);
+                        tts_resume::persist_ui_file_job(&self.cache_root, job)?;
+                    }
+                    Ok(())
+                },
+            );
             tokio::select! {
                 result = cleanup => result?,
                 _ = self.wait_for_cancellation(operation_id) => {
@@ -1214,6 +1267,11 @@ impl TtsManager {
         self.ensure_active(operation_id)?;
 
         let processed = Self::preprocess_text(&llm_output, settings);
+        if processed.len() > MAX_TTS_PROCESSED_TEXT_BYTES {
+            return Err(anyhow!(
+                "Processed TTS text exceeds the 16 MiB safety limit"
+            ));
+        }
         if processed.trim().is_empty() {
             return Err(anyhow!("TTS preprocessing returned no speakable text"));
         }
@@ -1239,47 +1297,48 @@ impl TtsManager {
     }
 
     pub async fn inspect_text_file(
-        self: &Arc<Self>,
+        &self,
         path: impl AsRef<Path>,
         settings: &TtsSettings,
     ) -> Result<TextFileInspection> {
         validate_enabled_independent_settings(settings)?;
-        let _operation_guard = self
-            .foreground_operation_lock
-            .try_lock()
-            .map_err(|_| anyhow!("Another text-to-speech operation is already running"))?;
         let path = path.as_ref();
         validate_input_extension(path)?;
         let (source, encoding) = read_supported_text_file(path)?;
         let source_for_speech = normalize_source_text(path, &source);
-        let operation_id =
-            self.begin_operation(TtsOperationKind::FileConversion, settings.provider, 0);
-        let processed = match self
-            .preprocess_for_scope(
-                operation_id,
-                &source_for_speech,
-                settings,
-                TtsLlmScope::File,
-            )
-            .await
-        {
-            Ok(processed) => processed,
-            Err(error) => {
-                self.finish_result::<()>(operation_id, &Err(anyhow!(error.to_string())));
-                return Err(error);
-            }
+        let llm_cleanup_enabled = settings.llm_preprocessing.file_enabled;
+        let locally_processed = if llm_cleanup_enabled {
+            // AI output is unknown until the explicit conversion starts. Use
+            // the locally normalized source for a non-billable estimate.
+            source_for_speech.clone()
+        } else {
+            Self::preprocess_text(&source_for_speech, settings)
         };
-        let chunks = Self::chunk_file(&processed, settings);
-        self.set_synthesis_plan(operation_id, chunks.len());
-        let result = Ok(TextFileInspection {
+        if !llm_cleanup_enabled && locally_processed.len() > MAX_TTS_PROCESSED_TEXT_BYTES {
+            return Err(anyhow!(
+                "Processed TTS text exceeds the 16 MiB safety limit"
+            ));
+        }
+        let chunks = Self::chunk_file(&locally_processed, settings);
+        let llm_cleanup_chunk_count = if llm_cleanup_enabled {
+            tts_llm::input_chunks(
+                &source_for_speech,
+                settings.llm_preprocessing.chunk_target_chars as usize,
+            )
+            .len()
+        } else {
+            0
+        };
+        Ok(TextFileInspection {
             path: path.to_path_buf(),
             source_character_count: source.chars().count(),
-            processed_character_count: processed.chars().count(),
+            processed_character_count: locally_processed.chars().count(),
             chunk_count: chunks.len(),
+            llm_cleanup_enabled,
+            llm_cleanup_chunk_count,
+            counts_are_estimates: llm_cleanup_enabled,
             encoding,
-        });
-        self.finish_result(operation_id, &result);
-        result
+        })
     }
 
     /// Reads the original unprocessed source for opt-in TTS History metadata.
@@ -1837,7 +1896,13 @@ impl TtsManager {
         }
         on_resolved(settings);
         let processed = match self
-            .preprocess_for_scope(operation_id, text, settings, TtsLlmScope::Interactive)
+            .preprocess_for_scope(
+                operation_id,
+                text,
+                settings,
+                TtsLlmScope::Interactive,
+                None,
+            )
             .await
         {
             Ok(processed) => processed,
@@ -2570,6 +2635,7 @@ impl TtsManager {
                     &source_for_speech,
                     settings,
                     preprocessing_scope,
+                    ui_job.as_mut(),
                 )
                 .await
             {

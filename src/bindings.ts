@@ -4446,7 +4446,7 @@ end: number;
  * The transcribed text for this segment
  */
 text: string }
-export type TextFileInspection = { path: string; source_character_count: number; processed_character_count: number; chunk_count: number; encoding: string }
+export type TextFileInspection = { path: string; source_character_count: number; processed_character_count: number; chunk_count: number; llm_cleanup_enabled: boolean; llm_cleanup_chunk_count: number; counts_are_estimates: boolean; encoding: string }
 /**
  * A text replacement rule that substitutes one text pattern with another.
  * Supports escape sequences for special characters (e.g., \n for newline).
@@ -4640,8 +4640,9 @@ export type TtsSynthesisPreset = { id: string; name: string; config: TtsSynthesi
 export type TtsVoiceCatalog = { provider: TtsProvider; voices: TtsVoiceCatalogEntry[]; source: string; supports_live_refresh: boolean; replace_builtin: boolean; warning: string | null }
 export type TtsVoiceCatalogEntry = { id: string; label: string; group: string; language: string; gender: string; description: string; locales?: TtsVoiceCatalogLocale[] }
 export type TtsVoiceCatalogLocale = { locale: string; label: string; styles: string[] }
+export type UiFileJobProgressStage = "ai_cleanup" | "speech"
 export type UiFileJobStatus = "planned" | "preparing" | "running" | "retrying" | "paused" | "interrupted" | "failed" | "completed"
-export type UiFileJobSummary = { jobId: string; sourcePath: string; outputPath: string; provider: TtsProvider; outputFormat: TtsOutputFormat; status: UiFileJobStatus; completedChunks: number; totalChunks: number; partialAvailable: boolean; lastError: string | null; createdAtMs: number; updatedAtMs: number }
+export type UiFileJobSummary = { jobId: string; sourcePath: string; outputPath: string; provider: TtsProvider; outputFormat: TtsOutputFormat; status: UiFileJobStatus; completedChunks: number; totalChunks: number; progressStage: UiFileJobProgressStage; partialAvailable: boolean; lastError: string | null; createdAtMs: number; updatedAtMs: number }
 export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled: boolean; includeInCycle: boolean; pushToTalk: boolean; previewOutputOnlyEnabled: boolean; sonioxLanguageHintsStrict?: boolean | null; llmSettings: ProfileLlmSettings; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
 /**
  * Information about the virtual screen (all monitors combined).
