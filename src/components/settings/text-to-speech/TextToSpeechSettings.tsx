@@ -8,7 +8,7 @@ import React, {
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { useTranslation } from "react-i18next";
 import {
@@ -17,6 +17,7 @@ import {
   ExternalLink,
   FileAudio,
   FileText,
+  FolderOpen,
   Loader2,
   Plus,
   RefreshCw,
@@ -3081,6 +3082,18 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     }
   };
 
+  const openCompletedOutputFolder = async () => {
+    if (!completedPath) return;
+    try {
+      await revealItemInDir(completedPath);
+    } catch (error) {
+      console.error("Failed to reveal completed TTS output:", error);
+      toast.error(t("textToSpeech.conversion.openContainingFolderError"), {
+        description: asErrorMessage(error),
+      });
+    }
+  };
+
   const convertFile = async () => {
     if (!inputPath || !outputPath || !inspection) return;
     setConversionBusy(true);
@@ -3756,17 +3769,29 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 </div>
               )}
               {completedPath && (
-                <div
-                  role="status"
-                  aria-live="polite"
-                  className="flex items-start gap-2 px-6 py-4 text-sm text-green-300"
-                >
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span className="min-w-0 break-all">
-                    {t("textToSpeech.conversion.completed", {
-                      path: completedPath,
-                    })}
-                  </span>
+                <div className="flex flex-wrap items-start justify-between gap-3 px-6 py-4 text-sm text-green-300">
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="flex min-w-0 flex-1 items-start gap-2"
+                  >
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span className="min-w-0 break-all">
+                      {t("textToSpeech.conversion.completed", {
+                        path: completedPath,
+                      })}
+                    </span>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="shrink-0"
+                    title={t("textToSpeech.conversion.openContainingFolder")}
+                    onClick={() => void openCompletedOutputFolder()}
+                  >
+                    <FolderOpen className="mr-2 inline h-4 w-4" />
+                    {t("textToSpeech.conversion.openContainingFolder")}
+                  </Button>
                 </div>
               )}
             </SettingsGroup>
