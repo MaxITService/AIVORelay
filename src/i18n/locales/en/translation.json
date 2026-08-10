@@ -679,7 +679,9 @@
       "operationUnavailable": "The running conversion could not be identified yet. Wait for its progress to update and try again.",
       "cancel": "Cancel",
       "pause": "Pause and keep progress",
-      "completed": "Completed: {{path}}"
+      "completed": "Completed: {{path}}",
+      "openContainingFolder": "Open containing folder",
+      "openContainingFolderError": "Could not open the containing folder"
     },
     "unfinishedJobs": {
       "title": "Unfinished conversions",
