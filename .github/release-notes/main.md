@@ -5,10 +5,11 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Made long Text to Speech conversions easier to plan with local character, chunk, and request estimates plus clear size safeguards.
-- Made AI cleanup for long documents more efficient and resumable: text is packed at natural boundaries, verified cleanup output is checkpointed, and interrupted jobs continue without repeating completed cleanup or speech work.
-- Made completed audio output easier to find and expanded the AI cleanup prompt editor for longer instructions.
-- No new upstream Handy intake is included since v1.0.29.
+- Added an optional in-memory **Listen Later** queue for clipboard and selected-text speech, with source labels, drag-and-drop and keyboard reordering, and skip, remove, and clear controls.
+- Made queued speech resilient when existing audio is playing, the queue is cleared or disabled, playback fails, or the overlay must resize on a small display; read-request problems now remain visible even when the main window is hidden.
+- Added the missing LLM Post-Processing status and controls to the **Default (Global)** transcription profile, including the realtime-output warning and a direct link to shared LLM configuration.
+- Fixed Text to Speech conversions that could stop showing progress when a provider omitted progress updates.
+- No new upstream Handy intake is included since v1.0.30.
 
 ---
 
