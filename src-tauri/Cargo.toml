@@ -65,7 +65,7 @@ tokio-util = "0.7"
 vad-rs = { git = "https://github.com/cjpais/vad-rs", default-features = false }
 enigo = "0.6.1"
 rodio = { git = "https://github.com/cjpais/rodio.git" }
-reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
+reqwest = { version = "0.12", features = ["json", "multipart", "stream", "gzip", "brotli", "deflate"] }
 futures = "0.3"
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
@@ -74,6 +74,9 @@ rustfft = "6.4.0"
 strsim = "0.11.0"
 natural = "0.5.0"
 regex = "1"
+# Confidence-gated text language identification for safe filler-word removal.
+whatlang = "0.16"
+isolang = "2"
 chrono = "0.4"
 rusqlite = { version = "0.37", features = ["bundled"] }
 nnnoiseless = { version = "0.5.2", default-features = false }

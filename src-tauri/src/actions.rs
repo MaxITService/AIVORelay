@@ -1905,28 +1905,14 @@ async fn perform_transcription_for_profile_with_retry_action(
             )
             .await
             .map(|text| {
-                // Apply custom word corrections
-                let corrected =
-                    if settings.custom_words_enabled && !settings.custom_words.is_empty() {
-                        apply_custom_words(
-                            &text,
-                            &settings.custom_words,
-                            settings.word_correction_threshold,
-                            settings.custom_words_ngram_enabled,
-                        )
-                    } else {
-                        text
-                    };
-                // Apply filler word filter (if enabled)
-                if settings.filler_word_filter_enabled {
-                    crate::audio_toolkit::filter_transcription_output(
-                        &corrected,
-                        language.as_str(),
-                        &settings.custom_filler_words,
-                    )
-                } else {
-                    corrected
-                }
+                apply_transcription_output_filters(
+                    settings,
+                    text,
+                    crate::audio_toolkit::OutputLanguageEvidence::from_requested_language(
+                        Some(language.as_str()),
+                        translate_to_english,
+                    ),
+                )
             });
 
         // Check if operation was cancelled while we were waiting
@@ -2199,25 +2185,11 @@ async fn perform_transcription_for_profile_with_retry_action(
         };
 
         let result = result.map(|text| {
-            let corrected = if settings.custom_words_enabled && !settings.custom_words.is_empty() {
-                apply_custom_words(
-                    &text,
-                    &settings.custom_words,
-                    settings.word_correction_threshold,
-                    settings.custom_words_ngram_enabled,
-                )
-            } else {
-                text
-            };
-            if settings.filler_word_filter_enabled {
-                crate::audio_toolkit::filter_transcription_output(
-                    &corrected,
-                    language.as_str(),
-                    &settings.custom_filler_words,
-                )
-            } else {
-                corrected
-            }
+            apply_transcription_output_filters(
+                settings,
+                text,
+                crate::audio_toolkit::OutputLanguageEvidence::Multilingual,
+            )
         });
 
         if soniox_manager.is_cancelled(operation_id) {
@@ -2292,26 +2264,14 @@ async fn perform_transcription_for_profile_with_retry_action(
             )
             .await
             .map(|text| {
-                let corrected =
-                    if settings.custom_words_enabled && !settings.custom_words.is_empty() {
-                        apply_custom_words(
-                            &text,
-                            &settings.custom_words,
-                            settings.word_correction_threshold,
-                            settings.custom_words_ngram_enabled,
-                        )
-                    } else {
-                        text
-                    };
-                if settings.filler_word_filter_enabled {
-                    crate::audio_toolkit::filter_transcription_output(
-                        &corrected,
-                        language.as_str(),
-                        &settings.custom_filler_words,
-                    )
-                } else {
-                    corrected
-                }
+                apply_transcription_output_filters(
+                    settings,
+                    text,
+                    crate::audio_toolkit::OutputLanguageEvidence::from_requested_language(
+                        Some(language.as_str()),
+                        false,
+                    ),
+                )
             });
 
         if deepgram_manager.is_cancelled(operation_id) {
@@ -2594,7 +2554,11 @@ async fn get_transcription_or_cleanup_detailed(
                 .await
             {
                 Ok(text) => {
-                    let filtered = apply_soniox_output_filters(&recording_settings, text);
+                    let filtered = apply_profile_output_filters(
+                        &recording_settings,
+                        text,
+                        captured_profile_id.as_deref(),
+                    );
                     return TranscriptionFetchOutcome::Success((filtered, samples));
                 }
                 Err(err) => {
@@ -2614,7 +2578,11 @@ async fn get_transcription_or_cleanup_detailed(
                 .await
             {
                 Ok(text) => {
-                    let filtered = apply_soniox_output_filters(&recording_settings, text);
+                    let filtered = apply_profile_output_filters(
+                        &recording_settings,
+                        text,
+                        captured_profile_id.as_deref(),
+                    );
                     return TranscriptionFetchOutcome::Success((filtered, samples));
                 }
                 Err(err) => {
@@ -2634,7 +2602,11 @@ async fn get_transcription_or_cleanup_detailed(
                 .await
             {
                 Ok(text) => {
-                    let filtered = apply_soniox_output_filters(&recording_settings, text);
+                    let filtered = apply_profile_output_filters(
+                        &recording_settings,
+                        text,
+                        captured_profile_id.as_deref(),
+                    );
                     return TranscriptionFetchOutcome::Success((filtered, samples));
                 }
                 Err(err) => {
@@ -5481,7 +5453,11 @@ pub(crate) fn parse_openai_realtime_keywords(value: &str) -> Option<Vec<String>>
 
     (!keywords.is_empty()).then_some(keywords)
 }
-fn apply_soniox_output_filters(settings: &AppSettings, text: String) -> String {
+fn apply_transcription_output_filters(
+    settings: &AppSettings,
+    text: String,
+    output_language: crate::audio_toolkit::OutputLanguageEvidence,
+) -> String {
     let corrected = if settings.custom_words_enabled && !settings.custom_words.is_empty() {
         apply_custom_words(
             &text,
@@ -5493,15 +5469,41 @@ fn apply_soniox_output_filters(settings: &AppSettings, text: String) -> String {
         text
     };
 
-    if settings.filler_word_filter_enabled {
-        crate::audio_toolkit::filter_transcription_output(
-            &corrected,
-            &settings.selected_language,
-            &settings.custom_filler_words,
-        )
+    crate::audio_toolkit::clean_transcription_output(
+        &corrected,
+        &output_language,
+        &[],
+        &settings.custom_filler_words,
+        settings.filler_word_filter_enabled,
+    )
+}
+
+fn apply_profile_output_filters(
+    settings: &AppSettings,
+    text: String,
+    profile_id: Option<&str>,
+) -> String {
+    let profile = profile_id.and_then(|profile_id| settings.transcription_profile(profile_id));
+    let language = profile
+        .as_ref()
+        .map(|profile| profile.language.as_str())
+        .unwrap_or(settings.selected_language.as_str());
+    let translate_to_english = profile
+        .as_ref()
+        .map(|profile| profile.translate_to_english)
+        .unwrap_or(settings.translate_to_english);
+    let output_language = if settings.transcription_provider == TranscriptionProvider::RemoteSoniox
+    {
+        // Soniox accepts language hints but may still return multilingual text,
+        // so a selected hint is not strong output-language evidence.
+        crate::audio_toolkit::OutputLanguageEvidence::Multilingual
     } else {
-        corrected
-    }
+        crate::audio_toolkit::OutputLanguageEvidence::from_requested_language(
+            Some(language),
+            translate_to_english,
+        )
+    };
+    apply_transcription_output_filters(settings, text, output_language)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -6770,7 +6772,11 @@ impl ShortcutAction for TranscribeAction {
                 }
                 let mut recovered_from_soniox_replay = false;
                 let transcription = match transcription_result {
-                    Ok(text) => apply_soniox_output_filters(&recording_settings, text),
+                    Ok(text) => apply_profile_output_filters(
+                        &recording_settings,
+                        text,
+                        profile_id_for_postprocess.as_deref(),
+                    ),
                     Err(err) => {
                         let err_str = format!("{}", err);
                         let can_replay_soniox = should_replay_soniox_live_timeout(

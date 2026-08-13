@@ -6,6 +6,22 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-08-13):
+- Reviewed the 11 non-merge commits from `db003f38` through `37a26fd6`; the safe
+  review cursor is now `37a26fd6`. A later fetch advanced `upstream/main` to
+  `549cbde3`, but that newer commit is outside this intake.
+- Manually adapted `1bcbfc4c` by enabling reqwest gzip, Brotli, and deflate
+  response decoding while retaining the fork's multipart support.
+- Manually adapted the correctness portions of `4cd49950` and `80995b53`:
+  filler removal now uses the actual requested, constrained, detected, or
+  translated output language across local, remote, realtime, segmented, and
+  diarized file paths. Retained the fork's opt-in default, custom n-grams, and
+  hallucination cleanup policy; skipped upstream's default-on setting/UI,
+  translations, and generated bindings.
+- Skipped Linux-only input/paste/overlay work, Ubuntu documentation, optional
+  translation and typo changes, upstream appearance theming, and macOS-only
+  Secure Input/tray behavior.
+
 Audit note (2026-08-08):
 - Refreshed `Q:\Handy-upstream`; current upstream HEAD is `db003f38`.
 - Safe review cursor for the next `upstream -> main` intake is now `db003f38`.
@@ -63,6 +79,8 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-08-13 | 2026-08-09 | `4cd49950`, `80995b53` | wip filler fixes (#1738); forgot to commit bindings | fix(transcription): make filler removal output-language aware | manual correctness port; retained fork opt-in/custom-word policy and all transcription paths |
+| 2026-08-13 | 2026-08-09 | `1bcbfc4c` | fix: support compressed API responses (#1548) | fix(http): support compressed provider responses | manual Cargo feature port; retained multipart support; lock regenerated locally |
 | 2026-08-08 | 2026-08-08 | `db003f38` | fix(audio): skip level meter and resampler while idle in always-on mode (#1873) | fix(audio): skip idle level-meter and resampler work | manual port; retained gain, noise cancellation, and stream callbacks |
 | 2026-08-08 | 2026-08-07 | `d9615937` | fix: update js-yaml to address quadratic parsing (#1865) | fix(deps): update js-yaml to 4.3.1 | Bun lock only; fork has no Nix lock metadata |
 | 2026-08-08 | 2026-08-06 | `12f02e2a` | fix: add input channel selection for multi-channel audio interfaces (#1254) | fix(audio): add input channel selection for multi-channel interfaces | manual port; retained fork capture-source routing |
@@ -71,8 +89,6 @@ Rules:
 | 2026-08-08 | 2026-08-05 | `4223e7ac` | fix: preserve HTTP transport error causes (#1823) | fix: preserve HTTP transport error causes (#1823) | manual port; retained reasoning API and URL sanitization |
 | 2026-08-08 | 2026-08-05 | `b4453a29` | fix(audio): move blocking cpal work off the main thread + lock-free is_recording (#1716) | fix(audio): move blocking cpal work off the main thread + lock-free is_recording (#1716) | manual port; retained fork tray/device handling |
 | 2026-08-08 | 2026-08-05 | `2211da65` | request stream: false, for post processing | request stream: false, for post processing | manual one-field port |
-| 2026-08-08 | 2026-08-03 | `a4348beb` | fix: recover microphone stream after the capture worker dies (#1838) | fix: recover microphone stream after the capture worker dies (#1838) | manual port; retained capture selection and media controls |
-| 2026-08-01 | 2026-07-30 | `16e5d48e` | dont fire bindings when recording (#1811) | fix(shortcuts): suspend all bindings during shortcut capture | manual port; retained legacy single-binding commands for old frontend bundles |
 
 Entry template:
 

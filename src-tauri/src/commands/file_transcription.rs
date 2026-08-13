@@ -4,7 +4,9 @@
 //! Uses the same transcription infrastructure as live recording.
 
 use crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID;
-use crate::audio_toolkit::apply_custom_words;
+use crate::audio_toolkit::{
+    apply_custom_words, clean_transcription_output, detect_output_language, OutputLanguageEvidence,
+};
 use crate::file_transcription_diarization::{
     create_diarized_transcript_session, normalize_raw_speaker_blocks, reapply_diarized_transcript,
     render_diarized_transcript, DiarizedTranscriptBlock, DiarizedTranscriptProvider,
@@ -372,28 +374,18 @@ pub async fn transcribe_audio_file(
             .await
             .map_err(|e| format!("Remote transcription failed: {}", e))?;
 
-        // Apply custom word corrections
-        let corrected = if should_apply_custom_words {
-            apply_custom_words(
-                &transcript.text,
-                &settings.custom_words,
-                settings.word_correction_threshold,
-                settings.custom_words_ngram_enabled,
-            )
-        } else {
-            transcript.text
-        };
-
-        // Apply filler word filter (if enabled)
-        let corrected = if settings.filler_word_filter_enabled {
-            crate::audio_toolkit::filter_transcription_output(
-                &corrected,
-                language.as_str(),
-                &settings.custom_filler_words,
-            )
-        } else {
-            corrected
-        };
+        let output_language = OutputLanguageEvidence::from_requested_language(
+            Some(language.as_str()),
+            translate_to_english,
+        );
+        let output_language =
+            resolved_output_language_for_text(&settings, &transcript.text, output_language);
+        let corrected = apply_transcription_post_processing(
+            transcript.text,
+            &settings,
+            should_apply_custom_words,
+            &output_language,
+        );
 
         let segs = if needs_segments {
             Some(post_process_remote_segments(
@@ -404,7 +396,7 @@ pub async fn transcribe_audio_file(
                 )?,
                 &settings,
                 should_apply_custom_words,
-                &language,
+                &output_language,
             ))
         } else {
             None
@@ -482,6 +474,11 @@ pub async fn transcribe_audio_file(
         } else {
             Vec::new()
         };
+        // Soniox language values are hints and can still produce multilingual
+        // output, so resolve the actual text instead of trusting one hint.
+        let output_language = OutputLanguageEvidence::Multilingual;
+        let output_language =
+            resolved_output_language_for_text(&settings, &transcript.text, output_language);
 
         let (corrected, new_speaker_session) = if let Some((rendered_text, session)) =
             build_diarized_text_output(
@@ -491,6 +488,7 @@ pub async fn transcribe_audio_file(
                 save_to_file,
                 &settings,
                 should_apply_custom_words,
+                &output_language,
             )? {
             (rendered_text, session)
         } else {
@@ -499,6 +497,7 @@ pub async fn transcribe_audio_file(
                     transcript.text,
                     &settings,
                     should_apply_custom_words,
+                    &output_language,
                 ),
                 None,
             )
@@ -510,7 +509,7 @@ pub async fn transcribe_audio_file(
                 require_remote_segments(timed_segments, &corrected, "Soniox")?,
                 &settings,
                 should_apply_custom_words,
-                &language,
+                &output_language,
             ))
         } else {
             None
@@ -574,6 +573,10 @@ pub async fn transcribe_audio_file(
         } else {
             Vec::new()
         };
+        let output_language =
+            OutputLanguageEvidence::from_requested_language(Some(language.as_str()), false);
+        let output_language =
+            resolved_output_language_for_text(&settings, &transcript.text, output_language);
 
         let (corrected, new_speaker_session) = if let Some((rendered_text, session)) =
             build_diarized_text_output(
@@ -583,6 +586,7 @@ pub async fn transcribe_audio_file(
                 save_to_file,
                 &settings,
                 should_apply_custom_words,
+                &output_language,
             )? {
             (rendered_text, session)
         } else {
@@ -591,6 +595,7 @@ pub async fn transcribe_audio_file(
                     transcript.text,
                     &settings,
                     should_apply_custom_words,
+                    &output_language,
                 ),
                 None,
             )
@@ -602,7 +607,7 @@ pub async fn transcribe_audio_file(
                 require_remote_segments(timed_segments, &corrected, "Deepgram")?,
                 &settings,
                 should_apply_custom_words,
-                &language,
+                &output_language,
             ))
         } else {
             None
@@ -839,6 +844,7 @@ fn apply_transcription_post_processing(
     text: String,
     settings: &AppSettings,
     should_apply_custom_words: bool,
+    output_language: &OutputLanguageEvidence,
 ) -> String {
     let corrected = if should_apply_custom_words {
         apply_custom_words(
@@ -851,27 +857,46 @@ fn apply_transcription_post_processing(
         text
     };
 
-    if settings.filler_word_filter_enabled {
-        crate::audio_toolkit::filter_transcription_output(
-            &corrected,
-            &settings.selected_language,
-            &settings.custom_filler_words,
-        )
-    } else {
-        corrected
+    clean_transcription_output(
+        &corrected,
+        output_language,
+        &[],
+        &settings.custom_filler_words,
+        settings.filler_word_filter_enabled,
+    )
+}
+
+fn resolved_output_language_for_text(
+    settings: &AppSettings,
+    text: &str,
+    evidence: OutputLanguageEvidence,
+) -> OutputLanguageEvidence {
+    if evidence == OutputLanguageEvidence::Unknown
+        && settings.filler_word_filter_enabled
+        && settings.custom_filler_words.is_none()
+    {
+        if let Some(language) = detect_output_language(text, &[]) {
+            return OutputLanguageEvidence::TextDetected(language);
+        }
     }
+    evidence
 }
 
 fn apply_transcription_post_processing_to_blocks(
     blocks: Vec<DiarizedTranscriptBlock>,
     settings: &AppSettings,
     should_apply_custom_words: bool,
+    output_language: &OutputLanguageEvidence,
 ) -> Vec<DiarizedTranscriptBlock> {
     let mut processed_blocks: Vec<DiarizedTranscriptBlock> = Vec::new();
 
     for block in blocks {
-        let text =
-            apply_transcription_post_processing(block.text, settings, should_apply_custom_words);
+        let text = apply_transcription_post_processing(
+            block.text,
+            settings,
+            should_apply_custom_words,
+            output_language,
+        );
         let trimmed = text.trim();
         if trimmed.is_empty() {
             continue;
@@ -904,6 +929,7 @@ fn build_diarized_text_output(
     save_to_file: bool,
     settings: &AppSettings,
     should_apply_custom_words: bool,
+    output_language: &OutputLanguageEvidence,
 ) -> Result<Option<(String, Option<FileTranscriptionSpeakerSession>)>, String> {
     if !matches!(format, OutputFormat::Text) {
         return Ok(None);
@@ -914,10 +940,19 @@ fn build_diarized_text_output(
         return Ok(None);
     }
 
+    let combined_text = normalized_blocks
+        .iter()
+        .map(|block| block.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let output_language =
+        resolved_output_language_for_text(settings, &combined_text, output_language.clone());
+
     let processed_blocks = apply_transcription_post_processing_to_blocks(
         normalized_blocks,
         settings,
         should_apply_custom_words,
+        &output_language,
     );
     if processed_blocks.is_empty() {
         return Ok(None);
@@ -950,7 +985,7 @@ fn post_process_remote_segments(
     segments: Vec<SubtitleSegment>,
     settings: &AppSettings,
     should_apply_custom_words: bool,
-    language: &str,
+    output_language: &OutputLanguageEvidence,
 ) -> Vec<SubtitleSegment> {
     segments
         .into_iter()
@@ -963,13 +998,13 @@ fn post_process_remote_segments(
                     settings.custom_words_ngram_enabled,
                 );
             }
-            if settings.filler_word_filter_enabled {
-                segment.text = crate::audio_toolkit::filter_transcription_output(
-                    &segment.text,
-                    language,
-                    &settings.custom_filler_words,
-                );
-            }
+            segment.text = clean_transcription_output(
+                &segment.text,
+                output_language,
+                &[],
+                &settings.custom_filler_words,
+                settings.filler_word_filter_enabled,
+            );
             (!segment.text.trim().is_empty()).then_some(segment)
         })
         .collect()
