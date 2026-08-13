@@ -558,23 +558,48 @@ export default function TtsOverlay() {
         return;
       }
 
-      const operationChanged = next.operationId !== operationIdRef.current;
-      if (operationChanged) {
+      const previousState = stateRef.current;
+      const previousOperationId = operationIdRef.current;
+
+      const operationChanged = next.operationId !== previousOperationId;
+      const activeQueueItemChanged =
+        next.activeQueueItemId !== previousState.activeQueueItemId;
+      // Active -> null after normal completion only removes queue ownership;
+      // the completed operation and its retained audio are still the same.
+      const queueItemActivatedOrReplaced =
+        activeQueueItemChanged && next.activeQueueItemId !== null;
+
+      const assignedOperationToSameQueueItem =
+        operationChanged &&
+        previousOperationId === "" &&
+        next.operationId !== "" &&
+        next.activeQueueItemId !== null &&
+        next.activeQueueItemId === previousState.activeQueueItemId;
+
+      const logicalPlaybackItemChanged =
+        queueItemActivatedOrReplaced ||
+        (operationChanged && !assignedOperationToSameQueueItem);
+
+      if (operationChanged || queueItemActivatedOrReplaced) {
         resetAudio();
         operationIdRef.current = next.operationId;
-        desiredPlayingRef.current =
-          next.autoplay &&
-          (next.status === "loading" ||
-            next.status === "preprocessing" ||
-            next.status === "retrying" ||
-            next.status === "ready");
+
+        if (logicalPlaybackItemChanged) {
+          desiredPlayingRef.current =
+            next.autoplay &&
+            (next.status === "loading" ||
+              next.status === "preprocessing" ||
+              next.status === "retrying" ||
+              next.status === "ready");
+        }
+
         setPlaybackError(null);
         setCompletedPlaybackOperationId("");
         setRateSliderOpen(false);
         lastLoggedProviderErrorRef.current = "";
       }
-      queueGenerationRef.current = next.queueGeneration;
 
+      queueGenerationRef.current = next.queueGeneration;
       stateRef.current = next;
       setState(next);
       if (!next.queueEnabled) {
