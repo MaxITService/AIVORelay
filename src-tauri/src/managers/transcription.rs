@@ -1,4 +1,6 @@
-use crate::audio_toolkit::{apply_custom_words, filter_transcription_output};
+use crate::audio_toolkit::{
+    apply_custom_words, clean_transcription_output, OutputLanguageEvidence,
+};
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::model::{self, EngineType, ModelManager, NativeStreamingLatencyKind};
 use crate::managers::moonshine_streaming_shim::{self, CommittedTextSink};
@@ -74,8 +76,14 @@ const VOXTRAL_REALTIME_STABLE_PREFIX_AGREEMENT_N: u32 = 32;
 
 enum StreamCmd {
     Feed(Vec<f32>),
-    Finalize(mpsc::Sender<Option<(String, String)>>),
+    Finalize(mpsc::Sender<Option<FinalizedStreamText>>),
     Cancel,
+}
+
+struct FinalizedStreamText {
+    text: String,
+    output_language: OutputLanguageEvidence,
+    supported_languages: Vec<String>,
 }
 
 /// Receives only newly committed native-stream text. Tentative text never
@@ -369,6 +377,132 @@ fn effective_language_for_model(
         ),
         None => selected_language,
     }
+}
+
+fn base_language_code(language: &str) -> &str {
+    language.split(&['-', '_'][..]).next().unwrap_or(language)
+}
+
+fn resolve_output_language_evidence(
+    requested_language: &str,
+    applied_language_hint: Option<&str>,
+    supported_languages: &[String],
+    translated_to_english: bool,
+) -> OutputLanguageEvidence {
+    if translated_to_english {
+        return OutputLanguageEvidence::TranslatedToEnglish;
+    }
+
+    if let Some(language) = applied_language_hint.filter(|language| {
+        !language.is_empty()
+            && !language.eq_ignore_ascii_case("auto")
+            && !language.eq_ignore_ascii_case("os_input")
+    }) {
+        if !requested_language.eq_ignore_ascii_case("auto")
+            && !requested_language.eq_ignore_ascii_case("os_input")
+            && base_language_code(requested_language) == base_language_code(language)
+        {
+            return OutputLanguageEvidence::UserSelected(language.to_string());
+        }
+        return OutputLanguageEvidence::ModelConstrained(language.to_string());
+    }
+
+    if let [language] = supported_languages {
+        return OutputLanguageEvidence::ModelConstrained(language.clone());
+    }
+
+    OutputLanguageEvidence::Unknown
+}
+
+fn with_model_detected_language(
+    evidence: OutputLanguageEvidence,
+    detected_language: Option<String>,
+) -> OutputLanguageEvidence {
+    match (evidence, detected_language) {
+        (OutputLanguageEvidence::Unknown, Some(language))
+            if !language.is_empty() && !language.eq_ignore_ascii_case("auto") =>
+        {
+            OutputLanguageEvidence::ModelDetected(language)
+        }
+        (evidence, _) => evidence,
+    }
+}
+
+fn with_text_detected_language(
+    evidence: OutputLanguageEvidence,
+    text: &str,
+    supported_languages: &[String],
+    settings: &AppSettings,
+) -> OutputLanguageEvidence {
+    if evidence == OutputLanguageEvidence::Unknown
+        && settings.filler_word_filter_enabled
+        && settings.custom_filler_words.is_none()
+    {
+        if let Some(language) =
+            crate::audio_toolkit::detect_output_language(text, supported_languages)
+        {
+            return OutputLanguageEvidence::TextDetected(language);
+        }
+    }
+    evidence
+}
+
+fn local_output_language_context(
+    model_info: Option<&crate::managers::model::ModelInfo>,
+    requested_language: &str,
+    effective_language: &str,
+    translate_to_english: bool,
+) -> (OutputLanguageEvidence, Vec<String>) {
+    let supported_languages = model_info
+        .map(|info| info.supported_languages.clone())
+        .unwrap_or_default();
+
+    let (applied_language, output_was_translated) = match model_info.map(|info| &info.engine_type) {
+        Some(EngineType::TranscribeCpp | EngineType::Whisper) => {
+            let supports_translate = model_info
+                .map(|info| info.supports_translation)
+                .unwrap_or(false);
+            let plan = transcribe_cpp_run_plan(
+                translate_to_english,
+                effective_language,
+                &supported_languages,
+                supports_translate,
+            );
+            (plan.language, plan.target_language.as_deref() == Some("en"))
+        }
+        Some(EngineType::SenseVoice) => {
+            let applied = match requested_language {
+                "zh" | "zh-Hans" | "zh-Hant" => Some("zh".to_string()),
+                "en" | "ja" | "ko" | "yue" => Some(requested_language.to_string()),
+                _ => None,
+            };
+            (applied, false)
+        }
+        Some(EngineType::Canary) => (
+            (!requested_language.eq_ignore_ascii_case("auto"))
+                .then(|| requested_language.to_string()),
+            translate_to_english,
+        ),
+        Some(EngineType::Cohere) => {
+            let applied = match requested_language {
+                "auto" => None,
+                "zh-Hans" | "zh-Hant" => Some("zh".to_string()),
+                other => Some(other.to_string()),
+            };
+            (applied, false)
+        }
+        _ => (None, false),
+    };
+
+    (
+        resolve_output_language_evidence(
+            requested_language,
+            applied_language.as_deref(),
+            &supported_languages,
+            output_was_translated,
+        ),
+        supported_languages,
+    )
 }
 
 fn resolve_os_input_language(selected_language: &str, os_input_language: Option<String>) -> String {
@@ -845,8 +979,8 @@ impl TranscriptionManager {
             return;
         }
 
-        let mut finalize_reply: Option<mpsc::Sender<Option<(String, String)>>> = None;
-        let mut finalize_result: Option<Option<(String, String)>> = None;
+        let mut finalize_reply: Option<mpsc::Sender<Option<FinalizedStreamText>>> = None;
+        let mut finalize_result: Option<Option<FinalizedStreamText>> = None;
         let stream_started = 'stream: {
             let session = match &mut engine {
                 LoadedEngine::TranscribeCpp(session) => session,
@@ -861,6 +995,13 @@ impl TranscriptionManager {
                 &effective_language,
                 translate_to_english,
                 TimestampKind::None,
+            );
+            let supported_languages = model.capabilities().languages;
+            let initial_output_language = resolve_output_language_evidence(
+                &selected_language,
+                run_options.language.as_deref(),
+                &supported_languages,
+                run_options.target_language.as_deref() == Some("en"),
             );
             let committed_text_sink = if on_committed_text.is_some() {
                 CommittedTextSink::IrreversibleAppendOnly
@@ -1004,7 +1145,20 @@ impl TranscriptionManager {
                                     &final_text,
                                     "",
                                 );
-                                Some(final_text)
+                                let output_language = match &initial_output_language {
+                                    OutputLanguageEvidence::Unknown => {
+                                        with_model_detected_language(
+                                            OutputLanguageEvidence::Unknown,
+                                            stream.snapshot().language,
+                                        )
+                                    }
+                                    resolved => resolved.clone(),
+                                };
+                                Some(FinalizedStreamText {
+                                    text: final_text,
+                                    output_language,
+                                    supported_languages: supported_languages.clone(),
+                                })
                             }
                             Err(error) => {
                                 perf.record_compute(finalize_start.elapsed());
@@ -1015,10 +1169,11 @@ impl TranscriptionManager {
                                 None
                             }
                         };
-                        perf.log_finalized(result.as_ref().map(|text| text.len()).unwrap_or(0));
+                        perf.log_finalized(
+                            result.as_ref().map(|result| result.text.len()).unwrap_or(0),
+                        );
                         finalize_reply = Some(reply);
-                        finalize_result =
-                            Some(result.map(|text| (text, effective_language.clone())));
+                        finalize_result = Some(result);
                         break;
                     }
                     StreamCmd::Cancel => {
@@ -1066,7 +1221,7 @@ impl TranscriptionManager {
             return Ok(None);
         }
 
-        let (raw, selected_language) = match reply_rx.recv_timeout(STREAM_FINALIZE_REPLY_TIMEOUT) {
+        let finalized = match reply_rx.recv_timeout(STREAM_FINALIZE_REPLY_TIMEOUT) {
             Ok(Some(result)) => result,
             Ok(None) => return Ok(None),
             Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(None),
@@ -1080,7 +1235,12 @@ impl TranscriptionManager {
         };
 
         let settings = get_settings(&self.app_handle);
-        let final_text = post_process_stream_text(raw, &settings, &selected_language);
+        let final_text = post_process_stream_text(
+            finalized.text,
+            &settings,
+            &finalized.output_language,
+            &finalized.supported_languages,
+        );
         self.maybe_unload_immediately("streaming transcription");
         Ok(Some(final_text))
     }
@@ -1677,6 +1837,13 @@ impl TranscriptionManager {
             &active_model,
             &settings.selected_language,
         );
+        let model_info = self.model_manager.get_model_info(&active_model);
+        let (output_language, supported_languages) = local_output_language_context(
+            model_info.as_ref(),
+            &settings.selected_language,
+            &effective_language,
+            settings.translate_to_english,
+        );
 
         // Perform transcription with the appropriate engine.
         // We use catch_unwind to prevent engine panics from poisoning the mutex,
@@ -1847,8 +2014,9 @@ impl TranscriptionManager {
         let filtered_result = post_process_transcription_text(
             result.text,
             &settings,
-            &effective_language,
             apply_custom_words_enabled,
+            &output_language,
+            &supported_languages,
         );
 
         let et = std::time::Instant::now();
@@ -1923,6 +2091,13 @@ impl TranscriptionManager {
             .unwrap_or_else(|| settings.selected_model.clone());
         let effective_language =
             effective_language_for_model(&self.model_manager, &active_model, &selected_language);
+        let model_info = self.model_manager.get_model_info(&active_model);
+        let (output_language, supported_languages) = local_output_language_context(
+            model_info.as_ref(),
+            &selected_language,
+            &effective_language,
+            translate_to_english,
+        );
 
         let result = {
             let mut engine_guard = self.engine.lock().unwrap();
@@ -2029,8 +2204,9 @@ impl TranscriptionManager {
         let filtered_result = post_process_transcription_text(
             result.text,
             &settings,
-            &effective_language,
             apply_custom_words_enabled,
+            &output_language,
+            &supported_languages,
         );
 
         let et = std::time::Instant::now();
@@ -2066,20 +2242,28 @@ impl TranscriptionManager {
         prompt_override: Option<String>,
         apply_custom_words_enabled: bool,
     ) -> Result<(String, FileTranscriptionExecutionMeta)> {
-        let (result, meta, selected_language, settings, translate_to_english) = self
-            .run_file_transcription(
-                audio,
-                language_override,
-                translate_override,
-                prompt_override,
-                apply_custom_words_enabled,
-            )?;
+        let (
+            result,
+            meta,
+            selected_language,
+            settings,
+            translate_to_english,
+            output_language,
+            supported_languages,
+        ) = self.run_file_transcription(
+            audio,
+            language_override,
+            translate_override,
+            prompt_override,
+            apply_custom_words_enabled,
+        )?;
 
         let filtered_result = post_process_transcription_text(
             result.text,
             &settings,
-            &selected_language,
             apply_custom_words_enabled,
+            &output_language,
+            &supported_languages,
         );
 
         let translation_note = if translate_to_english {
@@ -2109,23 +2293,41 @@ impl TranscriptionManager {
         Option<Vec<crate::subtitle::SubtitleSegment>>,
         FileTranscriptionExecutionMeta,
     )> {
-        let (result, meta, selected_language, settings, translate_to_english) = self
-            .run_file_transcription(
-                audio,
-                language_override,
-                translate_override,
-                prompt_override,
-                apply_custom_words_enabled,
-            )?;
+        let (
+            result,
+            meta,
+            selected_language,
+            settings,
+            translate_to_english,
+            output_language,
+            supported_languages,
+        ) = self.run_file_transcription(
+            audio,
+            language_override,
+            translate_override,
+            prompt_override,
+            apply_custom_words_enabled,
+        )?;
 
-        let segments = result.segments.map(|segs| {
+        let output_language = with_text_detected_language(
+            output_language,
+            &result.text,
+            &supported_languages,
+            &settings,
+        );
+        let TranscriptionResult {
+            text: raw,
+            segments,
+        } = result;
+        let segments = segments.map(|segs| {
             segs.into_iter()
                 .map(|seg| {
                     let text = post_process_transcription_text(
                         seg.text,
                         &settings,
-                        &selected_language,
                         apply_custom_words_enabled,
+                        &output_language,
+                        &supported_languages,
                     );
                     crate::subtitle::SubtitleSegment {
                         start: seg.start,
@@ -2137,10 +2339,11 @@ impl TranscriptionManager {
         });
 
         let filtered_result = post_process_transcription_text(
-            result.text,
+            raw,
             &settings,
-            &selected_language,
             apply_custom_words_enabled,
+            &output_language,
+            &supported_languages,
         );
 
         let translation_note = if translate_to_english {
@@ -2171,6 +2374,8 @@ impl TranscriptionManager {
         String,
         AppSettings,
         bool,
+        OutputLanguageEvidence,
+        Vec<String>,
     )> {
         self.touch_activity();
 
@@ -2184,6 +2389,8 @@ impl TranscriptionManager {
                 String::new(),
                 get_settings(&self.app_handle),
                 false,
+                OutputLanguageEvidence::Unknown,
+                Vec::new(),
             ));
         }
 
@@ -2217,6 +2424,13 @@ impl TranscriptionManager {
             .unwrap_or_else(|| settings.selected_model.clone());
         let effective_language =
             effective_language_for_model(&self.model_manager, &active_model, &selected_language);
+        let model_info = self.model_manager.get_model_info(&active_model);
+        let (output_language, supported_languages) = local_output_language_context(
+            model_info.as_ref(),
+            &selected_language,
+            &effective_language,
+            translate_to_english,
+        );
         let merge_separator = if translate_to_english {
             " "
         } else {
@@ -2534,6 +2748,8 @@ impl TranscriptionManager {
             effective_language,
             settings,
             translate_to_english,
+            output_language,
+            supported_languages,
         ))
     }
 
@@ -3354,21 +3570,24 @@ fn stream_real_time_factor(audio_secs: f64, compute_secs: f64) -> f64 {
 fn post_process_stream_text(
     raw: String,
     settings: &AppSettings,
-    selected_language: &str,
+    output_language: &OutputLanguageEvidence,
+    supported_languages: &[String],
 ) -> String {
     post_process_transcription_text(
         raw,
         settings,
-        selected_language,
         settings.custom_words_enabled,
+        output_language,
+        supported_languages,
     )
 }
 
 fn post_process_transcription_text(
     raw: String,
     settings: &AppSettings,
-    selected_language: &str,
     apply_custom_words_enabled: bool,
+    output_language: &OutputLanguageEvidence,
+    supported_languages: &[String],
 ) -> String {
     fail_open_text_transform(raw, |raw| {
         let corrected = if apply_custom_words_enabled && !settings.custom_words.is_empty() {
@@ -3382,15 +3601,13 @@ fn post_process_transcription_text(
             raw
         };
 
-        if settings.filler_word_filter_enabled {
-            filter_transcription_output(
-                &corrected,
-                selected_language,
-                &settings.custom_filler_words,
-            )
-        } else {
-            corrected
-        }
+        clean_transcription_output(
+            &corrected,
+            output_language,
+            supported_languages,
+            &settings.custom_filler_words,
+            settings.filler_word_filter_enabled,
+        )
     })
 }
 
@@ -3521,6 +3738,38 @@ mod tests {
 
     fn languages(codes: &[&str]) -> Vec<String> {
         codes.iter().map(|code| (*code).to_string()).collect()
+    }
+
+    #[test]
+    fn explicit_output_language_uses_the_applied_hint() {
+        assert_eq!(
+            resolve_output_language_evidence("pt-BR", Some("pt"), &languages(&["en", "pt"]), false,),
+            OutputLanguageEvidence::UserSelected("pt".to_string())
+        );
+    }
+
+    #[test]
+    fn unapplied_language_is_not_output_evidence() {
+        assert_eq!(
+            resolve_output_language_evidence("en", None, &languages(&["en", "de", "pt"]), false,),
+            OutputLanguageEvidence::Unknown
+        );
+    }
+
+    #[test]
+    fn single_language_model_is_constrained() {
+        assert_eq!(
+            resolve_output_language_evidence("auto", None, &languages(&["en"]), false),
+            OutputLanguageEvidence::ModelConstrained("en".to_string())
+        );
+    }
+
+    #[test]
+    fn translated_output_is_english() {
+        assert_eq!(
+            resolve_output_language_evidence("pt", Some("pt"), &languages(&["en", "pt"]), true,),
+            OutputLanguageEvidence::TranslatedToEnglish
+        );
     }
 
     #[test]
