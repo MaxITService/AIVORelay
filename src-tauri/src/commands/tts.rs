@@ -2300,14 +2300,19 @@ pub fn update_tts_settings(
     let overlay_snapshot = {
         let runtime = app.state::<TtsOverlayRuntime>();
         let mut runtime = runtime.inner.lock();
-        runtime.state.play_pause_hotkey = settings.play_pause_hotkey.clone();
-        runtime.state.play_history_when_overlay_closed = settings.play_history_when_overlay_closed;
-        runtime.state.stop_hotkey = settings.stop_hotkey.clone();
-        runtime.state.autoplay = settings.autoplay;
-        runtime.state.auto_hide_enabled = settings.overlay_auto_hide_enabled;
-        runtime.state.auto_hide_delay_seconds = settings.overlay_auto_hide_delay_seconds;
-        runtime.state.playback_pitch = settings.playback_pitch;
-        runtime.state.playback_effect = settings.playback_effect;
+        let active_queue_snapshot_owns_playback_settings =
+            runtime.active_queue_item_id.is_some();
+        if !active_queue_snapshot_owns_playback_settings {
+            runtime.state.play_pause_hotkey = settings.play_pause_hotkey.clone();
+            runtime.state.play_history_when_overlay_closed =
+                settings.play_history_when_overlay_closed;
+            runtime.state.stop_hotkey = settings.stop_hotkey.clone();
+            runtime.state.autoplay = settings.autoplay;
+            runtime.state.auto_hide_enabled = settings.overlay_auto_hide_enabled;
+            runtime.state.auto_hide_delay_seconds = settings.overlay_auto_hide_delay_seconds;
+            runtime.state.playback_pitch = settings.playback_pitch;
+            runtime.state.playback_effect = settings.playback_effect;
+        }
         sync_listen_queue_state(&mut runtime);
         runtime.state.clone()
     };
@@ -3159,7 +3164,9 @@ fn advance_listen_queue(
         };
         runtime.listen_queue.remove(position);
         let completed_operation_id = runtime.active_queue_operation_id;
-        if !runtime.listen_queue.is_empty() {
+        let has_next_item = !runtime.listen_queue.is_empty();
+        let invalidates_final_item = !has_next_item && mark_stopped_if_empty;
+        if has_next_item || invalidates_final_item {
             next_listen_queue_generation(&mut runtime);
         }
         let next_item_id = activate_front_listen_queue_item(&mut runtime);
@@ -3205,13 +3212,21 @@ fn clear_listen_queue_runtime(
     let should_mark_stopped = mark_stopped
         && (runtime.active_queue_item_id.is_some()
             || (runtime.waiting_for_overlay_playback && stop_waiting_predecessor));
+    let preserves_predecessor_playback = runtime.waiting_for_overlay_playback
+        && runtime.active_queue_item_id.is_none()
+        && !stop_waiting_predecessor;
     runtime.listen_queue.clear();
     runtime.active_queue_item_id = None;
     runtime.foreground_queue_item_id = None;
     runtime.foreground_previous_operation_id = None;
     runtime.active_queue_operation_id = None;
-    runtime.waiting_for_overlay_playback = false;
-    next_listen_queue_generation(&mut runtime);
+    // Keep predecessor ownership until its exact renderer callback arrives.
+    // Besides activating a queued successor, this flag lets an older callback
+    // generation remain valid while the predecessor continues uninterrupted.
+    runtime.waiting_for_overlay_playback = preserves_predecessor_playback;
+    if !preserves_predecessor_playback {
+        next_listen_queue_generation(&mut runtime);
+    }
     if should_mark_stopped {
         runtime.playback_status = Some("stopped".to_string());
         runtime.state.status = "stopped".to_string();
@@ -3234,10 +3249,15 @@ fn set_listen_queue_runtime_enabled(
     let changed = runtime.queue_enabled != enabled;
     if changed {
         runtime.queue_enable_epoch = runtime.queue_enable_epoch.wrapping_add(1).max(1);
-        next_listen_queue_generation(&mut runtime);
+        let had_active_queue_item = runtime.active_queue_item_id.is_some();
+        let preserves_predecessor_playback = !enabled
+            && runtime.waiting_for_overlay_playback
+            && runtime.active_queue_item_id.is_none();
+        if !enabled && had_active_queue_item {
+            next_listen_queue_generation(&mut runtime);
+        }
         runtime.queue_enabled = enabled;
         if !enabled {
-            let had_active_queue_item = runtime.active_queue_item_id.is_some();
             operation_id = runtime.active_queue_operation_id;
             if operation_id.is_some() {
                 runtime.suppressed_manager_operation_id = operation_id;
@@ -3247,7 +3267,7 @@ fn set_listen_queue_runtime_enabled(
             runtime.foreground_queue_item_id = None;
             runtime.foreground_previous_operation_id = None;
             runtime.active_queue_operation_id = None;
-            runtime.waiting_for_overlay_playback = false;
+            runtime.waiting_for_overlay_playback = preserves_predecessor_playback;
             if had_active_queue_item {
                 runtime.playback_status = Some("stopped".to_string());
                 runtime.state.status = "stopped".to_string();
@@ -3337,10 +3357,17 @@ pub fn remove_tts_listen_queue_item(app: AppHandle, item_id: String) -> Result<(
         else {
             return Err("The Listen Later item no longer exists".to_string());
         };
+        let preserves_predecessor_playback =
+            runtime.waiting_for_overlay_playback && runtime.active_queue_item_id.is_none();
         runtime.listen_queue.remove(position);
         if runtime.listen_queue.is_empty() {
-            runtime.waiting_for_overlay_playback = false;
-            next_listen_queue_generation(&mut runtime);
+            // An uninterrupted predecessor may still report the generation
+            // captured before the queue renderer caught up. Retain its handoff
+            // marker until that exact operation reaches a terminal callback.
+            runtime.waiting_for_overlay_playback = preserves_predecessor_playback;
+            if !preserves_predecessor_playback {
+                next_listen_queue_generation(&mut runtime);
+            }
         }
         sync_listen_queue_state(&mut runtime);
         runtime.state.clone()
