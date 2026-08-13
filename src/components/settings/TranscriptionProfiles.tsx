@@ -56,6 +56,11 @@ const openLivePreviewSettings = () => {
   }, 120);
 };
 
+/** Open the shared provider, model, key, and prompt configuration. */
+const openPostProcessingSettings = () => {
+  useNavigationStore.getState().setSection("postprocessing");
+};
+
 const APPLE_PROVIDER_ID = "apple_intelligence";
 
 const strictModeFromApi = (
@@ -895,6 +900,9 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                       checked={effectiveLlmEnabled}
                       onChange={handleLlmEnabledChange}
                       disabled={isUpdating || !postProcessingAvailable}
+                      ariaLabel={t(
+                        "settings.transcriptionProfiles.llmPostProcessing.title",
+                      )}
                     />
                   </div>
                 </div>
@@ -1132,6 +1140,7 @@ export const TranscriptionProfiles: React.FC = () => {
   );
   const [isCreating, setIsCreating] = useState(false);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [isUpdatingDefaultLlm, setIsUpdatingDefaultLlm] = useState(false);
   const [newName, setNewName] = useState("");
   const [newLanguage, setNewLanguage] = useState("auto");
   const [newTranslate, setNewTranslate] = useState(false);
@@ -1260,6 +1269,17 @@ export const TranscriptionProfiles: React.FC = () => {
   const newPostProcessingAvailability = getPostProcessingAvailability(settings, {
     profilePreviewOutputOnlyEnabled: newPreviewOutputOnly,
   });
+  const defaultPostProcessingAvailability = getPostProcessingAvailability(
+    settings,
+    {
+      profilePreviewOutputOnlyEnabled: Boolean(
+        settings?.preview_output_only_enabled,
+      ),
+    },
+  );
+  const effectiveDefaultLlmEnabled =
+    defaultPostProcessingAvailability.available &&
+    Boolean(settings?.post_process_enabled);
 
   const filteredLanguages = useMemo(() => {
     if (isSonioxProvider) {
@@ -1529,6 +1549,30 @@ export const TranscriptionProfiles: React.FC = () => {
   const handleOverlayChange = async (enabled: boolean) => {
     if (updateSetting) {
       await updateSetting("profile_switch_overlay_enabled" as any, enabled);
+    }
+  };
+
+  const handleDefaultLlmEnabledChange = async (enabled: boolean) => {
+    setIsUpdatingDefaultLlm(true);
+    try {
+      await invoke("change_default_profile_post_process_enabled_setting", {
+        enabled,
+      });
+      await refreshSettings();
+    } catch (error) {
+      console.error(
+        "Failed to update Default profile LLM post-processing:",
+        error,
+      );
+      await refreshSettings();
+      toast.error(
+        t(
+          "settings.postProcessing.defaultProfileUpdateFailed",
+          "Failed to update Default profile LLM post-processing.",
+        ),
+      );
+    } finally {
+      setIsUpdatingDefaultLlm(false);
     }
   };
 
@@ -2009,6 +2053,86 @@ export const TranscriptionProfiles: React.FC = () => {
                     </div>
                   </details>
                 )}
+
+                {/* Global LLM Post-Processing — configuration lives on its dedicated page. */}
+                <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+                  <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
+                      <span className="text-xs font-semibold text-text/70">
+                        {t(
+                          "settings.transcriptionProfiles.llmPostProcessing.title",
+                        )}
+                      </span>
+                      <InfoTooltip
+                        content={t(
+                          "settings.postProcessing.defaultProfileDescription",
+                          "Enable AI-powered text refinement for the Default (Global) transcription profile.",
+                        )}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {effectiveDefaultLlmEnabled && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 whitespace-nowrap">
+                          {t(
+                            "settings.transcriptionProfiles.badges.llmActive",
+                            "LLM active",
+                          )}
+                        </span>
+                      )}
+                      <div onClick={(event) => event.stopPropagation()}>
+                        <ToggleSwitch
+                          checked={effectiveDefaultLlmEnabled}
+                          onChange={handleDefaultLlmEnabledChange}
+                          disabled={
+                            isUpdatingDefaultLlm ||
+                            !defaultPostProcessingAvailability.available
+                          }
+                          isUpdating={isUpdatingDefaultLlm}
+                          ariaLabel={t(
+                            "settings.postProcessing.defaultProfileToggleLabel",
+                            "Default profile LLM post-processing",
+                          )}
+                        />
+                      </div>
+                    </div>
+                  </summary>
+                  <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
+                    <p className="text-xs text-mid-gray pt-2">
+                      {t(
+                        "settings.postProcessing.defaultProfileDescription",
+                        "Enable AI-powered text refinement for the Default (Global) transcription profile.",
+                      )}
+                    </p>
+
+                    {!defaultPostProcessingAvailability.available && (
+                      <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
+                        {t(
+                          "settings.postProcessing.unavailableDirectRealtime",
+                          "LLM post-processing is unavailable while realtime text is inserted directly into the target application. Use Preview or a non-live output route. Your saved choice is preserved for compatible routes.",
+                        )}
+                      </div>
+                    )}
+
+                    <p className="text-xs text-mid-gray">
+                      {t(
+                        "settings.postProcessing.defaultProfileNote",
+                        "Custom profiles keep their own post-processing choice. Provider, model, API key, and prompt configuration are shared.",
+                      )}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={openPostProcessingSettings}
+                    >
+                      {t(
+                        "settings.postProcessing.openConfiguration",
+                        "Open LLM Post Processing settings",
+                      )}
+                    </Button>
+                  </div>
+                </details>
               </div>
             )}
           </div>

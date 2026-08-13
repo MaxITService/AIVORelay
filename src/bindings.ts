@@ -1178,6 +1178,18 @@ async changePostProcessEnabledSetting(enabled: boolean) : Promise<Result<null, s
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Updates the saved LLM post-processing state owned by the Default (Global)
+ * transcription profile, regardless of which profile is currently active.
+ */
+async changeDefaultProfilePostProcessEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_default_profile_post_process_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changePostProcessReasoningEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_post_process_reasoning_enabled_setting", { enabled }) };
@@ -2791,17 +2803,57 @@ async cancelTtsBatch(batchId: string) : Promise<Result<boolean, string>> {
 async getTtsOverlayState() : Promise<TtsOverlayState> {
     return await TAURI_INVOKE("get_tts_overlay_state");
 },
-async cancelTtsOperation(operationId: string | null) : Promise<Result<null, string>> {
+async reorderTtsListenQueue(itemIds: string[]) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("cancel_tts_operation", { operationId }) };
+    return { status: "ok", data: await TAURI_INVOKE("reorder_tts_listen_queue", { itemIds }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async ttsOverlayPlaybackState(operationId: string, status: string, currentChunk: number | null) : Promise<Result<null, string>> {
+async removeTtsListenQueueItem(itemId: string) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("tts_overlay_playback_state", { operationId, status, currentChunk }) };
+    return { status: "ok", data: await TAURI_INVOKE("remove_tts_listen_queue_item", { itemId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async skipTtsListenQueueItem(itemId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("skip_tts_listen_queue_item", { itemId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clearTtsListenQueue(queueGeneration: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_tts_listen_queue", { queueGeneration }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setTtsListenQueueExpanded(expanded: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_tts_listen_queue_expanded", { expanded }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cancelTtsOperation(operationId: string | null, queueGeneration: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cancel_tts_operation", { operationId, queueGeneration }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async ttsOverlayPlaybackState(operationId: string, queueGeneration: string | null, status: string, currentChunk: number | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("tts_overlay_playback_state", { operationId, queueGeneration, status, currentChunk }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -4605,7 +4657,8 @@ export type TtsModelSynthesisSettings = { model_key: string; config: TtsSynthesi
 export type TtsOperationScope = "interactive" | "file"
 export type TtsOutputFormat = "mp3" | "wav"
 export type TtsOverlayChunk = { index: number; path: string; pause_after_ms: number }
-export type TtsOverlayState = { operation_id: string; status: string; provider: string; model: string; voice: string; text_preview: string; chunks: TtsOverlayChunk[]; current_chunk: number; total_chunks: number; retry_attempt: number; error: string | null; play_pause_hotkey: string; play_history_when_overlay_closed: boolean; stop_hotkey: string; autoplay: boolean; auto_hide_enabled: boolean; auto_hide_delay_seconds: number; playback_pitch: number; playback_effect: TtsPlaybackEffect }
+export type TtsOverlayQueueItem = { id: string; text_preview: string; source_label: string; status: string }
+export type TtsOverlayState = { operation_id: string; status: string; provider: string; model: string; voice: string; text_preview: string; chunks: TtsOverlayChunk[]; current_chunk: number; total_chunks: number; retry_attempt: number; error: string | null; play_pause_hotkey: string; play_history_when_overlay_closed: boolean; stop_hotkey: string; autoplay: boolean; auto_hide_enabled: boolean; auto_hide_delay_seconds: number; playback_pitch: number; playback_effect: TtsPlaybackEffect; queue_enabled: boolean; queue_generation: string; queue_items: TtsOverlayQueueItem[]; active_queue_item_id: string | null }
 export type TtsPlaybackEffect = "none" | "radio" | "retro"
 export type TtsPromptPreset = { id: string; name: string; instructions: string }
 export type TtsProvider = "soniox" | "deepgram" | "openai" | "murf" | "elevenlabs" | "cartesia" | "openai_compatible" | "edge" | "local_qwen" | "local_kokoro" | "windows"
@@ -4626,7 +4679,12 @@ windows_voice_id?: string; windows_voice_language?: string; openai_instructions?
  * Version of the built-in synthesis-preset seed already applied.
  * This is separate from the preset list so user deletion is permanent.
  */
-synthesis_presets_seed_version?: number; interactive_synthesis?: TtsScopeSynthesisSettings; file_synthesis?: TtsScopeSynthesisSettings; speed?: number; llm_preprocessing?: TtsLlmPreprocessingSettings; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; interactive_target_chars?: number; file_target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; play_pause_hotkey?: string; play_history_when_overlay_closed?: boolean; stop_hotkey?: string; autoplay?: boolean; overlay_auto_hide_enabled?: boolean; overlay_auto_hide_delay_seconds?: number;
+synthesis_presets_seed_version?: number; interactive_synthesis?: TtsScopeSynthesisSettings; file_synthesis?: TtsScopeSynthesisSettings; speed?: number; llm_preprocessing?: TtsLlmPreprocessingSettings; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; interactive_target_chars?: number; file_target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; play_pause_hotkey?: string; play_history_when_overlay_closed?: boolean; stop_hotkey?: string;
+/**
+ * Keeps interactive clipboard and selection requests in an in-memory
+ * listen-later queue instead of replacing the current playback.
+ */
+listen_queue_enabled?: boolean; autoplay?: boolean; overlay_auto_hide_enabled?: boolean; overlay_auto_hide_delay_seconds?: number;
 /**
  * Pitch-only overlay playback transform. The stored/generated audio is unchanged.
  */

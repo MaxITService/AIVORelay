@@ -8724,20 +8724,24 @@ impl ShortcutAction for RepastLastAction {
 impl ShortcutAction for ReadClipboardAction {
     fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
         let activation_started_at = Instant::now();
+        let source_label = crate::active_app::get_frontmost_app_name();
+        let queue_epoch = crate::commands::tts::listen_queue_request_epoch(app);
         let app_handle = app.clone();
         tauri::async_runtime::spawn(async move {
             let text = app_handle.clipboard().read_text().unwrap_or_default();
             if text.trim().is_empty() {
                 let message = "The clipboard does not contain readable text.".to_string();
                 log::warn!("{message}");
-                crate::commands::tts::report_tts_error(&app_handle, message);
+                crate::commands::tts::report_tts_input_error(&app_handle, message);
                 return;
             }
 
-            if let Err(error) = crate::commands::tts::start_tts_text_at(
+            if let Err(error) = crate::commands::tts::start_or_enqueue_tts_text_at(
                 app_handle.clone(),
                 text,
+                source_label,
                 activation_started_at,
+                queue_epoch,
             )
             .await
             {
@@ -8756,6 +8760,8 @@ impl ShortcutAction for ReadClipboardAction {
 impl ShortcutAction for ReadSelectionTtsAction {
     fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
         let activation_started_at = Instant::now();
+        let source_label = crate::active_app::get_frontmost_app_name();
+        let queue_epoch = crate::commands::tts::listen_queue_request_epoch(app);
         let app_handle = app.clone();
         tauri::async_runtime::spawn(async move {
             let selected_text = match crate::clipboard::capture_selection_text_copy(&app_handle) {
@@ -8763,20 +8769,22 @@ impl ShortcutAction for ReadSelectionTtsAction {
                 Ok(_) => {
                     let message = "No readable text is selected.".to_string();
                     log::warn!("{message}");
-                    crate::commands::tts::report_tts_error(&app_handle, message);
+                    crate::commands::tts::report_tts_input_error(&app_handle, message);
                     return;
                 }
                 Err(error) => {
                     log::error!("Failed to copy selected text for Text-to-Speech: {error}");
-                    crate::commands::tts::report_tts_error(&app_handle, error);
+                    crate::commands::tts::report_tts_input_error(&app_handle, error);
                     return;
                 }
             };
 
-            if let Err(error) = crate::commands::tts::start_tts_text_at(
+            if let Err(error) = crate::commands::tts::start_or_enqueue_tts_text_at(
                 app_handle.clone(),
                 selected_text,
+                source_label,
                 activation_started_at,
+                queue_epoch,
             )
             .await
             {
@@ -8799,6 +8807,8 @@ impl ShortcutAction for ReadSelectionTtsAction {
 impl ShortcutAction for ReadSelectionDirectTtsAction {
     fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
         let activation_started_at = Instant::now();
+        let source_label = crate::active_app::get_frontmost_app_name();
+        let queue_epoch = crate::commands::tts::listen_queue_request_epoch(app);
         let app_handle = app.clone();
         tauri::async_runtime::spawn(async move {
             let selected_text = match crate::selection::read_selected_text_without_copying() {
@@ -8808,22 +8818,24 @@ impl ShortcutAction for ReadSelectionDirectTtsAction {
                         "No readable text is exposed as selected by the focused application."
                             .to_string();
                     log::warn!("{message}");
-                    crate::commands::tts::report_tts_error(&app_handle, message);
+                    crate::commands::tts::report_tts_input_error(&app_handle, message);
                     return;
                 }
                 Err(error) => {
                     log::error!(
                         "Failed to read selected text without copying for Text-to-Speech: {error}"
                     );
-                    crate::commands::tts::report_tts_error(&app_handle, error);
+                    crate::commands::tts::report_tts_input_error(&app_handle, error);
                     return;
                 }
             };
 
-            if let Err(error) = crate::commands::tts::start_tts_text_at(
+            if let Err(error) = crate::commands::tts::start_or_enqueue_tts_text_at(
                 app_handle.clone(),
                 selected_text,
+                source_label,
                 activation_started_at,
+                queue_epoch,
             )
             .await
             {

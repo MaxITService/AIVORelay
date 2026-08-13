@@ -465,6 +465,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(connector_manager.clone());
     app_handle.manage(tts_manager.clone());
     app_handle.manage(commands::tts::TtsOverlayRuntime::default());
+    commands::tts::initialize_tts_overlay_runtime(app_handle);
     app_handle.manage(key_listener_state);
     app_handle.manage(settings::DictationStatsEditState::default());
     commands::tts::install_tts_event_bridge(app_handle);
@@ -1187,6 +1188,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_remote_stt_debug_capture_setting,
         shortcut::change_remote_stt_debug_mode_setting,
         shortcut::change_post_process_enabled_setting,
+        shortcut::change_default_profile_post_process_enabled_setting,
         shortcut::change_post_process_reasoning_enabled_setting,
         shortcut::change_post_process_reasoning_budget_setting,
         shortcut::change_ai_replace_reasoning_enabled_setting,
@@ -1388,6 +1390,11 @@ pub fn run(cli_args: CliArgs) {
         commands::tts::convert_tts_batch,
         commands::tts::cancel_tts_batch,
         commands::tts::get_tts_overlay_state,
+        commands::tts::reorder_tts_listen_queue,
+        commands::tts::remove_tts_listen_queue_item,
+        commands::tts::skip_tts_listen_queue_item,
+        commands::tts::clear_tts_listen_queue,
+        commands::tts::set_tts_listen_queue_expanded,
         commands::tts::cancel_tts_operation,
         commands::tts::tts_overlay_playback_state,
         commands::tts_history::get_tts_history_entries,

@@ -78,6 +78,7 @@ const SONIOX_LIVE_PREVIEW_WINDOW_LABEL: &str = "soniox_live_preview";
 pub const TTS_OVERLAY_WINDOW_LABEL: &str = "tts_overlay";
 const TTS_OVERLAY_WIDTH: f64 = 560.0;
 const TTS_OVERLAY_HEIGHT: f64 = 196.0;
+const TTS_OVERLAY_QUEUE_HEIGHT: f64 = 472.0;
 const SONIOX_LIVE_PREVIEW_TOP_OFFSET: f64 = 52.0;
 const SONIOX_LIVE_PREVIEW_BOTTOM_OFFSET: f64 = 86.0;
 const SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN: f64 = 12.0;
@@ -1827,6 +1828,87 @@ pub fn show_tts_overlay_window(app_handle: &AppHandle) {
         force_overlay_topmost(&window);
         let _ = window.set_focus();
     }
+}
+
+/// Resizes the TTS overlay around its bottom edge so opening the queue does
+/// not make a user-positioned overlay jump down or extend below the taskbar.
+pub fn set_tts_overlay_queue_expanded(
+    app_handle: &AppHandle,
+    expanded: bool,
+) -> Result<(), String> {
+    let Some(window) = app_handle.get_webview_window(TTS_OVERLAY_WINDOW_LABEL) else {
+        return Ok(());
+    };
+    let position = window.outer_position().map_err(|error| error.to_string())?;
+    let current_size = window.outer_size().map_err(|error| error.to_string())?;
+    let target_height = if expanded {
+        TTS_OVERLAY_QUEUE_HEIGHT
+    } else {
+        TTS_OVERLAY_HEIGHT
+    };
+    let current_bottom = position
+        .y
+        .saturating_add(i32::try_from(current_size.height).unwrap_or(i32::MAX));
+    let monitor = get_monitor_for_physical_point(
+        app_handle,
+        position.x as f64 + current_size.width as f64 / 2.0,
+        position.y as f64 + current_size.height as f64 / 2.0,
+    );
+    let (target_width, target_height, target_x, target_y) = if let Some(monitor) = monitor {
+        let bounds = get_monitor_physical_work_area_bounds(&monitor)
+            .unwrap_or_else(|| get_monitor_physical_bounds(&monitor));
+        let scale = monitor.scale_factor();
+        let requested_width = (TTS_OVERLAY_WIDTH * scale).round().max(1.0);
+        let requested_height = (target_height * scale).round().max(1.0);
+        let minimum_height = (TTS_OVERLAY_HEIGHT * scale)
+            .round()
+            .max(1.0)
+            .min(bounds.height.max(1.0));
+        let target_physical_width = requested_width.min(bounds.width.max(1.0));
+        let target_physical_height = requested_height
+            .min(bounds.height.max(1.0))
+            .max(minimum_height);
+        let intended_y = current_bottom.saturating_sub(
+            target_physical_height.round().min(f64::from(i32::MAX)) as i32,
+        );
+        (
+            target_physical_width.round().max(1.0) as u32,
+            target_physical_height.round().max(1.0) as u32,
+            clamp_f64(
+                position.x as f64,
+                bounds.x,
+                bounds.x + bounds.width - target_physical_width,
+            )
+            .round() as i32,
+            clamp_f64(
+                intended_y as f64,
+                bounds.y,
+                bounds.y + bounds.height - target_physical_height,
+            )
+            .round() as i32,
+        )
+    } else {
+        let scale = window.scale_factor().map_err(|error| error.to_string())?;
+        let target_physical_width = (TTS_OVERLAY_WIDTH * scale).round().max(1.0) as u32;
+        let target_physical_height = (target_height * scale).round().max(1.0) as u32;
+        let intended_y = current_bottom.saturating_sub(
+            i32::try_from(target_physical_height).unwrap_or(i32::MAX),
+        );
+        (
+            target_physical_width,
+            target_physical_height,
+            position.x,
+            intended_y,
+        )
+    };
+
+    window
+        .set_size(tauri::PhysicalSize::new(target_width, target_height))
+        .map_err(|error| error.to_string())?;
+    window
+        .set_position(PhysicalPosition::new(target_x, target_y))
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 /// Creates the recording overlay panel and keeps it hidden by default (macOS)

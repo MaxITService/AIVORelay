@@ -5,6 +5,7 @@ use crate::managers::local_kokoro::{KOKORO_MODEL_REPOSITORY, KOKORO_MODEL_REVISI
 use crate::managers::local_tts::{
     LocalTtsKind, LocalTtsStatus, LOCAL_TTS_MODEL_REPO, LOCAL_TTS_MODEL_REVISION,
 };
+use crate::managers::provider_error::safe_text;
 use crate::managers::tts::{
     FileConversionResult, TextFileInspection, TtsBatchFilePlan, TtsBatchScanRequest,
     TtsBatchScanResult, TtsChunkReady, TtsManager, TtsOperationKind, TtsPhase, TtsState,
@@ -29,6 +30,7 @@ use crate::settings::{
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -37,12 +39,18 @@ use tauri::{AppHandle, Emitter, Listener, Manager};
 
 const TTS_OVERLAY_EVENT: &str = "tts-overlay-state";
 const TTS_OVERLAY_CONTROL_EVENT: &str = "tts-overlay-control";
+const TTS_OVERLAY_NOTICE_EVENT: &str = "tts-overlay-notice";
 const TTS_FIRST_PLAYBACK_WARM_TARGET_MS: u64 = 3_000;
 const TTS_FIRST_PLAYBACK_COLD_TARGET_MS: u64 = 4_000;
 const TTS_CHUNK_READY_TO_PLAYING_TARGET_MS: u64 = 250;
 const TTS_LLM_BENCHMARK_LOG_MAX_ENTRIES: usize = 100;
 const TTS_LLM_BENCHMARK_LOG_MAX_BYTES: usize = 2 * 1024 * 1024;
+const MAX_TTS_LISTEN_QUEUE_ITEMS: usize = 100;
+const TTS_QUEUE_PREVIEW_CHARACTERS: usize = 160;
+const TTS_QUEUE_SOURCE_CHARACTERS: usize = 96;
+const TTS_OVERLAY_NOTICE_MAX_CHARACTERS: usize = 480;
 static TTS_HISTORY_REPLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
+static TTS_LISTEN_QUEUE_ITEM_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 #[tauri::command]
 #[specta::specta]
@@ -85,6 +93,25 @@ pub struct TtsOverlayChunk {
     pub pause_after_ms: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct TtsOverlayQueueItem {
+    pub id: String,
+    pub text_preview: String,
+    pub source_label: String,
+    pub status: String,
+}
+
+#[derive(Debug)]
+struct TtsQueuedText {
+    id: String,
+    text: String,
+    text_preview: String,
+    source_label: String,
+    activation_started_at: Instant,
+    settings: Arc<TtsSettings>,
+    failed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TtsOverlayIdentity {
     provider: String,
@@ -113,6 +140,10 @@ pub struct TtsOverlayState {
     pub auto_hide_delay_seconds: u32,
     pub playback_pitch: f32,
     pub playback_effect: TtsPlaybackEffect,
+    pub queue_enabled: bool,
+    pub queue_generation: String,
+    pub queue_items: Vec<TtsOverlayQueueItem>,
+    pub active_queue_item_id: Option<String>,
 }
 
 impl Default for TtsOverlayState {
@@ -137,6 +168,10 @@ impl Default for TtsOverlayState {
             auto_hide_delay_seconds: 2,
             playback_pitch: 1.0,
             playback_effect: TtsPlaybackEffect::None,
+            queue_enabled: false,
+            queue_generation: "1".to_string(),
+            queue_items: Vec::new(),
+            active_queue_item_id: None,
         }
     }
 }
@@ -223,17 +258,67 @@ fn elapsed_millis(started: Instant, finished: Instant) -> u64 {
         .min(u128::from(u64::MAX)) as u64
 }
 
-#[derive(Default)]
 struct TtsOverlayRuntimeInner {
     state: TtsOverlayState,
     playback_status: Option<String>,
     latency: TtsLatencyTrace,
     segmented_playback: bool,
+    overlay_accepts_manager_events: bool,
+    listen_queue: VecDeque<TtsQueuedText>,
+    active_queue_item_id: Option<String>,
+    foreground_queue_item_id: Option<String>,
+    foreground_previous_operation_id: Option<u64>,
+    active_queue_operation_id: Option<u64>,
+    suppressed_manager_operation_id: Option<u64>,
+    queue_enabled: bool,
+    queue_enable_epoch: u64,
+    queue_generation: u64,
+    waiting_for_overlay_playback: bool,
 }
 
-#[derive(Default)]
+impl Default for TtsOverlayRuntimeInner {
+    fn default() -> Self {
+        Self {
+            state: TtsOverlayState::default(),
+            playback_status: None,
+            latency: TtsLatencyTrace::default(),
+            segmented_playback: false,
+            overlay_accepts_manager_events: true,
+            listen_queue: VecDeque::new(),
+            active_queue_item_id: None,
+            foreground_queue_item_id: None,
+            foreground_previous_operation_id: None,
+            active_queue_operation_id: None,
+            suppressed_manager_operation_id: None,
+            queue_enabled: false,
+            queue_enable_epoch: 1,
+            queue_generation: 1,
+            waiting_for_overlay_playback: false,
+        }
+    }
+}
+
 pub struct TtsOverlayRuntime {
     inner: Mutex<TtsOverlayRuntimeInner>,
+    queue_wait_revision: tokio::sync::watch::Sender<u64>,
+}
+
+impl Default for TtsOverlayRuntime {
+    fn default() -> Self {
+        let (queue_wait_revision, _) = tokio::sync::watch::channel(1);
+        Self {
+            inner: Mutex::new(TtsOverlayRuntimeInner::default()),
+            queue_wait_revision,
+        }
+    }
+}
+
+pub fn initialize_tts_overlay_runtime(app: &AppHandle) {
+    let queue_enabled = get_settings(app).tts.listen_queue_enabled;
+    let runtime = app.state::<TtsOverlayRuntime>();
+    let mut runtime = runtime.inner.lock();
+    runtime.queue_enabled = queue_enabled;
+    sync_listen_queue_state(&mut runtime);
 }
 
 #[derive(Debug, Clone, Deserialize, Type)]
@@ -367,6 +452,218 @@ fn emit_overlay_state(app: &AppHandle, state: &TtsOverlayState) {
     let _ = app.emit(TTS_OVERLAY_EVENT, state);
 }
 
+fn bounded_text_preview(text: &str, maximum_characters: usize) -> String {
+    let normalized = text
+        .split_whitespace()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let preview: String = normalized.chars().take(maximum_characters).collect();
+    if normalized.chars().count() > maximum_characters {
+        format!("{}…", preview.trim_end())
+    } else {
+        preview
+    }
+}
+
+fn bounded_overlay_notice(error: impl std::fmt::Display) -> String {
+    let safe = safe_text(&error.to_string());
+    let mut characters = safe.chars();
+    let notice = characters
+        .by_ref()
+        .take(TTS_OVERLAY_NOTICE_MAX_CHARACTERS)
+        .collect::<String>();
+    if characters.next().is_some() {
+        format!("{}…", notice.trim_end())
+    } else if notice.is_empty() {
+        "The read request could not be added".to_string()
+    } else {
+        notice
+    }
+}
+
+/// Keeps input/capacity failures nonfatal while making them visible in both
+/// the main window and the tray-first playback overlay. Provider failures use
+/// the operation error state instead and never enter this notice channel.
+fn emit_tts_input_notice(app: &AppHandle, error: impl std::fmt::Display) {
+    let message = bounded_overlay_notice(error);
+    let _ = app.emit("tts-error", &message);
+    crate::overlay::show_tts_overlay_window(app);
+    let _ = app.emit(TTS_OVERLAY_NOTICE_EVENT, message);
+}
+
+fn queue_source_label(source_label: Option<String>) -> String {
+    source_label
+        .as_deref()
+        .map(|value| bounded_text_preview(value, TTS_QUEUE_SOURCE_CHARACTERS))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default()
+}
+
+fn next_listen_queue_generation(runtime: &mut TtsOverlayRuntimeInner) {
+    runtime.queue_generation = runtime.queue_generation.wrapping_add(1).max(1);
+}
+
+fn sync_listen_queue_state(runtime: &mut TtsOverlayRuntimeInner) {
+    let active_id = runtime.active_queue_item_id.as_deref();
+    runtime.state.queue_enabled = runtime.queue_enabled;
+    runtime.state.queue_generation = runtime.queue_generation.to_string();
+    runtime.state.active_queue_item_id = runtime.active_queue_item_id.clone();
+    runtime.state.queue_items = runtime
+        .listen_queue
+        .iter()
+        .map(|item| TtsOverlayQueueItem {
+            id: item.id.clone(),
+            text_preview: item.text_preview.clone(),
+            source_label: item.source_label.clone(),
+            status: if active_id == Some(item.id.as_str()) {
+                if item.failed {
+                    "failed".to_string()
+                } else {
+                    "active".to_string()
+                }
+            } else {
+                "pending".to_string()
+            },
+        })
+        .collect();
+}
+
+fn overlay_playback_is_active(runtime: &TtsOverlayRuntimeInner) -> bool {
+    match runtime.state.status.as_str() {
+        "loading" | "preprocessing" | "retrying" | "ready" | "playing" | "paused" => true,
+        // The manager can report synthesis completion before the renderer has
+        // started (or completed) the retained chunks. Only the renderer's own
+        // completion makes this overlay item terminal.
+        "completed" => runtime.playback_status.as_deref() != Some("completed"),
+        _ => false,
+    }
+}
+
+fn activate_front_listen_queue_item(runtime: &mut TtsOverlayRuntimeInner) -> Option<String> {
+    let next = runtime.listen_queue.front_mut().map(|item| {
+        item.activation_started_at = Instant::now();
+        item.failed = false;
+        (
+            item.id.clone(),
+            item.text_preview.clone(),
+            item.settings.clone(),
+        )
+    });
+    runtime.waiting_for_overlay_playback = false;
+    runtime.active_queue_item_id = next.as_ref().map(|(id, _, _)| id.clone());
+    runtime.foreground_queue_item_id = None;
+    runtime.foreground_previous_operation_id = None;
+    runtime.active_queue_operation_id = None;
+
+    if let Some((_, text_preview, settings)) = next.as_ref() {
+        let identity = overlay_identity(settings);
+        runtime.playback_status = None;
+        runtime.segmented_playback = false;
+        runtime.overlay_accepts_manager_events = true;
+        runtime.state.operation_id.clear();
+        runtime.state.status = "loading".to_string();
+        runtime.state.provider = identity.provider;
+        runtime.state.model = identity.model;
+        runtime.state.voice = identity.voice;
+        runtime.state.text_preview = text_preview.clone();
+        runtime.state.chunks.clear();
+        runtime.state.current_chunk = 0;
+        runtime.state.total_chunks = 0;
+        runtime.state.retry_attempt = 0;
+        runtime.state.error = None;
+        runtime.state.play_pause_hotkey = settings.play_pause_hotkey.clone();
+        runtime.state.play_history_when_overlay_closed =
+            settings.play_history_when_overlay_closed;
+        runtime.state.stop_hotkey = settings.stop_hotkey.clone();
+        runtime.state.autoplay = settings.autoplay;
+        runtime.state.auto_hide_enabled = settings.overlay_auto_hide_enabled;
+        runtime.state.auto_hide_delay_seconds = settings.overlay_auto_hide_delay_seconds;
+        runtime.state.playback_pitch = settings.playback_pitch;
+        runtime.state.playback_effect = settings.playback_effect;
+    }
+    sync_listen_queue_state(runtime);
+    next.map(|(id, _, _)| id)
+}
+
+fn release_waiting_listen_queue(
+    app: &AppHandle,
+    predecessor_operation_id: &str,
+) -> Result<bool, String> {
+    let (next_item_id, snapshot) = {
+        let runtime = app.state::<TtsOverlayRuntime>();
+        let mut runtime = runtime.inner.lock();
+        if !runtime.waiting_for_overlay_playback
+            || runtime.state.operation_id != predecessor_operation_id
+        {
+            return Ok(false);
+        }
+        if !runtime.listen_queue.is_empty() {
+            next_listen_queue_generation(&mut runtime);
+        }
+        let next_item_id = activate_front_listen_queue_item(&mut runtime);
+        (next_item_id, runtime.state.clone())
+    };
+    emit_overlay_state(app, &snapshot);
+    if let Some(item_id) = next_item_id {
+        spawn_tts_queue_item(app.clone(), item_id);
+    }
+    Ok(true)
+}
+
+fn is_active_queue_item(app: &AppHandle, item_id: &str) -> bool {
+    app.state::<TtsOverlayRuntime>()
+        .inner
+        .lock()
+        .active_queue_item_id
+        .as_deref()
+        == Some(item_id)
+}
+
+fn notify_queue_waiters(app: &AppHandle) {
+    app.state::<TtsOverlayRuntime>()
+        .queue_wait_revision
+        .send_modify(|revision| *revision = revision.wrapping_add(1).max(1));
+}
+
+async fn reserve_queue_foreground_operation(
+    app: &AppHandle,
+    manager: &Arc<TtsManager>,
+    item_id: &str,
+) -> Option<tokio::sync::OwnedMutexGuard<()>> {
+    let mut queue_changes = app
+        .state::<TtsOverlayRuntime>()
+        .queue_wait_revision
+        .subscribe();
+    loop {
+        if !is_active_queue_item(app, item_id) {
+            return None;
+        }
+        tokio::select! {
+            operation_guard = manager.reserve_foreground_operation() => {
+                if is_active_queue_item(app, item_id) {
+                    return Some(operation_guard);
+                }
+                drop(operation_guard);
+                return None;
+            }
+            changed = queue_changes.changed() => {
+                if changed.is_err() {
+                    return None;
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn listen_queue_request_epoch(app: &AppHandle) -> Option<u64> {
+    let runtime = app.state::<TtsOverlayRuntime>();
+    let runtime = runtime.inner.lock();
+    runtime
+        .queue_enabled
+        .then_some(runtime.queue_enable_epoch)
+}
+
 pub fn play_pause_or_replay_latest_history(app: &AppHandle) -> Result<(), String> {
     let settings = get_settings(app).tts;
     if !settings.enabled {
@@ -427,6 +724,7 @@ pub fn play_pause_or_replay_latest_history(app: &AppHandle) -> Result<(), String
         runtime.playback_status = None;
         runtime.latency = TtsLatencyTrace::default();
         runtime.segmented_playback = false;
+        runtime.overlay_accepts_manager_events = false;
         runtime.state = TtsOverlayState {
             operation_id,
             status: "ready".to_string(),
@@ -451,7 +749,12 @@ pub fn play_pause_or_replay_latest_history(app: &AppHandle) -> Result<(), String
             auto_hide_delay_seconds: settings.overlay_auto_hide_delay_seconds,
             playback_pitch: settings.playback_pitch,
             playback_effect: settings.playback_effect,
+            queue_enabled: settings.listen_queue_enabled,
+            queue_generation: String::new(),
+            queue_items: Vec::new(),
+            active_queue_item_id: None,
         };
+        sync_listen_queue_state(&mut runtime);
         runtime.state.clone()
     };
     crate::overlay::show_tts_overlay_window(app);
@@ -461,16 +764,42 @@ pub fn play_pause_or_replay_latest_history(app: &AppHandle) -> Result<(), String
 
 fn apply_manager_state(app: &AppHandle, manager_state: TtsState) {
     let runtime = app.state::<TtsOverlayRuntime>();
+    let mut predecessor_to_release = None;
     let snapshot = {
         let mut runtime = runtime.inner.lock();
+        if runtime.suppressed_manager_operation_id == Some(manager_state.operation_id) {
+            // Keep the last suppressed ID until another cancelled queue
+            // operation replaces it. Concurrent emitters can publish an
+            // already-created Preparing/chunk event after Cancelled; clearing
+            // suppression on the terminal event would let that stale event
+            // repaint the stopped overlay.
+            return;
+        }
+        if !runtime.overlay_accepts_manager_events {
+            return;
+        }
         let next_operation_id = manager_state.operation_id.to_string();
+        if let Some(active_item_id) = runtime.active_queue_item_id.as_deref() {
+            let active_item_owns_foreground =
+                runtime.foreground_queue_item_id.as_deref() == Some(active_item_id);
+            if active_item_owns_foreground && runtime.active_queue_operation_id.is_none() {
+                if runtime.foreground_previous_operation_id == Some(manager_state.operation_id) {
+                    return;
+                }
+                runtime.active_queue_operation_id = Some(manager_state.operation_id);
+                runtime.foreground_previous_operation_id = None;
+            }
+            if runtime.active_queue_operation_id != Some(manager_state.operation_id) {
+                return;
+            }
+        }
         if !runtime.state.operation_id.is_empty() && runtime.state.operation_id != next_operation_id
         {
             runtime.state.chunks.clear();
             runtime.playback_status = None;
             runtime.segmented_playback = false;
         }
-        runtime.state.operation_id = next_operation_id;
+        runtime.state.operation_id = next_operation_id.clone();
         runtime.state.provider = manager_state
             .provider
             .map(|provider| provider.as_str().to_string())
@@ -499,9 +828,31 @@ fn apply_manager_state(app: &AppHandle, manager_state: TtsState) {
             TtsPhase::Ready => "ready".to_string(),
             TtsPhase::Completed => "completed".to_string(),
         };
+        if matches!(manager_state.phase, TtsPhase::Error | TtsPhase::Cancelled)
+            && runtime.waiting_for_overlay_playback
+        {
+            predecessor_to_release = Some(next_operation_id);
+        }
+        if manager_state.phase == TtsPhase::Error {
+            if let Some(active_item_id) = runtime.active_queue_item_id.clone() {
+                if let Some(item) = runtime
+                    .listen_queue
+                    .iter_mut()
+                    .find(|item| item.id == active_item_id)
+                {
+                    item.failed = true;
+                }
+            }
+        }
+        sync_listen_queue_state(&mut runtime);
         runtime.state.clone()
     };
     emit_overlay_state(app, &snapshot);
+    if let Some(operation_id) = predecessor_to_release {
+        if let Err(error) = release_waiting_listen_queue(app, &operation_id) {
+            log::debug!("Listen Later queue could not follow failed overlay playback: {error}");
+        }
+    }
 }
 
 fn apply_chunk_ready(app: &AppHandle, chunk: TtsChunkReady) {
@@ -509,6 +860,9 @@ fn apply_chunk_ready(app: &AppHandle, chunk: TtsChunkReady) {
     let mut first_chunk_ready_ms = None;
     let snapshot = {
         let mut runtime = runtime.inner.lock();
+        if runtime.suppressed_manager_operation_id == Some(chunk.operation_id) {
+            return;
+        }
         if runtime.state.operation_id != chunk.operation_id.to_string() {
             return;
         }
@@ -557,7 +911,8 @@ fn prepare_overlay(
     settings: &TtsSettings,
     activation_started_at: Instant,
     overlay_was_cold: bool,
-) {
+    queue_item_id: Option<&str>,
+) -> bool {
     let identity = overlay_identity(settings);
     let preview: String = text.chars().take(240).collect();
     let input_characters = text.chars().count();
@@ -569,8 +924,14 @@ fn prepare_overlay(
     let runtime = app.state::<TtsOverlayRuntime>();
     let snapshot = {
         let mut runtime = runtime.inner.lock();
+        if queue_item_id.is_some()
+            && runtime.active_queue_item_id.as_deref() != queue_item_id
+        {
+            return false;
+        }
         runtime.playback_status = None;
         runtime.segmented_playback = false;
+        runtime.overlay_accepts_manager_events = true;
         runtime.latency.start(
             activation_started_at,
             overlay_was_cold,
@@ -597,17 +958,32 @@ fn prepare_overlay(
             auto_hide_delay_seconds: settings.overlay_auto_hide_delay_seconds,
             playback_pitch: settings.playback_pitch,
             playback_effect: settings.playback_effect,
+            queue_enabled: settings.listen_queue_enabled,
+            queue_generation: String::new(),
+            queue_items: Vec::new(),
+            active_queue_item_id: None,
         };
+        sync_listen_queue_state(&mut runtime);
         runtime.state.clone()
     };
     emit_overlay_state(app, &snapshot);
+    true
 }
 
-fn update_overlay_identity(app: &AppHandle, settings: &TtsSettings) {
+fn update_overlay_identity(
+    app: &AppHandle,
+    settings: &TtsSettings,
+    queue_item_id: Option<&str>,
+) {
     let identity = overlay_identity(settings);
     let snapshot = {
         let runtime = app.state::<TtsOverlayRuntime>();
         let mut runtime = runtime.inner.lock();
+        if queue_item_id.is_some()
+            && runtime.active_queue_item_id.as_deref() != queue_item_id
+        {
+            return;
+        }
         runtime.state.provider = identity.provider;
         runtime.state.model = identity.model;
         runtime.state.voice = identity.voice;
@@ -660,6 +1036,15 @@ fn overlay_identity(settings: &TtsSettings) -> TtsOverlayIdentity {
 
 pub(crate) fn report_tts_error(app: &AppHandle, error: impl std::fmt::Display) {
     let message = error.to_string();
+    let queue_owns_or_awaits_overlay = {
+        let runtime = app.state::<TtsOverlayRuntime>();
+        let runtime = runtime.inner.lock();
+        !runtime.listen_queue.is_empty() || runtime.waiting_for_overlay_playback
+    };
+    if queue_owns_or_awaits_overlay {
+        let _ = app.emit("tts-error", message);
+        return;
+    }
     let settings = get_settings(app)
         .tts
         .effective_for_scope(TtsOperationScope::Interactive);
@@ -670,6 +1055,7 @@ pub(crate) fn report_tts_error(app: &AppHandle, error: impl std::fmt::Display) {
         runtime.playback_status = None;
         runtime.latency = TtsLatencyTrace::default();
         runtime.segmented_playback = false;
+        runtime.overlay_accepts_manager_events = false;
         runtime.state = TtsOverlayState {
             operation_id: String::new(),
             status: "error".to_string(),
@@ -690,12 +1076,62 @@ pub(crate) fn report_tts_error(app: &AppHandle, error: impl std::fmt::Display) {
             auto_hide_delay_seconds: settings.overlay_auto_hide_delay_seconds,
             playback_pitch: settings.playback_pitch,
             playback_effect: settings.playback_effect,
+            queue_enabled: settings.listen_queue_enabled,
+            queue_generation: String::new(),
+            queue_items: Vec::new(),
+            active_queue_item_id: None,
         };
+        sync_listen_queue_state(&mut runtime);
         runtime.state.clone()
     };
     crate::overlay::show_tts_overlay_window(app);
     emit_overlay_state(app, &snapshot);
     let _ = app.emit("tts-error", message);
+}
+
+fn report_tts_queue_error(app: &AppHandle, item_id: &str, error: impl std::fmt::Display) {
+    let message = error.to_string();
+    let snapshot = {
+        let runtime = app.state::<TtsOverlayRuntime>();
+        let mut runtime = runtime.inner.lock();
+        if runtime.active_queue_item_id.as_deref() != Some(item_id) {
+            return;
+        }
+        runtime.playback_status = None;
+        runtime.latency = TtsLatencyTrace::default();
+        runtime.state.status = "error".to_string();
+        runtime.state.error = Some(message.clone());
+        runtime.state.autoplay = false;
+        if let Some(item) = runtime
+            .listen_queue
+            .iter_mut()
+            .find(|item| item.id == item_id)
+        {
+            item.failed = true;
+        }
+        sync_listen_queue_state(&mut runtime);
+        runtime.state.clone()
+    };
+    crate::overlay::show_tts_overlay_window(app);
+    emit_overlay_state(app, &snapshot);
+    let _ = app.emit("tts-error", message);
+}
+
+/// Reports a bad clipboard or selection request without replacing audio that
+/// is already playing from the Listen Later queue.
+pub(crate) fn report_tts_input_error(app: &AppHandle, error: impl std::fmt::Display) {
+    let message = error.to_string();
+    if {
+        let runtime = app.state::<TtsOverlayRuntime>();
+        let runtime = runtime.inner.lock();
+        !runtime.listen_queue.is_empty()
+            || runtime.waiting_for_overlay_playback
+            || overlay_playback_is_active(&runtime)
+    } {
+        emit_tts_input_notice(app, message);
+    } else {
+        report_tts_error(app, message);
+    }
 }
 
 fn history_metadata(
@@ -771,8 +1207,184 @@ pub(crate) async fn start_tts_text_at(
     text: String,
     activation_started_at: Instant,
 ) -> Result<(), String> {
-    start_tts_text_with_options(app, text, activation_started_at, true, true, false)
-        .await
+    start_tts_text_with_options(
+        app,
+        text,
+        activation_started_at,
+        true,
+        true,
+        false,
+        None,
+        None,
+        None,
+    )
+    .await
+}
+
+pub(crate) async fn start_or_enqueue_tts_text_at(
+    app: AppHandle,
+    text: String,
+    source_label: Option<String>,
+    activation_started_at: Instant,
+    queue_epoch: Option<u64>,
+) -> Result<(), String> {
+    let Some(queue_epoch) = queue_epoch else {
+        return start_tts_text_at(app, text, activation_started_at).await;
+    };
+    let settings = Arc::new(
+        get_settings(&app)
+            .tts
+            .into_interactive_queue_execution_snapshot(),
+    );
+    if !settings.enabled {
+        let error = "Text to Speech is disabled".to_string();
+        report_tts_input_error(&app, &error);
+        return Err(error);
+    }
+    if text.trim().is_empty() {
+        let error = "There is no clipboard text to read".to_string();
+        report_tts_input_error(&app, &error);
+        return Err(error);
+    }
+    if text.len() > MAX_TTS_TEXT_INPUT_BYTES {
+        let error = "TTS text input exceeds the 8 MiB safety limit".to_string();
+        report_tts_input_error(&app, &error);
+        return Err(error);
+    }
+
+    let item_id = format!(
+        "listen-{}",
+        TTS_LISTEN_QUEUE_ITEM_GENERATION.fetch_add(1, Ordering::Relaxed)
+    );
+    let text_preview = bounded_text_preview(&text, TTS_QUEUE_PREVIEW_CHARACTERS);
+    let source_label = queue_source_label(source_label);
+    let (item_to_start, snapshot) = {
+        let runtime = app.state::<TtsOverlayRuntime>();
+        let mut runtime = runtime.inner.lock();
+        if !runtime.queue_enabled || runtime.queue_enable_epoch != queue_epoch {
+            let error =
+                "Listen Later was disabled before this read request could be queued".to_string();
+            drop(runtime);
+            report_tts_input_error(&app, &error);
+            return Err(error);
+        }
+        if runtime.listen_queue.len() >= MAX_TTS_LISTEN_QUEUE_ITEMS {
+            let error = format!(
+                "The Listen Later queue is limited to {MAX_TTS_LISTEN_QUEUE_ITEMS} items"
+            );
+            drop(runtime);
+            report_tts_input_error(&app, &error);
+            return Err(error);
+        }
+        let queued_bytes = runtime
+            .listen_queue
+            .iter()
+            .map(|item| item.text.len())
+            .sum::<usize>();
+        if queued_bytes.saturating_add(text.len()) > MAX_TTS_TEXT_INPUT_BYTES {
+            let error = "The Listen Later queue exceeds its 8 MiB memory limit".to_string();
+            drop(runtime);
+            report_tts_input_error(&app, &error);
+            return Err(error);
+        }
+        let starts_new_queue = runtime.listen_queue.is_empty();
+        if starts_new_queue {
+            next_listen_queue_generation(&mut runtime);
+        }
+        runtime.listen_queue.push_back(TtsQueuedText {
+            id: item_id.clone(),
+            text,
+            text_preview: text_preview.clone(),
+            source_label,
+            activation_started_at,
+            settings,
+            failed: false,
+        });
+        let item_to_start = if starts_new_queue && overlay_playback_is_active(&runtime) {
+            // Preserve the current overlay item as an unsynthesized predecessor.
+            // Its renderer completion (or playback error) activates the first
+            // queued item without replacing or replaying the predecessor.
+            runtime.waiting_for_overlay_playback = true;
+            None
+        } else if starts_new_queue {
+            activate_front_listen_queue_item(&mut runtime)
+        } else {
+            None
+        };
+        sync_listen_queue_state(&mut runtime);
+        (item_to_start, runtime.state.clone())
+    };
+
+    crate::overlay::show_tts_overlay_window(&app);
+    emit_overlay_state(&app, &snapshot);
+    if let Some(item_id) = item_to_start {
+        spawn_tts_queue_item(app, item_id);
+    }
+    Ok(())
+}
+
+fn spawn_tts_queue_item(app: AppHandle, item_id: String) {
+    tauri::async_runtime::spawn(async move {
+        let manager = app.state::<Arc<TtsManager>>().inner().clone();
+        let Some(operation_guard) =
+            reserve_queue_foreground_operation(&app, &manager, &item_id).await
+        else {
+            return;
+        };
+        let queued_item = {
+            let runtime = app.state::<TtsOverlayRuntime>();
+            let runtime = runtime.inner.lock();
+            if runtime.active_queue_item_id.as_deref() != Some(item_id.as_str()) {
+                return;
+            }
+            runtime
+                .listen_queue
+                .iter()
+                .find(|item| item.id == item_id)
+                .map(|item| {
+                    (
+                        item.text.clone(),
+                        item.activation_started_at,
+                        Arc::clone(&item.settings),
+                    )
+                })
+        };
+        let Some((text, activation_started_at, settings)) = queued_item else {
+            return;
+        };
+
+        let result = start_tts_text_with_options(
+            app.clone(),
+            text,
+            activation_started_at,
+            true,
+            true,
+            false,
+            Some(settings),
+            Some(item_id.clone()),
+            Some(operation_guard),
+        )
+        .await;
+        if result.is_err() {
+            let snapshot = {
+                let runtime = app.state::<TtsOverlayRuntime>();
+                let mut runtime = runtime.inner.lock();
+                if runtime.active_queue_item_id.as_deref() != Some(item_id.as_str()) {
+                    return;
+                }
+                if let Some(item) = runtime
+                    .listen_queue
+                    .iter_mut()
+                    .find(|item| item.id == item_id)
+                {
+                    item.failed = true;
+                }
+                sync_listen_queue_state(&mut runtime);
+                runtime.state.clone()
+            };
+            emit_overlay_state(&app, &snapshot);
+        }
+    });
 }
 
 async fn start_tts_text_with_options(
@@ -782,10 +1394,31 @@ async fn start_tts_text_with_options(
     require_enabled: bool,
     capture_history: bool,
     force_autoplay: bool,
+    settings_override: Option<Arc<TtsSettings>>,
+    queue_item_id: Option<String>,
+    queue_operation_guard: Option<tokio::sync::OwnedMutexGuard<()>>,
 ) -> Result<(), String> {
-    let mut settings = get_settings(&app)
-        .tts
-        .effective_for_scope(TtsOperationScope::Interactive);
+    if queue_item_id.is_none()
+        && !app
+            .state::<TtsOverlayRuntime>()
+            .inner
+            .lock()
+            .listen_queue
+            .is_empty()
+    {
+        return Err(
+            "Finish or clear the Listen Later queue before starting another interactive TTS request"
+                .to_string(),
+        );
+    }
+    let mut settings = settings_override
+        .as_deref()
+        .cloned()
+        .unwrap_or_else(|| {
+            get_settings(&app)
+                .tts
+                .effective_for_scope(TtsOperationScope::Interactive)
+        });
     if require_enabled && !settings.enabled {
         let error = "Text to Speech is disabled".to_string();
         report_tts_error(&app, &error);
@@ -812,45 +1445,105 @@ async fn start_tts_text_with_options(
     }
 
     let manager = app.state::<Arc<TtsManager>>().inner().clone();
-    let operation_guard = match manager.try_reserve_foreground_operation() {
-        Ok(operation_guard) => operation_guard,
-        Err(error) => {
-            let error = error.to_string();
-            report_tts_error(&app, &error);
-            return Err(error);
+    let operation_guard = if queue_item_id.is_some() {
+        queue_operation_guard.ok_or_else(|| {
+            "The Listen Later item lost its foreground synthesis reservation".to_string()
+        })?
+    } else {
+        match manager.try_reserve_foreground_operation() {
+            Ok(operation_guard) => operation_guard,
+            Err(error) => {
+                let error = error.to_string();
+                report_tts_error(&app, &error);
+                return Err(error);
+            }
         }
     };
+    if let Some(item_id) = queue_item_id.as_deref() {
+        if !is_active_queue_item(&app, item_id) {
+            return Ok(());
+        }
+        let previous_operation_id = {
+            let state = manager.current_state();
+            (state.kind == Some(TtsOperationKind::Interactive)).then_some(state.operation_id)
+        };
+        let runtime = app.state::<TtsOverlayRuntime>();
+        let mut runtime = runtime.inner.lock();
+        if runtime.active_queue_item_id.as_deref() != Some(item_id) {
+            return Ok(());
+        }
+        runtime.foreground_queue_item_id = Some(item_id.to_string());
+        runtime.foreground_previous_operation_id = previous_operation_id;
+        runtime.active_queue_operation_id = None;
+    }
     let overlay_was_cold = app
         .get_webview_window(crate::overlay::TTS_OVERLAY_WINDOW_LABEL)
         .is_none();
-    prepare_overlay(
+    if !prepare_overlay(
         &app,
         &text,
         &settings,
         activation_started_at,
         overlay_was_cold,
-    );
+        queue_item_id.as_deref(),
+    ) {
+        return Ok(());
+    }
     crate::overlay::show_tts_overlay_window(&app);
+    if let Some(item_id) = queue_item_id.as_deref() {
+        if !is_active_queue_item(&app, item_id) {
+            return Ok(());
+        }
+    }
+    let started_app = app.clone();
+    let started_queue_item_id = queue_item_id.clone();
     let identity_app = app.clone();
+    let identity_queue_item_id = queue_item_id.clone();
     let resolved = match manager
         .synthesize_interactive_reserved(
             &text,
             &settings,
             operation_guard,
-            move |resolved_settings| update_overlay_identity(&identity_app, resolved_settings),
+            move |operation_id| {
+                let Some(item_id) = started_queue_item_id.as_deref() else {
+                    return true;
+                };
+                let runtime = started_app.state::<TtsOverlayRuntime>();
+                let mut runtime = runtime.inner.lock();
+                if runtime.active_queue_item_id.as_deref() == Some(item_id) {
+                    runtime.active_queue_operation_id = Some(operation_id);
+                    runtime.foreground_previous_operation_id = None;
+                    true
+                } else {
+                    runtime.suppressed_manager_operation_id = Some(operation_id);
+                    false
+                }
+            },
+            move |resolved_settings| {
+                update_overlay_identity(
+                    &identity_app,
+                    resolved_settings,
+                    identity_queue_item_id.as_deref(),
+                );
+            },
         )
         .await
     {
         Ok(resolved) => resolved,
         Err(error) => {
             if manager.current_state().phase != TtsPhase::Cancelled {
-                report_tts_error(&app, &error);
+                if let Some(item_id) = queue_item_id.as_deref() {
+                    report_tts_queue_error(&app, item_id, &error);
+                } else {
+                    report_tts_error(&app, &error);
+                }
             }
             return Err(error.to_string());
         }
     };
     let synthesis = resolved.value;
     let settings = resolved.settings;
+    let show_history_error = queue_item_id.is_none();
     if capture_history && settings.interactive_history_enabled {
         if let Some(audio_path) = synthesis.combined_audio_path {
             let _ = save_passive_history(
@@ -869,14 +1562,14 @@ async fn start_tts_text_with_options(
                     None,
                 ),
                 audio_path,
-                true,
+                show_history_error,
             );
         } else {
             report_history_error(
                 &app,
                 "TTS completed but its History copy could not be saved",
                 "the combined interactive audio was not created",
-                true,
+                show_history_error,
             );
         }
     }
@@ -898,7 +1591,18 @@ pub async fn preview_tts_voice(app: AppHandle, text: String) -> Result<(), Strin
         ));
     }
 
-    start_tts_text_with_options(app, text, Instant::now(), false, false, true).await
+    start_tts_text_with_options(
+        app,
+        text,
+        Instant::now(),
+        false,
+        false,
+        true,
+        None,
+        None,
+        None,
+    )
+    .await
 }
 
 fn parse_provider(provider: &str) -> Result<TtsProvider, String> {
@@ -1587,6 +2291,10 @@ pub fn update_tts_settings(
         != settings.file_history_max_entries
         || previous.file_history_max_storage_mb != settings.file_history_max_storage_mb;
     crate::shortcut::prepare_tts_play_history_fallback_binding(&app, &mut app_settings, &settings)?;
+    let listen_queue_changed = previous.listen_queue_enabled != settings.listen_queue_enabled;
+    let queue_operation_to_cancel = listen_queue_changed
+        .then(|| set_listen_queue_runtime_enabled(&app, settings.listen_queue_enabled).0)
+        .flatten();
     app_settings.tts = settings.clone();
     write_settings(&app, app_settings);
     let overlay_snapshot = {
@@ -1595,11 +2303,19 @@ pub fn update_tts_settings(
         runtime.state.play_pause_hotkey = settings.play_pause_hotkey.clone();
         runtime.state.play_history_when_overlay_closed = settings.play_history_when_overlay_closed;
         runtime.state.stop_hotkey = settings.stop_hotkey.clone();
+        runtime.state.autoplay = settings.autoplay;
+        runtime.state.auto_hide_enabled = settings.overlay_auto_hide_enabled;
+        runtime.state.auto_hide_delay_seconds = settings.overlay_auto_hide_delay_seconds;
         runtime.state.playback_pitch = settings.playback_pitch;
         runtime.state.playback_effect = settings.playback_effect;
+        sync_listen_queue_state(&mut runtime);
         runtime.state.clone()
     };
     emit_overlay_state(&app, &overlay_snapshot);
+    if let Some(operation_id) = queue_operation_to_cancel {
+        app.state::<Arc<TtsManager>>()
+            .cancel_operation(operation_id);
+    }
 
     if watcher_configuration_changed {
         let manager = app.state::<Arc<TtsManager>>().inner().clone();
@@ -1610,8 +2326,17 @@ pub fn update_tts_settings(
                 &mut rollback,
                 &previous,
             );
-            rollback.tts = previous;
+            rollback.tts = previous.clone();
             write_settings(&app, rollback);
+            if listen_queue_changed {
+                let (rollback_operation_id, rollback_snapshot) =
+                    set_listen_queue_runtime_enabled(&app, previous.listen_queue_enabled);
+                emit_overlay_state(&app, &rollback_snapshot);
+                if let Some(operation_id) = rollback_operation_id {
+                    app.state::<Arc<TtsManager>>()
+                        .cancel_operation(operation_id);
+                }
+            }
             let _ = manager.sync_folder_watcher();
             return Err(error.to_string());
         }
@@ -2414,6 +3139,252 @@ pub fn cancel_tts_batch(app: AppHandle, batch_id: String) -> Result<bool, String
     Ok(app.state::<Arc<TtsManager>>().cancel_batch(batch_id))
 }
 
+fn advance_listen_queue(
+    app: &AppHandle,
+    completed_item_id: &str,
+    mark_stopped_if_empty: bool,
+) -> Result<Option<u64>, String> {
+    let (next_item_id, completed_operation_id, snapshot) = {
+        let runtime = app.state::<TtsOverlayRuntime>();
+        let mut runtime = runtime.inner.lock();
+        if runtime.active_queue_item_id.as_deref() != Some(completed_item_id) {
+            return Err("The requested Listen Later item is no longer active".to_string());
+        }
+        let Some(position) = runtime
+            .listen_queue
+            .iter()
+            .position(|item| item.id == completed_item_id)
+        else {
+            return Err("The active Listen Later item no longer exists".to_string());
+        };
+        runtime.listen_queue.remove(position);
+        let completed_operation_id = runtime.active_queue_operation_id;
+        if !runtime.listen_queue.is_empty() {
+            next_listen_queue_generation(&mut runtime);
+        }
+        let next_item_id = activate_front_listen_queue_item(&mut runtime);
+        if next_item_id.is_none() && mark_stopped_if_empty {
+            runtime.playback_status = Some("stopped".to_string());
+            runtime.state.status = "stopped".to_string();
+            runtime.state.autoplay = false;
+        }
+        sync_listen_queue_state(&mut runtime);
+        (next_item_id, completed_operation_id, runtime.state.clone())
+    };
+    notify_queue_waiters(app);
+    emit_overlay_state(app, &snapshot);
+    if let Some(item_id) = next_item_id {
+        spawn_tts_queue_item(app.clone(), item_id);
+    }
+    Ok(completed_operation_id)
+}
+
+fn clear_listen_queue_runtime(
+    app: &AppHandle,
+    mark_stopped: bool,
+    stop_waiting_predecessor: bool,
+    expected_generation: Option<u64>,
+) -> Result<Option<(Option<u64>, TtsOverlayState)>, String> {
+    let runtime_state = app.state::<TtsOverlayRuntime>();
+    let mut runtime = runtime_state.inner.lock();
+    if expected_generation.is_some_and(|generation| generation != runtime.queue_generation) {
+        return Err("The Listen Later queue changed before it could be cleared".to_string());
+    }
+    if runtime.listen_queue.is_empty() && !runtime.waiting_for_overlay_playback {
+        sync_listen_queue_state(&mut runtime);
+        return Ok(None);
+    }
+    let operation_id = runtime.active_queue_operation_id.or_else(|| {
+        (stop_waiting_predecessor && runtime.waiting_for_overlay_playback)
+            .then(|| runtime.state.operation_id.parse::<u64>().ok())
+            .flatten()
+    });
+    if operation_id.is_some() {
+        runtime.suppressed_manager_operation_id = operation_id;
+    }
+    let should_mark_stopped = mark_stopped
+        && (runtime.active_queue_item_id.is_some()
+            || (runtime.waiting_for_overlay_playback && stop_waiting_predecessor));
+    runtime.listen_queue.clear();
+    runtime.active_queue_item_id = None;
+    runtime.foreground_queue_item_id = None;
+    runtime.foreground_previous_operation_id = None;
+    runtime.active_queue_operation_id = None;
+    runtime.waiting_for_overlay_playback = false;
+    next_listen_queue_generation(&mut runtime);
+    if should_mark_stopped {
+        runtime.playback_status = Some("stopped".to_string());
+        runtime.state.status = "stopped".to_string();
+        runtime.state.autoplay = false;
+    }
+    sync_listen_queue_state(&mut runtime);
+    let snapshot = runtime.state.clone();
+    drop(runtime);
+    notify_queue_waiters(app);
+    Ok(Some((operation_id, snapshot)))
+}
+
+fn set_listen_queue_runtime_enabled(
+    app: &AppHandle,
+    enabled: bool,
+) -> (Option<u64>, TtsOverlayState) {
+    let runtime_state = app.state::<TtsOverlayRuntime>();
+    let mut runtime = runtime_state.inner.lock();
+    let mut operation_id = None;
+    let changed = runtime.queue_enabled != enabled;
+    if changed {
+        runtime.queue_enable_epoch = runtime.queue_enable_epoch.wrapping_add(1).max(1);
+        next_listen_queue_generation(&mut runtime);
+        runtime.queue_enabled = enabled;
+        if !enabled {
+            let had_active_queue_item = runtime.active_queue_item_id.is_some();
+            operation_id = runtime.active_queue_operation_id;
+            if operation_id.is_some() {
+                runtime.suppressed_manager_operation_id = operation_id;
+            }
+            runtime.listen_queue.clear();
+            runtime.active_queue_item_id = None;
+            runtime.foreground_queue_item_id = None;
+            runtime.foreground_previous_operation_id = None;
+            runtime.active_queue_operation_id = None;
+            runtime.waiting_for_overlay_playback = false;
+            if had_active_queue_item {
+                runtime.playback_status = Some("stopped".to_string());
+                runtime.state.status = "stopped".to_string();
+                runtime.state.autoplay = false;
+            }
+        }
+    }
+    sync_listen_queue_state(&mut runtime);
+    let snapshot = runtime.state.clone();
+    drop(runtime);
+    if changed {
+        notify_queue_waiters(app);
+    }
+    (operation_id, snapshot)
+}
+
+fn parse_queue_generation(value: Option<String>) -> Result<Option<u64>, String> {
+    value
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| {
+            value
+                .parse::<u64>()
+                .map_err(|_| "The Listen Later queue generation is invalid".to_string())
+        })
+        .transpose()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn reorder_tts_listen_queue(app: AppHandle, item_ids: Vec<String>) -> Result<(), String> {
+    let snapshot = {
+        let runtime = app.state::<TtsOverlayRuntime>();
+        let mut runtime = runtime.inner.lock();
+        let active_id = runtime.active_queue_item_id.clone();
+        let pending_ids = runtime
+            .listen_queue
+            .iter()
+            .filter(|item| active_id.as_deref() != Some(item.id.as_str()))
+            .map(|item| item.id.clone())
+            .collect::<Vec<_>>();
+        let requested = item_ids.iter().cloned().collect::<HashSet<_>>();
+        let expected = pending_ids.iter().cloned().collect::<HashSet<_>>();
+        if item_ids.len() != pending_ids.len()
+            || requested.len() != item_ids.len()
+            || requested != expected
+        {
+            return Err("The Listen Later queue changed before it could be reordered".to_string());
+        }
+
+        let mut by_id = runtime
+            .listen_queue
+            .drain(..)
+            .map(|item| (item.id.clone(), item))
+            .collect::<HashMap<_, _>>();
+        let mut reordered = VecDeque::with_capacity(by_id.len());
+        if let Some(active_id) = active_id.as_deref() {
+            if let Some(active) = by_id.remove(active_id) {
+                reordered.push_back(active);
+            }
+        }
+        for item_id in item_ids {
+            if let Some(item) = by_id.remove(&item_id) {
+                reordered.push_back(item);
+            }
+        }
+        runtime.listen_queue = reordered;
+        sync_listen_queue_state(&mut runtime);
+        runtime.state.clone()
+    };
+    emit_overlay_state(&app, &snapshot);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn remove_tts_listen_queue_item(app: AppHandle, item_id: String) -> Result<(), String> {
+    let snapshot = {
+        let runtime = app.state::<TtsOverlayRuntime>();
+        let mut runtime = runtime.inner.lock();
+        if runtime.active_queue_item_id.as_deref() == Some(item_id.as_str()) {
+            return Err("Use Skip to leave the active Listen Later item".to_string());
+        }
+        let Some(position) = runtime
+            .listen_queue
+            .iter()
+            .position(|item| item.id == item_id)
+        else {
+            return Err("The Listen Later item no longer exists".to_string());
+        };
+        runtime.listen_queue.remove(position);
+        if runtime.listen_queue.is_empty() {
+            runtime.waiting_for_overlay_playback = false;
+            next_listen_queue_generation(&mut runtime);
+        }
+        sync_listen_queue_state(&mut runtime);
+        runtime.state.clone()
+    };
+    emit_overlay_state(&app, &snapshot);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn skip_tts_listen_queue_item(app: AppHandle, item_id: String) -> Result<(), String> {
+    let operation_id = advance_listen_queue(&app, &item_id, true)?;
+    if let Some(operation_id) = operation_id {
+        app.state::<Arc<TtsManager>>()
+            .cancel_operation(operation_id);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn clear_tts_listen_queue(
+    app: AppHandle,
+    queue_generation: Option<String>,
+) -> Result<(), String> {
+    let expected_generation = parse_queue_generation(queue_generation)?;
+    if let Some((operation_id, snapshot)) =
+        clear_listen_queue_runtime(&app, true, false, expected_generation)?
+    {
+        emit_overlay_state(&app, &snapshot);
+        if let Some(operation_id) = operation_id {
+            app.state::<Arc<TtsManager>>()
+                .cancel_operation(operation_id);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_tts_listen_queue_expanded(app: AppHandle, expanded: bool) -> Result<(), String> {
+    crate::overlay::set_tts_overlay_queue_expanded(&app, expanded)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn get_tts_overlay_state(app: AppHandle) -> TtsOverlayState {
@@ -2422,23 +3393,59 @@ pub fn get_tts_overlay_state(app: AppHandle) -> TtsOverlayState {
 
 #[tauri::command]
 #[specta::specta]
-pub fn cancel_tts_operation(app: AppHandle, operation_id: Option<String>) -> Result<(), String> {
+pub fn cancel_tts_operation(
+    app: AppHandle,
+    operation_id: Option<String>,
+    queue_generation: Option<String>,
+) -> Result<(), String> {
     let manager = app.state::<Arc<TtsManager>>();
-    let requested = if let Some(operation_id) = operation_id.filter(|value| !value.trim().is_empty())
+    let explicit_request = if let Some(operation_id) =
+        operation_id.filter(|value| !value.trim().is_empty())
     {
-        operation_id
-            .parse::<u64>()
-            .map_err(|_| "The TTS operation ID is invalid".to_string())?
+        Some(
+            operation_id
+                .parse::<u64>()
+                .map_err(|_| "The TTS operation ID is invalid".to_string())?,
+        )
     } else {
-        let current = manager.current_state();
-        if current.kind != Some(TtsOperationKind::Interactive) {
-            return Ok(());
-        }
-        current.operation_id
+        None
     };
+    let expected_generation = parse_queue_generation(queue_generation)?;
+    let queue_owned_by_operation = explicit_request.is_some_and(|requested| {
+        let runtime = app.state::<TtsOverlayRuntime>();
+        let runtime = runtime.inner.lock();
+        runtime.active_queue_operation_id == Some(requested)
+            || (runtime.waiting_for_overlay_playback
+                && runtime.state.operation_id == requested.to_string())
+    });
+    let queue_clear = if expected_generation.is_some() {
+        // A generation mismatch means this Stop originated from an older
+        // renderer snapshot. It remains safe to cancel its explicit operation
+        // ID, but it must not touch the current queue.
+        clear_listen_queue_runtime(&app, true, true, expected_generation)
+            .ok()
+            .flatten()
+    } else if queue_owned_by_operation {
+        clear_listen_queue_runtime(&app, true, true, None)?
+    } else {
+        None
+    };
+    let queue_operation_id = queue_clear.as_ref().and_then(|(operation_id, _)| *operation_id);
+    let requested = queue_operation_id.or(explicit_request).or_else(|| {
+        if expected_generation.is_some() {
+            return None;
+        }
+        let current = manager.current_state();
+        (current.kind == Some(TtsOperationKind::Interactive)).then_some(current.operation_id)
+    });
     // Cancellation is intentionally idempotent. A completed overlay can still
     // stop local playback, but its stale ID must never cancel a newer export.
-    manager.cancel_operation(requested);
+    if let Some(requested) = requested {
+        manager.cancel_operation(requested);
+    }
+    if let Some((_, snapshot)) = queue_clear {
+        emit_overlay_state(&app, &snapshot);
+    }
     Ok(())
 }
 
@@ -2447,21 +3454,32 @@ pub fn cancel_tts_operation(app: AppHandle, operation_id: Option<String>) -> Res
 pub fn tts_overlay_playback_state(
     app: AppHandle,
     operation_id: String,
+    queue_generation: Option<String>,
     status: String,
     current_chunk: Option<usize>,
 ) -> Result<(), String> {
     if !matches!(
         status.as_str(),
-        "playing" | "paused" | "stopped" | "completed"
+        "playing" | "paused" | "stopped" | "completed" | "error"
     ) {
         return Err("Unsupported TTS playback state".to_string());
     }
     let runtime = app.state::<TtsOverlayRuntime>();
+    let reported_queue_generation = parse_queue_generation(queue_generation)?;
+    let playback_failed = status == "error";
     let mut first_playback_latency = None;
+    let mut completed_queue_item_id = None;
+    let mut predecessor_to_release = None;
     let snapshot = {
         let mut runtime = runtime.inner.lock();
         if runtime.state.operation_id != operation_id {
             return Err("The requested TTS operation is no longer active".to_string());
+        }
+        if reported_queue_generation
+            .is_some_and(|generation| generation != runtime.queue_generation)
+            && !runtime.waiting_for_overlay_playback
+        {
+            return Err("The requested Listen Later queue is no longer active".to_string());
         }
         if status == "playing" {
             first_playback_latency = runtime
@@ -2477,6 +3495,25 @@ pub fn tts_overlay_playback_state(
         if let Some(current_chunk) = current_chunk {
             runtime.state.current_chunk = current_chunk.saturating_add(1);
         }
+        if matches!(runtime.state.status.as_str(), "completed" | "error")
+            && runtime.waiting_for_overlay_playback
+        {
+            predecessor_to_release = Some(operation_id.clone());
+        } else if runtime.state.status == "completed" {
+            completed_queue_item_id = runtime.active_queue_item_id.clone();
+        }
+        if runtime.state.status == "error" {
+            if let Some(active_item_id) = runtime.active_queue_item_id.clone() {
+                if let Some(item) = runtime
+                    .listen_queue
+                    .iter_mut()
+                    .find(|item| item.id == active_item_id)
+                {
+                    item.failed = true;
+                }
+            }
+        }
+        sync_listen_queue_state(&mut runtime);
         runtime.state.clone()
     };
     if let Some(latency) = first_playback_latency {
@@ -2523,6 +3560,32 @@ pub fn tts_overlay_playback_state(
         }
     }
     emit_overlay_state(&app, &snapshot);
+    if let Some(predecessor_operation_id) = predecessor_to_release {
+        match release_waiting_listen_queue(&app, &predecessor_operation_id) {
+            Ok(true) if playback_failed => {
+                if let Ok(operation_id) = predecessor_operation_id.parse::<u64>() {
+                    // Renderer failure means the predecessor can no longer be
+                    // consumed. Cancel only that exact Interactive operation;
+                    // a completed/fake History ID is an idempotent no-op.
+                    let manager = app.state::<Arc<TtsManager>>();
+                    let current = manager.current_state();
+                    if current.operation_id == operation_id
+                        && current.kind == Some(TtsOperationKind::Interactive)
+                    {
+                        manager.cancel_operation(operation_id);
+                    }
+                }
+            }
+            Ok(_) => {}
+            Err(error) => {
+                log::debug!("Listen Later queue did not follow overlay playback: {error}");
+            }
+        }
+    } else if let Some(item_id) = completed_queue_item_id {
+        if let Err(error) = advance_listen_queue(&app, &item_id, false) {
+            log::debug!("Listen Later queue did not advance after playback: {error}");
+        }
+    }
     Ok(())
 }
 
