@@ -5,12 +5,21 @@ import { type as getOsType } from "@tauri-apps/plugin-os";
 import {
   type ChangeEvent,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useRef,
   useState,
 } from "react";
+import {
+  ChevronDown,
+  ChevronUp,
+  GripVertical,
+  ListMusic,
+  SkipForward,
+  Trash2,
+} from "lucide-react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import type { OSType } from "../lib/utils/keyboard";
@@ -49,6 +58,15 @@ type TtsChunk = {
   pauseAfterMs: number;
 };
 
+type TtsQueueItemStatus = "active" | "pending" | "failed";
+
+type TtsQueueItem = {
+  id: string;
+  textPreview: string;
+  sourceLabel: string;
+  status: TtsQueueItemStatus;
+};
+
 type TtsOverlayState = {
   operationId: string;
   status: TtsStatus;
@@ -69,11 +87,21 @@ type TtsOverlayState = {
   autoHideDelaySeconds: number;
   playbackPitch: number;
   playbackEffect: TtsPlaybackEffect;
+  queueEnabled: boolean;
+  queueGeneration: string;
+  queueItems: TtsQueueItem[];
+  activeQueueItemId: string | null;
 };
 
 type UnknownRecord = Record<string, unknown>;
 
+type TtsOverlayNotice = {
+  revision: number;
+  message: string;
+};
+
 const overlayWindow = getCurrentWindow();
+const OVERLAY_NOTICE_DURATION_MS = 8_000;
 
 const EMPTY_STATE: TtsOverlayState = {
   operationId: "",
@@ -95,6 +123,10 @@ const EMPTY_STATE: TtsOverlayState = {
   autoHideDelaySeconds: 2,
   playbackPitch: 1,
   playbackEffect: "none",
+  queueEnabled: false,
+  queueGeneration: "1",
+  queueItems: [],
+  activeQueueItemId: null,
 };
 
 const VALID_STATUSES = new Set<TtsStatus>([
@@ -218,6 +250,26 @@ function normalizeState(raw: unknown): TtsOverlayState | null {
         .filter((chunk): chunk is TtsChunk => chunk !== null)
         .sort((a, b) => a.index - b.index)
     : [];
+  const rawQueueItems = data.queueItems ?? data.queue_items;
+  const queueItems = Array.isArray(rawQueueItems)
+    ? rawQueueItems
+        .map((rawItem): TtsQueueItem | null => {
+          const item = asRecord(rawItem);
+          if (!item) return null;
+          const id = readString(item, "id", "id");
+          const status = readString(item, "status", "status");
+          if (!id || !["active", "pending", "failed"].includes(status)) {
+            return null;
+          }
+          return {
+            id,
+            textPreview: readString(item, "textPreview", "text_preview"),
+            sourceLabel: readString(item, "sourceLabel", "source_label"),
+            status: status as TtsQueueItemStatus,
+          };
+        })
+        .filter((item): item is TtsQueueItem => item !== null)
+    : [];
 
   return {
     operationId: readString(data, "operationId", "operation_id"),
@@ -281,6 +333,12 @@ function normalizeState(raw: unknown): TtsOverlayState | null {
           "playback_effect",
         ) as TtsPlaybackEffect)
       : "none",
+    queueEnabled: readBoolean(data, "queueEnabled", "queue_enabled", false),
+    queueGeneration:
+      readString(data, "queueGeneration", "queue_generation") || "1",
+    queueItems,
+    activeQueueItemId:
+      readString(data, "activeQueueItemId", "active_queue_item_id") || null,
   };
 }
 
@@ -350,8 +408,21 @@ export default function TtsOverlay() {
   const [pointerInteractionActive, setPointerInteractionActive] =
     useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
-  const [playbackRate, setPlaybackRate] = useState<number>(DEFAULT_PLAYBACK_RATE);
+  const [playbackRate, setPlaybackRate] = useState<number>(
+    DEFAULT_PLAYBACK_RATE,
+  );
   const [rateSliderOpen, setRateSliderOpen] = useState(false);
+  const [queueExpanded, setQueueExpanded] = useState(false);
+  const [draggedQueueItemId, setDraggedQueueItemId] = useState<string | null>(
+    null,
+  );
+  const [queueDropTargetId, setQueueDropTargetId] = useState<string | null>(
+    null,
+  );
+  const [queueMutation, setQueueMutation] = useState<string | null>(null);
+  const [queueError, setQueueError] = useState<string | null>(null);
+  const [overlayNotice, setOverlayNotice] =
+    useState<TtsOverlayNotice | null>(null);
   const playerRef = useRef<GaplessTtsPlayer | null>(null);
   const rateSliderRef = useRef<HTMLInputElement | null>(null);
   const playbackRateRef = useRef<number>(DEFAULT_PLAYBACK_RATE);
@@ -360,7 +431,9 @@ export default function TtsOverlay() {
   const desiredPlayingRef = useRef(false);
   const activeChunkIndexRef = useRef<number | null>(null);
   const operationIdRef = useRef("");
+  const queueGenerationRef = useRef("1");
   const lastLoggedProviderErrorRef = useRef("");
+  const queueMutationRef = useRef(false);
 
   useEffect(() => {
     stateRef.current = state;
@@ -368,15 +441,19 @@ export default function TtsOverlay() {
 
   const reportPlaybackState = useCallback(
     (
-      status: "playing" | "paused" | "stopped" | "completed",
+      status: "playing" | "paused" | "stopped" | "completed" | "error",
       chunk?: number,
+      reportedOperationId?: string,
+      reportedQueueGeneration?: string,
     ) => {
-      const operationId = operationIdRef.current;
+      const operationId = reportedOperationId ?? operationIdRef.current;
       if (!operationId) {
         return;
       }
       void invoke("tts_overlay_playback_state", {
         operationId,
+        queueGeneration:
+          reportedQueueGeneration ?? queueGenerationRef.current,
         status,
         currentChunk: chunk ?? activeChunkIndexRef.current,
       }).catch((error) => {
@@ -387,6 +464,8 @@ export default function TtsOverlay() {
   );
 
   const getPlayer = useCallback(() => {
+    const callbackOperationId = operationIdRef.current;
+    const callbackQueueGeneration = queueGenerationRef.current;
     const callbacks = {
       onSnapshot: (snapshot: GaplessPlaybackSnapshot) => {
         activeChunkIndexRef.current = snapshot.chunkIndex;
@@ -401,13 +480,23 @@ export default function TtsOverlay() {
         activeChunkIndexRef.current = chunkIndex;
         setActiveChunkIndex(chunkIndex);
         setPlaybackError(null);
-        reportPlaybackState("playing", chunkIndex);
+        reportPlaybackState(
+          "playing",
+          chunkIndex,
+          callbackOperationId,
+          callbackQueueGeneration,
+        );
       },
       onCompleted: (chunkIndex: number) => {
         desiredPlayingRef.current = false;
         setIsPlaying(false);
-        setCompletedPlaybackOperationId(operationIdRef.current);
-        reportPlaybackState("completed", chunkIndex);
+        setCompletedPlaybackOperationId(callbackOperationId);
+        reportPlaybackState(
+          "completed",
+          chunkIndex,
+          callbackOperationId,
+          callbackQueueGeneration,
+        );
       },
       onError: (error: unknown, chunkIndex: number) => {
         const message = t("textToSpeech.overlayPlayer.chunkPlaybackError");
@@ -418,7 +507,12 @@ export default function TtsOverlay() {
           `TTS playback error at chunk ${chunkIndex + 1}:`,
           error,
         );
-        reportPlaybackState("paused", chunkIndex);
+        reportPlaybackState(
+          "error",
+          chunkIndex,
+          callbackOperationId,
+          callbackQueueGeneration,
+        );
       },
     };
     if (!playerRef.current) {
@@ -464,9 +558,7 @@ export default function TtsOverlay() {
         return;
       }
 
-      const operationChanged =
-        Boolean(next.operationId) &&
-        next.operationId !== operationIdRef.current;
+      const operationChanged = next.operationId !== operationIdRef.current;
       if (operationChanged) {
         resetAudio();
         operationIdRef.current = next.operationId;
@@ -480,12 +572,17 @@ export default function TtsOverlay() {
         setCompletedPlaybackOperationId("");
         setRateSliderOpen(false);
         lastLoggedProviderErrorRef.current = "";
-      } else if (!operationIdRef.current && next.operationId) {
-        operationIdRef.current = next.operationId;
       }
+      queueGenerationRef.current = next.queueGeneration;
 
       stateRef.current = next;
       setState(next);
+      if (!next.queueEnabled) {
+        setQueueExpanded(false);
+        setDraggedQueueItemId(null);
+        setQueueDropTargetId(null);
+        setQueueError(null);
+      }
 
       if (next.error) {
         const errorSignature = `${next.operationId}:${next.provider}:${next.error}`;
@@ -560,6 +657,42 @@ export default function TtsOverlay() {
     };
   }, [applyState, resetAudio, t]);
 
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void listen<string>("tts-overlay-notice", (event) => {
+      if (!active) return;
+      const message = safeErrorMessage(event.payload);
+      if (!message) return;
+      setOverlayNotice((current) => ({
+        revision: (current?.revision ?? 0) + 1,
+        message,
+      }));
+    })
+      .then((dispose) => {
+        if (active) unlisten = dispose;
+        else dispose();
+      })
+      .catch((error) => {
+        console.error("Unable to listen for TTS overlay notices:", error);
+      });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!overlayNotice) return;
+    const revision = overlayNotice.revision;
+    const timeout = window.setTimeout(() => {
+      setOverlayNotice((current) =>
+        current?.revision === revision ? null : current,
+      );
+    }, OVERLAY_NOTICE_DURATION_MS);
+    return () => window.clearTimeout(timeout);
+  }, [overlayNotice]);
+
   const togglePlayback = useCallback(() => {
     const player = getPlayer();
     if (isPlaying || desiredPlayingRef.current) {
@@ -603,6 +736,7 @@ export default function TtsOverlay() {
     reportPlaybackState("stopped");
     void invoke("cancel_tts_operation", {
       operationId: operationId || null,
+      queueGeneration: queueGenerationRef.current,
     }).catch((error) => {
       const message = t("textToSpeech.overlayPlayer.cancelError");
       setPlaybackError(message);
@@ -611,6 +745,8 @@ export default function TtsOverlay() {
   }, [reportPlaybackState, resetAudio, t]);
 
   const closeOverlay = useCallback(() => {
+    setQueueExpanded(false);
+    setOverlayNotice(null);
     stopPlayback();
     void overlayWindow.hide().catch((error) => {
       console.error("Unable to hide the TTS overlay:", error);
@@ -620,15 +756,17 @@ export default function TtsOverlay() {
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void overlayWindow.onCloseRequested((event) => {
-      event.preventDefault();
-      if (!disposed) {
-        closeOverlay();
-      }
-    }).then((dispose) => {
-      if (disposed) dispose();
-      else unlisten = dispose;
-    });
+    void overlayWindow
+      .onCloseRequested((event) => {
+        event.preventDefault();
+        if (!disposed) {
+          closeOverlay();
+        }
+      })
+      .then((dispose) => {
+        if (disposed) dispose();
+        else unlisten = dispose;
+      });
     return () => {
       disposed = true;
       unlisten?.();
@@ -670,11 +808,172 @@ export default function TtsOverlay() {
   );
 
   useEffect(() => {
+    void invoke("set_tts_listen_queue_expanded", {
+      expanded: queueExpanded,
+    }).catch((error) => {
+      console.error("Unable to resize the TTS Listen Later queue:", error);
+    });
+  }, [queueExpanded]);
+
+  useEffect(
+    () => () => {
+      void invoke("set_tts_listen_queue_expanded", {
+        expanded: false,
+      }).catch(() => undefined);
+    },
+    [],
+  );
+
+  const runQueueMutation = useCallback(
+    async (mutation: string, command: string, args: UnknownRecord) => {
+      if (queueMutationRef.current) return false;
+      queueMutationRef.current = true;
+      setQueueMutation(mutation);
+      setQueueError(null);
+      recordOverlayActivity();
+      try {
+        await invoke(command, args);
+        return true;
+      } catch (error) {
+        setQueueError(t("textToSpeech.overlayPlayer.queueUpdateError"));
+        console.error("Unable to update the TTS Listen Later queue:", error);
+        return false;
+      } finally {
+        queueMutationRef.current = false;
+        setQueueMutation(null);
+      }
+    },
+    [recordOverlayActivity, t],
+  );
+
+  const reorderPendingQueue = useCallback(
+    (itemIds: string[]) =>
+      runQueueMutation("reorder", "reorder_tts_listen_queue", {
+        itemIds,
+      }),
+    [runQueueMutation],
+  );
+
+  const movePendingQueueItem = useCallback(
+    (itemId: string, offset: -1 | 1) => {
+      const pendingIds = stateRef.current.queueItems
+        .filter((item) => item.id !== stateRef.current.activeQueueItemId)
+        .map((item) => item.id);
+      const currentIndex = pendingIds.indexOf(itemId);
+      const nextIndex = currentIndex + offset;
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= pendingIds.length) {
+        return;
+      }
+      const [moved] = pendingIds.splice(currentIndex, 1);
+      pendingIds.splice(nextIndex, 0, moved);
+      void reorderPendingQueue(pendingIds);
+    },
+    [reorderPendingQueue],
+  );
+
+  const handleQueueDragStart = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>, itemId: string) => {
+      if (itemId === stateRef.current.activeQueueItemId || queueMutation) {
+        event.preventDefault();
+        return;
+      }
+      setDraggedQueueItemId(itemId);
+      setQueueDropTargetId(null);
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", itemId);
+    },
+    [queueMutation],
+  );
+
+  const handleQueueDrop = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>, targetItemId: string) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const draggedId =
+        draggedQueueItemId || event.dataTransfer.getData("text/plain");
+      setDraggedQueueItemId(null);
+      setQueueDropTargetId(null);
+      if (
+        !draggedId ||
+        draggedId === targetItemId ||
+        draggedId === stateRef.current.activeQueueItemId ||
+        targetItemId === stateRef.current.activeQueueItemId
+      ) {
+        return;
+      }
+      const pendingIds = stateRef.current.queueItems
+        .filter((item) => item.id !== stateRef.current.activeQueueItemId)
+        .map((item) => item.id);
+      const sourceIndex = pendingIds.indexOf(draggedId);
+      const targetIndex = pendingIds.indexOf(targetItemId);
+      if (sourceIndex < 0 || targetIndex < 0) return;
+      const [moved] = pendingIds.splice(sourceIndex, 1);
+      pendingIds.splice(targetIndex, 0, moved);
+      void reorderPendingQueue(pendingIds);
+    },
+    [draggedQueueItemId, reorderPendingQueue],
+  );
+
+  const handleQueueDropAtEnd = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const draggedId =
+        draggedQueueItemId || event.dataTransfer.getData("text/plain");
+      setDraggedQueueItemId(null);
+      setQueueDropTargetId(null);
+      if (!draggedId || draggedId === stateRef.current.activeQueueItemId) {
+        return;
+      }
+      const pendingIds = stateRef.current.queueItems
+        .filter((item) => item.id !== stateRef.current.activeQueueItemId)
+        .map((item) => item.id);
+      const sourceIndex = pendingIds.indexOf(draggedId);
+      if (sourceIndex < 0 || sourceIndex === pendingIds.length - 1) return;
+      const [moved] = pendingIds.splice(sourceIndex, 1);
+      pendingIds.push(moved);
+      void reorderPendingQueue(pendingIds);
+    },
+    [draggedQueueItemId, reorderPendingQueue],
+  );
+
+  const removeQueueItem = useCallback(
+    (itemId: string) => {
+      void runQueueMutation("remove", "remove_tts_listen_queue_item", {
+        itemId,
+      });
+    },
+    [runQueueMutation],
+  );
+
+  const skipQueueItem = useCallback(() => {
+    const itemId = stateRef.current.activeQueueItemId;
+    if (!itemId) return;
+    desiredPlayingRef.current = false;
+    resetAudio();
+    setCompletedPlaybackOperationId("");
+    void runQueueMutation("skip", "skip_tts_listen_queue_item", {
+      itemId,
+    });
+  }, [resetAudio, runQueueMutation]);
+
+  const clearQueue = useCallback(() => {
+    if (stateRef.current.activeQueueItemId) {
+      desiredPlayingRef.current = false;
+      resetAudio();
+      setCompletedPlaybackOperationId("");
+    }
+    void runQueueMutation("clear", "clear_tts_listen_queue", {
+      queueGeneration: queueGenerationRef.current,
+    });
+  }, [resetAudio, runQueueMutation]);
+
+  useEffect(() => {
     if (
       !state.autoHideEnabled ||
       state.status !== "completed" ||
       !state.operationId ||
       pointerInteractionActive ||
+      overlayNotice !== null ||
       completedPlaybackOperationId !== state.operationId
     ) {
       return;
@@ -682,6 +981,7 @@ export default function TtsOverlay() {
 
     const completedOperationId = state.operationId;
     const timeout = window.setTimeout(() => {
+      setQueueExpanded(false);
       void overlayWindow
         .hide()
         .then(() => {
@@ -701,6 +1001,7 @@ export default function TtsOverlay() {
   }, [
     autoHideActivityRevision,
     completedPlaybackOperationId,
+    overlayNotice,
     pointerInteractionActive,
     resetAudio,
     state.autoHideDelaySeconds,
@@ -952,10 +1253,18 @@ export default function TtsOverlay() {
   const playbackRateIndex = PLAYBACK_RATES.indexOf(
     normalizePlaybackRate(playbackRate),
   );
+  const activeQueueIndex = state.queueItems.findIndex(
+    (item) => item.id === state.activeQueueItemId,
+  );
+  const pendingQueueItems = state.queueItems.filter(
+    (item) => item.id !== state.activeQueueItemId,
+  );
 
   return (
     <main
-      className={`tts-overlay tts-overlay--${state.status}`}
+      className={`tts-overlay tts-overlay--${state.status}${
+        queueExpanded ? " tts-overlay--queue-expanded" : ""
+      }`}
       onPointerDown={beginPointerInteraction}
       onPointerUp={endPointerInteraction}
       onPointerCancel={endPointerInteraction}
@@ -974,173 +1283,426 @@ export default function TtsOverlay() {
         </button>
       </div>
 
-      <div className="tts-overlay__header">
-        <div className="tts-overlay__identity">
-          <span className="tts-overlay__pulse" aria-hidden="true" />
+      {overlayNotice && (
+        <div className="tts-overlay__notice" role="alert">
           <div>
-            <div className="tts-overlay__status">
-              {label}
-            </div>
-            <div
-              className="tts-overlay__provider"
-              title={identityTitle}
-            >
-              <span
-                className="tts-overlay__provider-name"
-              >
-                {state.provider || "AivoRelay"}
-              </span>
-              {state.model && (
-                <>
-                  <span
-                    className="tts-overlay__identity-separator"
-                    aria-hidden="true"
-                  >
-                    ·
-                  </span>
-                  <span>
-                    {t("textToSpeech.overlayPlayer.activeModel", {
-                      model: state.model,
-                    })}
-                  </span>
-                </>
-              )}
-              {showVoice && (
-                <>
-                  <span
-                    className="tts-overlay__identity-separator"
-                    aria-hidden="true"
-                  >
-                    ·
-                  </span>
-                  <span>
-                    {t("textToSpeech.overlayPlayer.activeVoice", {
-                      voice: state.voice,
-                    })}
-                  </span>
-                </>
-              )}
-            </div>
+            <strong>
+              {t("textToSpeech.overlayPlayer.inputNoticeTitle")}
+            </strong>
+            <span>{overlayNotice.message}</span>
           </div>
-        </div>
-        <div className="tts-overlay__header-actions">
           <button
             type="button"
-            className="tts-overlay__close"
-            onClick={closeOverlay}
+            onClick={() => setOverlayNotice(null)}
             aria-label={t("common.close")}
             title={t("common.close")}
           >
             <span aria-hidden="true">×</span>
           </button>
         </div>
-      </div>
-
-      {state.textPreview && (
-        <p className="tts-overlay__preview" title={state.textPreview}>
-          {state.textPreview}
-        </p>
       )}
 
-      <div className="tts-overlay__timeline">
-        <input
-          type="range"
-          className={`tts-overlay__progress${
-            streamLengthPending ? " tts-overlay__progress--pending" : ""
-          }`}
-          aria-label={t("textToSpeech.overlayPlayer.progress")}
-          aria-valuetext={`${timelineTimeLabel}. ${chunkAvailabilityLabel}`}
-          min={0}
-          max={1}
-          step={playbackDuration > 0 ? 0.001 : 1}
-          value={seekValue}
-          disabled={streamLengthPending || playbackDuration <= 0}
-          onChange={seekPlayback}
-          style={
-            {
-              "--tts-seek-progress": `${seekPercent}%`,
-              "--tts-ready-progress": `${readyPercent}%`,
-            } as CSSProperties
-          }
-        />
-        <div className="tts-overlay__timeline-meta" aria-hidden="true">
-          <span>{timelineTimeLabel}</span>
-          <span>{chunkAvailabilityLabel}</span>
-        </div>
-      </div>
-
-      {visibleError && (
-        <div className="tts-overlay__error" role="alert">
-          {visibleError}
-        </div>
-      )}
-
-      <div className="tts-overlay__actions">
-        <button
-          type="button"
-          className="tts-overlay__button tts-overlay__button--primary"
-          onClick={togglePlayback}
-          disabled={!canPlay}
-          title={
-            playHotkeyLabel
-              ? t("textToSpeech.overlayPlayer.playPauseWithHotkey", {
-                  hotkey: playHotkeyLabel,
-                })
-              : t("textToSpeech.overlayPlayer.playPause")
-          }
+      {queueExpanded && (
+        <section
+          className="tts-overlay__queue"
+          aria-label={t("textToSpeech.overlayPlayer.queue")}
         >
-          <span aria-hidden="true">{isPlaying ? "Ⅱ" : "▶"}</span>
-          {isPlaying
-            ? t("textToSpeech.overlayPlayer.pause")
-            : t("textToSpeech.overlayPlayer.play")}
-          {playHotkeyLabel && <kbd>{playHotkeyLabel}</kbd>}
-        </button>
-        <button
-          type="button"
-          className="tts-overlay__button"
-          onClick={stopPlayback}
-          disabled={!canStop}
-          title={
-            stopHotkeyLabel
-              ? t("textToSpeech.overlayPlayer.stopWithHotkey", {
-                  hotkey: stopHotkeyLabel,
-                })
-              : t("textToSpeech.overlayPlayer.stop")
-          }
-        >
-          <span className="tts-overlay__stop-icon" aria-hidden="true" />
-          {t("textToSpeech.overlayPlayer.stop")}
-          {stopHotkeyLabel && <kbd>{stopHotkeyLabel}</kbd>}
-        </button>
-        <div className="tts-overlay__rate-control">
-          {rateSliderOpen && (
-            <div className="tts-overlay__rate-panel">
-              <input
-                ref={rateSliderRef}
-                type="range"
-                className="tts-overlay__rate-slider"
-                aria-label={t("textToSpeech.overlayPlayer.playbackRateSlider")}
-                aria-valuetext={playbackRateLabel}
-                min={0}
-                max={PLAYBACK_RATES.length - 1}
-                step={1}
-                value={playbackRateIndex}
-                onChange={changePlaybackRate}
-              />
+          <div className="tts-overlay__queue-header">
+            <div className="tts-overlay__queue-title">
+              <ListMusic size={15} strokeWidth={1.8} aria-hidden="true" />
+              <span>{t("textToSpeech.overlayPlayer.queue")}</span>
+              <span className="tts-overlay__queue-position">
+                {t("textToSpeech.overlayPlayer.queuePosition", {
+                  current: activeQueueIndex >= 0 ? activeQueueIndex + 1 : 0,
+                  total: state.queueItems.length,
+                })}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="tts-overlay__queue-clear"
+              onClick={clearQueue}
+              disabled={state.queueItems.length === 0 || queueMutation !== null}
+              title={t("textToSpeech.overlayPlayer.queueClear")}
+            >
+              {t("textToSpeech.overlayPlayer.queueClear")}
+            </button>
+          </div>
+
+          {queueError && (
+            <div className="tts-overlay__queue-error" role="alert">
+              {queueError}
             </div>
           )}
+
+          {state.queueItems.length === 0 ? (
+            <div className="tts-overlay__queue-empty">
+              <ListMusic size={22} strokeWidth={1.5} aria-hidden="true" />
+              <strong>{t("textToSpeech.overlayPlayer.queueEmptyTitle")}</strong>
+              <span>
+                {t("textToSpeech.overlayPlayer.queueEmptyDescription")}
+              </span>
+            </div>
+          ) : (
+            <div
+              className={`tts-overlay__queue-list${
+                queueDropTargetId === "__end"
+                  ? " tts-overlay__queue-list--drop-at-end"
+                  : ""
+              }`}
+              role="list"
+              onDragOver={(event) => {
+                event.preventDefault();
+                if (event.target === event.currentTarget) {
+                  setQueueDropTargetId("__end");
+                }
+              }}
+              onDrop={handleQueueDropAtEnd}
+            >
+              {state.queueItems.map((item) => {
+                const isActive = item.id === state.activeQueueItemId;
+                const pendingIndex = pendingQueueItems.findIndex(
+                  (pending) => pending.id === item.id,
+                );
+                const statusLabel = isActive
+                  ? item.status === "failed"
+                    ? t("textToSpeech.overlayPlayer.queueFailed")
+                    : t("textToSpeech.overlayPlayer.queueActive")
+                  : t("textToSpeech.overlayPlayer.queuePending");
+                return (
+                  <div
+                    key={item.id}
+                    className={`tts-overlay__queue-item tts-overlay__queue-item--${item.status}${
+                      draggedQueueItemId === item.id
+                        ? " tts-overlay__queue-item--dragging"
+                        : ""
+                    }${
+                      queueDropTargetId === item.id
+                        ? " tts-overlay__queue-item--drop-target"
+                        : ""
+                    }`}
+                    role="listitem"
+                    draggable={!isActive && queueMutation === null}
+                    onDragStart={(event) =>
+                      handleQueueDragStart(event, item.id)
+                    }
+                    onDragEnd={() => {
+                      setDraggedQueueItemId(null);
+                      setQueueDropTargetId(null);
+                    }}
+                    onDragOver={(event) => {
+                      if (!isActive) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (draggedQueueItemId !== item.id) {
+                          setQueueDropTargetId(item.id);
+                        }
+                      }
+                    }}
+                    onDrop={(event) => handleQueueDrop(event, item.id)}
+                  >
+                    <div
+                      className="tts-overlay__queue-drag"
+                      title={
+                        isActive
+                          ? statusLabel
+                          : t("textToSpeech.overlayPlayer.queueDrag")
+                      }
+                      aria-hidden="true"
+                    >
+                      <GripVertical size={15} strokeWidth={1.8} />
+                    </div>
+                    <div className="tts-overlay__queue-copy">
+                      <div className="tts-overlay__queue-meta">
+                        <span>{statusLabel}</span>
+                        <span
+                          title={
+                            item.sourceLabel ||
+                            t("textToSpeech.overlayPlayer.queueDesktopSource")
+                          }
+                        >
+                          {item.sourceLabel ||
+                            t("textToSpeech.overlayPlayer.queueDesktopSource")}
+                        </span>
+                      </div>
+                      <p title={item.textPreview}>{item.textPreview}</p>
+                    </div>
+                    <div className="tts-overlay__queue-actions">
+                      {isActive ? (
+                        <button
+                          type="button"
+                          onClick={skipQueueItem}
+                          disabled={queueMutation !== null}
+                          aria-label={t("textToSpeech.overlayPlayer.queueSkip")}
+                          title={t("textToSpeech.overlayPlayer.queueSkip")}
+                        >
+                          <SkipForward
+                            size={14}
+                            strokeWidth={1.8}
+                            aria-hidden="true"
+                          />
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => movePendingQueueItem(item.id, -1)}
+                            disabled={
+                              pendingIndex <= 0 || queueMutation !== null
+                            }
+                            aria-label={t(
+                              "textToSpeech.overlayPlayer.queueMoveUp",
+                            )}
+                            title={t("textToSpeech.overlayPlayer.queueMoveUp")}
+                          >
+                            <ChevronUp
+                              size={14}
+                              strokeWidth={1.8}
+                              aria-hidden="true"
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => movePendingQueueItem(item.id, 1)}
+                            disabled={
+                              pendingIndex < 0 ||
+                              pendingIndex >= pendingQueueItems.length - 1 ||
+                              queueMutation !== null
+                            }
+                            aria-label={t(
+                              "textToSpeech.overlayPlayer.queueMoveDown",
+                            )}
+                            title={t(
+                              "textToSpeech.overlayPlayer.queueMoveDown",
+                            )}
+                          >
+                            <ChevronDown
+                              size={14}
+                              strokeWidth={1.8}
+                              aria-hidden="true"
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeQueueItem(item.id)}
+                            disabled={queueMutation !== null}
+                            aria-label={t(
+                              "textToSpeech.overlayPlayer.queueRemove",
+                            )}
+                            title={t("textToSpeech.overlayPlayer.queueRemove")}
+                          >
+                            <Trash2
+                              size={13}
+                              strokeWidth={1.8}
+                              aria-hidden="true"
+                            />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      <div className="tts-overlay__player">
+        <div className="tts-overlay__header">
+          <div className="tts-overlay__identity">
+            <span className="tts-overlay__pulse" aria-hidden="true" />
+            <div>
+              <div className="tts-overlay__status">{label}</div>
+              <div className="tts-overlay__provider" title={identityTitle}>
+                <span className="tts-overlay__provider-name">
+                  {state.provider || "AivoRelay"}
+                </span>
+                {state.model && (
+                  <>
+                    <span
+                      className="tts-overlay__identity-separator"
+                      aria-hidden="true"
+                    >
+                      ·
+                    </span>
+                    <span>
+                      {t("textToSpeech.overlayPlayer.activeModel", {
+                        model: state.model,
+                      })}
+                    </span>
+                  </>
+                )}
+                {showVoice && (
+                  <>
+                    <span
+                      className="tts-overlay__identity-separator"
+                      aria-hidden="true"
+                    >
+                      ·
+                    </span>
+                    <span>
+                      {t("textToSpeech.overlayPlayer.activeVoice", {
+                        voice: state.voice,
+                      })}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="tts-overlay__header-actions">
+            {state.queueEnabled && (
+              <button
+                type="button"
+                className={`tts-overlay__queue-toggle${
+                  queueExpanded ? " tts-overlay__queue-toggle--active" : ""
+                }`}
+                onClick={() => {
+                  setQueueError(null);
+                  setQueueExpanded((expanded) => !expanded);
+                }}
+                aria-expanded={queueExpanded}
+                aria-label={t(
+                  queueExpanded
+                    ? "textToSpeech.overlayPlayer.queueCollapse"
+                    : "textToSpeech.overlayPlayer.queueExpand",
+                )}
+                title={t(
+                  queueExpanded
+                    ? "textToSpeech.overlayPlayer.queueCollapse"
+                    : "textToSpeech.overlayPlayer.queueExpand",
+                )}
+              >
+                <ListMusic size={14} strokeWidth={1.8} aria-hidden="true" />
+                <span>{state.queueItems.length}</span>
+                {queueExpanded ? (
+                  <ChevronDown size={12} strokeWidth={1.8} aria-hidden="true" />
+                ) : (
+                  <ChevronUp size={12} strokeWidth={1.8} aria-hidden="true" />
+                )}
+              </button>
+            )}
+            <button
+              type="button"
+              className="tts-overlay__close"
+              onClick={closeOverlay}
+              aria-label={t("common.close")}
+              title={t("common.close")}
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
+        </div>
+
+        {state.textPreview && (
+          <p className="tts-overlay__preview" title={state.textPreview}>
+            {state.textPreview}
+          </p>
+        )}
+
+        <div className="tts-overlay__timeline">
+          <input
+            type="range"
+            className={`tts-overlay__progress${
+              streamLengthPending ? " tts-overlay__progress--pending" : ""
+            }`}
+            aria-label={t("textToSpeech.overlayPlayer.progress")}
+            aria-valuetext={`${timelineTimeLabel}. ${chunkAvailabilityLabel}`}
+            min={0}
+            max={1}
+            step={playbackDuration > 0 ? 0.001 : 1}
+            value={seekValue}
+            disabled={streamLengthPending || playbackDuration <= 0}
+            onChange={seekPlayback}
+            style={
+              {
+                "--tts-seek-progress": `${seekPercent}%`,
+                "--tts-ready-progress": `${readyPercent}%`,
+              } as CSSProperties
+            }
+          />
+          <div className="tts-overlay__timeline-meta" aria-hidden="true">
+            <span>{timelineTimeLabel}</span>
+            <span>{chunkAvailabilityLabel}</span>
+          </div>
+        </div>
+
+        {visibleError && (
+          <div className="tts-overlay__error" role="alert">
+            {visibleError}
+          </div>
+        )}
+
+        <div className="tts-overlay__actions">
           <button
             type="button"
-            className="tts-overlay__button tts-overlay__rate"
-            onClick={() => setRateSliderOpen((open) => !open)}
-            aria-expanded={rateSliderOpen}
-            aria-label={t("textToSpeech.overlayPlayer.playbackRate", {
-              rate: playbackRateLabel,
-            })}
-            title={t("textToSpeech.overlayPlayer.playbackRateDescription")}
+            className="tts-overlay__button tts-overlay__button--primary"
+            onClick={togglePlayback}
+            disabled={!canPlay}
+            title={
+              playHotkeyLabel
+                ? t("textToSpeech.overlayPlayer.playPauseWithHotkey", {
+                    hotkey: playHotkeyLabel,
+                  })
+                : t("textToSpeech.overlayPlayer.playPause")
+            }
           >
-            {playbackRateLabel}
+            <span aria-hidden="true">{isPlaying ? "Ⅱ" : "▶"}</span>
+            {isPlaying
+              ? t("textToSpeech.overlayPlayer.pause")
+              : t("textToSpeech.overlayPlayer.play")}
+            {playHotkeyLabel && <kbd>{playHotkeyLabel}</kbd>}
           </button>
+          <button
+            type="button"
+            className="tts-overlay__button"
+            onClick={stopPlayback}
+            disabled={!canStop}
+            title={
+              stopHotkeyLabel
+                ? t("textToSpeech.overlayPlayer.stopWithHotkey", {
+                    hotkey: stopHotkeyLabel,
+                  })
+                : t("textToSpeech.overlayPlayer.stop")
+            }
+          >
+            <span className="tts-overlay__stop-icon" aria-hidden="true" />
+            {t("textToSpeech.overlayPlayer.stop")}
+            {stopHotkeyLabel && <kbd>{stopHotkeyLabel}</kbd>}
+          </button>
+          <div className="tts-overlay__rate-control">
+            {rateSliderOpen && (
+              <div className="tts-overlay__rate-panel">
+                <input
+                  ref={rateSliderRef}
+                  type="range"
+                  className="tts-overlay__rate-slider"
+                  aria-label={t(
+                    "textToSpeech.overlayPlayer.playbackRateSlider",
+                  )}
+                  aria-valuetext={playbackRateLabel}
+                  min={0}
+                  max={PLAYBACK_RATES.length - 1}
+                  step={1}
+                  value={playbackRateIndex}
+                  onChange={changePlaybackRate}
+                />
+              </div>
+            )}
+            <button
+              type="button"
+              className="tts-overlay__button tts-overlay__rate"
+              onClick={() => setRateSliderOpen((open) => !open)}
+              aria-expanded={rateSliderOpen}
+              aria-label={t("textToSpeech.overlayPlayer.playbackRate", {
+                rate: playbackRateLabel,
+              })}
+              title={t("textToSpeech.overlayPlayer.playbackRateDescription")}
+            >
+              {playbackRateLabel}
+            </button>
+          </div>
         </div>
       </div>
     </main>

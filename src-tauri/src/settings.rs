@@ -1889,6 +1889,10 @@ pub struct TtsSettings {
     pub play_history_when_overlay_closed: bool,
     #[serde(default = "default_tts_stop_hotkey")]
     pub stop_hotkey: String,
+    /// Keeps interactive clipboard and selection requests in an in-memory
+    /// listen-later queue instead of replacing the current playback.
+    #[serde(default)]
+    pub listen_queue_enabled: bool,
     #[serde(default = "default_true")]
     pub autoplay: bool,
     #[serde(default = "default_true")]
@@ -2001,6 +2005,7 @@ impl Default for TtsSettings {
             play_pause_hotkey: default_tts_play_pause_hotkey(),
             play_history_when_overlay_closed: false,
             stop_hotkey: default_tts_stop_hotkey(),
+            listen_queue_enabled: false,
             autoplay: true,
             overlay_auto_hide_enabled: true,
             overlay_auto_hide_delay_seconds: default_tts_overlay_auto_hide_delay_seconds(),
@@ -2048,6 +2053,89 @@ impl TtsSettings {
             config.apply_to(&mut effective, scope);
         }
         effective
+    }
+
+    /// Captures one immutable Interactive execution revision for Listen Later.
+    ///
+    /// Queue items must retain the provider, preprocessing, playback, retry,
+    /// disk-reserve, and History inputs that were effective when they were
+    /// enqueued. They must not retain settings-editor catalogs or benchmark
+    /// output: those can contain several MiB and would otherwise be cloned for
+    /// every item. When adding another heap-backed `TtsSettings` field, review
+    /// this compaction boundary before allowing it into the in-memory queue.
+    pub fn into_interactive_queue_execution_snapshot(mut self) -> Self {
+        let active_config = self
+            .scope_synthesis(TtsOperationScope::Interactive)
+            .active_config()
+            .cloned();
+        if let Some(config) = active_config {
+            config.apply_to(&mut self, TtsOperationScope::Interactive);
+        }
+        let mut snapshot = self;
+
+        // The effective flat fields above already contain the active synthesis
+        // profile. Provider memories and preset catalogs are editor state, not
+        // execution inputs.
+        snapshot.interactive_synthesis = TtsScopeSynthesisSettings::default();
+        snapshot.file_synthesis = TtsScopeSynthesisSettings::default();
+        snapshot.synthesis_presets.clear();
+
+        // History records only the selected preset identity/name and the
+        // already-resolved instructions. Do not retain every preset or a
+        // duplicate copy of the selected instructions.
+        let selected_prompt_id = snapshot.selected_prompt_id.clone();
+        snapshot
+            .prompt_presets
+            .retain(|preset| preset.id == selected_prompt_id);
+        for preset in &mut snapshot.prompt_presets {
+            preset.instructions.clear();
+        }
+
+        // Runtime validation expects each LLM scope's selected prompt to
+        // remain present even when that scope is disabled. One selected prompt
+        // per scope is sufficient; benchmark inputs/results are never used by
+        // synthesis or History metadata.
+        let interactive_prompt_id = snapshot
+            .llm_preprocessing
+            .interactive_selected_prompt_id
+            .clone();
+        snapshot
+            .llm_preprocessing
+            .interactive_prompts
+            .retain(|prompt| prompt.id == interactive_prompt_id);
+        if !snapshot.llm_preprocessing.interactive_enabled {
+            for prompt in &mut snapshot.llm_preprocessing.interactive_prompts {
+                prompt.name = "Unused queued execution prompt".to_string();
+                prompt.prompt = "unused".to_string();
+            }
+        }
+        let file_prompt_id = snapshot
+            .llm_preprocessing
+            .file_selected_prompt_id
+            .clone();
+        snapshot
+            .llm_preprocessing
+            .file_prompts
+            .retain(|prompt| prompt.id == file_prompt_id);
+        snapshot.llm_preprocessing.file_enabled = false;
+        for prompt in &mut snapshot.llm_preprocessing.file_prompts {
+            prompt.name = "Unused queued execution prompt".to_string();
+            prompt.prompt = "unused".to_string();
+        }
+        snapshot
+            .llm_preprocessing
+            .interactive_benchmark_text
+            .clear();
+        snapshot.llm_preprocessing.file_benchmark_text.clear();
+        snapshot.llm_preprocessing.interactive_benchmark_log.clear();
+        snapshot.llm_preprocessing.file_benchmark_log.clear();
+
+        snapshot.watch_folder_enabled = false;
+        snapshot.watch_recursive = false;
+        snapshot.watch_input_directory.clear();
+        snapshot.watch_output_directory.clear();
+        snapshot.file_history_enabled = false;
+        snapshot
     }
 
     pub fn apply_scope_to_flat(&mut self, scope: TtsOperationScope) {

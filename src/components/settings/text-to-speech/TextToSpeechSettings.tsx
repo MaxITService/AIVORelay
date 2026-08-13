@@ -226,6 +226,7 @@ type TtsSettings = {
   play_pause_hotkey: string;
   play_history_when_overlay_closed: boolean;
   stop_hotkey: string;
+  listen_queue_enabled: boolean;
   preprocessing_enabled: boolean;
   preprocessing_rules: TtsReplacementRule[];
   retry_count: number;
@@ -426,6 +427,7 @@ const DEFAULT_TTS_SETTINGS: TtsSettings = {
   play_pause_hotkey: "space",
   play_history_when_overlay_closed: false,
   stop_hotkey: "escape",
+  listen_queue_enabled: false,
   preprocessing_enabled: true,
   preprocessing_rules: [],
   retry_count: 3,
@@ -4355,6 +4357,17 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               />
             }
           >
+            <ToggleSwitch
+              grouped
+              checked={tts.listen_queue_enabled}
+              onChange={(listen_queue_enabled) =>
+                void updateTts({ listen_queue_enabled }, "listen_queue_enabled")
+              }
+              isUpdating={savingField === "listen_queue_enabled"}
+              label={t("textToSpeech.actions.listenQueueLabel")}
+              description={t("textToSpeech.actions.listenQueueDescription")}
+              descriptionMode="inline"
+            />
             <SettingContainer
               grouped
               layout="stacked"

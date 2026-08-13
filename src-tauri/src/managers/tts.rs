@@ -1165,6 +1165,15 @@ impl TtsManager {
         try_reserve_foreground_operation_lock(Arc::clone(&self.foreground_operation_lock))
     }
 
+    /// Waits for the shared foreground synthesis lane. Interactive queue
+    /// workers use this path so a queued selection remains pending instead of
+    /// failing merely because the preceding item is still releasing its lease.
+    pub async fn reserve_foreground_operation(&self) -> tokio::sync::OwnedMutexGuard<()> {
+        Arc::clone(&self.foreground_operation_lock)
+            .lock_owned()
+            .await
+    }
+
     /// Cancels exactly one currently running operation.
     pub fn cancel_operation(&self, operation_id: u64) -> bool {
         let _finalization_guard = self.finalization_lock.lock();
@@ -1864,19 +1873,28 @@ impl TtsManager {
         }
     }
 
-    pub(crate) async fn synthesize_interactive_reserved<F>(
+    pub(crate) async fn synthesize_interactive_reserved<F, S>(
         self: &Arc<Self>,
         text: &str,
         settings: &TtsSettings,
         _operation_guard: tokio::sync::OwnedMutexGuard<()>,
+        on_started: S,
         on_resolved: F,
     ) -> Result<ResolvedTtsResult<InteractiveSynthesis>>
     where
         F: FnOnce(&TtsSettings) + Send,
+        S: FnOnce(u64) -> bool + Send,
     {
         ensure_enabled(settings)?;
-        let operation_id =
-            self.begin_operation(TtsOperationKind::Interactive, settings.provider, 0);
+        let (operation_id, preparing_state) =
+            self.reserve_operation(TtsOperationKind::Interactive, settings.provider, 0);
+        if !on_started(operation_id) {
+            self.cancel_operation(operation_id);
+            return Err(anyhow!("Text-to-speech operation cancelled"));
+        }
+        self.ensure_active(operation_id)?;
+        self.emit_state(&preparing_state);
+        self.ensure_active(operation_id)?;
         let resolved_settings = match self
             .resolve_operation_settings(operation_id, settings)
             .await
@@ -2890,6 +2908,20 @@ impl TtsManager {
         provider: TtsProvider,
         total_chunks: usize,
     ) -> u64 {
+        let (operation_id, state) = self.reserve_operation(kind, provider, total_chunks);
+        self.emit_state(&state);
+        operation_id
+    }
+
+    /// Establishes an operation ID and manager state without publishing the
+    /// first event. Interactive queue callers claim that ID before Preparing
+    /// can reach the overlay, closing the final Clear/Stop startup boundary.
+    fn reserve_operation(
+        &self,
+        kind: TtsOperationKind,
+        provider: TtsProvider,
+        total_chunks: usize,
+    ) -> (u64, TtsState) {
         let operation_id = self.active_operation_id.fetch_add(1, Ordering::SeqCst) + 1;
         let state = TtsState {
             operation_id,
@@ -2902,8 +2934,7 @@ impl TtsManager {
             message: None,
         };
         *self.state.write() = state.clone();
-        self.emit_state(&state);
-        operation_id
+        (operation_id, state)
     }
 
     fn ensure_active(&self, operation_id: u64) -> Result<()> {

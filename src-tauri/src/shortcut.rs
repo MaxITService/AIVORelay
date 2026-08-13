@@ -3470,6 +3470,20 @@ pub fn change_post_process_enabled_setting(app: AppHandle, enabled: bool) -> Res
     Ok(())
 }
 
+#[tauri::command]
+#[specta::specta]
+/// Updates the saved LLM post-processing state owned by the Default (Global)
+/// transcription profile, regardless of which profile is currently active.
+pub fn change_default_profile_post_process_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.post_process_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
 // ============================================================================
 // Extended Thinking / Reasoning Settings
 // ============================================================================
