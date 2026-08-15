@@ -16,8 +16,6 @@ dist-ssr
 *.local.*
 
 # Editor directories and files
-.vscode/*
-!.vscode/extensions.json
 .idea
 .DS_Store
 *.suo
@@ -28,9 +26,6 @@ dist-ssr
 
 /target/
 recording_*
-.crush/
-.antigravitycli/
-WARP.MD
 ~
 
 # Bundled DLLs (copied during CI build)
