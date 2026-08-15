@@ -6043,7 +6043,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   "textToSpeech.openaiCompatible.allowInsecureHttpDescription",
                   {
                     defaultValue:
-                      "Allow unencrypted http:// connections to non-loopback endpoints.",
+                      "DANGER: Plain HTTP provides no encryption. If an API key is configured for this endpoint, it and the entire HTTP exchange—including all request and response contents—are exposed in transit. Anyone who can monitor the network can steal the key, read all transmitted data, and modify requests or responses. Never use plain HTTP over the Internet. Enable it only for a local endpoint on a network you fully control.",
                   },
                 )}
                 descriptionMode="inline"

@@ -675,7 +675,7 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
             label={t("textToSpeech.aiCleanup.allowHttp", "Allow insecure HTTP")}
             description={t(
               "textToSpeech.aiCleanup.allowHttpDescription",
-              "Use only for a trusted local endpoint. API keys and text are otherwise exposed in transit.",
+              "DANGER: Plain HTTP provides no encryption. If an API key is configured for this endpoint, it and the entire HTTP exchange—including all request and response contents—are exposed in transit. Anyone who can monitor the network can steal the key, read all transmitted data, and modify requests or responses. Never use plain HTTP over the Internet. Enable it only for a local endpoint on a network you fully control.",
             )}
             descriptionMode="inline"
           />
