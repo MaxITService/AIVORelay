@@ -340,6 +340,8 @@
       "title": "OpenAI-compatible TTS",
       "baseUrlTitle": "API Base URL",
       "baseUrlDescription": "Custom endpoint for OpenAI-compatible audio speech synthesis API.",
+      "allowInsecureHttpTitle": "Allow Insecure HTTP",
+      "allowInsecureHttpDescription": "DANGER: Plain HTTP provides no encryption. If an API key is configured for this endpoint, it and the entire HTTP exchange—including all request and response contents—are exposed in transit. Anyone who can monitor the network can steal the key, read all transmitted data, and modify requests or responses. Never use plain HTTP over the Internet. Enable it only for a local endpoint on a network you fully control.",
       "modelTitle": "Model Name",
       "modelDescription": "Model identifier expected by your OpenAI-compatible server (e.g. tts-1).",
       "voiceTitle": "Voice Name",
@@ -549,7 +551,7 @@
       "baseUrl": "Custom base URL",
       "baseUrlDescription": "OpenAI-compatible API root ending at /v1.",
       "allowHttp": "Allow insecure HTTP",
-      "allowHttpDescription": "Use only for a trusted local endpoint. API keys and text are otherwise exposed in transit.",
+      "allowHttpDescription": "DANGER: Plain HTTP provides no encryption. If an API key is configured for this endpoint, it and the entire HTTP exchange—including all request and response contents—are exposed in transit. Anyone who can monitor the network can steal the key, read all transmitted data, and modify requests or responses. Never use plain HTTP over the Internet. Enable it only for a local endpoint on a network you fully control.",
       "model": "Model",
       "modelDescription": "Choose a discovered model or enter an exact provider model ID.",
       "modelPlaceholder": "Select or enter model ID",
@@ -1191,7 +1193,7 @@
       },
       "customHttpOverride": {
         "label": "Allow insecure HTTP for custom/local testing",
-        "warning": "Warning: plain HTTP can expose your API key and transcript contents to interception or tampering. Use it only on a trusted local or self-hosted network."
+        "warning": "DANGER: Plain HTTP provides no encryption. If an API key is configured for this endpoint, it and the entire HTTP exchange—including all request and response contents—are exposed in transit. Anyone who can monitor the network can steal the key, read all transmitted data, and modify requests or responses. Never use plain HTTP over the Internet. Enable it only for a local endpoint on a network you fully control."
       },
       "modelId": {
         "label": "Model ID",
@@ -2277,8 +2279,8 @@
         },
         "customHttpOverride": {
           "title": "Allow Insecure HTTP",
-          "description": "Advanced override for custom/local endpoints only. Leave this OFF unless you intentionally trust a local or self-hosted plain HTTP server.",
-          "warning": "Warning: plain HTTP can expose your API key and transcript contents to interception or tampering. Use it only for trusted local/self-hosted testing."
+          "description": "Advanced override for custom/local endpoints only. Leave this OFF unless the endpoint is local and the network is fully under your control.",
+          "warning": "DANGER: Plain HTTP provides no encryption. If an API key is configured for this endpoint, it and the entire HTTP exchange—including all request and response contents—are exposed in transit. Anyone who can monitor the network can steal the key, read all transmitted data, and modify requests or responses. Never use plain HTTP over the Internet. Enable it only for a local endpoint on a network you fully control."
         },
         "modelId": {
           "title": "Remote Model ID",
@@ -2771,8 +2773,8 @@
         },
         "customHttpOverride": {
           "title": "Allow Insecure HTTP",
-          "description": "Advanced override for the Custom provider only. Leave this OFF unless you intentionally trust a local or self-hosted plain HTTP endpoint.",
-          "warning": "Warning: plain HTTP can expose your API key and text contents to interception or tampering. Use it only on a trusted local or self-hosted network."
+          "description": "Advanced override for the Custom provider only. Leave this OFF unless the endpoint is local and the network is fully under your control.",
+          "warning": "DANGER: Plain HTTP provides no encryption. If an API key is configured for this endpoint, it and the entire HTTP exchange—including all request and response contents—are exposed in transit. Anyone who can monitor the network can steal the key, read all transmitted data, and modify requests or responses. Never use plain HTTP over the Internet. Enable it only for a local endpoint on a network you fully control."
         },
         "apiKey": {
           "title": "API Key",
