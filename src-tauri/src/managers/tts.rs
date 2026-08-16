@@ -301,6 +301,39 @@ pub struct TtsBatchScanResult {
     pub warnings: Vec<String>,
 }
 
+#[derive(Debug)]
+struct TtsOutputCollisionError {
+    message: String,
+}
+
+impl std::fmt::Display for TtsOutputCollisionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for TtsOutputCollisionError {}
+
+fn output_already_exists_error(path: &Path) -> anyhow::Error {
+    anyhow::Error::new(TtsOutputCollisionError {
+        message: format!("Output file already exists: {}", path.display()),
+    })
+}
+
+fn output_appeared_while_waiting_error(path: &Path) -> anyhow::Error {
+    anyhow::Error::new(TtsOutputCollisionError {
+        message: format!(
+            "Output file appeared while waiting for the TTS resume workspace: {}",
+            path.display()
+        ),
+    })
+}
+
+pub(crate) fn is_tts_output_collision(error: &anyhow::Error) -> bool {
+    // Provider error text is untrusted and must never decide Skip vs Failed.
+    error.downcast_ref::<TtsOutputCollisionError>().is_some()
+}
+
 pub(crate) struct TtsBatchCancellation {
     cancelled: AtomicBool,
     current_operation_id: AtomicU64,
@@ -1936,13 +1969,14 @@ impl TtsManager {
             return Err(error);
         }
         self.set_synthesis_plan(operation_id, chunks.len());
-        let operation_cache = self.cache_root.join(format!("operation-{operation_id}"));
-        if let Err(error) = reset_interactive_cache(&self.cache_root)
-            .and_then(|_| fs::create_dir_all(&operation_cache).map_err(anyhow::Error::from))
-        {
-            self.fail_operation(operation_id, error.to_string());
-            return Err(error).context("Failed to create the TTS cache directory");
-        }
+        let operation_cache =
+            match create_interactive_operation_cache(&self.cache_root, operation_id) {
+                Ok(path) => path,
+                Err(error) => {
+                    self.fail_operation(operation_id, error.to_string());
+                    return Err(error).context("Failed to create the TTS cache directory");
+                }
+            };
         let speed_milli = (settings.speed.clamp(0.25, 4.0) * 1_000.0).round() as u64;
         let estimated_pcm_bytes = (processed.chars().count() as u64)
             .saturating_mul(12_000_000_u64.saturating_div(speed_milli.max(250)))
@@ -2576,10 +2610,7 @@ impl TtsManager {
         validate_output_extension(output_path, settings.output_format)?;
         validate_output_settings(settings)?;
         if output_path.exists() {
-            return Err(anyhow!(
-                "Output file already exists: {}",
-                output_path.display()
-            ));
+            return Err(output_already_exists_error(output_path));
         }
 
         let _active_ui_job = ui_job_id
@@ -2716,10 +2747,7 @@ impl TtsManager {
                 )?
             };
             if output_path.exists() {
-                return Err(anyhow!(
-                    "Output file appeared while waiting for the TTS resume workspace: {}",
-                    output_path.display()
-                ));
+                return Err(output_appeared_while_waiting_error(output_path));
             }
             let resumed_chunks = resume_workspace.completed_chunks();
             if require_resume_checkpoint && resumed_chunks == 0 {
@@ -2844,14 +2872,19 @@ impl TtsManager {
             {
                 let _finalization_guard = self.finalization_lock.lock();
                 self.ensure_active(operation_id)?;
-                crate::no_clobber::publish_new_file(&encoded_partial, output_path).with_context(
-                    || {
+                if let Err(error) =
+                    crate::no_clobber::publish_new_file(&encoded_partial, output_path)
+                {
+                    if output_path.exists() {
+                        return Err(output_appeared_while_waiting_error(output_path));
+                    }
+                    return Err(error).with_context(|| {
                         format!(
                             "Failed to publish completed audio file {}",
                             output_path.display()
                         )
-                    },
-                )?;
+                    });
+                }
                 self.mark_completed_locked(operation_id)?;
             }
 
@@ -5379,10 +5412,7 @@ fn prepare_batch_output_path(
         ));
     }
     if output_path.exists() {
-        return Err(anyhow!(
-            "Output file already exists: {}",
-            output_path.display()
-        ));
+        return Err(output_already_exists_error(output_path));
     }
     Ok(())
 }
@@ -5629,6 +5659,39 @@ async fn wait_until_file_stable(
     Err(anyhow!(
         "Watched text file did not settle before the timeout: {}",
         path.display()
+    ))
+}
+
+fn create_interactive_operation_cache(cache_root: &Path, operation_id: u64) -> Result<PathBuf> {
+    reset_interactive_cache(cache_root)?;
+    // Operation IDs restart at one with every process, while successful
+    // history audio intentionally remains cached for up to 24 hours.
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for _ in 0..4 {
+        let mut nonce = [0_u8; 16];
+        getrandom::getrandom(&mut nonce)
+            .map_err(|error| anyhow!("Failed to generate a TTS cache identifier: {error}"))?;
+        let mut suffix = String::with_capacity(nonce.len() * 2);
+        for byte in nonce {
+            suffix.push(HEX[(byte >> 4) as usize] as char);
+            suffix.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+        let operation_cache = cache_root.join(format!("operation-{operation_id}-{suffix}"));
+        match fs::create_dir(&operation_cache) {
+            Ok(()) => return Ok(operation_cache),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "Failed to create interactive TTS cache {}",
+                        operation_cache.display()
+                    )
+                })
+            }
+        }
+    }
+    Err(anyhow!(
+        "Failed to allocate a unique interactive TTS cache directory"
     ))
 }
 
@@ -5993,6 +6056,39 @@ mod tests {
             TtsManager::provider_character_limit(TtsProvider::Edge, ""),
             EDGE_TTS_PROVIDER_LIMIT
         );
+    }
+
+    #[test]
+    fn reused_operation_ids_get_distinct_interactive_cache_directories() {
+        let directory = std::env::temp_dir().join(format!(
+            "aivorelay-tts-interactive-cache-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let first = create_interactive_operation_cache(&directory, 1).unwrap();
+        let retained_audio = first.join("history-result.wav");
+        fs::write(&retained_audio, b"retained history audio").unwrap();
+
+        let second = create_interactive_operation_cache(&directory, 1).unwrap();
+
+        assert_ne!(first, second);
+        assert!(retained_audio.exists());
+        assert!(!second.join("history-result.wav").exists());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn batch_skip_classification_requires_a_typed_output_collision() {
+        let collision = output_already_exists_error(Path::new("voice.wav"));
+        assert!(is_tts_output_collision(&collision));
+
+        let provider_error = anyhow::anyhow!(
+            "Provider response included: Output file already exists: not-a-local-path"
+        );
+        assert!(!is_tts_output_collision(&provider_error));
     }
 
     #[test]
