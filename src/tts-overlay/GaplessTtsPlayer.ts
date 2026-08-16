@@ -33,11 +33,13 @@ type ScheduledChunk = {
   startTime: number;
   endTime: number;
   sourceOffset: number;
+  pauseOffset: number;
 };
 
 type PlaybackPosition = Omit<GaplessPlaybackSnapshot, "chunkIndex"> & {
   chunkIndex: number;
   sourceOffset: number;
+  pauseOffset: number;
 };
 
 const SCHEDULE_LEAD_SECONDS = 0.02;
@@ -68,6 +70,7 @@ export class GaplessTtsPlayer {
   private nextChunkIndex: number | null = null;
   private nextPlayTime = 0;
   private pendingSourceOffset = 0;
+  private pendingPauseOffset = 0;
   private desiredPlaying = false;
   private scheduling = false;
   private scheduleRequested = false;
@@ -171,6 +174,7 @@ export class GaplessTtsPlayer {
     this.nextChunkIndex = null;
     this.nextPlayTime = 0;
     this.pendingSourceOffset = 0;
+    this.pendingPauseOffset = 0;
     this.lastStartedChunk = null;
     this.completionReported = false;
     this.scheduleRequested = false;
@@ -204,7 +208,11 @@ export class GaplessTtsPlayer {
     if (!position) {
       return;
     }
-    this.restartFrom(position.chunkIndex, position.sourceOffset);
+    this.restartFrom(
+      position.chunkIndex,
+      position.sourceOffset,
+      position.pauseOffset,
+    );
   }
 
   private ensureContext() {
@@ -283,6 +291,12 @@ export class GaplessTtsPlayer {
           Math.max(0, this.pendingSourceOffset),
         );
         this.pendingSourceOffset = 0;
+        const pauseDuration = Math.max(0, chunk.pauseAfterMs) / 1_000;
+        const pauseOffset = Math.min(
+          pauseDuration,
+          Math.max(0, this.pendingPauseOffset),
+        );
+        this.pendingPauseOffset = 0;
         const startTime = Math.max(
           context.currentTime + SCHEDULE_LEAD_SECONDS,
           this.nextPlayTime,
@@ -297,9 +311,10 @@ export class GaplessTtsPlayer {
           startTime,
           endTime,
           sourceOffset,
+          pauseOffset,
         };
         this.scheduled.push(entry);
-        this.nextPlayTime = endTime + chunk.pauseAfterMs / 1_000;
+        this.nextPlayTime = endTime + Math.max(0, pauseDuration - pauseOffset);
         this.nextChunkIndex = chunk.index + 1;
         source.onended = () => {
           if (generation !== this.generation) {
@@ -328,6 +343,8 @@ export class GaplessTtsPlayer {
     }
     const entry = this.scheduled[entryIndex];
     entry.chunk = chunk;
+    const pauseDuration = Math.max(0, chunk.pauseAfterMs) / 1_000;
+    entry.pauseOffset = Math.min(entry.pauseOffset, pauseDuration);
     const future = this.scheduled.splice(entryIndex + 1);
     for (const scheduled of future) {
       scheduled.source.onended = null;
@@ -339,19 +356,25 @@ export class GaplessTtsPlayer {
       scheduled.source.disconnect();
     }
     this.nextChunkIndex = chunk.index + 1;
-    this.nextPlayTime = entry.endTime + chunk.pauseAfterMs / 1_000;
+    this.nextPlayTime =
+      entry.endTime + Math.max(0, pauseDuration - entry.pauseOffset);
     if (this.desiredPlaying) {
       void this.scheduleAvailable();
     }
   }
 
-  private restartFrom(chunkIndex: number, sourceOffset: number) {
+  private restartFrom(
+    chunkIndex: number,
+    sourceOffset: number,
+    pauseOffset = 0,
+  ) {
     this.generation += 1;
     this.decodeAbort?.abort();
     this.decodeAbort = null;
     this.stopScheduledSources();
     this.nextChunkIndex = chunkIndex;
     this.pendingSourceOffset = sourceOffset;
+    this.pendingPauseOffset = pauseOffset;
     this.nextPlayTime = this.ensureContext().currentTime + SCHEDULE_LEAD_SECONDS;
     this.lastStartedChunk = null;
     this.completionReported = false;
@@ -396,24 +419,35 @@ export class GaplessTtsPlayer {
       .reverse()
       .find((entry) => now >= entry.endTime);
     if (previous) {
+      const pauseOffset = Math.min(
+        Math.max(0, previous.chunk.pauseAfterMs) / 1_000,
+        previous.pauseOffset + Math.max(0, now - previous.endTime),
+      );
       return this.positionOnTimeline(
         previous.chunk.index,
         previous.prepared.buffer.duration,
+        pauseOffset,
       );
     }
     const future = this.scheduled.find((entry) => now < entry.startTime);
     return future
-      ? this.positionOnTimeline(future.chunk.index, future.sourceOffset)
+      ? this.positionOnTimeline(
+          future.chunk.index,
+          future.sourceOffset,
+          future.pauseOffset,
+        )
       : null;
   }
 
   private positionOnTimeline(
     chunkIndex: number,
     sourceOffset: number,
+    pauseOffset = 0,
   ): PlaybackPosition | null {
     let elapsed = 0;
     let targetStart: number | null = null;
     let target: PreparedTtsPlaybackBuffer | null = null;
+    let targetPauseDuration = 0;
     for (const chunk of this.chunks) {
       const prepared = this.decoded.get(chunk.index);
       if (!prepared) {
@@ -422,8 +456,12 @@ export class GaplessTtsPlayer {
       if (chunk.index === chunkIndex) {
         targetStart = elapsed;
         target = prepared;
+        targetPauseDuration = Math.max(0, chunk.pauseAfterMs) / 1_000;
       }
       elapsed += prepared.buffer.duration * prepared.pitchCompensation;
+      // History audio encodes this pause as silence; streaming playback
+      // schedules it separately, so the visible media timeline must add it.
+      elapsed += Math.max(0, chunk.pauseAfterMs) / 1_000;
     }
     if (targetStart === null || !target) {
       return null;
@@ -432,12 +470,19 @@ export class GaplessTtsPlayer {
       target.buffer.duration,
       Math.max(0, sourceOffset),
     );
+    const boundedPauseOffset =
+      boundedSourceOffset >= target.buffer.duration
+        ? Math.min(Math.max(0, pauseOffset), targetPauseDuration)
+        : 0;
     return {
       chunkIndex,
       sourceOffset: boundedSourceOffset,
+      pauseOffset: boundedPauseOffset,
       isPlaying: false,
       playbackTime:
-        targetStart + boundedSourceOffset * target.pitchCompensation,
+        targetStart +
+        boundedSourceOffset * target.pitchCompensation +
+        boundedPauseOffset,
       playbackDuration: elapsed,
       playbackProgress: this.progressForPosition(
         chunkIndex,

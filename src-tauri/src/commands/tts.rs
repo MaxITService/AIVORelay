@@ -7,9 +7,9 @@ use crate::managers::local_tts::{
 };
 use crate::managers::provider_error::safe_text;
 use crate::managers::tts::{
-    FileConversionResult, TextFileInspection, TtsBatchFilePlan, TtsBatchScanRequest,
-    TtsBatchScanResult, TtsChunkReady, TtsManager, TtsOperationKind, TtsPhase, TtsState,
-    TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES, SONIOX_TTS_API_KEY_MAX_CHARS,
+    is_tts_output_collision, FileConversionResult, TextFileInspection, TtsBatchFilePlan,
+    TtsBatchScanRequest, TtsBatchScanResult, TtsChunkReady, TtsManager, TtsOperationKind, TtsPhase,
+    TtsState, TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES, SONIOX_TTS_API_KEY_MAX_CHARS,
     SUPPORTED_MP3_BITRATES, TTS_EVENT_BATCH_PROGRESS, TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
 };
 use crate::managers::tts_history::{
@@ -3072,7 +3072,7 @@ pub async fn convert_tts_batch(
             }
             Err(error) => {
                 let message = error.to_string();
-                let status = if message.contains("Output file already exists") {
+                let status = if is_tts_output_collision(&error) {
                     TtsBatchFileStatus::Skipped
                 } else {
                     TtsBatchFileStatus::Failed
