@@ -14,6 +14,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use futures_util::{SinkExt, Stream, StreamExt};
 use serde::Deserialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -47,6 +48,31 @@ const OPENAI_REALTIME_AGENT_DEFAULT_PROMPT: &str =
      If speech is not recoverable because of microphone noise, speech defects, or background noise, use [⚠️inaudible⚠️] instead of guessing. \
      The user may provide custom words that are rare in the language; try to recognize them properly. \
      Make sure to properly recognize names, product names, and vocabulary exactly when recognizable.";
+
+fn remote_stt_api_key_redaction_marker(api_key: &str) -> String {
+    let digest = Sha256::digest(api_key.as_bytes());
+    let fingerprint = digest[..8]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!("[redacted key, SHA-256: {fingerprint}]")
+}
+
+fn redact_remote_stt_api_key(value: &str, api_key: &str) -> String {
+    let api_key = api_key.trim();
+    if api_key.is_empty() {
+        value.to_string()
+    } else {
+        value.replace(api_key, &remote_stt_api_key_redaction_marker(api_key))
+    }
+}
+
+fn redacted_remote_stt_snippet(value: &str, api_key: &str, max_chars: usize) -> String {
+    redact_remote_stt_api_key(value, api_key)
+        .chars()
+        .take(max_chars)
+        .collect()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RemoteSttApiKeySource {
@@ -856,14 +882,20 @@ impl RemoteSttManager {
         }
 
         if !status.is_success() {
-            let snippet = String::from_utf8_lossy(&body);
-            let snippet = snippet.chars().take(500).collect::<String>();
+            let snippet = redacted_remote_stt_snippet(
+                &String::from_utf8_lossy(&body),
+                &api_key.value,
+                500,
+            );
             let diagnostic = format!(
                 "Remote STT failed: status={} elapsed_ms={} body_snippet={}",
                 status, elapsed_ms, snippet
             );
             self.record_error(settings, diagnostic);
-            return Err(anyhow!(parse_provider_error(&body, status)));
+            return Err(anyhow!(redact_remote_stt_api_key(
+                &parse_provider_error(&body, status),
+                &api_key.value,
+            )));
         }
 
         let parsed: TranscriptionResponse = serde_json::from_slice(&body).map_err(|e| {
@@ -977,6 +1009,7 @@ impl RemoteSttManager {
             "session.updated",
             "session update",
             started,
+            api_key,
         )
         .await?;
 
@@ -1005,6 +1038,7 @@ impl RemoteSttManager {
             "input_audio_buffer.committed",
             "audio commit",
             started,
+            api_key,
         )
         .await?;
 
@@ -1044,7 +1078,7 @@ impl RemoteSttManager {
                 continue;
             };
             let payload: Value = serde_json::from_str(text.as_ref()).map_err(|e| {
-                let preview: String = text.chars().take(200).collect();
+                let preview = redacted_remote_stt_snippet(text.as_ref(), api_key, 200);
                 anyhow!(
                     "Invalid OpenAI Realtime WebSocket payload: {} (body: {})",
                     e,
@@ -1057,8 +1091,10 @@ impl RemoteSttManager {
                 .unwrap_or_default();
 
             if msg_type == "error" {
-                let message =
-                    parse_provider_error_value(&payload, "OpenAI Realtime returned an error");
+                let message = redact_remote_stt_api_key(
+                    &parse_provider_error_value(&payload, "OpenAI Realtime returned an error"),
+                    api_key,
+                );
                 self.record_error(settings, message.clone());
                 return Err(anyhow!(message));
             }
@@ -1244,7 +1280,7 @@ impl RemoteSttManager {
                 continue;
             };
             let payload: Value = serde_json::from_str(text.as_ref()).map_err(|e| {
-                let preview: String = text.chars().take(200).collect();
+                let preview = redacted_remote_stt_snippet(text.as_ref(), api_key, 200);
                 anyhow!(
                     "Invalid OpenAI Realtime Translate WebSocket payload: {} (body: {})",
                     e,
@@ -1257,9 +1293,12 @@ impl RemoteSttManager {
                 .unwrap_or_default();
 
             if msg_type == "error" {
-                let message = parse_provider_error_value(
-                    &payload,
-                    "OpenAI Realtime Translate returned an error",
+                let message = redact_remote_stt_api_key(
+                    &parse_provider_error_value(
+                        &payload,
+                        "OpenAI Realtime Translate returned an error",
+                    ),
+                    api_key,
                 );
                 self.record_error(settings, message.clone());
                 return Err(anyhow!(message));
@@ -1305,6 +1344,7 @@ impl RemoteSttManager {
         expected_type: &str,
         action: &str,
         _started: Instant,
+        api_key: &str,
     ) -> Result<()>
     where
         R: Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
@@ -1328,7 +1368,7 @@ impl RemoteSttManager {
                 continue;
             };
             let payload: Value = serde_json::from_str(text.as_ref()).map_err(|e| {
-                let preview: String = text.chars().take(200).collect();
+                let preview = redacted_remote_stt_snippet(text.as_ref(), api_key, 200);
                 anyhow!(
                     "Invalid OpenAI Realtime WebSocket payload: {} (body: {})",
                     e,
@@ -1343,8 +1383,10 @@ impl RemoteSttManager {
                 return Ok(());
             }
             if msg_type == "error" {
-                let message =
-                    parse_provider_error_value(&payload, "OpenAI Realtime returned an error");
+                let message = redact_remote_stt_api_key(
+                    &parse_provider_error_value(&payload, "OpenAI Realtime returned an error"),
+                    api_key,
+                );
                 self.record_error(settings, message.clone());
                 return Err(anyhow!(message));
             }
@@ -1406,14 +1448,20 @@ impl RemoteSttManager {
 
         if !status.is_success() {
             let body = response.bytes().await.unwrap_or_default();
-            let snippet = String::from_utf8_lossy(&body);
-            let snippet = snippet.chars().take(500).collect::<String>();
+            let snippet = redacted_remote_stt_snippet(
+                &String::from_utf8_lossy(&body),
+                &api_key.value,
+                500,
+            );
             let diagnostic = format!(
                 "Remote STT test failed: status={} elapsed_ms={} body_snippet={}",
                 status, elapsed_ms, snippet
             );
             self.record_error(settings, diagnostic);
-            return Err(anyhow!(parse_provider_error(&body, status)));
+            return Err(anyhow!(redact_remote_stt_api_key(
+                &parse_provider_error(&body, status),
+                &api_key.value,
+            )));
         }
 
         self.migrate_legacy_api_key_after_success(settings, &api_key, Ok(()))?;
@@ -1626,6 +1674,7 @@ pub fn has_remote_stt_api_key(_settings: &RemoteSttSettings) -> bool {
 mod tests {
     use super::{
         build_openai_realtime_agent_session_update, remote_stt_api_key_clear_targets,
+        redact_remote_stt_api_key, remote_stt_api_key_redaction_marker,
         select_remote_stt_api_key, supports_subtitle_timestamps, supports_translation,
         uses_plural_language_hints, RemoteSttApiKeySource, TranscriptionResponse,
     };
@@ -1717,6 +1766,20 @@ mod tests {
         assert!(
             select_remote_stt_api_key(Some(" \t ".to_string()), Some("\n".to_string())).is_none()
         );
+    }
+
+    #[test]
+    fn provider_errors_redact_every_api_key_occurrence() {
+        let key = "stt-secret-key";
+        let safe = redact_remote_stt_api_key(
+            &format!("Authorization: Bearer {key}; echoed again: {key}"),
+            key,
+        );
+
+        assert!(!safe.contains(key));
+        let marker = remote_stt_api_key_redaction_marker(key);
+        assert_eq!(marker, "[redacted key, SHA-256: 384a8ae6f981e822]");
+        assert_eq!(safe.matches(&marker).count(), 2);
     }
 
     #[test]

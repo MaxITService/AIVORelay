@@ -92,7 +92,22 @@ pub fn is_portable() -> bool {
 #[tauri::command]
 #[specta::specta]
 pub fn get_app_settings(app: AppHandle) -> Result<AppSettings, String> {
-    Ok(get_settings(&app))
+    let mut settings = get_settings(&app);
+
+    // Windows stores these keys in Credential Manager. Legacy plaintext values
+    // must never be returned to the webview, including when migration failed.
+    #[cfg(target_os = "windows")]
+    {
+        settings.post_process_api_keys.clear();
+        settings.ai_replace_api_keys.clear();
+        settings.voice_command_api_keys.clear();
+    }
+
+    // The pending connector secret is internal two-phase-rotation state and is
+    // never consumed by the frontend.
+    settings.connector_pending_password = None.into();
+
+    Ok(settings)
 }
 
 #[tauri::command]

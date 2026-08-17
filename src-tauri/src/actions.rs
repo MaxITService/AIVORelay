@@ -9406,8 +9406,8 @@ impl ShortcutAction for VoiceCommandAction {
                 &fuzzy_config,
             ) {
                 debug!(
-                    "Voice command matched: '{}' -> '{}' (score: {:.2})",
-                    matched_cmd.trigger_phrase, matched_cmd.script, score
+                    "Voice command matched predefined command '{}' (score: {:.2})",
+                    matched_cmd.name, score
                 );
 
                 // Resolve execution options for this command
@@ -9440,8 +9440,8 @@ impl ShortcutAction for VoiceCommandAction {
             // Step 2: No predefined match - try LLM fallback if enabled
             if recording_settings.voice_command_llm_fallback {
                 debug!(
-                    "No predefined match, using LLM fallback for: '{}'",
-                    transcription
+                    "No predefined match, using LLM fallback (text_chars={})",
+                    transcription.chars().count()
                 );
 
                 show_thinking_overlay(&ah);
@@ -9458,7 +9458,10 @@ impl ShortcutAction for VoiceCommandAction {
                 }
                 match generated_command {
                     Ok(suggested_command) => {
-                        debug!("LLM suggested command: '{}'", suggested_command);
+                        debug!(
+                            "LLM suggested a command (script_chars={})",
+                            suggested_command.chars().count()
+                        );
 
                         // LLM fallback uses global defaults
                         let resolved = recording_settings

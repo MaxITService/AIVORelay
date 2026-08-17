@@ -70,8 +70,12 @@ fn execute_powershell_command(
     };
 
     info!(
-        "Executing voice command via {}: {} (silent={}, no_profile={}, policy={:?})",
-        shell, script, options.silent, options.no_profile, options.execution_policy
+        "Executing voice command via {} (script_chars={}, silent={}, no_profile={}, policy={:?})",
+        shell,
+        script.chars().count(),
+        options.silent,
+        options.no_profile,
+        options.execution_policy
     );
 
     let mut cmd = Command::new(shell);
@@ -121,7 +125,11 @@ fn execute_powershell_command(
         Ok("Command started in background".to_string())
     } else {
         // Windowed execution: show console, add -NoExit to keep window open
-        debug!("Opening {} window with -NoExit for: {}", shell, script);
+        debug!(
+            "Opening {} window with -NoExit (script_chars={})",
+            shell,
+            script.chars().count()
+        );
 
         // Rebuild command with -NoExit before -Command
         let mut windowed_cmd = Command::new(shell);
@@ -195,7 +203,10 @@ pub async fn test_voice_command_mock(
         return Err("Mock text is empty".to_string());
     }
 
-    info!("Testing voice command with mock text: '{}'", mock_text);
+    info!(
+        "Testing voice command with mock text (text_chars={})",
+        mock_text.chars().count()
+    );
 
     let settings = get_settings(&app);
     let fuzzy_config = FuzzyMatchConfig::from_settings(&settings);
@@ -208,8 +219,8 @@ pub async fn test_voice_command_mock(
         &fuzzy_config,
     ) {
         debug!(
-            "Mock test matched: '{}' -> '{}' (score: {:.2})",
-            matched_cmd.trigger_phrase, matched_cmd.script, score
+            "Mock test matched predefined command '{}' (score: {:.2})",
+            matched_cmd.name, score
         );
 
         // Resolve execution options for this command
@@ -242,13 +253,16 @@ pub async fn test_voice_command_mock(
     // Step 2: No predefined match - try LLM fallback if enabled
     if settings.voice_command_llm_fallback {
         debug!(
-            "No predefined match, using LLM fallback for mock text: '{}'",
-            mock_text
+            "No predefined match, using LLM fallback (text_chars={})",
+            mock_text.chars().count()
         );
 
         match generate_command_with_llm(&app, &mock_text).await {
             Ok(suggested_command) => {
-                debug!("LLM suggested command: '{}'", suggested_command);
+                debug!(
+                    "LLM suggested a command (script_chars={})",
+                    suggested_command.chars().count()
+                );
 
                 // LLM fallback uses global defaults
                 let resolved = settings.voice_command_defaults.to_resolved_options();
