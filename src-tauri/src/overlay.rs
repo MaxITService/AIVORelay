@@ -2509,6 +2509,20 @@ pub fn emit_live_preview_update_with_changed_ranges(
     );
 }
 
+/// Notify the recording overlay after the first real audio chunk has entered
+/// the capture path. This is separate from Stream::play(), which can return
+/// well before slow USB or Bluetooth hardware starts delivering callbacks.
+pub fn emit_recording_ready(app_handle: &AppHandle) {
+    if !RECORDING_OVERLAY_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+
+    let handle = app_handle.clone();
+    let _ = app_handle.run_on_main_thread(move || {
+        let _ = handle.emit_to("recording_overlay", "recording-ready", ());
+    });
+}
+
 pub fn emit_levels(app_handle: &AppHandle, levels: &[f32]) {
     // The overlay window exists while hidden, so disabled means no IPC at all.
     if !RECORDING_OVERLAY_ENABLED.load(Ordering::Relaxed) {

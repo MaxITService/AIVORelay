@@ -21,7 +21,9 @@ use crate::audio_toolkit::{
 };
 
 enum Cmd {
-    Start(Instant),
+    /// Begin capturing and acknowledge only after the first real audio chunk
+    /// has passed through the active capture pipeline.
+    Start(Instant, mpsc::Sender<()>),
     Flush {
         keep_samples: usize,
         min_samples: usize,
@@ -324,11 +326,14 @@ impl AudioRecorder {
         }
     }
 
-    pub fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(tx) = &self.cmd_tx {
-            tx.send(Cmd::Start(Instant::now()))?;
-        }
-        Ok(())
+    pub fn start(&self) -> Result<mpsc::Receiver<()>, Box<dyn std::error::Error>> {
+        let tx = self
+            .cmd_tx
+            .as_ref()
+            .ok_or_else(|| Error::other("Recorder is not open"))?;
+        let (ready_tx, ready_rx) = mpsc::channel();
+        tx.send(Cmd::Start(Instant::now(), ready_tx))?;
+        Ok(ready_rx)
     }
 
     pub fn stop(&self) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
@@ -765,6 +770,7 @@ fn apply_noise_cancellation_if_needed<'a>(
 fn process_consumer_cmd(
     cmd: Cmd,
     recording: &mut bool,
+    capture_ready_tx: &mut Option<mpsc::Sender<()>>,
     processed_samples: &mut Vec<f32>,
     pending_chunk: Option<&mut Option<AudioChunk>>,
     sample_rx: &mpsc::Receiver<AudioChunk>,
@@ -779,7 +785,7 @@ fn process_consumer_cmd(
     stop_flag: &Arc<AtomicBool>,
 ) -> bool {
     match cmd {
-        Cmd::Start(sent_at) => {
+        Cmd::Start(sent_at, ready_tx) => {
             log::debug!(
                 "Cmd::Start processed {:?} after send; capture begins with the in-flight chunk",
                 sent_at.elapsed()
@@ -788,6 +794,7 @@ fn process_consumer_cmd(
             processed_samples.clear();
             *noise_suppressor = None;
             *recording = true;
+            *capture_ready_tx = Some(ready_tx);
             visualizer.reset();
             frame_resampler.reset();
             if let Some(v) = vad {
@@ -817,6 +824,7 @@ fn process_consumer_cmd(
         }
         Cmd::Stop(reply_tx) => {
             *recording = false;
+            *capture_ready_tx = None;
             stop_flag.store(true, Ordering::Relaxed);
 
             if let Some(Some(AudioChunk::Samples(remaining))) =
@@ -878,6 +886,7 @@ fn process_consumer_cmd(
             false
         }
         Cmd::Shutdown => {
+            *capture_ready_tx = None;
             stop_flag.store(true, Ordering::Relaxed);
             true
         }
@@ -904,6 +913,7 @@ fn run_consumer(
 
     let mut processed_samples = Vec::<f32>::new();
     let mut recording = false;
+    let mut capture_ready_tx: Option<mpsc::Sender<()>> = None;
     let mut noise_suppressor: Option<NoiseSuppressor> = None;
 
     const BUCKETS: usize = 16;
@@ -915,6 +925,7 @@ fn run_consumer(
             if process_consumer_cmd(
                 cmd,
                 &mut recording,
+                &mut capture_ready_tx,
                 &mut processed_samples,
                 None,
                 &sample_rx,
@@ -944,6 +955,7 @@ fn run_consumer(
             if process_consumer_cmd(
                 cmd,
                 &mut recording,
+                &mut capture_ready_tx,
                 &mut processed_samples,
                 Some(&mut pending_chunk),
                 &sample_rx,
@@ -987,6 +999,12 @@ fn run_consumer(
                 emit_stream_frame(&stream_frame_cb, enhanced.as_ref());
                 handle_frame(enhanced.as_ref(), true, &vad, &mut processed_samples)
             });
+
+            if let Some(ready_tx) = capture_ready_tx.take() {
+                // Silence still counts as ready: this acknowledges that the
+                // host is delivering samples, not that VAD detected speech.
+                let _ = ready_tx.send(());
+            }
         }
     }
 }
