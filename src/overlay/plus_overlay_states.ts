@@ -99,6 +99,7 @@ export interface OverlayPayload {
   retry_action?: OverlayRetryAction;
   decapitalize_eligible?: boolean;
   decapitalize_armed?: boolean;
+  recording_session_id?: number;
 }
 
 /**

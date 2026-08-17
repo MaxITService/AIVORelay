@@ -11,7 +11,7 @@ use crate::settings::{
 use serde::Serialize;
 use specta::Type;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 
@@ -92,6 +92,8 @@ struct OverlayStatePayload {
     state: String,
     decapitalize_eligible: bool,
     decapitalize_armed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recording_session_id: Option<u64>,
 }
 
 #[derive(Serialize, Clone)]
@@ -241,6 +243,7 @@ fn build_overlay_state_payload(
         state: state.to_string(),
         decapitalize_eligible: indicator.eligible,
         decapitalize_armed: indicator.armed,
+        recording_session_id: None,
     }
 }
 
@@ -1950,7 +1953,7 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
 }
 
 /// Shows the recording overlay window after applying the latest layout/state.
-pub fn show_recording_overlay(app_handle: &AppHandle) {
+pub fn show_recording_overlay(app_handle: &AppHandle, recording_session_id: u64) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
     plus_overlay_state::invalidate_error_overlay_auto_hide();
 
@@ -1967,7 +1970,8 @@ pub fn show_recording_overlay(app_handle: &AppHandle) {
     set_recording_overlay_default_layout(app_handle);
 
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        let payload = build_overlay_state_payload("recording", &settings);
+        let mut payload = build_overlay_state_payload("recording", &settings);
+        payload.recording_session_id = Some(recording_session_id);
         let _ = overlay_window.emit("show-overlay", payload);
         show_positioned_recording_overlay_window(app_handle);
     }
@@ -2512,14 +2516,23 @@ pub fn emit_live_preview_update_with_changed_ranges(
 /// Notify the recording overlay after the first real audio chunk has entered
 /// the capture path. This is separate from Stream::play(), which can return
 /// well before slow USB or Bluetooth hardware starts delivering callbacks.
-pub fn emit_recording_ready(app_handle: &AppHandle) {
+pub fn emit_recording_ready(
+    app_handle: &AppHandle,
+    capture_generation: u64,
+    recording_session_id: u64,
+) {
     if !RECORDING_OVERLAY_ENABLED.load(Ordering::Relaxed) {
         return;
     }
 
     let handle = app_handle.clone();
     let _ = app_handle.run_on_main_thread(move || {
-        let _ = handle.emit_to("recording_overlay", "recording-ready", ());
+        let audio_manager = handle.state::<Arc<crate::managers::audio::AudioRecordingManager>>();
+        if !audio_manager.is_recording_readiness_current(capture_generation) {
+            return;
+        }
+
+        let _ = handle.emit_to("recording_overlay", "recording-ready", recording_session_id);
     });
 }
 

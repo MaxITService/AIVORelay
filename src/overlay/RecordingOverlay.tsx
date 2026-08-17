@@ -408,6 +408,7 @@ const RecordingOverlay: React.FC = () => {
   const [isVisible, setIsVisible] = useState(false);
   const [state, setState] = useState<ExtendedOverlayState>("recording");
   const [captureReady, setCaptureReady] = useState(false);
+  const recordingSessionIdRef = useRef<number | null>(null);
   const [transientMessage, setTransientMessage] = useState<string>("");
   const [decapIndicatorEligible, setDecapIndicatorEligible] = useState(false);
   const [decapIndicatorArmed, setDecapIndicatorArmed] = useState(false);
@@ -705,9 +706,14 @@ const RecordingOverlay: React.FC = () => {
         // Reset before awaiting language I/O. A fast always-on stream may emit
         // recording-ready while that await is in flight.
         if (nextState === "recording") {
+          recordingSessionIdRef.current = isExtendedPayload(event.payload)
+            ? (event.payload.recording_session_id ?? null)
+            : null;
           setCaptureReady(false);
           smoothedLevelsRef.current = Array(20).fill(0);
           setLevels(Array(20).fill(0));
+        } else {
+          recordingSessionIdRef.current = null;
         }
 
         // Sync language from settings each time overlay is shown
@@ -785,6 +791,7 @@ const RecordingOverlay: React.FC = () => {
 
       // Listen for hide-overlay event from Rust
       const unlistenHide = await listen("hide-overlay", () => {
+        recordingSessionIdRef.current = null;
         setIsVisible(false);
         setCaptureReady(false);
         setDecapIndicatorEligible(false);
@@ -793,9 +800,14 @@ const RecordingOverlay: React.FC = () => {
         setRepasteShortcutLabel(null);
       });
 
-      const unlistenReady = await listen("recording-ready", () => {
-        setCaptureReady(true);
-      });
+      const unlistenReady = await listen<number>(
+        "recording-ready",
+        (event) => {
+          if (event.payload === recordingSessionIdRef.current) {
+            setCaptureReady(true);
+          }
+        },
+      );
 
       // Listen for mic-level updates
       const unlistenLevel = await listen<number[]>("mic-level", (event) => {
