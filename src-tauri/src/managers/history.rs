@@ -735,8 +735,14 @@ impl HistoryManager {
         Ok(())
     }
 
-    pub fn get_audio_file_path(&self, file_name: &str) -> PathBuf {
-        self.recordings_dir.join(file_name)
+    pub fn get_audio_file_path(&self, file_name: &str) -> Result<PathBuf> {
+        if !is_safe_history_audio_filename(file_name) {
+            return Err(anyhow!(
+                "Refusing unsafe history audio filename: {file_name}"
+            ));
+        }
+
+        Ok(self.recordings_dir.join(file_name))
     }
 
     pub async fn get_entry_by_id(&self, id: i64) -> Result<Option<HistoryEntry>> {
@@ -869,8 +875,7 @@ impl HistoryManager {
     }
 
     fn remove_history_audio(&self, file_name: &str) -> std::result::Result<(), HistoryDeleteError> {
-        let relative_path = Path::new(file_name);
-        if relative_path.file_name().and_then(|name| name.to_str()) != Some(file_name) {
+        if !is_safe_history_audio_filename(file_name) {
             return Err(HistoryDeleteError::single(HistoryDeleteFailure {
                 reason: HistoryDeleteFailureReason::IoError,
                 file_name: Some(file_name.to_string()),
@@ -880,7 +885,7 @@ impl HistoryManager {
             }));
         }
 
-        let file_path = self.recordings_dir.join(relative_path);
+        let file_path = self.recordings_dir.join(file_name);
         match fs::remove_file(&file_path) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -938,6 +943,13 @@ impl HistoryManager {
             format!("Recording {}", timestamp)
         }
     }
+}
+
+fn is_safe_history_audio_filename(file_name: &str) -> bool {
+    Path::new(file_name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        == Some(file_name)
 }
 
 fn history_file_delete_failure(
@@ -1392,6 +1404,18 @@ mod tests {
             HistoryManager::has_file_reference(&conn, "missing.wav").is_err(),
             "callers must treat query failures as referenced and preserve audio"
         );
+    }
+
+    #[test]
+    fn history_audio_filename_rejects_paths() {
+        assert!(is_safe_history_audio_filename("aivorelay-123.wav"));
+        assert!(!is_safe_history_audio_filename(""));
+        assert!(!is_safe_history_audio_filename("."));
+        assert!(!is_safe_history_audio_filename(".."));
+        assert!(!is_safe_history_audio_filename(&format!(
+            "nested{}recording.wav",
+            std::path::MAIN_SEPARATOR
+        )));
     }
 
     #[test]
