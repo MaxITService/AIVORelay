@@ -6608,16 +6608,17 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
         // Migrate API keys from JSON to secure storage (Windows only)
         #[cfg(target_os = "windows")]
         {
-            let (migrated, migrated_pp, migrated_ai) =
+            let (migrated, migrated_pp, migrated_ai, migrated_voice) =
                 crate::secure_keys::migrate_keys_from_settings(
                     &settings.post_process_api_keys,
                     &settings.ai_replace_api_keys,
+                    &settings.voice_command_api_keys,
                 );
 
             if migrated {
                 debug!(
-                    "Migrated API keys to secure storage. Post-process: {:?}, AI Replace: {:?}",
-                    migrated_pp, migrated_ai
+                    "Migrated API keys to secure storage. Post-process: {:?}, AI Replace: {:?}, Voice Command: {:?}",
+                    migrated_pp, migrated_ai, migrated_voice
                 );
 
                 // Clear migrated keys from JSON settings
@@ -6629,6 +6630,11 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
                 for provider_id in migrated_ai {
                     settings
                         .ai_replace_api_keys
+                        .insert(provider_id, String::new());
+                }
+                for provider_id in migrated_voice {
+                    settings
+                        .voice_command_api_keys
                         .insert(provider_id, String::new());
                 }
                 updated = true;

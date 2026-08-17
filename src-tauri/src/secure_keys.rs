@@ -236,10 +236,12 @@ pub fn has_tts_llm_api_key(provider_id: &str) -> bool {
 pub fn migrate_keys_from_settings(
     post_process_keys: &std::collections::HashMap<String, String>,
     ai_replace_keys: &std::collections::HashMap<String, String>,
-) -> (bool, Vec<String>, Vec<String>) {
+    voice_command_keys: &std::collections::HashMap<String, String>,
+) -> (bool, Vec<String>, Vec<String>, Vec<String>) {
     let mut migrated = false;
     let mut migrated_post_process = Vec::new();
     let mut migrated_ai_replace = Vec::new();
+    let mut migrated_voice_command = Vec::new();
 
     // Migrate post-processing keys
     for (provider_id, key) in post_process_keys {
@@ -282,14 +284,42 @@ pub fn migrate_keys_from_settings(
         }
     }
 
-    (migrated, migrated_post_process, migrated_ai_replace)
+    // Migrate Voice Command keys
+    for (provider_id, key) in voice_command_keys {
+        if !key.trim().is_empty() {
+            match set_voice_command_api_key(provider_id, key) {
+                Ok(()) => {
+                    debug!(
+                        "Migrated Voice Command API key for provider: {}",
+                        provider_id
+                    );
+                    migrated_voice_command.push(provider_id.clone());
+                    migrated = true;
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to migrate Voice Command API key for {}: {}",
+                        provider_id, e
+                    );
+                }
+            }
+        }
+    }
+
+    (
+        migrated,
+        migrated_post_process,
+        migrated_ai_replace,
+        migrated_voice_command,
+    )
 }
 
 #[cfg(not(target_os = "windows"))]
 pub fn migrate_keys_from_settings(
     _post_process_keys: &std::collections::HashMap<String, String>,
     _ai_replace_keys: &std::collections::HashMap<String, String>,
-) -> (bool, Vec<String>, Vec<String>) {
+    _voice_command_keys: &std::collections::HashMap<String, String>,
+) -> (bool, Vec<String>, Vec<String>, Vec<String>) {
     // No migration on non-Windows platforms
-    (false, Vec::new(), Vec::new())
+    (false, Vec::new(), Vec::new(), Vec::new())
 }
