@@ -3,6 +3,9 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::AppHandle;
+use tauri_plugin_fs::FsExt;
+
+use super::file_transcription::SUPPORTED_EXTENSIONS;
 
 const TRANSCRIBE_FILE_PREVIEW_DIR: &str = "transcribe-file-preview";
 
@@ -56,6 +59,28 @@ pub fn prepare_transcribe_file_asset(
     source_path: String,
 ) -> Result<String, String> {
     let source_path = PathBuf::from(source_path);
+    let extension = source_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    if !SUPPORTED_EXTENSIONS.contains(&extension.as_str()) {
+        return Err(format!(
+            "Unsupported audio format: .{}. Supported formats: {}",
+            extension,
+            SUPPORTED_EXTENSIONS.join(", ")
+        ));
+    }
+
+    // File-picker selections and OS drag/drop events are added to this dynamic
+    // scope by Tauri. Requiring that approval prevents arbitrary paths supplied
+    // over IPC from being copied into the asset-protocol allowlist.
+    if !app.fs_scope().is_allowed(&source_path) {
+        return Err(
+            "Selected audio file was not approved by the file picker or drag-and-drop".to_string(),
+        );
+    }
+
     if !source_path.is_file() {
         return Err("Selected file does not exist".to_string());
     }
