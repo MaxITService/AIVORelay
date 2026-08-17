@@ -28,7 +28,6 @@ Map of tracked agent documentation.
 - [[.AGENTS/dev-build-speed-notes|dev-build-speed-notes.md]]
 - [[.AGENTS/upstream-OrBranches-intake-playbook|upstream-OrBranches-intake-playbook.md]]
 - [[.AGENTS/CRUSH|CRUSH.md]]
-- [[.AGENTS/plan-for-deepgram|plan-for-deepgram.md]]
 - [[.AGENTS/DeepGram Documentation dump|DeepGram Documentation dump.md]]
 - [[.AGENTS/rebuild-browser-connector-bundle|rebuild-browser-connector-bundle.ps1]]
 
