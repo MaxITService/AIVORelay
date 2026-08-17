@@ -1620,7 +1620,7 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
 
     // Show the waiting state before opening/arming the capture stream. The
     // overlay switches to reactive levels only after the first real sample.
-    show_recording_overlay(app);
+    show_recording_overlay(app, operation_id);
 
     let mut recording_error: Option<StartRecordingError> = None;
     let mut recording_started_at: Option<Instant> = None;
@@ -1648,7 +1648,7 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
                 }
 
                 debug!("Audio capture is receiving samples; recording is ready");
-                utils::emit_recording_ready(&app_clone);
+                utils::emit_recording_ready(&app_clone, generation, operation_id);
 
                 if rm_clone.is_recording_readiness_current(generation) {
                     play_feedback_sound_blocking(&app_clone, SoundType::Start);

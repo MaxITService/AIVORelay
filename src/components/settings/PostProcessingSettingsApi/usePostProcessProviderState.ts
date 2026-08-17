@@ -105,7 +105,16 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
         const provider = providers.find((p) => p.id === providerId);
         const apiKey = settings?.post_process_api_keys?.[providerId] ?? "";
         const hasBaseUrl = (provider?.base_url ?? "").trim() !== "";
-        const hasApiKey = apiKey.trim() !== "";
+        let hasApiKey = apiKey.trim() !== "";
+
+        if (!hasApiKey && provider?.id !== "custom") {
+          const storedKeyResult = await commands.llmHasStoredApiKey(
+            "post_processing",
+            providerId,
+          );
+          hasApiKey =
+            storedKeyResult.status === "ok" && storedKeyResult.data === true;
+        }
 
         if (provider?.id === "custom" ? hasBaseUrl : hasApiKey) {
           void fetchPostProcessModels(providerId);
@@ -214,7 +223,8 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
 
   const isCustomProvider = selectedProvider?.id === "custom";
 
-  // No automatic fetching - user must click refresh button
+  // Fetching is triggered by provider changes or the explicit refresh button,
+  // not merely by mounting this settings section.
 
   return {
     enabled,
