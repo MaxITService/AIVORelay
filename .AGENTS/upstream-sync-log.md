@@ -6,6 +6,19 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-08-17):
+- Refreshed `Q:\Handy-upstream`; upstream HEAD is `8758dcc`, but this targeted
+  review covers only `549cbde3`. The safe review cursor is now `549cbde3`.
+- Manually adapted `549cbde3`: recording startup now waits for the first audio
+  chunk before showing reactive levels, playing the start cue, or applying
+  recording mute. A generation guard suppresses late readiness after Stop or
+  Cancel, and the existing AivoRelay overlay shows a theme-compatible arming
+  pulse while hardware is still starting.
+- Retained AivoRelay's session ownership, input boost, noise cancellation,
+  loopback capture, live-provider routing, custom overlay appearance system,
+  and reduced-motion behavior. Skipped upstream's overlay replacement and
+  development-only artificial readiness delay.
+
 Audit note (2026-08-13):
 - Reviewed the 11 non-merge commits from `db003f38` through `37a26fd6`; the safe
   review cursor is now `37a26fd6`. A later fetch advanced `upstream/main` to
@@ -79,6 +92,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-08-17 | 2026-08-13 | `549cbde3` | add a better viz for mic waiting | feat(audio): show capture readiness from first samples | manual readiness/session/UI port; retained fork capture sources and overlay themes |
 | 2026-08-13 | 2026-08-09 | `4cd49950`, `80995b53` | wip filler fixes (#1738); forgot to commit bindings | fix(transcription): make filler removal output-language aware | manual correctness port; retained fork opt-in/custom-word policy and all transcription paths |
 | 2026-08-13 | 2026-08-09 | `1bcbfc4c` | fix: support compressed API responses (#1548) | fix(http): support compressed provider responses | manual Cargo feature port; retained multipart support; lock regenerated locally |
 | 2026-08-08 | 2026-08-08 | `db003f38` | fix(audio): skip level meter and resampler while idle in always-on mode (#1873) | fix(audio): skip idle level-meter and resampler work | manual port; retained gain, noise cancellation, and stream callbacks |
@@ -88,7 +102,6 @@ Rules:
 | 2026-08-08 | 2026-08-05 | `16caad7a` | fix(overlay): stop rendering animations while hidden (#1445) | fix(overlay): stop rendering animations while hidden | manual placement after all fork hooks |
 | 2026-08-08 | 2026-08-05 | `4223e7ac` | fix: preserve HTTP transport error causes (#1823) | fix: preserve HTTP transport error causes (#1823) | manual port; retained reasoning API and URL sanitization |
 | 2026-08-08 | 2026-08-05 | `b4453a29` | fix(audio): move blocking cpal work off the main thread + lock-free is_recording (#1716) | fix(audio): move blocking cpal work off the main thread + lock-free is_recording (#1716) | manual port; retained fork tray/device handling |
-| 2026-08-08 | 2026-08-05 | `2211da65` | request stream: false, for post processing | request stream: false, for post processing | manual one-field port |
 
 Entry template:
 

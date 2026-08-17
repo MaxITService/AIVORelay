@@ -322,6 +322,51 @@ body,
   text-shadow: 0 0 10px rgba(255, 255, 255, 0.04);
 }
 
+.recording-overlay.overlay-capture-arming .overlay-left {
+  opacity: 0.55;
+  transition: opacity 180ms ease;
+}
+
+.recording-arming-wave {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 24px;
+  overflow: hidden;
+}
+
+.recording-arming-wave span {
+  width: var(--recording-overlay-bar-width);
+  height: 8px;
+  min-width: 2px;
+  max-width: 12px;
+  border-radius: 999px;
+  background: var(--recording-overlay-bar-color);
+  opacity: 0.28;
+  transform-origin: center;
+  animation: recording-arming-pulse 900ms ease-in-out infinite;
+}
+
+@keyframes recording-arming-pulse {
+  0%,
+  100% {
+    transform: scaleY(0.5);
+    opacity: 0.22;
+  }
+  50% {
+    transform: scaleY(1.65);
+    opacity: 0.68;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recording-arming-wave span {
+    animation: none;
+    opacity: 0.45;
+  }
+}
+
 .recording-overlay.recording-overlay-custom .overlay-right,
 .recording-overlay.recording-overlay-legacy .overlay-right {
   display: flex;

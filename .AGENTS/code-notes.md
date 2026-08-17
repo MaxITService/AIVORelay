@@ -113,7 +113,7 @@ Files that are added by this fork rather than upstream files that were modified.
 
 | File | Current State |
 | --- | --- |
-| `src-tauri/src/actions.rs` | Shortcut actions, variable resolution, preview delete actions, and global clipboard/selection TTS actions. Soniox live-finalization timeouts get one automatic full-recording replay only when output is still reversible (preview workflow or no stable chunk was inserted); never replay over already-inserted live text. |
+| `src-tauri/src/actions.rs` | Shortcut actions, variable resolution, preview delete actions, and global clipboard/selection TTS actions. Recording startup shows an arming overlay immediately, but waits for first-sample readiness before the start cue and recording mute. Soniox live-finalization timeouts get one automatic full-recording replay only when output is still reversible (preview workflow or no stable chunk was inserted); never replay over already-inserted live text. |
 | `src-tauri/src/overlay.rs` | Overlay states, lazy TTS/preview window helpers, live preview geometry constraints, and preview action appearance payload. |
 | `src-tauri/src/settings.rs` | Fork-specific settings & features, including isolated TTS configuration/prompt presets, watcher recursion, TTS History retention, live preview actions, preview bindings, and local-only recording tail buffer controls. |
 | `src-tauri/src/lib.rs` | Registers managers, commands, tray, and headless file conversion. Remote transcription providers defer the local transcribe.cpp/Vulkan stack; Local keeps eager startup pre-warm. Debug binding export removes generator-produced trailing spaces without changing line endings. |
@@ -132,8 +132,8 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/managers/live_sound_transcription.rs` | Live Sound page runtime state, transcript events, and speaker-segment payloads. |
 | `src-tauri/src/audio_toolkit/mod.rs` | Includes `encode_wav_bytes()`. |
 | `src-tauri/src/audio_toolkit/audio/utils.rs` | WAV encoding utils. |
-| `src-tauri/src/audio_toolkit/audio/recorder.rs` | Audio capture stream logic, including Windows output loopback support and optional single-channel microphone capture for multi-input interfaces. |
-| `src-tauri/src/managers/audio.rs` | Routes recordings between mic capture and Windows output loopback for live sound, applies microphone channel changes only while idle, and includes local-only release-tail buffering. |
+| `src-tauri/src/audio_toolkit/audio/recorder.rs` | Audio capture stream logic, including Windows output loopback support, optional single-channel microphone capture for multi-input interfaces, and a one-shot readiness acknowledgement after the first real audio chunk enters the active pipeline. |
+| `src-tauri/src/managers/audio.rs` | Routes recordings between mic capture and Windows output loopback for live sound, applies microphone channel changes only while idle, includes local-only release-tail buffering, and generation-guards asynchronous first-sample readiness against late Stop/Cancel work. |
 | `src-tauri/src/managers/transcription.rs` | Local STT runtime, including thread-safe on-demand transcribe.cpp initialization, batch/native streaming and per-model latency presets, transcribe-rs backend updates, Canary support, Whisper/ORT accelerator selection wiring, x64-on-Windows-ARM CPU fallback for GGML backends, and GigaAM v3 on the non-legacy API. The first transcribe.cpp model load must pass the same cached initialization guard used by startup pre-warm. |
 | `src-tauri/src/audio_feedback.rs` | Recording feedback plus the independent result-ready cue played only after successful normal-dictation delivery. A single worker owns and reuses the output stream; keep CPAL stream creation, playback, and destruction on that worker for macOS/Linux `!Send` compatibility. |
 | `src-tauri/src/commands/file_transcription.rs` | Soniox async integration overrides and diarized speaker-session handling. |
@@ -181,8 +181,8 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/App.tsx` | Fork specific event listeners. |
 | `src/components/model-selector/ModelSelector.tsx` | Soniox/Deepgram behavior support. |
 | `src/components/onboarding/Onboarding.tsx` | Remote STT wizards. |
-| `src/overlay/RecordingOverlay.tsx` | Extended error/sending states. |
-| `src/overlay/RecordingOverlay.css` | Styles for error state. |
+| `src/overlay/RecordingOverlay.tsx` | Extended error/sending states plus a first-sample-aware arming state that keeps reactive visuals dormant until capture is actually flowing. |
+| `src/overlay/RecordingOverlay.css` | Styles for error state and the theme-compatible, reduced-motion-safe capture-arming pulse. |
 | `vite.config.ts` | Multi-entry target for live preview and the lazy TTS playback overlay. |
 
 ## Other Context Files

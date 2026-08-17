@@ -407,6 +407,7 @@ const RecordingOverlay: React.FC = () => {
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
   const [state, setState] = useState<ExtendedOverlayState>("recording");
+  const [captureReady, setCaptureReady] = useState(false);
   const [transientMessage, setTransientMessage] = useState<string>("");
   const [decapIndicatorEligible, setDecapIndicatorEligible] = useState(false);
   const [decapIndicatorArmed, setDecapIndicatorArmed] = useState(false);
@@ -698,6 +699,17 @@ const RecordingOverlay: React.FC = () => {
     const setupEventListeners = async () => {
       // Listen for show-overlay event from Rust
       const unlistenShow = await listen("show-overlay", async (event) => {
+        const nextState = isExtendedPayload(event.payload)
+          ? event.payload.state
+          : (event.payload as ExtendedOverlayState);
+        // Reset before awaiting language I/O. A fast always-on stream may emit
+        // recording-ready while that await is in flight.
+        if (nextState === "recording") {
+          setCaptureReady(false);
+          smoothedLevelsRef.current = Array(20).fill(0);
+          setLevels(Array(20).fill(0));
+        }
+
         // Sync language from settings each time overlay is shown
         await syncLanguageFromSettings();
 
@@ -774,10 +786,15 @@ const RecordingOverlay: React.FC = () => {
       // Listen for hide-overlay event from Rust
       const unlistenHide = await listen("hide-overlay", () => {
         setIsVisible(false);
+        setCaptureReady(false);
         setDecapIndicatorEligible(false);
         setDecapIndicatorArmed(false);
         setErrorRetryAvailable(false);
         setRepasteShortcutLabel(null);
+      });
+
+      const unlistenReady = await listen("recording-ready", () => {
+        setCaptureReady(true);
       });
 
       // Listen for mic-level updates
@@ -798,6 +815,7 @@ const RecordingOverlay: React.FC = () => {
         unlistenShow();
         unlistenMessageOverlay();
         unlistenHide();
+        unlistenReady();
         unlistenLevel();
       };
     };
@@ -881,6 +899,7 @@ const RecordingOverlay: React.FC = () => {
   const showDragGrip = appearance.show_drag_grip;
   const showStatusIcon = appearance.show_status_icon;
   const visibleLevels = levels.slice(0, appearance.bar_count);
+  const captureArming = state === "recording" && !captureReady;
   const surfaceStyle = getRecordingOverlaySurfaceStyle(
     overlayTheme,
     appearance.accent_color,
@@ -1062,7 +1081,7 @@ const RecordingOverlay: React.FC = () => {
 
   return (
     <div
-      className={`recording-overlay ${customOverlayEnabled ? "recording-overlay-custom" : "recording-overlay-legacy"} ${overlayStateClass} ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""} ${state === "microphone_switch" ? "overlay-microphone-switch" : ""}`}
+      className={`recording-overlay ${customOverlayEnabled ? "recording-overlay-custom" : "recording-overlay-legacy"} ${overlayStateClass} ${captureArming ? "overlay-capture-arming" : ""} ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""} ${state === "microphone_switch" ? "overlay-microphone-switch" : ""}`}
       style={{
         ...resolvedSurfaceStyle,
         ...(customOverlayEnabled ? motionStyle : {}),
@@ -1153,7 +1172,14 @@ const RecordingOverlay: React.FC = () => {
       </div>
 
       <div className="overlay-middle">
-        {state === "recording" && !customOverlayEnabled && (
+        {captureArming && (
+          <div className="recording-arming-wave" aria-hidden="true">
+            {Array.from({ length: appearance.bar_count }).map((_, index) => (
+              <span key={index} style={{ animationDelay: `${index * 75}ms` }} />
+            ))}
+          </div>
+        )}
+        {state === "recording" && captureReady && !customOverlayEnabled && (
           <div className="bars-container">
             {visibleLevels.map((value, index) => (
               <div
@@ -1173,7 +1199,7 @@ const RecordingOverlay: React.FC = () => {
             ))}
           </div>
         )}
-        {state === "recording" && customOverlayEnabled && (
+        {state === "recording" && captureReady && customOverlayEnabled && (
           <RecordingOverlayBars
             levels={visibleLevels}
             barCount={appearance.bar_count}

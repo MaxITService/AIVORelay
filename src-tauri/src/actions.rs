@@ -1618,50 +1618,49 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     let is_always_on = settings.always_on_microphone;
     debug!("Microphone mode - always_on: {}", is_always_on);
 
+    // Show the waiting state before opening/arming the capture stream. The
+    // overlay switches to reactive levels only after the first real sample.
+    show_recording_overlay(app);
+
     let mut recording_error: Option<StartRecordingError> = None;
     let mut recording_started_at: Option<Instant> = None;
-    if is_always_on {
-        // Always-on mode: the stream is already open, but still arm recording before UI/audio feedback.
-        debug!("Always-on mode: Starting recording before audio feedback");
-        match rm.try_start_recording_detailed(binding_id) {
-            Ok(()) => {
-                recording_started_at = Some(Instant::now());
-                rm.apply_media_pause();
-                debug!("Recording started");
-                let rm_clone = Arc::clone(&rm);
-                let app_clone = app.clone();
-                std::thread::spawn(move || {
+    let recording_start_time = Instant::now();
+    match rm.try_start_recording_detailed(binding_id) {
+        Ok(readiness) => {
+            recording_started_at = Some(Instant::now());
+            rm.apply_media_pause();
+            debug!(
+                "Recording request accepted in {:?}; waiting for first audio samples",
+                recording_start_time.elapsed()
+            );
+
+            let generation = readiness.generation();
+            let app_clone = app.clone();
+            let rm_clone = Arc::clone(&rm);
+            std::thread::spawn(move || {
+                if !readiness.wait() {
+                    debug!("Audio readiness wait ended without receiving samples");
+                    return;
+                }
+                if !rm_clone.is_recording_readiness_current(generation) {
+                    debug!("Audio became ready for an inactive recording");
+                    return;
+                }
+
+                debug!("Audio capture is receiving samples; recording is ready");
+                utils::emit_recording_ready(&app_clone);
+
+                if rm_clone.is_recording_readiness_current(generation) {
                     play_feedback_sound_blocking(&app_clone, SoundType::Start);
+                }
+                if rm_clone.is_recording_readiness_current(generation) {
                     rm_clone.apply_mute();
-                });
-            }
-            Err(err) => {
-                debug!("Failed to start recording: {}", err);
-                recording_error = Some(err);
-            }
+                }
+            });
         }
-    } else {
-        // On-demand mode: Start recording first, then play audio feedback, then apply mute
-        debug!("On-demand mode: Starting recording first, then audio feedback");
-        let recording_start_time = Instant::now();
-        match rm.try_start_recording_detailed(binding_id) {
-            Ok(()) => {
-                recording_started_at = Some(Instant::now());
-                rm.apply_media_pause();
-                debug!("Recording started in {:?}", recording_start_time.elapsed());
-                let app_clone = app.clone();
-                let rm_clone = Arc::clone(&rm);
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    debug!("Handling delayed audio feedback/mute sequence");
-                    play_feedback_sound_blocking(&app_clone, SoundType::Start);
-                    rm_clone.apply_mute();
-                });
-            }
-            Err(err) => {
-                debug!("Failed to start recording: {}", err);
-                recording_error = Some(err);
-            }
+        Err(err) => {
+            debug!("Failed to start recording: {}", err);
+            recording_error = Some(err);
         }
     }
 
@@ -1704,6 +1703,7 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
                 }
             }
             let _ = take_recording_app_context(binding_id);
+            utils::hide_recording_overlay(app);
             return false;
         }
 
@@ -1715,7 +1715,6 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
         session.register_cancel_shortcut();
         crate::recording_auto_stop::start_auto_stop_timer(app, binding_id);
         change_tray_icon(app, TrayIconState::Recording);
-        show_recording_overlay(app);
     } else {
         // Drop captured app context for failed recordings.
         let _ = take_recording_app_context(binding_id);
@@ -2372,9 +2371,8 @@ fn prepare_stop_recording_with_options(
     binding_id: &str,
     show_processing_overlay: bool,
 ) -> Option<StopRecordingContext> {
-    let audio_cancel_generation = app
-        .state::<Arc<AudioRecordingManager>>()
-        .cancel_generation();
+    let audio_manager = app.state::<Arc<AudioRecordingManager>>();
+    let audio_cancel_generation = audio_manager.cancel_generation();
     // Take the session and transition to Processing state
     let state = app.state::<ManagedSessionState>();
     let mut state_guard =
@@ -2432,6 +2430,10 @@ fn prepare_stop_recording_with_options(
 
     // Release lock before doing I/O
     drop(state_guard);
+
+    if result.is_some() {
+        audio_manager.invalidate_recording_readiness();
+    }
 
     crate::recording_auto_stop::cancel_auto_stop_timer(app);
 
