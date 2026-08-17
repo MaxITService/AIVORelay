@@ -1187,6 +1187,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::reset_deepgram_settings_to_defaults,
         shortcut::change_remote_stt_debug_capture_setting,
         shortcut::change_remote_stt_debug_mode_setting,
+        shortcut::change_remote_stt_unsafe_log_secrets_setting,
         shortcut::change_post_process_enabled_setting,
         shortcut::change_default_profile_post_process_enabled_setting,
         shortcut::change_post_process_reasoning_enabled_setting,

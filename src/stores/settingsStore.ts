@@ -91,6 +91,7 @@ interface SettingsStore {
   updateRemoteSttModelId: (modelId: string) => Promise<void>;
   updateRemoteSttDebugCapture: (enabled: boolean) => Promise<void>;
   updateRemoteSttDebugMode: (mode: string) => Promise<void>;
+  updateRemoteSttUnsafeLogSecrets: (enabled: boolean) => Promise<void>;
   setAiReplaceProvider: (providerId: string | null) => Promise<void>;
   updateAiReplaceApiKey: (providerId: string, apiKey: string) => Promise<void>;
   updateAiReplaceModel: (providerId: string, model: string) => Promise<void>;
@@ -1769,6 +1770,21 @@ export const useSettingsStore = create<SettingsStore>()(
         await refreshSettings();
       } catch (error) {
         console.error("Failed to update remote STT debug mode:", error);
+      } finally {
+        setUpdating(updateKey, false);
+      }
+    },
+
+    updateRemoteSttUnsafeLogSecrets: async (enabled) => {
+      const { setUpdating, refreshSettings } = get();
+      const updateKey = "remote_stt_unsafe_log_secrets";
+
+      setUpdating(updateKey, true);
+      try {
+        await commands.changeRemoteSttUnsafeLogSecretsSetting(enabled);
+        await refreshSettings();
+      } catch (error) {
+        console.error("Failed to update unsafe Remote STT secret logging:", error);
       } finally {
         setUpdating(updateKey, false);
       }

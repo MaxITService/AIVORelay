@@ -74,6 +74,26 @@ fn redacted_remote_stt_snippet(value: &str, api_key: &str, max_chars: usize) -> 
         .collect()
 }
 
+fn remote_stt_log_value(value: &str, api_key: &str, unsafe_log_secrets: bool) -> String {
+    if unsafe_log_secrets {
+        value.to_string()
+    } else {
+        redact_remote_stt_api_key(value, api_key)
+    }
+}
+
+fn remote_stt_log_snippet(
+    value: &str,
+    api_key: &str,
+    max_chars: usize,
+    unsafe_log_secrets: bool,
+) -> String {
+    remote_stt_log_value(value, api_key, unsafe_log_secrets)
+        .chars()
+        .take(max_chars)
+        .collect()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RemoteSttApiKeySource {
     Scoped,
@@ -882,10 +902,11 @@ impl RemoteSttManager {
         }
 
         if !status.is_success() {
-            let snippet = redacted_remote_stt_snippet(
+            let snippet = remote_stt_log_snippet(
                 &String::from_utf8_lossy(&body),
                 &api_key.value,
                 500,
+                settings.unsafe_log_secrets,
             );
             let diagnostic = format!(
                 "Remote STT failed: status={} elapsed_ms={} body_snippet={}",
@@ -1091,12 +1112,20 @@ impl RemoteSttManager {
                 .unwrap_or_default();
 
             if msg_type == "error" {
-                let message = redact_remote_stt_api_key(
-                    &parse_provider_error_value(&payload, "OpenAI Realtime returned an error"),
-                    api_key,
+                let raw_message =
+                    parse_provider_error_value(&payload, "OpenAI Realtime returned an error");
+                self.record_error(
+                    settings,
+                    remote_stt_log_value(
+                        &raw_message,
+                        api_key,
+                        settings.unsafe_log_secrets,
+                    ),
                 );
-                self.record_error(settings, message.clone());
-                return Err(anyhow!(message));
+                return Err(anyhow!(redact_remote_stt_api_key(
+                    &raw_message,
+                    api_key,
+                )));
             }
 
             if msg_type == "response.output_text.delta" {
@@ -1293,15 +1322,22 @@ impl RemoteSttManager {
                 .unwrap_or_default();
 
             if msg_type == "error" {
-                let message = redact_remote_stt_api_key(
-                    &parse_provider_error_value(
-                        &payload,
-                        "OpenAI Realtime Translate returned an error",
-                    ),
-                    api_key,
+                let raw_message = parse_provider_error_value(
+                    &payload,
+                    "OpenAI Realtime Translate returned an error",
                 );
-                self.record_error(settings, message.clone());
-                return Err(anyhow!(message));
+                self.record_error(
+                    settings,
+                    remote_stt_log_value(
+                        &raw_message,
+                        api_key,
+                        settings.unsafe_log_secrets,
+                    ),
+                );
+                return Err(anyhow!(redact_remote_stt_api_key(
+                    &raw_message,
+                    api_key,
+                )));
             }
 
             if msg_type == "session.output_transcript.delta" {
@@ -1383,12 +1419,20 @@ impl RemoteSttManager {
                 return Ok(());
             }
             if msg_type == "error" {
-                let message = redact_remote_stt_api_key(
-                    &parse_provider_error_value(&payload, "OpenAI Realtime returned an error"),
-                    api_key,
+                let raw_message =
+                    parse_provider_error_value(&payload, "OpenAI Realtime returned an error");
+                self.record_error(
+                    settings,
+                    remote_stt_log_value(
+                        &raw_message,
+                        api_key,
+                        settings.unsafe_log_secrets,
+                    ),
                 );
-                self.record_error(settings, message.clone());
-                return Err(anyhow!(message));
+                return Err(anyhow!(redact_remote_stt_api_key(
+                    &raw_message,
+                    api_key,
+                )));
             }
         }
     }
@@ -1448,10 +1492,11 @@ impl RemoteSttManager {
 
         if !status.is_success() {
             let body = response.bytes().await.unwrap_or_default();
-            let snippet = redacted_remote_stt_snippet(
+            let snippet = remote_stt_log_snippet(
                 &String::from_utf8_lossy(&body),
                 &api_key.value,
                 500,
+                settings.unsafe_log_secrets,
             );
             let diagnostic = format!(
                 "Remote STT test failed: status={} elapsed_ms={} body_snippet={}",
@@ -1674,7 +1719,7 @@ pub fn has_remote_stt_api_key(_settings: &RemoteSttSettings) -> bool {
 mod tests {
     use super::{
         build_openai_realtime_agent_session_update, remote_stt_api_key_clear_targets,
-        redact_remote_stt_api_key, remote_stt_api_key_redaction_marker,
+        redact_remote_stt_api_key, remote_stt_api_key_redaction_marker, remote_stt_log_value,
         select_remote_stt_api_key, supports_subtitle_timestamps, supports_translation,
         uses_plural_language_hints, RemoteSttApiKeySource, TranscriptionResponse,
     };
@@ -1780,6 +1825,19 @@ mod tests {
         let marker = remote_stt_api_key_redaction_marker(key);
         assert_eq!(marker, "[redacted key, SHA-256: 384a8ae6f981e822]");
         assert_eq!(safe.matches(&marker).count(), 2);
+    }
+
+    #[test]
+    fn unsafe_secret_logging_only_bypasses_log_redaction() {
+        let key = "stt-secret-key";
+        let provider_error = format!("Provider echoed {key}");
+
+        assert!(!remote_stt_log_value(&provider_error, key, false).contains(key));
+        assert_eq!(
+            remote_stt_log_value(&provider_error, key, true),
+            provider_error
+        );
+        assert!(!redact_remote_stt_api_key(&provider_error, key).contains(key));
     }
 
     #[test]

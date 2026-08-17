@@ -2944,6 +2944,15 @@
     },
     "debug": {
       "title": "Debug",
+      "unsafeSecretLogging": {
+        "title": "Do not redact secrets from logs — very dangerous",
+        "description": "Allow Remote STT diagnostic logs to contain complete API keys if a provider echoes them. User-facing errors remain redacted.",
+        "activeWarning": "RAW SECRET LOGGING IS ACTIVE. Never share or upload diagnostic logs. Disabling this clears the in-app Remote STT log, but cannot erase copies you already exported.",
+        "confirmationTitle": "Expose secrets in diagnostic logs?",
+        "confirmationMessage": "Remote STT providers may echo complete API keys in error responses. Enabling this setting preserves those keys in diagnostic logs, where anyone with log access can steal them. User-facing errors will still be redacted. Enable only for a controlled debugging session and disable it immediately afterward.",
+        "confirm": "Enable raw secret logging",
+        "cancel": "Keep secrets redacted"
+      },
       "experimentalFeatures": {
         "title": "Experimental Features",
         "warning": "These features are experimental and may change or be removed in future versions."

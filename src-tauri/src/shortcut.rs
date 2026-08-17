@@ -3447,6 +3447,24 @@ pub fn change_remote_stt_debug_mode_setting(app: AppHandle, mode: String) -> Res
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_remote_stt_unsafe_log_secrets_setting(
+    app: AppHandle,
+    enabled: bool,
+    remote_manager: State<'_, Arc<RemoteSttManager>>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.remote_stt.unsafe_log_secrets = enabled;
+    settings::write_settings(&app, settings);
+
+    if !enabled {
+        remote_manager.clear_debug();
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 /// Updates the configured LLM post-processing state for the active profile.
 /// The default profile owns `post_process_enabled`; custom profiles own their
 /// individual `llm_post_process_enabled` value.

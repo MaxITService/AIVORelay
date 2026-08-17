@@ -199,6 +199,7 @@ mod tests {
             model_id: "test-model".to_string(),
             debug_capture: false,
             debug_mode: crate::settings::RemoteSttDebugMode::Normal,
+            unsafe_log_secrets: false,
         }
     }
 

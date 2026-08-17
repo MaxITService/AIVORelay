@@ -1165,6 +1165,14 @@ async changeRemoteSttDebugModeSetting(mode: string) : Promise<Result<null, strin
     else return { status: "error", error: e  as any };
 }
 },
+async changeRemoteSttUnsafeLogSecretsSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_remote_stt_unsafe_log_secrets_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Updates the configured LLM post-processing state for the active profile.
  * The default profile owns `post_process_enabled`; custom profiles own their
@@ -4428,7 +4436,7 @@ export type RegenerateTtsHistoryResponse = { sourceEntryId: number; newEntry: Tt
  */
 export type RegionCaptureData = { screenshot: string | null; virtual_screen: VirtualScreenInfo }
 export type RemoteSttDebugMode = "normal" | "verbose"
-export type RemoteSttSettings = { base_url: string; provider_preset?: string; allow_insecure_http?: boolean; model_id: string; debug_capture?: boolean; debug_mode?: RemoteSttDebugMode }
+export type RemoteSttSettings = { base_url: string; provider_preset?: string; allow_insecure_http?: boolean; model_id: string; debug_capture?: boolean; debug_mode?: RemoteSttDebugMode; unsafe_log_secrets?: boolean }
 export type ScreenshotCaptureMethod = "external_program" | "native"
 export type SecretMap = Partial<{ [key in string]: string }>
 export type SecretOptionString = string | null

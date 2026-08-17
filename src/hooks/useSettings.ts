@@ -54,6 +54,7 @@ interface UseSettingsReturn {
   updateRemoteSttModelId: (modelId: string) => Promise<void>;
   updateRemoteSttDebugCapture: (enabled: boolean) => Promise<void>;
   updateRemoteSttDebugMode: (mode: string) => Promise<void>;
+  updateRemoteSttUnsafeLogSecrets: (enabled: boolean) => Promise<void>;
   setAiReplaceProvider: (providerId: string | null) => Promise<void>;
   updateAiReplaceApiKey: (
     providerId: string,
@@ -107,6 +108,7 @@ export const useSettings = (): UseSettingsReturn => {
     updateRemoteSttModelId: store.updateRemoteSttModelId,
     updateRemoteSttDebugCapture: store.updateRemoteSttDebugCapture,
     updateRemoteSttDebugMode: store.updateRemoteSttDebugMode,
+    updateRemoteSttUnsafeLogSecrets: store.updateRemoteSttUnsafeLogSecrets,
     setAiReplaceProvider: store.setAiReplaceProvider,
     updateAiReplaceApiKey: store.updateAiReplaceApiKey,
     updateAiReplaceModel: store.updateAiReplaceModel,

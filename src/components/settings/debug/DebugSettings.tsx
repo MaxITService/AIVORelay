@@ -24,8 +24,14 @@ import { SessionToastHistory } from "./SessionToastHistory";
 
 export const DebugSettings: React.FC = () => {
   const { t } = useTranslation();
-  const { getSetting, updateSetting, isUpdating, settings, refreshSettings } =
-    useSettings();
+  const {
+    getSetting,
+    updateSetting,
+    isUpdating,
+    settings,
+    refreshSettings,
+    updateRemoteSttUnsafeLogSecrets,
+  } = useSettings();
   const pushToTalk = getSetting("push_to_talk");
   const isLinux = type() === "linux";
   const isWindows = type() === "windows";
@@ -33,9 +39,12 @@ export const DebugSettings: React.FC = () => {
   // Modal states
   const [showVoiceCommandsWarning, setShowVoiceCommandsWarning] =
     useState(false);
+  const [showSecretLoggingWarning, setShowSecretLoggingWarning] =
+    useState(false);
 
   const betaVoiceCommandsEnabled =
     (settings as any)?.beta_voice_commands_enabled ?? false;
+  const unsafeLogSecrets = settings?.remote_stt?.unsafe_log_secrets ?? false;
 
   const handleVoiceCommandsToggle = (enabled: boolean) => {
     if (enabled) {
@@ -52,6 +61,14 @@ export const DebugSettings: React.FC = () => {
     window.dispatchEvent(new Event(OPEN_FIRST_START_WIZARD_EVENT));
   };
 
+  const handleSecretLoggingToggle = (enabled: boolean) => {
+    if (enabled) {
+      setShowSecretLoggingWarning(true);
+    } else {
+      void updateRemoteSttUnsafeLogSecrets(false);
+    }
+  };
+
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
       <SessionToastHistory />
@@ -61,6 +78,25 @@ export const DebugSettings: React.FC = () => {
         <LogDirectory grouped={true} />
         <LogLevelSelector grouped={true} />
         {import.meta.env.DEV && <DevConsoleLogLevelSelector grouped={true} />}
+        <ToggleSwitch
+          checked={unsafeLogSecrets}
+          onChange={handleSecretLoggingToggle}
+          isUpdating={isUpdating("remote_stt_unsafe_log_secrets")}
+          label={t("settings.debug.unsafeSecretLogging.title")}
+          description={t("settings.debug.unsafeSecretLogging.description")}
+          descriptionMode="inline"
+          grouped={true}
+        />
+        {unsafeLogSecrets && (
+          <div className="mx-4 mb-3 p-3 bg-red-500/10 border border-red-500/40 rounded-lg">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+              <p className="text-xs font-semibold text-red-200/90">
+                {t("settings.debug.unsafeSecretLogging.activeWarning")}
+              </p>
+            </div>
+          </div>
+        )}
         <UpdateChecksToggle descriptionMode="tooltip" grouped={true} />
         <SoundPicker
           label={t("settings.debug.soundTheme.label")}
@@ -148,7 +184,21 @@ export const DebugSettings: React.FC = () => {
         </SettingContainer>
       </SettingsGroup>
 
-      {/* Confirmation Modal for Voice Commands */}
+      {/* Confirmation modals for dangerous debug features */}
+      <ConfirmationModal
+        isOpen={showSecretLoggingWarning}
+        onClose={() => setShowSecretLoggingWarning(false)}
+        onConfirm={() => {
+          setShowSecretLoggingWarning(false);
+          void updateRemoteSttUnsafeLogSecrets(true);
+        }}
+        title={t("settings.debug.unsafeSecretLogging.confirmationTitle")}
+        message={t("settings.debug.unsafeSecretLogging.confirmationMessage")}
+        confirmText={t("settings.debug.unsafeSecretLogging.confirm")}
+        cancelText={t("settings.debug.unsafeSecretLogging.cancel")}
+        variant="danger"
+      />
+
       <ConfirmationModal
         isOpen={showVoiceCommandsWarning}
         onClose={() => setShowVoiceCommandsWarning(false)}
