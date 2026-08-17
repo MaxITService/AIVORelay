@@ -1150,7 +1150,9 @@ export const TranscriptionProfiles: React.FC = () => {
   const [newIncludeInCycle, setNewIncludeInCycle] = useState(true);
   const [newSttPromptOverrideEnabled, setNewSttPromptOverrideEnabled] =
     useState(false);
-  const [newLlmEnabled, setNewLlmEnabled] = useState(false);
+  const [newLlmEnabledOverride, setNewLlmEnabledOverride] = useState<
+    boolean | null
+  >(null);
   const [newLlmPromptOverride, setNewLlmPromptOverride] = useState("");
   const [newLlmModelOverride, setNewLlmModelOverride] = useState<string | null>(
     null,
@@ -1169,6 +1171,8 @@ export const TranscriptionProfiles: React.FC = () => {
 
   const profiles = (settings?.transcription_profiles ||
     []) as ExtendedTranscriptionProfile[];
+  const newLlmEnabled =
+    newLlmEnabledOverride ?? Boolean(settings?.post_process_enabled);
 
   const isExpanded = (id: string) => expandedIds.has(id);
 
@@ -1397,12 +1401,19 @@ export const TranscriptionProfiles: React.FC = () => {
             pushToTalk: newPushToTalk,
             previewOutputOnlyEnabled: newPreviewOutputOnly,
             includeInCycle: newIncludeInCycle,
-            llmSettings: {
-              enabled: newLlmEnabled,
-              promptOverride:
-                newLlmPromptOverride === "" ? null : newLlmPromptOverride,
-              modelOverride: newLlmModelOverride,
-            },
+            llmSettings:
+              newLlmEnabledOverride === null &&
+              newLlmPromptOverride === "" &&
+              newLlmModelOverride === null
+                ? null
+                : {
+                    enabled: newLlmEnabled,
+                    promptOverride:
+                      newLlmPromptOverride === ""
+                        ? null
+                        : newLlmPromptOverride,
+                    modelOverride: newLlmModelOverride,
+                  },
             sonioxContextGeneralJson: newSonioxContextGeneralJson,
             sonioxContextText: newSonioxContextText,
             sonioxContextTerms: newSonioxContextTerms,
@@ -1421,7 +1432,7 @@ export const TranscriptionProfiles: React.FC = () => {
       setNewPushToTalk(true);
       setNewPreviewOutputOnly(false);
       setNewIncludeInCycle(true);
-      setNewLlmEnabled(false);
+      setNewLlmEnabledOverride(null);
       setNewLlmPromptOverride("");
       setNewLlmModelOverride(null);
       setNewSonioxContextGeneralJson("");
@@ -2531,7 +2542,7 @@ export const TranscriptionProfiles: React.FC = () => {
                       checked={
                         newPostProcessingAvailability.available && newLlmEnabled
                       }
-                      onChange={setNewLlmEnabled}
+                      onChange={setNewLlmEnabledOverride}
                       disabled={
                         isCreating || !newPostProcessingAvailability.available
                       }

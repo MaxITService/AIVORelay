@@ -20,6 +20,16 @@ export const PostProcessingToggle: React.FC<PostProcessingToggleProps> =
     const configuredEnabled = getActiveProfilePostProcessingEnabled(settings);
     const availability = getPostProcessingAvailability(settings);
     const enabled = availability.available && configuredEnabled;
+    const activeProfileId = String(settings?.active_profile_id || "default");
+    const activeProfileName =
+      activeProfileId === "default"
+        ? t(
+            "settings.postProcessing.defaultProfileName",
+            "Default (Global)",
+          )
+        : settings?.transcription_profiles?.find(
+            (profile) => profile.id === activeProfileId,
+          )?.name || activeProfileId;
 
     return (
       <ToggleSwitch
@@ -27,7 +37,10 @@ export const PostProcessingToggle: React.FC<PostProcessingToggleProps> =
         onChange={(enabled) => updateSetting("post_process_enabled", enabled)}
         isUpdating={isUpdating("post_process_enabled")}
         disabled={!availability.available}
-        label={t("settings.debug.postProcessingToggle.label")}
+        label={t("settings.debug.postProcessingToggle.activeProfileLabel", {
+          profile: activeProfileName,
+          defaultValue: "Enable for active profile: {{profile}}",
+        })}
         description={
           availability.available
             ? t("settings.debug.postProcessingToggle.description")
