@@ -2744,6 +2744,7 @@
       "sonioxWarning": "You are using the Soniox real-time provider. LLM post-processing is skipped during real-time streaming. These settings will apply when you switch to a local model or OpenAI-compatible provider.",
       "deepgramWarning": "You are using Deepgram live transcription. LLM post-processing is skipped during the standard live cycle.",
       "unavailableDirectRealtime": "LLM post-processing is unavailable while realtime text is inserted directly into the target application. Use Preview or a non-live output route. Your saved choice is preserved for compatible routes.",
+      "defaultProfileName": "Default (Global)",
       "defaultProfileDescription": "Enable AI-powered text refinement for the Default (Global) transcription profile.",
       "defaultProfileNote": "Custom profiles keep their own post-processing choice. Provider, model, API key, and prompt configuration are shared.",
       "defaultProfileToggleLabel": "Default profile LLM post-processing",
@@ -3134,6 +3135,7 @@
       },
       "postProcessingToggle": {
         "label": "Post-Processing",
+        "activeProfileLabel": "Enable for active profile: {{profile}}",
         "description": "Enable AI-powered text refinement after transcription"
       },
       "muteWhileRecording": {
