@@ -2512,6 +2512,10 @@ pub struct RemoteSttSettings {
     pub debug_capture: bool,
     #[serde(default = "default_remote_stt_debug_mode")]
     pub debug_mode: RemoteSttDebugMode,
+    /// Allows raw provider-echoed API keys in Remote STT diagnostic logs.
+    /// This is intentionally opt-in and disabled by default.
+    #[serde(default)]
+    pub unsafe_log_secrets: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -3819,6 +3823,7 @@ fn default_remote_stt_settings() -> RemoteSttSettings {
         model_id: REMOTE_STT_GROQ_DEFAULT_MODEL.to_string(),
         debug_capture: default_remote_stt_debug_capture(),
         debug_mode: default_remote_stt_debug_mode(),
+        unsafe_log_secrets: false,
     }
 }
 
