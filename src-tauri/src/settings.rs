@@ -3533,7 +3533,7 @@ pub struct AppSettings {
     pub send_screenshot_to_extension_push_to_talk: bool,
     #[serde(default = "default_app_language")]
     pub app_language: String,
-    #[serde(default = "default_connector_password_secret")]
+    #[serde(default)]
     pub connector_password: SecretString,
     /// Whether the user explicitly set the connector password (disables auto-generation)
     #[serde(default)]
@@ -4646,21 +4646,6 @@ Example inputs and outputs:
 - "show my documents folder" → Start-Process explorer -ArgumentList "$env:USERPROFILE\Documents""#.to_string()
 }
 
-/// Default connector password - used for initial mutual authentication
-pub fn default_connector_password() -> String {
-    // This hardcoded bootstrap password is only an onboarding fallback, and only if user uses very exotic, manual onboading,
-    // while other methods are primary in this app.
-    // User DOES NOT need to use this at all and can be perfectly secure by using own password.
-    // It is not the steady-state connector secret. The app rotates away from it or replaces it
-    // during pairing/export, so its presence in source is not relied on as a
-    // long-term security boundary.
-    "befc3aa14cc05e56011865df1c49d16ef9100a53d9bfa02be8d4ffd386324f65".to_string()
-}
-
-fn default_connector_password_secret() -> SecretString {
-    default_connector_password().into()
-}
-
 /// Default reasoning token budget for Extended Thinking (OpenRouter)
 fn default_reasoning_budget() -> u32 {
     2048
@@ -5510,7 +5495,7 @@ pub fn get_default_settings() -> AppSettings {
         send_screenshot_to_extension_enabled: false,
         send_screenshot_to_extension_push_to_talk: true,
         app_language: default_app_language(),
-        connector_password: default_connector_password().into(),
+        connector_password: SecretString::default(),
         connector_password_user_set: false,
         connector_pending_password: None.into(),
         connector_pending_password_issued_at_ms: 0,

@@ -3291,7 +3291,7 @@
         "feature1": "Speak and send messages directly to ChatGPT or other AI chats",
         "feature2": "Use \"Send Transcription + Selection\" to include selected text as context",
         "feature3": "Optional LLM processing before sending (e.g., translate, reformat)",
-        "feature4": "Security Recommendation: You should change the connection password. On a fresh install, the extension uses a default password that could allow other programs to intercept your communication. Changing it here will automatically update the extension if it is connected. For maximum security, we recommend doing this while offline to prevent any local interference during the handshake.",
+        "feature4": "Security: AivoRelay generates a unique connection password. Extension copies exported by the app are provisioned automatically; manually installed copies must be given the same password before they can connect.",
         "feature5": "AivoRelay exposes this connector through a local Axum v{{version}} web server on your computer. If you consider this Axum version unsafe for your threat model, disable Browser Connector entirely."
       },
       "tellMeMore": {
@@ -3492,10 +3492,6 @@
             "success": "Password rotation completed. The connected extension acknowledged the new password.",
             "offlineHint": "Password rotation is only available while the browser extension is online.",
             "wakeHint": "If the extension does not wake up, click the Extension icon to wake it."
-          },
-          "defaultWarning": {
-            "title": "Security Warning: Default Password",
-            "description": "You are currently using the default password. We highly recommend changing it to a unique one. Changing it here will automatically update the extension if it is currently connected. For maximum security, we recommend performing this change while offline to prevent other programs from intercepting the initial handshake."
           }
         },
         "endpoint": {
