@@ -496,6 +496,14 @@ mod tests {
     }
 
     #[test]
+    fn test_apply_custom_words_multi_word_phrase() {
+        let text = "using Mac Book Pro";
+        let custom_words = vec!["MacBook Pro".to_string()];
+        let result = apply_custom_words(text, &custom_words, 0.5, true);
+        assert_eq!(result, "using MacBook Pro");
+    }
+
+    #[test]
     fn test_preserve_case_pattern() {
         assert_eq!(preserve_case_pattern("HELLO", "world"), "WORLD");
         assert_eq!(preserve_case_pattern("Hello", "world"), "World");
