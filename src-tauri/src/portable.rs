@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tauri::Manager;
 
@@ -12,11 +12,18 @@ pub fn init() {
         if exe_dir.join("portable").exists() {
             let data_dir = exe_dir.join("Data");
             std::fs::create_dir_all(&data_dir).ok()?;
+            std::env::set_var("HF_HOME", hugging_face_home(&data_dir));
             Some(data_dir)
         } else {
             None
         }
     });
+}
+
+/// Keep hf-hub downloads inside the portable data directory. hf-hub appends
+/// its own `hub` component to `HF_HOME` for model snapshots and blobs.
+fn hugging_face_home(data_dir: &Path) -> PathBuf {
+    data_dir.join("huggingface")
 }
 
 pub fn data_dir() -> Option<&'static PathBuf> {
@@ -56,5 +63,18 @@ pub fn store_path(relative: &str) -> PathBuf {
         dir.join(relative)
     } else {
         PathBuf::from(relative)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hugging_face_home;
+    use std::path::Path;
+
+    #[test]
+    fn hugging_face_home_is_inside_portable_data() {
+        let data_dir = Path::new("portable-root").join("Data");
+
+        assert_eq!(hugging_face_home(&data_dir), data_dir.join("huggingface"));
     }
 }
