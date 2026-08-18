@@ -4436,7 +4436,12 @@ export type RegenerateTtsHistoryResponse = { sourceEntryId: number; newEntry: Tt
  */
 export type RegionCaptureData = { screenshot: string | null; virtual_screen: VirtualScreenInfo }
 export type RemoteSttDebugMode = "normal" | "verbose"
-export type RemoteSttSettings = { base_url: string; provider_preset?: string; allow_insecure_http?: boolean; model_id: string; debug_capture?: boolean; debug_mode?: RemoteSttDebugMode; unsafe_log_secrets?: boolean }
+export type RemoteSttSettings = { base_url: string; provider_preset?: string; allow_insecure_http?: boolean; model_id: string; debug_capture?: boolean; debug_mode?: RemoteSttDebugMode;
+/**
+ * Allows raw provider-echoed API keys in Remote STT diagnostic logs.
+ * This is intentionally opt-in and disabled by default.
+ */
+unsafe_log_secrets?: boolean }
 export type ScreenshotCaptureMethod = "external_program" | "native"
 export type SecretMap = Partial<{ [key in string]: string }>
 export type SecretOptionString = string | null
