@@ -30,7 +30,6 @@ const AUTO_OPEN_SITES = [
 ];
 
 const MIN_CONNECTOR_PASSWORD_LEN = 64;
-const DEFAULT_CONNECTOR_PASSWORD = "befc3aa14cc05e56011865df1c49d16ef9100a53d9bfa02be8d4ffd386324f65";
 const EXTENSION_REPO_URL = "https://github.com/MaxITService/AIVORelay-relay";
 const EXTENSION_DOWNLOAD_URL = "https://github.com/MaxITService/AIVORelay-relay/archive/refs/heads/main.zip";
 const EXPORT_PATH_STORAGE_KEY = "aivorelay.connectorExportPath";
@@ -66,11 +65,6 @@ type ExportBundledExtensionResult = {
 const isAllowedConnectorPassword = (value: string) => {
   const trimmed = value.trim();
   return trimmed.length >= MIN_CONNECTOR_PASSWORD_LEN;
-};
-
-const isDefaultConnectorPassword = (value: string) => {
-  const trimmed = value.trim();
-  return trimmed === DEFAULT_CONNECTOR_PASSWORD;
 };
 
 // Default screenshot folder for Windows
@@ -503,8 +497,6 @@ export const BrowserConnectorSettings: React.FC = () => {
     }
   };
 
-  // Check if using default password
-  const isDefaultPassword = isDefaultConnectorPassword(passwordInput);
   const isConnectorOnline = connectorStatus?.server_running === true && connectorStatus.status === "online";
   const showPasswordRotationWakeHint =
     isRotatingPassword || passwordRotationStatus?.type === "error";
@@ -1636,19 +1628,6 @@ export const BrowserConnectorSettings: React.FC = () => {
               }`}
             >
               {passwordRotationStatus.message}
-            </div>
-          )}
-          {isDefaultPassword && (
-            <div className="mt-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
-                <div className="text-sm text-yellow-200">
-                  <p className="font-medium">{t("settings.browserConnector.connection.password.defaultWarning.title")}</p>
-                  <p className="text-yellow-200/80 mt-1">
-                    {t("settings.browserConnector.connection.password.defaultWarning.description")}
-                  </p>
-                </div>
-              </div>
             </div>
           )}
         </SettingContainer>
