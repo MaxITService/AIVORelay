@@ -673,15 +673,15 @@ export const HelpSettings: React.FC = () => {
             className="mt-0.5 h-4 w-4 shrink-0 text-[#ff8ebb]"
           />
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#ff8ebb]">
-              {t("help.whatsNew.since")}
-            </p>
             <h2
               id="help-whats-new-title"
-              className="mt-1 text-base font-semibold text-[#f5f5f5]"
+              className="text-base font-semibold text-[#f5f5f5]"
             >
               {t("help.whatsNew.title")}
             </h2>
+            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#ff8ebb]">
+              {t("help.whatsNew.since")}
+            </p>
             <p className="mt-1.5 text-sm leading-relaxed text-[#b8b8b8]">
               {t("help.whatsNew.description")}
             </p>
