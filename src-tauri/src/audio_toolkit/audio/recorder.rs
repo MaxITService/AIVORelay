@@ -58,6 +58,8 @@ pub struct AudioRecorder {
     /// Which microphone input channel to use. None averages all channels.
     selected_channel: Option<usize>,
     config_cache: Arc<Mutex<Option<(AudioCaptureSource, String, cpal::SupportedStreamConfig)>>>,
+    /// Set by cpal's asynchronous stream error callback when capture must be rebuilt.
+    stream_error: Arc<AtomicBool>,
 }
 
 impl AudioRecorder {
@@ -73,6 +75,7 @@ impl AudioRecorder {
             microphone_noise_cancellation_enabled: Arc::new(AtomicBool::new(false)),
             selected_channel: None,
             config_cache: Arc::new(Mutex::new(None)),
+            stream_error: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -124,15 +127,14 @@ impl AudioRecorder {
         source: AudioCaptureSource,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if self.worker_handle.is_some() {
-            if !self.is_capture_worker_dead() {
+            if !self.needs_reopen() {
                 return Ok(()); // already open
             }
-            // The worker exited on its own (see `is_capture_worker_dead`). Reap
-            // it so we rebuild the stream below instead of handing the caller
-            // back a recorder whose channels are already closed.
-            log::warn!("Capture worker exited; rebuilding audio stream");
+            log::warn!("Capture stream failed; rebuilding audio stream");
             let _ = self.close();
         }
+
+        self.stream_error.store(false, Ordering::Relaxed);
 
         let (sample_tx, sample_rx) = mpsc::channel::<AudioChunk>();
         let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
@@ -166,6 +168,7 @@ impl AudioRecorder {
             None
         };
         let config_cache = Arc::clone(&self.config_cache);
+        let stream_error = Arc::clone(&self.stream_error);
 
         let worker = std::thread::spawn(move || {
             let stop_flag = Arc::new(AtomicBool::new(false));
@@ -213,6 +216,7 @@ impl AudioRecorder {
                         channels,
                         selected_channel,
                         stop_flag_for_stream,
+                        Arc::clone(&stream_error),
                     )
                     .map_err(|e| format!("Failed to build audio stream: {}", e))?,
                     cpal::SampleFormat::I8 => AudioRecorder::build_stream::<i8>(
@@ -222,6 +226,7 @@ impl AudioRecorder {
                         channels,
                         selected_channel,
                         stop_flag_for_stream,
+                        Arc::clone(&stream_error),
                     )
                     .map_err(|e| format!("Failed to build audio stream: {}", e))?,
                     cpal::SampleFormat::I16 => AudioRecorder::build_stream::<i16>(
@@ -231,6 +236,7 @@ impl AudioRecorder {
                         channels,
                         selected_channel,
                         stop_flag_for_stream,
+                        Arc::clone(&stream_error),
                     )
                     .map_err(|e| format!("Failed to build audio stream: {}", e))?,
                     cpal::SampleFormat::I32 => AudioRecorder::build_stream::<i32>(
@@ -240,6 +246,7 @@ impl AudioRecorder {
                         channels,
                         selected_channel,
                         stop_flag_for_stream,
+                        Arc::clone(&stream_error),
                     )
                     .map_err(|e| format!("Failed to build audio stream: {}", e))?,
                     cpal::SampleFormat::F32 => AudioRecorder::build_stream::<f32>(
@@ -249,6 +256,7 @@ impl AudioRecorder {
                         channels,
                         selected_channel,
                         stop_flag_for_stream,
+                        Arc::clone(&stream_error),
                     )
                     .map_err(|e| format!("Failed to build audio stream: {}", e))?,
                     other => return Err(format!("Unsupported sample format: {:?}", other)),
@@ -360,18 +368,16 @@ impl AudioRecorder {
         Ok(resp_rx.recv()?)
     }
 
-    /// True once the capture worker has exited without anyone calling `close`.
+    /// True when the active capture stream must be rebuilt.
     ///
-    /// `run_consumer` is driven entirely by the sample channel, so when cpal
-    /// tears the stream down mid-session (device unplugged, USB/Bluetooth
-    /// dropout) `sample_rx.recv()` returns `Err`, the loop ends and the worker
-    /// thread finishes. `cmd_tx` and `worker_handle` are still populated at
-    /// that point, so the recorder looks open from the outside while every
-    /// command sent to it fails on a closed channel.
-    pub fn is_capture_worker_dead(&self) -> bool {
-        self.worker_handle
-            .as_ref()
-            .is_some_and(|handle| handle.is_finished())
+    /// Some backends report a device disconnect through the error callback
+    /// without closing the callback channel, so also honor its explicit flag.
+    pub fn needs_reopen(&self) -> bool {
+        self.stream_error.load(Ordering::Relaxed)
+            || self
+                .worker_handle
+                .as_ref()
+                .is_some_and(|handle| handle.is_finished())
     }
 
     pub fn close(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -409,6 +415,7 @@ impl AudioRecorder {
         channels: usize,
         selected_channel: Option<usize>,
         stop_flag: Arc<AtomicBool>,
+        stream_error: Arc<AtomicBool>,
     ) -> Result<cpal::Stream, cpal::BuildStreamError>
     where
         T: Sample + SizedSample + Send + 'static,
@@ -463,7 +470,10 @@ impl AudioRecorder {
         device.build_input_stream(
             &config.clone().into(),
             stream_cb,
-            |err| log::error!("Stream error: {}", err),
+            move |err| {
+                log::error!("Stream error: {}", err);
+                stream_error.store(true, Ordering::Relaxed);
+            },
             None,
         )
     }
@@ -604,14 +614,22 @@ fn visualizer_window_size(sample_rate: u32) -> usize {
 mod tests {
     use super::{is_microphone_access_denied, is_no_input_device_error, AudioRecorder};
     use crate::audio_toolkit::constants;
+    use std::sync::atomic::Ordering;
 
     #[test]
-    fn unopened_recorder_is_not_reported_dead() {
+    fn unopened_recorder_does_not_need_reopen() {
         // No worker has been spawned yet, so there is nothing to reap. Guards
         // against inverting the "no worker" case, which would make every first
         // open() take the rebuild path.
         let recorder = AudioRecorder::new().expect("recorder");
-        assert!(!recorder.is_capture_worker_dead());
+        assert!(!recorder.needs_reopen());
+    }
+
+    #[test]
+    fn stream_error_requires_reopen() {
+        let recorder = AudioRecorder::new().expect("recorder");
+        recorder.stream_error.store(true, Ordering::Relaxed);
+        assert!(recorder.needs_reopen());
     }
 
     #[test]
