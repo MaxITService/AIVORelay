@@ -5,11 +5,13 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Added an optional in-memory **Listen Later** queue for clipboard and selected-text speech, with source labels, drag-and-drop and keyboard reordering, and skip, remove, and clear controls.
-- Made queued speech resilient when existing audio is playing, the queue is cleared or disabled, playback fails, or the overlay must resize on a small display; read-request problems now remain visible even when the main window is hidden.
-- Added the missing LLM Post-Processing status and controls to the **Default (Global)** transcription profile, including the realtime-output warning and a direct link to shared LLM configuration.
-- Fixed Text to Speech conversions that could stop showing progress when a provider omitted progress updates.
-- No new upstream Handy intake is included since v1.0.30.
+- Removed the Browser Connector’s shared default password. AivoRelay now creates a unique connection secret and automatically provisions extension copies exported from the app.
+- Made recording readiness follow the first real audio samples and prevented delayed events from an earlier recording from marking a new session ready.
+- Strengthened credential handling so API keys stay out of normal logs and the webview, while provider model lists still refresh automatically for keys stored in Windows Credential Manager.
+- Added an explicitly unsafe Remote STT diagnostic option for troubleshooting provider responses that echo API keys; it remains off by default.
+- Improved Text to Speech, Listen Later, transcription-provider error handling, and post-processing profile behavior across several failure and transition cases.
+- Added a copyable AI-chat help prompt and simplified the common-use guidance on the Help page.
+- Included the latest upstream Handy improvements: recording now recovers after microphone disconnects, Custom Words accepts multi-word phrases, and portable installations keep downloaded Hugging Face models inside the `Data` folder.
 
 ---
 
