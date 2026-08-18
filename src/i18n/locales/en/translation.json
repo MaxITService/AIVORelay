@@ -52,6 +52,18 @@
     "title": "Help",
     "definition": "Transcription means turning your voice into text.",
     "intro": "AivoRelay is a desktop app. Press a key, speak, and it puts the words where you are working.",
+    "aiAssist": {
+      "label": "Tip",
+      "title": "Ask your favorite AI chat for help.",
+      "description": "Show it AivoRelay's source code and explain what you want to set up, change, or troubleshoot.",
+      "exampleIntro": "Hi, I need help. I use this product:",
+      "questionLead": "Can you guide me through its menu? I want to achieve:",
+      "questionPlaceholder": "YOUR QUESTION HERE",
+      "copy": "Copy example",
+      "copied": "Copied",
+      "error": "Could not copy",
+      "copyHint": "The red placeholder is not copied. Most AI chats can open the source link, inspect the code, and give you a more accurate answer. Some cannot access websites; without access to the source code, they may not be able to help you properly."
+    },
     "search": {
       "label": "Search help",
       "placeholder": "Search help…",
@@ -62,9 +74,8 @@
     },
     "smartHelp": {
       "label": "Smart Help",
-      "title": "Choose what you want to do.",
-      "description": "Each card explains what you need, shows the relevant Help section, and opens the matching settings page.",
-      "openSettings": "Open {{destination}} settings",
+      "title": "A few common use cases: choose what you want to do.",
+      "description": "Each card explains what you need and shows the relevant Help section.",
       "actions": {
         "setupTranscription": "I want to set up my microphone and shortcut",
         "setupTranscriptionDescription": "Start here if you want to dictate but have not configured the basic recording controls yet.",
