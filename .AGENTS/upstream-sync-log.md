@@ -6,6 +6,25 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-08-18):
+- Refreshed `Q:\Handy-upstream` and reviewed all 11 non-merge commits from
+  `549cbde3` through upstream HEAD `99052ee`; the safe review cursor is now
+  `99052ee`.
+- Manually adapted `9e534a3` so portable builds keep default hf-hub model
+  caches under `Data/huggingface` while retaining the fork's explicit local-TTS
+  cache locations.
+- Manually adapted `2cf157d` so the Custom Words UI accepts normalized
+  multi-word phrases while retaining the fork's opt-in n-gram and ampersand
+  correction behavior.
+- Updated `handy-keys` from 0.3.3 to 0.3.4 for Pause/Break, PrintScreen,
+  Context Menu, and additional keypad-key coverage on Windows.
+- Manually adapted `c89b7bf` so asynchronous CPAL stream errors trigger a
+  rebuild and a missing regular microphone falls back to the system default
+  without disturbing clamshell, loopback, auto-switch, input-boost, noise-
+  cancellation, or first-sample readiness behavior.
+- Skipped optional Turkish translation cleanup, macOS-only input/runtime/docs,
+  Bluetooth/macOS documentation, and the Linux/X11 modifier-latch fix.
+
 Audit note (2026-08-17):
 - Refreshed `Q:\Handy-upstream`; upstream HEAD is `8758dcc`, but this targeted
   review covers only `549cbde3`. The safe review cursor is now `549cbde3`.
@@ -92,16 +111,16 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-08-18 | 2026-08-17 | `c89b7bf` | fix: fall back to default microphone after disconnect (#1874) | fix(audio): recover after microphone disconnects | manual health/fallback port; retained fork capture routing and audio processing |
+| 2026-08-18 | 2026-08-17 | `5c77861` | bump handy-keys to 0.3.4 | fix(deps): update handy-keys to 0.3.4 | manifest update; lock refreshed locally without taking upstream lock |
+| 2026-08-18 | 2026-08-17 | `2cf157d` | fix(custom-words): allow multi-word phrases (#1406) | fix(custom-words): allow multi-word phrases | manual UI/test port; retained fork n-gram toggle and ampersand handling |
+| 2026-08-18 | 2026-08-14 | `9e534a3` | fix(portable): keep Hugging Face models in Data (#1908) | fix(portable): keep Hugging Face models in Data | manual portable-init port; retained fork-managed cache paths |
 | 2026-08-17 | 2026-08-13 | `549cbde3` | add a better viz for mic waiting | feat(audio): show capture readiness from first samples | manual readiness/session/UI port; retained fork capture sources and overlay themes |
 | 2026-08-13 | 2026-08-09 | `4cd49950`, `80995b53` | wip filler fixes (#1738); forgot to commit bindings | fix(transcription): make filler removal output-language aware | manual correctness port; retained fork opt-in/custom-word policy and all transcription paths |
 | 2026-08-13 | 2026-08-09 | `1bcbfc4c` | fix: support compressed API responses (#1548) | fix(http): support compressed provider responses | manual Cargo feature port; retained multipart support; lock regenerated locally |
 | 2026-08-08 | 2026-08-08 | `db003f38` | fix(audio): skip level meter and resampler while idle in always-on mode (#1873) | fix(audio): skip idle level-meter and resampler work | manual port; retained gain, noise cancellation, and stream callbacks |
 | 2026-08-08 | 2026-08-07 | `d9615937` | fix: update js-yaml to address quadratic parsing (#1865) | fix(deps): update js-yaml to 4.3.1 | Bun lock only; fork has no Nix lock metadata |
 | 2026-08-08 | 2026-08-06 | `12f02e2a` | fix: add input channel selection for multi-channel audio interfaces (#1254) | fix(audio): add input channel selection for multi-channel interfaces | manual port; retained fork capture-source routing |
-| 2026-08-08 | 2026-08-05 | `3f24f4b2` | fix: prioritize NonPackaged key in Windows mic permission check (#1284) (#1308) | fix: prioritize NonPackaged key in Windows mic permission check (#1284) (#1308) | clean cherry-pick |
-| 2026-08-08 | 2026-08-05 | `16caad7a` | fix(overlay): stop rendering animations while hidden (#1445) | fix(overlay): stop rendering animations while hidden | manual placement after all fork hooks |
-| 2026-08-08 | 2026-08-05 | `4223e7ac` | fix: preserve HTTP transport error causes (#1823) | fix: preserve HTTP transport error causes (#1823) | manual port; retained reasoning API and URL sanitization |
-| 2026-08-08 | 2026-08-05 | `b4453a29` | fix(audio): move blocking cpal work off the main thread + lock-free is_recording (#1716) | fix(audio): move blocking cpal work off the main thread + lock-free is_recording (#1716) | manual port; retained fork tray/device handling |
 
 Entry template:
 
