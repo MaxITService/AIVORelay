@@ -62,6 +62,17 @@ const SMART_HELP_ACTIONS = [
   },
 ] as const;
 
+const WHATS_NEW_ITEMS = [
+  "help.whatsNew.items.microphoneRecovery",
+  "help.whatsNew.items.customPhrases",
+  "help.whatsNew.items.portableModels",
+  "help.whatsNew.items.transcriptionAndTts",
+  "help.whatsNew.items.secureCredentials",
+  "help.whatsNew.items.connectorPasswords",
+  "help.whatsNew.items.profileClarity",
+  "help.whatsNew.items.aiHelp",
+] as const;
+
 export const HelpSettings: React.FC = () => {
   const { t } = useTranslation();
   const setSection = useNavigationStore((state) => state.setSection);
@@ -651,6 +662,43 @@ export const HelpSettings: React.FC = () => {
           </section>
         ))}
       </div>
+
+      <section
+        aria-labelledby="help-whats-new-title"
+        className="rounded-xl border border-[#ff4d8d]/30 bg-[#1a1a1a] p-4"
+      >
+        <div className="flex items-start gap-3">
+          <Sparkles
+            aria-hidden="true"
+            className="mt-0.5 h-4 w-4 shrink-0 text-[#ff8ebb]"
+          />
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#ff8ebb]">
+              {t("help.whatsNew.since")}
+            </p>
+            <h2
+              id="help-whats-new-title"
+              className="mt-1 text-base font-semibold text-[#f5f5f5]"
+            >
+              {t("help.whatsNew.title")}
+            </h2>
+            <p className="mt-1.5 text-sm leading-relaxed text-[#b8b8b8]">
+              {t("help.whatsNew.description")}
+            </p>
+          </div>
+        </div>
+        <ul className="mt-4 space-y-2 pl-7 text-sm leading-relaxed text-[#b8b8b8]">
+          {WHATS_NEW_ITEMS.map((itemKey) => (
+            <li key={itemKey} className="relative pl-4">
+              <span
+                aria-hidden="true"
+                className="absolute left-0 top-[0.65em] h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-[#ff4d8d]"
+              />
+              {t(itemKey)}
+            </li>
+          ))}
+        </ul>
+      </section>
 
       <div className="border-t border-[#333333] pt-4 text-xs text-[#707070]">
         <span>{t("help.aboutLinkPrefix")} </span>

@@ -162,6 +162,21 @@
         "summary": "Debug contains tests, logs, and diagnostic tools. Open it when a feature does not behave as expected."
       }
     },
+    "whatsNew": {
+      "since": "Since version 1.0.31",
+      "title": "What's New",
+      "description": "Highlights added since the previous release:",
+      "items": {
+        "microphoneRecovery": "Recording now recovers when a microphone disconnects, and capture is shown as ready only after real audio arrives.",
+        "customPhrases": "Custom Words now accepts multi-word phrases.",
+        "portableModels": "Portable installations keep downloaded Hugging Face model files inside their Data folder.",
+        "transcriptionAndTts": "Transcription providers, Text to Speech, and Listen Later handle responses, playback, and interrupted work more reliably.",
+        "secureCredentials": "API credentials stay out of normal logs and the web interface while securely stored keys continue to load provider models automatically.",
+        "connectorPasswords": "Browser Connector extension exports now receive a unique password automatically; existing custom passwords are preserved.",
+        "profileClarity": "Post-processing profiles make the active profile and inherited defaults clearer.",
+        "aiHelp": "Help now includes quicker navigation and a copyable prompt for asking an AI chat about AivoRelay."
+      }
+    },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"
   },
   "textToSpeech": {
