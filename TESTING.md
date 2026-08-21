@@ -91,6 +91,11 @@ Update this section every time new tests are added.
 
 ### Groq Qwen reasoning request mock (2026-08-21)
 
+- Provider behavior follows the official [Groq reasoning guide](https://console.groq.com/docs/reasoning),
+  [Chat Completions API reference](https://console.groq.com/docs/api-reference),
+  and [Qwen 3.6 27B model guide](https://console.groq.com/docs/model/qwen/qwen3.6-27b):
+  Qwen supports `none`/`default`, while GPT-OSS supports only
+  `low`/`medium`/`high`.
 - `llm_client::tests::groq_qwen_off_request_reaches_mock_api_without_reasoning`
   sends the production Groq/Qwen request shape to a local `127.0.0.1` mock,
   verifies the `/chat/completions` path and top-level
@@ -103,6 +108,25 @@ Update this section every time new tests are added.
   round trip bound only to `127.0.0.1` and used a deliberately fake API key.
 - Run the focused batch with:
   `pwsh -NoProfile -File .\test-local.ps1 -LibOnly -Filter 'llm_client::tests::'`
+- Follow-up code routes every user-facing reasoning toggle through the same
+  provider-disable policy. A new local mock case verifies that a Groq/Qwen OFF
+  request receiving HTTP 400 is not retried without `reasoning_effort: "none"`.
+  This follow-up test has not yet been run pending the required user authorization.
+
+### transcribe.cpp 0.2 Windows packaging (2026-08-21)
+
+- Windows x64 builds stage the transcribe.cpp core DLL and every loadable ggml
+  backend module from `DEP_TRANSCRIBE_CPP_RUNTIME_DIR` and
+  `DEP_TRANSCRIBE_CPP_MODULE_DIR`. Portable and MSI packaging checks require
+  those DLLs plus `msvcp140.dll`, `vcruntime140.dll`, and `vcomp140.dll`.
+- Native Windows ARM64 links transcribe.cpp statically with CPU-only settings;
+  its package must expose `kind=cpu` and no GPU compute device.
+- CI administratively extracts the finished MSI, verifies every staged DLL is
+  present beside the packaged app, and runs `AivoRelay.exe --list-devices`.
+- Manual follow-up should verify exact `--device-index 0` selection, stale saved
+  GPU identity fallback, numeric legacy-setting migration, mirror fallback, and
+  SHA-256 mismatch cleanup. These packaged/runtime scenarios have not yet been
+  run locally pending the required user authorization.
 
 ### Soniox async failure details (2026-08-03)
 
