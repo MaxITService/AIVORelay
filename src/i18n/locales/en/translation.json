@@ -4048,6 +4048,7 @@
     "exampleRegex": "(remove repeated words)",
     "noteTitle": "Note:",
     "noteContent": "For Windows line endings conversion, consider using the 'Convert LF to CRLF' option in Advanced settings instead — it handles this automatically for clipboard paste operations.",
+    "addRuleTitle": "Add a new replacement rule",
     "fromPlaceholder": "Find text...",
     "toPlaceholder": "Replace with...",
     "jsonFiles": "JSON files",

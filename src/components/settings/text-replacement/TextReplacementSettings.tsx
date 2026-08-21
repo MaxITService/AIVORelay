@@ -1204,8 +1204,8 @@ export const TextReplacementSettings: React.FC = () => {
           )}
         </div>
 
-        {/* Rule search, transfer, and display order */}
-        <div className="space-y-2 border-t border-white/[0.05] px-4 py-3">
+        {/* Rule transfer */}
+        <div className="border-y border-white/[0.05] px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
@@ -1249,6 +1249,88 @@ export const TextReplacementSettings: React.FC = () => {
               {t("textReplacement.exportJson", "Export JSON")}
             </Button>
           </div>
+        </div>
+
+        {/* Add New Rule */}
+        <div className="overflow-hidden px-4 py-4">
+          <h4 className="mb-3 text-sm font-medium text-[#d0d0d0]">
+            {t(
+              "textReplacement.addRuleTitle",
+              "Add a new replacement rule",
+            )}
+          </h4>
+          <div className="mb-2 flex w-full items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <Input
+                type="text"
+                className="w-full"
+                value={newFrom}
+                onChange={(e) => setNewFrom(e.target.value)}
+                onKeyDown={handleKeyPress}
+                placeholder={t("textReplacement.fromPlaceholder", "Find text...")}
+                variant="compact"
+                disabled={isUpdating("text_replacements")}
+              />
+            </div>
+            <ArrowRight className="h-4 w-4 shrink-0 text-[#606060]" />
+            <div className="min-w-0 flex-1">
+              <Input
+                type="text"
+                className="w-full"
+                value={newTo}
+                onChange={(e) => setNewTo(e.target.value)}
+                onKeyDown={handleKeyPress}
+                placeholder={t(
+                  "textReplacement.toPlaceholder",
+                  "Replace with...",
+                )}
+                variant="compact"
+                disabled={isUpdating("text_replacements")}
+              />
+            </div>
+          </div>
+          {/* Options row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setNewCaseSensitive(!newCaseSensitive)}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
+                  newCaseSensitive
+                    ? "bg-[#9b5de5]/20 text-[#9b5de5] border border-[#9b5de5]/30"
+                    : "bg-[#252525] text-[#606060] border border-[#333333]"
+                }`}
+                title={t("textReplacement.caseSensitiveTooltip", "Toggle case sensitivity")}
+              >
+                <CaseSensitive className="w-3.5 h-3.5" />
+                {t("textReplacement.caseSensitiveShort", "Aa")}
+              </button>
+              <button
+                onClick={() => setNewIsRegex(!newIsRegex)}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
+                  newIsRegex
+                    ? "bg-[#f97316]/20 text-[#f97316] border border-[#f97316]/30"
+                    : "bg-[#252525] text-[#606060] border border-[#333333]"
+                }`}
+                title={t("textReplacement.regexTooltip", "Toggle regex mode")}
+              >
+                <Regex className="w-3.5 h-3.5" />
+                {t("textReplacement.regexShort", ".*")}
+              </button>
+            </div>
+            <Button
+              onClick={handleAddRule}
+              disabled={newFrom.length === 0 || isUpdating("text_replacements")}
+              variant="primary"
+              size="md"
+              className="shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Rule search and display order */}
+        <div className="space-y-2 border-t border-white/[0.05] px-4 py-3">
           <div className="relative">
             <Search
               className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#606060]"
@@ -1377,78 +1459,6 @@ export const TextReplacementSettings: React.FC = () => {
                 aria-hidden="true"
               />
             </div>
-          </div>
-        </div>
-
-        {/* Add New Rule */}
-        <div className="px-4 py-4 border-t border-white/[0.05] overflow-hidden">
-          <div className="flex items-center gap-2 w-full mb-2">
-            <div className="flex-1 min-w-0">
-              <Input
-                type="text"
-                className="w-full"
-                value={newFrom}
-                onChange={(e) => setNewFrom(e.target.value)}
-                onKeyDown={handleKeyPress}
-                placeholder={t("textReplacement.fromPlaceholder", "Find text...")}
-                variant="compact"
-                disabled={isUpdating("text_replacements")}
-              />
-            </div>
-            <ArrowRight className="w-4 h-4 text-[#606060] shrink-0" />
-            <div className="flex-1 min-w-0">
-              <Input
-                type="text"
-                className="w-full"
-                value={newTo}
-                onChange={(e) => setNewTo(e.target.value)}
-                onKeyDown={handleKeyPress}
-                placeholder={t(
-                  "textReplacement.toPlaceholder",
-                  "Replace with..."
-                )}
-                variant="compact"
-                disabled={isUpdating("text_replacements")}
-              />
-            </div>
-          </div>
-          {/* Options row */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setNewCaseSensitive(!newCaseSensitive)}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
-                  newCaseSensitive
-                    ? "bg-[#9b5de5]/20 text-[#9b5de5] border border-[#9b5de5]/30"
-                    : "bg-[#252525] text-[#606060] border border-[#333333]"
-                }`}
-                title={t("textReplacement.caseSensitiveTooltip", "Toggle case sensitivity")}
-              >
-                <CaseSensitive className="w-3.5 h-3.5" />
-                {t("textReplacement.caseSensitiveShort", "Aa")}
-              </button>
-              <button
-                onClick={() => setNewIsRegex(!newIsRegex)}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
-                  newIsRegex
-                    ? "bg-[#f97316]/20 text-[#f97316] border border-[#f97316]/30"
-                    : "bg-[#252525] text-[#606060] border border-[#333333]"
-                }`}
-                title={t("textReplacement.regexTooltip", "Toggle regex mode")}
-              >
-                <Regex className="w-3.5 h-3.5" />
-                {t("textReplacement.regexShort", ".*")}
-              </button>
-            </div>
-            <Button
-              onClick={handleAddRule}
-              disabled={newFrom.length === 0 || isUpdating("text_replacements")}
-              variant="primary"
-              size="md"
-              className="shrink-0"
-            >
-              <Plus className="w-4 h-4" />
-            </Button>
           </div>
         </div>
 
