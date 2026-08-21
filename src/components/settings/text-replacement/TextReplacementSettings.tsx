@@ -1052,7 +1052,7 @@ export const TextReplacementSettings: React.FC = () => {
             className="flex items-center gap-2 text-sm text-[#9b5de5] hover:text-[#b47eff] transition-colors"
           >
             <HelpCircle className="w-4 h-4" />
-            {t("textReplacement.helpTitle", "How to use special characters")}
+            {t("textReplacement.helpTitle", "I want to use special characters")}
             {showHelp ? (
               <ChevronUp className="w-4 h-4" />
             ) : (
@@ -1063,12 +1063,12 @@ export const TextReplacementSettings: React.FC = () => {
           {showHelp && (
             <div className="mt-3 p-4 bg-[#1a1a1a] rounded-lg border border-[#333333] text-sm">
               <h4 className="font-medium text-[#f5f5f5] mb-2">
-                {t("textReplacement.escapeSequences", "Escape Sequences")}
+                {t("textReplacement.escapeSequences", "Using special characters")}
               </h4>
               <p className="text-[#b8b8b8] mb-3">
                 {t(
                   "textReplacement.escapeIntro",
-                  "Use these codes to match or insert special characters:"
+                  "Some characters are also instructions for the app, so it cannot always tell what you mean. Use a backslash (\\) followed by one of the codes below to make your intent clear."
                 )}
               </p>
               <ul className="space-y-2 text-[#b8b8b8]">
