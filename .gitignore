@@ -29,6 +29,7 @@ recording_*
 ~
 
 # Bundled DLLs (copied during CI build)
+/src-tauri/transcribe-libs/
 plans/
 
 desktop.ini

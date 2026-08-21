@@ -4,6 +4,8 @@ fn main() {
 
     generate_tray_translations();
 
+    reset_windows_runtime_staging_dir();
+    stage_transcribe_runtime_dlls();
     stage_vc_runtime_dlls();
     let build_attributes = configure_windows_manifest();
 
@@ -32,6 +34,88 @@ fn configure_windows_manifest() -> tauri_build::Attributes {
     attributes =
         attributes.windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
     attributes
+}
+
+/// Start every Windows build with an architecture-clean app-local DLL directory.
+/// This prevents an ARM64 build from packaging stale x64 backend modules, or vice versa.
+fn reset_windows_runtime_staging_dir() {
+    use std::path::PathBuf;
+
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+
+    let dest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("transcribe-libs");
+    let _ = std::fs::remove_dir_all(&dest);
+    std::fs::create_dir_all(&dest).expect("create transcribe-libs staging dir");
+}
+
+/// Stage transcribe.cpp's shared runtime and loadable ggml backend modules.
+/// Static builds (including Windows ARM64) expose no runtime directory and no-op.
+fn stage_transcribe_runtime_dlls() {
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::path::PathBuf;
+
+    println!("cargo:rerun-if-env-changed=DEP_TRANSCRIBE_CPP_RUNTIME_DIR");
+    println!("cargo:rerun-if-env-changed=DEP_TRANSCRIBE_CPP_MODULE_DIR");
+
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    let Some(runtime_dir) = std::env::var_os("DEP_TRANSCRIBE_CPP_RUNTIME_DIR") else {
+        return;
+    };
+
+    let mut dirs = BTreeSet::new();
+    dirs.insert(PathBuf::from(runtime_dir));
+    if let Some(module_dir) = std::env::var_os("DEP_TRANSCRIBE_CPP_MODULE_DIR") {
+        dirs.insert(PathBuf::from(module_dir));
+    }
+
+    let mut dlls = BTreeMap::<String, PathBuf>::new();
+    for dir in &dirs {
+        println!("cargo:rerun-if-changed={}", dir.display());
+        for entry in std::fs::read_dir(dir)
+            .unwrap_or_else(|e| panic!("read {}: {e}", dir.display()))
+            .flatten()
+        {
+            let src = entry.path();
+            let name = src
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("");
+            if name.to_ascii_lowercase().ends_with(".dll") {
+                dlls.insert(name.to_string(), src);
+            }
+        }
+    }
+
+    if dlls.is_empty() {
+        panic!(
+            "no transcribe.cpp runtime DLLs found under {dirs:?}; a dynamic-backends build must ship them"
+        );
+    }
+
+    let dest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("transcribe-libs");
+    for (name, src) in &dlls {
+        std::fs::copy(src, dest.join(name))
+            .unwrap_or_else(|e| panic!("copy {}: {e}", src.display()));
+    }
+
+    if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("x86_64") {
+        let names: Vec<String> = dlls.keys().map(|name| name.to_ascii_lowercase()).collect();
+        if !names.iter().any(|name| name.contains("transcribe")) {
+            panic!("transcribe.cpp staging is missing its core runtime DLL");
+        }
+        if !names.iter().any(|name| name.contains("ggml")) {
+            panic!("transcribe.cpp staging is missing its dynamic ggml backend modules");
+        }
+    }
+
+    println!(
+        "cargo:warning=Staged {} transcribe.cpp runtime DLL(s)",
+        dlls.len()
+    );
 }
 
 /// Stage MSVC runtime DLLs into `transcribe-libs/` for app-local Windows deployment.
@@ -87,6 +171,11 @@ fn stage_vc_runtime_dlls() {
         if !copied.iter().any(|name| name == required) {
             panic!("HANDY_VC_REDIST_DIRS is set but {required} was not found in it");
         }
+    }
+    if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("x86_64")
+        && !copied.iter().any(|name| name == "vcomp140.dll")
+    {
+        panic!("HANDY_VC_REDIST_DIRS is set but vcomp140.dll was not found in it");
     }
 
     println!(
