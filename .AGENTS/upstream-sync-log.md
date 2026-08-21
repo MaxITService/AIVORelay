@@ -19,7 +19,8 @@ Audit note (2026-08-21):
 - Updated the v2 catalog generator to require pinned revisions and SHA-256
   metadata, enabled MOSS and PrimeLine, and kept transcription-less Sortformer
   models hidden. Deferred Multitalker's ambiguous nested bundle entries and
-  duplicate quant names; skipped upstream's Linux-only packaging changes.
+  duplicate quant names. Follow-up intake added Windows x64 dynamic-runtime
+  staging/package audits and restored native ARM64's static CPU-only posture.
 - Audited all six merge commits reachable from `upstream/main` in 2026. Five
   reproduce their automatic merge trees with no resolution-only behavior;
   `0e503672` is the only substantive merge resolution and is covered above.
@@ -129,7 +130,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
-| 2026-08-21 | 2026-08-19 | `afbf44cd`, `d55ea7ef`, `0e503672` | transcribe.cpp 0.2.0 (#1924); drop 'gpu' accelerator selector; Merge branch 'main' of github.com:cjpais/Handy | feat(transcription): migrate to transcribe.cpp 0.2 | manual final-tree adaptation; merge resolution reviewed; Linux packaging and ambiguous Multitalker bundle deferred |
+| 2026-08-21 | 2026-08-19 | `afbf44cd`, `d55ea7ef`, `0e503672` | transcribe.cpp 0.2.0 (#1924); drop 'gpu' accelerator selector; Merge branch 'main' of github.com:cjpais/Handy | feat(transcription): migrate to transcribe.cpp 0.2 | manual final-tree adaptation; merge resolution reviewed; Windows runtime packaging completed; Multitalker bundle deferred |
 | 2026-08-18 | 2026-08-17 | `c89b7bf` | fix: fall back to default microphone after disconnect (#1874) | fix(audio): recover after microphone disconnects | manual health/fallback port; retained fork capture routing and audio processing |
 | 2026-08-18 | 2026-08-17 | `5c77861` | bump handy-keys to 0.3.4 | fix(deps): update handy-keys to 0.3.4 | manifest update; lock refreshed locally without taking upstream lock |
 | 2026-08-18 | 2026-08-17 | `2cf157d` | fix(custom-words): allow multi-word phrases (#1406) | fix(custom-words): allow multi-word phrases | manual UI/test port; retained fork n-gram toggle and ampersand handling |

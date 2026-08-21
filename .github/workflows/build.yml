@@ -204,18 +204,23 @@ jobs:
           "CARGO_TARGET_DIR=$targetDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "Using short CARGO_TARGET_DIR $targetDir"
 
-      # ARM64 ggml builds are more reliable with Ninja + clang-cl than with
-      # the default VS generator/toolset path.
+      # Native Windows ARM64 links transcribe.cpp statically and CPU-only.
+      # ggml requires clang-cl on ARM; pin a portable CPU baseline and disable
+      # the OpenMP path whose clang runtime is not linked by this toolchain.
       - name: Configure cmake for ARM64 (Windows)
         if: contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64')
         shell: pwsh
         run: |
           "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CC=clang-cl" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CXX=clang-cl" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CMAKE_C_COMPILER=clang-cl" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CMAKE_CXX_COMPILER=clang-cl" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CMAKE_C_COMPILER_TARGET=aarch64-pc-windows-msvc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CMAKE_CXX_COMPILER_TARGET=aarch64-pc-windows-msvc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CL=/EHsc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RC=llvm-rc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TRANSCRIBE_CMAKE_ARGS=-DGGML_NATIVE=OFF -DGGML_OPENMP=OFF" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: install dependencies (ubuntu 24.04)
         if: contains(inputs.platform, 'ubuntu-24.04')
@@ -609,6 +614,20 @@ jobs:
               exit 1
             }
           }
+          if ($arch -eq "x64") {
+            if (-not (Test-Path (Join-Path $stagingDir "vcomp140.dll"))) {
+              Write-Error "Portable package is missing required OpenMP runtime DLL vcomp140.dll"
+              exit 1
+            }
+            if (-not (Get-ChildItem $stagingDir -Filter "*transcribe*.dll" -ErrorAction SilentlyContinue)) {
+              Write-Error "Portable package is missing the transcribe.cpp runtime DLL"
+              exit 1
+            }
+            if (-not (Get-ChildItem $stagingDir -Filter "*ggml*.dll" -ErrorAction SilentlyContinue)) {
+              Write-Error "Portable package is missing dynamic ggml backend modules"
+              exit 1
+            }
+          }
 
           # Copy the resources directory
           $resourcesPath = "$targetDir/resources"
@@ -664,6 +683,69 @@ jobs:
 
           foreach ($msi in $msiFiles) {
             Copy-Item $msi.FullName "$artifactDir/" -Force
+          }
+
+      - name: Audit Windows MSI runtime contents
+        if: contains(inputs.platform, 'windows')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $target = "${{ inputs.target }}"
+          $profile = "${{ steps.build-profile.outputs.profile }}"
+          $cargoTargetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { "src-tauri/target" }
+          if ($target -eq "x86_64-pc-windows-msvc" -or $target -eq "") {
+            $bundleDir = "$cargoTargetDir/$profile/bundle/msi"
+          } else {
+            $bundleDir = "$cargoTargetDir/$target/$profile/bundle/msi"
+          }
+          $msi = Get-ChildItem $bundleDir -Filter "*.msi" | Select-Object -First 1
+          if (-not $msi) { throw "No MSI package found in $bundleDir for runtime audit" }
+
+          $stagedDlls = Get-ChildItem "src-tauri/transcribe-libs" -Filter "*.dll"
+          foreach ($required in @("msvcp140.dll", "vcruntime140.dll")) {
+            if (-not ($stagedDlls | Where-Object { $_.Name -ieq $required })) {
+              throw "Runtime staging is missing $required"
+            }
+          }
+          if ("${{ inputs.target }}" -notlike "aarch64*") {
+            if (-not ($stagedDlls | Where-Object { $_.Name -ieq "vcomp140.dll" })) {
+              throw "Runtime staging is missing vcomp140.dll"
+            }
+            if (-not ($stagedDlls | Where-Object { $_.Name -like "*transcribe*" })) {
+              throw "Runtime staging is missing the transcribe.cpp core DLL"
+            }
+            if (-not ($stagedDlls | Where-Object { $_.Name -like "*ggml*" })) {
+              throw "Runtime staging is missing dynamic ggml backend modules"
+            }
+          }
+
+          $installDir = Join-Path $env:RUNNER_TEMP "aivorelay-msi-runtime-audit"
+          Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $installDir | Out-Null
+          $logFile = Join-Path $installDir "msi-admin-install.log"
+          $msiArgs = "/a `"$($msi.FullName)`" /qn /L*v `"$logFile`" TARGETDIR=`"$installDir`""
+          $process = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path $logFile) { Get-Content $logFile | Out-Host }
+            throw "Administrative MSI extraction failed with exit code $($process.ExitCode)"
+          }
+
+          $exe = Get-ChildItem $installDir -Filter "AivoRelay.exe" -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "MSI package is missing AivoRelay.exe" }
+          foreach ($dll in $stagedDlls) {
+            if (-not (Get-ChildItem $installDir -Filter $dll.Name -Recurse)) {
+              throw "MSI package is missing staged runtime DLL $($dll.Name)"
+            }
+          }
+
+          $deviceOutput = (& $exe.FullName --list-devices | Out-String)
+          $deviceOutput | Write-Host
+          if ($LASTEXITCODE -ne 0) { throw "Packaged AivoRelay --list-devices failed" }
+          if ($deviceOutput -notmatch "kind=cpu") {
+            throw "Packaged AivoRelay did not expose its required CPU compute device"
+          }
+          if ("${{ inputs.target }}" -like "aarch64*" -and $deviceOutput -match "kind=(vulkan|cuda|metal|gpu)") {
+            throw "Windows ARM64 package unexpectedly exposed a GPU compute device"
           }
 
       - name: Upload portable ZIP to release (Windows)

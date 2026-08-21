@@ -119,12 +119,17 @@ tauri-plugin-global-shortcut = "2.3.1"
 tauri-plugin-single-instance = "2.3.2"
 tauri-plugin-updater = "2.10.0"
 
-[target.'cfg(windows)'.dependencies]
-transcribe-rs = { version = "0.3.8", features = ["ort-directml", "vad-silero"] }
+[target.'cfg(all(windows, target_arch = "x86_64"))'.dependencies]
 transcribe-cpp = { version = "=0.2.0", default-features = false, features = [
   "dynamic-backends",
   "vulkan",
 ] }
+
+[target.'cfg(all(windows, target_arch = "aarch64"))'.dependencies]
+transcribe-cpp = { version = "=0.2.0", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+transcribe-rs = { version = "0.3.8", features = ["ort-directml", "vad-silero"] }
 webview2-com = "0.38.2"
 windows = { version = "0.61.3", features = [
   "Win32_Storage_FileSystem",
