@@ -1,6 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Trash2, ArrowRight, HelpCircle, ChevronDown, ChevronUp, CaseSensitive, Regex, Check, X, AlertTriangle } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  ArrowUpDown,
+  CaseSensitive,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  HelpCircle,
+  Plus,
+  Regex,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { useSettings } from "@/hooks/useSettings";
 import { useNavigationStore } from "@/stores/navigationStore";
@@ -15,15 +29,12 @@ import { HotkeyCapture } from "@/components/ui/HotkeyCapture";
 import { formatKeyCombination, type OSType } from "@/lib/utils/keyboard";
 import { getShortcutAnchorId } from "@/lib/shortcutAnchors";
 import { getActiveProfilePostProcessingEnabled } from "@/lib/postProcessingAvailability";
-
-interface TextReplacementRule {
-  id: string;
-  from: string;
-  to: string;
-  enabled: boolean;
-  case_sensitive: boolean;
-  is_regex: boolean;
-}
+import {
+  getVisibleTextReplacementRules,
+  type TextReplacementRule,
+  type TextReplacementSearchScope,
+  type TextReplacementSortOrder,
+} from "./textReplacementRuleView";
 
 type OutputWhitespaceMode = "preserve" | "remove_if_present" | "add_if_missing";
 
@@ -58,6 +69,11 @@ export const TextReplacementSettings: React.FC = () => {
   const [newCaseSensitive, setNewCaseSensitive] = useState(true);
   const [newIsRegex, setNewIsRegex] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [ruleSearchQuery, setRuleSearchQuery] = useState("");
+  const [ruleSearchScope, setRuleSearchScope] =
+    useState<TextReplacementSearchScope>("all");
+  const [ruleSortOrder, setRuleSortOrder] =
+    useState<TextReplacementSortOrder>("oldest");
   
   // Editing state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -76,11 +92,25 @@ export const TextReplacementSettings: React.FC = () => {
       ? osKind
       : "unknown";
 
-  const replacements: TextReplacementRule[] = (settings?.text_replacements ?? []).map((r: any) => ({
-    ...r,
-    case_sensitive: r.case_sensitive ?? true,
-    is_regex: r.is_regex ?? false,
-  }));
+  const replacements = useMemo<TextReplacementRule[]>(
+    () =>
+      (settings?.text_replacements ?? []).map((rule: any) => ({
+        ...rule,
+        case_sensitive: rule.case_sensitive ?? true,
+        is_regex: rule.is_regex ?? false,
+      })),
+    [settings?.text_replacements],
+  );
+  const visibleReplacements = useMemo(
+    () =>
+      getVisibleTextReplacementRules(
+        replacements,
+        ruleSearchQuery,
+        ruleSearchScope,
+        ruleSortOrder,
+      ),
+    [replacements, ruleSearchQuery, ruleSearchScope, ruleSortOrder],
+  );
   const isEnabled = settings?.text_replacements_enabled ?? false;
   const decapitalizeAfterEditEnabled =
     settings?.text_replacement_decapitalize_after_edit_key_enabled ?? false;
@@ -870,6 +900,139 @@ export const TextReplacementSettings: React.FC = () => {
           )}
         </div>
 
+        {/* Rule search and display order */}
+        <div className="space-y-2 border-t border-white/[0.05] px-4 py-3">
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#606060]"
+              aria-hidden="true"
+            />
+            <Input
+              type="text"
+              variant="compact"
+              value={ruleSearchQuery}
+              onChange={(event) => setRuleSearchQuery(event.target.value)}
+              placeholder={t(
+                "textReplacement.filterPlaceholder",
+                "Filter replacement rules...",
+              )}
+              aria-label={t(
+                "textReplacement.filterPlaceholder",
+                "Filter replacement rules...",
+              )}
+              className="w-full pl-8 pr-8"
+            />
+            {ruleSearchQuery.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setRuleSearchQuery("")}
+                aria-label={t(
+                  "textReplacement.clearFilter",
+                  "Clear rule filter",
+                )}
+                title={t(
+                  "textReplacement.clearFilter",
+                  "Clear rule filter",
+                )}
+                className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-[#606060] transition-colors hover:bg-white/[0.06] hover:text-[#d0d0d0]"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              role="group"
+              aria-label={t(
+                "textReplacement.filterScope",
+                "Rule filter scope",
+              )}
+              className="inline-flex overflow-hidden rounded-md border border-[#3c3c3c] bg-[#181818]"
+            >
+              <button
+                type="button"
+                aria-pressed={ruleSearchScope === "all"}
+                onClick={() => setRuleSearchScope("all")}
+                className={`min-h-7 whitespace-nowrap px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#9b5de5]/60 ${
+                  ruleSearchScope === "all"
+                    ? "bg-[#9b5de5]/20 text-[#c69cff]"
+                    : "text-[#8a8a8a] hover:bg-white/[0.04] hover:text-[#c8c8c8]"
+                }`}
+              >
+                {t("textReplacement.filterAllFields", "All fields")}
+              </button>
+              <button
+                type="button"
+                aria-pressed={ruleSearchScope === "replacement"}
+                onClick={() => setRuleSearchScope("replacement")}
+                className={`min-h-7 whitespace-nowrap border-l border-[#3c3c3c] px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#9b5de5]/60 ${
+                  ruleSearchScope === "replacement"
+                    ? "bg-[#9b5de5]/20 text-[#c69cff]"
+                    : "text-[#8a8a8a] hover:bg-white/[0.04] hover:text-[#c8c8c8]"
+                }`}
+              >
+                {t("textReplacement.filterReplaceWith", "Replace with")}
+              </button>
+            </div>
+
+            <span
+              className="text-xs tabular-nums text-[#707070]"
+              aria-live="polite"
+            >
+              {t(
+                "textReplacement.filterCount",
+                "Rules: {{visible}} / {{total}}",
+                {
+                  visible: visibleReplacements.length,
+                  total: replacements.length,
+                },
+              )}
+            </span>
+
+            <div className="relative ml-auto w-full max-w-full min-w-0 sm:w-auto sm:min-w-[12rem]">
+              <ArrowUpDown
+                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#707070]"
+                aria-hidden="true"
+              />
+              <select
+                value={ruleSortOrder}
+                onChange={(event) =>
+                  setRuleSortOrder(event.target.value as TextReplacementSortOrder)
+                }
+                aria-label={t(
+                  "textReplacement.sortLabel",
+                  "Sort replacement rules",
+                )}
+                className="min-h-7 w-full appearance-none rounded-md border border-[#3c3c3c] bg-[#181818] py-1 pl-8 pr-8 text-xs text-[#c8c8c8] outline-none transition-colors hover:border-[#505050] focus:border-[#9b5de5] [color-scheme:dark]"
+              >
+                <option value="alphabetical-asc">
+                  {t(
+                    "textReplacement.sortAlphabeticalAscending",
+                    "Alphabetical (A → Z)",
+                  )}
+                </option>
+                <option value="alphabetical-desc">
+                  {t(
+                    "textReplacement.sortAlphabeticalDescending",
+                    "Reverse alphabetical (Z → A)",
+                  )}
+                </option>
+                <option value="newest">
+                  {t("textReplacement.sortNewest", "Newest to oldest")}
+                </option>
+                <option value="oldest">
+                  {t("textReplacement.sortOldest", "Oldest to newest")}
+                </option>
+              </select>
+              <ChevronDown
+                className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#707070]"
+                aria-hidden="true"
+              />
+            </div>
+          </div>
+        </div>
+
         {/* Add New Rule */}
         <div className="px-4 py-4 border-t border-white/[0.05] overflow-hidden">
           <div className="flex items-center gap-2 w-full mb-2">
@@ -946,7 +1109,7 @@ export const TextReplacementSettings: React.FC = () => {
         {replacements.length > 0 && (
           <div className="px-4 py-3 border-t border-white/[0.05]">
             <div className="space-y-2">
-              {replacements.map((rule) => (
+              {visibleReplacements.map((rule) => (
                 <div
                   key={rule.id}
                   className={`p-3 rounded-lg border transition-all ${
@@ -1100,6 +1263,14 @@ export const TextReplacementSettings: React.FC = () => {
                   )}
                 </div>
               ))}
+              {visibleReplacements.length === 0 && (
+                <div className="rounded-md border border-dashed border-[#333333] px-4 py-6 text-center text-sm text-[#707070]">
+                  {t(
+                    "textReplacement.noFilterResults",
+                    "No replacement rules match this filter.",
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
