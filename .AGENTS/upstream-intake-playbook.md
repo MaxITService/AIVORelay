@@ -39,6 +39,9 @@ git log <last_upstream_sha>..upstream/main --oneline
 git cherry -v main upstream/main
 ```
 
+Review-cursor safeguard:
+- Do not advance the safe review cursor past a merge commit until every parent in the corridor and the merge resolution have been reviewed and classified.
+
 ## Selection Rules
 
 Take:
@@ -55,15 +58,32 @@ Optional:
 
 Skip:
 - release-only bumps/tags
-- merge commits
 - sponsor/template/document-only housekeeping
 - Linux/macOS-only runtime changes unless they contain shared critical fixes
+
+## Merge Commits
+
+Merge commits are not direct cherry-pick candidates by default, but they are never assumed to be content-free or automatically skipped. Inspect every merge's parents, topology, combined diff, remerge diff, final tree, and conflict-resolution behavior. Judge relevance and fork fitness with the same Windows/fork selection rules used for ordinary commits.
+
+Inspect especially carefully when selected or relevant parent commits touch overlapping files, or when an intermediate parent is broken or incomplete. If the resolution contains relevant behavior, manually adapt it from the final merge tree (or an exact minimal diff) and record the merge SHA as reviewed/reference in [[.AGENTS/upstream-sync-log|upstream-sync-log.md]]. Skip a merge only after confirming that it contains no relevant resolution-only behavior.
+
+Useful merge inspection commands:
+
+```bash
+git show --no-patch --format='%H%n%P%n%s' <merge_sha>
+git show --cc <merge_sha>
+git show --remerge-diff <merge_sha>
+git diff <merge_sha>^1..<merge_sha>
+git diff <merge_sha>^2..<merge_sha>
+```
+
+Octopus merges or merges with additional parents require equivalent inspection of each parent.
 
 ## Workflow
 
 1. Confirm working tree status and starting branch.
 2. Switch to `main`.
-3. Cherry-pick selected upstream commits one by one.
+3. Cherry-pick selected ordinary upstream commits one by one. For a selected merge resolution, manually adapt the reviewed final-tree behavior or exact minimal diff instead of cherry-picking the merge by default.
 4. If conflicts are small and safe, resolve and continue.
 5. If conflicts are many/high-risk, run `git cherry-pick --abort` and switch to diff-path using `.AGENTS/.untracked/<sha>.diff.txt`.
 6. Record the integrated upstream commit SHA and the intended `main` commit message for each taken item.
