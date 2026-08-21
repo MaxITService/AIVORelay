@@ -1181,10 +1181,10 @@ export const TextReplacementSettings: React.FC = () => {
                   </span>
                 </li>
                 <li>
-                  <code className="text-[#f97316]">\b(\w+)\s+\1\b</code> →{" "}
-                  <code className="text-[#4ade80]">$1</code>
+                  <code className="text-[#f97316]">{String.raw`(\d{4})-(\d{2})-(\d{2})`}</code> →{" "}
+                  <code className="text-[#4ade80]">$3.$2.$1</code>
                   <span className="text-[#606060] ml-2">
-                    {t("textReplacement.exampleRegex", "(remove repeated words)")}
+                    {t("textReplacement.exampleRegex", "(reformat a date)")}
                   </span>
                 </li>
               </ul>
