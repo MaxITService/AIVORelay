@@ -2,8 +2,7 @@
 
 **Please confirm you have done the following:**
 
-- [ ] I have searched [existing issues](https://github.com/cjpais/Handy/issues) and [pull requests](https://github.com/cjpais/Handy/pulls) (including closed ones) to ensure this isn't a duplicate
-- [ ] I have read [CONTRIBUTING.md](../CONTRIBUTING.md)
+- [ ] I have searched existing issues and pull requests (including closed ones) to ensure this isn't a duplicate
 
 **If this is a feature or change that was previously closed/rejected:**
 
@@ -35,13 +34,8 @@ Discussion:
 <!--
 PRs with community support are much more likely to be merged.
 
-For features: Link to a discussion where community members have expressed interest.
+For features: Link to an issue or discussion where others have expressed interest.
 For bug fixes: Link to the issue where others have confirmed the bug.
-
-If you haven't gathered feedback yet, consider starting a discussion first:
-https://github.com/cjpais/Handy/discussions
-
-It is not explicitly required to gather feedback, but it certainly helps your PR get merged.
 -->
 
 ## Testing
