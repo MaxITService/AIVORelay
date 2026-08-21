@@ -14,7 +14,7 @@ pub struct ReasoningConfig {
 }
 
 impl ReasoningConfig {
-    pub fn new(enabled: bool, budget: u32) -> Self {
+    fn new(enabled: bool, budget: u32) -> Self {
         Self {
             enabled,
             budget: if enabled { budget.max(1024) } else { budget },
@@ -22,7 +22,11 @@ impl ReasoningConfig {
         }
     }
 
-    pub fn with_disable_by_default_on_compatible_providers(mut self, disable: bool) -> Self {
+    pub fn from_user_toggle(enabled: bool, budget: u32) -> Self {
+        Self::new(enabled, budget).with_disable_by_default_on_compatible_providers(true)
+    }
+
+    fn with_disable_by_default_on_compatible_providers(mut self, disable: bool) -> Self {
         self.disable_by_default_on_compatible_providers = disable;
         self
     }
@@ -454,9 +458,14 @@ async fn send_chat_completion_with_messages_at_base_url(
         sanitized_url(response.url())
     );
 
-    // Fail-soft retry: if we get 400 and reasoning was enabled, retry without reasoning
+    // Fail-soft retry: on 400, retry without optional reasoning controls.
+    // Never remove Groq's explicit Qwen OFF control; omitting it enables reasoning again.
+    let must_preserve_groq_qwen_off = provider.id == "groq"
+        && !reasoning.enabled
+        && request_body.reasoning_effort.as_deref() == Some("none");
     if status.as_u16() == 400
         && (request_body.reasoning.is_some() || request_body.reasoning_effort.is_some())
+        && !must_preserve_groq_qwen_off
     {
         let error_text = response.text().await.unwrap_or_else(|e| {
             report_reqwest_error("Failed to read reasoning rejection response", &e)
@@ -842,8 +851,7 @@ mod tests {
         let (base_url, captured_request) =
             serve_one_captured_json_response("200 OK", response_body).await;
         let provider = test_provider("groq");
-        let reasoning =
-            ReasoningConfig::new(false, 2048).with_disable_by_default_on_compatible_providers(true);
+        let reasoning = ReasoningConfig::from_user_toggle(false, 2048);
 
         let result = send_chat_completion_with_messages_at_base_url(
             &provider,
@@ -870,6 +878,32 @@ mod tests {
         assert!(request.body.get("max_completion_tokens").is_none());
     }
 
+    #[tokio::test]
+    async fn groq_qwen_off_400_does_not_retry_without_none() {
+        let (base_url, captured_request) =
+            serve_one_captured_json_response("400 Bad Request", r#"{"error":"rejected"}"#).await;
+        let provider = test_provider("groq");
+
+        let error = send_chat_completion_with_messages_at_base_url(
+            &provider,
+            "not-a-real-key".to_string(),
+            "qwen/qwen3.6-27b",
+            vec![ChatMessage {
+                role: "user".to_string(),
+                content: "hello".to_string(),
+            }],
+            ReasoningConfig::from_user_toggle(false, 2048),
+            &base_url,
+        )
+        .await
+        .unwrap_err();
+        let request = captured_request.await.unwrap();
+
+        assert_eq!(request.body["reasoning_effort"], "none");
+        assert!(error.contains("API request failed with status 400"));
+        assert!(!error.contains("HTTP retry failed"));
+    }
+
     #[test]
     fn requests_explicitly_disable_streaming() {
         let json = request_json();
@@ -878,8 +912,7 @@ mod tests {
 
     #[test]
     fn groq_qwen_disables_reasoning_with_documented_effort() {
-        let reasoning =
-            ReasoningConfig::new(false, 2048).with_disable_by_default_on_compatible_providers(true);
+        let reasoning = ReasoningConfig::from_user_toggle(false, 2048);
         let options = reasoning_request_options("groq", "qwen/qwen3.6-27b", &reasoning);
         let json = request_json_with_reasoning_options(options);
 
@@ -891,8 +924,7 @@ mod tests {
 
     #[test]
     fn groq_non_qwen_omits_unsupported_none_effort() {
-        let reasoning =
-            ReasoningConfig::new(false, 2048).with_disable_by_default_on_compatible_providers(true);
+        let reasoning = ReasoningConfig::from_user_toggle(false, 2048);
         let options = reasoning_request_options("groq", "openai/gpt-oss-120b", &reasoning);
         let json = request_json_with_reasoning_options(options);
 
@@ -926,8 +958,7 @@ mod tests {
 
     #[test]
     fn undocumented_groq_qwen_variant_omits_reasoning_controls() {
-        let reasoning =
-            ReasoningConfig::new(false, 2048).with_disable_by_default_on_compatible_providers(true);
+        let reasoning = ReasoningConfig::from_user_toggle(false, 2048);
         let options = reasoning_request_options("groq", "qwen/qwen3-future", &reasoning);
         let json = request_json_with_reasoning_options(options);
 

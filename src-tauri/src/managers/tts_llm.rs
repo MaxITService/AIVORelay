@@ -83,8 +83,7 @@ pub fn resolve_config(
         model,
         prompt_id: prompt.id.trim().to_string(),
         instructions: prompt.prompt.trim().to_string(),
-        reasoning: ReasoningConfig::new(llm.reasoning_enabled, llm.reasoning_budget)
-            .with_disable_by_default_on_compatible_providers(true),
+        reasoning: ReasoningConfig::from_user_toggle(llm.reasoning_enabled, llm.reasoning_budget),
         chunk_target_chars: (llm.chunk_target_chars as usize).clamp(1_000, 50_000),
         retry_count: llm.retry_count.min(10),
         retry_base_delay_ms: llm.retry_base_delay_ms.clamp(100, 30_000),
