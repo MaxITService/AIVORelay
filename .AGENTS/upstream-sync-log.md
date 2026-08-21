@@ -6,6 +6,24 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-08-21):
+- Reviewed the complete corridor after `99052ee`: `afbf44cd` (`transcribe.cpp
+  0.2.0 (#1924)`), the parallel `d55ea7ef` (`drop 'gpu' accelerator selector`),
+  and their conflict-resolution merge `0e503672`. The safe review cursor is now
+  `0e503672`.
+- Manually adapted the merge's final tree as `2e8ce179` (`feat(transcription):
+  migrate to transcribe.cpp 0.2`). Both Rust crates are pinned to exact `0.2.0`;
+  device selection now persists stable identities, migrates legacy indexes,
+  reports requested and bound devices, and treats CLI registry index zero as an
+  exact selection.
+- Updated the v2 catalog generator to require pinned revisions and SHA-256
+  metadata, enabled MOSS and PrimeLine, and kept transcription-less Sortformer
+  models hidden. Deferred Multitalker's ambiguous nested bundle entries and
+  duplicate quant names; skipped upstream's Linux-only packaging changes.
+- Audited all six merge commits reachable from `upstream/main` in 2026. Five
+  reproduce their automatic merge trees with no resolution-only behavior;
+  `0e503672` is the only substantive merge resolution and is covered above.
+
 Audit note (2026-08-18):
 - Refreshed `Q:\Handy-upstream` and reviewed all 11 non-merge commits from
   `549cbde3` through upstream HEAD `99052ee`; the safe review cursor is now
@@ -111,6 +129,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-08-21 | 2026-08-19 | `afbf44cd`, `d55ea7ef`, `0e503672` | transcribe.cpp 0.2.0 (#1924); drop 'gpu' accelerator selector; Merge branch 'main' of github.com:cjpais/Handy | feat(transcription): migrate to transcribe.cpp 0.2 | manual final-tree adaptation; merge resolution reviewed; Linux packaging and ambiguous Multitalker bundle deferred |
 | 2026-08-18 | 2026-08-17 | `c89b7bf` | fix: fall back to default microphone after disconnect (#1874) | fix(audio): recover after microphone disconnects | manual health/fallback port; retained fork capture routing and audio processing |
 | 2026-08-18 | 2026-08-17 | `5c77861` | bump handy-keys to 0.3.4 | fix(deps): update handy-keys to 0.3.4 | manifest update; lock refreshed locally without taking upstream lock |
 | 2026-08-18 | 2026-08-17 | `2cf157d` | fix(custom-words): allow multi-word phrases (#1406) | fix(custom-words): allow multi-word phrases | manual UI/test port; retained fork n-gram toggle and ampersand handling |
@@ -120,7 +139,6 @@ Rules:
 | 2026-08-13 | 2026-08-09 | `1bcbfc4c` | fix: support compressed API responses (#1548) | fix(http): support compressed provider responses | manual Cargo feature port; retained multipart support; lock regenerated locally |
 | 2026-08-08 | 2026-08-08 | `db003f38` | fix(audio): skip level meter and resampler while idle in always-on mode (#1873) | fix(audio): skip idle level-meter and resampler work | manual port; retained gain, noise cancellation, and stream callbacks |
 | 2026-08-08 | 2026-08-07 | `d9615937` | fix: update js-yaml to address quadratic parsing (#1865) | fix(deps): update js-yaml to 4.3.1 | Bun lock only; fork has no Nix lock metadata |
-| 2026-08-08 | 2026-08-06 | `12f02e2a` | fix: add input channel selection for multi-channel audio interfaces (#1254) | fix(audio): add input channel selection for multi-channel interfaces | manual port; retained fork capture-source routing |
 
 Entry template:
 
