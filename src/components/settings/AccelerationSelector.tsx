@@ -24,23 +24,22 @@ interface AccelerationSelectorProps {
 
 function encodeWhisperValue(
   accelerator: WhisperAcceleratorSetting,
-  gpuDevice: number,
+  gpuDevice: string | null,
 ): string {
   if (accelerator === "cpu") return "cpu";
-  if (accelerator === "gpu" && gpuDevice >= 0) return `gpu:${gpuDevice}`;
+  if (accelerator === "gpu" && gpuDevice !== null) return `gpu:${gpuDevice}`;
   return "auto";
 }
 
 function decodeWhisperValue(value: string): {
   accelerator: WhisperAcceleratorSetting;
-  gpuDevice: number;
+  gpuDevice: string | null;
 } {
-  if (value === "cpu") return { accelerator: "cpu", gpuDevice: -1 };
+  if (value === "cpu") return { accelerator: "cpu", gpuDevice: null };
   if (value.startsWith("gpu:")) {
-    const id = Number.parseInt(value.slice(4), 10);
-    return { accelerator: "gpu", gpuDevice: id };
+    return { accelerator: "gpu", gpuDevice: value.slice(4) };
   }
-  return { accelerator: "auto", gpuDevice: -1 };
+  return { accelerator: "auto", gpuDevice: null };
 }
 
 export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
@@ -96,10 +95,10 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
   }, [t]);
 
   const currentAccelerator = getSetting("whisper_accelerator") ?? "auto";
-  const currentGpuDevice = getSetting("whisper_gpu_device") ?? -1;
+  const currentGpuDevice = getSetting("whisper_gpu_device") ?? null;
   const currentWhisper = encodeWhisperValue(
     currentAccelerator as WhisperAcceleratorSetting,
-    currentGpuDevice as number,
+    currentGpuDevice as string | null,
   );
   const displayedWhisper = whisperOptions.some(
     (option) => option.value === currentWhisper,
@@ -110,8 +109,8 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
 
   const handleWhisperChange = async (value: string) => {
     const { accelerator, gpuDevice } = decodeWhisperValue(value);
-    await updateSetting("whisper_accelerator", accelerator);
     await updateSetting("whisper_gpu_device", gpuDevice);
+    await updateSetting("whisper_accelerator", accelerator);
   };
 
   return (

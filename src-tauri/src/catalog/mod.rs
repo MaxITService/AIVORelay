@@ -101,3 +101,18 @@ pub fn mirror_fallbacks(model_id: &str) -> Vec<MirrorFile> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::CATALOG;
+
+    #[test]
+    fn pure_diarization_models_are_not_downloadable() {
+        assert!(
+            CATALOG
+                .iter()
+                .all(|model| model.architecture.as_deref() != Some("sortformer")),
+            "Sortformer produces speaker segments, not transcription text"
+        );
+    }
+}

@@ -273,8 +273,8 @@ pub struct CliArgs {
     #[arg(long)]
     pub model: Option<String>,
 
-    /// Hard-select the compute device for --transcribe-file by --list-devices
-    /// index. 0 = CPU, 1.. = specific GPU. Whisper.cpp models only.
+    /// Hard-select the exact transcribe.cpp compute-device registry index
+    /// printed by --list-devices. Runtime ordering is not fixed.
     #[arg(long, value_name = "N")]
     pub device_index: Option<usize>,
 
