@@ -539,97 +539,115 @@ pub struct TextReplacement {
     pub is_regex: bool,
 }
 
-impl TextReplacement {
-    /// Processes escape sequences in a string.
-    /// Converts: \\n -> \n, \\r\\n -> \r\n, \\t -> \t, \\\\ -> \\
-    fn process_escapes(s: &str) -> String {
-        let mut result = String::with_capacity(s.len());
-        let mut chars = s.chars().peekable();
+/// Processes application-level escape sequences in a text replacement value.
+///
+/// Malformed Unicode-style escapes are left unchanged in their entirety. This
+/// helper is intentionally not applied to regex from patterns, whose
+/// backslashes are part of the regex syntax.
+pub(crate) fn process_text_replacement_escapes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.char_indices().peekable();
 
-        while let Some(c) = chars.next() {
-            if c == '\\' {
-                match chars.peek() {
-                    Some('n') => {
-                        result.push('\n');
-                        chars.next();
-                    }
-                    Some('r') => {
-                        chars.next();
-                        // Check for \r\n sequence
-                        if chars.peek() == Some(&'\\') {
-                            let mut temp = chars.clone();
-                            temp.next();
-                            if temp.peek() == Some(&'n') {
-                                result.push_str("\r\n");
-                                chars.next(); // consume \
-                                chars.next(); // consume n
+    while let Some((index, c)) = chars.next() {
+        if c != '\\' {
+            result.push(c);
+            continue;
+        }
+
+        match chars.peek().copied().map(|(_, ch)| ch) {
+            Some('n') => {
+                result.push('\n');
+                chars.next();
+            }
+            Some('r') => {
+                chars.next();
+                let mut lookahead = chars.clone();
+                if lookahead.next().map(|(_, ch)| ch) == Some('\\')
+                    && lookahead.next().map(|(_, ch)| ch) == Some('n')
+                {
+                    result.push_str("\r\n");
+                    chars.next();
+                    chars.next();
+                } else {
+                    result.push('\r');
+                }
+            }
+            Some('t') => {
+                result.push('\t');
+                chars.next();
+            }
+            Some('\\') => {
+                result.push('\\');
+                chars.next();
+            }
+            Some('u') => {
+                // Validate the full candidate before advancing the real iterator.
+                let mut candidate = chars.clone();
+                let is_unicode_candidate = candidate.next().map(|(_, ch)| ch) == Some('u')
+                    && candidate.next().map(|(_, ch)| ch) == Some('{');
+
+                if is_unicode_candidate {
+                    let mut hex = String::new();
+                    let mut valid = true;
+                    let mut closing_end = None;
+
+                    while let Some((_, ch)) = candidate.next() {
+                        if ch == '}' {
+                            closing_end = Some(
+                                candidate
+                                    .peek()
+                                    .map(|&(next_index, _)| next_index)
+                                    .unwrap_or(s.len()),
+                            );
+                            break;
+                        }
+                        if valid {
+                            if !ch.is_ascii_hexdigit() || hex.len() >= 6 {
+                                valid = false;
                             } else {
-                                result.push('\r');
+                                hex.push(ch);
                             }
-                        } else {
-                            result.push('\r');
                         }
                     }
-                    Some('t') => {
-                        result.push('\t');
-                        chars.next();
-                    }
-                    Some('\\') => {
-                        result.push('\\');
-                        chars.next();
-                    }
-                    Some('u') => {
-                        // Unicode escape: \u{XXXX} where XXXX is 1-6 hex digits
-                        chars.next(); // consume 'u'
-                        if chars.peek() == Some(&'{') {
-                            chars.next(); // consume '{'
-                            let mut hex_str = String::new();
-                            while let Some(&ch) = chars.peek() {
-                                if ch == '}' {
-                                    chars.next(); // consume '}'
-                                    break;
-                                }
-                                if ch.is_ascii_hexdigit() && hex_str.len() < 6 {
-                                    hex_str.push(ch);
-                                    chars.next();
-                                } else {
-                                    // Invalid character in hex sequence, abort
-                                    break;
-                                }
-                            }
-                            if let Ok(code_point) = u32::from_str_radix(&hex_str, 16) {
-                                if let Some(unicode_char) = char::from_u32(code_point) {
+
+                    match closing_end {
+                        Some(end) => {
+                            if valid && !hex.is_empty() {
+                                if let Some(unicode_char) = u32::from_str_radix(&hex, 16)
+                                    .ok()
+                                    .and_then(char::from_u32)
+                                {
                                     result.push(unicode_char);
-                                } else {
-                                    // Invalid code point, keep original sequence
-                                    result.push_str("\\u{");
-                                    result.push_str(&hex_str);
-                                    result.push('}');
+                                    chars = candidate;
+                                    continue;
                                 }
-                            } else {
-                                // Failed to parse hex, keep original
-                                result.push_str("\\u{");
-                                result.push_str(&hex_str);
-                                result.push('}');
                             }
-                        } else {
-                            // No opening brace, keep \u as literal
-                            result.push('\\');
-                            result.push('u');
+
+                            result.push_str(&s[index..end]);
+                            chars = candidate;
+                            continue;
                         }
-                    }
-                    _ => {
-                        // Keep the backslash if not a recognized escape
-                        result.push(c);
+                        None => {
+                            result.push_str(&s[index..]);
+                            break;
+                        }
                     }
                 }
-            } else {
-                result.push(c);
+
+                // A braced candidate was not found, so retain ordinary unknown-escape behavior.
+                result.push('\\');
+            }
+            _ => {
+                // Keep the backslash if this is not a recognized escape.
+                result.push('\\');
             }
         }
-        result
     }
 
+    result
+}
+
+impl TextReplacement {
     /// Applies this replacement rule to the given text.
     /// Returns the text with all occurrences of `from` replaced with `to`.
     pub fn apply(&self, text: &str) -> String {
@@ -637,7 +655,7 @@ impl TextReplacement {
             return text.to_string();
         }
 
-        let to_processed = Self::process_escapes(&self.to);
+        let to_processed = process_text_replacement_escapes(&self.to);
 
         if self.is_regex {
             // Regex mode
@@ -660,7 +678,7 @@ impl TextReplacement {
             }
         } else {
             // Plain text mode
-            let from_processed = Self::process_escapes(&self.from);
+            let from_processed = process_text_replacement_escapes(&self.from);
 
             if self.case_sensitive {
                 text.replace(&from_processed, &to_processed)
@@ -6785,6 +6803,113 @@ pub fn record_dictation_stats_for_text(app: &AppHandle, text: &str) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn test_text_replacement(
+        from: &str,
+        to: &str,
+        case_sensitive: bool,
+        is_regex: bool,
+    ) -> TextReplacement {
+        TextReplacement {
+            id: "test".to_string(),
+            from: from.to_string(),
+            to: to.to_string(),
+            enabled: true,
+            case_sensitive,
+            is_regex,
+        }
+    }
+
+    #[test]
+    fn text_replacement_escape_helper_handles_valid_sequences() {
+        let cases = [
+            (r"\n", "\n"),
+            (r"\r", "\r"),
+            (r"\r\n", "\r\n"),
+            (r"\t", "\t"),
+            (r"\\", "\\"),
+            (r"\d\s\b\q", r"\d\s\b\q"),
+            ("\n\r\n\t", "\n\r\n\t"),
+            ("Привет 🙂", "Привет 🙂"),
+            (r"\u{200D}", "\u{200D}"),
+            (r"\u{1F642}", "🙂"),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(
+                process_text_replacement_escapes(input),
+                expected,
+                "{:?}",
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn text_replacement_malformed_unicode_escapes_remain_literal() {
+        let malformed = [
+            r"\u{}",
+            r"\u{41G}",
+            r"\u{1234567}",
+            r"\u{41",
+            r"\u41",
+            r"\u{D800}",
+            r"\u{110000}",
+            r"\u{41\n}",
+            r"\u{41\t",
+        ];
+
+        for candidate in malformed {
+            let input = format!("prefix<{}>suffix", candidate);
+            assert_eq!(
+                process_text_replacement_escapes(&input),
+                input,
+                "{:?}",
+                candidate
+            );
+        }
+
+        let closed_with_external_suffix = format!("{}{}", r"\u{41G}", r"\n");
+        assert_eq!(
+            process_text_replacement_escapes(&closed_with_external_suffix),
+            format!("{}\n", r"\u{41G}")
+        );
+    }
+
+    #[test]
+    fn text_replacement_literal_mode_handles_escapes_and_order() {
+        let escaped = test_text_replacement(r"\n\t\\", r"\t\n\\", true, false);
+        assert_eq!(escaped.apply("\n\t\\"), "\t\n\\");
+
+        let case_insensitive = test_text_replacement("hello", "$1 $$", false, false);
+        assert_eq!(case_insensitive.apply("HELLO"), "$1 $$");
+
+        let delete = test_text_replacement("x", "", true, false);
+        assert_eq!(delete.apply("xoxo"), "oo");
+
+        let empty_from = test_text_replacement("", "x", true, false);
+        assert_eq!(empty_from.apply("abc"), "abc");
+
+        let ordered = vec![
+            test_text_replacement("a", "b", true, false),
+            test_text_replacement("b", "c", true, false),
+        ];
+        assert_eq!(apply_text_replacements("a", &ordered), "c");
+    }
+
+    #[test]
+    fn text_replacement_regex_mode_preserves_patterns_and_expands_captures() {
+        let captures = test_text_replacement(
+            r"(?P<word>\b\w+\b)\s-(\d+)",
+            "${word}:$1:$2:$$",
+            true,
+            true,
+        );
+        assert_eq!(captures.apply("foo -42"), "foo:foo:42:$");
+
+        let unicode_pattern = test_text_replacement(r"\u{1F642}", "X", true, true);
+        assert_eq!(unicode_pattern.apply("🙂"), "X");
+    }
 
     #[test]
     fn recognizes_malformed_settings_store_documents() {

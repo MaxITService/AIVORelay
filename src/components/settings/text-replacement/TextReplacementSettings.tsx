@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
@@ -8,13 +8,18 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Download,
   HelpCircle,
+  Loader2,
   Plus,
   Regex,
   Search,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { useSettings } from "@/hooks/useSettings";
 import { useNavigationStore } from "@/stores/navigationStore";
@@ -29,12 +34,22 @@ import { HotkeyCapture } from "@/components/ui/HotkeyCapture";
 import { formatKeyCombination, type OSType } from "@/lib/utils/keyboard";
 import { getShortcutAnchorId } from "@/lib/shortcutAnchors";
 import { getActiveProfilePostProcessingEnabled } from "@/lib/postProcessingAvailability";
+import { sessionToast as toast } from "@/lib/sessionToast";
+import { TextReplacementImportDialog } from "./TextReplacementImportDialog";
 import {
   getVisibleTextReplacementRules,
   type TextReplacementRule,
   type TextReplacementSearchScope,
   type TextReplacementSortOrder,
 } from "./textReplacementRuleView";
+import {
+  applyTextReplacementImport,
+  parseTextReplacementRulesJson,
+  serializeTextReplacementRules,
+  TextReplacementTransferError,
+  type TextReplacementImportMode,
+  type TextReplacementImportResult,
+} from "./textReplacementRuleTransfer";
 
 type OutputWhitespaceMode = "preserve" | "remove_if_present" | "add_if_missing";
 
@@ -74,7 +89,18 @@ export const TextReplacementSettings: React.FC = () => {
     useState<TextReplacementSearchScope>("all");
   const [ruleSortOrder, setRuleSortOrder] =
     useState<TextReplacementSortOrder>("oldest");
-  
+  const [ruleTransferBusy, setRuleTransferBusy] = useState<
+    "import" | "export" | null
+  >(null);
+  const ruleTransferBusyRef = useRef<"import" | "export" | null>(null);
+  const [pendingImportRules, setPendingImportRules] = useState<
+    TextReplacementRule[] | null
+  >(null);
+  const [importMode, setImportMode] =
+    useState<TextReplacementImportMode>("merge");
+  const [overwriteImportConflicts, setOverwriteImportConflicts] =
+    useState(false);
+
   // Editing state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editFrom, setEditFrom] = useState("");
@@ -96,11 +122,16 @@ export const TextReplacementSettings: React.FC = () => {
     () =>
       (settings?.text_replacements ?? []).map((rule: any) => ({
         ...rule,
+        enabled: rule.enabled ?? true,
         case_sensitive: rule.case_sensitive ?? true,
         is_regex: rule.is_regex ?? false,
       })),
     [settings?.text_replacements],
   );
+  const latestReplacementsRef = useRef(replacements);
+  useEffect(() => {
+    latestReplacementsRef.current = replacements;
+  }, [replacements]);
   const visibleReplacements = useMemo(
     () =>
       getVisibleTextReplacementRules(
@@ -349,6 +380,273 @@ export const TextReplacementSettings: React.FC = () => {
       saveEditing();
     } else if (e.key === "Escape") {
       cancelEditing();
+    }
+  };
+
+  const getTransferErrorMessage = (
+    operation: "import" | "export",
+    error: unknown,
+  ): string => {
+    if (operation === "import" && error instanceof TextReplacementTransferError) {
+      switch (error.code) {
+        case "invalid-json":
+          return t(
+            "textReplacement.importInvalidJson",
+            "The selected file is not valid JSON.",
+          );
+        case "unsupported-format":
+          return t(
+            "textReplacement.importUnsupportedFormat",
+            "The selected file has an unsupported replacement-rules format.",
+          );
+        case "unsupported-version":
+          return t(
+            "textReplacement.importUnsupportedVersion",
+            "The selected replacement-rules file uses an unsupported version.",
+          );
+        case "invalid-document":
+        case "invalid-rules":
+        case "invalid-rule":
+          return t(
+            "textReplacement.importInvalidDocument",
+            "The selected file does not contain valid replacement rules.",
+          );
+        case "id-generation":
+          return t(
+            "textReplacement.importIdGenerationFailed",
+            "Could not create unique IDs for the imported rules.",
+          );
+      }
+    }
+
+    return t(
+      operation === "import"
+        ? "textReplacement.importError"
+        : "textReplacement.exportError",
+      operation === "import"
+        ? "Could not import replacement rules."
+        : "Could not export replacement rules.",
+    );
+  };
+
+  const beginRuleTransfer = (
+    operation: "import" | "export",
+    allowPendingImport = false,
+  ): boolean => {
+    if (
+      ruleTransferBusyRef.current !== null ||
+      isUpdating("text_replacements") ||
+      (!allowPendingImport && pendingImportRules !== null)
+    ) {
+      return false;
+    }
+
+    ruleTransferBusyRef.current = operation;
+    setRuleTransferBusy(operation);
+    return true;
+  };
+
+  const endRuleTransfer = () => {
+    ruleTransferBusyRef.current = null;
+    setRuleTransferBusy(null);
+  };
+
+  const createImportIdFactory = () => {
+    const timestamp = Date.now();
+    let counter = 0;
+
+    return (_originalId: string, attempt: number) => {
+      const suffix = counter++;
+      return `tr_import_${timestamp}_${suffix}_${attempt}`;
+    };
+  };
+
+  const showImportResult = (
+    mode: TextReplacementImportMode,
+    result: TextReplacementImportResult,
+  ) => {
+    if (mode === "replace") {
+      toast.success(
+        t("textReplacement.importReplaceSuccess", {
+          imported: result.importedCount,
+          total: result.rules.length,
+          skipped: result.skippedDuplicateCount,
+          remapped: result.remappedIdCount,
+        }),
+      );
+      return;
+    }
+
+    toast.success(
+      t("textReplacement.importMergeSuccess", {
+        added: result.addedCount,
+        overwritten: result.overwrittenConflictCount,
+        duplicates: result.skippedDuplicateCount,
+        conflicts: result.skippedConflictCount,
+        remapped: result.remappedIdCount,
+      }),
+    );
+  };
+
+  const showImportNoChanges = (result: TextReplacementImportResult) => {
+    if (result.skippedConflictCount === 0) {
+      toast.info(
+        t(
+          "textReplacement.importNoChanges",
+          "All imported rules were already present. No changes were made.",
+        ),
+      );
+      return;
+    }
+
+    toast.info(
+      t("textReplacement.importMergeNoChanges", {
+        duplicates: result.skippedDuplicateCount,
+        conflicts: result.skippedConflictCount,
+      }),
+    );
+  };
+
+  const resetPendingImport = () => {
+    setPendingImportRules(null);
+    setImportMode("merge");
+    setOverwriteImportConflicts(false);
+  };
+
+  const handleExportRules = async () => {
+    if (
+      !settings ||
+      replacements.length === 0 ||
+      !beginRuleTransfer("export")
+    ) {
+      return;
+    }
+
+    try {
+      const destination = await save({
+        defaultPath: "aivorelay-text-replacements.json",
+        filters: [
+          {
+            name: t("textReplacement.jsonFiles", "JSON files"),
+            extensions: ["json"],
+          },
+        ],
+      });
+      if (!destination) return;
+
+      await writeTextFile(destination, serializeTextReplacementRules(replacements));
+      toast.success(
+        t(
+          "textReplacement.exportSuccess",
+          "Replacement rules exported successfully.",
+        ),
+      );
+    } catch (error) {
+      console.error("Failed to export replacement rules:", error);
+      toast.error(getTransferErrorMessage("export", error));
+    } finally {
+      endRuleTransfer();
+    }
+  };
+
+  const handleImportRules = async () => {
+    if (!settings || !beginRuleTransfer("import")) return;
+
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        filters: [
+          {
+            name: t("textReplacement.jsonFiles", "JSON files"),
+            extensions: ["json"],
+          },
+        ],
+      });
+      if (typeof selected !== "string") return;
+
+      const importedRules = parseTextReplacementRulesJson(
+        await readTextFile(selected),
+      );
+      if (importedRules.length === 0) {
+        toast.info(
+          t(
+            "textReplacement.importEmpty",
+            "The selected file contains no replacement rules. No changes were made.",
+          ),
+        );
+        return;
+      }
+
+      const currentRules = latestReplacementsRef.current;
+      if (currentRules.length === 0) {
+        const replaceResult = applyTextReplacementImport([], importedRules, {
+          mode: "replace",
+          overwriteConflicts: false,
+          idFactory: createImportIdFactory(),
+        });
+        await updateSetting("text_replacements", replaceResult.rules, {
+          throwOnError: true,
+        });
+        showImportResult("replace", replaceResult);
+        return;
+      }
+
+      setPendingImportRules(importedRules);
+      setImportMode("merge");
+      setOverwriteImportConflicts(false);
+    } catch (error) {
+      console.error("Failed to import replacement rules:", error);
+      toast.error(getTransferErrorMessage("import", error));
+    } finally {
+      endRuleTransfer();
+    }
+  };
+
+  const handleCancelImport = () => {
+    if (ruleTransferBusyRef.current !== null) return;
+    resetPendingImport();
+  };
+
+  const handleConfirmImport = async () => {
+    const stagedRules = pendingImportRules;
+    if (
+      !settings ||
+      stagedRules === null ||
+      !beginRuleTransfer("import", true)
+    ) {
+      return;
+    }
+
+    const selectedMode = importMode;
+    try {
+      const result = applyTextReplacementImport(replacements, stagedRules, {
+        mode: selectedMode,
+        overwriteConflicts:
+          selectedMode === "merge" && overwriteImportConflicts,
+        idFactory: createImportIdFactory(),
+      });
+
+      if (
+        selectedMode === "merge" &&
+        result.importedCount === 0 &&
+        result.remappedIdCount === 0
+      ) {
+        resetPendingImport();
+        showImportNoChanges(result);
+        return;
+      }
+
+      await updateSetting("text_replacements", result.rules, {
+        throwOnError: true,
+      });
+      showImportResult(selectedMode, result);
+      resetPendingImport();
+    } catch (error) {
+      console.error("Failed to import replacement rules:", error);
+      toast.error(getTransferErrorMessage("import", error));
+    } finally {
+      endRuleTransfer();
     }
   };
 
@@ -828,7 +1126,7 @@ export const TextReplacementSettings: React.FC = () => {
                 </li>
                 <li className="flex items-center gap-2">
                   <code className="px-2 py-0.5 bg-[#252525] rounded text-[#9b5de5]">
-                    \u{"{}"}
+                    {"\\u{200D}"}
                   </code>
                   <span>→</span>
                   <span>
@@ -900,8 +1198,51 @@ export const TextReplacementSettings: React.FC = () => {
           )}
         </div>
 
-        {/* Rule search and display order */}
+        {/* Rule search, transfer, and display order */}
         <div className="space-y-2 border-t border-white/[0.05] px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleImportRules()}
+              disabled={
+                ruleTransferBusy !== null ||
+                pendingImportRules !== null ||
+                isUpdating("text_replacements")
+              }
+              title={t("textReplacement.importJson", "Import JSON")}
+              className="inline-flex min-w-0 items-center justify-center gap-1.5 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9b5de5]/60"
+            >
+              {ruleTransferBusy === "import" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              {t("textReplacement.importJson", "Import JSON")}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleExportRules()}
+              disabled={
+                replacements.length === 0 ||
+                ruleTransferBusy !== null ||
+                pendingImportRules !== null ||
+                isUpdating("text_replacements")
+              }
+              title={t("textReplacement.exportJson", "Export JSON")}
+              className="inline-flex min-w-0 items-center justify-center gap-1.5 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9b5de5]/60"
+            >
+              {ruleTransferBusy === "export" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <Download className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              {t("textReplacement.exportJson", "Export JSON")}
+            </Button>
+          </div>
           <div className="relative">
             <Search
               className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#606060]"
@@ -1672,7 +2013,24 @@ export const TextReplacementSettings: React.FC = () => {
           )}
         </div>
       </SettingsGroup>
-    </div>
+    <TextReplacementImportDialog
+      isOpen={pendingImportRules !== null}
+      importedRuleCount={pendingImportRules?.length ?? 0}
+      currentRuleCount={replacements.length}
+      mode={importMode}
+      overwriteConflicts={overwriteImportConflicts}
+      isApplying={ruleTransferBusy === "import"}
+      onModeChange={(nextMode) => {
+        setImportMode(nextMode);
+        if (nextMode === "replace") {
+          setOverwriteImportConflicts(false);
+        }
+      }}
+      onOverwriteConflictsChange={setOverwriteImportConflicts}
+      onCancel={handleCancelImport}
+      onConfirm={() => void handleConfirmImport()}
+    />
+  </div>
   );
 };
 

@@ -1,5 +1,7 @@
 use crate::audio_toolkit::apply_custom_words;
-use crate::settings::{AppSettings, OutputWhitespaceMode, TextReplacement};
+use crate::settings::{
+    process_text_replacement_escapes, AppSettings, OutputWhitespaceMode, TextReplacement,
+};
 use log::warn;
 use regex::Regex;
 
@@ -316,86 +318,6 @@ fn stable_prefix_end(text: &str, tail_words: usize) -> usize {
     } else {
         token_starts[token_starts.len() - tail_words]
     }
-}
-
-fn process_text_replacement_escapes(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            match chars.peek() {
-                Some('n') => {
-                    result.push('\n');
-                    chars.next();
-                }
-                Some('r') => {
-                    chars.next();
-                    if chars.peek() == Some(&'\\') {
-                        let mut temp = chars.clone();
-                        temp.next();
-                        if temp.peek() == Some(&'n') {
-                            result.push_str("\r\n");
-                            chars.next();
-                            chars.next();
-                        } else {
-                            result.push('\r');
-                        }
-                    } else {
-                        result.push('\r');
-                    }
-                }
-                Some('t') => {
-                    result.push('\t');
-                    chars.next();
-                }
-                Some('\\') => {
-                    result.push('\\');
-                    chars.next();
-                }
-                Some('u') => {
-                    chars.next();
-                    if chars.peek() == Some(&'{') {
-                        chars.next();
-                        let mut hex_str = String::new();
-                        while let Some(&ch) = chars.peek() {
-                            if ch == '}' {
-                                chars.next();
-                                break;
-                            }
-                            if ch.is_ascii_hexdigit() && hex_str.len() < 6 {
-                                hex_str.push(ch);
-                                chars.next();
-                            } else {
-                                break;
-                            }
-                        }
-                        if let Ok(code_point) = u32::from_str_radix(&hex_str, 16) {
-                            if let Some(unicode_char) = char::from_u32(code_point) {
-                                result.push(unicode_char);
-                            } else {
-                                result.push_str("\\u{");
-                                result.push_str(&hex_str);
-                                result.push('}');
-                            }
-                        } else {
-                            result.push_str("\\u{");
-                            result.push_str(&hex_str);
-                            result.push('}');
-                        }
-                    } else {
-                        result.push('\\');
-                        result.push('u');
-                    }
-                }
-                _ => result.push(c),
-            }
-        } else {
-            result.push(c);
-        }
-    }
-
-    result
 }
 
 fn replace_case_insensitive(text: &str, from: &str, to: &str) -> String {
