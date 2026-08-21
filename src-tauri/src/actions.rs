@@ -901,11 +901,10 @@ async fn maybe_post_process_transcription(
         .unwrap_or_default();
 
     // Build reasoning config from settings
-    let reasoning_config = crate::llm_client::ReasoningConfig::new(
+    let reasoning_config = crate::llm_client::ReasoningConfig::from_user_toggle(
         settings.post_process_reasoning_enabled,
         settings.post_process_reasoning_budget,
-    )
-    .with_disable_by_default_on_compatible_providers(true);
+    );
 
     // Send the chat completion request with optional reasoning
     match crate::llm_client::send_chat_completion_with_reasoning(
@@ -1121,11 +1120,10 @@ pub async fn run_llm_post_process_benchmark(
         });
     }
 
-    let reasoning_config = crate::llm_client::ReasoningConfig::new(
+    let reasoning_config = crate::llm_client::ReasoningConfig::from_user_toggle(
         settings.post_process_reasoning_enabled,
         settings.post_process_reasoning_budget,
-    )
-    .with_disable_by_default_on_compatible_providers(true);
+    );
 
     let started = Instant::now();
     let benchmark_response = crate::llm_client::send_chat_completion_with_system_and_reasoning(
@@ -4095,11 +4093,10 @@ async fn run_sliding_lm_request(app: AppHandle, request: SlidingLmRequest) -> Re
         .cloned()
         .unwrap_or_default();
 
-    let reasoning_config = crate::llm_client::ReasoningConfig::new(
+    let reasoning_config = crate::llm_client::ReasoningConfig::from_user_toggle(
         settings.post_process_reasoning_enabled,
         settings.post_process_reasoning_budget,
-    )
-    .with_disable_by_default_on_compatible_providers(true);
+    );
 
     let response = crate::llm_client::send_chat_completion_with_reasoning(
         &provider,
@@ -6043,7 +6040,7 @@ async fn ai_replace_with_llm(
     }
 
     // Build reasoning config from settings
-    let reasoning_config = crate::llm_client::ReasoningConfig::new(
+    let reasoning_config = crate::llm_client::ReasoningConfig::from_user_toggle(
         settings.ai_replace_reasoning_enabled,
         settings.ai_replace_reasoning_budget,
     );
@@ -9280,7 +9277,7 @@ async fn generate_command_with_llm_with_settings(
     };
 
     // Build reasoning config from settings
-    let reasoning_config = crate::llm_client::ReasoningConfig::new(
+    let reasoning_config = crate::llm_client::ReasoningConfig::from_user_toggle(
         settings.voice_command_reasoning_enabled,
         settings.voice_command_reasoning_budget,
     );
