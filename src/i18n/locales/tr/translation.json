@@ -75,7 +75,7 @@
     },
     "permissions": {
       "title": "İzinler Gerekli",
-      "description": "Handy'nin düzgün çalışabilmesi için birkaç izne ihtiyacı var.",
+      "description": "AivoRelay'in düzgün çalışabilmesi için birkaç izne ihtiyacı var.",
       "microphone": {
         "title": "Mikrofon Erişimi",
         "description": "Sesinizi transkripsiyon için alabilmek için gereklidir."
@@ -95,7 +95,7 @@
     }
   },
   "modelSelector": {
-    "welcome": "Handy'ye Hoş Geldiniz!",
+    "welcome": "AivoRelay'e Hoş Geldiniz!",
     "downloadPrompt": "Transkripsiyona başlamak için aşağıdan bir model indirin.",
     "availableModels": "Mevcut Modeller",
     "downloadModels": "Modelleri İndir",
@@ -126,7 +126,7 @@
     "general": {
       "title": "Genel",
       "shortcut": {
-        "title": "Handy Kısayolları",
+        "title": "AivoRelay Kısayolları",
         "description": "Sesle yazma kaydını başlatmak için klavye kısayollarını yapılandırın",
         "loading": "Kısayollar yükleniyor...",
         "none": "Kısayol yapılandırılmadı",
@@ -196,7 +196,7 @@
       },
       "autostart": {
         "label": "Başlangıçta Çalıştır",
-        "description": "Bilgisayara giriş yaptığınızda Handy otomatik olarak başlatılır."
+        "description": "Bilgisayara giriş yaptığınızda AivoRelay otomatik olarak başlatılır."
       },
       "showTrayIcon": {
         "label": "Tepsi simgesini göster",
@@ -365,7 +365,7 @@
       },
       "updateChecks": {
         "label": "Güncellemeleri Kontrol Et",
-        "description": "Handy için yeni sürümleri otomatik olarak kontrol eder"
+        "description": "AivoRelay için yeni sürümleri otomatik olarak kontrol eder"
       },
       "soundTheme": {
         "label": "Ses Teması",
@@ -424,11 +424,11 @@
       "title": "Hakkında",
       "version": {
         "title": "Sürüm",
-        "description": "Handy'nin mevcut sürümü"
+        "description": "AivoRelay'in mevcut sürümü"
       },
       "appDataDirectory": {
         "title": "Uygulama Veri Dizini",
-        "description": "Handy'nin verilerini sakladığı konum"
+        "description": "AivoRelay'in verilerini sakladığı konum"
       },
       "sourceCode": {
         "title": "Kaynak Kodu",
@@ -437,7 +437,7 @@
       },
       "supportDevelopment": {
         "title": "Geliştirmeyi Destekle",
-        "description": "Handy'yi geliştirmeye devam etmemize yardımcı olun",
+        "description": "Orijinal Handy projesinin geliştiricisini destekleyin",
         "button": "Bağış Yap"
       },
       "acknowledgments": {
@@ -445,7 +445,7 @@
         "whisper": {
           "title": "Whisper.cpp",
           "description": "OpenAI'nin Whisper otomatik konuşma tanıma modelinin yüksek performanslı çıkarımı",
-          "details": "Handy, hızlı ve yerel konuşmadan metne dönüştürme için Whisper.cpp kullanır. Georgi Gerganov ve katkıda bulunanların harika çalışmaları için teşekkür ederiz."
+          "details": "AivoRelay, hızlı ve yerel konuşmadan metne dönüştürme için Whisper.cpp kullanır. Georgi Gerganov ve katkıda bulunanların harika çalışmaları için teşekkür ederiz."
         },
         "cpal": {
           "title": "CPAL",
@@ -501,7 +501,7 @@
   },
   "accessibility": {
     "permissionsRequired": "Erişilebilirlik İzinleri Gerekli",
-    "permissionsDescription": "Handy, transkribe edilen metni yazabilmek için erişilebilirlik izinlerine ihtiyaç duyar.",
+    "permissionsDescription": "AivoRelay, transkribe edilen metni yazabilmek için erişilebilirlik izinlerine ihtiyaç duyar.",
     "openSettings": "Sistem Ayarlarını Aç",
     "dismiss": "Yoksay"
   },
@@ -512,7 +512,7 @@
   },
   "appLanguage": {
     "title": "Uygulama Dili",
-    "description": "Handy arayüzünün dilini değiştirin"
+    "description": "AivoRelay arayüzünün dilini değiştirin"
   },
   "overlay": {
     "transcribing": "Transkribe ediliyor..."

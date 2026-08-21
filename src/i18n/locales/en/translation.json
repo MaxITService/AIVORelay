@@ -4045,7 +4045,7 @@
     "exampleTypo": "(fix typo)",
     "exampleParagraph": "(double-space after periods)",
     "exampleFormal": "(formal style)",
-    "exampleRegex": "(remove repeated words)",
+    "exampleRegex": "(reformat a date)",
     "noteTitle": "Note:",
     "noteContent": "For Windows line endings conversion, consider using the 'Convert LF to CRLF' option in Advanced settings instead — it handles this automatically for clipboard paste operations.",
     "addRuleTitle": "Add a new replacement rule",
