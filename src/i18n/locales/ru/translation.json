@@ -977,6 +977,7 @@
     "addRuleTitle": "Добавить новое правило замены",
     "fromPlaceholder": "Найти текст...",
     "toPlaceholder": "Заменить на...",
+    "transferRulesTitle": "Импорт или экспорт правил замены",
     "jsonFiles": "Файлы JSON",
     "importJson": "Импорт JSON",
     "exportJson": "Экспорт JSON",
