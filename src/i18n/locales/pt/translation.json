@@ -75,7 +75,7 @@
     }
   },
   "modelSelector": {
-    "welcome": "Bem-vindo ao Handy!",
+    "welcome": "Bem-vindo ao AivoRelay!",
     "downloadPrompt": "Baixe um modelo abaixo para começar a transcrever.",
     "availableModels": "Modelos Disponíveis",
     "downloadModels": "Baixar Modelos",
@@ -106,7 +106,7 @@
     "general": {
       "title": "Geral",
       "shortcut": {
-        "title": "Atalhos do Handy",
+        "title": "Atalhos do AivoRelay",
         "description": "Configure atalhos de teclado para iniciar a gravação de voz para texto",
         "loading": "Carregando atalhos...",
         "none": "Nenhum atalho configurado",
@@ -176,7 +176,7 @@
       },
       "autostart": {
         "label": "Iniciar na Inicialização",
-        "description": "Iniciar automaticamente o Handy quando você fizer login no seu computador."
+        "description": "Iniciar automaticamente o AivoRelay quando você fizer login no seu computador."
       },
       "showTrayIcon": {
         "label": "Mostrar ícone na bandeja",
@@ -345,7 +345,7 @@
       },
       "updateChecks": {
         "label": "Verificar Atualizações",
-        "description": "Verificar automaticamente novas versões do Handy"
+        "description": "Verificar automaticamente novas versões do AivoRelay"
       },
       "soundTheme": {
         "label": "Tema de Som",
@@ -404,11 +404,11 @@
       "title": "Sobre",
       "version": {
         "title": "Versão",
-        "description": "Versão atual do Handy"
+        "description": "Versão atual do AivoRelay"
       },
       "appDataDirectory": {
         "title": "Diretório de Dados do App",
-        "description": "Local onde o Handy armazena seus dados"
+        "description": "Local onde o AivoRelay armazena seus dados"
       },
       "sourceCode": {
         "title": "Código Fonte",
@@ -417,7 +417,7 @@
       },
       "supportDevelopment": {
         "title": "Apoiar o Desenvolvimento",
-        "description": "Ajude-nos a continuar construindo o Handy",
+        "description": "Apoie o desenvolvedor do projeto Handy original",
         "button": "Doar"
       },
       "acknowledgments": {
@@ -425,7 +425,7 @@
         "whisper": {
           "title": "Whisper.cpp",
           "description": "Inferência de alto desempenho do modelo de reconhecimento automático de fala Whisper da OpenAI",
-          "details": "O Handy usa Whisper.cpp para processamento rápido e local de fala para texto. Agradecemos ao incrível trabalho de Georgi Gerganov e colaboradores."
+          "details": "O AivoRelay usa Whisper.cpp para processamento rápido e local de fala para texto. Agradecemos ao incrível trabalho de Georgi Gerganov e colaboradores."
         },
         "cpal": {
           "title": "CPAL",
@@ -481,7 +481,7 @@
   },
   "accessibility": {
     "permissionsRequired": "Permissões de Acessibilidade Necessárias",
-    "permissionsDescription": "O Handy precisa de permissões de acessibilidade para digitar o texto transcrito.",
+    "permissionsDescription": "O AivoRelay precisa de permissões de acessibilidade para digitar o texto transcrito.",
     "openSettings": "Abrir Configurações do Sistema",
     "dismiss": "Dispensar"
   },
@@ -492,7 +492,7 @@
   },
   "appLanguage": {
     "title": "Idioma da Aplicação",
-    "description": "Alterar o idioma da interface do Handy"
+    "description": "Alterar o idioma da interface do AivoRelay"
   },
   "overlay": {
     "transcribing": "Transcrevendo..."
