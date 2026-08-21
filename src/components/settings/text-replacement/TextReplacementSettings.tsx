@@ -1464,7 +1464,7 @@ export const TextReplacementSettings: React.FC = () => {
 
         {/* Rules List */}
         {replacements.length > 0 && (
-          <div className="px-4 py-3 border-t border-white/[0.05]">
+          <div className="px-4 py-3">
             <div className="space-y-2">
               {visibleReplacements.map((rule) => (
                 <div
