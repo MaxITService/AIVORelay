@@ -1074,7 +1074,7 @@ export const TextReplacementSettings: React.FC = () => {
               <p className="text-[#b8b8b8] mb-3">
                 {t(
                   "textReplacement.escapeIntro",
-                  "The computer cannot tell which characters are instructions for the program and which characters you want to use in your replacement. Put a backslash (\\) before them so the program knows what you mean."
+                  "The computer cannot tell which characters are instructions for the program and which characters you want to use in your replacement. Put a backslash (\\) before them so the program knows what you mean. This technique is called \"Escapement\". Tip: you can ask your AI for help with it."
                 )}
               </p>
               <ul className="space-y-2 text-[#b8b8b8]">
