@@ -142,6 +142,10 @@ export const TextReplacementSettings: React.FC = () => {
       ),
     [replacements, ruleSearchQuery, ruleSearchScope, ruleSortOrder],
   );
+  const filteredReplacementCount = Math.max(
+    0,
+    replacements.length - visibleReplacements.length,
+  );
   const isEnabled = settings?.text_replacements_enabled ?? false;
   const decapitalizeAfterEditEnabled =
     settings?.text_replacement_decapitalize_after_edit_key_enabled ?? false;
@@ -1336,7 +1340,10 @@ export const TextReplacementSettings: React.FC = () => {
         </div>
 
         {/* Rule search and display order */}
-        <div className="space-y-2 border-t border-white/[0.05] px-4 py-3">
+        <div
+          className="space-y-2 px-4 py-3"
+          style={{ borderTopWidth: 0 }}
+        >
           <div className="relative">
             <Search
               className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#606060]"
@@ -1415,14 +1422,24 @@ export const TextReplacementSettings: React.FC = () => {
               className="text-xs tabular-nums text-[#707070]"
               aria-live="polite"
             >
-              {t(
-                "textReplacement.filterCount",
-                "Rules: {{visible}} / {{total}}",
-                {
-                  visible: visibleReplacements.length,
-                  total: replacements.length,
-                },
-              )}
+              {filteredReplacementCount > 0
+                ? t(
+                    "textReplacement.filterCountFiltered",
+                    "Showing rules: {{visible}} out of {{total}}; {{filtered}} filtered by search",
+                    {
+                      visible: visibleReplacements.length,
+                      total: replacements.length,
+                      filtered: filteredReplacementCount,
+                    },
+                  )
+                : t(
+                    "textReplacement.filterCount",
+                    "Showing rules: {{visible}} out of {{total}}",
+                    {
+                      visible: visibleReplacements.length,
+                      total: replacements.length,
+                    },
+                  )}
             </span>
 
             <div className="relative ml-auto w-full max-w-full min-w-0 sm:w-auto sm:min-w-[12rem]">
@@ -1470,7 +1487,7 @@ export const TextReplacementSettings: React.FC = () => {
 
         {/* Rules List */}
         {replacements.length > 0 && (
-          <div className="!border-t-0 px-4 py-3">
+          <div className="px-4 py-3" style={{ borderTopWidth: 0 }}>
             <div className="space-y-2">
               {visibleReplacements.map((rule) => (
                 <div
