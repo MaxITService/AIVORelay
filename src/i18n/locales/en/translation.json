@@ -4051,6 +4051,7 @@
     "addRuleTitle": "Add a new replacement rule",
     "fromPlaceholder": "Find text...",
     "toPlaceholder": "Replace with...",
+    "transferRulesTitle": "Import or export replacement rules",
     "jsonFiles": "JSON files",
     "importJson": "Import JSON",
     "exportJson": "Export JSON",

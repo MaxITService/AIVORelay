@@ -1206,6 +1206,12 @@ export const TextReplacementSettings: React.FC = () => {
 
         {/* Rule transfer */}
         <div className="border-y border-white/[0.05] px-4 py-3">
+          <h4 className="mb-3 text-sm font-medium text-[#d0d0d0]">
+            {t(
+              "textReplacement.transferRulesTitle",
+              "Import or export replacement rules",
+            )}
+          </h4>
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
@@ -1464,7 +1470,7 @@ export const TextReplacementSettings: React.FC = () => {
 
         {/* Rules List */}
         {replacements.length > 0 && (
-          <div className="px-4 py-3">
+          <div className="!border-t-0 px-4 py-3">
             <div className="space-y-2">
               {visibleReplacements.map((rule) => (
                 <div
