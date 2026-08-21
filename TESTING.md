@@ -64,6 +64,31 @@ Run it with:
 
 Update this section every time new tests are added.
 
+### Text replacement JSON transfer and escape handling (2026-08-21)
+
+- `src/components/settings/text-replacement/textReplacementRuleTransfer.test.ts`
+  covers deterministic v1 envelope/bare-array import, BOM, strict
+  validation/defaults, replace and merge strategies, exact duplicate and
+  conflict handling, ID remapping, ordering/non-mutation, and exact
+  Unicode/control/backslash/regex replacement-string round trips. Run it with:
+  `bun src/components/settings/text-replacement/textReplacementRuleTransfer.test.ts`
+- The manual UI flow should cover importing with no existing rules (direct
+  replace), importing with existing rules (merge dialog default, conflict
+  overwrite OFF and ON, and replace mode), cancel/Escape/backdrop dismissal,
+  and preserving persisted rule order during export.
+- The Rust focused tests
+  `settings::tests::text_replacement_escape_helper_handles_valid_sequences`,
+  `settings::tests::text_replacement_malformed_unicode_escapes_remain_literal`,
+  `settings::tests::text_replacement_literal_mode_handles_escapes_and_order`,
+  and `settings::tests::text_replacement_regex_mode_preserves_patterns_and_expands_captures`
+  cover shared full-text/stream escape processing, valid controls/Unicode,
+  malformed Unicode preservation, literal replacement semantics/order, and
+  Rust-regex captures/literal dollars. Run them with:
+  `pwsh -NoProfile -File .\test-local.ps1 -LibOnly -Filter 'settings::tests::text_replacement_'`
+- These tests have been added but have not yet been run pending the required
+  user authorization. They are local deterministic tests with no credentials,
+  paid APIs, or external network.
+
 ### Groq Qwen reasoning request mock (2026-08-21)
 
 - `llm_client::tests::groq_qwen_off_request_reaches_mock_api_without_reasoning`
