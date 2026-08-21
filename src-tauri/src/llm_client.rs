@@ -5,7 +5,7 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE, REFER
 use serde::{Deserialize, Serialize};
 use std::error::Error as StdError;
 
-/// Configuration for Extended Thinking / Reasoning (OpenRouter)
+/// Configuration for provider-specific Extended Thinking / Reasoning controls.
 #[derive(Debug, Clone, Default)]
 pub struct ReasoningConfig {
     pub enabled: bool,
@@ -53,9 +53,122 @@ struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    max_completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     reasoning_effort: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning: Option<ReasoningParams>,
+}
+
+#[derive(Debug, Default)]
+struct ReasoningRequestOptions {
+    max_tokens: Option<u32>,
+    max_completion_tokens: Option<u32>,
+    reasoning_effort: Option<String>,
+    reasoning: Option<ReasoningParams>,
+}
+
+fn groq_reasoning_effort(model: &str, enabled: bool) -> Option<&'static str> {
+    let model = model.trim();
+
+    if model.eq_ignore_ascii_case("qwen/qwen3.6-27b") {
+        return Some(if enabled { "default" } else { "none" });
+    }
+
+    if enabled
+        && (model.eq_ignore_ascii_case("openai/gpt-oss-20b")
+            || model.eq_ignore_ascii_case("openai/gpt-oss-120b"))
+    {
+        return Some("medium");
+    }
+
+    None
+}
+
+fn reasoning_request_options(
+    provider_id: &str,
+    model: &str,
+    reasoning: &ReasoningConfig,
+) -> ReasoningRequestOptions {
+    if reasoning.enabled {
+        let budget = reasoning.budget.max(1024);
+        let total = (budget + 2000).max(4000);
+
+        if provider_id == "groq" {
+            return if let Some(effort) = groq_reasoning_effort(model, true) {
+                debug!(
+                    "Extended Thinking enabled for Groq with effort='{}', max_completion_tokens={}",
+                    effort, total
+                );
+                ReasoningRequestOptions {
+                    max_completion_tokens: Some(total),
+                    reasoning_effort: Some(effort.to_string()),
+                    ..Default::default()
+                }
+            } else {
+                ReasoningRequestOptions::default()
+            };
+        }
+
+        debug!(
+            "Extended Thinking enabled: reasoning_budget={}, max_tokens={}",
+            budget, total
+        );
+        return ReasoningRequestOptions {
+            max_tokens: Some(total),
+            reasoning: Some(ReasoningParams {
+                max_tokens: Some(budget),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+    }
+
+    if !reasoning.disable_by_default_on_compatible_providers {
+        return ReasoningRequestOptions::default();
+    }
+
+    match provider_id {
+        "custom" => {
+            debug!(
+                "Disabling default provider reasoning for post-processing on '{}'",
+                provider_id
+            );
+            ReasoningRequestOptions {
+                reasoning_effort: Some("none".to_string()),
+                ..Default::default()
+            }
+        }
+        "groq" => {
+            if let Some(effort) = groq_reasoning_effort(model, false) {
+                debug!(
+                    "Disabling default provider reasoning for post-processing on '{}'",
+                    provider_id
+                );
+                ReasoningRequestOptions {
+                    reasoning_effort: Some(effort.to_string()),
+                    ..Default::default()
+                }
+            } else {
+                ReasoningRequestOptions::default()
+            }
+        }
+        "openrouter" => {
+            debug!(
+                "Disabling default provider reasoning for post-processing on '{}'",
+                provider_id
+            );
+            ReasoningRequestOptions {
+                reasoning: Some(ReasoningParams {
+                    effort: Some("none".to_string()),
+                    exclude: Some(true),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }
+        }
+        _ => ReasoningRequestOptions::default(),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -292,6 +405,20 @@ async fn send_chat_completion_with_messages_internal(
     reasoning: ReasoningConfig,
 ) -> Result<Option<String>, String> {
     let base_url = canonical_llm_provider_base_url(provider)?;
+    send_chat_completion_with_messages_at_base_url(
+        provider, api_key, model, messages, reasoning, &base_url,
+    )
+    .await
+}
+
+async fn send_chat_completion_with_messages_at_base_url(
+    provider: &PostProcessProvider,
+    api_key: String,
+    model: &str,
+    messages: Vec<ChatMessage>,
+    reasoning: ReasoningConfig,
+    base_url: &str,
+) -> Result<Option<String>, String> {
     let url = format!("{}/chat/completions", base_url);
 
     debug!(
@@ -301,60 +428,16 @@ async fn send_chat_completion_with_messages_internal(
 
     let client = create_client(provider, &api_key)?;
 
-    // Calculate max_tokens: if reasoning is enabled, ensure enough room for answer
-    // Formula: max(4000, reasoning_budget + 2000)
-    let (max_tokens, reasoning_effort, reasoning_params) = if reasoning.enabled {
-        let budget = reasoning.budget.max(1024);
-        let total = (budget + 2000).max(4000);
-        debug!(
-            "Extended Thinking enabled: reasoning_budget={}, max_tokens={}",
-            budget, total
-        );
-        (
-            Some(total),
-            None,
-            Some(ReasoningParams {
-                max_tokens: Some(budget),
-                ..Default::default()
-            }),
-        )
-    } else if reasoning.disable_by_default_on_compatible_providers {
-        match provider.id.as_str() {
-            "custom" => {
-                debug!(
-                    "Disabling default provider reasoning for post-processing on '{}'",
-                    provider.id
-                );
-                (None, Some("none".to_string()), None)
-            }
-            "openrouter" => {
-                debug!(
-                    "Disabling default provider reasoning for post-processing on '{}'",
-                    provider.id
-                );
-                (
-                    None,
-                    None,
-                    Some(ReasoningParams {
-                        effort: Some("none".to_string()),
-                        exclude: Some(true),
-                        ..Default::default()
-                    }),
-                )
-            }
-            _ => (None, None, None),
-        }
-    } else {
-        (None, None, None)
-    };
+    let reasoning_options = reasoning_request_options(&provider.id, model, &reasoning);
 
     let request_body = ChatCompletionRequest {
         model: model.to_string(),
         messages: messages.clone(),
         stream: false,
-        max_tokens,
-        reasoning_effort,
-        reasoning: reasoning_params,
+        max_tokens: reasoning_options.max_tokens,
+        max_completion_tokens: reasoning_options.max_completion_tokens,
+        reasoning_effort: reasoning_options.reasoning_effort,
+        reasoning: reasoning_options.reasoning,
     };
 
     let response = client
@@ -389,6 +472,7 @@ async fn send_chat_completion_with_messages_internal(
             messages,
             stream: false,
             max_tokens: None,
+            max_completion_tokens: None,
             reasoning_effort: None,
             reasoning: None,
         };
@@ -542,6 +626,7 @@ mod tests {
     use super::*;
     use std::fmt;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::sync::oneshot;
 
     #[derive(Debug)]
     struct TestError {
@@ -563,7 +648,9 @@ mod tests {
         }
     }
 
-    fn request_json() -> serde_json::Value {
+    fn request_json_with_reasoning_options(
+        reasoning_options: ReasoningRequestOptions,
+    ) -> serde_json::Value {
         let request = ChatCompletionRequest {
             model: "test-model".to_string(),
             messages: vec![ChatMessage {
@@ -571,11 +658,16 @@ mod tests {
                 content: "hi".to_string(),
             }],
             stream: false,
-            max_tokens: None,
-            reasoning_effort: None,
-            reasoning: None,
+            max_tokens: reasoning_options.max_tokens,
+            max_completion_tokens: reasoning_options.max_completion_tokens,
+            reasoning_effort: reasoning_options.reasoning_effort,
+            reasoning: reasoning_options.reasoning,
         };
         serde_json::to_value(&request).unwrap()
+    }
+
+    fn request_json() -> serde_json::Value {
+        request_json_with_reasoning_options(ReasoningRequestOptions::default())
     }
 
     async fn serve_one_response(status: &str, body: &str) -> String {
@@ -594,6 +686,88 @@ mod tests {
         });
 
         format!("http://{address}")
+    }
+
+    #[derive(Debug)]
+    struct CapturedJsonRequest {
+        request_line: String,
+        body: serde_json::Value,
+    }
+
+    async fn serve_one_captured_json_response(
+        status: &str,
+        body: &str,
+    ) -> (String, oneshot::Receiver<CapturedJsonRequest>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let (request_sender, request_receiver) = oneshot::channel();
+
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 2048];
+
+            let header_end = loop {
+                let bytes_read = stream.read(&mut chunk).await.unwrap();
+                assert!(
+                    bytes_read > 0,
+                    "mock client disconnected before sending headers"
+                );
+                request.extend_from_slice(&chunk[..bytes_read]);
+
+                if let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n")
+                {
+                    break position + 4;
+                }
+            };
+
+            let (request_line, content_length) = {
+                let headers = std::str::from_utf8(&request[..header_end]).unwrap();
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().unwrap())
+                    })
+                    .expect("mock request must include Content-Length");
+                let request_line = headers.lines().next().unwrap().to_string();
+                (request_line, content_length)
+            };
+
+            while request.len() < header_end + content_length {
+                let bytes_read = stream.read(&mut chunk).await.unwrap();
+                assert!(
+                    bytes_read > 0,
+                    "mock client disconnected before sending its body"
+                );
+                request.extend_from_slice(&chunk[..bytes_read]);
+            }
+
+            let body =
+                serde_json::from_slice(&request[header_end..header_end + content_length]).unwrap();
+            request_sender
+                .send(CapturedJsonRequest { request_line, body })
+                .unwrap();
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        (format!("http://{address}"), request_receiver)
+    }
+
+    fn test_provider(id: &str) -> PostProcessProvider {
+        PostProcessProvider {
+            id: id.to_string(),
+            label: id.to_string(),
+            base_url: "https://unused.example.com/v1".to_string(),
+            allow_base_url_edit: false,
+            allow_insecure_http: false,
+            models_endpoint: Some("/models".to_string()),
+        }
     }
 
     #[test]
@@ -662,9 +836,102 @@ mod tests {
         assert!(!details.contains("#private"));
     }
 
+    #[tokio::test]
+    async fn groq_qwen_off_request_reaches_mock_api_without_reasoning() {
+        let response_body = r#"{"choices":[{"message":{"content":"mock answer"}}]}"#;
+        let (base_url, captured_request) =
+            serve_one_captured_json_response("200 OK", response_body).await;
+        let provider = test_provider("groq");
+        let reasoning =
+            ReasoningConfig::new(false, 2048).with_disable_by_default_on_compatible_providers(true);
+
+        let result = send_chat_completion_with_messages_at_base_url(
+            &provider,
+            "not-a-real-key".to_string(),
+            "qwen/qwen3.6-27b",
+            vec![ChatMessage {
+                role: "user".to_string(),
+                content: "hello".to_string(),
+            }],
+            reasoning,
+            &base_url,
+        )
+        .await
+        .unwrap();
+        let request = captured_request.await.unwrap();
+
+        assert_eq!(result.as_deref(), Some("mock answer"));
+        assert_eq!(request.request_line, "POST /chat/completions HTTP/1.1");
+        assert_eq!(request.body["model"], "qwen/qwen3.6-27b");
+        assert_eq!(request.body["reasoning_effort"], "none");
+        assert_eq!(request.body["stream"], false);
+        assert!(request.body.get("reasoning").is_none());
+        assert!(request.body.get("max_tokens").is_none());
+        assert!(request.body.get("max_completion_tokens").is_none());
+    }
+
     #[test]
     fn requests_explicitly_disable_streaming() {
         let json = request_json();
         assert_eq!(json["stream"], false);
+    }
+
+    #[test]
+    fn groq_qwen_disables_reasoning_with_documented_effort() {
+        let reasoning =
+            ReasoningConfig::new(false, 2048).with_disable_by_default_on_compatible_providers(true);
+        let options = reasoning_request_options("groq", "qwen/qwen3.6-27b", &reasoning);
+        let json = request_json_with_reasoning_options(options);
+
+        assert_eq!(json["reasoning_effort"], "none");
+        assert!(json.get("reasoning").is_none());
+        assert!(json.get("max_tokens").is_none());
+        assert!(json.get("max_completion_tokens").is_none());
+    }
+
+    #[test]
+    fn groq_non_qwen_omits_unsupported_none_effort() {
+        let reasoning =
+            ReasoningConfig::new(false, 2048).with_disable_by_default_on_compatible_providers(true);
+        let options = reasoning_request_options("groq", "openai/gpt-oss-120b", &reasoning);
+        let json = request_json_with_reasoning_options(options);
+
+        assert!(json.get("reasoning_effort").is_none());
+        assert!(json.get("reasoning").is_none());
+    }
+
+    #[test]
+    fn groq_qwen_enables_reasoning_with_documented_effort() {
+        let reasoning = ReasoningConfig::new(true, 1024);
+        let options = reasoning_request_options("groq", "qwen/qwen3.6-27b", &reasoning);
+        let json = request_json_with_reasoning_options(options);
+
+        assert_eq!(json["reasoning_effort"], "default");
+        assert_eq!(json["max_completion_tokens"], 4000);
+        assert!(json.get("max_tokens").is_none());
+        assert!(json.get("reasoning").is_none());
+    }
+
+    #[test]
+    fn groq_gpt_oss_uses_documented_reasoning_effort() {
+        let reasoning = ReasoningConfig::new(true, 1024);
+        let options = reasoning_request_options("groq", "openai/gpt-oss-120b", &reasoning);
+        let json = request_json_with_reasoning_options(options);
+
+        assert_eq!(json["reasoning_effort"], "medium");
+        assert_eq!(json["max_completion_tokens"], 4000);
+        assert!(json.get("max_tokens").is_none());
+        assert!(json.get("reasoning").is_none());
+    }
+
+    #[test]
+    fn undocumented_groq_qwen_variant_omits_reasoning_controls() {
+        let reasoning =
+            ReasoningConfig::new(false, 2048).with_disable_by_default_on_compatible_providers(true);
+        let options = reasoning_request_options("groq", "qwen/qwen3-future", &reasoning);
+        let json = request_json_with_reasoning_options(options);
+
+        assert!(json.get("reasoning_effort").is_none());
+        assert!(json.get("reasoning").is_none());
     }
 }
