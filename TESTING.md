@@ -64,6 +64,21 @@ Run it with:
 
 Update this section every time new tests are added.
 
+### Groq Qwen reasoning request mock (2026-08-21)
+
+- `llm_client::tests::groq_qwen_off_request_reaches_mock_api_without_reasoning`
+  sends the production Groq/Qwen request shape to a local `127.0.0.1` mock,
+  verifies the `/chat/completions` path and top-level
+  `reasoning_effort: "none"`, checks that incompatible reasoning fields are
+  omitted, and parses the mock completion response.
+- The adjacent `llm_client::tests::groq_*` serialization tests cover Qwen
+  reasoning ON/OFF, GPT-OSS reasoning ON, and unsupported Groq model
+  omission. They use no credentials and make no external or paid API calls.
+- The focused `llm_client::tests::` harness batch passed 12/12 tests. The mock
+  round trip bound only to `127.0.0.1` and used a deliberately fake API key.
+- Run the focused batch with:
+  `pwsh -NoProfile -File .\test-local.ps1 -LibOnly -Filter 'llm_client::tests::'`
+
 ### Soniox async failure details (2026-08-03)
 
 - `managers::soniox_stt::tests::async_failure_preserves_provider_error_details`
