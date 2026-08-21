@@ -1,0 +1,105 @@
+import assert from "node:assert";
+
+import {
+  getVisibleTextReplacementRules,
+  type TextReplacementRule,
+  type TextReplacementSearchScope,
+  type TextReplacementSortOrder,
+} from "./textReplacementRuleView";
+
+const makeRule = (
+  id: string,
+  from: string,
+  to: string,
+): TextReplacementRule => ({
+  id,
+  from,
+  to,
+  enabled: true,
+  case_sensitive: false,
+  is_regex: false,
+});
+
+const rules: readonly TextReplacementRule[] = [
+  makeRule("rule-0", "beta", "zeta"),
+  makeRule("rule-1", "Alpha", "two"),
+  makeRule("rule-2", "alpha", "one"),
+  makeRule("rule-3", "beta", "alpha"),
+  makeRule("rule-4", "gamma", "middle value"),
+  makeRule("rule-5", "beta", "alpha"),
+];
+
+const originalOrder = rules.slice();
+const originalValues = rules.map((rule) => ({ ...rule }));
+
+const ids = (visibleRules: TextReplacementRule[]): string[] =>
+  visibleRules.map((rule) => rule.id);
+
+const assertView = (
+  query: string,
+  scope: TextReplacementSearchScope,
+  sortOrder: TextReplacementSortOrder,
+  expectedIds: string[],
+) => {
+  const visibleRules = getVisibleTextReplacementRules(
+    rules,
+    query,
+    scope,
+    sortOrder,
+  );
+
+  assert.notStrictEqual(visibleRules, rules);
+  assert.deepStrictEqual(ids(visibleRules), expectedIds);
+  assert.deepStrictEqual(rules, originalOrder);
+  assert.deepStrictEqual(rules, originalValues);
+  for (const rule of visibleRules) {
+    assert.ok(rules.includes(rule));
+  }
+};
+
+assertView("ALPHA", "all", "oldest", [
+  "rule-1",
+  "rule-2",
+  "rule-3",
+  "rule-5",
+]);
+assertView("ZETA", "all", "oldest", ["rule-0"]);
+assertView("ALPHA", "replacement", "oldest", ["rule-3", "rule-5"]);
+assertView("ALPHA", "replacement", "alphabetical-asc", [
+  "rule-3",
+  "rule-5",
+]);
+assertView(" ", "replacement", "oldest", ["rule-4"]);
+assertView("", "all", "oldest", [
+  "rule-0",
+  "rule-1",
+  "rule-2",
+  "rule-3",
+  "rule-4",
+  "rule-5",
+]);
+
+assertView("", "all", "alphabetical-asc", [
+  "rule-2",
+  "rule-1",
+  "rule-3",
+  "rule-5",
+  "rule-0",
+  "rule-4",
+]);
+assertView("", "all", "alphabetical-desc", [
+  "rule-4",
+  "rule-0",
+  "rule-3",
+  "rule-5",
+  "rule-1",
+  "rule-2",
+]);
+assertView("", "all", "newest", [
+  "rule-5",
+  "rule-4",
+  "rule-3",
+  "rule-2",
+  "rule-1",
+  "rule-0",
+]);
