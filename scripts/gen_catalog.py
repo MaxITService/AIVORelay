@@ -18,7 +18,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from huggingface_hub import HfApi, HfFileSystem
 
 ORG = "handy-computer"
-CATALOG_VERSION = 1
+CATALOG_VERSION = 2
+
+# Download sources tried in order after Hugging Face itself. Each entry is a
+# base URL; the full file URL is `{mirror}/{repo_id}/{revision}/{filename}`
+# (the same three values that form the HF resolve URL, so a mirror is a plain
+# static file host). Mirrors are untrusted: every download is verified against
+# the per-file `sha256` below, so listing one only affects availability.
+MIRRORS = ["https://blob.handy.computer"]
 
 # ───────────────────────── scoring (one constant each) ──────────────────────
 SPEED_SCALE = 8.0    # speed = 100·(1 − e^(−rtf/8))     grows toward 100
@@ -49,6 +56,9 @@ CURATION = {
     "Fun-ASR-MLT-Nano-2512":           {"rank": 10, "desc": "A tiny multilingual model"},
     # description-only (unranked, not recommended) — carried over from the legacy .bin entry
     "Breeze-ASR-25":                   {"desc": "Optimized for Taiwanese Mandarin. Code-switching support."},
+    # Sortformer emits speaker segments only; Handy's catalog is for models
+    # that produce transcription text.
+    "diar_streaming_sortformer_4spk-v2.1": {"hidden": True},
 }
 # temporary capability corrections pending a card re-push (remove once cards fixed)
 OVERRIDES = {
@@ -60,7 +70,8 @@ OVERRIDES = {
 
 # ───────────────────────── helpers ──────────────────────────────────────────
 ARCH = ["whisper","moonshine-streaming","moonshine","parakeet","canary-qwen","canary","voxtral",
-        "granite-speech","granite","qwen3","gigaam","sensevoice","cohere","fun-asr","nemotron","medasr"]
+        "granite-speech","granite","qwen3","gigaam","sensevoice","cohere","fun-asr","nemotron","medasr",
+        "moss","sortformer"]
 ACR = {"asr":"ASR","ctc":"CTC","rnnt":"RNNT","tdt":"TDT","nar":"NAR","mlt":"MLT"}
 SCALAR = {0:("<B",1),1:("<b",1),2:("<H",2),3:("<h",2),4:("<I",4),5:("<i",4),
           6:("<f",4),7:("<?",1),10:("<Q",8),11:("<q",8),12:("<d",8)}
@@ -70,7 +81,7 @@ def family(s, tags):
     for f in ARCH:
         if f in s.lower(): return "moonshine" if f.startswith("moonshine") else f.split("-")[0]
     for t in tags or []:
-        if t in ("whisper","moonshine","parakeet","canary","voxtral","granite","qwen3","gigaam","sensevoice","cohere"):
+        if t in ("whisper","moonshine","parakeet","canary","voxtral","granite","qwen3","gigaam","sensevoice","cohere","moss","sortformer"):
             return t
     return "other"
 def pretty(s):
@@ -155,32 +166,62 @@ def probe_header(repo, filename, nbytes=65536):
         pass                      # ran past the buffer (hit tokenizer) — keep what we got
     return out
 
+COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+
+def normalized_hex(value, pattern, label):
+    if not isinstance(value, str):
+        raise ValueError(f"{label}: missing pinned hexadecimal metadata")
+    value = value.strip()
+    if not pattern.fullmatch(value):
+        raise ValueError(f"{label}: invalid pinned hexadecimal metadata '{value}'")
+    return value.lower()
+
+def lfs_sha256(x):
+    """Return a normalized LFS/Xet sha256 from either supported HF shape."""
+    lfs = getattr(x, "lfs", None)
+    if lfs is None:
+        return None
+    value = getattr(lfs, "sha256", None)
+    if value is None and isinstance(lfs, dict):
+        value = lfs.get("sha256")
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value.lower() if SHA256_RE.fullmatch(value) else None
+
 def gguf_files(repo, siblings):
-    """Return GGUF files with mandatory size metadata.
+    """Return GGUF files with mandatory size and sha256 metadata.
 
     `QuantFile.size_bytes` is a non-null `u64` in Rust. Failing generation here
     keeps a transient/malformed HF listing from producing a catalog that panics
     at app startup when deserialized by `include_str!("catalog.json")`.
+
+    `sha256` is the trust anchor for downloads (HF or mirror alike), so a
+    missing or malformed hash makes the model listing unsafe to publish.
     """
     files = []
     invalid = []
     for x in siblings:
         if not x.rfilename.endswith(".gguf"):
             continue
-        if type(x.size) is not int or x.size <= 0:
+        sha = lfs_sha256(x)
+        if type(x.size) is not int or x.size <= 0 or sha is None:
             invalid.append(x.rfilename)
             continue
         files.append({
             "filename": x.rfilename,
             "quant": quant_of(x.rfilename),
             "size_bytes": x.size,
+            "sha256": sha,
         })
     if invalid:
-        raise ValueError(f"{repo}: missing/invalid size metadata for {', '.join(invalid)}")
+        raise ValueError(f"{repo}: missing/invalid size or sha256 metadata for {', '.join(invalid)}")
     return sorted(files, key=lambda f: f["size_bytes"])
 
 def build(repo):
     info = api.model_info(repo, files_metadata=True)
+    revision = normalized_hex(getattr(info, "sha", None), COMMIT_SHA_RE, f"{repo} revision")
     cd = info.card_data.to_dict() if info.card_data else {}
     s = slug(repo)
     cur = CURATION.get(s, {})
@@ -213,6 +254,7 @@ def build(repo):
 
     return {
         "id": repo,
+        "revision": revision,
         "slug": s,
         "name": gg.get("general.name") or pretty(s),         # friendly name (from GGUF)
         "architecture": gg.get("general.architecture"),
@@ -253,6 +295,7 @@ def main():
     catalog = {
         "catalog_version": CATALOG_VERSION,
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+        "mirrors": MIRRORS,
         "models": models,
     }
     text = json.dumps(catalog, indent=2, ensure_ascii=False)

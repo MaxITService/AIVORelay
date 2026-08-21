@@ -3305,7 +3305,7 @@ async changeWhisperAcceleratorSetting(accelerator: WhisperAcceleratorSetting) : 
 async changeOrtAcceleratorSetting(accelerator: OrtAcceleratorSetting) : Promise<void> {
     await TAURI_INVOKE("change_ort_accelerator_setting", { accelerator });
 },
-async changeWhisperGpuDevice(device: number) : Promise<void> {
+async changeWhisperGpuDevice(device: string | null) : Promise<void> {
     await TAURI_INVOKE("change_whisper_gpu_device", { device });
 },
 async getAvailableAccelerators() : Promise<AvailableAccelerators> {
@@ -4115,7 +4115,12 @@ filler_word_filter_enabled?: boolean;
 /**
  * Optional custom filler words. When set, overrides language defaults for filler filtering.
  */
-custom_filler_words?: string[] | null; whisper_accelerator?: WhisperAcceleratorSetting; ort_accelerator?: OrtAcceleratorSetting; whisper_gpu_device?: number;
+custom_filler_words?: string[] | null; whisper_accelerator?: WhisperAcceleratorSetting; ort_accelerator?: OrtAcceleratorSetting;
+/**
+ * Stable transcribe.cpp device selector. Derived from `device_id` when
+ * available, otherwise the device name; never a process-local index.
+ */
+whisper_gpu_device?: string | null;
 /**
  * Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
  */
@@ -4315,7 +4320,7 @@ speaker_session: FileTranscriptionSpeakerSession | null }
 export type FileTranscriptionSpeaker = { speaker_id: number; default_name: string }
 export type FileTranscriptionSpeakerNameInput = { speaker_id: number; name: string }
 export type FileTranscriptionSpeakerSession = { artifact_path: string; provider: DiarizedTranscriptProvider; speakers: FileTranscriptionSpeaker[] }
-export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number }
+export type GpuDeviceOption = { id: string; name: string; total_vram_mb: number }
 export type GpuVramStatus = { is_supported: boolean; adapter_name: string | null; used_bytes: number; budget_bytes: number; system_used_bytes: number; system_free_bytes: number; total_vram_bytes: number; updated_at_unix_ms: number; error: string | null }
 export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean;
 /**

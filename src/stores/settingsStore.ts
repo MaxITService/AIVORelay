@@ -519,7 +519,7 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
 (settingUpdaters as any).ort_accelerator = (value: any) =>
   commands.changeOrtAcceleratorSetting(value as any);
 (settingUpdaters as any).whisper_gpu_device = (value: any) =>
-  commands.changeWhisperGpuDevice(Math.trunc(Number(value)));
+  commands.changeWhisperGpuDevice(value == null ? null : String(value));
 (settingUpdaters as any).recording_auto_stop_paste = (value: any) =>
   invoke("change_recording_auto_stop_paste_setting", { paste: value });
 (settingUpdaters as any).extra_recording_buffer_ms = (value: any) =>

@@ -3736,8 +3736,13 @@ pub struct AppSettings {
     pub whisper_accelerator: WhisperAcceleratorSetting,
     #[serde(default)]
     pub ort_accelerator: OrtAcceleratorSetting,
-    #[serde(default = "default_whisper_gpu_device")]
-    pub whisper_gpu_device: i32,
+    /// Stable transcribe.cpp device selector. Derived from `device_id` when
+    /// available, otherwise the device name; never a process-local index.
+    #[serde(
+        default = "default_whisper_gpu_device",
+        deserialize_with = "deserialize_whisper_gpu_device"
+    )]
+    pub whisper_gpu_device: Option<String>,
     /// Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
     #[serde(default = "default_true")]
     pub zero_width_filter_enabled: bool,
@@ -3801,8 +3806,24 @@ fn default_recording_auto_stop_timeout_seconds() -> u32 {
     1800
 }
 
-fn default_whisper_gpu_device() -> i32 {
-    -1
+fn default_whisper_gpu_device() -> Option<String> {
+    None
+}
+
+/// Accept legacy numeric device indexes long enough to discard them safely.
+/// transcribe.cpp 0.2 device indexes are process-local and cannot be persisted.
+fn deserialize_whisper_gpu_device<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match Option::<Value>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value)),
+        Some(Value::Number(_)) => Ok(None),
+        Some(_) => Err(de::Error::custom(
+            "whisper GPU device must be a string, number, or null",
+        )),
+    }
 }
 
 fn default_sidebar_width() -> u32 {
@@ -5855,6 +5876,19 @@ fn normalize_legacy_aliases(candidate: &mut Value) -> bool {
     changed
 }
 
+fn normalize_legacy_whisper_gpu_device(candidate: &mut Value) -> bool {
+    let Some(object) = candidate.as_object_mut() else {
+        return false;
+    };
+
+    if !matches!(object.get("whisper_gpu_device"), Some(Value::Number(_))) {
+        return false;
+    }
+
+    object.insert("whisper_gpu_device".to_string(), Value::Null);
+    true
+}
+
 /// Legacy `copy_to_clipboard` handling mode is superseded by the dedicated
 /// history setting: it used to keep the final transcription on the clipboard,
 /// which now maps to "don't restore" + "save final text only".
@@ -5961,6 +5995,7 @@ fn deserialize_settings_value_with_repair(settings_value: &Value) -> (AppSetting
     let default_value = serde_json::to_value(&default_settings).unwrap();
     let mut normalized_value = settings_value.clone();
     let mut repaired = normalize_legacy_aliases(&mut normalized_value);
+    repaired |= normalize_legacy_whisper_gpu_device(&mut normalized_value);
     let mut candidate = merge_json_with_defaults(&default_value, &normalized_value);
     repaired |= candidate != *settings_value;
 
@@ -6203,6 +6238,18 @@ fn migrate_legacy_settings_fields(settings: &mut AppSettings) -> bool {
     changed
 }
 
+fn normalize_whisper_accelerator(settings: &mut AppSettings) -> bool {
+    if settings.whisper_accelerator == WhisperAcceleratorSetting::Gpu
+        && settings.whisper_gpu_device.is_none()
+    {
+        // The retired generic GPU choice is represented by Auto without an exact device.
+        settings.whisper_accelerator = WhisperAcceleratorSetting::Auto;
+        return true;
+    }
+
+    false
+}
+
 fn ensure_active_profile_exists(settings: &mut AppSettings) -> bool {
     if settings.active_profile_id != "default"
         && !settings
@@ -6294,6 +6341,7 @@ fn repair_runtime_settings(settings: &mut AppSettings) -> bool {
     changed |= ensure_builtin_file_tts_target_chars(settings);
     changed |= ensure_preview_delete_last_word_binding(settings);
     changed |= migrate_legacy_settings_fields(settings);
+    changed |= normalize_whisper_accelerator(settings);
     changed |= ensure_post_process_defaults(settings);
     changed |= normalize_post_process_benchmark_log(settings);
     changed |= ensure_remote_stt_defaults(settings);
@@ -6916,6 +6964,109 @@ mod tests {
         assert!(parse_settings_store_document(br#"{"#).is_err());
         assert!(parse_settings_store_document(br#"[]"#).is_err());
         assert!(parse_settings_store_document(br#"{"settings": {}}"#).is_ok());
+    }
+
+    #[test]
+    fn whisper_gpu_device_deserializes_stable_and_legacy_values() {
+        #[derive(serde::Deserialize)]
+        struct WhisperDeviceFixture {
+            #[serde(
+                default = "default_whisper_gpu_device",
+                deserialize_with = "deserialize_whisper_gpu_device"
+            )]
+            whisper_gpu_device: Option<String>,
+        }
+
+        let missing: WhisperDeviceFixture = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(missing.whisper_gpu_device, None);
+
+        let null: WhisperDeviceFixture =
+            serde_json::from_value(json!({ "whisper_gpu_device": null })).unwrap();
+        assert_eq!(null.whisper_gpu_device, None);
+
+        let legacy: WhisperDeviceFixture =
+            serde_json::from_value(json!({ "whisper_gpu_device": 3 })).unwrap();
+        assert_eq!(legacy.whisper_gpu_device, None);
+
+        let stable: WhisperDeviceFixture = serde_json::from_value(json!({
+            "whisper_gpu_device": "[\"vulkan\",\"id\",\"0000:01:00.0\"]"
+        }))
+        .unwrap();
+        assert_eq!(
+            stable.whisper_gpu_device.as_deref(),
+            Some("[\"vulkan\",\"id\",\"0000:01:00.0\"]")
+        );
+
+        assert!(serde_json::from_value::<WhisperDeviceFixture>(json!({
+            "whisper_gpu_device": { "kind": "vulkan" }
+        }))
+        .is_err());
+    }
+
+    #[test]
+    fn repairs_numeric_whisper_gpu_device_in_complete_settings_document() {
+        let mut value = serde_json::to_value(get_default_settings()).unwrap();
+        value["whisper_accelerator"] = json!("auto");
+        value["whisper_gpu_device"] = json!(3);
+
+        let (settings, repaired) = deserialize_settings_value_with_repair(&value);
+
+        assert!(repaired);
+        assert_eq!(settings.whisper_gpu_device, None);
+        assert_eq!(
+            settings.whisper_accelerator,
+            WhisperAcceleratorSetting::Auto
+        );
+    }
+
+    #[test]
+    fn preserves_null_and_stable_whisper_gpu_device_without_repair() {
+        let mut null_value = serde_json::to_value(get_default_settings()).unwrap();
+        null_value["whisper_accelerator"] = json!("auto");
+        null_value["whisper_gpu_device"] = Value::Null;
+
+        let (null_settings, null_repaired) =
+            deserialize_settings_value_with_repair(&null_value);
+
+        assert!(!null_repaired);
+        assert_eq!(null_settings.whisper_gpu_device, None);
+
+        let stable_id = "[\"vulkan\",\"id\",\"0000:01:00.0\"]";
+        let mut stable_value = serde_json::to_value(get_default_settings()).unwrap();
+        stable_value["whisper_accelerator"] = json!("gpu");
+        stable_value["whisper_gpu_device"] = json!(stable_id);
+
+        let (stable_settings, stable_repaired) =
+            deserialize_settings_value_with_repair(&stable_value);
+
+        assert!(!stable_repaired);
+        assert_eq!(
+            stable_settings.whisper_gpu_device.as_deref(),
+            Some(stable_id)
+        );
+    }
+
+    #[test]
+    fn normalizes_whisper_gpu_without_exact_device_to_auto() {
+        let mut settings = get_default_settings();
+        settings.whisper_accelerator = WhisperAcceleratorSetting::Gpu;
+        settings.whisper_gpu_device = None;
+
+        assert!(normalize_whisper_accelerator(&mut settings));
+        assert_eq!(
+            settings.whisper_accelerator,
+            WhisperAcceleratorSetting::Auto
+        );
+    }
+
+    #[test]
+    fn preserves_whisper_gpu_with_stable_device_identity() {
+        let mut settings = get_default_settings();
+        settings.whisper_accelerator = WhisperAcceleratorSetting::Gpu;
+        settings.whisper_gpu_device = Some("[\"vulkan\",\"id\",\"0000:01:00.0\"]".into());
+
+        assert!(!normalize_whisper_accelerator(&mut settings));
+        assert_eq!(settings.whisper_accelerator, WhisperAcceleratorSetting::Gpu);
     }
 
     #[test]
