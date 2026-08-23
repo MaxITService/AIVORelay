@@ -51,7 +51,7 @@ export type OverlayErrorPhase =
   | "process"
   | "unknown";
 
-export type OverlayErrorContext = "ai_replace";
+export type OverlayErrorContext = "ai_replace" | "send_selected_text";
 
 export type OverlayConfigurationTarget = "post_processing" | "ai_replace";
 

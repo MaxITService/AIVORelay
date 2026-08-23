@@ -734,7 +734,9 @@ body,
 .recording-overlay.recording-overlay-custom .error-code-chip,
 .recording-overlay.recording-overlay-legacy .error-code-chip,
 .recording-overlay.recording-overlay-custom .error-retry-button,
-.recording-overlay.recording-overlay-legacy .error-retry-button {
+.recording-overlay.recording-overlay-legacy .error-retry-button,
+.recording-overlay.recording-overlay-custom .error-copy-button,
+.recording-overlay.recording-overlay-legacy .error-copy-button {
   flex-shrink: 0;
   align-self: flex-start;
   color: #ffd5d5;
@@ -747,10 +749,21 @@ body,
 }
 
 .recording-overlay.recording-overlay-custom .error-retry-button,
-.recording-overlay.recording-overlay-legacy .error-retry-button {
+.recording-overlay.recording-overlay-legacy .error-retry-button,
+.recording-overlay.recording-overlay-custom .error-copy-button,
+.recording-overlay.recording-overlay-legacy .error-copy-button {
   appearance: none;
   cursor: pointer;
   line-height: 1.2;
+}
+
+.recording-overlay.recording-overlay-custom .error-copy-button,
+.recording-overlay.recording-overlay-legacy .error-copy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 22px;
 }
 
 .recording-overlay.recording-overlay-custom .error-code-chip {
@@ -773,7 +786,9 @@ body,
 }
 
 .recording-overlay.recording-overlay-custom .error-retry-button,
-.recording-overlay.recording-overlay-legacy .error-retry-button {
+.recording-overlay.recording-overlay-legacy .error-retry-button,
+.recording-overlay.recording-overlay-custom .error-copy-button,
+.recording-overlay.recording-overlay-legacy .error-copy-button {
   border: 1px solid rgba(255, 122, 122, 0.65);
   background:
     linear-gradient(
@@ -789,14 +804,18 @@ body,
 }
 
 .recording-overlay.recording-overlay-custom .error-retry-button:hover,
-.recording-overlay.recording-overlay-legacy .error-retry-button:hover {
+.recording-overlay.recording-overlay-legacy .error-retry-button:hover,
+.recording-overlay.recording-overlay-custom .error-copy-button:hover,
+.recording-overlay.recording-overlay-legacy .error-copy-button:hover {
   border-color: rgba(255, 190, 190, 0.85);
   background: rgba(255, 135, 135, 0.22);
   transform: scale(1.04);
 }
 
 .recording-overlay.recording-overlay-custom .error-retry-button:active,
-.recording-overlay.recording-overlay-legacy .error-retry-button:active {
+.recording-overlay.recording-overlay-legacy .error-retry-button:active,
+.recording-overlay.recording-overlay-custom .error-copy-button:active,
+.recording-overlay.recording-overlay-legacy .error-copy-button:active {
   transform: scale(0.96);
 }
 

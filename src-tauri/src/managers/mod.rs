@@ -20,6 +20,7 @@ pub mod openai_realtime_whisper;
 pub mod preview_output_mode;
 pub(crate) mod provider_error;
 pub mod remote_stt;
+pub mod send_selected_text_history;
 pub mod soniox_realtime;
 pub mod soniox_stt;
 pub mod transcription;

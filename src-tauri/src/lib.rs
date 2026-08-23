@@ -30,6 +30,7 @@ mod recording_auto_stop;
 mod region_capture;
 mod secure_keys;
 mod selection;
+mod send_selected_text;
 mod session_manager;
 mod settings;
 mod shortcut;
@@ -91,6 +92,7 @@ use managers::llm_operation::LlmOperationTracker;
 use managers::model::ModelManager;
 use managers::openai_realtime_whisper::OpenAiRealtimeWhisperManager;
 use managers::remote_stt::RemoteSttManager;
+use managers::send_selected_text_history::SendSelectedTextHistoryManager;
 use managers::soniox_realtime::SonioxRealtimeManager;
 use managers::soniox_stt::SonioxSttManager;
 use managers::transcription::TranscriptionManager;
@@ -439,6 +441,10 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     let tts_history_manager = Arc::new(
         TtsHistoryManager::new(app_handle).expect("Failed to initialize TTS history manager"),
     );
+    let send_selected_text_history_manager = Arc::new(
+        SendSelectedTextHistoryManager::new(app_handle)
+            .expect("Failed to initialize Send Selected Text history manager"),
+    );
     let connector_manager = Arc::new(
         ConnectorManager::new(app_handle).expect("Failed to initialize connector manager"),
     );
@@ -462,6 +468,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(llm_operation_tracker.clone());
     app_handle.manage(history_manager.clone());
     app_handle.manage(tts_history_manager);
+    app_handle.manage(send_selected_text_history_manager);
     app_handle.manage(connector_manager.clone());
     app_handle.manage(tts_manager.clone());
     app_handle.manage(commands::tts::TtsOverlayRuntime::default());
@@ -1364,6 +1371,16 @@ pub fn run(cli_args: CliArgs) {
         commands::remote_stt::remote_stt_clear_debug,
         commands::remote_stt::remote_stt_test_connection,
         commands::remote_stt::remote_stt_supports_translation,
+        commands::send_selected_text::get_send_selected_text_settings,
+        commands::send_selected_text::create_send_selected_text_preset,
+        commands::send_selected_text::update_send_selected_text_preset,
+        commands::send_selected_text::delete_send_selected_text_preset,
+        commands::send_selected_text::update_send_selected_text_options,
+        commands::send_selected_text::run_send_selected_text_preset,
+        commands::send_selected_text::trim_send_selected_text_json,
+        commands::send_selected_text::get_send_selected_text_history,
+        commands::send_selected_text::delete_send_selected_text_history_entry,
+        commands::send_selected_text::clear_send_selected_text_history,
         commands::tts::update_tts_settings,
         commands::tts::tts_has_api_key,
         commands::tts::tts_set_api_key,
@@ -1843,7 +1860,8 @@ pub fn run(cli_args: CliArgs) {
                     }
                 }
             }
-            tauri::WindowEvent::Destroyed => {
+            tauri::WindowEvent::Destroyed =>
+            {
                 #[cfg(target_os = "windows")]
                 if window.label() == "region_capture" {
                     region_capture::on_region_window_closed(&window.app_handle());

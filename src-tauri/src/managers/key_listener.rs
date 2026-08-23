@@ -102,6 +102,20 @@ impl KeyListenerManager {
         };
 
         let mut shortcuts = self.shortcuts.lock().map_err(|e| e.to_string())?;
+        if !match_main_key_in_any_combo {
+            if let Some((existing_id, existing)) =
+                shortcuts.iter().find(|(existing_id, existing)| {
+                    existing_id.as_str() != id.as_str()
+                        && !existing.match_main_key_in_any_combo
+                        && same_physical_shortcut(existing, &shortcut)
+                })
+            {
+                return Err(format!(
+                    "Shortcut '{}' is already in use by '{}' ({})",
+                    binding, existing_id, existing.original_binding
+                ));
+            }
+        }
         shortcuts.insert(id.clone(), shortcut);
         info!("Registered rdev shortcut '{}': {}", id, binding);
         Ok(())
@@ -350,6 +364,14 @@ impl KeyListenerManager {
                 | Key::MetaRight
         )
     }
+}
+
+fn same_physical_shortcut(left: &RegisteredShortcut, right: &RegisteredShortcut) -> bool {
+    left.key == right.key
+        && left.modifiers.ctrl == right.modifiers.ctrl
+        && left.modifiers.shift == right.modifiers.shift
+        && left.modifiers.alt == right.modifiers.alt
+        && left.modifiers.win == right.modifiers.win
 }
 
 /// Parse a shortcut string like "ctrl+shift+a", "caps lock", or "ctrl+alt" into key and modifiers

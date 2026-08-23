@@ -2605,6 +2605,81 @@ async remoteSttTestConnection(baseUrl: string) : Promise<Result<null, string>> {
 async remoteSttSupportsTranslation() : Promise<boolean> {
     return await TAURI_INVOKE("remote_stt_supports_translation");
 },
+async getSendSelectedTextSettings() : Promise<SendSelectedTextSettings> {
+    return await TAURI_INVOKE("get_send_selected_text_settings");
+},
+async createSendSelectedTextPreset(template: SendSelectedTextPreset | null) : Promise<Result<SendSelectedTextPreset, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_send_selected_text_preset", { template }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateSendSelectedTextPreset(preset: SendSelectedTextPreset) : Promise<Result<SendSelectedTextPreset, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_send_selected_text_preset", { preset }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteSendSelectedTextPreset(presetId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_send_selected_text_preset", { presetId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateSendSelectedTextOptions(historyLimit: number, errorOverlayAutoHideMs: number) : Promise<Result<SendSelectedTextSettings, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_send_selected_text_options", { historyLimit, errorOverlayAutoHideMs }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async runSendSelectedTextPreset(presetId: string, sampleText: string | null) : Promise<Result<SendSelectedTextOperationResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("run_send_selected_text_preset", { presetId, sampleText }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async trimSendSelectedTextJson(presetId: string) : Promise<Result<number, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("trim_send_selected_text_json", { presetId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getSendSelectedTextHistory(limit: number | null, offset: number | null) : Promise<Result<SendSelectedTextHistoryEntry[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_send_selected_text_history", { limit, offset }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteSendSelectedTextHistoryEntry(id: number) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_send_selected_text_history_entry", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clearSendSelectedTextHistory() : Promise<Result<number, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_send_selected_text_history") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async updateTtsSettings(settings: TtsSettings, scope: TtsOperationScope | null, changedField: string | null) : Promise<Result<TtsSettings, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_tts_settings", { settings, scope, changedField }) };
@@ -3945,7 +4020,7 @@ active_profile_id?: string;
 /**
  * Whether to show an overlay notification when switching profiles
  */
-profile_switch_overlay_enabled?: boolean;
+profile_switch_overlay_enabled?: boolean; send_selected_text?: SendSelectedTextSettings;
 /**
  * Whether the Voice Command feature is enabled
  */
@@ -4471,6 +4546,15 @@ width: number;
  * Height in pixels
  */
 height: number }
+export type SendSelectedTextCaptureMode = "auto" | "clipboard_copy" | "accessibility"
+export type SendSelectedTextFormat = "markdown" | "json"
+export type SendSelectedTextHistoryEntry = { id: number; operation_id: string; preset_id: string; preset_name: string; timestamp_ms: number; selected_text: string; output_path: string | null; output_format: string; write_mode: string; status: SendSelectedTextHistoryStatus; command: string | null; command_output: string | null; command_output_truncated: boolean; error: string | null }
+export type SendSelectedTextHistoryStatus = "saved" | "command_started" | "completed" | "command_failed" | "failed"
+export type SendSelectedTextOperationResult = { history_id: number; operation_id: string; output_path: string; status: SendSelectedTextHistoryStatus; command_output: string | null; command_output_truncated: boolean }
+export type SendSelectedTextOversizeBehavior = "reject" | "truncate"
+export type SendSelectedTextPreset = { id: string; name: string; enabled?: boolean; format?: SendSelectedTextFormat; write_mode?: SendSelectedTextWriteMode; capture_mode?: SendSelectedTextCaptureMode; destination_directory?: string; filename_template?: string; content_template?: string; max_chars?: number; oversize_behavior?: SendSelectedTextOversizeBehavior; json_keep_last?: number; command_enabled?: boolean; command?: string; allow_text_variable?: boolean; command_silent?: boolean; command_no_profile?: boolean; command_use_pwsh?: boolean; command_execution_policy?: ExecutionPolicy; command_working_directory?: string }
+export type SendSelectedTextSettings = { presets?: SendSelectedTextPreset[]; history_limit?: number; error_overlay_auto_hide_ms?: number }
+export type SendSelectedTextWriteMode = "create_new" | "append_last" | "append_file" | "overwrite_file"
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
 /**
  * Shortcut engine selection for Windows.

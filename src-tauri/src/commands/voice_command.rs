@@ -10,6 +10,19 @@ use std::process::Command;
 
 use crate::settings::{ExecutionPolicy, ResolvedExecutionOptions};
 
+#[derive(Debug, Clone)]
+pub(crate) struct CapturedCommandOutput {
+    pub exit_code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+impl CapturedCommandOutput {
+    pub fn succeeded(&self) -> bool {
+        self.exit_code == Some(0)
+    }
+}
+
 #[cfg(target_os = "windows")]
 const CREATE_NEW_CONSOLE: u32 = 0x00000010;
 #[cfg(target_os = "windows")]
@@ -59,9 +72,18 @@ pub fn execute_voice_command(
 
 /// Internal function to execute PowerShell commands.
 #[cfg(target_os = "windows")]
-fn execute_powershell_command(
+pub(crate) fn execute_powershell_command(
     script: &str,
     options: &ResolvedExecutionOptions,
+) -> Result<String, String> {
+    execute_powershell_command_with_environment(script, options, &[])
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn execute_powershell_command_with_environment(
+    script: &str,
+    options: &ResolvedExecutionOptions,
+    environment: &[(String, String)],
 ) -> Result<String, String> {
     let shell = if options.use_pwsh {
         "pwsh"
@@ -79,6 +101,7 @@ fn execute_powershell_command(
     );
 
     let mut cmd = Command::new(shell);
+    cmd.envs(environment.iter().cloned());
 
     // Add -NoProfile flag if requested
     if options.no_profile {
@@ -133,6 +156,7 @@ fn execute_powershell_command(
 
         // Rebuild command with -NoExit before -Command
         let mut windowed_cmd = Command::new(shell);
+        windowed_cmd.envs(environment.iter().cloned());
 
         if options.no_profile {
             windowed_cmd.arg("-NoProfile");
@@ -167,6 +191,89 @@ fn execute_powershell_command(
 
         Ok("Command opened in PowerShell window".to_string())
     }
+}
+
+/// Runs a PowerShell command without a visible window and waits for its exit.
+/// This complements the voice-command fire-and-forget path for workflows that
+/// need a durable success/error result in their own history.
+#[cfg(target_os = "windows")]
+pub(crate) fn execute_powershell_command_captured(
+    script: &str,
+    options: &ResolvedExecutionOptions,
+    environment: &[(String, String)],
+) -> Result<CapturedCommandOutput, String> {
+    if script.trim().is_empty() {
+        return Err("Command is empty".to_string());
+    }
+
+    let shell = if options.use_pwsh {
+        "pwsh"
+    } else {
+        "powershell"
+    };
+    let mut command = Command::new(shell);
+    if options.no_profile {
+        command.arg("-NoProfile");
+    }
+    command.arg("-NonInteractive");
+    match options.execution_policy {
+        ExecutionPolicy::Default => {}
+        ExecutionPolicy::Bypass => {
+            command.args(["-ExecutionPolicy", "Bypass"]);
+        }
+        ExecutionPolicy::Unrestricted => {
+            command.args(["-ExecutionPolicy", "Unrestricted"]);
+        }
+        ExecutionPolicy::RemoteSigned => {
+            command.args(["-ExecutionPolicy", "RemoteSigned"]);
+        }
+    }
+    if let Some(directory) = options
+        .working_directory
+        .as_deref()
+        .map(str::trim)
+        .filter(|directory| !directory.is_empty())
+    {
+        command.current_dir(directory);
+    }
+    command.envs(environment.iter().cloned());
+    command.args(["-Command", script]);
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let output = command
+        .output()
+        .map_err(|error| format!("Failed to run command: {error}"))?;
+    Ok(CapturedCommandOutput {
+        exit_code: output.status.code(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn execute_powershell_command_captured(
+    _script: &str,
+    _options: &ResolvedExecutionOptions,
+    _environment: &[(String, String)],
+) -> Result<CapturedCommandOutput, String> {
+    Err("PowerShell commands are currently supported only on Windows".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn execute_powershell_command(
+    _script: &str,
+    _options: &ResolvedExecutionOptions,
+) -> Result<String, String> {
+    Err("PowerShell commands are currently supported only on Windows".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn execute_powershell_command_with_environment(
+    _script: &str,
+    _options: &ResolvedExecutionOptions,
+    _environment: &[(String, String)],
+) -> Result<String, String> {
+    Err("PowerShell commands are currently supported only on Windows".to_string())
 }
 
 /// Non-Windows stub

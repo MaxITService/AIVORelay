@@ -34,6 +34,21 @@ const isFeatureEnabled = (
   hotkeyId: string,
   settings: AppSettings | null,
 ): boolean => {
+  if (hotkeyId.startsWith("send_selected_text_") && settings) {
+    const presetId = hotkeyId.slice("send_selected_text_".length);
+    const feature = (
+      settings as AppSettings & {
+        send_selected_text?: {
+          presets?: Array<{ id: string; enabled: boolean }>;
+        };
+      }
+    ).send_selected_text;
+    return Boolean(
+      feature?.presets?.some(
+        (preset) => preset.id === presetId && preset.enabled,
+      ),
+    );
+  }
   const settingKey = hotkeyGuideManifest.featureGates[hotkeyId];
   if (!settingKey || !settings) return true;
   return Boolean(settings[settingKey]);
@@ -53,7 +68,8 @@ const decapitalizeMonitorBindings = (
     {
       id: "text_replacement_decapitalize_after_edit_key",
       name: "Decapitalize monitored key",
-      description: "Primary passive edit key used by Decapitalize After Manual Edit",
+      description:
+        "Primary passive edit key used by Decapitalize After Manual Edit",
       default_binding: "backspace",
       current_binding:
         settings.text_replacement_decapitalize_after_edit_key ?? "backspace",
@@ -64,7 +80,8 @@ const decapitalizeMonitorBindings = (
     bindings.push({
       id: "text_replacement_decapitalize_after_edit_secondary_key",
       name: "Decapitalize secondary monitored key",
-      description: "Secondary passive edit key used by Decapitalize After Manual Edit",
+      description:
+        "Secondary passive edit key used by Decapitalize After Manual Edit",
       default_binding: "delete",
       current_binding:
         settings.text_replacement_decapitalize_after_edit_secondary_key ??

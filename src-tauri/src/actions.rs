@@ -89,6 +89,7 @@ struct ReadClipboardAction;
 struct ReadSelectionTtsAction;
 struct ReadSelectionDirectTtsAction;
 struct TtsPlayHistoryFallbackAction;
+struct SendSelectedTextAction;
 
 const REPASTE_LAST_PRE_PASTE_DELAY_MS: u64 = 100;
 
@@ -8860,6 +8861,35 @@ impl ShortcutAction for ReadSelectionDirectTtsAction {
     }
 }
 
+impl ShortcutAction for SendSelectedTextAction {
+    fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
+        let Some(preset_id) = binding_id
+            .strip_prefix(crate::settings::SEND_SELECTED_TEXT_BINDING_PREFIX)
+            .filter(|preset_id| !preset_id.is_empty())
+        else {
+            warn!("Invalid Send Selected Text binding ID: {binding_id}");
+            return;
+        };
+        let app = app.clone();
+        let preset_id = preset_id.to_string();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = crate::send_selected_text::run_preset(app, preset_id, None).await {
+                warn!("Send Selected Text shortcut failed: {error}");
+            }
+        });
+    }
+
+    fn stop(&self, _app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {}
+
+    fn is_instant(&self) -> bool {
+        true
+    }
+
+    fn instant_fire_on_release(&self) -> bool {
+        true
+    }
+}
+
 impl ShortcutAction for TtsPlayHistoryFallbackAction {
     fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
         if let Err(error) = crate::commands::tts::play_pause_or_replay_latest_history(app) {
@@ -9885,6 +9915,10 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     map.insert(
         "read_selection_direct_tts".to_string(),
         Arc::new(ReadSelectionDirectTtsAction) as Arc<dyn ShortcutAction>,
+    );
+    map.insert(
+        "send_selected_text".to_string(),
+        Arc::new(SendSelectedTextAction) as Arc<dyn ShortcutAction>,
     );
     map.insert(
         crate::settings::TTS_PLAY_HISTORY_FALLBACK_BINDING_ID.to_string(),

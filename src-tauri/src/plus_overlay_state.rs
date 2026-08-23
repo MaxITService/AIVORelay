@@ -130,6 +130,7 @@ pub enum OverlayErrorPhase {
 #[serde(rename_all = "snake_case")]
 pub enum OverlayErrorContext {
     AiReplace,
+    SendSelectedText,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -681,6 +682,7 @@ fn show_error_overlay_internal(
     error_envelope: Option<OverlayErrorEnvelope>,
     retry_action: Option<OverlayRetryAction>,
     retry_session_id: Option<u64>,
+    auto_hide_ms_override: Option<u64>,
 ) -> bool {
     let settings = crate::settings::get_settings(app);
     if !settings.error_feedback_enabled || !settings.recording_overlay_enabled {
@@ -714,7 +716,9 @@ fn show_error_overlay_internal(
         let current_gen = OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
 
         // Auto-hide after configurable duration
-        let auto_hide_ms = get_error_overlay_auto_hide_ms();
+        let auto_hide_ms = auto_hide_ms_override
+            .unwrap_or_else(get_error_overlay_auto_hide_ms)
+            .min(MAX_ERROR_OVERLAY_AUTO_HIDE_MS);
         let window_clone = overlay_window.clone();
         let app_clone = app.clone();
         std::thread::spawn(move || {
@@ -744,7 +748,7 @@ fn show_error_overlay_internal(
 /// Show the error overlay state with category and auto-hide after configured duration.
 /// Uses the category display text as overlay message.
 pub fn show_error_overlay(app: &AppHandle, category: OverlayErrorCategory) {
-    show_error_overlay_internal(app, category, None, None, None, None);
+    show_error_overlay_internal(app, category, None, None, None, None, None);
 }
 
 /// Show the error overlay with a specific message and auto-hide after configured duration.
@@ -753,7 +757,7 @@ pub fn show_error_overlay_with_message(
     category: OverlayErrorCategory,
     message: impl Into<String>,
 ) {
-    show_error_overlay_internal(app, category, Some(message.into()), None, None, None);
+    show_error_overlay_internal(app, category, Some(message.into()), None, None, None, None);
 }
 
 /// Main hook function: handle transcription errors with categorized overlay
@@ -833,7 +837,73 @@ fn show_categorized_error_overlay_internal(
         Some(envelope),
         retry_action,
         retry_session_id,
+        None,
     )
+}
+
+pub fn show_send_selected_text_error_overlay(
+    app: &AppHandle,
+    error_message: &str,
+    auto_hide_ms: u64,
+) {
+    if let Some(session_state) = app.try_state::<crate::session_manager::ManagedSessionState>() {
+        let state_guard = crate::session_manager::lock_session_state(
+            &session_state,
+            "show_send_selected_text_error_overlay",
+        );
+        if !matches!(*state_guard, crate::session_manager::SessionState::Idle) {
+            log::warn!(
+                "Send Selected Text error overlay suppressed while the recording overlay is owned by an active dictation session"
+            );
+            return;
+        }
+        show_send_selected_text_error_overlay_unchecked(app, error_message, auto_hide_ms);
+        drop(state_guard);
+        return;
+    }
+
+    show_send_selected_text_error_overlay_unchecked(app, error_message, auto_hide_ms);
+}
+
+fn show_send_selected_text_error_overlay_unchecked(
+    app: &AppHandle,
+    error_message: &str,
+    auto_hide_ms: u64,
+) {
+    let technical_message = error_message.trim().to_string();
+    let compact_message = {
+        const LIMIT: usize = 96;
+        let mut characters = technical_message.chars();
+        let head = characters.by_ref().take(LIMIT).collect::<String>();
+        if characters.next().is_some() {
+            format!("{head}...")
+        } else {
+            head
+        }
+    };
+    let envelope = OverlayErrorEnvelope {
+        provider: OverlayErrorProvider::Local,
+        transport: OverlayErrorTransport::Local,
+        canonical_code: OverlayCanonicalErrorCode::EUnknown,
+        status_code: None,
+        provider_code: None,
+        phase: OverlayErrorPhase::Process,
+        context: Some(OverlayErrorContext::SendSelectedText),
+        configuration_target: None,
+        user_message: compact_message.clone(),
+        technical_message: Some(technical_message),
+        retryable: false,
+        display_code: "SEND_TEXT".to_string(),
+    };
+    show_error_overlay_internal(
+        app,
+        OverlayErrorCategory::Unknown,
+        Some(compact_message),
+        Some(envelope),
+        None,
+        None,
+        Some(auto_hide_ms.max(1_000)),
+    );
 }
 
 /// Show error overlay for microphone unavailability.
