@@ -102,6 +102,7 @@ interface OperationResult {
 }
 
 type PageTab = "presets" | "history" | "help";
+const HISTORY_PAGE_SIZE = 100;
 
 const STATUS_LABELS: Record<HistoryStatus, string> = {
   saved: "Saved",
@@ -787,13 +788,19 @@ function PresetCard({
 function HistoryView({
   entries,
   loading,
+  loadingMore,
+  hasMore,
   onRefresh,
+  onLoadMore,
   onDelete,
   onClear,
 }: {
   entries: SendSelectedTextHistoryEntry[];
   loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
   onRefresh: () => Promise<void>;
+  onLoadMore: () => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onClear: () => Promise<void>;
 }) {
@@ -905,6 +912,18 @@ function HistoryView({
               )}
             </article>
           ))}
+          {hasMore && (
+            <div className="flex justify-center pt-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={loadingMore}
+                onClick={onLoadMore}
+              >
+                {loadingMore ? "Loading..." : "Load older entries"}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1036,6 +1055,8 @@ export default function SendSelectedTextSettings() {
   >([]);
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
   const [optionsDraft, setOptionsDraft] = useState({
     historyLimit: 200,
     errorSeconds: 10,
@@ -1055,16 +1076,45 @@ export default function SendSelectedTextSettings() {
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
-      setHistoryEntries(
-        await invoke<SendSelectedTextHistoryEntry[]>(
-          "get_send_selected_text_history",
-          { limit: 500, offset: 0 },
-        ),
+      const entries = await invoke<SendSelectedTextHistoryEntry[]>(
+        "get_send_selected_text_history",
+        { limit: HISTORY_PAGE_SIZE + 1, offset: 0 },
       );
+      setHistoryEntries(entries.slice(0, HISTORY_PAGE_SIZE));
+      setHistoryHasMore(entries.length > HISTORY_PAGE_SIZE);
+    } catch (error) {
+      toast.error(`Failed to load history: ${String(error)}`);
     } finally {
       setHistoryLoading(false);
     }
   }, []);
+
+  const loadMoreHistory = async () => {
+    if (historyLoadingMore || !historyHasMore) return;
+    setHistoryLoadingMore(true);
+    try {
+      const entries = await invoke<SendSelectedTextHistoryEntry[]>(
+        "get_send_selected_text_history",
+        {
+          limit: HISTORY_PAGE_SIZE + 1,
+          offset: historyEntries.length,
+        },
+      );
+      const page = entries.slice(0, HISTORY_PAGE_SIZE);
+      setHistoryEntries((current) => {
+        const knownIds = new Set(current.map((entry) => entry.id));
+        return [
+          ...current,
+          ...page.filter((entry) => !knownIds.has(entry.id)),
+        ];
+      });
+      setHistoryHasMore(entries.length > HISTORY_PAGE_SIZE);
+    } catch (error) {
+      toast.error(`Failed to load older history: ${String(error)}`);
+    } finally {
+      setHistoryLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -1250,7 +1300,11 @@ export default function SendSelectedTextSettings() {
         {(
           [
             ["presets", Settings2, "Presets"],
-            ["history", Clock3, `History (${historyEntries.length})`],
+            [
+              "history",
+              Clock3,
+              `History (${historyEntries.length}${historyHasMore ? "+" : ""})`,
+            ],
             ["help", Lightbulb, "Help / Examples"],
           ] as const
         ).map(([id, Icon, label]) => (
@@ -1349,7 +1403,10 @@ export default function SendSelectedTextSettings() {
         <HistoryView
           entries={historyEntries}
           loading={historyLoading}
+          loadingMore={historyLoadingMore}
+          hasMore={historyHasMore}
           onRefresh={loadHistory}
+          onLoadMore={loadMoreHistory}
           onDelete={deleteHistoryEntry}
           onClear={clearHistory}
         />
