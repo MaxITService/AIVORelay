@@ -39,6 +39,7 @@ struct StreamingPasteSession {
 
 static STREAMING_PASTE_SESSION: Lazy<Mutex<Option<StreamingPasteSession>>> =
     Lazy::new(|| Mutex::new(None));
+static SELECTION_CAPTURE_TRANSACTION: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 /// Windows-only: Advanced clipboard backup/restore that preserves all formats
 #[cfg(target_os = "windows")]
@@ -1555,6 +1556,9 @@ fn restore_cut_selection_from_backup(app_handle: &AppHandle, text: &str) -> Resu
 }
 
 pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> {
+    let _capture_guard = SELECTION_CAPTURE_TRANSACTION
+        .lock()
+        .map_err(|_| "Selection capture lock is unavailable".to_string())?;
     let clipboard = app_handle.clipboard();
     let clipboard_backup = clipboard.read_text().unwrap_or_default();
     let mut cut_performed = false;
@@ -1600,6 +1604,9 @@ pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> 
 }
 
 pub fn capture_selection_text_copy(app_handle: &AppHandle) -> Result<String, String> {
+    let _capture_guard = SELECTION_CAPTURE_TRANSACTION
+        .lock()
+        .map_err(|_| "Selection capture lock is unavailable".to_string())?;
     let clipboard = app_handle.clipboard();
     let clipboard_backup = clipboard.read_text().unwrap_or_default();
     let use_documented_owner =

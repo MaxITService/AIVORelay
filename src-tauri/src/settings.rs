@@ -8,6 +8,7 @@ use std::fmt;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_store::StoreExt;
@@ -35,6 +36,13 @@ pub const DEFAULT_MICROPHONE_INPUT_BOOST_DEVICE_KEY: &str = "__default__";
 pub struct DictationStatsEditState(pub AtomicBool);
 
 static SETTINGS_STORE_RESET_NOTICE_PENDING: AtomicBool = AtomicBool::new(false);
+static SETTINGS_MUTATION_LOCK: Mutex<()> = Mutex::new(());
+
+pub(crate) fn lock_settings_mutation(operation: &str) -> Result<MutexGuard<'static, ()>, String> {
+    SETTINGS_MUTATION_LOCK
+        .lock()
+        .map_err(|_| format!("Settings lock is unavailable while {operation}"))
+}
 
 /// Returns and clears the one-shot notice set when a malformed settings store
 /// was replaced with defaults during this app session.
@@ -126,6 +134,26 @@ pub struct ShortcutBinding {
 
 pub const PREVIEW_DELETE_LAST_WORD_BINDING_ID: &str = "preview_delete_last_word";
 pub const TTS_PLAY_HISTORY_FALLBACK_BINDING_ID: &str = "tts_play_history_fallback";
+pub const SEND_SELECTED_TEXT_BINDING_PREFIX: &str = "send_selected_text_";
+
+pub fn send_selected_text_binding_id(preset_id: &str) -> String {
+    format!("{SEND_SELECTED_TEXT_BINDING_PREFIX}{preset_id}")
+}
+
+pub fn build_send_selected_text_binding(
+    preset_id: &str,
+    preset_name: &str,
+    current_binding: String,
+) -> ShortcutBinding {
+    ShortcutBinding {
+        id: send_selected_text_binding_id(preset_id),
+        name: format!("Send Selected Text: {preset_name}"),
+        description: "Save the selected text with this preset and optionally run its command."
+            .to_string(),
+        default_binding: String::new(),
+        current_binding,
+    }
+}
 
 pub fn build_preview_delete_last_word_binding(current_binding: String) -> ShortcutBinding {
     ShortcutBinding {
@@ -513,6 +541,158 @@ impl VoiceCommandDefaults {
             working_directory: None,
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SendSelectedTextFormat {
+    #[default]
+    Markdown,
+    Json,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SendSelectedTextWriteMode {
+    #[default]
+    CreateNew,
+    AppendLast,
+    AppendFile,
+    OverwriteFile,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SendSelectedTextCaptureMode {
+    #[default]
+    Auto,
+    ClipboardCopy,
+    Accessibility,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SendSelectedTextOversizeBehavior {
+    #[default]
+    Reject,
+    Truncate,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct SendSelectedTextPreset {
+    pub id: String,
+    pub name: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub format: SendSelectedTextFormat,
+    #[serde(default)]
+    pub write_mode: SendSelectedTextWriteMode,
+    #[serde(default)]
+    pub capture_mode: SendSelectedTextCaptureMode,
+    #[serde(default)]
+    pub destination_directory: String,
+    #[serde(default = "default_send_selected_text_filename_template")]
+    pub filename_template: String,
+    #[serde(default = "default_send_selected_text_content_template")]
+    pub content_template: String,
+    #[serde(default = "default_send_selected_text_max_chars")]
+    pub max_chars: u32,
+    #[serde(default)]
+    pub oversize_behavior: SendSelectedTextOversizeBehavior,
+    #[serde(default = "default_send_selected_text_json_keep_last")]
+    pub json_keep_last: u32,
+    #[serde(default)]
+    pub command_enabled: bool,
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub allow_text_variable: bool,
+    #[serde(default = "default_true")]
+    pub command_silent: bool,
+    #[serde(default)]
+    pub command_no_profile: bool,
+    #[serde(default)]
+    pub command_use_pwsh: bool,
+    #[serde(default = "default_send_selected_text_execution_policy")]
+    pub command_execution_policy: ExecutionPolicy,
+    #[serde(default)]
+    pub command_working_directory: String,
+}
+
+impl Default for SendSelectedTextPreset {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: "New Markdown note".to_string(),
+            enabled: true,
+            format: SendSelectedTextFormat::Markdown,
+            write_mode: SendSelectedTextWriteMode::CreateNew,
+            capture_mode: SendSelectedTextCaptureMode::Auto,
+            destination_directory: String::new(),
+            filename_template: default_send_selected_text_filename_template(),
+            content_template: default_send_selected_text_content_template(),
+            max_chars: default_send_selected_text_max_chars(),
+            oversize_behavior: SendSelectedTextOversizeBehavior::Reject,
+            json_keep_last: default_send_selected_text_json_keep_last(),
+            command_enabled: false,
+            command: String::new(),
+            allow_text_variable: false,
+            command_silent: true,
+            command_no_profile: false,
+            command_use_pwsh: false,
+            command_execution_policy: default_send_selected_text_execution_policy(),
+            command_working_directory: String::new(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct SendSelectedTextSettings {
+    #[serde(default)]
+    pub presets: Vec<SendSelectedTextPreset>,
+    #[serde(default = "default_send_selected_text_history_limit")]
+    pub history_limit: u32,
+    #[serde(default = "default_send_selected_text_error_overlay_auto_hide_ms")]
+    pub error_overlay_auto_hide_ms: u64,
+}
+
+impl Default for SendSelectedTextSettings {
+    fn default() -> Self {
+        Self {
+            presets: Vec::new(),
+            history_limit: default_send_selected_text_history_limit(),
+            error_overlay_auto_hide_ms: default_send_selected_text_error_overlay_auto_hide_ms(),
+        }
+    }
+}
+
+fn default_send_selected_text_filename_template() -> String {
+    "selected-{{date}}-{{time}}.md".to_string()
+}
+
+fn default_send_selected_text_content_template() -> String {
+    "{{text}}".to_string()
+}
+
+fn default_send_selected_text_max_chars() -> u32 {
+    100_000
+}
+
+fn default_send_selected_text_json_keep_last() -> u32 {
+    100
+}
+
+fn default_send_selected_text_history_limit() -> u32 {
+    200
+}
+
+fn default_send_selected_text_error_overlay_auto_hide_ms() -> u64 {
+    10_000
+}
+
+fn default_send_selected_text_execution_policy() -> ExecutionPolicy {
+    ExecutionPolicy::Default
 }
 
 /// A text replacement rule that substitutes one text pattern with another.
@@ -3589,6 +3769,9 @@ pub struct AppSettings {
     /// Whether to show an overlay notification when switching profiles
     #[serde(default = "default_true")]
     pub profile_switch_overlay_enabled: bool,
+    // ==================== Send Selected Text ====================
+    #[serde(default)]
+    pub send_selected_text: SendSelectedTextSettings,
     // ==================== Voice Command Center ====================
     /// Whether the Voice Command feature is enabled
     #[serde(default)]
@@ -5546,6 +5729,7 @@ pub fn get_default_settings() -> AppSettings {
         diarization_speaker_name_profiles: Vec::new(),
         active_profile_id: default_active_profile_id(),
         profile_switch_overlay_enabled: true,
+        send_selected_text: SendSelectedTextSettings::default(),
         // Voice Command Center
         voice_command_enabled: false,
         voice_command_push_to_talk: true,
@@ -6035,6 +6219,31 @@ fn ensure_default_bindings(settings: &mut AppSettings) -> bool {
     changed
 }
 
+fn ensure_send_selected_text_bindings(settings: &mut AppSettings) -> bool {
+    let mut changed = false;
+    for preset in &settings.send_selected_text.presets {
+        let binding_id = send_selected_text_binding_id(&preset.id);
+        match settings.bindings.get_mut(&binding_id) {
+            Some(binding) => {
+                let expected_name = format!("Send Selected Text: {}", preset.name);
+                if binding.name != expected_name {
+                    binding.name = expected_name;
+                    changed = true;
+                }
+            }
+            None => {
+                debug!("Adding missing Send Selected Text binding: {binding_id}");
+                settings.bindings.insert(
+                    binding_id,
+                    build_send_selected_text_binding(&preset.id, &preset.name, String::new()),
+                );
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
 fn ensure_default_tts_synthesis_presets(settings: &mut AppSettings) -> bool {
     let mut changed = false;
     for preset in &mut settings.tts.synthesis_presets {
@@ -6336,6 +6545,7 @@ fn ensure_soniox_v5_model_defaults(settings: &mut AppSettings) -> bool {
 fn repair_runtime_settings(settings: &mut AppSettings) -> bool {
     let mut changed = false;
     changed |= ensure_default_bindings(settings);
+    changed |= ensure_send_selected_text_bindings(settings);
     changed |= ensure_default_tts_synthesis_presets(settings);
     changed |= ensure_provider_recommended_interactive_target_chars(settings);
     changed |= ensure_builtin_file_tts_target_chars(settings);
@@ -6761,10 +6971,11 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
     settings
 }
 
-pub fn write_settings(app: &AppHandle, mut settings: AppSettings) {
+pub fn write_settings_checked(app: &AppHandle, mut settings: AppSettings) -> Result<(), String> {
     let store = app
         .store(crate::portable::store_path(SETTINGS_STORE_PATH))
         .expect("Failed to initialize store");
+    let previous_settings = store.get("settings");
 
     if repair_runtime_settings(&mut settings) {
         debug!("Settings repaired before persisting");
@@ -6773,8 +6984,18 @@ pub fn write_settings(app: &AppHandle, mut settings: AppSettings) {
     store.set("settings", serde_json::to_value(&settings).unwrap());
 
     // Explicitly flush to disk to prevent data loss on app restart
-    if let Err(e) = store.save() {
-        warn!("Failed to flush settings to disk: {}", e);
+    if let Err(error) = store.save() {
+        if let Some(previous_settings) = previous_settings {
+            store.set("settings", previous_settings);
+        }
+        return Err(format!("Failed to save settings to disk: {error}"));
+    }
+    Ok(())
+}
+
+pub fn write_settings(app: &AppHandle, settings: AppSettings) {
+    if let Err(error) = write_settings_checked(app, settings) {
+        warn!("{error}");
     }
 }
 

@@ -8,6 +8,7 @@ pub mod live_sound_transcription;
 pub mod models;
 pub mod region_capture;
 pub mod remote_stt;
+pub mod send_selected_text;
 pub mod transcription;
 pub mod tts;
 pub mod tts_history;

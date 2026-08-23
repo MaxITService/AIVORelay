@@ -104,6 +104,15 @@ fn is_binding_enabled_for_guide(
     feature_gates: &HashMap<String, String>,
     binding_id: &str,
 ) -> bool {
+    if let Some(preset_id) =
+        binding_id.strip_prefix(crate::settings::SEND_SELECTED_TEXT_BINDING_PREFIX)
+    {
+        return settings
+            .send_selected_text
+            .presets
+            .iter()
+            .any(|preset| preset.id == preset_id && preset.enabled);
+    }
     let Some(setting_key) = feature_gates.get(binding_id) else {
         return true;
     };

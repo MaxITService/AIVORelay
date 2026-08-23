@@ -461,6 +461,13 @@ fn sync_decapitalize_monitor_shortcut(
 
 /// Whether a binding should be active based on feature toggle settings.
 fn is_binding_enabled_for_settings(settings: &settings::AppSettings, binding_id: &str) -> bool {
+    if let Some(preset_id) = binding_id.strip_prefix(settings::SEND_SELECTED_TEXT_BINDING_PREFIX) {
+        return settings
+            .send_selected_text
+            .presets
+            .iter()
+            .any(|preset| preset.id == preset_id && preset.enabled);
+    }
     match binding_id {
         "send_to_extension" => settings.send_to_extension_enabled,
         "send_to_extension_with_selection" => settings.send_to_extension_with_selection_enabled,
@@ -696,6 +703,23 @@ pub fn init_shortcuts(app: &AppHandle) {
         }
     }
 
+    for preset in &user_settings.send_selected_text.presets {
+        if !preset.enabled {
+            continue;
+        }
+        let binding_id = settings::send_selected_text_binding_id(&preset.id);
+        if let Some(binding) = user_settings.bindings.get(&binding_id) {
+            if !binding.current_binding.is_empty() {
+                if let Err(error) = register_shortcut(app, binding.clone()) {
+                    error!(
+                        "Failed to register Send Selected Text shortcut {} during init: {}",
+                        binding_id, error
+                    );
+                }
+            }
+        }
+    }
+
     if let Err(err) = sync_decapitalize_monitor_shortcut(app, &user_settings) {
         warn!(
             "Failed to sync text replacement decapitalize monitor shortcut during init: {}",
@@ -763,6 +787,8 @@ pub(crate) fn handle_shortcut_event(
     let action = ACTION_MAP.get(binding_id).or_else(|| {
         if binding_id.starts_with("transcribe_") {
             ACTION_MAP.get("transcribe")
+        } else if binding_id.starts_with(settings::SEND_SELECTED_TEXT_BINDING_PREFIX) {
+            ACTION_MAP.get("send_selected_text")
         } else {
             None
         }
@@ -894,6 +920,7 @@ pub fn change_binding(
     id: String,
     binding: String,
 ) -> Result<BindingResponse, String> {
+    let _settings_guard = settings::lock_settings_mutation("updating a global shortcut binding")?;
     let mut settings = settings::get_settings(&app);
 
     // Get the binding to modify - unified error handling via Err
@@ -909,7 +936,7 @@ pub fn change_binding(
         let mut b = binding_to_modify;
         b.current_binding = binding;
         settings.bindings.insert(id.clone(), b.clone());
-        settings::write_settings(&app, settings);
+        settings::write_settings_checked(&app, settings)?;
         return Ok(BindingResponse {
             success: true,
             binding: Some(b),
@@ -939,7 +966,8 @@ pub fn change_binding(
 
     // 4. Register the new binding WITH ROLLBACK on failure
     //    Only register if this binding's feature is currently enabled.
-    if is_binding_enabled_for_settings(&settings, &id) {
+    let should_register = is_binding_enabled_for_settings(&settings, &id);
+    if should_register {
         if let Err(e) = register_shortcut(&app, updated_binding.clone()) {
             error!("change_binding: failed to register new shortcut: {}", e);
 
@@ -965,7 +993,19 @@ pub fn change_binding(
     settings.bindings.insert(id, updated_binding.clone());
 
     // 6. Save the settings
-    settings::write_settings(&app, settings);
+    if let Err(save_error) = settings::write_settings_checked(&app, settings) {
+        if should_register {
+            let _ = unregister_shortcut(&app, updated_binding.clone());
+            if !binding_to_modify.current_binding.is_empty() {
+                if let Err(rollback_error) = register_shortcut(&app, binding_to_modify) {
+                    return Err(format!(
+                        "{save_error} Also failed to restore the previous shortcut: {rollback_error}"
+                    ));
+                }
+            }
+        }
+        return Err(save_error);
+    }
 
     // Return the updated binding
     Ok(BindingResponse {
@@ -5455,21 +5495,23 @@ pub fn change_show_tray_shortcut_guide_setting(
 pub fn get_current_shortcut_engine(app: AppHandle) -> ShortcutEngine {
     #[cfg(target_os = "windows")]
     {
-        // Read from state (the actual running engine), not settings (which may have changed)
-        if let Some(active_engine_state) = app.try_state::<ActiveShortcutEngine>() {
-            if let Ok(engine) = active_engine_state.lock() {
-                return *engine;
-            }
-        }
-        // Fallback to settings if state not available (shouldn't happen)
-        let settings = settings::get_settings(&app);
-        settings.shortcut_engine
+        active_shortcut_engine(&app)
     }
     #[cfg(not(target_os = "windows"))]
     {
         let _ = app;
         ShortcutEngine::Tauri
     }
+}
+
+#[cfg(target_os = "windows")]
+fn active_shortcut_engine(app: &AppHandle) -> ShortcutEngine {
+    if let Some(active_engine_state) = app.try_state::<ActiveShortcutEngine>() {
+        if let Ok(engine) = active_engine_state.lock() {
+            return *engine;
+        }
+    }
+    settings::get_settings(app).shortcut_engine
 }
 
 /// Set the shortcut engine setting (requires app restart to take effect).
@@ -5745,12 +5787,11 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
         return Ok(());
     }
 
-    let settings = get_settings(app);
-
-    // On Windows, check the shortcut_engine setting to decide which engine to use
+    // A configured engine change takes effect only after restart, so runtime
+    // mutations must continue using the engine that actually owns shortcuts.
     #[cfg(target_os = "windows")]
     {
-        match settings.shortcut_engine {
+        match active_shortcut_engine(app) {
             ShortcutEngine::Tauri => {
                 // Check if the shortcut is compatible with Tauri engine
                 if !is_shortcut_tauri_compatible(&binding.current_binding) {
@@ -5772,7 +5813,6 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
     // On other platforms, use tauri-plugin-global-shortcut with rdev fallback
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = settings; // suppress unused warning
         register_shortcut_tauri(app, binding)
     }
 }
@@ -5872,6 +5912,10 @@ fn register_shortcut_tauri(app: &AppHandle, binding: ShortcutBinding) -> Result<
                 let action = ACTION_MAP.get(&binding_id_for_closure).or_else(|| {
                     if binding_id_for_closure.starts_with("transcribe_") {
                         ACTION_MAP.get("transcribe")
+                    } else if binding_id_for_closure
+                        .starts_with(settings::SEND_SELECTED_TEXT_BINDING_PREFIX)
+                    {
+                        ACTION_MAP.get("send_selected_text")
                     } else {
                         None
                     }
@@ -6011,7 +6055,7 @@ pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<
 
     #[cfg(target_os = "windows")]
     {
-        if settings::get_settings(app).shortcut_engine == ShortcutEngine::HandyKeys {
+        if active_shortcut_engine(app) == ShortcutEngine::HandyKeys {
             return shortcut_handy_keys::unregister_shortcut(app, binding);
         }
     }

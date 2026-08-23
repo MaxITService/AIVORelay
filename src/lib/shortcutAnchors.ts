@@ -28,6 +28,9 @@ export const getShortcutSettingsSection = (
   if (shortcutId.startsWith("transcribe_")) {
     return "general";
   }
+  if (shortcutId.startsWith("send_selected_text_")) {
+    return "sendSelectedText";
+  }
 
   return SHORTCUT_SECTION_BY_ID[shortcutId] ?? "general";
 };

@@ -31,7 +31,7 @@
         "send_screenshot_to_extension",
         "voice_command"
       ],
-      "dynamicPrefixes": []
+      "dynamicPrefixes": ["send_selected_text_"]
     },
     {
       "id": "textEditing",

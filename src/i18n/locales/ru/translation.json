@@ -23,6 +23,7 @@
     "ttsFiles": "Текстовый файл в MP3",
     "voiceCommands": "Голосовые команды",
     "aiReplace": "AI Замена",
+    "sendSelectedText": "Отправить выделенный текст",
     "browserConnector": "Коннектор браузера",
     "audioProcessing": "Обработка речи"
   },

@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import React, { useEffect, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
+import { Check, Copy } from "lucide-react";
 import {
   MicrophoneIcon,
   TranscriptionIcon,
@@ -45,6 +46,7 @@ import {
 } from "./plus_overlay_states";
 import type {
   OverlayErrorCategory,
+  OverlayErrorContext,
   OverlayErrorEnvelope,
   OverlayErrorPhase,
 } from "./plus_overlay_states";
@@ -185,6 +187,20 @@ function getOverlayErrorCopy(
 ): OverlayErrorCopy {
   const phase: OverlayErrorPhase = envelope?.phase ?? "unknown";
   const isAiReplaceError = envelope?.context === "ai_replace";
+  if (envelope?.context === "send_selected_text") {
+    return {
+      title: t(
+        "overlay.errors.sendSelectedText.title",
+        "Send selected text failed",
+      ),
+      hint:
+        envelope.user_message ||
+        t(
+          "overlay.errors.sendSelectedText.hint",
+          "The full error is available from Copy and History.",
+        ),
+    };
+  }
   const usesPostProcessingSettings =
     envelope?.configuration_target === "post_processing";
 
@@ -409,6 +425,7 @@ const RecordingOverlay: React.FC = () => {
   const [state, setState] = useState<ExtendedOverlayState>("recording");
   const [captureReady, setCaptureReady] = useState(false);
   const recordingSessionIdRef = useRef<number | null>(null);
+  const overlayPresentationSequenceRef = useRef(0);
   const [transientMessage, setTransientMessage] = useState<string>("");
   const [decapIndicatorEligible, setDecapIndicatorEligible] = useState(false);
   const [decapIndicatorArmed, setDecapIndicatorArmed] = useState(false);
@@ -416,6 +433,9 @@ const RecordingOverlay: React.FC = () => {
   const [errorHint, setErrorHint] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [errorTechnical, setErrorTechnical] = useState<string | null>(null);
+  const [errorContext, setErrorContext] =
+    useState<OverlayErrorContext | null>(null);
+  const [errorCopied, setErrorCopied] = useState(false);
   const [errorRetryAvailable, setErrorRetryAvailable] = useState(false);
   const [repasteShortcutLabel, setRepasteShortcutLabel] = useState<
     string | null
@@ -700,6 +720,7 @@ const RecordingOverlay: React.FC = () => {
     const setupEventListeners = async () => {
       // Listen for show-overlay event from Rust
       const unlistenShow = await listen("show-overlay", async (event) => {
+        const presentationSequence = ++overlayPresentationSequenceRef.current;
         const nextState = isExtendedPayload(event.payload)
           ? event.payload.state
           : (event.payload as ExtendedOverlayState);
@@ -718,6 +739,9 @@ const RecordingOverlay: React.FC = () => {
 
         // Sync language from settings each time overlay is shown
         await syncLanguageFromSettings();
+        if (presentationSequence !== overlayPresentationSequenceRef.current) {
+          return;
+        }
 
         const payload = event.payload;
         // Handle both extended payload objects and legacy string payloads
@@ -741,6 +765,8 @@ const RecordingOverlay: React.FC = () => {
             setErrorTechnical(
               getOverlayErrorTooltip(t, payload.error_category, envelope),
             );
+            setErrorContext(envelope?.context ?? null);
+            setErrorCopied(false);
             setErrorRetryAvailable(Boolean(payload.retry_action));
             if (payload.retry_action) {
               void resolveRepasteShortcutLabel().then(setRepasteShortcutLabel);
@@ -752,6 +778,8 @@ const RecordingOverlay: React.FC = () => {
             setErrorHint(null);
             setErrorCode(null);
             setErrorTechnical(null);
+            setErrorContext(null);
+            setErrorCopied(false);
             setErrorRetryAvailable(false);
             setRepasteShortcutLabel(null);
           }
@@ -764,6 +792,8 @@ const RecordingOverlay: React.FC = () => {
           setErrorHint(null);
           setErrorCode(null);
           setErrorTechnical(null);
+          setErrorContext(null);
+          setErrorCopied(false);
           setErrorRetryAvailable(false);
           setRepasteShortcutLabel(null);
         }
@@ -774,7 +804,11 @@ const RecordingOverlay: React.FC = () => {
         state: "profile_switch" | "microphone_switch";
         message: string;
       }>("show-message-overlay", async (event) => {
+        const presentationSequence = ++overlayPresentationSequenceRef.current;
         await syncLanguageFromSettings();
+        if (presentationSequence !== overlayPresentationSequenceRef.current) {
+          return;
+        }
 
         setTransientMessage(event.payload.message);
         setState(event.payload.state);
@@ -784,6 +818,8 @@ const RecordingOverlay: React.FC = () => {
         setErrorHint(null);
         setErrorCode(null);
         setErrorTechnical(null);
+        setErrorContext(null);
+        setErrorCopied(false);
         setErrorRetryAvailable(false);
         setRepasteShortcutLabel(null);
         setIsVisible(true);
@@ -791,6 +827,7 @@ const RecordingOverlay: React.FC = () => {
 
       // Listen for hide-overlay event from Rust
       const unlistenHide = await listen("hide-overlay", () => {
+        overlayPresentationSequenceRef.current += 1;
         recordingSessionIdRef.current = null;
         setIsVisible(false);
         setCaptureReady(false);
@@ -1067,6 +1104,18 @@ const RecordingOverlay: React.FC = () => {
     });
   };
 
+  const handleCopyError = () => {
+    const value = errorTechnical || errorMessage;
+    if (!value) return;
+    void navigator.clipboard
+      .writeText(value)
+      .then(() => {
+        setErrorCopied(true);
+        window.setTimeout(() => setErrorCopied(false), 1600);
+      })
+      .catch((error) => console.error("Failed to copy overlay error:", error));
+  };
+
   const retryButtonTitle = errorRetryAvailable
     ? [
         repasteShortcutLabel
@@ -1297,6 +1346,16 @@ const RecordingOverlay: React.FC = () => {
             onClick={handleRetryRemoteTranscription}
           >
             {t("common.retry", "Retry")}
+          </button>
+        ) : state === "error" && errorContext === "send_selected_text" ? (
+          <button
+            type="button"
+            className="error-copy-button"
+            title={t("overlay.errors.copyFullError", "Copy full error")}
+            aria-label={t("overlay.errors.copyFullError", "Copy full error")}
+            onClick={handleCopyError}
+          >
+            {errorCopied ? <Check size={12} /> : <Copy size={12} />}
           </button>
         ) : (
           state === "error" && (
