@@ -8,19 +8,55 @@ use crate::overlay;
 use crate::tray::{change_tray_icon, TrayIconState};
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard};
 use tauri::{AppHandle, Emitter, Manager};
 
 const DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 3500;
 const MAX_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 100_000;
 
 static OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
+static OVERLAY_OWNERSHIP_LOCK: Mutex<()> = Mutex::new(());
 static ERROR_OVERLAY_AUTO_HIDE_MS: AtomicU64 = AtomicU64::new(DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS);
+
+fn lock_overlay_ownership() -> MutexGuard<'static, ()> {
+    OVERLAY_OWNERSHIP_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// Invalidate pending error auto-hide timers.
 /// Call this when showing any non-error overlay state.
-pub fn invalidate_error_overlay_auto_hide() {
-    OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst);
+pub fn invalidate_error_overlay_auto_hide() -> u64 {
+    let _ownership_guard = lock_overlay_ownership();
+    let generation = OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     crate::actions::clear_any_ready_remote_recording_retry();
+    generation
+}
+
+pub fn current_recording_overlay_generation() -> u64 {
+    OVERLAY_GENERATION.load(Ordering::SeqCst)
+}
+
+pub fn with_recording_overlay_generation<F>(expected_generation: u64, action: F) -> bool
+where
+    F: FnOnce(),
+{
+    let _ownership_guard = lock_overlay_ownership();
+    if OVERLAY_GENERATION.load(Ordering::SeqCst) != expected_generation {
+        return false;
+    }
+    action();
+    true
+}
+
+pub fn hide_recording_overlay_if_generation_matches(
+    app: &AppHandle,
+    expected_generation: u64,
+) -> bool {
+    with_recording_overlay_generation(expected_generation, || {
+        overlay::hide_recording_overlay(app);
+        change_tray_icon(app, TrayIconState::Idle);
+    })
 }
 
 pub fn get_error_overlay_auto_hide_ms() -> u64 {
@@ -694,8 +730,6 @@ fn show_error_overlay_internal(
         return false;
     }
 
-    overlay::set_recording_overlay_error_layout(app);
-
     if let Some(overlay_window) = app.get_webview_window("recording_overlay") {
         let resolved_error_message =
             error_message.unwrap_or_else(|| category.display_text().to_string());
@@ -709,11 +743,17 @@ fn show_error_overlay_internal(
             error_envelope: Some(resolved_error_envelope),
             retry_action,
         };
-        let _ = overlay_window.emit("show-overlay", payload);
-        overlay::show_positioned_recording_overlay_window(app);
-
-        // Generation counter to prevent hiding overlay of new session
-        let current_gen = OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+        // Serialize generation changes with timer-driven hide operations. A
+        // newer owner either runs before this show or after it, never between
+        // the ownership change and its event.
+        let current_gen = {
+            let _ownership_guard = lock_overlay_ownership();
+            let current_gen = OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+            overlay::set_recording_overlay_error_layout(app);
+            let _ = overlay_window.emit("show-overlay", payload);
+            overlay::show_positioned_recording_overlay_window(app);
+            current_gen
+        };
 
         // Auto-hide after configurable duration
         let auto_hide_ms = auto_hide_ms_override
@@ -723,14 +763,24 @@ fn show_error_overlay_internal(
         let app_clone = app.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(auto_hide_ms));
-            // Only hide if generation hasn't changed (no new overlay shown)
-            if OVERLAY_GENERATION.load(Ordering::SeqCst) == current_gen {
-                let _ = window_clone.emit("hide-overlay", ());
+            let started_hiding = {
+                let _ownership_guard = lock_overlay_ownership();
+                if OVERLAY_GENERATION.load(Ordering::SeqCst) == current_gen {
+                    let _ = window_clone.emit("hide-overlay", ());
+                    true
+                } else {
+                    false
+                }
+            };
+            if started_hiding {
                 std::thread::sleep(std::time::Duration::from_millis(300));
-                let _ = window_clone.hide();
-                change_tray_icon(&app_clone, TrayIconState::Idle);
-                if let Some(retry_session_id) = retry_session_id {
-                    crate::actions::clear_ready_remote_recording_retry_by_id(retry_session_id);
+                let _ownership_guard = lock_overlay_ownership();
+                if OVERLAY_GENERATION.load(Ordering::SeqCst) == current_gen {
+                    let _ = window_clone.hide();
+                    change_tray_icon(&app_clone, TrayIconState::Idle);
+                    if let Some(retry_session_id) = retry_session_id {
+                        crate::actions::clear_ready_remote_recording_retry_by_id(retry_session_id);
+                    }
                 }
             }
         });

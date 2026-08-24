@@ -6,6 +6,7 @@ use crate::settings::{
     build_send_selected_text_binding, get_settings, send_selected_text_binding_id,
     write_settings_checked, SendSelectedTextPreset, SendSelectedTextSettings,
 };
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
@@ -213,6 +214,11 @@ fn normalize_preset(preset: &mut SendSelectedTextPreset) -> Result<(), String> {
     preset.json_keep_last = preset.json_keep_last.min(100_000);
     if preset.name.is_empty() {
         return Err("Preset name is required.".to_string());
+    }
+    if !preset.destination_directory.is_empty()
+        && !Path::new(&preset.destination_directory).is_absolute()
+    {
+        return Err("Output folder must be an absolute path.".to_string());
     }
     if preset.filename_template.is_empty() {
         return Err("Filename template is required.".to_string());

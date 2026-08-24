@@ -1,5 +1,5 @@
 use crate::commands::voice_command::{
-    execute_powershell_command_captured, execute_powershell_command_with_environment,
+    execute_powershell_command_captured, execute_powershell_command_with_environment_tracked,
 };
 use crate::managers::send_selected_text_history::{
     NewSendSelectedTextHistoryEntry, SendSelectedTextHistoryManager, SendSelectedTextHistoryStatus,
@@ -12,6 +12,7 @@ use chrono::{Local, SecondsFormat, Utc};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -23,6 +24,8 @@ const MAX_COMMAND_OUTPUT_CHARS: usize = 100_000;
 const MAX_SELECTED_TEXT_CHARS: u32 = 2_000_000;
 static OPERATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static OUTPUT_WRITE_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+static ACTIVE_COMMAND_INPUT_FILES: Lazy<Mutex<HashSet<PathBuf>>> =
+    Lazy::new(|| Mutex::new(HashSet::new()));
 
 #[derive(Clone, Debug, Serialize, Type)]
 pub struct SendSelectedTextOperationResult {
@@ -48,20 +51,15 @@ struct TemplateContext {
 
 struct CommandInputFile {
     path: PathBuf,
-    delete_on_drop: bool,
-}
-
-impl CommandInputFile {
-    fn keep_for_background_process(&mut self) {
-        self.delete_on_drop = false;
-    }
 }
 
 impl Drop for CommandInputFile {
     fn drop(&mut self) {
-        if self.delete_on_drop {
-            let _ = fs::remove_file(&self.path);
-        }
+        let _ = fs::remove_file(&self.path);
+        ACTIVE_COMMAND_INPUT_FILES
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&self.path);
     }
 }
 
@@ -239,15 +237,12 @@ fn run_preset_blocking(
     let selected_text = match enforce_text_limit(&selected_text, &preset) {
         Ok(text) => text,
         Err(error) => {
-            return record_and_report_failure(
-                app,
-                &history,
-                &feature_settings,
-                &preset,
-                operation_id,
-                selected_text,
-                error,
-            )
+            log::warn!(
+                "Send Selected Text preset '{}' rejected the selection: {error}",
+                preset.name
+            );
+            show_workflow_error(app, &feature_settings, &error);
+            return Err(error);
         }
     };
     let now = Utc::now();
@@ -343,7 +338,7 @@ fn run_preset_blocking(
         return Ok(result);
     };
 
-    let mut input_file = match create_command_input_file(&context) {
+    let input_file = match create_command_input_file(&context) {
         Ok(input_file) => input_file,
         Err(error) => {
             return finish_command_failure(
@@ -387,9 +382,13 @@ fn run_preset_blocking(
     let environment = command_environment(&context, &output_path, &input_file.path, &preset);
 
     if !preset.command_silent {
-        match execute_powershell_command_with_environment(&command, &options, &environment) {
+        match execute_powershell_command_with_environment_tracked(
+            &command,
+            &options,
+            &environment,
+            Box::new(move || drop(input_file)),
+        ) {
             Ok(output) => {
-                input_file.keep_for_background_process();
                 let (stored_output, truncated) = truncate_for_history(&output);
                 let _ = history.update_command_result(
                     history_entry.id,
@@ -602,6 +601,9 @@ fn validate_preset(preset: &SendSelectedTextPreset) -> Result<(), String> {
             "Choose an output folder for preset '{}'.",
             preset.name
         ));
+    }
+    if !Path::new(preset.destination_directory.trim()).is_absolute() {
+        return Err("Output folder must be an absolute path.".to_string());
     }
     if preset.filename_template.trim().is_empty() {
         return Err("Filename template is required.".to_string());
@@ -1010,10 +1012,11 @@ fn create_command_input_file(context: &TemplateContext) -> Result<CommandInputFi
         sanitize_filename_part(&context.record_id)
     ));
     write_new_file(&path, context.text.as_bytes())?;
-    Ok(CommandInputFile {
-        path,
-        delete_on_drop: true,
-    })
+    ACTIVE_COMMAND_INPUT_FILES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(path.clone());
+    Ok(CommandInputFile { path })
 }
 
 fn cleanup_stale_command_input_files(directory: &Path) {
@@ -1022,9 +1025,16 @@ fn cleanup_stale_command_input_files(directory: &Path) {
     };
     let cutoff =
         std::time::SystemTime::now().checked_sub(std::time::Duration::from_secs(24 * 60 * 60));
+    let active_paths = ACTIVE_COMMAND_INPUT_FILES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|value| value.to_str()) != Some("txt") {
+            continue;
+        }
+        if active_paths.contains(&path) {
             continue;
         }
         let is_stale = cutoff.is_some_and(|cutoff| {

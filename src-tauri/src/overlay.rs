@@ -15,10 +15,6 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 
-/// Counter used to cancel pending transient message overlay auto-hide timers.
-/// Each time a recording overlay or another transient message overlay is shown,
-/// this is incremented so stale timers do not hide newer overlays.
-static TRANSIENT_OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static RECORDING_OVERLAY_LAYOUT: AtomicU8 = AtomicU8::new(0);
 // Kept in sync at startup and whenever the persisted enable setting changes.
 static RECORDING_OVERLAY_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -1955,11 +1951,7 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
 /// Shows the recording overlay window after applying the latest layout/state.
 pub fn show_recording_overlay(app_handle: &AppHandle, recording_session_id: u64) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
-    plus_overlay_state::invalidate_error_overlay_auto_hide();
-
-    // Cancel any pending transient message overlay auto-hide timer
-    // by incrementing the generation counter
-    TRANSIENT_OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst);
+    let overlay_generation = plus_overlay_state::invalidate_error_overlay_auto_hide();
 
     // Visibility is independent from the selected automatic/manual position.
     let settings = settings::get_settings(app_handle);
@@ -1967,90 +1959,95 @@ pub fn show_recording_overlay(app_handle: &AppHandle, recording_session_id: u64)
         return;
     }
 
-    set_recording_overlay_default_layout(app_handle);
-
-    if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        let mut payload = build_overlay_state_payload("recording", &settings);
-        payload.recording_session_id = Some(recording_session_id);
-        let _ = overlay_window.emit("show-overlay", payload);
-        show_positioned_recording_overlay_window(app_handle);
-    }
+    plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
+        set_recording_overlay_default_layout(app_handle);
+        if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+            let mut payload = build_overlay_state_payload("recording", &settings);
+            payload.recording_session_id = Some(recording_session_id);
+            let _ = overlay_window.emit("show-overlay", payload);
+            show_positioned_recording_overlay_window(app_handle);
+        }
+    });
 }
 
 /// Shows the transcribing overlay window
 pub fn show_transcribing_overlay(app_handle: &AppHandle) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
-    plus_overlay_state::invalidate_error_overlay_auto_hide();
+    let overlay_generation = plus_overlay_state::invalidate_error_overlay_auto_hide();
 
     let settings = settings::get_settings(app_handle);
     if !settings.recording_overlay_enabled {
         return;
     }
 
-    set_recording_overlay_default_layout(app_handle);
-
-    if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        let payload = build_overlay_state_payload("transcribing", &settings);
-        let _ = overlay_window.emit("show-overlay", payload);
-        show_positioned_recording_overlay_window(app_handle);
-    }
+    plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
+        set_recording_overlay_default_layout(app_handle);
+        if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+            let payload = build_overlay_state_payload("transcribing", &settings);
+            let _ = overlay_window.emit("show-overlay", payload);
+            show_positioned_recording_overlay_window(app_handle);
+        }
+    });
 }
 
 /// Shows the sending overlay window (for remote API calls)
 pub fn show_sending_overlay(app_handle: &AppHandle) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
-    plus_overlay_state::invalidate_error_overlay_auto_hide();
+    let overlay_generation = plus_overlay_state::invalidate_error_overlay_auto_hide();
 
     let settings = settings::get_settings(app_handle);
     if !settings.recording_overlay_enabled {
         return;
     }
 
-    set_recording_overlay_default_layout(app_handle);
-
-    if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        let payload = build_overlay_state_payload("sending", &settings);
-        let _ = overlay_window.emit("show-overlay", payload);
-        show_positioned_recording_overlay_window(app_handle);
-    }
+    plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
+        set_recording_overlay_default_layout(app_handle);
+        if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+            let payload = build_overlay_state_payload("sending", &settings);
+            let _ = overlay_window.emit("show-overlay", payload);
+            show_positioned_recording_overlay_window(app_handle);
+        }
+    });
 }
 
 /// Shows the thinking overlay window (for LLM processing)
 pub fn show_thinking_overlay(app_handle: &AppHandle) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
-    plus_overlay_state::invalidate_error_overlay_auto_hide();
+    let overlay_generation = plus_overlay_state::invalidate_error_overlay_auto_hide();
 
     let settings = settings::get_settings(app_handle);
     if !settings.recording_overlay_enabled {
         return;
     }
 
-    set_recording_overlay_default_layout(app_handle);
-
-    if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        let payload = build_overlay_state_payload("thinking", &settings);
-        let _ = overlay_window.emit("show-overlay", payload);
-        show_positioned_recording_overlay_window(app_handle);
-    }
+    plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
+        set_recording_overlay_default_layout(app_handle);
+        if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+            let payload = build_overlay_state_payload("thinking", &settings);
+            let _ = overlay_window.emit("show-overlay", payload);
+            show_positioned_recording_overlay_window(app_handle);
+        }
+    });
 }
 
 /// Shows the finalizing overlay window (for Soniox live stop/finalization)
 pub fn show_finalizing_overlay(app_handle: &AppHandle) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
-    plus_overlay_state::invalidate_error_overlay_auto_hide();
+    let overlay_generation = plus_overlay_state::invalidate_error_overlay_auto_hide();
 
     let settings = settings::get_settings(app_handle);
     if !settings.recording_overlay_enabled {
         return;
     }
 
-    set_recording_overlay_default_layout(app_handle);
-
-    if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        let payload = build_overlay_state_payload("finalizing", &settings);
-        let _ = overlay_window.emit("show-overlay", payload);
-        show_positioned_recording_overlay_window(app_handle);
-    }
+    plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
+        set_recording_overlay_default_layout(app_handle);
+        if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+            let payload = build_overlay_state_payload("finalizing", &settings);
+            let _ = overlay_window.emit("show-overlay", payload);
+            show_positioned_recording_overlay_window(app_handle);
+        }
+    });
 }
 
 /// Updates the overlay window position based on current settings
@@ -2872,7 +2869,7 @@ fn show_transient_message_overlay(
     auto_hide_ms: u64,
 ) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
-    plus_overlay_state::invalidate_error_overlay_auto_hide();
+    let overlay_generation = plus_overlay_state::invalidate_error_overlay_auto_hide();
 
     let settings = settings::get_settings(app_handle);
     if !settings.recording_overlay_enabled {
@@ -2889,34 +2886,35 @@ fn show_transient_message_overlay(
         return;
     }
 
-    set_recording_overlay_default_layout(app_handle);
-
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        let generation_at_start = TRANSIENT_OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-
-        let payload = TransientMessageOverlayPayload {
-            state: overlay_state.to_string(),
-            message: message.to_string(),
-        };
-        let _ = overlay_window.emit("show-message-overlay", payload);
-        show_positioned_recording_overlay_window(app_handle);
+        let shown =
+            plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
+                set_recording_overlay_default_layout(app_handle);
+                let payload = TransientMessageOverlayPayload {
+                    state: overlay_state.to_string(),
+                    message: message.to_string(),
+                };
+                let _ = overlay_window.emit("show-message-overlay", payload);
+                show_positioned_recording_overlay_window(app_handle);
+            });
+        if !shown {
+            return;
+        }
 
         let window_clone = overlay_window.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(auto_hide_ms));
-
-            if TRANSIENT_OVERLAY_GENERATION.load(Ordering::SeqCst) != generation_at_start {
+            let started_hiding =
+                plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
+                    let _ = window_clone.emit("hide-overlay", ());
+                });
+            if !started_hiding {
                 return;
             }
-
-            let _ = window_clone.emit("hide-overlay", ());
             std::thread::sleep(std::time::Duration::from_millis(300));
-
-            if TRANSIENT_OVERLAY_GENERATION.load(Ordering::SeqCst) != generation_at_start {
-                return;
-            }
-
-            let _ = window_clone.hide();
+            plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
+                let _ = window_clone.hide();
+            });
         });
     }
 }
