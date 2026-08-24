@@ -25,25 +25,28 @@ When asked to bump the app version:
 1. Update `"version": "x.y.z"` in `package.json`.
 2. Update `"version": "x.y.z"` in `src-tauri/tauri.conf.json`.
 3. Update `version = "x.y.z"` in `src-tauri/Cargo.toml`.
-4. Stop before commit and ask the user to run the build/check flow on their side (user-driven verification).
-5. After user build is done, re-check git status. If `src-tauri/Cargo.lock` changed due version bump, include it in the same version-bump commit.
-6. Do not run build or verification commands unless the user explicitly asks. This repo expects build verification to be user-driven.
-7. Before final commit, ask the user whether a new release body draft is needed for the branch-specific Markdown file used by GitHub Actions.
-8. If user says yes, prepare a short release body draft:
-   - detect previous release tag for the branch (`vx.y.z` for `main`, `vx.y.z-store` for `release/microsoft-store`, `vx.y.z-cuda` for `integration/cuda`);
-   - review commits between previous tag and new version commit;
+4. In the same version-preparation step, detect the previous release tag for the branch (`vx.y.z` for `main`, `vx.y.z-store` for `release/microsoft-store`, `vx.y.z-cuda` for `integration/cuda`) and review the user-facing commits since that tag once. Use that review to prepare both the in-app **What's New** content and the GitHub release body.
+5. Refresh the in-app **Help -> What's New** section for the target release:
+   - set `help.whatsNew.since` in `src/i18n/locales/en/translation.json` and `src/i18n/locales/ru/translation.json` to the previous released version;
+   - replace `help.whatsNew.items` in both locale files with short, user-facing highlights added since that version;
+   - keep `WHATS_NEW_ITEMS` in `src/components/settings/help/HelpSettings.tsx` aligned with the new translation keys and their intended display order;
+   - remove stale item keys instead of accumulating an indefinite release history in this section.
+6. At the same time, prepare a short release body draft from the same commit review:
    - include only end-user facing changes in short bullets;
    - keep the standard static notice text that is normally used in release body.
-9. Show the draft in chat and explicitly ask: use as-is, or user will provide edits in chat.
-10. If the user approves the draft, write it into the matching checked-in file before commit:
+7. Show the in-app **What's New** copy and the release body draft together in chat and explicitly ask whether to use them as-is or apply user edits. The [[#Fast Draft Release Path|fast draft release path]] remains the exception and does not require a separate approval round.
+8. After approval, write the release body into the matching checked-in file before commit:
     - `main`: `.github/release-notes/main.md`
     - `release/microsoft-store`: `.github/release-notes/microsoft-store.md`
     - `integration/cuda`: `.github/release-notes/cuda.md`
-11. If `main` release text should point users to a same-version `release/microsoft-store` release, you may predict the final Store release URL as `https://github.com/MaxITService/AIVORelay/releases/tag/vx.y.z-store` and place it into `.github/release-notes/main.md` before the Store release exists.
-12. If the Store release already exists, prefer verifying that the predicted URL resolves and keep the checked-in note aligned with the final GitHub release body.
-13. If `main` is being released on its own, do not refresh the Microsoft Store link just to point at an older unrelated release.
-14. Commit with `chore: bump version to x.y.z`.
-15. After commit, ask whether to create tag and push now. 
+9. If `main` release text should point users to a same-version `release/microsoft-store` release, you may predict the final Store release URL as `https://github.com/MaxITService/AIVORelay/releases/tag/vx.y.z-store` and place it into `.github/release-notes/main.md` before the Store release exists.
+10. If the Store release already exists, prefer verifying that the predicted URL resolves and keep the checked-in note aligned with the final GitHub release body.
+11. If `main` is being released on its own, do not refresh the Microsoft Store link just to point at an older unrelated release.
+12. Stop before commit and ask the user to run the build/check flow on their side (user-driven verification).
+13. After user build is done, re-check git status. If `src-tauri/Cargo.lock` changed due version bump, include it in the same version-bump commit.
+14. Do not run build or verification commands unless the user explicitly asks. This repo expects build verification to be user-driven.
+15. Commit the version files, approved in-app **What's New** update, release body, and any version-generated lockfile change together with `chore: bump version to x.y.z`.
+16. After commit, ask whether to create tag and push now.
 
 ## Main Release Preflight
 
@@ -74,7 +77,7 @@ For `integration/cuda`: if asked, prepare this branch too. If not asked, skip it
 ## Release Body Drafting
 
 When preparing release text for user review:
-1. Start only after user confirms that a new release body draft is needed.
+1. During a version bump, prepare the release body alongside the in-app **What's New** update from the same commit review. If release text is requested separately, start only after the user confirms that a new release body draft is needed.
 2. Build a short, user-facing summary from commits between the previous tag and current release commit.
 3. Exclude internal-only items (docs-only, sync logs, tooling-only chores) unless the user asks to include them.
 4. Keep/update the baseline static notice text from the checked-in release body files:
