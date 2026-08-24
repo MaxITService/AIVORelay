@@ -3,9 +3,13 @@
 //! Commands for executing voice-triggered PowerShell scripts.
 //! Uses direct PowerShell invocation with configurable execution options.
 
+#[cfg(target_os = "windows")]
+use log::warn;
 use log::{debug, info};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+use std::process::Child;
 use std::process::Command;
 
 use crate::settings::{ExecutionPolicy, ResolvedExecutionOptions};
@@ -16,6 +20,8 @@ pub(crate) struct CapturedCommandOutput {
     pub stdout: String,
     pub stderr: String,
 }
+
+pub(crate) type CommandExitCallback = Box<dyn FnOnce() + Send + 'static>;
 
 impl CapturedCommandOutput {
     pub fn succeeded(&self) -> bool {
@@ -85,6 +91,31 @@ pub(crate) fn execute_powershell_command_with_environment(
     options: &ResolvedExecutionOptions,
     environment: &[(String, String)],
 ) -> Result<String, String> {
+    execute_powershell_command_with_environment_internal(script, options, environment, None)
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn execute_powershell_command_with_environment_tracked(
+    script: &str,
+    options: &ResolvedExecutionOptions,
+    environment: &[(String, String)],
+    on_exit: CommandExitCallback,
+) -> Result<String, String> {
+    execute_powershell_command_with_environment_internal(
+        script,
+        options,
+        environment,
+        Some(on_exit),
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn execute_powershell_command_with_environment_internal(
+    script: &str,
+    options: &ResolvedExecutionOptions,
+    environment: &[(String, String)],
+    on_exit: Option<CommandExitCallback>,
+) -> Result<String, String> {
     let shell = if options.use_pwsh {
         "pwsh"
     } else {
@@ -142,8 +173,12 @@ pub(crate) fn execute_powershell_command_with_environment(
         // Silent execution: hide window, fire-and-forget (non-blocking)
         cmd.creation_flags(CREATE_NO_WINDOW);
 
-        cmd.spawn()
+        let child = cmd
+            .spawn()
             .map_err(|e| format!("Failed to spawn command: {}", e))?;
+        if let Some(on_exit) = on_exit {
+            wait_for_command_exit(child, on_exit);
+        }
 
         Ok("Command started in background".to_string())
     } else {
@@ -185,12 +220,25 @@ pub(crate) fn execute_powershell_command_with_environment(
         windowed_cmd.args(["-NoExit", "-Command", script]);
         windowed_cmd.creation_flags(CREATE_NEW_CONSOLE);
 
-        windowed_cmd
+        let child = windowed_cmd
             .spawn()
             .map_err(|e| format!("Failed to open {} window: {}", shell, e))?;
+        if let Some(on_exit) = on_exit {
+            wait_for_command_exit(child, on_exit);
+        }
 
         Ok("Command opened in PowerShell window".to_string())
     }
+}
+
+#[cfg(target_os = "windows")]
+fn wait_for_command_exit(mut child: Child, on_exit: CommandExitCallback) {
+    std::thread::spawn(move || {
+        if let Err(error) = child.wait() {
+            warn!("Failed to wait for PowerShell command exit: {}", error);
+        }
+        on_exit();
+    });
 }
 
 /// Runs a PowerShell command without a visible window and waits for its exit.
@@ -272,6 +320,16 @@ pub(crate) fn execute_powershell_command_with_environment(
     _script: &str,
     _options: &ResolvedExecutionOptions,
     _environment: &[(String, String)],
+) -> Result<String, String> {
+    Err("PowerShell commands are currently supported only on Windows".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn execute_powershell_command_with_environment_tracked(
+    _script: &str,
+    _options: &ResolvedExecutionOptions,
+    _environment: &[(String, String)],
+    _on_exit: CommandExitCallback,
 ) -> Result<String, String> {
     Err("PowerShell commands are currently supported only on Windows".to_string())
 }

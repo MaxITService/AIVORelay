@@ -923,6 +923,15 @@ pub fn copy_last_transcript(app: &AppHandle) {
         return;
     }
 
+    let _clipboard_guard = match crate::clipboard::lock_clipboard_transaction(
+        "copying the last transcript from the tray",
+    ) {
+        Ok(guard) => guard,
+        Err(err) => {
+            error!("{}", err);
+            return;
+        }
+    };
     if let Err(err) = app.clipboard().write_text(text) {
         error!("Failed to copy last transcript to clipboard: {}", err);
         return;

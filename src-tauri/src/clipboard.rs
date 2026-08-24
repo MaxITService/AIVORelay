@@ -3,7 +3,7 @@ use crate::settings::{get_settings, AppSettings, AutoSubmitKey, ClipboardHandlin
 use enigo::{Direction, Enigo, Key, Keyboard};
 use log::{debug, info, warn};
 use once_cell::sync::Lazy;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -39,7 +39,17 @@ struct StreamingPasteSession {
 
 static STREAMING_PASTE_SESSION: Lazy<Mutex<Option<StreamingPasteSession>>> =
     Lazy::new(|| Mutex::new(None));
-static SELECTION_CAPTURE_TRANSACTION: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+// Clipboard-backed paste and selection capture must be one transaction. Always
+// acquire this before STREAMING_PASTE_SESSION and Enigo locks.
+static CLIPBOARD_TRANSACTION: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
+pub(crate) fn lock_clipboard_transaction(
+    operation: &str,
+) -> Result<MutexGuard<'static, ()>, String> {
+    CLIPBOARD_TRANSACTION
+        .lock()
+        .map_err(|_| format!("Clipboard transaction lock is unavailable while {operation}"))
+}
 
 /// Windows-only: Advanced clipboard backup/restore that preserves all formats
 #[cfg(target_os = "windows")]
@@ -774,6 +784,8 @@ pub fn begin_streaming_paste_session(
         return Ok(());
     }
 
+    let _clipboard_guard = lock_clipboard_transaction("starting streaming paste")?;
+
     // Serialize session replacement with chunk insertion. Restoring a stale
     // session before taking the next backup prevents the new session from
     // accidentally snapshotting transient transcription text.
@@ -844,6 +856,7 @@ pub fn begin_streaming_paste_session(
 }
 
 pub fn end_streaming_paste_session(app_handle: &AppHandle) -> Result<(), String> {
+    let _clipboard_guard = lock_clipboard_transaction("ending streaming paste")?;
     let mut guard = STREAMING_PASTE_SESSION
         .lock()
         .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
@@ -858,6 +871,7 @@ pub fn end_streaming_paste_session_if_matches(
     app_handle: &AppHandle,
     operation_id: u64,
 ) -> Result<bool, String> {
+    let _clipboard_guard = lock_clipboard_transaction("ending streaming paste")?;
     let mut guard = STREAMING_PASTE_SESSION
         .lock()
         .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
@@ -884,6 +898,7 @@ pub fn finalize_streaming_paste_session_if_matches(
     operation_id: u64,
     final_text: &str,
 ) -> Result<bool, String> {
+    let _clipboard_guard = lock_clipboard_transaction("finalizing streaming paste")?;
     let mut guard = STREAMING_PASTE_SESSION
         .lock()
         .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
@@ -1374,6 +1389,13 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
         paste_method, clipboard_handling, paste_delay_ms
     );
 
+    let _clipboard_guard = matches!(
+        paste_method,
+        PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert
+    )
+    .then(|| lock_clipboard_transaction("pasting text"))
+    .transpose()?;
+
     // Get the managed Enigo instance
     let enigo_state = app_handle
         .try_state::<EnigoState>()
@@ -1419,6 +1441,8 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
     if text.is_empty() {
         return Ok(());
     }
+
+    let _clipboard_guard = lock_clipboard_transaction("pasting streaming text")?;
 
     // Keep the session locked until the target application has received the
     // paste shortcut. This prevents a concurrent stop/error path from
@@ -1556,9 +1580,7 @@ fn restore_cut_selection_from_backup(app_handle: &AppHandle, text: &str) -> Resu
 }
 
 pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> {
-    let _capture_guard = SELECTION_CAPTURE_TRANSACTION
-        .lock()
-        .map_err(|_| "Selection capture lock is unavailable".to_string())?;
+    let _capture_guard = lock_clipboard_transaction("capturing selected text")?;
     let clipboard = app_handle.clipboard();
     let clipboard_backup = clipboard.read_text().unwrap_or_default();
     let mut cut_performed = false;
@@ -1604,9 +1626,7 @@ pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> 
 }
 
 pub fn capture_selection_text_copy(app_handle: &AppHandle) -> Result<String, String> {
-    let _capture_guard = SELECTION_CAPTURE_TRANSACTION
-        .lock()
-        .map_err(|_| "Selection capture lock is unavailable".to_string())?;
+    let _capture_guard = lock_clipboard_transaction("copying selected text")?;
     let clipboard = app_handle.clipboard();
     let clipboard_backup = clipboard.read_text().unwrap_or_default();
     let use_documented_owner =

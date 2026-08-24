@@ -2957,13 +2957,16 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
         clear_last_remote_recording_retry_by_id(request.retry_id);
         before_dictation_final_output(&app, &final_text);
         let app_for_main_thread = app.clone();
+        let overlay_generation = crate::plus_overlay_state::current_recording_overlay_generation();
         app.run_on_main_thread(move || {
             if let Err(err) = utils::paste(final_text, app_for_main_thread.clone()) {
                 error!("Failed to paste retried transcription: {}", err);
                 let _ = app_for_main_thread.emit("paste-error", ());
             }
-            utils::hide_recording_overlay(&app_for_main_thread);
-            change_tray_icon(&app_for_main_thread, TrayIconState::Idle);
+            crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
+                &app_for_main_thread,
+                overlay_generation,
+            );
         })
         .ok();
     });
@@ -6730,9 +6733,13 @@ impl ShortcutAction for TranscribeAction {
                     }
 
                     let ah_clone = ah.clone();
+                    let overlay_generation =
+                        crate::plus_overlay_state::current_recording_overlay_generation();
                     ah.run_on_main_thread(move || {
-                        utils::hide_recording_overlay(&ah_clone);
-                        change_tray_icon(&ah_clone, TrayIconState::Idle);
+                        crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
+                            &ah_clone,
+                            overlay_generation,
+                        );
                     })
                     .ok();
 
@@ -7046,6 +7053,8 @@ impl ShortcutAction for TranscribeAction {
                     before_dictation_final_output(&ah, &final_text);
                 }
                 let main_thread_timeout_ms = recording_settings.paste_delay_ms.saturating_add(1500);
+                let overlay_generation =
+                    crate::plus_overlay_state::current_recording_overlay_generation();
                 if let Err(err) = run_on_main_thread_sync(&ah, main_thread_timeout_ms, move || {
                     if operation_stamp.was_cancelled(&ah_clone) {
                         debug!(
@@ -7091,8 +7100,10 @@ impl ShortcutAction for TranscribeAction {
                         }
                     }
 
-                    utils::hide_recording_overlay(&ah_clone);
-                    change_tray_icon(&ah_clone, TrayIconState::Idle);
+                    crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
+                        &ah_clone,
+                        overlay_generation,
+                    );
                 }) {
                     warn!("{}", err);
                 }
@@ -7433,6 +7444,8 @@ impl ShortcutAction for TranscribeAction {
             if !preview_output_only_enabled {
                 before_dictation_final_output(&ah, &final_text);
             }
+            let overlay_generation =
+                crate::plus_overlay_state::current_recording_overlay_generation();
             ah.run_on_main_thread(move || {
                 if operation_stamp.was_cancelled(&ah_clone) {
                     debug!(
@@ -7455,8 +7468,10 @@ impl ShortcutAction for TranscribeAction {
                         }
                     }
                 }
-                utils::hide_recording_overlay(&ah_clone);
-                change_tray_icon(&ah_clone, TrayIconState::Idle);
+                crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
+                    &ah_clone,
+                    overlay_generation,
+                );
             })
             .ok();
 
@@ -7627,9 +7642,13 @@ impl ShortcutAction for SendToExtensionAction {
             }
 
             let ah_clone = ah.clone();
+            let overlay_generation =
+                crate::plus_overlay_state::current_recording_overlay_generation();
             ah.run_on_main_thread(move || {
-                utils::hide_recording_overlay(&ah_clone);
-                change_tray_icon(&ah_clone, TrayIconState::Idle);
+                crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
+                    &ah_clone,
+                    overlay_generation,
+                );
             })
             .ok();
 
@@ -7790,9 +7809,13 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
             }
 
             let ah_clone = ah.clone();
+            let overlay_generation =
+                crate::plus_overlay_state::current_recording_overlay_generation();
             ah.run_on_main_thread(move || {
-                utils::hide_recording_overlay(&ah_clone);
-                change_tray_icon(&ah_clone, TrayIconState::Idle);
+                crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
+                    &ah_clone,
+                    overlay_generation,
+                );
             })
             .ok();
 
@@ -8510,6 +8533,8 @@ impl ShortcutAction for AiReplaceSelectionAction {
                     let restore_on_error = recording_settings.ai_replace_restore_on_error;
                     let llm_tracker_for_apply = Arc::clone(&llm_tracker);
                     let operation_id_for_apply = operation_id;
+                    let overlay_generation =
+                        crate::plus_overlay_state::current_recording_overlay_generation();
                     ah.run_on_main_thread(move || {
                         if llm_tracker_for_apply.is_cancelled(operation_id_for_apply) {
                             debug!(
@@ -8547,8 +8572,10 @@ impl ShortcutAction for AiReplaceSelectionAction {
                             );
                             return;
                         }
-                        utils::hide_recording_overlay(&ah_clone);
-                        change_tray_icon(&ah_clone, TrayIconState::Idle);
+                        crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
+                            &ah_clone,
+                            overlay_generation,
+                        );
                     })
                     .ok();
                 }

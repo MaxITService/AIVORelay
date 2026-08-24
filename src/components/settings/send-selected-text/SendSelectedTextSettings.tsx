@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -272,7 +278,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 
 interface PresetCardProps {
   preset: SendSelectedTextPreset;
-  onSave: (preset: SendSelectedTextPreset) => Promise<void>;
+  onSave: (preset: SendSelectedTextPreset) => Promise<SendSelectedTextPreset>;
   onDelete: (preset: SendSelectedTextPreset) => Promise<void>;
   onDuplicate: (preset: SendSelectedTextPreset) => Promise<void>;
   onRunSample: (preset: SendSelectedTextPreset, text: string) => Promise<void>;
@@ -288,44 +294,102 @@ function PresetCard({
   onTrimJson,
 }: PresetCardProps) {
   const [draft, setDraft] = useState(preset);
+  const [dirty, setDirty] = useState(false);
+  const draftRevision = useRef(0);
+  const busyRef = useRef(false);
   const [expanded, setExpanded] = useState(true);
   const [busy, setBusy] = useState(false);
   const [sampleText, setSampleText] = useState(
     "A sample selection saved by AivoRelay.",
   );
 
-  useEffect(() => setDraft(preset), [preset]);
+  useEffect(() => {
+    if (!dirty) setDraft(preset);
+  }, [dirty, preset]);
 
   const update = <K extends keyof SendSelectedTextPreset>(
     key: K,
     value: SendSelectedTextPreset[K],
-  ) => setDraft((current) => ({ ...current, [key]: value }));
+  ) => {
+    draftRevision.current += 1;
+    setDirty(true);
+    setDraft((current) => ({ ...current, [key]: value }));
+  };
 
   const saveDraft = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const revision = draftRevision.current;
     setBusy(true);
     try {
-      await onSave(draft);
+      const saved = await onSave(draft);
+      if (draftRevision.current === revision) {
+        setDraft(saved);
+        setDirty(false);
+        toast.success("Preset saved");
+      } else {
+        toast.success("Submitted version saved; newer edits remain unsaved");
+      }
     } catch {
       // The parent reports the save error.
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
 
   const runSampleDraft = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const revision = draftRevision.current;
     setBusy(true);
     try {
       await onRunSample(draft, sampleText);
+      if (draftRevision.current === revision) setDirty(false);
+    } catch {
+      // The parent reports the run error.
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
 
   const trimJsonDraft = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const revision = draftRevision.current;
     setBusy(true);
     try {
       await onTrimJson(draft);
+      if (draftRevision.current === revision) setDirty(false);
+    } catch {
+      // The parent reports the trim error.
     } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  const duplicateDraft = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await onDuplicate(draft);
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  const deleteDraft = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await onDelete(preset);
+    } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
@@ -340,6 +404,8 @@ function PresetCard({
   };
 
   const setFormat = (format: OutputFormat) => {
+    draftRevision.current += 1;
+    setDirty(true);
     setDraft((current) => {
       const wasDefaultMarkdown =
         current.filename_template === "selected-{{date}}-{{time}}.md";
@@ -391,7 +457,8 @@ function PresetCard({
           <button
             type="button"
             className="sst-icon-button"
-            onClick={() => onDuplicate(preset)}
+            disabled={busy}
+            onClick={duplicateDraft}
             title="Duplicate preset"
             aria-label="Duplicate preset"
           >
@@ -400,7 +467,8 @@ function PresetCard({
           <button
             type="button"
             className="sst-icon-button danger"
-            onClick={() => onDelete(preset)}
+            disabled={busy}
+            onClick={deleteDraft}
             title="Delete preset"
             aria-label="Delete preset"
           >
@@ -789,6 +857,7 @@ function HistoryView({
   entries,
   loading,
   loadingMore,
+  clearing,
   hasMore,
   onRefresh,
   onLoadMore,
@@ -798,6 +867,7 @@ function HistoryView({
   entries: SendSelectedTextHistoryEntry[];
   loading: boolean;
   loadingMore: boolean;
+  clearing: boolean;
   hasMore: boolean;
   onRefresh: () => Promise<void>;
   onLoadMore: () => Promise<void>;
@@ -812,16 +882,23 @@ function HistoryView({
           <p>Selected text, saved path, command output, and complete errors.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={onRefresh}>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={loading || loadingMore || clearing}
+            onClick={onRefresh}
+          >
             Refresh
           </Button>
           <Button
             variant="danger"
             size="sm"
-            disabled={entries.length === 0}
+            disabled={
+              loading || loadingMore || clearing || entries.length === 0
+            }
             onClick={onClear}
           >
-            Clear history
+            {clearing ? "Clearing..." : "Clear history"}
           </Button>
         </div>
       </div>
@@ -852,6 +929,7 @@ function HistoryView({
                 <button
                   type="button"
                   className="sst-icon-button danger"
+                  disabled={clearing}
                   onClick={() => onDelete(entry.id)}
                   title="Delete history entry"
                   aria-label="Delete history entry"
@@ -917,7 +995,7 @@ function HistoryView({
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={loadingMore}
+                disabled={loading || loadingMore || clearing}
                 onClick={onLoadMore}
               >
                 {loadingMore ? "Loading..." : "Load older entries"}
@@ -1031,7 +1109,8 @@ function HelpView() {
             Commands are authored by you and run with your Windows account. Use
             captured execution when you need an exit code and logs.
             Visible-window commands are started without waiting, so their
-            temporary input file is retained and cleaned after it becomes stale.
+            temporary input file is retained until PowerShell exits. Stale files
+            left by an app shutdown are cleaned later.
           </p>
           <p>
             History contains the selected text. Set a suitable history limit and
@@ -1056,41 +1135,71 @@ export default function SendSelectedTextSettings() {
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+  const [historyClearing, setHistoryClearing] = useState(false);
   const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [optionsSaving, setOptionsSaving] = useState(false);
+  const [creatingPreset, setCreatingPreset] = useState(false);
+  const featureGeneration = useRef(0);
+  const historyGeneration = useRef(0);
+  const optionsDirty = useRef(false);
+  const optionsRevision = useRef(0);
+  const optionsSaveInFlight = useRef(false);
+  const createPresetInFlight = useRef(false);
+  const historyClearInFlight = useRef(false);
   const [optionsDraft, setOptionsDraft] = useState({
     historyLimit: 200,
     errorSeconds: 10,
   });
 
   const loadFeature = useCallback(async () => {
+    const generation = featureGeneration.current + 1;
+    featureGeneration.current = generation;
     const value = await invoke<SendSelectedTextFeatureSettings>(
       "get_send_selected_text_settings",
     );
+    if (featureGeneration.current !== generation) return;
     setFeature(value);
-    setOptionsDraft({
-      historyLimit: value.history_limit,
-      errorSeconds: Math.round(value.error_overlay_auto_hide_ms / 1000),
-    });
+    if (!optionsDirty.current) {
+      setOptionsDraft({
+        historyLimit: value.history_limit,
+        errorSeconds: Math.round(value.error_overlay_auto_hide_ms / 1000),
+      });
+    }
   }, []);
 
   const loadHistory = useCallback(async () => {
+    const generation = historyGeneration.current + 1;
+    historyGeneration.current = generation;
     setHistoryLoading(true);
     try {
       const entries = await invoke<SendSelectedTextHistoryEntry[]>(
         "get_send_selected_text_history",
         { limit: HISTORY_PAGE_SIZE + 1, offset: 0 },
       );
+      if (historyGeneration.current !== generation) return;
       setHistoryEntries(entries.slice(0, HISTORY_PAGE_SIZE));
       setHistoryHasMore(entries.length > HISTORY_PAGE_SIZE);
     } catch (error) {
-      toast.error(`Failed to load history: ${String(error)}`);
+      if (historyGeneration.current === generation) {
+        toast.error(`Failed to load history: ${String(error)}`);
+      }
     } finally {
-      setHistoryLoading(false);
+      if (historyGeneration.current === generation) {
+        setHistoryLoading(false);
+      }
     }
   }, []);
 
   const loadMoreHistory = async () => {
-    if (historyLoadingMore || !historyHasMore) return;
+    if (
+      historyClearInFlight.current ||
+      historyLoading ||
+      historyLoadingMore ||
+      !historyHasMore
+    ) {
+      return;
+    }
+    const generation = historyGeneration.current;
     setHistoryLoadingMore(true);
     try {
       const entries = await invoke<SendSelectedTextHistoryEntry[]>(
@@ -1100,17 +1209,17 @@ export default function SendSelectedTextSettings() {
           offset: historyEntries.length,
         },
       );
+      if (historyGeneration.current !== generation) return;
       const page = entries.slice(0, HISTORY_PAGE_SIZE);
       setHistoryEntries((current) => {
         const knownIds = new Set(current.map((entry) => entry.id));
-        return [
-          ...current,
-          ...page.filter((entry) => !knownIds.has(entry.id)),
-        ];
+        return [...current, ...page.filter((entry) => !knownIds.has(entry.id))];
       });
       setHistoryHasMore(entries.length > HISTORY_PAGE_SIZE);
     } catch (error) {
-      toast.error(`Failed to load older history: ${String(error)}`);
+      if (historyGeneration.current === generation) {
+        toast.error(`Failed to load older history: ${String(error)}`);
+      }
     } finally {
       setHistoryLoadingMore(false);
     }
@@ -1118,19 +1227,39 @@ export default function SendSelectedTextSettings() {
 
   useEffect(() => {
     let active = true;
-    Promise.all([loadFeature(), loadHistory()])
-      .catch((error) => {
+    let unlistenHistory: (() => void) | undefined;
+    const initialize = async () => {
+      try {
+        const unlisten = await listen(
+          "send-selected-text-history-updated",
+          () => {
+            void loadHistory();
+          },
+        );
+        if (!active) {
+          unlisten();
+          return;
+        }
+        unlistenHistory = unlisten;
+      } catch (error) {
+        if (active) {
+          toast.error(`Failed to watch history updates: ${String(error)}`);
+        }
+      }
+      if (!active) return;
+
+      try {
+        await Promise.all([loadFeature(), loadHistory()]);
+      } catch (error) {
         if (active) toast.error(String(error));
-      })
-      .finally(() => {
+      } finally {
         if (active) setLoading(false);
-      });
-    const unlistenPromise = listen("send-selected-text-history-updated", () => {
-      void loadHistory();
-    });
+      }
+    };
+    void initialize();
     return () => {
       active = false;
-      void unlistenPromise.then((unlisten) => unlisten());
+      unlistenHistory?.();
     };
   }, [loadFeature, loadHistory]);
 
@@ -1138,24 +1267,51 @@ export default function SendSelectedTextSettings() {
   const sortedPresets = useMemo(() => presets, [presets]);
 
   const createPreset = async () => {
+    if (createPresetInFlight.current) return;
+    createPresetInFlight.current = true;
+    setCreatingPreset(true);
     try {
-      await invoke<SendSelectedTextPreset>("create_send_selected_text_preset", {
-        template: null,
-      });
-      await Promise.all([loadFeature(), refreshSettings()]);
+      const created = await invoke<SendSelectedTextPreset>(
+        "create_send_selected_text_preset",
+        { template: null },
+      );
+      featureGeneration.current += 1;
+      setFeature((current) =>
+        current
+          ? { ...current, presets: [...current.presets, created] }
+          : current,
+      );
+      await refreshSettings();
       toast.success("Preset created");
     } catch (error) {
       toast.error(String(error));
+    } finally {
+      createPresetInFlight.current = false;
+      setCreatingPreset(false);
     }
   };
 
-  const savePreset = async (preset: SendSelectedTextPreset) => {
+  const savePreset = async (
+    preset: SendSelectedTextPreset,
+  ): Promise<SendSelectedTextPreset> => {
     try {
-      await invoke<SendSelectedTextPreset>("update_send_selected_text_preset", {
-        preset,
-      });
-      await Promise.all([loadFeature(), refreshSettings()]);
-      toast.success("Preset saved");
+      const updated = await invoke<SendSelectedTextPreset>(
+        "update_send_selected_text_preset",
+        { preset },
+      );
+      featureGeneration.current += 1;
+      setFeature((current) =>
+        current
+          ? {
+              ...current,
+              presets: current.presets.map((candidate) =>
+                candidate.id === updated.id ? updated : candidate,
+              ),
+            }
+          : current,
+      );
+      await refreshSettings();
+      return updated;
     } catch (error) {
       toast.error(String(error));
       throw error;
@@ -1164,10 +1320,17 @@ export default function SendSelectedTextSettings() {
 
   const duplicatePreset = async (preset: SendSelectedTextPreset) => {
     try {
-      await invoke<SendSelectedTextPreset>("create_send_selected_text_preset", {
-        template: { ...preset, id: "", name: `${preset.name} copy` },
-      });
-      await Promise.all([loadFeature(), refreshSettings()]);
+      const created = await invoke<SendSelectedTextPreset>(
+        "create_send_selected_text_preset",
+        { template: { ...preset, id: "", name: `${preset.name} copy` } },
+      );
+      featureGeneration.current += 1;
+      setFeature((current) =>
+        current
+          ? { ...current, presets: [...current.presets, created] }
+          : current,
+      );
+      await refreshSettings();
       toast.success("Preset duplicated without copying its hotkey");
     } catch (error) {
       toast.error(String(error));
@@ -1184,7 +1347,18 @@ export default function SendSelectedTextSettings() {
     }
     try {
       await invoke("delete_send_selected_text_preset", { presetId: preset.id });
-      await Promise.all([loadFeature(), refreshSettings()]);
+      featureGeneration.current += 1;
+      setFeature((current) =>
+        current
+          ? {
+              ...current,
+              presets: current.presets.filter(
+                (candidate) => candidate.id !== preset.id,
+              ),
+            }
+          : current,
+      );
+      await refreshSettings();
       toast.success("Preset deleted; history preserved");
     } catch (error) {
       toast.error(String(error));
@@ -1192,8 +1366,8 @@ export default function SendSelectedTextSettings() {
   };
 
   const runSample = async (preset: SendSelectedTextPreset, text: string) => {
+    await savePreset(preset);
     try {
-      await savePreset(preset);
       const result = await invoke<OperationResult>(
         "run_send_selected_text_preset",
         {
@@ -1205,12 +1379,13 @@ export default function SendSelectedTextSettings() {
       await loadHistory();
     } catch (error) {
       toast.error(String(error));
+      throw error;
     }
   };
 
   const trimJson = async (preset: SendSelectedTextPreset) => {
+    await savePreset(preset);
     try {
-      await savePreset(preset);
       const removed = await invoke<number>("trim_send_selected_text_json", {
         presetId: preset.id,
       });
@@ -1221,10 +1396,15 @@ export default function SendSelectedTextSettings() {
       );
     } catch (error) {
       toast.error(String(error));
+      throw error;
     }
   };
 
   const saveOptions = async () => {
+    if (optionsSaveInFlight.current) return;
+    optionsSaveInFlight.current = true;
+    setOptionsSaving(true);
+    const revision = optionsRevision.current;
     try {
       const updated = await invoke<SendSelectedTextFeatureSettings>(
         "update_send_selected_text_options",
@@ -1233,19 +1413,37 @@ export default function SendSelectedTextSettings() {
           errorOverlayAutoHideMs: optionsDraft.errorSeconds * 1000,
         },
       );
-      setFeature(updated);
-      setOptionsDraft({
-        historyLimit: updated.history_limit,
-        errorSeconds: Math.round(updated.error_overlay_auto_hide_ms / 1000),
-      });
-      toast.success("History and overlay settings saved");
+      featureGeneration.current += 1;
+      setFeature((current) =>
+        current
+          ? {
+              ...current,
+              history_limit: updated.history_limit,
+              error_overlay_auto_hide_ms: updated.error_overlay_auto_hide_ms,
+            }
+          : updated,
+      );
+      if (optionsRevision.current === revision) {
+        optionsDirty.current = false;
+        setOptionsDraft({
+          historyLimit: updated.history_limit,
+          errorSeconds: Math.round(updated.error_overlay_auto_hide_ms / 1000),
+        });
+        toast.success("History and overlay settings saved");
+      } else {
+        toast.success("Submitted settings saved; newer edits remain unsaved");
+      }
       await loadHistory();
     } catch (error) {
       toast.error(String(error));
+    } finally {
+      optionsSaveInFlight.current = false;
+      setOptionsSaving(false);
     }
   };
 
   const deleteHistoryEntry = async (id: number) => {
+    if (historyClearInFlight.current) return;
     try {
       await invoke("delete_send_selected_text_history_entry", { id });
       await loadHistory();
@@ -1255,6 +1453,7 @@ export default function SendSelectedTextSettings() {
   };
 
   const clearHistory = async () => {
+    if (historyClearInFlight.current) return;
     if (
       !window.confirm(
         "Clear all Send Selected Text history? Saved output files remain.",
@@ -1262,17 +1461,51 @@ export default function SendSelectedTextSettings() {
     ) {
       return;
     }
+    historyClearInFlight.current = true;
+    setHistoryClearing(true);
     try {
       await invoke("clear_send_selected_text_history");
       await loadHistory();
     } catch (error) {
       toast.error(String(error));
+    } finally {
+      historyClearInFlight.current = false;
+      setHistoryClearing(false);
     }
   };
 
-  if (loading || !feature) {
+  const refreshHistory = async () => {
+    if (historyClearInFlight.current) return;
+    await loadHistory();
+  };
+
+  const retryInitialLoad = async () => {
+    setLoading(true);
+    try {
+      await Promise.all([loadFeature(), loadHistory()]);
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
     return (
       <div className="sst-page sst-empty">Loading Send Selected Text...</div>
+    );
+  }
+
+  if (!feature) {
+    return (
+      <div className="sst-page sst-empty tall">
+        <AlertTriangle size={28} />
+        <strong>Could not load Send Selected Text settings</strong>
+        <span>Check the error message and try again.</span>
+        <Button variant="secondary" onClick={retryInitialLoad}>
+          Retry
+        </Button>
+      </div>
     );
   }
 
@@ -1289,7 +1522,11 @@ export default function SendSelectedTextSettings() {
             </p>
           </div>
         </div>
-        <Button variant="primary" onClick={createPreset}>
+        <Button
+          variant="primary"
+          disabled={creatingPreset}
+          onClick={createPreset}
+        >
           <span className="flex items-center gap-2">
             <Plus size={16} /> Add preset
           </span>
@@ -1334,12 +1571,14 @@ export default function SendSelectedTextSettings() {
                 min={1}
                 max={5000}
                 value={optionsDraft.historyLimit}
-                onChange={(event) =>
+                onChange={(event) => {
+                  optionsDirty.current = true;
+                  optionsRevision.current += 1;
                   setOptionsDraft((current) => ({
                     ...current,
                     historyLimit: Number(event.target.value),
-                  }))
-                }
+                  }));
+                }}
               />
             </label>
             <label>
@@ -1349,17 +1588,20 @@ export default function SendSelectedTextSettings() {
                 min={1}
                 max={100}
                 value={optionsDraft.errorSeconds}
-                onChange={(event) =>
+                onChange={(event) => {
+                  optionsDirty.current = true;
+                  optionsRevision.current += 1;
                   setOptionsDraft((current) => ({
                     ...current,
                     errorSeconds: Number(event.target.value),
-                  }))
-                }
+                  }));
+                }}
               />
             </label>
             <button
               type="button"
               className="sst-icon-button wide"
+              disabled={optionsSaving}
               onClick={saveOptions}
               title="Save history and overlay settings"
             >
@@ -1375,7 +1617,7 @@ export default function SendSelectedTextSettings() {
               <span>
                 Add a preset, choose its folder, then assign a hotkey.
               </span>
-              <Button onClick={createPreset}>
+              <Button disabled={creatingPreset} onClick={createPreset}>
                 <span className="flex items-center gap-2">
                   <Plus size={16} /> Add first preset
                 </span>
@@ -1404,8 +1646,9 @@ export default function SendSelectedTextSettings() {
           entries={historyEntries}
           loading={historyLoading}
           loadingMore={historyLoadingMore}
+          clearing={historyClearing}
           hasMore={historyHasMore}
-          onRefresh={loadHistory}
+          onRefresh={refreshHistory}
           onLoadMore={loadMoreHistory}
           onDelete={deleteHistoryEntry}
           onClear={clearHistory}
