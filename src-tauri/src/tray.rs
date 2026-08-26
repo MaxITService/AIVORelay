@@ -8,26 +8,117 @@ use crate::url_security::{
     REMOTE_STT_PRESET_GROQ, REMOTE_STT_PRESET_OPENAI,
 };
 use crate::{commands::audio, settings};
-use log::{error, info, warn};
-use std::sync::{Arc, Mutex};
+use log::{debug, error, info, trace, warn};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Instant;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIcon;
 use tauri::{AppHandle, Manager, Theme};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrayIconState {
     Idle,
     Recording,
     Transcribing,
 }
 
-pub struct ManagedTrayState(pub Mutex<TrayIconState>);
+impl TrayIconState {
+    fn is_busy(self) -> bool {
+        self != TrayIconState::Idle
+    }
+}
 
-impl Default for ManagedTrayState {
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TrayModelItem {
+    id: String,
+    name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TrayMicrophoneItem {
+    index: String,
+    name: String,
+    is_default: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TrayShortcutItem {
+    id: String,
+    label: String,
+}
+
+/// Everything that can change the visible tray menu.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MenuInputs {
+    busy: bool,
+    locale: String,
+    update_checks_enabled: bool,
+    transcription_provider: TranscriptionProvider,
+    selected_model: String,
+    selected_local_model_name: Option<String>,
+    selected_microphone: Option<String>,
+    remote_provider_preset: String,
+    remote_model_id: String,
+    soniox_model: String,
+    deepgram_model: String,
+    show_shortcut_guide: bool,
+    show_shortcut_guide_in_main_menu: bool,
+    model_loaded: bool,
+    downloaded_local_models: Vec<TrayModelItem>,
+    microphones: Vec<TrayMicrophoneItem>,
+    shortcut_items: Vec<TrayShortcutItem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TrayDesired {
+    icon_path: &'static str,
+    menu: MenuInputs,
+}
+
+struct TrayInner {
+    icon_state: TrayIconState,
+    desired: Option<TrayDesired>,
+    applied_icon: Option<&'static str>,
+    applied_menu: Option<MenuInputs>,
+    pending: bool,
+    icons: HashMap<&'static str, Image<'static>>,
+    next_seq: u64,
+    desired_seq: u64,
+}
+
+/// Owns the desired and applied tray snapshots. Native tray mutations are
+/// performed only by the main-thread applier.
+pub struct TrayState(Mutex<TrayInner>);
+
+impl TrayState {
+    pub fn new() -> Self {
+        Self(Mutex::new(TrayInner {
+            icon_state: TrayIconState::Idle,
+            desired: None,
+            applied_icon: None,
+            applied_menu: None,
+            pending: false,
+            icons: HashMap::new(),
+            next_seq: 0,
+            desired_seq: 0,
+        }))
+    }
+
+    fn lock(&self) -> MutexGuard<'_, TrayInner> {
+        self.0.lock().unwrap_or_else(|poisoned| {
+            warn!("Tray state mutex was poisoned; recovering");
+            poisoned.into_inner()
+        })
+    }
+}
+
+impl Default for TrayState {
     fn default() -> Self {
-        Self(Mutex::new(TrayIconState::Idle))
+        Self::new()
     }
 }
 
@@ -132,36 +223,18 @@ pub fn get_icon_path(theme: AppTheme, state: TrayIconState) -> &'static str {
     }
 }
 
-pub fn change_tray_icon(app: &AppHandle, icon: TrayIconState) {
-    let tray = app.state::<TrayIcon>();
-    let theme = get_current_theme(app);
+pub fn set_tray_state(app: &AppHandle, state: TrayIconState) {
+    sync_tray_with(app, |inner| inner.icon_state = state, None);
+}
 
-    let icon_path = get_icon_path(theme, icon.clone());
-
-    match app
-        .path()
-        .resolve(icon_path, tauri::path::BaseDirectory::Resource)
-        .map_err(|e| e.to_string())
-        .and_then(|p| Image::from_path(p).map_err(|e| e.to_string()))
-    {
-        Ok(image) => {
-            if let Err(err) = tray.set_icon(Some(image)) {
-                error!("Failed to apply tray icon '{}': {}", icon_path, err);
-            }
-        }
-        Err(e) => {
-            warn!("Failed to update tray icon '{}': {}", icon_path, e);
-        }
-    }
-
-    // Update menu based on state
-    update_tray_menu(app, &icon, None);
+pub fn change_tray_icon(app: &AppHandle, state: TrayIconState) {
+    set_tray_state(app, state);
 }
 
 /// Re-applies the current state when the appearance changed without changing
 /// whether the app is idle, recording, or transcribing.
 pub fn refresh_tray_icon(app: &AppHandle) {
-    change_tray_icon(app, current_tray_state(app));
+    sync_tray(app, None);
 }
 
 pub fn tray_tooltip() -> String {
@@ -177,15 +250,245 @@ fn version_label() -> String {
 }
 
 pub fn update_tray_menu(app: &AppHandle, state: &TrayIconState, locale: Option<&str>) {
-    remember_tray_state(app, state);
-    if let Err(e) = try_update_tray_menu(app, state, locale) {
-        warn!("Failed to update tray menu: {}", e);
-    }
+    sync_tray_with(app, |inner| inner.icon_state = *state, locale);
 }
 
 pub fn refresh_tray_menu(app: &AppHandle, locale: Option<&str>) {
-    let state = current_tray_state(app);
-    update_tray_menu(app, &state, locale);
+    sync_tray(app, locale);
+}
+
+fn sync_tray(app: &AppHandle, locale: Option<&str>) {
+    sync_tray_with(app, |_| {}, locale);
+}
+
+/// Records the latest desired tray snapshot and schedules one main-thread
+/// apply. Concurrent requests are coalesced, and an older slow snapshot can
+/// never overwrite a newer request.
+fn sync_tray_with(app: &AppHandle, update: impl FnOnce(&mut TrayInner), locale: Option<&str>) {
+    let Some(state) = app.try_state::<TrayState>() else {
+        return;
+    };
+
+    let (seq, icon_state) = {
+        let mut inner = state.lock();
+        update(&mut inner);
+        inner.next_seq += 1;
+        (inner.next_seq, inner.icon_state)
+    };
+
+    // Early callbacks may arrive before the native tray is built. The icon
+    // state remains recorded and the startup sync will apply it later.
+    if app.try_state::<TrayIcon>().is_none() {
+        return;
+    }
+
+    let desired = compute_desired(app, icon_state, locale);
+    let needs_icon = !state.lock().icons.contains_key(desired.icon_path);
+    let loaded_icon = if needs_icon {
+        match load_tray_icon(
+            app.path()
+                .resolve(desired.icon_path, tauri::path::BaseDirectory::Resource),
+        ) {
+            Ok(image) => Some(image),
+            Err(err) => {
+                error!("Failed to load tray icon '{}': {}", desired.icon_path, err);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let schedule = {
+        let mut inner = state.lock();
+        if let Some(image) = loaded_icon {
+            inner.icons.insert(desired.icon_path, image);
+        }
+        if seq < inner.desired_seq {
+            trace!(
+                "Tray sync request {} was superseded by {}",
+                seq,
+                inner.desired_seq
+            );
+            return;
+        }
+        inner.desired = Some(desired);
+        inner.desired_seq = seq;
+        !std::mem::replace(&mut inner.pending, true)
+    };
+
+    if schedule {
+        post_tray_apply(app);
+    }
+}
+
+fn compute_desired(
+    app: &AppHandle,
+    icon_state: TrayIconState,
+    locale_override: Option<&str>,
+) -> TrayDesired {
+    let settings = settings::get_settings(app);
+    let available_models = app.state::<Arc<ModelManager>>().get_available_models();
+    let selected_local_model_name = available_models
+        .iter()
+        .find(|model| model.id == settings.selected_model)
+        .map(|model| model.name.clone());
+    let mut downloaded_local_models: Vec<_> = available_models
+        .into_iter()
+        .filter(|model| model.is_downloaded)
+        .map(|model| TrayModelItem {
+            id: model.id,
+            name: model.name,
+        })
+        .collect();
+    downloaded_local_models.sort_by(|left, right| left.name.cmp(&right.name));
+
+    let microphones = match audio::get_available_microphones_blocking() {
+        Ok(devices) => devices
+            .into_iter()
+            .map(|device| TrayMicrophoneItem {
+                index: device.index,
+                name: device.name,
+                is_default: device.is_default,
+            })
+            .collect(),
+        Err(err) => {
+            warn!("Failed to list microphones for tray menu: {}", err);
+            vec![TrayMicrophoneItem {
+                index: "default".to_string(),
+                name: TRAY_MICROPHONE_DEFAULT_LABEL.to_string(),
+                is_default: true,
+            }]
+        }
+    };
+
+    let shortcut_items = if !icon_state.is_busy() && settings.show_tray_shortcut_guide {
+        crate::hotkey_guide::build_hotkey_guide_sections(&settings)
+            .into_iter()
+            .flat_map(|section| section.bindings)
+            .map(|binding| TrayShortcutItem {
+                id: binding.id,
+                label: shortcut_guide_item_label(&binding.name, &binding.current_binding),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    TrayDesired {
+        icon_path: get_icon_path(get_current_theme(app), icon_state),
+        menu: MenuInputs {
+            busy: icon_state.is_busy(),
+            locale: locale_override
+                .map(str::to_string)
+                .unwrap_or_else(|| settings.app_language.clone()),
+            update_checks_enabled: settings.update_checks_enabled,
+            transcription_provider: settings.transcription_provider,
+            selected_model: settings.selected_model,
+            selected_local_model_name,
+            selected_microphone: settings.selected_microphone,
+            remote_provider_preset: settings.remote_stt.provider_preset,
+            remote_model_id: settings.remote_stt.model_id,
+            soniox_model: settings.soniox_model,
+            deepgram_model: settings.deepgram_model,
+            show_shortcut_guide: settings.show_tray_shortcut_guide,
+            show_shortcut_guide_in_main_menu: settings.show_tray_shortcut_guide_in_main_menu,
+            model_loaded: app.state::<Arc<TranscriptionManager>>().is_model_loaded(),
+            downloaded_local_models,
+            microphones,
+            shortcut_items,
+        },
+    }
+}
+
+fn post_tray_apply(app: &AppHandle) {
+    let handle = app.clone();
+    if let Err(err) = app.run_on_main_thread(move || apply_tray_on_main(&handle)) {
+        error!("Failed to dispatch tray update to the main thread: {}", err);
+        if let Some(state) = app.try_state::<TrayState>() {
+            state.lock().pending = false;
+        }
+    }
+}
+
+/// The only code path that mutates the native tray icon or menu.
+fn apply_tray_on_main(app: &AppHandle) {
+    let Some(state) = app.try_state::<TrayState>() else {
+        return;
+    };
+    let Some(tray) = app.try_state::<TrayIcon>() else {
+        return;
+    };
+
+    let started = Instant::now();
+    let (desired, icon, icon_changed, menu_changed) = {
+        let mut inner = state.lock();
+        inner.pending = false;
+        let Some(desired) = inner.desired.clone() else {
+            return;
+        };
+        let icon_changed = inner.applied_icon != Some(desired.icon_path);
+        let menu_changed = inner.applied_menu.as_ref() != Some(&desired.menu);
+        if !icon_changed && !menu_changed {
+            return;
+        }
+        let icon = inner.icons.get(desired.icon_path).cloned();
+        (desired, icon, icon_changed, menu_changed)
+    };
+
+    let mut icon_applied = false;
+    if icon_changed {
+        match icon {
+            Some(image) => match tray.set_icon_with_as_template(Some(image), true) {
+                Ok(()) => icon_applied = true,
+                Err(err) => error!("Failed to apply tray icon '{}': {}", desired.icon_path, err),
+            },
+            None => error!("Tray icon '{}' is not loaded", desired.icon_path),
+        }
+    }
+
+    let mut menu_applied = false;
+    if menu_changed {
+        match build_tray_menu(app, &desired.menu) {
+            Ok((menu, tooltip)) => match tray.set_menu(Some(menu)) {
+                Ok(()) => {
+                    menu_applied = true;
+                    if let Err(err) = tray.set_tooltip(Some(tooltip)) {
+                        error!("Failed to set tray tooltip: {}", err);
+                    }
+                }
+                Err(err) => error!("Failed to set tray menu: {}", err),
+            },
+            Err(err) => error!("Failed to build tray menu: {}", err),
+        }
+    }
+
+    {
+        let mut inner = state.lock();
+        if icon_applied {
+            inner.applied_icon = Some(desired.icon_path);
+        }
+        if menu_applied {
+            inner.applied_menu = Some(desired.menu.clone());
+        }
+    }
+
+    debug!(
+        "Tray apply: icon={}, menu={}, busy={}, took={:?}",
+        if icon_changed {
+            desired.icon_path
+        } else {
+            "unchanged"
+        },
+        if menu_changed { "rebuilt" } else { "unchanged" },
+        desired.menu.busy,
+        started.elapsed()
+    );
+}
+
+fn load_tray_icon(resolved_icon_path: tauri::Result<PathBuf>) -> tauri::Result<Image<'static>> {
+    let resolved_icon_path = resolved_icon_path?;
+    Image::from_path(&resolved_icon_path).map(Image::to_owned)
 }
 
 pub fn parse_microphone_menu_selection(id: &str) -> Option<Option<String>> {
@@ -235,15 +538,11 @@ pub fn parse_model_menu_selection(id: &str) -> Option<TrayModelSelection> {
     }
 }
 
-fn try_update_tray_menu(
+fn build_tray_menu(
     app: &AppHandle,
-    state: &TrayIconState,
-    locale: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let settings = settings::get_settings(app);
-
-    let locale = locale.unwrap_or(&settings.app_language);
-    let strings = get_tray_translations(Some(locale.to_string()));
+    inputs: &MenuInputs,
+) -> Result<(Menu<tauri::Wry>, String), Box<dyn std::error::Error>> {
+    let strings = get_tray_translations(Some(inputs.locale.clone()));
     #[cfg(debug_assertions)]
     let _ = &strings.restart_troubleshoot;
 
@@ -267,7 +566,7 @@ fn try_update_tray_menu(
         app,
         "check_updates",
         &strings.check_updates,
-        settings.update_checks_enabled,
+        inputs.update_checks_enabled,
         None::<&str>,
     )?;
     #[cfg(not(debug_assertions))]
@@ -285,13 +584,12 @@ fn try_update_tray_menu(
         true,
         None::<&str>,
     )?;
-    let model_loaded = app.state::<Arc<TranscriptionManager>>().is_model_loaded();
-    let local_model_selected = settings.transcription_provider == TranscriptionProvider::Local
-        && !settings.selected_model.trim().is_empty();
-    let can_unload_model = model_loaded || local_model_selected;
+    let local_model_selected = inputs.transcription_provider == TranscriptionProvider::Local
+        && !inputs.selected_model.trim().is_empty();
+    let can_unload_model = inputs.model_loaded || local_model_selected;
     let unload_model_label = if can_unload_model {
         TRAY_UNLOAD_LOCAL_MODEL_LABEL
-    } else if settings.transcription_provider != TranscriptionProvider::Local {
+    } else if inputs.transcription_provider != TranscriptionProvider::Local {
         TRAY_NO_LOCAL_MODEL_LOADED_LABEL
     } else if strings.unload_model.is_empty() {
         "Unload Model"
@@ -305,38 +603,33 @@ fn try_update_tray_menu(
         can_unload_model,
         None::<&str>,
     )?;
-    let model_menu_label = build_model_menu_label(app, &settings, &strings.model);
+    let model_menu_label = build_model_menu_label(inputs, &strings.model);
     let quit_i = MenuItem::with_id(app, "quit", &strings.quit, true, quit_accelerator)?;
     let separator = || PredefinedMenuItem::separator(app);
 
     let menu = Menu::new(app)?;
 
-    match state {
-        TrayIconState::Recording | TrayIconState::Transcribing => {
-            let cancel_i = MenuItem::with_id(app, "cancel", &strings.cancel, true, None::<&str>)?;
-            menu.append(&version_i)?;
-            menu.append(&separator()?)?;
-            menu.append(&cancel_i)?;
-        }
-        TrayIconState::Idle => {
-            menu.append(&version_i)?;
-        }
+    menu.append(&version_i)?;
+    if inputs.busy {
+        let cancel_i = MenuItem::with_id(app, "cancel", &strings.cancel, true, None::<&str>)?;
+        menu.append(&separator()?)?;
+        menu.append(&cancel_i)?;
     }
 
     menu.append(&separator()?)?;
-    append_microphone_items(&menu, app, settings.selected_microphone.as_deref())?;
+    append_microphone_items(&menu, app, inputs)?;
     menu.append(&separator()?)?;
     menu.append(&copy_last_transcript_i)?;
 
-    if state == &TrayIconState::Idle {
-        let model_submenu = build_model_submenu(app, &model_menu_label, &settings)?;
+    if !inputs.busy {
+        let model_submenu = build_model_submenu(app, &model_menu_label, inputs)?;
         menu.append(&separator()?)?;
         menu.append(&model_submenu)?;
         menu.append(&unload_model_i)?;
-        if settings.show_tray_shortcut_guide {
-            if settings.show_tray_shortcut_guide_in_main_menu {
-                append_shortcut_guide_main_menu_items(&menu, app, &settings)?;
-            } else if let Some(guide_submenu) = build_shortcut_guide_submenu(app, &settings)? {
+        if inputs.show_shortcut_guide {
+            if inputs.show_shortcut_guide_in_main_menu {
+                append_shortcut_guide_main_menu_items(&menu, app, inputs)?;
+            } else if let Some(guide_submenu) = build_shortcut_guide_submenu(app, inputs)? {
                 menu.append(&separator()?)?;
                 menu.append(&guide_submenu)?;
             }
@@ -351,91 +644,46 @@ fn try_update_tray_menu(
     menu.append(&separator()?)?;
     menu.append(&quit_i)?;
 
-    let Some(tray) = app.try_state::<TrayIcon>() else {
-        return Ok(());
-    };
-    let _ = tray.set_menu(Some(menu));
-    let _ = tray.set_icon_as_template(true);
-    let _ = tray.set_tooltip(Some(version_label));
-    Ok(())
+    Ok((menu, version_label))
 }
 
-fn build_model_menu_label(
-    app: &AppHandle,
-    settings: &settings::AppSettings,
-    fallback_label: &str,
-) -> String {
+fn build_model_menu_label(inputs: &MenuInputs, fallback_label: &str) -> String {
     let fallback_label = if fallback_label.is_empty() {
         "Model"
     } else {
         fallback_label
     };
 
-    match settings.transcription_provider {
+    match inputs.transcription_provider {
         TranscriptionProvider::Local => {
-            let model_manager = app.state::<Arc<ModelManager>>();
-            let selected_name = model_manager
-                .get_available_models()
-                .into_iter()
-                .find(|model| model.id == settings.selected_model.as_str())
-                .map(|model| model.name)
+            let selected_name = inputs
+                .selected_local_model_name
+                .clone()
                 .unwrap_or_else(|| fallback_label.to_string());
             format!("{TRAY_MODEL_LOCAL_LABEL}: {selected_name}")
         }
         TranscriptionProvider::RemoteOpenAiCompatible => {
-            let provider_label = match settings.remote_stt.provider_preset.as_str() {
+            let provider_label = match inputs.remote_provider_preset.as_str() {
                 REMOTE_STT_PRESET_GROQ => "Groq",
                 REMOTE_STT_PRESET_OPENAI => "OpenAI",
                 REMOTE_STT_PRESET_CUSTOM => TRAY_MODEL_CUSTOM_SUFFIX,
                 _ => TRAY_MODEL_REMOTE_LABEL,
             };
-            format!("{provider_label}: {}", settings.remote_stt.model_id)
+            format!("{provider_label}: {}", inputs.remote_model_id)
         }
         TranscriptionProvider::RemoteSoniox => {
-            format!("{TRAY_MODEL_SONIOX_LABEL}: {}", settings.soniox_model)
+            format!("{TRAY_MODEL_SONIOX_LABEL}: {}", inputs.soniox_model)
         }
         TranscriptionProvider::RemoteDeepgram => {
-            format!("{TRAY_MODEL_DEEPGRAM_LABEL}: {}", settings.deepgram_model)
+            format!("{TRAY_MODEL_DEEPGRAM_LABEL}: {}", inputs.deepgram_model)
         }
     }
-}
-
-fn remember_tray_state(app: &AppHandle, state: &TrayIconState) {
-    let Some(current_state) = app.try_state::<ManagedTrayState>() else {
-        return;
-    };
-
-    let lock_result = current_state.0.lock();
-    match lock_result {
-        Ok(mut current_state) => {
-            *current_state = state.clone();
-        }
-        Err(err) => {
-            warn!("Failed to lock tray state while updating menu: {}", err);
-        }
-    }
-}
-
-fn current_tray_state(app: &AppHandle) -> TrayIconState {
-    let Some(current_state) = app.try_state::<ManagedTrayState>() else {
-        return TrayIconState::Idle;
-    };
-
-    let state = match current_state.0.lock() {
-        Ok(current_state) => current_state.clone(),
-        Err(err) => {
-            warn!("Failed to lock tray state while refreshing menu: {}", err);
-            TrayIconState::Idle
-        }
-    };
-
-    state
 }
 
 fn append_microphone_items(
     menu: &Menu<tauri::Wry>,
     app: &AppHandle,
-    selected_microphone: Option<&str>,
+    inputs: &MenuInputs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let header_item = MenuItem::with_id(
         app,
@@ -446,20 +694,11 @@ fn append_microphone_items(
     )?;
     menu.append(&header_item)?;
 
-    let available_microphones = match audio::get_available_microphones_blocking() {
-        Ok(devices) => devices,
-        Err(err) => {
-            warn!("Failed to list microphones for tray menu: {}", err);
-            vec![audio::AudioDevice {
-                index: "default".to_string(),
-                name: TRAY_MICROPHONE_DEFAULT_LABEL.to_string(),
-                is_default: true,
-            }]
-        }
-    };
+    let selected_microphone = inputs.selected_microphone.as_deref();
 
     let missing_selected_microphone = selected_microphone.filter(|selected_name| {
-        !available_microphones
+        !inputs
+            .microphones
             .iter()
             .any(|device| !device.is_default && device.name == *selected_name)
     });
@@ -485,8 +724,9 @@ fn append_microphone_items(
         menu.append(&unavailable_item)?;
     }
 
-    for device in available_microphones
-        .into_iter()
+    for device in inputs
+        .microphones
+        .iter()
         .filter(|device| !device.is_default)
     {
         let item = CheckMenuItem::with_id(
@@ -506,16 +746,16 @@ fn append_microphone_items(
 fn build_model_submenu(
     app: &AppHandle,
     label: &str,
-    settings: &settings::AppSettings,
+    inputs: &MenuInputs,
 ) -> Result<Submenu<tauri::Wry>, Box<dyn std::error::Error>> {
     let submenu = Submenu::with_id(app, TRAY_MODEL_SUBMENU_ID, label, true)?;
-    append_local_model_items(&submenu, app, settings)?;
+    append_local_model_items(&submenu, app, inputs)?;
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
-    append_remote_openai_model_items(&submenu, app, settings)?;
+    append_remote_openai_model_items(&submenu, app, inputs)?;
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
-    append_soniox_model_items(&submenu, app, settings)?;
+    append_soniox_model_items(&submenu, app, inputs)?;
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
-    append_deepgram_model_items(&submenu, app, settings)?;
+    append_deepgram_model_items(&submenu, app, inputs)?;
 
     Ok(submenu)
 }
@@ -534,7 +774,7 @@ fn append_submenu_header(
 fn append_local_model_items(
     submenu: &Submenu<tauri::Wry>,
     app: &AppHandle,
-    settings: &settings::AppSettings,
+    inputs: &MenuInputs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     append_submenu_header(
         submenu,
@@ -543,14 +783,7 @@ fn append_local_model_items(
         TRAY_MODEL_LOCAL_LABEL,
     )?;
 
-    let model_manager = app.state::<Arc<ModelManager>>();
-    let mut downloaded_models: Vec<_> = model_manager
-        .get_available_models()
-        .into_iter()
-        .filter(|model| model.is_downloaded)
-        .collect();
-
-    if downloaded_models.is_empty() {
+    if inputs.downloaded_local_models.is_empty() {
         let item = MenuItem::with_id(
             app,
             "tray_model_no_local_models",
@@ -562,16 +795,14 @@ fn append_local_model_items(
         return Ok(());
     }
 
-    downloaded_models.sort_by(|left, right| left.name.cmp(&right.name));
-
-    for model in downloaded_models {
+    for model in &inputs.downloaded_local_models {
         let item = CheckMenuItem::with_id(
             app,
             model_menu_id(TRAY_MODEL_PREFIX_LOCAL, &model.id),
             &model.name,
             true,
-            settings.transcription_provider == TranscriptionProvider::Local
-                && model.id == settings.selected_model,
+            inputs.transcription_provider == TranscriptionProvider::Local
+                && model.id == inputs.selected_model,
             None::<&str>,
         )?;
         submenu.append(&item)?;
@@ -583,7 +814,7 @@ fn append_local_model_items(
 fn append_remote_openai_model_items(
     submenu: &Submenu<tauri::Wry>,
     app: &AppHandle,
-    settings: &settings::AppSettings,
+    inputs: &MenuInputs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     append_submenu_header(
         submenu,
@@ -635,8 +866,8 @@ fn append_remote_openai_model_items(
         ),
     ];
 
-    let current_model = settings.remote_stt.model_id.trim();
-    let current_preset = match settings.remote_stt.provider_preset.trim() {
+    let current_model = inputs.remote_model_id.trim();
+    let current_preset = match inputs.remote_provider_preset.trim() {
         "" => REMOTE_STT_PRESET_CUSTOM,
         preset => preset,
     };
@@ -658,9 +889,9 @@ fn append_remote_openai_model_items(
             remote_openai_model_menu_id(&provider_preset, &model_id),
             &label,
             true,
-            settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible
-                && provider_preset == settings.remote_stt.provider_preset
-                && model_id == settings.remote_stt.model_id,
+            inputs.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible
+                && provider_preset == inputs.remote_provider_preset
+                && model_id == inputs.remote_model_id,
             None::<&str>,
         )?;
         submenu.append(&item)?;
@@ -672,7 +903,7 @@ fn append_remote_openai_model_items(
 fn append_soniox_model_items(
     submenu: &Submenu<tauri::Wry>,
     app: &AppHandle,
-    settings: &settings::AppSettings,
+    inputs: &MenuInputs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     append_submenu_header(
         submenu,
@@ -688,7 +919,7 @@ fn append_soniox_model_items(
         ),
         ("stt-async-v5".to_string(), "stt-async-v5".to_string()),
     ];
-    let current_model = settings.soniox_model.trim();
+    let current_model = inputs.soniox_model.trim();
     if !current_model.is_empty() && !models.iter().any(|(model_id, _)| model_id == current_model) {
         models.push((current_model.to_string(), current_model.to_string()));
     }
@@ -698,8 +929,8 @@ fn append_soniox_model_items(
         app,
         TRAY_MODEL_PREFIX_SONIOX,
         TranscriptionProvider::RemoteSoniox,
-        &settings.transcription_provider,
-        &settings.soniox_model,
+        &inputs.transcription_provider,
+        &inputs.soniox_model,
         models,
     )
 }
@@ -707,7 +938,7 @@ fn append_soniox_model_items(
 fn append_deepgram_model_items(
     submenu: &Submenu<tauri::Wry>,
     app: &AppHandle,
-    settings: &settings::AppSettings,
+    inputs: &MenuInputs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     append_submenu_header(
         submenu,
@@ -724,7 +955,7 @@ fn append_deepgram_model_items(
         ("nova-3-general".to_string(), "nova-3-general".to_string()),
         ("nova-3-medical".to_string(), "nova-3-medical".to_string()),
     ];
-    let current_model = settings.deepgram_model.trim();
+    let current_model = inputs.deepgram_model.trim();
     if !current_model.is_empty() && !models.iter().any(|(model_id, _)| model_id == current_model) {
         models.push((current_model.to_string(), current_model.to_string()));
     }
@@ -734,8 +965,8 @@ fn append_deepgram_model_items(
         app,
         TRAY_MODEL_PREFIX_DEEPGRAM,
         TranscriptionProvider::RemoteDeepgram,
-        &settings.transcription_provider,
-        &settings.deepgram_model,
+        &inputs.transcription_provider,
+        &inputs.deepgram_model,
         models,
     )
 }
@@ -774,26 +1005,23 @@ fn remote_openai_model_menu_id(provider_preset: &str, model_id: &str) -> String 
 
 fn build_shortcut_guide_submenu(
     app: &AppHandle,
-    settings: &settings::AppSettings,
+    inputs: &MenuInputs,
 ) -> Result<Option<Submenu<tauri::Wry>>, Box<dyn std::error::Error>> {
-    let sections = crate::hotkey_guide::build_hotkey_guide_sections(settings);
-    if sections.is_empty() {
+    if inputs.shortcut_items.is_empty() {
         return Ok(None);
     }
 
     let submenu = Submenu::with_id(app, "tray_shortcut_guide", TRAY_SHORTCUT_GUIDE_LABEL, true)?;
 
-    for section in sections {
-        for binding in section.bindings {
-            let item = MenuItem::with_id(
-                app,
-                format!("tray_shortcut_guide_item::{}", binding.id),
-                shortcut_guide_item_label(&binding.name, &binding.current_binding),
-                false,
-                None::<&str>,
-            )?;
-            submenu.append(&item)?;
-        }
+    for shortcut in &inputs.shortcut_items {
+        let item = MenuItem::with_id(
+            app,
+            format!("tray_shortcut_guide_item::{}", shortcut.id),
+            &shortcut.label,
+            false,
+            None::<&str>,
+        )?;
+        submenu.append(&item)?;
     }
 
     let show_in_main = MenuItem::with_id(
@@ -811,10 +1039,9 @@ fn build_shortcut_guide_submenu(
 fn append_shortcut_guide_main_menu_items(
     menu: &Menu<tauri::Wry>,
     app: &AppHandle,
-    settings: &settings::AppSettings,
+    inputs: &MenuInputs,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let sections = crate::hotkey_guide::build_hotkey_guide_sections(settings);
-    if sections.is_empty() {
+    if inputs.shortcut_items.is_empty() {
         return Ok(());
     }
 
@@ -829,17 +1056,15 @@ fn append_shortcut_guide_main_menu_items(
     )?;
     menu.append(&title)?;
 
-    for section in sections {
-        for binding in section.bindings {
-            let item = MenuItem::with_id(
-                app,
-                format!("tray_shortcut_guide_main_item::{}", binding.id),
-                shortcut_guide_item_label(&binding.name, &binding.current_binding),
-                false,
-                None::<&str>,
-            )?;
-            menu.append(&item)?;
-        }
+    for shortcut in &inputs.shortcut_items {
+        let item = MenuItem::with_id(
+            app,
+            format!("tray_shortcut_guide_main_item::{}", shortcut.id),
+            &shortcut.label,
+            false,
+            None::<&str>,
+        )?;
+        menu.append(&item)?;
     }
 
     let hide_from_main = MenuItem::with_id(
@@ -1013,6 +1238,13 @@ mod tests {
             get_icon_path(AppTheme::Colored, TrayIconState::Transcribing),
             "resources/transcribing.png"
         );
+    }
+
+    #[test]
+    fn recording_and_transcribing_share_the_busy_menu_shape() {
+        assert!(TrayIconState::Recording.is_busy());
+        assert!(TrayIconState::Transcribing.is_busy());
+        assert!(!TrayIconState::Idle.is_busy());
     }
 
     #[test]
