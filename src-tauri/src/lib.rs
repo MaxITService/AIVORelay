@@ -381,7 +381,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Initialize the input state (Enigo singleton for keyboard/mouse simulation)
     let enigo_state = input::EnigoState::new().expect("Failed to initialize input state (Enigo)");
     app_handle.manage(enigo_state);
-    app_handle.manage(tray::ManagedTrayState::default());
+    app_handle.manage(tray::TrayState::new());
 
     let current_settings = settings::get_settings(app_handle);
     overlay::update_recording_overlay_enabled_cache(current_settings.recording_overlay_enabled);
