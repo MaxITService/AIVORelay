@@ -6,6 +6,17 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-08-24):
+- Reviewed the complete linear corridor from `0e503672` through upstream HEAD
+  `af48dd68`; the safe review cursor is now `af48dd68`. There are no merge
+  commits in this corridor.
+- Manually adapted `5ec2276a` so all native tray icon and menu changes use one
+  coalescing main-thread writer while retaining AivoRelay's microphone picker,
+  local and remote model menus, shortcut guide, and troubleshooting action.
+- Updated both updater packages to 2.10.1 from `f6fac42e`, regenerating Bun and
+  Cargo locks locally. Skipped `286e66cb` (generated-binding whitespace),
+  `8fd66912` (Nix-only), and `af48dd68` (upstream release bump).
+
 Audit note (2026-08-21):
 - Reviewed the complete corridor after `99052ee`: `afbf44cd` (`transcribe.cpp
   0.2.0 (#1924)`), the parallel `d55ea7ef` (`drop 'gpu' accelerator selector`),
@@ -130,6 +141,8 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-08-24 | 2026-08-23 | `f6fac42e` | update to tauri-plugin-updater 2.10.1 | fix(deps): update Tauri updater to 2.10.1 | manifests updated; Bun and Cargo locks regenerated locally; Nix metadata skipped |
+| 2026-08-24 | 2026-08-23 | `5ec2276a` | single writer tray icon (#1952) | fix(tray): serialize native tray updates | manual desired-state port; retained fork microphone, provider, shortcut-guide, and troubleshooting menus |
 | 2026-08-21 | 2026-08-19 | `afbf44cd`, `d55ea7ef`, `0e503672` | transcribe.cpp 0.2.0 (#1924); drop 'gpu' accelerator selector; Merge branch 'main' of github.com:cjpais/Handy | feat(transcription): migrate to transcribe.cpp 0.2 | manual final-tree adaptation; merge resolution reviewed; Windows runtime packaging completed; Multitalker bundle deferred |
 | 2026-08-18 | 2026-08-17 | `c89b7bf` | fix: fall back to default microphone after disconnect (#1874) | fix(audio): recover after microphone disconnects | manual health/fallback port; retained fork capture routing and audio processing |
 | 2026-08-18 | 2026-08-17 | `5c77861` | bump handy-keys to 0.3.4 | fix(deps): update handy-keys to 0.3.4 | manifest update; lock refreshed locally without taking upstream lock |
@@ -138,8 +151,6 @@ Rules:
 | 2026-08-17 | 2026-08-13 | `549cbde3` | add a better viz for mic waiting | feat(audio): show capture readiness from first samples | manual readiness/session/UI port; retained fork capture sources and overlay themes |
 | 2026-08-13 | 2026-08-09 | `4cd49950`, `80995b53` | wip filler fixes (#1738); forgot to commit bindings | fix(transcription): make filler removal output-language aware | manual correctness port; retained fork opt-in/custom-word policy and all transcription paths |
 | 2026-08-13 | 2026-08-09 | `1bcbfc4c` | fix: support compressed API responses (#1548) | fix(http): support compressed provider responses | manual Cargo feature port; retained multipart support; lock regenerated locally |
-| 2026-08-08 | 2026-08-08 | `db003f38` | fix(audio): skip level meter and resampler while idle in always-on mode (#1873) | fix(audio): skip idle level-meter and resampler work | manual port; retained gain, noise cancellation, and stream callbacks |
-| 2026-08-08 | 2026-08-07 | `d9615937` | fix: update js-yaml to address quadratic parsing (#1865) | fix(deps): update js-yaml to 4.3.1 | Bun lock only; fork has no Nix lock metadata |
 
 Entry template:
 
