@@ -57,20 +57,20 @@ const assertView = (
   }
 };
 
-assertView("ALPHA", "all", "oldest", [
+assertView("ALPHA", "all", "added", [
   "rule-1",
   "rule-2",
   "rule-3",
   "rule-5",
 ]);
-assertView("ZETA", "all", "oldest", ["rule-0"]);
-assertView("ALPHA", "replacement", "oldest", ["rule-3", "rule-5"]);
-assertView("ALPHA", "replacement", "alphabetical-asc", [
+assertView("ZETA", "all", "added", ["rule-0"]);
+assertView("ALPHA", "replacement", "added", ["rule-3", "rule-5"]);
+assertView("ALPHA", "replacement", "replacement-asc", [
   "rule-3",
   "rule-5",
 ]);
-assertView(" ", "replacement", "oldest", ["rule-4"]);
-assertView("", "all", "oldest", [
+assertView(" ", "replacement", "added", ["rule-4"]);
+assertView("", "all", "added", [
   "rule-0",
   "rule-1",
   "rule-2",
@@ -79,15 +79,15 @@ assertView("", "all", "oldest", [
   "rule-5",
 ]);
 
-assertView("", "all", "alphabetical-asc", [
-  "rule-2",
+assertView("", "all", "find-asc", [
   "rule-1",
+  "rule-2",
+  "rule-0",
   "rule-3",
   "rule-5",
-  "rule-0",
   "rule-4",
 ]);
-assertView("", "all", "alphabetical-desc", [
+assertView("", "all", "find-desc", [
   "rule-4",
   "rule-0",
   "rule-3",
@@ -95,11 +95,19 @@ assertView("", "all", "alphabetical-desc", [
   "rule-1",
   "rule-2",
 ]);
-assertView("", "all", "newest", [
+assertView("", "all", "replacement-asc", [
+  "rule-3",
   "rule-5",
   "rule-4",
-  "rule-3",
   "rule-2",
   "rule-1",
   "rule-0",
+]);
+assertView("", "all", "replacement-desc", [
+  "rule-0",
+  "rule-1",
+  "rule-2",
+  "rule-4",
+  "rule-3",
+  "rule-5",
 ]);

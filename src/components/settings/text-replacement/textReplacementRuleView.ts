@@ -9,11 +9,14 @@ export interface TextReplacementRule {
 
 export type TextReplacementSearchScope = "all" | "replacement";
 
+export type TextReplacementColumnSortDirection = "off" | "asc" | "desc";
+
 export type TextReplacementSortOrder =
-  | "alphabetical-asc"
-  | "alphabetical-desc"
-  | "newest"
-  | "oldest";
+  | "added"
+  | "find-asc"
+  | "find-desc"
+  | "replacement-asc"
+  | "replacement-desc";
 
 const alphabeticalCollator = new Intl.Collator(undefined, {
   numeric: true,
@@ -28,22 +31,15 @@ interface IndexedRule {
 const compareIndexedRules = (
   left: IndexedRule,
   right: IndexedRule,
+  field: "from" | "to",
   direction: 1 | -1,
 ): number => {
-  const fromComparison = alphabeticalCollator.compare(
-    left.rule.from,
-    right.rule.from,
+  const comparison = alphabeticalCollator.compare(
+    left.rule[field],
+    right.rule[field],
   );
-  if (fromComparison !== 0) {
-    return fromComparison * direction;
-  }
-
-  const toComparison = alphabeticalCollator.compare(
-    left.rule.to,
-    right.rule.to,
-  );
-  if (toComparison !== 0) {
-    return toComparison * direction;
+  if (comparison !== 0) {
+    return comparison * direction;
   }
 
   return left.index - right.index;
@@ -77,20 +73,27 @@ export const getVisibleTextReplacementRules = (
     });
 
   switch (sortOrder) {
-    case "alphabetical-asc":
+    case "find-asc":
       indexedVisibleRules.sort((left, right) =>
-        compareIndexedRules(left, right, 1),
+        compareIndexedRules(left, right, "from", 1),
       );
       break;
-    case "alphabetical-desc":
+    case "find-desc":
       indexedVisibleRules.sort((left, right) =>
-        compareIndexedRules(left, right, -1),
+        compareIndexedRules(left, right, "from", -1),
       );
       break;
-    case "newest":
-      indexedVisibleRules.reverse();
+    case "replacement-asc":
+      indexedVisibleRules.sort((left, right) =>
+        compareIndexedRules(left, right, "to", 1),
+      );
       break;
-    case "oldest":
+    case "replacement-desc":
+      indexedVisibleRules.sort((left, right) =>
+        compareIndexedRules(left, right, "to", -1),
+      );
+      break;
+    case "added":
       break;
   }
 
