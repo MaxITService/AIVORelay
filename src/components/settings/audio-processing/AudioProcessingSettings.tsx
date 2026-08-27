@@ -4,6 +4,7 @@ import { RotateCcw, AlertTriangle } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { FilterSilence } from "@/components/settings/FilterSilence";
+import { VadBackendSelector } from "@/components/settings/VadBackendSelector";
 import { TellMeMore } from "@/components/ui/TellMeMore";
 
 export const AudioProcessingSettings: React.FC = () => {
@@ -36,6 +37,7 @@ export const AudioProcessingSettings: React.FC = () => {
         )}
       >
         <FilterSilence descriptionMode="tooltip" grouped={true} />
+        <VadBackendSelector grouped={true} />
 
         {/* VAD Threshold */}
         <div className="px-4 py-4 border-t border-white/[0.05]">

@@ -1,16 +1,19 @@
 use crate::audio_toolkit::{
-    list_input_devices, list_output_devices, vad::SmoothedVad, AudioCaptureSource, AudioRecorder,
-    SileroVad, StreamFrameCallback,
+    list_input_devices, list_output_devices,
+    vad::{
+        frames_for_duration_ms, EarshotVad, SmoothedVad, VAD_OFFLINE_HANGOVER_MS, VAD_ONSET_MS,
+        VAD_PREFILL_MS,
+    },
+    AudioCaptureSource, AudioRecorder, SileroVad, StreamFrameCallback, VoiceActivityDetector,
 };
 use crate::helpers::clamshell;
 use crate::settings::{
-    get_settings, resolve_live_sound_provider, write_settings, AppSettings,
-    LiveSoundCaptureSource, TranscriptionProvider,
+    get_settings, resolve_live_sound_provider, write_settings, AppSettings, LiveSoundCaptureSource,
+    TranscriptionProvider, VadBackend,
 };
 use crate::utils;
 use log::{debug, error, info, trace, warn};
 use std::fmt;
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -537,20 +540,41 @@ impl fmt::Display for StartRecordingError {
 /* ──────────────────────────────────────────────────────────────── */
 
 fn create_audio_recorder(
-    vad_path: &Path,
     app_handle: &tauri::AppHandle,
-    vad_threshold: f32,
+    settings: &AppSettings,
+    backend: VadBackend,
 ) -> Result<AudioRecorder, anyhow::Error> {
-    let settings = get_settings(app_handle);
-
     let mut recorder = AudioRecorder::new()
         .map_err(|e| anyhow::anyhow!("Failed to create AudioRecorder: {}", e))?;
 
     // Attach VAD when silence filtering is enabled.
     if settings.filter_silence {
-        let silero = SileroVad::new(vad_path, vad_threshold)
-            .map_err(|e| anyhow::anyhow!("Failed to create SileroVad: {}", e))?;
-        let smoothed_vad = SmoothedVad::new(Box::new(silero), 15, 15, 2);
+        let detector: Box<dyn VoiceActivityDetector> = match backend {
+            VadBackend::Silero => {
+                let vad_path = app_handle
+                    .path()
+                    .resolve(
+                        "resources/models/silero_vad_v4.onnx",
+                        tauri::path::BaseDirectory::Resource,
+                    )
+                    .map_err(|e| anyhow::anyhow!("Failed to resolve VAD path: {e}"))?;
+                Box::new(
+                    SileroVad::new(vad_path, settings.vad_threshold)
+                        .map_err(|e| anyhow::anyhow!("Failed to create SileroVad: {e}"))?,
+                )
+            }
+            VadBackend::Earshot => Box::new(
+                EarshotVad::new(settings.vad_threshold)
+                    .map_err(|e| anyhow::anyhow!("Failed to create EarshotVad: {e}"))?,
+            ),
+        };
+
+        let frame_samples = detector.frame_samples();
+        let prefill_frames = frames_for_duration_ms(VAD_PREFILL_MS, frame_samples);
+        let hangover_frames = frames_for_duration_ms(VAD_OFFLINE_HANGOVER_MS, frame_samples);
+        let onset_frames = frames_for_duration_ms(VAD_ONSET_MS, frame_samples);
+        let smoothed_vad =
+            SmoothedVad::new(detector, prefill_frames, hangover_frames, onset_frames);
         recorder = recorder.with_vad(Box::new(smoothed_vad));
     }
 
@@ -930,35 +954,109 @@ impl AudioRecordingManager {
     }
 
     pub fn preload_audio_recorder(&self) -> Result<(), anyhow::Error> {
+        // Serialize the detached preload with Filter Silence/backend changes.
+        // Read settings only after taking the state lock so a stale snapshot
+        // cannot install an obsolete recorder after invalidation completes.
+        let state_guard = self.state.lock().unwrap();
+        if !matches!(*state_guard, RecordingState::Idle) {
+            return Ok(());
+        }
         let settings = get_settings(&self.app_handle);
         self.ensure_recorder(&settings)
     }
 
     fn ensure_recorder(&self, settings: &AppSettings) -> Result<(), anyhow::Error> {
-        let vad_path = self
-            .app_handle
-            .path()
-            .resolve(
-                "resources/models/silero_vad_v4.onnx",
-                tauri::path::BaseDirectory::Resource,
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to resolve VAD path: {}", e))?;
-        let mut recorder_opt = self.recorder.lock().unwrap();
+        if self.recorder.lock().unwrap().is_none() {
+            // Build outside the recorder mutex: Silero model initialization can
+            // be comparatively slow, and a candidate must be fully valid before
+            // it becomes visible to the rest of the manager.
+            let recorder = create_audio_recorder(&self.app_handle, settings, settings.vad_backend)?;
+            let mut recorder_guard = self.recorder.lock().unwrap();
+            if recorder_guard.is_none() {
+                let callback = self
+                    .stream_frame_callback
+                    .lock()
+                    .ok()
+                    .and_then(|guard| guard.clone());
+                recorder.set_stream_frame_callback(callback);
+                *recorder_guard = Some(recorder);
+            }
+        }
 
-        if recorder_opt.is_none() {
-            let recorder =
-                create_audio_recorder(&vad_path, &self.app_handle, settings.vad_threshold)?;
-            if let Some(cb) = self
+        Ok(())
+    }
+
+    /// Replace the recording-side VAD while idle. A candidate is constructed
+    /// before the current recorder is discarded; a warm stream is reopened on
+    /// the same source/device and rolled back on failure.
+    pub fn update_vad_backend(&self, backend: VadBackend) -> Result<(), anyhow::Error> {
+        let state_guard = self.state.lock().unwrap();
+        if !matches!(*state_guard, RecordingState::Idle) {
+            return Err(anyhow::anyhow!(
+                "Cannot change the VAD backend while recording"
+            ));
+        }
+
+        let settings = get_settings(&self.app_handle);
+        if !settings.filter_silence {
+            return Ok(());
+        }
+
+        // Build and validate the new detector before touching the active one.
+        let replacement = create_audio_recorder(&self.app_handle, &settings, backend)?;
+
+        let was_open = *self.is_open.lock().unwrap();
+        let restart_selection = self.active_selection.lock().unwrap().clone();
+        if was_open {
+            self.stop_microphone_stream();
+        }
+
+        let previous_recorder = {
+            let mut recorder_guard = self.recorder.lock().unwrap();
+            let callback = self
                 .stream_frame_callback
                 .lock()
                 .ok()
-                .and_then(|guard| guard.clone())
-            {
-                recorder.set_stream_frame_callback(Some(cb));
-            }
-            *recorder_opt = Some(recorder);
+                .and_then(|guard| guard.clone());
+            replacement.set_stream_frame_callback(callback);
+            recorder_guard.replace(replacement)
+        };
+        if !was_open {
+            info!(
+                "Prepared {:?} VAD backend while capture was closed",
+                backend
+            );
+            return Ok(());
         }
 
+        let reopen_selection = restart_selection
+            .clone()
+            .unwrap_or_else(|| self.resolve_selection_for_binding(&settings, None));
+        if let Err(change_error) = self.start_stream_for_selection(reopen_selection, &settings) {
+            // Close the partial candidate before restoring the known-good
+            // recorder. Do not hold the recorder mutex while opening again.
+            let candidate = self.recorder.lock().unwrap().take();
+            if let Some(mut recorder) = candidate {
+                let _ = recorder.close();
+            }
+            *self.recorder.lock().unwrap() = previous_recorder;
+
+            let rollback_selection = restart_selection
+                .unwrap_or_else(|| self.resolve_selection_for_binding(&settings, None));
+            if let Err(rollback_error) =
+                self.start_stream_for_selection(rollback_selection, &settings)
+            {
+                error!(
+                    "Failed to restore audio capture after VAD backend change failed: {rollback_error}"
+                );
+            }
+            return Err(anyhow::anyhow!(
+                "Failed to reopen audio capture with {:?} VAD: {change_error}",
+                backend
+            ));
+        }
+
+        info!("VAD backend changed to {:?}", backend);
         Ok(())
     }
 
@@ -1119,11 +1217,14 @@ impl AudioRecordingManager {
     /* ---------- mode switching --------------------------------------------- */
 
     pub fn update_mode(&self, new_mode: MicrophoneMode) -> Result<(), anyhow::Error> {
+        // Keep mode-driven stream changes atomic with recording start and VAD
+        // backend replacement.
+        let state = self.state.lock().unwrap();
         let cur_mode = self.mode.lock().unwrap().clone();
 
         match (cur_mode, &new_mode) {
             (MicrophoneMode::AlwaysOn, MicrophoneMode::OnDemand) => {
-                if matches!(*self.state.lock().unwrap(), RecordingState::Idle) {
+                if matches!(*state, RecordingState::Idle) {
                     self.stop_microphone_stream();
                 }
             }
@@ -1221,7 +1322,15 @@ impl AudioRecordingManager {
     }
 
     pub fn update_selected_device(&self) -> Result<(), anyhow::Error> {
+        // A persisted device change may arrive during recording. Defer the
+        // physical reopen instead of interrupting capture, and serialize idle
+        // reopens with VAD/backend replacement.
+        let state = self.state.lock().unwrap();
         self.invalidate_device_cache();
+        if !matches!(*state, RecordingState::Idle) {
+            debug!("Deferring audio device reopen until the active recording finishes");
+            return Ok(());
+        }
         let current_selection = self.active_selection.lock().unwrap().clone();
         if *self.is_open.lock().unwrap()
             && current_selection

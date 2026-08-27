@@ -3505,6 +3505,15 @@ pub fn change_remote_stt_unsafe_log_secrets_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_log_transcription_text_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let _settings_guard = settings::lock_settings_mutation("changing transcription text logging")?;
+    let mut settings = settings::get_settings(&app);
+    settings.log_transcription_text = enabled;
+    settings::write_settings_checked(&app, settings)
+}
+
+#[tauri::command]
+#[specta::specta]
 /// Updates the configured LLM post-processing state for the active profile.
 /// The default profile owns `post_process_enabled`; custom profiles own their
 /// individual `llm_post_process_enabled` value.
@@ -4635,6 +4644,8 @@ pub fn change_pause_media_while_recording_setting(
 #[tauri::command]
 #[specta::specta]
 pub fn change_filter_silence_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let _settings_guard = settings::lock_settings_mutation("changing Filter Silence")?;
+
     // Don't allow recorder reconfiguration while an active capture is in progress.
     if let Some(audio_mgr) = app.try_state::<Arc<AudioRecordingManager>>() {
         if audio_mgr.is_recording() {
@@ -4644,8 +4655,11 @@ pub fn change_filter_silence_setting(app: AppHandle, enabled: bool) -> Result<()
 
     let mut settings = settings::get_settings(&app);
     let previous = settings.filter_silence;
+    if previous == enabled {
+        return Ok(());
+    }
     settings.filter_silence = enabled;
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
 
     if let Some(audio_mgr) = app.try_state::<Arc<AudioRecordingManager>>() {
         // Recording may start between the pre-check and invalidation; rollback to avoid
@@ -4653,7 +4667,9 @@ pub fn change_filter_silence_setting(app: AppHandle, enabled: bool) -> Result<()
         if !audio_mgr.invalidate_recorder() {
             let mut rollback = settings::get_settings(&app);
             rollback.filter_silence = previous;
-            settings::write_settings(&app, rollback);
+            settings::write_settings_checked(&app, rollback).map_err(|rollback_error| {
+                format!("Cannot change Filter Silence while recording is active; {rollback_error}")
+            })?;
             return Err("Cannot change Filter Silence while recording is active".to_string());
         }
     }

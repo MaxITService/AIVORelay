@@ -6,6 +6,23 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-08-27):
+- Reviewed the complete linear corridor after `af48dd68` through upstream HEAD
+  `c6fa60da`; the safe review cursor is now `c6fa60da`. There are no merge
+  commits in this corridor.
+- Manually adapted `df216832` with both boundary-block delivery and a bounded
+  Rubato delay drain, including 44.1 kHz, unaligned-tail, padding, reset, and
+  no-input coverage.
+- Manually adapted `20ada47` as a selectable experimental Earshot backend. The
+  fork keeps its enhanced 480-sample streaming pipeline and adds a separate
+  256-sample VAD framer, duration-based smoothing, and transactional live
+  backend replacement with rollback.
+- Adapted `258899a` so release logs redact recognized speech by default while
+  an independent, confirmed Debug toggle can reveal it. Skipped Linux-only
+  `c7a68fe` and `fe5b23c`. Deferred `c6fa60d`: its coordinator cannot be copied
+  over the fork's stronger operation ownership; toggle parity needs a small
+  fork-native follow-up if selected later.
+
 Audit note (2026-08-24):
 - Reviewed the complete linear corridor from `0e503672` through upstream HEAD
   `af48dd68`; the safe review cursor is now `af48dd68`. There are no merge
@@ -141,6 +158,9 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-08-27 | 2026-08-25 | `df216832` | stop losing tail audio when a recording ends (#1958) | feat(audio): add Earshot and preserve recording output | manual boundary/resampler adaptation; bounded drain and fork framing retained |
+| 2026-08-27 | 2026-08-25 | `20ada47` | experimental earshot vad implementation (#1967) | feat(audio): add Earshot and preserve recording output | manual selectable backend; separate 256-sample VAD stage and transactional runtime swap |
+| 2026-08-27 | 2026-08-25 | `258899a` | redact transcriptions from log in production build | feat(audio): add Earshot and preserve recording output | release redaction retained; explicit independent text-log toggle added |
 | 2026-08-24 | 2026-08-23 | `f6fac42e` | update to tauri-plugin-updater 2.10.1 | fix(deps): update Tauri updater to 2.10.1 | manifests updated; Bun and Cargo locks regenerated locally; Nix metadata skipped |
 | 2026-08-24 | 2026-08-23 | `5ec2276a` | single writer tray icon (#1952) | fix(tray): serialize native tray updates | manual desired-state port; retained fork microphone, provider, shortcut-guide, and troubleshooting menus |
 | 2026-08-21 | 2026-08-19 | `afbf44cd`, `d55ea7ef`, `0e503672` | transcribe.cpp 0.2.0 (#1924); drop 'gpu' accelerator selector; Merge branch 'main' of github.com:cjpais/Handy | feat(transcription): migrate to transcribe.cpp 0.2 | manual final-tree adaptation; merge resolution reviewed; Windows runtime packaging completed; Multitalker bundle deferred |
@@ -148,9 +168,6 @@ Rules:
 | 2026-08-18 | 2026-08-17 | `5c77861` | bump handy-keys to 0.3.4 | fix(deps): update handy-keys to 0.3.4 | manifest update; lock refreshed locally without taking upstream lock |
 | 2026-08-18 | 2026-08-17 | `2cf157d` | fix(custom-words): allow multi-word phrases (#1406) | fix(custom-words): allow multi-word phrases | manual UI/test port; retained fork n-gram toggle and ampersand handling |
 | 2026-08-18 | 2026-08-14 | `9e534a3` | fix(portable): keep Hugging Face models in Data (#1908) | fix(portable): keep Hugging Face models in Data | manual portable-init port; retained fork-managed cache paths |
-| 2026-08-17 | 2026-08-13 | `549cbde3` | add a better viz for mic waiting | feat(audio): show capture readiness from first samples | manual readiness/session/UI port; retained fork capture sources and overlay themes |
-| 2026-08-13 | 2026-08-09 | `4cd49950`, `80995b53` | wip filler fixes (#1738); forgot to commit bindings | fix(transcription): make filler removal output-language aware | manual correctness port; retained fork opt-in/custom-word policy and all transcription paths |
-| 2026-08-13 | 2026-08-09 | `1bcbfc4c` | fix: support compressed API responses (#1548) | fix(http): support compressed provider responses | manual Cargo feature port; retained multipart support; lock regenerated locally |
 
 Entry template:
 

@@ -1173,6 +1173,14 @@ async changeRemoteSttUnsafeLogSecretsSetting(enabled: boolean) : Promise<Result<
     else return { status: "error", error: e  as any };
 }
 },
+async changeLogTranscriptionTextSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_log_transcription_text_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Updates the configured LLM post-processing state for the active profile.
  * The default profile owns `post_process_enabled`; custom profiles own their
@@ -3248,6 +3256,14 @@ async changeVadThresholdSetting(threshold: number) : Promise<Result<null, string
     else return { status: "error", error: e  as any };
 }
 },
+async changeVadBackendSetting(backend: VadBackend) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_vad_backend_setting", { backend }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeMicrophoneInputBoostDbSetting(db: number) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_microphone_input_boost_db_setting", { db }) };
@@ -3916,7 +3932,12 @@ native_streaming_show_interim_longer?: boolean;
  * Per-model latency presets for native transcribe.cpp streaming.
  * Missing entries intentionally preserve the runtime's accurate defaults.
  */
-native_streaming_latency_presets?: Partial<{ [key in string]: NativeStreamingLatencyPreset }>; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_delete_until_dot_or_comma_hotkey?: string; soniox_live_preview_delete_until_dot_hotkey?: string; soniox_live_preview_delete_last_word_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; soniox_live_preview_show_delete_until_dot_or_comma_button?: boolean; soniox_live_preview_show_delete_until_dot_button?: boolean; soniox_live_preview_show_delete_last_word_button?: boolean; soniox_live_preview_ctrl_backspace_delete_last_word?: boolean; soniox_live_preview_backspace_delete_last_char?: boolean; soniox_live_preview_show_drag_grip?: boolean; local_preview_auto_flush_enabled?: boolean; local_preview_auto_flush_interval_ms?: number; local_preview_auto_flush_overlap_ms?: number; soniox_live_preview_sliding_lm_window_enabled?: boolean; soniox_live_preview_sliding_lm_window_prompt?: string; soniox_live_preview_sliding_lm_window_tail_words?: number; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; dictation_stats_enabled?: boolean; dictation_word_count?: number; dictation_word_count_since_ms?: number | null; dictation_character_count?: number; dictation_character_count_since_ms?: number | null; paste_method?: PasteMethod; paste_delay_ms?: number;
+native_streaming_latency_presets?: Partial<{ [key in string]: NativeStreamingLatencyPreset }>; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_delete_until_dot_or_comma_hotkey?: string; soniox_live_preview_delete_until_dot_hotkey?: string; soniox_live_preview_delete_last_word_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; soniox_live_preview_show_delete_until_dot_or_comma_button?: boolean; soniox_live_preview_show_delete_until_dot_button?: boolean; soniox_live_preview_show_delete_last_word_button?: boolean; soniox_live_preview_ctrl_backspace_delete_last_word?: boolean; soniox_live_preview_backspace_delete_last_char?: boolean; soniox_live_preview_show_drag_grip?: boolean; local_preview_auto_flush_enabled?: boolean; local_preview_auto_flush_interval_ms?: number; local_preview_auto_flush_overlap_ms?: number; soniox_live_preview_sliding_lm_window_enabled?: boolean; soniox_live_preview_sliding_lm_window_prompt?: string; soniox_live_preview_sliding_lm_window_tail_words?: number; debug_mode?: boolean; log_level?: LogLevel;
+/**
+ * Allow recognized speech to appear in release diagnostic logs.
+ * API-key/secret logging is controlled independently.
+ */
+log_transcription_text?: boolean; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; dictation_stats_enabled?: boolean; dictation_word_count?: number; dictation_word_count_since_ms?: number | null; dictation_character_count?: number; dictation_character_count_since_ms?: number | null; paste_method?: PasteMethod; paste_delay_ms?: number;
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
  */
@@ -3957,7 +3978,7 @@ send_to_extension_enabled?: boolean; send_to_extension_push_to_talk?: boolean;
 /**
  * Whether the "Send Transcription + Selection to Extension" action is enabled (risky feature)
  */
-send_to_extension_with_selection_enabled?: boolean; send_to_extension_with_selection_push_to_talk?: boolean; send_to_extension_with_selection_allow_no_voice?: boolean; send_to_extension_with_selection_quick_tap_threshold_ms?: number; send_to_extension_with_selection_no_voice_system_prompt?: string; ai_replace_selection_push_to_talk?: boolean; mute_while_recording?: boolean; pause_media_while_recording?: boolean; filter_silence?: boolean; file_transcription_chunking_mode?: FileTranscriptionChunkingMode; file_transcription_chunking_max_minutes?: number;
+send_to_extension_with_selection_enabled?: boolean; send_to_extension_with_selection_push_to_talk?: boolean; send_to_extension_with_selection_allow_no_voice?: boolean; send_to_extension_with_selection_quick_tap_threshold_ms?: number; send_to_extension_with_selection_no_voice_system_prompt?: string; ai_replace_selection_push_to_talk?: boolean; mute_while_recording?: boolean; pause_media_while_recording?: boolean; filter_silence?: boolean; vad_backend?: VadBackend; file_transcription_chunking_mode?: FileTranscriptionChunkingMode; file_transcription_chunking_max_minutes?: number;
 /**
  * Optional microphone-only preamp in dB, saved per microphone device name.
  */
@@ -4804,6 +4825,11 @@ export type UiFileJobProgressStage = "ai_cleanup" | "speech"
 export type UiFileJobStatus = "planned" | "preparing" | "running" | "retrying" | "paused" | "interrupted" | "failed" | "completed"
 export type UiFileJobSummary = { jobId: string; sourcePath: string; outputPath: string; provider: TtsProvider; outputFormat: TtsOutputFormat; status: UiFileJobStatus; completedChunks: number; totalChunks: number; progressStage: UiFileJobProgressStage; partialAvailable: boolean; lastError: string | null; createdAtMs: number; updatedAtMs: number }
 export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled: boolean; includeInCycle: boolean; pushToTalk: boolean; previewOutputOnlyEnabled: boolean; sonioxLanguageHintsStrict?: boolean | null; llmSettings: ProfileLlmSettings; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
+/**
+ * Recording-side voice activity detector. This does not affect file
+ * transcription chunking, which has its own VAD configuration.
+ */
+export type VadBackend = "silero" | "earshot"
 /**
  * Information about the virtual screen (all monitors combined).
  */
