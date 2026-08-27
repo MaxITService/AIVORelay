@@ -27,6 +27,7 @@ import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { CustomWords } from "@/components/settings/CustomWords";
 import { Slider } from "@/components/ui/Slider";
 import { TellMeMore } from "@/components/ui/TellMeMore";
@@ -38,6 +39,7 @@ import { sessionToast as toast } from "@/lib/sessionToast";
 import { TextReplacementImportDialog } from "./TextReplacementImportDialog";
 import {
   getVisibleTextReplacementRules,
+  type TextReplacementColumnSortDirection,
   type TextReplacementRule,
   type TextReplacementSearchScope,
   type TextReplacementSortOrder,
@@ -88,7 +90,7 @@ export const TextReplacementSettings: React.FC = () => {
   const [ruleSearchScope, setRuleSearchScope] =
     useState<TextReplacementSearchScope>("all");
   const [ruleSortOrder, setRuleSortOrder] =
-    useState<TextReplacementSortOrder>("oldest");
+    useState<TextReplacementSortOrder>("added");
   const [ruleTransferBusy, setRuleTransferBusy] = useState<
     "import" | "export" | null
   >(null);
@@ -145,6 +147,42 @@ export const TextReplacementSettings: React.FC = () => {
   const filteredReplacementCount = Math.max(
     0,
     replacements.length - visibleReplacements.length,
+  );
+  const findSortDirection: TextReplacementColumnSortDirection =
+    ruleSortOrder === "find-asc"
+      ? "asc"
+      : ruleSortOrder === "find-desc"
+        ? "desc"
+        : "off";
+  const replacementSortDirection: TextReplacementColumnSortDirection =
+    ruleSortOrder === "replacement-asc"
+      ? "asc"
+      : ruleSortOrder === "replacement-desc"
+        ? "desc"
+        : "off";
+  const setColumnSort = (
+    column: "find" | "replacement",
+    direction: TextReplacementColumnSortDirection,
+  ) => {
+    setRuleSortOrder(
+      direction === "off"
+        ? "added"
+        : (`${column}-${direction}` as TextReplacementSortOrder),
+    );
+  };
+  const handleSortMouseDown = (event: React.MouseEvent<HTMLSelectElement>) => {
+    if (!event.shiftKey) return;
+    event.preventDefault();
+    setRuleSortOrder("added");
+    event.currentTarget.blur();
+  };
+  const sortOffTooltip = t(
+    "textReplacement.sortOffTooltip",
+    "Off restores the order in which rules were added, oldest first. Shift-click either sorting control to turn sorting off.",
+  );
+  const sortShiftClickTooltip = t(
+    "textReplacement.sortShiftClickTooltip",
+    "Shift-click to turn sorting off.",
   );
   const isEnabled = settings?.text_replacements_enabled ?? false;
   const decapitalizeAfterEditEnabled =
@@ -1442,52 +1480,136 @@ export const TextReplacementSettings: React.FC = () => {
                   )}
             </span>
 
-            <div className="relative ml-auto w-full max-w-full min-w-0 sm:w-auto sm:min-w-[12rem]">
-              <ArrowUpDown
-                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#707070]"
-                aria-hidden="true"
-              />
-              <select
-                value={ruleSortOrder}
-                onChange={(event) =>
-                  setRuleSortOrder(event.target.value as TextReplacementSortOrder)
-                }
-                aria-label={t(
-                  "textReplacement.sortLabel",
-                  "Sort replacement rules",
-                )}
-                className="min-h-7 w-full appearance-none rounded-md border border-[#3c3c3c] bg-[#181818] py-1 pl-8 pr-8 text-xs text-[#c8c8c8] outline-none transition-colors hover:border-[#505050] focus:border-[#9b5de5] [color-scheme:dark]"
-              >
-                <option value="alphabetical-asc">
-                  {t(
-                    "textReplacement.sortAlphabeticalAscending",
-                    "Alphabetical (A → Z)",
-                  )}
-                </option>
-                <option value="alphabetical-desc">
-                  {t(
-                    "textReplacement.sortAlphabeticalDescending",
-                    "Reverse alphabetical (Z → A)",
-                  )}
-                </option>
-                <option value="newest">
-                  {t("textReplacement.sortNewest", "Newest to oldest")}
-                </option>
-                <option value="oldest">
-                  {t("textReplacement.sortOldest", "Oldest to newest")}
-                </option>
-              </select>
-              <ChevronDown
-                className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#707070]"
-                aria-hidden="true"
-              />
-            </div>
           </div>
         </div>
 
         {/* Rules List */}
         {replacements.length > 0 && (
           <div className="px-4 py-3" style={{ borderTopWidth: 0 }}>
+            <div className="mb-2 flex items-center gap-3 px-3">
+              <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+
+              <div className="flex min-w-0 flex-1 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                <span className="truncate text-xs font-medium text-[#a8a8a8]">
+                  {t("textReplacement.findTextColumn", "Find Text")}
+                </span>
+                <Tooltip
+                  content={
+                    findSortDirection === "off"
+                      ? sortOffTooltip
+                      : sortShiftClickTooltip
+                  }
+                  position="top"
+                >
+                  <span className="relative inline-block w-[5.75rem] shrink-0">
+                    <ArrowUpDown
+                      className={`pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 ${
+                        findSortDirection === "off"
+                          ? "text-[#606060]"
+                          : "text-[#c69cff]"
+                      }`}
+                      aria-hidden="true"
+                    />
+                    <select
+                      value={findSortDirection}
+                      onMouseDown={handleSortMouseDown}
+                      onChange={(event) =>
+                        setColumnSort(
+                          "find",
+                          event.target.value as TextReplacementColumnSortDirection,
+                        )
+                      }
+                      aria-label={t(
+                        "textReplacement.sortFindTextLabel",
+                        "Sort Find Text",
+                      )}
+                      className={`min-h-7 w-full appearance-none rounded-md border bg-[#181818] py-1 pl-7 pr-7 text-xs outline-none transition-colors focus:border-[#9b5de5] [color-scheme:dark] ${
+                        findSortDirection === "off"
+                          ? "border-[#3c3c3c] text-[#8a8a8a] hover:border-[#505050]"
+                          : "border-[#9b5de5] text-[#c69cff]"
+                      }`}
+                    >
+                      <option value="off" title={sortOffTooltip}>
+                        {t("textReplacement.sortOff", "Off")}
+                      </option>
+                      <option value="asc">
+                        {t("textReplacement.sortAscending", "A → Z")}
+                      </option>
+                      <option value="desc">
+                        {t("textReplacement.sortDescending", "Z → A")}
+                      </option>
+                    </select>
+                    <ChevronDown
+                      className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#707070]"
+                      aria-hidden="true"
+                    />
+                  </span>
+                </Tooltip>
+              </div>
+
+              <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+
+              <div className="flex min-w-0 flex-1 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                <span className="truncate text-xs font-medium text-[#a8a8a8]">
+                  {t("textReplacement.replaceWithColumn", "Replace with")}
+                </span>
+                <Tooltip
+                  content={
+                    replacementSortDirection === "off"
+                      ? sortOffTooltip
+                      : sortShiftClickTooltip
+                  }
+                  position="top"
+                >
+                  <span className="relative inline-block w-[5.75rem] shrink-0">
+                    <ArrowUpDown
+                      className={`pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 ${
+                        replacementSortDirection === "off"
+                          ? "text-[#606060]"
+                          : "text-[#c69cff]"
+                      }`}
+                      aria-hidden="true"
+                    />
+                    <select
+                      value={replacementSortDirection}
+                      onMouseDown={handleSortMouseDown}
+                      onChange={(event) =>
+                        setColumnSort(
+                          "replacement",
+                          event.target.value as TextReplacementColumnSortDirection,
+                        )
+                      }
+                      aria-label={t(
+                        "textReplacement.sortReplaceWithLabel",
+                        "Sort Replace with",
+                      )}
+                      className={`min-h-7 w-full appearance-none rounded-md border bg-[#181818] py-1 pl-7 pr-7 text-xs outline-none transition-colors focus:border-[#9b5de5] [color-scheme:dark] ${
+                        replacementSortDirection === "off"
+                          ? "border-[#3c3c3c] text-[#8a8a8a] hover:border-[#505050]"
+                          : "border-[#9b5de5] text-[#c69cff]"
+                      }`}
+                    >
+                      <option value="off" title={sortOffTooltip}>
+                        {t("textReplacement.sortOff", "Off")}
+                      </option>
+                      <option value="asc">
+                        {t("textReplacement.sortAscending", "A → Z")}
+                      </option>
+                      <option value="desc">
+                        {t("textReplacement.sortDescending", "Z → A")}
+                      </option>
+                    </select>
+                    <ChevronDown
+                      className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#707070]"
+                      aria-hidden="true"
+                    />
+                  </span>
+                </Tooltip>
+              </div>
+
+              <span className="h-7 w-10 shrink-0" aria-hidden="true" />
+            </div>
+
             <div className="space-y-2">
               {visibleReplacements.map((rule) => (
                 <div
