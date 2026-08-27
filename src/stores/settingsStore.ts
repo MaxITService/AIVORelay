@@ -4,11 +4,13 @@ import type {
   AppSettings as Settings,
   AudioDevice,
   ModelUnloadTimeout,
+  VadBackend,
 } from "@/bindings";
 import { commands } from "@/bindings";
 import { invoke } from "@tauri-apps/api/core";
 import { invalidateModelDownloadActivationIntent } from "@/lib/modelDownloadActivation";
 import { getActiveProfilePostProcessingEnabled } from "@/lib/postProcessingAvailability";
+import { sessionToast as toast } from "@/lib/sessionToast";
 
 const withActiveProfilePostProcessingEnabled = (
   settings: Settings,
@@ -363,6 +365,8 @@ const settingUpdaters: {
   filter_silence: (value) =>
     commands.changeFilterSilenceSetting(value as boolean),
   log_level: (value) => commands.setLogLevel(value as any),
+  log_transcription_text: (value) =>
+    commands.changeLogTranscriptionTextSetting(value as boolean),
   app_language: (value) => commands.changeAppLanguageSetting(value as string),
   transcription_provider: (value) =>
     commands.changeTranscriptionProviderSetting(value as string),
@@ -370,6 +374,7 @@ const settingUpdaters: {
   soniox_timeout_seconds: (value) =>
     commands.changeSonioxTimeoutSetting(Math.round(value as number)),
   vad_threshold: (value) => commands.changeVadThresholdSetting(value as number),
+  vad_backend: (value) => commands.changeVadBackendSetting(value as VadBackend),
   remember_window_size: (value) =>
     commands.changeRememberWindowSizeSetting(value as boolean),
   remember_window_position: (value) =>
@@ -1214,6 +1219,9 @@ export const useSettingsStore = create<SettingsStore>()(
         }
       } catch (error) {
         console.error(`Failed to update setting ${String(key)}:`, error);
+        if (key === "vad_backend") {
+          toast.error(String(error));
+        }
         set((state) => {
           if (!state.settings) return state;
 

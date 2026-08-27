@@ -7,7 +7,7 @@ use super::{VadFrame, VoiceActivityDetector};
 use crate::audio_toolkit::constants;
 
 const SILERO_FRAME_MS: u32 = 30;
-const SILERO_FRAME_SAMPLES: usize =
+pub const SILERO_FRAME_SAMPLES: usize =
     (constants::WHISPER_SAMPLE_RATE * SILERO_FRAME_MS / 1000) as usize;
 
 pub struct SileroVad {
@@ -49,8 +49,15 @@ impl VoiceActivityDetector for SileroVad {
             Ok(VadFrame::Noise)
         }
     }
+
+    fn frame_samples(&self) -> usize {
+        SILERO_FRAME_SAMPLES
+    }
+
     fn reset(&mut self) {}
     fn set_threshold(&mut self, threshold: f32) {
-        self.threshold = threshold;
+        if threshold.is_finite() && (0.0..=1.0).contains(&threshold) {
+            self.threshold = threshold;
+        }
     }
 }

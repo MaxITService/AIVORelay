@@ -426,45 +426,15 @@ impl AudioRecorder {
         let use_channel = selected_channel.filter(|channel| *channel < channels);
 
         let stream_cb = move |data: &[T], _: &cpal::InputCallbackInfo| {
-            if stop_flag.load(Ordering::Relaxed) {
-                if !eos_sent {
-                    let _ = sample_tx.send(AudioChunk::EndOfStream);
-                    eos_sent = true;
-                }
-                return;
-            }
-            eos_sent = false;
-
-            output_buffer.clear();
-
-            if channels == 1 {
-                output_buffer.extend(data.iter().map(|&sample| sample.to_sample::<f32>()));
-            } else {
-                let frame_count = data.len() / channels;
-                output_buffer.reserve(frame_count);
-
-                if let Some(channel) = use_channel {
-                    for frame in data.chunks_exact(channels) {
-                        output_buffer.push(frame[channel].to_sample::<f32>());
-                    }
-                } else {
-                    for frame in data.chunks_exact(channels) {
-                        let mono_sample = frame
-                            .iter()
-                            .map(|&sample| sample.to_sample::<f32>())
-                            .sum::<f32>()
-                            / channels as f32;
-                        output_buffer.push(mono_sample);
-                    }
-                }
-            }
-
-            if sample_tx
-                .send(AudioChunk::Samples(output_buffer.clone()))
-                .is_err()
-            {
-                log::error!("Failed to send samples");
-            }
+            handle_input_block(
+                data,
+                channels,
+                use_channel,
+                &stop_flag,
+                &mut eos_sent,
+                &mut output_buffer,
+                &sample_tx,
+            );
         };
 
         device.build_input_stream(
@@ -580,6 +550,66 @@ impl AudioRecorder {
     }
 }
 
+/// Convert one CPAL callback block to mono and forward it to the consumer.
+/// The first callback that observes the stop flag was already captured at the
+/// recording boundary, so forward that block before the end-of-stream marker.
+fn handle_input_block<T>(
+    data: &[T],
+    channels: usize,
+    use_channel: Option<usize>,
+    stop_flag: &AtomicBool,
+    eos_sent: &mut bool,
+    output_buffer: &mut Vec<f32>,
+    sample_tx: &mpsc::Sender<AudioChunk>,
+) where
+    T: Sample,
+    f32: cpal::FromSample<T>,
+{
+    let stopping = stop_flag.load(Ordering::Relaxed);
+    if stopping && *eos_sent {
+        return;
+    }
+
+    output_buffer.clear();
+
+    if channels == 1 {
+        output_buffer.extend(data.iter().map(|&sample| sample.to_sample::<f32>()));
+    } else {
+        let frame_count = data.len() / channels;
+        output_buffer.reserve(frame_count);
+
+        if let Some(channel) = use_channel {
+            for frame in data.chunks_exact(channels) {
+                output_buffer.push(frame[channel].to_sample::<f32>());
+            }
+        } else {
+            for frame in data.chunks_exact(channels) {
+                let mono_sample = frame
+                    .iter()
+                    .map(|&sample| sample.to_sample::<f32>())
+                    .sum::<f32>()
+                    / channels as f32;
+                output_buffer.push(mono_sample);
+            }
+        }
+    }
+
+    if sample_tx
+        .send(AudioChunk::Samples(output_buffer.clone()))
+        .is_err()
+        && !stopping
+    {
+        log::error!("Failed to send samples");
+    }
+
+    if stopping {
+        let _ = sample_tx.send(AudioChunk::EndOfStream);
+        *eos_sent = true;
+    } else {
+        *eos_sent = false;
+    }
+}
+
 pub fn is_microphone_access_denied(error_message: &str) -> bool {
     let normalized = error_message.to_lowercase();
     normalized.contains("access is denied")
@@ -612,9 +642,75 @@ fn visualizer_window_size(sample_rate: u32) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_microphone_access_denied, is_no_input_device_error, AudioRecorder};
+    use super::{
+        handle_input_block, is_microphone_access_denied, is_no_input_device_error, AudioChunk,
+        AudioRecorder,
+    };
     use crate::audio_toolkit::constants;
-    use std::sync::atomic::Ordering;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    };
+
+    #[test]
+    fn boundary_block_is_forwarded_before_end_of_stream() {
+        let (tx, rx) = mpsc::channel();
+        let stop_flag = AtomicBool::new(false);
+        let mut eos_sent = false;
+        let mut scratch = Vec::new();
+
+        handle_input_block(
+            &[0.1f32],
+            1,
+            None,
+            &stop_flag,
+            &mut eos_sent,
+            &mut scratch,
+            &tx,
+        );
+        assert!(matches!(rx.try_recv(), Ok(AudioChunk::Samples(_))));
+        assert!(rx.try_recv().is_err());
+
+        stop_flag.store(true, Ordering::Relaxed);
+        handle_input_block(
+            &[0.5f32, 0.5],
+            1,
+            None,
+            &stop_flag,
+            &mut eos_sent,
+            &mut scratch,
+            &tx,
+        );
+        match rx.try_recv() {
+            Ok(AudioChunk::Samples(samples)) => assert_eq!(samples, vec![0.5, 0.5]),
+            _ => panic!("boundary block must be forwarded before end of stream"),
+        }
+        assert!(matches!(rx.try_recv(), Ok(AudioChunk::EndOfStream)));
+
+        handle_input_block(
+            &[0.9f32],
+            1,
+            None,
+            &stop_flag,
+            &mut eos_sent,
+            &mut scratch,
+            &tx,
+        );
+        assert!(rx.try_recv().is_err(), "blocks after EOS must be dropped");
+
+        stop_flag.store(false, Ordering::Relaxed);
+        handle_input_block(
+            &[0.2f32],
+            1,
+            None,
+            &stop_flag,
+            &mut eos_sent,
+            &mut scratch,
+            &tx,
+        );
+        assert!(matches!(rx.try_recv(), Ok(AudioChunk::Samples(_))));
+        assert!(rx.try_recv().is_err());
+    }
 
     #[test]
     fn unopened_recorder_does_not_need_reopen() {
@@ -689,6 +785,27 @@ mod tests {
         assert_eq!(super::visualizer_window_size(16_000), 512);
         assert_eq!(super::visualizer_window_size(48_000), 2048);
     }
+
+    #[test]
+    fn vad_framer_reframes_enhanced_480_sample_chunks_for_earshot() {
+        let mut framer = super::FrameResampler::new(
+            constants::WHISPER_SAMPLE_RATE as usize,
+            constants::WHISPER_SAMPLE_RATE as usize,
+            std::time::Duration::from_millis(16),
+        );
+        let mut frames = Vec::new();
+        framer.push(&[0.25; 480], |frame| frames.push(frame.to_vec()));
+        framer.push(&[0.5; 480], |frame| frames.push(frame.to_vec()));
+        framer.finish(|frame| frames.push(frame.to_vec()));
+
+        assert_eq!(frames.len(), 4);
+        assert!(frames[..3].iter().all(|frame| frame.len() == 256));
+        assert_eq!(frames[0], vec![0.25; 256]);
+        assert!(frames[1][..224].iter().all(|sample| *sample == 0.25));
+        assert!(frames[1][224..].iter().all(|sample| *sample == 0.5));
+        assert!(frames[3][..192].iter().all(|sample| *sample == 0.5));
+        assert!(frames[3][192..].iter().all(|sample| *sample == 0.0));
+    }
 }
 
 fn handle_frame(
@@ -717,6 +834,53 @@ fn emit_stream_frame(stream_frame_cb: &Arc<Mutex<Option<StreamFrameCallback>>>, 
     if let Some(callback) = callback {
         callback(samples.to_vec());
     }
+}
+
+/// Feed an enhanced 16 kHz frame into the detector-sized VAD framer. The
+/// stream callback is intentionally invoked by the caller before this stage,
+/// so live providers continue to receive enhanced 480-sample frames.
+fn handle_enhanced_frame(
+    samples: &[f32],
+    vad: &Option<Arc<Mutex<Box<dyn vad::VoiceActivityDetector>>>>,
+    vad_frame_resampler: &mut Option<FrameResampler>,
+    out_buf: &mut Vec<f32>,
+) {
+    if let Some(resampler) = vad_frame_resampler.as_mut() {
+        resampler.push(samples, |frame: &[f32]| {
+            handle_frame(frame, true, vad, out_buf)
+        });
+    } else {
+        out_buf.extend_from_slice(samples);
+    }
+}
+
+fn process_enhanced_capture_frame(
+    frame: &[f32],
+    vad: &Option<Arc<Mutex<Box<dyn vad::VoiceActivityDetector>>>>,
+    vad_frame_resampler: &mut Option<FrameResampler>,
+    stream_frame_cb: &Arc<Mutex<Option<StreamFrameCallback>>>,
+    source: AudioCaptureSource,
+    microphone_input_gain: &Arc<Mutex<f32>>,
+    microphone_noise_cancellation_enabled: &Arc<AtomicBool>,
+    noise_suppressor: &mut Option<NoiseSuppressor>,
+    processed_samples: &mut Vec<f32>,
+) {
+    let adjusted = apply_input_gain_if_needed(frame, source, microphone_input_gain);
+    let enhanced = apply_noise_cancellation_if_needed(
+        adjusted,
+        source,
+        microphone_noise_cancellation_enabled,
+        noise_suppressor,
+    );
+    // Live streaming consumers must continue to see the enhanced main frame,
+    // before recording-side silence filtering is applied.
+    emit_stream_frame(stream_frame_cb, enhanced.as_ref());
+    handle_enhanced_frame(
+        enhanced.as_ref(),
+        vad,
+        vad_frame_resampler,
+        processed_samples,
+    );
 }
 
 fn microphone_input_gain_from_db(db: f32) -> f32 {
@@ -793,6 +957,7 @@ fn process_consumer_cmd(
     pending_chunk: Option<&mut Option<AudioChunk>>,
     sample_rx: &mpsc::Receiver<AudioChunk>,
     frame_resampler: &mut FrameResampler,
+    vad_frame_resampler: &mut Option<FrameResampler>,
     vad: &Option<Arc<Mutex<Box<dyn vad::VoiceActivityDetector>>>>,
     stream_frame_cb: &Arc<Mutex<Option<StreamFrameCallback>>>,
     visualizer: &mut AudioVisualiser,
@@ -815,6 +980,9 @@ fn process_consumer_cmd(
             *capture_ready_tx = Some(ready_tx);
             visualizer.reset();
             frame_resampler.reset();
+            if let Some(resampler) = vad_frame_resampler.as_mut() {
+                resampler.reset();
+            }
             if let Some(v) = vad {
                 v.lock().unwrap().reset();
             }
@@ -849,15 +1017,17 @@ fn process_consumer_cmd(
                 pending_chunk.map(|pending| pending.take())
             {
                 frame_resampler.push(&remaining, &mut |frame: &[f32]| {
-                    let adjusted = apply_input_gain_if_needed(frame, source, microphone_input_gain);
-                    let enhanced = apply_noise_cancellation_if_needed(
-                        adjusted,
+                    process_enhanced_capture_frame(
+                        frame,
+                        vad,
+                        vad_frame_resampler,
+                        stream_frame_cb,
                         source,
+                        microphone_input_gain,
                         microphone_noise_cancellation_enabled,
                         noise_suppressor,
+                        processed_samples,
                     );
-                    emit_stream_frame(stream_frame_cb, enhanced.as_ref());
-                    handle_frame(enhanced.as_ref(), true, vad, processed_samples)
                 });
             }
 
@@ -865,16 +1035,17 @@ fn process_consumer_cmd(
                 match sample_rx.recv_timeout(Duration::from_secs(2)) {
                     Ok(AudioChunk::Samples(remaining)) => {
                         frame_resampler.push(&remaining, &mut |frame: &[f32]| {
-                            let adjusted =
-                                apply_input_gain_if_needed(frame, source, microphone_input_gain);
-                            let enhanced = apply_noise_cancellation_if_needed(
-                                adjusted,
+                            process_enhanced_capture_frame(
+                                frame,
+                                vad,
+                                vad_frame_resampler,
+                                stream_frame_cb,
                                 source,
+                                microphone_input_gain,
                                 microphone_noise_cancellation_enabled,
                                 noise_suppressor,
+                                processed_samples,
                             );
-                            emit_stream_frame(stream_frame_cb, enhanced.as_ref());
-                            handle_frame(enhanced.as_ref(), true, vad, processed_samples)
                         });
                     }
                     Ok(AudioChunk::EndOfStream) => break,
@@ -886,16 +1057,24 @@ fn process_consumer_cmd(
             }
 
             frame_resampler.finish(&mut |frame: &[f32]| {
-                let adjusted = apply_input_gain_if_needed(frame, source, microphone_input_gain);
-                let enhanced = apply_noise_cancellation_if_needed(
-                    adjusted,
+                process_enhanced_capture_frame(
+                    frame,
+                    vad,
+                    vad_frame_resampler,
+                    stream_frame_cb,
                     source,
+                    microphone_input_gain,
                     microphone_noise_cancellation_enabled,
                     noise_suppressor,
+                    processed_samples,
                 );
-                emit_stream_frame(stream_frame_cb, enhanced.as_ref());
-                handle_frame(enhanced.as_ref(), true, vad, processed_samples)
             });
+
+            // Drain the detector-sized stage only after the unchanged main
+            // enhanced 480-sample pipeline has finished.
+            if let Some(resampler) = vad_frame_resampler.as_mut() {
+                resampler.finish(|frame: &[f32]| handle_frame(frame, true, vad, processed_samples));
+            }
 
             let _ = reply_tx.send(std::mem::take(processed_samples));
             *noise_suppressor = None;
@@ -928,6 +1107,14 @@ fn run_consumer(
         constants::WHISPER_SAMPLE_RATE as usize,
         Duration::from_millis(30),
     );
+    let mut vad_frame_resampler = vad.as_ref().map(|detector| {
+        let frame_samples = detector.lock().unwrap().frame_samples();
+        FrameResampler::new(
+            constants::WHISPER_SAMPLE_RATE as usize,
+            constants::WHISPER_SAMPLE_RATE as usize,
+            Duration::from_secs_f64(frame_samples as f64 / constants::WHISPER_SAMPLE_RATE as f64),
+        )
+    });
 
     let mut processed_samples = Vec::<f32>::new();
     let mut recording = false;
@@ -948,6 +1135,7 @@ fn run_consumer(
                 None,
                 &sample_rx,
                 &mut frame_resampler,
+                &mut vad_frame_resampler,
                 &vad,
                 &stream_frame_cb,
                 &mut visualizer,
@@ -978,6 +1166,7 @@ fn run_consumer(
                 Some(&mut pending_chunk),
                 &sample_rx,
                 &mut frame_resampler,
+                &mut vad_frame_resampler,
                 &vad,
                 &stream_frame_cb,
                 &mut visualizer,
@@ -1007,15 +1196,17 @@ fn run_consumer(
             }
 
             frame_resampler.push(&raw, &mut |frame: &[f32]| {
-                let adjusted = apply_input_gain_if_needed(frame, source, &microphone_input_gain);
-                let enhanced = apply_noise_cancellation_if_needed(
-                    adjusted,
+                process_enhanced_capture_frame(
+                    frame,
+                    &vad,
+                    &mut vad_frame_resampler,
+                    &stream_frame_cb,
                     source,
+                    &microphone_input_gain,
                     &microphone_noise_cancellation_enabled,
                     &mut noise_suppressor,
+                    &mut processed_samples,
                 );
-                emit_stream_frame(&stream_frame_cb, enhanced.as_ref());
-                handle_frame(enhanced.as_ref(), true, &vad, &mut processed_samples)
             });
 
             if let Some(ready_tx) = capture_ready_tx.take() {

@@ -3,8 +3,9 @@ use crate::audio_toolkit::audio::{list_input_devices, list_output_devices, Audio
 use crate::managers::audio::{AudioRecordingManager, MicrophoneMode};
 use crate::managers::microphone_auto_switch;
 use crate::settings::{
-    get_settings, microphone_input_boost_device_key, sanitize_microphone_input_boost_db,
-    write_settings, LiveSoundCaptureSource,
+    get_settings, lock_settings_mutation, microphone_input_boost_device_key,
+    sanitize_microphone_input_boost_db, write_settings, write_settings_checked,
+    LiveSoundCaptureSource, VadBackend,
 };
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -439,15 +440,77 @@ pub async fn set_selected_channel(app: AppHandle, channel: Option<u16>) -> Resul
 #[tauri::command]
 #[specta::specta]
 pub fn change_vad_threshold_setting(app: AppHandle, threshold: f32) -> Result<(), String> {
+    if !threshold.is_finite() || !(0.0..=1.0).contains(&threshold) {
+        return Err("VAD threshold must be between 0.0 and 1.0".to_string());
+    }
+
+    let _settings_guard = lock_settings_mutation("changing the VAD threshold")?;
     let mut settings = get_settings(&app);
+    if settings.vad_threshold == threshold {
+        return Ok(());
+    }
     settings.vad_threshold = threshold;
-    write_settings(&app, settings);
+    write_settings_checked(&app, settings)?;
 
     // Update the audio manager immediately
     let rm = app.state::<Arc<AudioRecordingManager>>();
     rm.update_vad_threshold(threshold);
 
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn change_vad_backend_setting(app: AppHandle, backend: VadBackend) -> Result<(), String> {
+    let manager = app
+        .try_state::<Arc<AudioRecordingManager>>()
+        .map(|state| state.inner().clone());
+
+    tokio::task::spawn_blocking(move || {
+        let _settings_guard = lock_settings_mutation("changing the VAD backend")?;
+        let previous = get_settings(&app);
+
+        if previous.vad_backend == backend {
+            return Ok(());
+        }
+
+        // Runtime replacement is transactional. The manager builds and opens
+        // the candidate first; settings are written only after it succeeds.
+        let runtime_replaced = if previous.filter_silence {
+            if let Some(manager) = manager.as_ref() {
+                manager
+                    .update_vad_backend(backend)
+                    .map_err(|error| error.to_string())?;
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        // A warm-stream reopen can clear a selected microphone that vanished.
+        // Preserve that fresh fallback state instead of restoring this command's
+        // older snapshot when persisting the backend choice.
+        let mut updated = get_settings(&app);
+        updated.vad_backend = backend;
+        if let Err(save_error) = write_settings_checked(&app, updated) {
+            if runtime_replaced {
+                if let Some(manager) = manager.as_ref() {
+                    if let Err(rollback_error) = manager.update_vad_backend(previous.vad_backend) {
+                        log::error!(
+                            "Failed to roll back VAD backend after settings save failure: {rollback_error}"
+                        );
+                    }
+                }
+            }
+            return Err(save_error);
+        }
+
+        Ok(())
+    })
+    .await
+    .map_err(|error| format!("audio task join failed: {error}"))?
 }
 
 #[tauri::command]

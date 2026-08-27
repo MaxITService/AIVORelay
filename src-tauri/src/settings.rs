@@ -2628,6 +2628,16 @@ impl Default for FileTranscriptionChunkingMode {
     }
 }
 
+/// Recording-side voice activity detector. This does not affect file
+/// transcription chunking, which has its own VAD configuration.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VadBackend {
+    #[default]
+    Silero,
+    Earshot,
+}
+
 pub const SONIOX_DEFAULT_MODEL: &str = "stt-rt-v5";
 pub const SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS: u32 = 2000;
 pub const SONIOX_DEFAULT_ENDPOINT_SENSITIVITY: f32 = 0.0;
@@ -3544,6 +3554,10 @@ pub struct AppSettings {
     pub debug_mode: bool,
     #[serde(default = "default_log_level")]
     pub log_level: LogLevel,
+    /// Allow recognized speech to appear in release diagnostic logs.
+    /// API-key/secret logging is controlled independently.
+    #[serde(default)]
+    pub log_transcription_text: bool,
     #[serde(default)]
     pub custom_words: Vec<String>,
     #[serde(default = "default_custom_words_enabled")]
@@ -3677,6 +3691,8 @@ pub struct AppSettings {
     pub pause_media_while_recording: bool,
     #[serde(default = "default_filter_silence")]
     pub filter_silence: bool,
+    #[serde(default)]
+    pub vad_backend: VadBackend,
     #[serde(default = "default_file_transcription_chunking_mode")]
     pub file_transcription_chunking_mode: FileTranscriptionChunkingMode,
     #[serde(default = "default_file_transcription_chunking_max_minutes")]
@@ -5628,6 +5644,7 @@ pub fn get_default_settings() -> AppSettings {
             default_soniox_live_preview_sliding_lm_window_tail_words(),
         debug_mode: false,
         log_level: default_log_level(),
+        log_transcription_text: false,
         custom_words: Vec::new(),
         custom_words_enabled: default_custom_words_enabled(),
         custom_words_ngram_enabled: default_custom_words_ngram_enabled(),
@@ -5692,6 +5709,7 @@ pub fn get_default_settings() -> AppSettings {
         mute_while_recording: false,
         pause_media_while_recording: false,
         filter_silence: default_filter_silence(),
+        vad_backend: VadBackend::default(),
         file_transcription_chunking_mode: default_file_transcription_chunking_mode(),
         file_transcription_chunking_max_minutes: default_file_transcription_chunking_max_minutes(),
         microphone_input_boost_db_by_device: default_microphone_input_boost_db_by_device(),
@@ -7185,6 +7203,35 @@ mod tests {
         assert!(parse_settings_store_document(br#"{"#).is_err());
         assert!(parse_settings_store_document(br#"[]"#).is_err());
         assert!(parse_settings_store_document(br#"{"settings": {}}"#).is_ok());
+    }
+
+    #[test]
+    fn vad_backend_defaults_to_silero_when_missing() {
+        let mut value = serde_json::to_value(get_default_settings()).unwrap();
+        value.as_object_mut().unwrap().remove("vad_backend");
+
+        let settings: AppSettings = serde_json::from_value(value).unwrap();
+        assert_eq!(settings.vad_backend, VadBackend::Silero);
+
+        let earshot: AppSettings = serde_json::from_value({
+            let mut value = serde_json::to_value(get_default_settings()).unwrap();
+            value["vad_backend"] = json!("earshot");
+            value
+        })
+        .unwrap();
+        assert_eq!(earshot.vad_backend, VadBackend::Earshot);
+    }
+
+    #[test]
+    fn transcription_text_logging_defaults_to_off_when_missing() {
+        let mut value = serde_json::to_value(get_default_settings()).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("log_transcription_text");
+
+        let settings: AppSettings = serde_json::from_value(value).unwrap();
+        assert!(!settings.log_transcription_text);
     }
 
     #[test]

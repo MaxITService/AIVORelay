@@ -19,6 +19,17 @@ pub use crate::clipboard::*;
 pub use crate::overlay::*;
 pub use crate::tray::*;
 
+/// Preserve diagnostic text in development builds. Release builds show it only
+/// after the user explicitly enables transcription-text logging.
+/// Secrets such as API keys are controlled separately and must never rely on this.
+pub fn redact_text(text: &str, allow_in_release: bool) -> &str {
+    if cfg!(debug_assertions) || allow_in_release {
+        text
+    } else {
+        "[REDACTED]"
+    }
+}
+
 #[cfg(any(test, all(target_os = "windows", target_arch = "x86_64")))]
 const IMAGE_FILE_MACHINE_ARM64: u16 = 0xaa64;
 
@@ -174,6 +185,18 @@ pub fn is_wayland() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostic_text_matches_build_privacy_mode() {
+        let diagnostic = "private transcription";
+
+        if cfg!(debug_assertions) {
+            assert_eq!(redact_text(diagnostic, false), diagnostic);
+        } else {
+            assert_eq!(redact_text(diagnostic, false), "[REDACTED]");
+        }
+        assert_eq!(redact_text(diagnostic, true), diagnostic);
+    }
 
     #[test]
     fn arm64_native_machine_is_the_only_match() {

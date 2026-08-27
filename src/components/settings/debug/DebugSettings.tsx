@@ -41,10 +41,13 @@ export const DebugSettings: React.FC = () => {
     useState(false);
   const [showSecretLoggingWarning, setShowSecretLoggingWarning] =
     useState(false);
+  const [showTranscriptionLoggingWarning, setShowTranscriptionLoggingWarning] =
+    useState(false);
 
   const betaVoiceCommandsEnabled =
     (settings as any)?.beta_voice_commands_enabled ?? false;
   const unsafeLogSecrets = settings?.remote_stt?.unsafe_log_secrets ?? false;
+  const logTranscriptionText = settings?.log_transcription_text ?? false;
 
   const handleVoiceCommandsToggle = (enabled: boolean) => {
     if (enabled) {
@@ -66,6 +69,14 @@ export const DebugSettings: React.FC = () => {
       setShowSecretLoggingWarning(true);
     } else {
       void updateRemoteSttUnsafeLogSecrets(false);
+    }
+  };
+
+  const handleTranscriptionLoggingToggle = (enabled: boolean) => {
+    if (enabled) {
+      setShowTranscriptionLoggingWarning(true);
+    } else {
+      void updateSetting("log_transcription_text", false);
     }
   };
 
@@ -93,6 +104,25 @@ export const DebugSettings: React.FC = () => {
               <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
               <p className="text-xs font-semibold text-red-200/90">
                 {t("settings.debug.unsafeSecretLogging.activeWarning")}
+              </p>
+            </div>
+          </div>
+        )}
+        <ToggleSwitch
+          checked={logTranscriptionText}
+          onChange={handleTranscriptionLoggingToggle}
+          isUpdating={isUpdating("log_transcription_text")}
+          label={t("settings.debug.transcriptionTextLogging.title")}
+          description={t("settings.debug.transcriptionTextLogging.description")}
+          descriptionMode="inline"
+          grouped={true}
+        />
+        {logTranscriptionText && (
+          <div className="mx-4 mb-3 p-3 bg-red-500/10 border border-red-500/40 rounded-lg">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+              <p className="text-xs font-semibold text-red-200/90">
+                {t("settings.debug.transcriptionTextLogging.activeWarning")}
               </p>
             </div>
           </div>
@@ -196,6 +226,22 @@ export const DebugSettings: React.FC = () => {
         message={t("settings.debug.unsafeSecretLogging.confirmationMessage")}
         confirmText={t("settings.debug.unsafeSecretLogging.confirm")}
         cancelText={t("settings.debug.unsafeSecretLogging.cancel")}
+        variant="danger"
+      />
+
+      <ConfirmationModal
+        isOpen={showTranscriptionLoggingWarning}
+        onClose={() => setShowTranscriptionLoggingWarning(false)}
+        onConfirm={() => {
+          setShowTranscriptionLoggingWarning(false);
+          void updateSetting("log_transcription_text", true);
+        }}
+        title={t("settings.debug.transcriptionTextLogging.confirmationTitle")}
+        message={t(
+          "settings.debug.transcriptionTextLogging.confirmationMessage",
+        )}
+        confirmText={t("settings.debug.transcriptionTextLogging.confirm")}
+        cancelText={t("settings.debug.transcriptionTextLogging.cancel")}
         variant="danger"
       />
 
