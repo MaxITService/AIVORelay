@@ -49,7 +49,7 @@ function Test-IsAdmin {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-function Quote-Argument {
+function ConvertTo-QuotedArgument {
     param([string]$Value)
 
     if ($Value -notmatch '[\s"]') {
@@ -66,25 +66,25 @@ function Restart-Elevated {
     }
 
     $hostExe = (Get-Process -Id $PID).Path
-    $args = @(
+    $powershellArgs = @(
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        (Quote-Argument $scriptPath)
+        (ConvertTo-QuotedArgument $scriptPath)
     )
 
     foreach ($path in $ProgramPath) {
-        $args += "-ProgramPath"
-        $args += (Quote-Argument $path)
+        $powershellArgs += "-ProgramPath"
+        $powershellArgs += (ConvertTo-QuotedArgument $path)
     }
 
     if ($NoPause) {
-        $args += "-NoPause"
+        $powershellArgs += "-NoPause"
     }
 
     Write-Host "Requesting administrator rights..." -ForegroundColor Yellow
-    Start-Process -FilePath $hostExe -ArgumentList ($args -join " ") -Verb RunAs
+    Start-Process -FilePath $hostExe -ArgumentList ($powershellArgs -join " ") -Verb RunAs
     exit
 }
 
