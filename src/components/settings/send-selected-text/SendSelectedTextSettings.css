@@ -176,7 +176,6 @@
   line-height: 1.45;
 }
 
-.sst-page input:not([type="checkbox"]),
 .sst-page select,
 .sst-page textarea {
   width: 100%;
@@ -190,7 +189,6 @@
   font-size: 12px;
 }
 
-.sst-page input:not([type="checkbox"]),
 .sst-page select {
   min-height: 34px;
   padding: 7px 9px;
@@ -202,14 +200,12 @@
   line-height: 1.45;
 }
 
-.sst-page input:not([type="checkbox"]):focus,
 .sst-page select:focus,
 .sst-page textarea:focus {
   border-color: rgba(132, 184, 255, 0.7);
   box-shadow: 0 0 0 2px rgba(132, 184, 255, 0.1);
 }
 
-.sst-page input::placeholder,
 .sst-page textarea::placeholder {
   color: #686868;
 }
@@ -225,45 +221,6 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
-}
-
-.sst-icon-button {
-  display: inline-flex;
-  min-width: 32px;
-  min-height: 32px;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.035);
-  color: #d5d5d5;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.sst-icon-button:hover:not(:disabled) {
-  border-color: rgba(132, 184, 255, 0.42);
-  background: rgba(132, 184, 255, 0.09);
-  color: #fff;
-}
-
-.sst-icon-button:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.sst-icon-button.wide {
-  min-width: 74px;
-  padding-inline: 10px;
-}
-
-.sst-icon-button.danger:hover:not(:disabled) {
-  border-color: rgba(255, 91, 121, 0.52);
-  background: rgba(255, 91, 121, 0.1);
-  color: #ff9bae;
 }
 
 .sst-toggle-row {
@@ -680,7 +637,7 @@
   color: #bfead7;
 }
 
-.sst-command-example > .sst-icon-button {
+.sst-command-example > button {
   grid-column: 2;
   grid-row: 1;
 }

@@ -1,11 +1,9 @@
 import React, {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -29,83 +27,48 @@ import {
   Settings2,
   Trash2,
 } from "lucide-react";
+import {
+  commands,
+  type ExecutionPolicy,
+  type Result,
+  type SendSelectedTextCaptureMode as CaptureMode,
+  type SendSelectedTextFormat as OutputFormat,
+  type SendSelectedTextHistoryEntry,
+  type SendSelectedTextHistoryStatus as HistoryStatus,
+  type SendSelectedTextOversizeBehavior as OversizeBehavior,
+  type SendSelectedTextPreset as PersistedSendSelectedTextPreset,
+  type SendSelectedTextSettings as PersistedSendSelectedTextFeatureSettings,
+  type SendSelectedTextWriteMode as WriteMode,
+} from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { Button } from "../../ui/Button";
+import { Input } from "../../ui/Input";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { HandyShortcut } from "../HandyShortcut";
 import "./SendSelectedTextSettings.css";
 
-type OutputFormat = "markdown" | "json";
-type WriteMode =
-  | "create_new"
-  | "append_last"
-  | "append_file"
-  | "overwrite_file";
-type CaptureMode = "auto" | "clipboard_copy" | "accessibility";
-type OversizeBehavior = "reject" | "truncate";
-type ExecutionPolicy = "default" | "bypass" | "unrestricted" | "remote_signed";
-type HistoryStatus =
-  | "saved"
-  | "command_started"
-  | "completed"
-  | "command_failed"
-  | "failed";
+type SendSelectedTextPreset = Required<PersistedSendSelectedTextPreset>;
+type SendSelectedTextFeatureSettings = Omit<
+  Required<PersistedSendSelectedTextFeatureSettings>,
+  "presets"
+> & { presets: SendSelectedTextPreset[] };
 
-interface SendSelectedTextPreset {
-  id: string;
-  name: string;
-  enabled: boolean;
-  format: OutputFormat;
-  write_mode: WriteMode;
-  capture_mode: CaptureMode;
-  destination_directory: string;
-  filename_template: string;
-  content_template: string;
-  max_chars: number;
-  oversize_behavior: OversizeBehavior;
-  json_keep_last: number;
-  command_enabled: boolean;
-  command: string;
-  allow_text_variable: boolean;
-  command_silent: boolean;
-  command_no_profile: boolean;
-  command_use_pwsh: boolean;
-  command_execution_policy: ExecutionPolicy;
-  command_working_directory: string;
-}
+const unwrapCommandResult = <T,>(result: Result<T, string>): T => {
+  if (result.status === "error") throw result.error;
+  return result.data;
+};
 
-interface SendSelectedTextFeatureSettings {
-  presets: SendSelectedTextPreset[];
-  history_limit: number;
-  error_overlay_auto_hide_ms: number;
-}
+// Rust fills serde-defaulted fields before returning settings; the generated
+// input-compatible types remain optional so older stores can still load.
+const asCompletePreset = (
+  preset: PersistedSendSelectedTextPreset,
+): SendSelectedTextPreset => preset as SendSelectedTextPreset;
 
-interface SendSelectedTextHistoryEntry {
-  id: number;
-  operation_id: string;
-  preset_id: string;
-  preset_name: string;
-  timestamp_ms: number;
-  selected_text: string;
-  output_path: string | null;
-  output_format: string;
-  write_mode: string;
-  status: HistoryStatus;
-  command: string | null;
-  command_output: string | null;
-  command_output_truncated: boolean;
-  error: string | null;
-}
-
-interface OperationResult {
-  history_id: number;
-  operation_id: string;
-  output_path: string;
-  status: HistoryStatus;
-  command_output: string | null;
-  command_output_truncated: boolean;
-}
+const asCompleteFeatureSettings = (
+  settings: PersistedSendSelectedTextFeatureSettings,
+): SendSelectedTextFeatureSettings =>
+  settings as SendSelectedTextFeatureSettings;
 
 type PageTab = "presets" | "history" | "help";
 const HISTORY_PAGE_SIZE = 100;
@@ -264,15 +227,17 @@ function CopyButton({ value, label }: { value: string; label: string }) {
     }
   };
   return (
-    <button
+    <Button
       type="button"
-      className="sst-icon-button"
+      variant="secondary"
+      size="sm"
+      className="flex min-h-8 min-w-8 items-center justify-center !p-1.5"
       onClick={handleCopy}
       title={`Copy ${label}`}
       aria-label={`Copy ${label}`}
     >
       {copied ? <Check size={15} /> : <Copy size={15} />}
-    </button>
+    </Button>
   );
 }
 
@@ -454,36 +419,42 @@ function PresetCard({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <button
+          <Button
             type="button"
-            className="sst-icon-button"
+            variant="secondary"
+            size="sm"
+            className="flex min-h-8 min-w-8 items-center justify-center !p-1.5"
             disabled={busy}
             onClick={duplicateDraft}
             title="Duplicate preset"
             aria-label="Duplicate preset"
           >
             <ClipboardCopy size={15} />
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="sst-icon-button danger"
+            variant="danger"
+            size="sm"
+            className="flex min-h-8 min-w-8 items-center justify-center !p-1.5"
             disabled={busy}
             onClick={deleteDraft}
             title="Delete preset"
             aria-label="Delete preset"
           >
             <Trash2 size={15} />
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="sst-icon-button"
+            variant="secondary"
+            size="sm"
+            className="flex min-h-8 min-w-8 items-center justify-center !p-1.5"
             onClick={() => setExpanded((value) => !value)}
             title={expanded ? "Collapse preset" : "Expand preset"}
             aria-label={expanded ? "Collapse preset" : "Expand preset"}
             aria-expanded={expanded}
           >
             {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -492,7 +463,9 @@ function PresetCard({
           <div className="sst-form-grid two">
             <label className="sst-field">
               <FieldLabel>Preset name</FieldLabel>
-              <input
+              <Input
+                variant="compact"
+                className="w-full text-xs"
                 value={draft.name}
                 onChange={(event) => update("name", event.target.value)}
               />
@@ -559,29 +532,34 @@ function PresetCard({
           <div className="sst-field">
             <FieldLabel>Destination folder</FieldLabel>
             <div className="sst-input-action-row">
-              <input
+              <Input
+                variant="compact"
+                className="w-full text-xs"
                 value={draft.destination_directory}
                 onChange={(event) =>
                   update("destination_directory", event.target.value)
                 }
                 placeholder="Choose where this preset writes files"
               />
-              <button
+              <Button
                 type="button"
-                className="sst-icon-button wide"
+                variant="secondary"
+                size="sm"
+                className="flex min-h-[34px] items-center justify-center gap-2 whitespace-nowrap"
                 onClick={chooseDirectory}
                 title="Choose folder"
               >
                 <FolderOpen size={16} />
                 <span>Browse</span>
-              </button>
+              </Button>
             </div>
           </div>
 
           <label className="sst-field">
             <FieldLabel>Filename template</FieldLabel>
-            <input
-              className="font-mono"
+            <Input
+              variant="compact"
+              className="w-full font-mono text-xs"
               value={draft.filename_template}
               onChange={(event) =>
                 update("filename_template", event.target.value)
@@ -621,8 +599,10 @@ function PresetCard({
               </div>
               <label>
                 <span>Keep latest entries</span>
-                <input
+                <Input
                   type="number"
+                  variant="compact"
+                  className="w-full text-xs"
                   min={0}
                   max={100000}
                   value={draft.json_keep_last}
@@ -666,8 +646,10 @@ function PresetCard({
             </label>
             <label className="sst-field">
               <FieldLabel>Maximum characters</FieldLabel>
-              <input
+              <Input
                 type="number"
+                variant="compact"
+                className="w-full text-xs"
                 min={1}
                 max={2000000}
                 value={draft.max_chars}
@@ -699,16 +681,14 @@ function PresetCard({
                 <h4>Run a command after saving</h4>
                 <p>The file remains saved even if this command fails.</p>
               </div>
-              <label className="sst-toggle-row compact">
-                <input
-                  type="checkbox"
+              <span className="sst-toggle-row compact">
+                <ToggleSwitch
                   checked={draft.command_enabled}
-                  onChange={(event) =>
-                    update("command_enabled", event.target.checked)
-                  }
+                  onChange={(checked) => update("command_enabled", checked)}
+                  ariaLabel="Run a command after saving"
                 />
                 <span>Enabled</span>
-              </label>
+              </span>
             </div>
             {draft.command_enabled && (
               <div className="space-y-3">
@@ -728,7 +708,9 @@ function PresetCard({
                 <div className="sst-form-grid two">
                   <label className="sst-field">
                     <FieldLabel>Working directory</FieldLabel>
-                    <input
+                    <Input
+                      variant="compact"
+                      className="w-full text-xs"
                       value={draft.command_working_directory}
                       onChange={(event) =>
                         update("command_working_directory", event.target.value)
@@ -926,16 +908,18 @@ function HistoryView({
                   </div>
                   <time>{formatDate(entry.timestamp_ms)}</time>
                 </div>
-                <button
+                <Button
                   type="button"
-                  className="sst-icon-button danger"
+                  variant="danger"
+                  size="sm"
+                  className="flex min-h-8 min-w-8 items-center justify-center !p-1.5"
                   disabled={clearing}
                   onClick={() => onDelete(entry.id)}
                   title="Delete history entry"
                   aria-label="Delete history entry"
                 >
                   <Trash2 size={15} />
-                </button>
+                </Button>
               </header>
               <div className="sst-history-block">
                 <div className="sst-history-block-title">
@@ -1154,8 +1138,8 @@ export default function SendSelectedTextSettings() {
   const loadFeature = useCallback(async () => {
     const generation = featureGeneration.current + 1;
     featureGeneration.current = generation;
-    const value = await invoke<SendSelectedTextFeatureSettings>(
-      "get_send_selected_text_settings",
+    const value = asCompleteFeatureSettings(
+      await commands.getSendSelectedTextSettings(),
     );
     if (featureGeneration.current !== generation) return;
     setFeature(value);
@@ -1172,9 +1156,8 @@ export default function SendSelectedTextSettings() {
     historyGeneration.current = generation;
     setHistoryLoading(true);
     try {
-      const entries = await invoke<SendSelectedTextHistoryEntry[]>(
-        "get_send_selected_text_history",
-        { limit: HISTORY_PAGE_SIZE + 1, offset: 0 },
+      const entries = unwrapCommandResult(
+        await commands.getSendSelectedTextHistory(HISTORY_PAGE_SIZE + 1, 0),
       );
       if (historyGeneration.current !== generation) return;
       setHistoryEntries(entries.slice(0, HISTORY_PAGE_SIZE));
@@ -1202,12 +1185,11 @@ export default function SendSelectedTextSettings() {
     const generation = historyGeneration.current;
     setHistoryLoadingMore(true);
     try {
-      const entries = await invoke<SendSelectedTextHistoryEntry[]>(
-        "get_send_selected_text_history",
-        {
-          limit: HISTORY_PAGE_SIZE + 1,
-          offset: historyEntries.length,
-        },
+      const entries = unwrapCommandResult(
+        await commands.getSendSelectedTextHistory(
+          HISTORY_PAGE_SIZE + 1,
+          historyEntries.length,
+        ),
       );
       if (historyGeneration.current !== generation) return;
       const page = entries.slice(0, HISTORY_PAGE_SIZE);
@@ -1264,16 +1246,14 @@ export default function SendSelectedTextSettings() {
   }, [loadFeature, loadHistory]);
 
   const presets = feature?.presets ?? [];
-  const sortedPresets = useMemo(() => presets, [presets]);
 
   const createPreset = async () => {
     if (createPresetInFlight.current) return;
     createPresetInFlight.current = true;
     setCreatingPreset(true);
     try {
-      const created = await invoke<SendSelectedTextPreset>(
-        "create_send_selected_text_preset",
-        { template: null },
+      const created = asCompletePreset(
+        unwrapCommandResult(await commands.createSendSelectedTextPreset(null)),
       );
       featureGeneration.current += 1;
       setFeature((current) =>
@@ -1295,9 +1275,8 @@ export default function SendSelectedTextSettings() {
     preset: SendSelectedTextPreset,
   ): Promise<SendSelectedTextPreset> => {
     try {
-      const updated = await invoke<SendSelectedTextPreset>(
-        "update_send_selected_text_preset",
-        { preset },
+      const updated = asCompletePreset(
+        unwrapCommandResult(await commands.updateSendSelectedTextPreset(preset)),
       );
       featureGeneration.current += 1;
       setFeature((current) =>
@@ -1320,9 +1299,14 @@ export default function SendSelectedTextSettings() {
 
   const duplicatePreset = async (preset: SendSelectedTextPreset) => {
     try {
-      const created = await invoke<SendSelectedTextPreset>(
-        "create_send_selected_text_preset",
-        { template: { ...preset, id: "", name: `${preset.name} copy` } },
+      const created = asCompletePreset(
+        unwrapCommandResult(
+          await commands.createSendSelectedTextPreset({
+            ...preset,
+            id: "",
+            name: `${preset.name} copy`,
+          }),
+        ),
       );
       featureGeneration.current += 1;
       setFeature((current) =>
@@ -1346,7 +1330,7 @@ export default function SendSelectedTextSettings() {
       return;
     }
     try {
-      await invoke("delete_send_selected_text_preset", { presetId: preset.id });
+      unwrapCommandResult(await commands.deleteSendSelectedTextPreset(preset.id));
       featureGeneration.current += 1;
       setFeature((current) =>
         current
@@ -1368,12 +1352,8 @@ export default function SendSelectedTextSettings() {
   const runSample = async (preset: SendSelectedTextPreset, text: string) => {
     await savePreset(preset);
     try {
-      const result = await invoke<OperationResult>(
-        "run_send_selected_text_preset",
-        {
-          presetId: preset.id,
-          sampleText: text,
-        },
+      const result = unwrapCommandResult(
+        await commands.runSendSelectedTextPreset(preset.id, text),
       );
       toast.success(`Saved to ${result.output_path}`);
       await loadHistory();
@@ -1386,9 +1366,9 @@ export default function SendSelectedTextSettings() {
   const trimJson = async (preset: SendSelectedTextPreset) => {
     await savePreset(preset);
     try {
-      const removed = await invoke<number>("trim_send_selected_text_json", {
-        presetId: preset.id,
-      });
+      const removed = unwrapCommandResult(
+        await commands.trimSendSelectedTextJson(preset.id),
+      );
       toast.success(
         removed === 0
           ? "JSON already satisfies retention"
@@ -1406,12 +1386,13 @@ export default function SendSelectedTextSettings() {
     setOptionsSaving(true);
     const revision = optionsRevision.current;
     try {
-      const updated = await invoke<SendSelectedTextFeatureSettings>(
-        "update_send_selected_text_options",
-        {
-          historyLimit: optionsDraft.historyLimit,
-          errorOverlayAutoHideMs: optionsDraft.errorSeconds * 1000,
-        },
+      const updated = asCompleteFeatureSettings(
+        unwrapCommandResult(
+          await commands.updateSendSelectedTextOptions(
+            optionsDraft.historyLimit,
+            optionsDraft.errorSeconds * 1000,
+          ),
+        ),
       );
       featureGeneration.current += 1;
       setFeature((current) =>
@@ -1445,7 +1426,7 @@ export default function SendSelectedTextSettings() {
   const deleteHistoryEntry = async (id: number) => {
     if (historyClearInFlight.current) return;
     try {
-      await invoke("delete_send_selected_text_history_entry", { id });
+      unwrapCommandResult(await commands.deleteSendSelectedTextHistoryEntry(id));
       await loadHistory();
     } catch (error) {
       toast.error(String(error));
@@ -1464,7 +1445,7 @@ export default function SendSelectedTextSettings() {
     historyClearInFlight.current = true;
     setHistoryClearing(true);
     try {
-      await invoke("clear_send_selected_text_history");
+      unwrapCommandResult(await commands.clearSendSelectedTextHistory());
       await loadHistory();
     } catch (error) {
       toast.error(String(error));
@@ -1566,8 +1547,10 @@ export default function SendSelectedTextSettings() {
             </div>
             <label>
               <span>History entries</span>
-              <input
+              <Input
                 type="number"
+                variant="compact"
+                className="w-full text-xs"
                 min={1}
                 max={5000}
                 value={optionsDraft.historyLimit}
@@ -1583,8 +1566,10 @@ export default function SendSelectedTextSettings() {
             </label>
             <label>
               <span>Error overlay seconds</span>
-              <input
+              <Input
                 type="number"
+                variant="compact"
+                className="w-full text-xs"
                 min={1}
                 max={100}
                 value={optionsDraft.errorSeconds}
@@ -1598,19 +1583,21 @@ export default function SendSelectedTextSettings() {
                 }}
               />
             </label>
-            <button
+            <Button
               type="button"
-              className="sst-icon-button wide"
+              variant="secondary"
+              size="sm"
+              className="flex min-h-[34px] items-center justify-center gap-2 whitespace-nowrap"
               disabled={optionsSaving}
               onClick={saveOptions}
               title="Save history and overlay settings"
             >
               <Save size={15} />
               <span>Save</span>
-            </button>
+            </Button>
           </section>
 
-          {sortedPresets.length === 0 ? (
+          {presets.length === 0 ? (
             <div className="sst-empty tall">
               <Send size={28} />
               <strong>No presets yet</strong>
@@ -1625,7 +1612,7 @@ export default function SendSelectedTextSettings() {
             </div>
           ) : (
             <div className="space-y-3">
-              {sortedPresets.map((preset) => (
+              {presets.map((preset) => (
                 <PresetCard
                   key={preset.id}
                   preset={preset}
