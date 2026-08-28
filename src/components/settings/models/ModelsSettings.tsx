@@ -28,6 +28,7 @@ import {
 
 type RemoteApiRowId =
   | "groq"
+  | "gemini_transcribe"
   | "openai_transcribe"
   | "openai_live_transcribe"
   | "openai_realtime_whisper"
@@ -41,7 +42,7 @@ type RemoteApiRow = {
   title: string;
   description: string;
   notRecommended?: boolean;
-  preset: "groq" | "openai" | "custom";
+  preset: "groq" | "openai" | "vercel" | "google" | "custom";
   modelId?: string;
   iconClassName: string;
 };
@@ -179,6 +180,8 @@ export const ModelsSettings: React.FC = () => {
       ? null
       : remotePreset === "groq"
         ? "groq"
+        : remotePreset === "vercel" || remotePreset === "google"
+          ? "gemini_transcribe"
         : remotePreset === "custom"
           ? "custom"
           : remoteModelId === "gpt-transcribe"
@@ -202,6 +205,15 @@ export const ModelsSettings: React.FC = () => {
       preset: "groq",
       modelId: "whisper-large-v3-turbo",
       iconClassName: "text-sky-400",
+    },
+    {
+      id: "gemini_transcribe",
+      title: "Remote via Gemini 3.5 Transcribe (Non-live)",
+      description:
+        "Completed recordings and audio files through Vercel AI Gateway (default) or Google directly",
+      preset: "vercel",
+      modelId: "google/gemini-3.5-transcribe",
+      iconClassName: "text-amber-300",
     },
     {
       id: "custom",

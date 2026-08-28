@@ -49,6 +49,14 @@ export const getRemoteApiDisplayLabel = (
     return modelId ? `OpenAI ${modelId}` : "OpenAI Realtime";
   }
 
+  if (preset === "vercel") {
+    return "Vercel: Gemini 3.5 Transcribe";
+  }
+
+  if (preset === "google") {
+    return "Google: Gemini 3.5 Transcribe";
+  }
+
   if (preset === "custom") {
     return getHostname(remoteStt?.base_url) || "Custom API";
   }

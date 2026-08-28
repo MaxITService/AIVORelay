@@ -38,6 +38,7 @@ interface RemoteSttSettingsProps {
 
 type RemoteSttInterfaceId =
   | "groq"
+  | "gemini_transcribe"
   | "openai_transcribe"
   | "openai_live_transcribe"
   | "openai_realtime_whisper"
@@ -270,6 +271,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const currentRemoteInterface: RemoteSttInterfaceId =
     remotePreset === "groq"
       ? "groq"
+      : remotePreset === "vercel" || remotePreset === "google"
+        ? "gemini_transcribe"
       : remotePreset === "custom"
         ? "custom"
         : (remoteSettings?.model_id ?? "") === "gpt-transcribe"
@@ -284,13 +287,21 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           ? "openai_realtime_translate"
           : "openai_realtime_agent";
   const remoteApiKeyTitle =
-    currentRemoteInterface === "groq"
+    remotePreset === "vercel"
+      ? "Vercel AI Gateway API Key"
+      : remotePreset === "google"
+        ? "Google Gemini API Key"
+    : currentRemoteInterface === "groq"
       ? "Groq API Key"
       : currentRemoteInterface === "custom"
         ? "Custom Remote API Key"
         : "OpenAI API Key";
   const remoteApiKeyDescription =
-    currentRemoteInterface === "groq"
+    remotePreset === "vercel"
+      ? "Stored separately for Vercel AI Gateway in Windows Credential Manager."
+      : remotePreset === "google"
+        ? "Stored separately for Google Gemini API in Windows Credential Manager."
+    : currentRemoteInterface === "groq"
       ? "Stored separately for Groq in Windows Credential Manager."
       : currentRemoteInterface === "custom"
         ? "Stored separately for the Custom remote endpoint in Windows Credential Manager."
@@ -727,6 +738,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           label: "Groq",
         },
         {
+          value: "gemini_transcribe",
+          label: "Google Gemini 3.5 Transcribe · File / post-recording",
+        },
+        {
           value: "openai_transcribe",
           label: "OpenAI gpt-transcribe · File / post-recording",
         },
@@ -761,6 +776,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const remoteInterfaceHint = useMemo(() => {
     const hints: Record<RemoteSttInterfaceId, string> = {
       groq: "Classic OpenAI-compatible /audio/transcriptions endpoint.",
+      gemini_transcribe:
+        "Dedicated Gemini transcription API for completed recordings and audio files. Vercel AI Gateway is the default route.",
       openai_transcribe:
         "Recommended for completed recordings, file transcription, and batch workloads.",
       openai_live_transcribe:
@@ -826,12 +843,16 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     const nextPreset: RemoteSttPreset =
       interfaceId === "groq"
         ? "groq"
+        : interfaceId === "gemini_transcribe"
+          ? "vercel"
         : interfaceId === "custom"
           ? "custom"
           : "openai";
     const nextModel =
       interfaceId === "groq"
         ? REMOTE_STT_PRESETS.groq.defaultModel
+        : interfaceId === "gemini_transcribe"
+          ? REMOTE_STT_PRESETS.vercel.defaultModel
         : interfaceId === "openai_transcribe"
           ? "gpt-transcribe"
         : interfaceId === "openai_live_transcribe"
@@ -864,6 +885,23 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         setModelIdInput(nextModel);
       }
 
+      await refreshSettings();
+    } catch (error) {
+      toast.error(String(error));
+    }
+  };
+
+  const handleGeminiRouteChange = async (value: string | null) => {
+    if (value !== "vercel" && value !== "google") return;
+    try {
+      setApiKeyInput("");
+      setHasApiKey(false);
+      setHasKeyStatusLoaded(false);
+      const result = await commands.changeRemoteSttProviderPresetSetting(value);
+      if (result.status === "error") {
+        throw new Error(result.error);
+      }
+      setModelIdInput(REMOTE_STT_PRESETS[value].defaultModel);
       await refreshSettings();
     } catch (error) {
       toast.error(String(error));
@@ -1463,6 +1501,115 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   disabled={remotePreset !== "custom"}
                 />
               </SettingContainer>
+
+              {currentRemoteInterface === "gemini_transcribe" && (
+                <>
+                  <SettingContainer
+                    title="Gemini connection route"
+                    description="Choose who receives the audio and bills the request. Vercel AI Gateway is the safer default for a small test."
+                    descriptionMode={descriptionMode}
+                    grouped={grouped}
+                    layout="stacked"
+                  >
+                    <Select
+                      value={remotePreset === "google" ? "google" : "vercel"}
+                      options={[
+                        {
+                          value: "vercel",
+                          label: "Vercel AI Gateway · Recommended",
+                        },
+                        {
+                          value: "google",
+                          label: "Google Gemini API · Experimental direct route",
+                        },
+                      ]}
+                      onChange={(value) => void handleGeminiRouteChange(value)}
+                      isClearable={false}
+                      className="w-full"
+                    />
+                  </SettingContainer>
+
+                  {remotePreset === "google" ? (
+                    <div className="mx-4 rounded-lg border border-red-500/45 bg-red-500/10 p-3 text-xs text-red-100">
+                      <p className="font-semibold text-red-300">
+                        Experimental direct Google connection · use at your own risk
+                      </p>
+                      <p className="mt-1">
+                        AivoRelay has not yet verified this route against a paid
+                        Google account. Google now offers Spend Caps, but
+                        AivoRelay cannot create or enforce one for you.
+                      </p>
+                      <p className="mt-1">
+                        You must configure the correct billing account, one
+                        Google Cloud project, and the Gemini API service outside
+                        AivoRelay. This requires admin-level access such as Billing
+                        Account Administrator, Project Owner, or Google's
+                        documented Costs Manager + Project Editor combination.
+                        Cloud Billing Spend Caps are still Preview, monthly only,
+                        and not instantaneous. Requests already in progress finish,
+                        and any overage caused by reporting delay is billed normally.
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                        <a
+                          href="https://aistudio.google.com/app/apikey"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-red-200 hover:underline"
+                        >
+                          Google AI Studio API keys
+                        </a>
+                        <a
+                          href="https://docs.cloud.google.com/billing/docs/how-to/budgets-spend-caps"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-red-200 hover:underline"
+                        >
+                          Google Spend Cap setup and limitations
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mx-4 rounded-lg border border-emerald-400/25 bg-emerald-400/5 p-3 text-xs text-text/80">
+                      <p className="font-medium text-emerald-200">
+                        Recommended for testing
+                      </p>
+                      <p className="mt-1">
+                        Create a dedicated Vercel AI Gateway key, enable its Spend
+                        Quota, and use prepaid Gateway credits. The request that
+                        crosses a quota may still finish; later requests are
+                        rejected. Keep automatic top-ups and BYOK fallback off if
+                        you want the test bounded by that balance and quota.
+                      </p>
+                      <a
+                        href="https://vercel.com/ai-gateway"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-2 inline-block text-emerald-200 hover:underline"
+                      >
+                        Open Vercel AI Gateway
+                      </a>
+                    </div>
+                  )}
+
+                  <div className="mx-4 rounded-lg border border-amber-300/20 bg-amber-300/5 p-3 text-xs text-text/75">
+                    Gemini 3.5 Transcribe processes completed recordings and
+                    audio files; it is not live transcription. Text output
+                    supports audio up to 60 minutes; SRT/VTT timestamps support
+                    up to 30 minutes. Known language choices use Google's
+                    documented locale codes; unsupported or ambiguous choices
+                    fall back to automatic detection. The dedicated API does not
+                    accept AivoRelay's free-form STT prompt, so that prompt is not
+                    uploaded.
+                  </div>
+                  {effectiveRealtimeAgentTranslateToEnglish && (
+                    <div className="mx-4 rounded-lg border border-red-500/45 bg-red-500/10 p-3 text-xs text-red-100">
+                      Translate to English is enabled in the active profile or
+                      global settings. Gemini 3.5 Transcribe cannot use that
+                      AivoRelay option; turn it off before testing.
+                    </div>
+                  )}
+                </>
+              )}
 
               {(currentRemoteInterface === "openai_live_transcribe" ||
                 currentRemoteInterface === "openai_realtime_whisper") && (
@@ -2981,7 +3128,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
               )}
 
               <div className="flex flex-col gap-2">
-                {showOpenAiFields && (
+                {showOpenAiFields &&
+                  currentRemoteInterface !== "gemini_transcribe" && (
                   <>
                     <div className="flex items-center gap-2">
                       <Button

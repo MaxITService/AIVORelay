@@ -47,10 +47,10 @@ AivoRelay.exe --convert-file .\chapter.md --output .\chapter.mp3 `
 | Option | Accepted values and behavior |
 | --- | --- |
 | `--tts-provider` | `soniox`, `deepgram`, `openai`, `murf`, `elevenlabs`, `cartesia`, `openai-compatible` (custom OpenAI-compatible server), experimental `edge`, `local-qwen`, `local-kokoro`, or `windows` |
-| `--tts-model` | Provider model ID; Murf accepts `falcon-2`/`gen2`, ElevenLabs accepts `eleven_flash_v2_5`/`eleven_v3`/`eleven_multilingual_v2`, and Cartesia accepts `sonic-3.5` |
+| `--tts-model` | Provider model ID; Deepgram accepts Aura (`aura-*`) on `/v1/speak` and Flux (`flux-*`) on `/v2/speak`, Murf accepts `falcon-2`/`gen2`, ElevenLabs accepts `eleven_flash_v2_5`/`eleven_v3`/`eleven_multilingual_v2`, and Cartesia accepts `sonic-3.5` |
 | `--tts-voice` | Cloud voice ID, official Qwen/Kokoro speaker ID, or stable Windows voice ID; `default` selects the current Windows default |
 | `--tts-language` | Murf locale; a two-letter ISO 639-1 hint for ElevenLabs Flash v2.5/Eleven v3; a two-letter Cartesia language code; Soniox language code; Qwen language name; or Kokoro `English`/`Chinese`. ElevenLabs Multilingual v2 infers language from text and rejects this flag |
-| `--tts-speed` | Soniox `0.7–1.3`; Deepgram `0.7–1.5`; OpenAI `0.25–4.0`; ElevenLabs Flash v2.5/Multilingual v2 `0.7–1.2`; Cartesia Sonic 3.5 `0.6–1.5`; Edge/Qwen/Kokoro/Windows `0.5–2.0`. Murf uses `--tts-murf-rate`; Eleven v3 does not accept numeric speed |
+| `--tts-speed` | Soniox `0.7–1.3`; Deepgram Aura `0.7–1.5`; Deepgram Flux `0.85–1.15` in `0.05` steps; OpenAI `0.25–4.0`; ElevenLabs Flash v2.5/Multilingual v2 `0.7–1.2`; Cartesia Sonic 3.5 `0.6–1.5`; Edge/Qwen/Kokoro/Windows `0.5–2.0`. Murf uses `--tts-murf-rate`; Eleven v3 does not accept numeric speed |
 | `--tts-key-source` | `shared` or `separate`; Murf, ElevenLabs, and Cartesia accept only `separate`. Selects an already-stored credential and never exposes a secret on the command line |
 | `--tts-base-url` | OpenAI-compatible provider only: custom API base URL for this conversion, e.g. `http://localhost:8000/v1` |
 | `--tts-murf-rate` | Murf integer rate from `-50` to `50` |
@@ -99,7 +99,7 @@ Provider-specific options are strict. AivoRelay returns exit code `2` with an
 actionable explanation instead of silently ignoring a flag or clamping its
 value:
 
-- Deepgram encodes voice and language in its model ID, so use `--tts-model`;
+- Deepgram encodes voice and language in its model ID, so use `--tts-model`; AivoRelay sends `flux-*` models to `/v2/speak` and Aura models to `/v1/speak` automatically;
   `--tts-voice` and `--tts-language` are rejected.
 - OpenAI does not expose a separate language option, so `--tts-language` is
   rejected.

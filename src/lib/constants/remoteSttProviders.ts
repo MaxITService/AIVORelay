@@ -11,6 +11,18 @@ export const REMOTE_STT_PRESETS = {
     baseUrl: "https://api.openai.com/v1",
     defaultModel: "whisper-1",
   },
+  vercel: {
+    id: "vercel",
+    label: "Vercel AI Gateway",
+    baseUrl: "https://ai-gateway.vercel.sh/v4/ai",
+    defaultModel: "google/gemini-3.5-transcribe",
+  },
+  google: {
+    id: "google",
+    label: "Google Gemini API",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+    defaultModel: "gemini-3.5-transcribe",
+  },
   custom: {
     id: "custom",
     label: "Custom",

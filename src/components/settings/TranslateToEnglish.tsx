@@ -121,7 +121,7 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
         checked={translateToEnglish}
         onChange={(enabled) => updateSetting("translate_to_english", enabled)}
         isUpdating={isUpdating("translate_to_english")}
-        disabled={isDisabledTranslation}
+        disabled={isDisabledTranslation && !translateToEnglish}
         label={t("settings.advanced.translateToEnglish.label")}
         description={description}
         descriptionMode={descriptionMode}

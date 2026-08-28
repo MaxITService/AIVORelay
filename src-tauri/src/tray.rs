@@ -4,8 +4,10 @@ use crate::managers::transcription::TranscriptionManager;
 use crate::settings::TranscriptionProvider;
 use crate::tray_i18n::get_tray_translations;
 use crate::url_security::{
-    REMOTE_STT_GROQ_DEFAULT_MODEL, REMOTE_STT_OPENAI_DEFAULT_MODEL, REMOTE_STT_PRESET_CUSTOM,
-    REMOTE_STT_PRESET_GROQ, REMOTE_STT_PRESET_OPENAI,
+    REMOTE_STT_GOOGLE_DEFAULT_MODEL, REMOTE_STT_GROQ_DEFAULT_MODEL,
+    REMOTE_STT_OPENAI_DEFAULT_MODEL, REMOTE_STT_PRESET_CUSTOM, REMOTE_STT_PRESET_GOOGLE,
+    REMOTE_STT_PRESET_GROQ, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_VERCEL,
+    REMOTE_STT_VERCEL_DEFAULT_MODEL,
 };
 use crate::{commands::audio, settings};
 use log::{debug, error, info, trace, warn};
@@ -666,6 +668,8 @@ fn build_model_menu_label(inputs: &MenuInputs, fallback_label: &str) -> String {
             let provider_label = match inputs.remote_provider_preset.as_str() {
                 REMOTE_STT_PRESET_GROQ => "Groq",
                 REMOTE_STT_PRESET_OPENAI => "OpenAI",
+                REMOTE_STT_PRESET_VERCEL => "Vercel",
+                REMOTE_STT_PRESET_GOOGLE => "Google",
                 REMOTE_STT_PRESET_CUSTOM => TRAY_MODEL_CUSTOM_SUFFIX,
                 _ => TRAY_MODEL_REMOTE_LABEL,
             };
@@ -833,6 +837,16 @@ fn append_remote_openai_model_items(
             REMOTE_STT_PRESET_GROQ.to_string(),
             "whisper-large-v3".to_string(),
             "Groq: whisper-large-v3".to_string(),
+        ),
+        (
+            REMOTE_STT_PRESET_VERCEL.to_string(),
+            REMOTE_STT_VERCEL_DEFAULT_MODEL.to_string(),
+            "Vercel: Gemini 3.5 Transcribe".to_string(),
+        ),
+        (
+            REMOTE_STT_PRESET_GOOGLE.to_string(),
+            REMOTE_STT_GOOGLE_DEFAULT_MODEL.to_string(),
+            "Google: Gemini 3.5 Transcribe · Experimental".to_string(),
         ),
         (
             REMOTE_STT_PRESET_OPENAI.to_string(),

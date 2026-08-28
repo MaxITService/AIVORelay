@@ -699,12 +699,15 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   onClick={() =>
                     handleTranslateChange(!profile.translate_to_english)
                   }
-                  disabled={isUpdating || !supportsTranslation}
+                  disabled={
+                    isUpdating ||
+                    (!supportsTranslation && !profile.translate_to_english)
+                  }
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
                     profile.translate_to_english
                       ? "bg-purple-500"
                       : "bg-mid-gray/30"
-                  } ${isUpdating || !supportsTranslation ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                  } ${isUpdating || (!supportsTranslation && !profile.translate_to_english) ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                 >
                   <span
                     className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -1260,15 +1263,19 @@ export const TranscriptionProfiles: React.FC = () => {
     getModelInfo,
     settings,
   ]);
-  const openAiTranscriptionOnlyModel =
+  const remoteTranscriptionOnlyModel =
     activeProvider === "remote_openai_compatible" &&
-    ["gpt-transcribe", "gpt-live-transcribe", "gpt-realtime-whisper"].includes(
-      activeModelId.toLowerCase(),
-    );
+    [
+      "gpt-transcribe",
+      "gpt-live-transcribe",
+      "gpt-realtime-whisper",
+      "google/gemini-3.5-transcribe",
+      "gemini-3.5-transcribe",
+    ].includes(activeModelId.toLowerCase());
   const supportsTranslation =
     activeProvider !== "remote_soniox" &&
     activeProvider !== "remote_deepgram" &&
-    !openAiTranscriptionOnlyModel;
+    !remoteTranscriptionOnlyModel;
   const isSonioxProvider = activeProvider === "remote_soniox";
   const newPostProcessingAvailability = getPostProcessingAvailability(settings, {
     profilePreviewOutputOnlyEnabled: newPreviewOutputOnly,
@@ -1948,12 +1955,15 @@ export const TranscriptionProfiles: React.FC = () => {
                             !(settings?.translate_to_english ?? false),
                           )
                         }
-                        disabled={!supportsTranslation}
+                        disabled={
+                          !supportsTranslation &&
+                          !(settings?.translate_to_english ?? false)
+                        }
                         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
                           settings?.translate_to_english
                             ? "bg-purple-500"
                             : "bg-mid-gray/30"
-                        } ${!supportsTranslation ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                        } ${!supportsTranslation && !(settings?.translate_to_english ?? false) ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                       >
                         <span
                           className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -2338,7 +2348,7 @@ export const TranscriptionProfiles: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setNewTranslate(!newTranslate)}
-                  disabled={isCreating || !supportsTranslation}
+                  disabled={isCreating || (!supportsTranslation && !newTranslate)}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
                     newTranslate ? "bg-purple-500" : "bg-mid-gray/30"
                   } ${isCreating ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
