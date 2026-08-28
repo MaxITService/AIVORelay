@@ -59,6 +59,7 @@ import type { OSType } from "@/lib/utils/keyboard";
 import {
   AIVORELAY_TTS_GUIDE_URL,
   CARTESIA_MODEL_OPTIONS,
+  DEEPGRAM_FLUX_SPEED_RANGE,
   ELEVENLABS_MODEL_OPTIONS,
   LOCAL_TTS_INSTALL_METADATA,
   OPENAI_MODEL_OPTIONS,
@@ -69,6 +70,7 @@ import {
   TTS_PROVIDER_DOCUMENTATION,
   TTS_PROVIDER_OPTIONS,
   TTS_PROVIDER_SPEED_RANGES,
+  isDeepgramFluxModel,
   type TtsProvider,
 } from "@/lib/tts/ttsProviderMetadata";
 
@@ -612,6 +614,49 @@ const SONIOX_VOICES: SelectOption[] = [
   "Meera",
 ].map((value) => ({ value, label: value, group: "Built-in voices" }));
 
+const DEEPGRAM_FLUX_VOICES: SelectOption[] = [
+  ["Hannah", "flux-hannah-en", "Flux TTS (v2) - Featured"],
+  ["Kit", "flux-kit-en", "Flux TTS (v2) - Featured"],
+  ["Alexis", "flux-alexis-en", "Flux TTS (v2) - Featured"],
+  ["Cliff", "flux-cliff-en", "Flux TTS (v2) - Featured"],
+  ["Sienna", "flux-sienna-en", "Flux TTS (v2) - Featured"],
+  ["Cole", "flux-cole-en", "Flux TTS (v2) - Featured"],
+  ["Brooke", "flux-brooke-en", "Flux TTS (v2) - Featured"],
+  ["Colin", "flux-colin-en", "Flux TTS (v2) - Featured"],
+  ["Gemma", "flux-gemma-en", "Flux TTS (v2) - Featured"],
+  ["Haley", "flux-haley-en", "Flux TTS (v2) - Featured"],
+  ["Heather", "flux-heather-en", "Flux TTS (v2) - Featured"],
+  ["Miles", "flux-miles-en", "Flux TTS (v2) - Featured"],
+  ["Sean", "flux-sean-en", "Flux TTS (v2) - Featured"],
+  ["Bree", "flux-bree-en", "Flux TTS (v2) - More voices"],
+  ["Brittany", "flux-brittany-en", "Flux TTS (v2) - More voices"],
+  ["Bruce", "flux-bruce-en", "Flux TTS (v2) - More voices"],
+  ["Conor", "flux-conor-en", "Flux TTS (v2) - More voices"],
+  ["Donovan", "flux-donovan-en", "Flux TTS (v2) - More voices"],
+  ["Drew", "flux-drew-en", "Flux TTS (v2) - More voices"],
+  ["Elise", "flux-elise-en", "Flux TTS (v2) - More voices"],
+  ["Jack", "flux-jack-en", "Flux TTS (v2) - More voices"],
+  ["Kai", "flux-kai-en", "Flux TTS (v2) - More voices"],
+  ["Kelsey", "flux-kelsey-en", "Flux TTS (v2) - More voices"],
+  ["Maeve", "flux-maeve-en", "Flux TTS (v2) - More voices"],
+  ["Marcelo", "flux-marcelo-en", "Flux TTS (v2) - More voices"],
+  ["Marcus", "flux-marcus-en", "Flux TTS (v2) - More voices"],
+  ["Meena", "flux-meena-en", "Flux TTS (v2) - More voices"],
+  ["Meghan", "flux-meghan-en", "Flux TTS (v2) - More voices"],
+  ["Naveen", "flux-naveen-en", "Flux TTS (v2) - More voices"],
+  ["Paige", "flux-paige-en", "Flux TTS (v2) - More voices"],
+  ["Priya", "flux-priya-en", "Flux TTS (v2) - More voices"],
+  ["Rufus", "flux-rufus-en", "Flux TTS (v2) - More voices"],
+  ["Sharon", "flux-sharon-en", "Flux TTS (v2) - More voices"],
+  ["Tanner", "flux-tanner-en", "Flux TTS (v2) - More voices"],
+  ["Wade", "flux-wade-en", "Flux TTS (v2) - More voices"],
+  ["Wes", "flux-wes-en", "Flux TTS (v2) - More voices"],
+].map(([name, value, group]) => ({
+  value,
+  label: `${name} - ${value}`,
+  group,
+}));
+
 const DEEPGRAM_AURA_2_VOICES: SelectOption[] = [
   "aura-2-amalthea-en",
   "aura-2-andromeda-en",
@@ -708,18 +753,18 @@ const DEEPGRAM_AURA_2_VOICES: SelectOption[] = [
   value,
   label: value,
   group: value.endsWith("-es")
-    ? "Spanish"
+    ? "Aura 2 (v1) - Spanish"
     : value.endsWith("-nl")
-      ? "Dutch"
+      ? "Aura 2 (v1) - Dutch"
       : value.endsWith("-fr")
-        ? "French"
+        ? "Aura 2 (v1) - French"
         : value.endsWith("-de")
-          ? "German"
+          ? "Aura 2 (v1) - German"
           : value.endsWith("-it")
-            ? "Italian"
+            ? "Aura 2 (v1) - Italian"
             : value.endsWith("-ja")
-              ? "Japanese"
-              : "English",
+              ? "Aura 2 (v1) - Japanese"
+              : "Aura 2 (v1) - English",
 }));
 
 const OPENAI_VOICES: SelectOption[] = [
@@ -1926,7 +1971,10 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     : tts.provider === "local_kokoro"
                       ? "kokoro-int8-multi-lang-v1_1"
                       : "Qwen3-TTS-12Hz-0.6B-CustomVoice";
-  const [speedMinimum, speedMaximum] = providerCapabilities.speed;
+  const [speedMinimum, speedMaximum] =
+    tts.provider === "deepgram" && isDeepgramFluxModel(tts.deepgram_model)
+      ? DEEPGRAM_FLUX_SPEED_RANGE
+      : providerCapabilities.speed;
   const elevenV3Selected =
     tts.provider === "elevenlabs" && tts.elevenlabs_model === "eleven_v3";
   const openAiInstructionsSupported =
@@ -1984,7 +2032,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       case "soniox":
         return SONIOX_VOICES;
       case "deepgram":
-        return DEEPGRAM_AURA_2_VOICES;
+        return [...DEEPGRAM_FLUX_VOICES, ...DEEPGRAM_AURA_2_VOICES];
       case "openai":
         return OPENAI_VOICES;
       case "murf": {

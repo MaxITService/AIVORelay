@@ -15,3 +15,17 @@ assert.equal(
   }),
   "OpenAI gpt-live-transcribe",
 );
+assert.equal(
+  getRemoteApiDisplayLabel({
+    provider_preset: "vercel",
+    model_id: "google/gemini-3.5-transcribe",
+  }),
+  "Vercel: Gemini 3.5 Transcribe",
+);
+assert.equal(
+  getRemoteApiDisplayLabel({
+    provider_preset: "google",
+    model_id: "gemini-3.5-transcribe",
+  }),
+  "Google: Gemini 3.5 Transcribe",
+);

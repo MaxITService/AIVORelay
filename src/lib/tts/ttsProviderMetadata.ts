@@ -25,6 +25,12 @@ export type TtsProviderDocumentation = {
   playground?: string;
 };
 
+export const DEEPGRAM_FLUX_DEFAULT_MODEL = "flux-kit-en";
+export const DEEPGRAM_FLUX_SPEED_RANGE: [number, number] = [0.85, 1.15];
+
+export const isDeepgramFluxModel = (model: string): boolean =>
+  model.trim().toLowerCase().startsWith("flux-");
+
 export const TTS_PROVIDER_OPTIONS: TtsProviderOption[] = [
   { value: "soniox", label: "Soniox", group: "Cloud" },
   { value: "deepgram", label: "Deepgram", group: "Cloud" },
@@ -58,8 +64,8 @@ export const TTS_PROVIDER_DEFAULTS: Record<
     speed: 1,
   },
   deepgram: {
-    model: "aura-2-thalia-en",
-    voice: "aura-2-thalia-en",
+    model: DEEPGRAM_FLUX_DEFAULT_MODEL,
+    voice: DEEPGRAM_FLUX_DEFAULT_MODEL,
     language: "en",
     speed: 1,
   },
@@ -140,8 +146,10 @@ export const TTS_PROVIDER_DOCUMENTATION: Record<
     authentication: "https://soniox.com/docs/tts/get-started",
   },
   deepgram: {
-    overview: "https://developers.deepgram.com/docs/text-to-speech",
-    voices: "https://developers.deepgram.com/docs/tts-models",
+    overview:
+      "https://developers.deepgram.com/docs/tts-models-languages-overview",
+    voices:
+      "https://developers.deepgram.com/docs/tts-models-languages-overview",
     parameters:
       "https://developers.deepgram.com/reference/text-to-speech/speak-request",
     authentication:

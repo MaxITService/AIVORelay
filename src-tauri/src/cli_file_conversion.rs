@@ -1539,7 +1539,10 @@ async fn convert_audio_to_text(
     let output = resolve_transcription_output(args.output.as_deref(), &input)?;
     refuse_existing_output(&output)?;
     let settings = get_settings(app);
-    let provider = transcription_provider_name(settings.transcription_provider);
+    let provider = transcription_provider_name(
+        settings.transcription_provider,
+        &settings.remote_stt.provider_preset,
+    );
 
     if !args.json {
         eprintln!(
@@ -1907,10 +1910,17 @@ fn absolute_path(path: &Path) -> Result<PathBuf, String> {
     }
 }
 
-fn transcription_provider_name(provider: TranscriptionProvider) -> &'static str {
+fn transcription_provider_name(
+    provider: TranscriptionProvider,
+    remote_provider_preset: &str,
+) -> &'static str {
     match provider {
         TranscriptionProvider::Local => "local",
-        TranscriptionProvider::RemoteOpenAiCompatible => "OpenAI-compatible",
+        TranscriptionProvider::RemoteOpenAiCompatible => match remote_provider_preset {
+            "vercel" => "Vercel AI Gateway (Gemini 3.5 Transcribe)",
+            "google" => "Google Gemini API (Gemini 3.5 Transcribe)",
+            _ => "OpenAI-compatible",
+        },
         TranscriptionProvider::RemoteSoniox => "Soniox",
         TranscriptionProvider::RemoteDeepgram => "Deepgram",
     }

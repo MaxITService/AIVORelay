@@ -24,6 +24,7 @@ const NO_PROMPT_PATTERNS = [
   "cohere",
   "sense-voice",
   "sense_voice",
+  "gemini-3.5-transcribe",
 ];
 
 export interface ModelPromptInfo {

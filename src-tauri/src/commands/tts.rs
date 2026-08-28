@@ -7,10 +7,11 @@ use crate::managers::local_tts::{
 };
 use crate::managers::provider_error::safe_text;
 use crate::managers::tts::{
-    is_tts_output_collision, FileConversionResult, TextFileInspection, TtsBatchFilePlan,
-    TtsBatchScanRequest, TtsBatchScanResult, TtsChunkReady, TtsManager, TtsOperationKind, TtsPhase,
-    TtsState, TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES, SONIOX_TTS_API_KEY_MAX_CHARS,
-    SUPPORTED_MP3_BITRATES, TTS_EVENT_BATCH_PROGRESS, TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
+    is_tts_output_collision, normalize_deepgram_tts_speed, FileConversionResult,
+    TextFileInspection, TtsBatchFilePlan, TtsBatchScanRequest, TtsBatchScanResult, TtsChunkReady,
+    TtsManager, TtsOperationKind, TtsPhase, TtsState, TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES,
+    SONIOX_TTS_API_KEY_MAX_CHARS, SUPPORTED_MP3_BITRATES, TTS_EVENT_BATCH_PROGRESS,
+    TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
 };
 use crate::managers::tts_history::{
     metadata_from_settings, NewTtsHistoryEntry, TtsHistoryManager, TtsHistoryScope,
@@ -23,7 +24,7 @@ use crate::settings::{
     get_settings, write_settings, LlmPostProcessBenchmarkResult, TtsLlmScope, TtsOperationScope,
     TtsOutputFormat, TtsPlaybackEffect, TtsProvider, TtsScopeSynthesisSettings, TtsSettings,
     TtsSynthesisConfig, APPLE_INTELLIGENCE_PROVIDER_ID, DEFAULT_TTS_CARTESIA_VOICE,
-    DEFAULT_TTS_ELEVENLABS_MODEL, DEFAULT_TTS_ELEVENLABS_VOICE,
+    DEFAULT_TTS_DEEPGRAM_MODEL, DEFAULT_TTS_ELEVENLABS_MODEL, DEFAULT_TTS_ELEVENLABS_VOICE,
     DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE, DEFAULT_TTS_OPENAI_VOICE,
     DEFAULT_TTS_SONIOX_VOICE,
 };
@@ -1626,7 +1627,7 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.soniox_model = nonempty_setting(settings.soniox_model, "tts-rt-v1");
     settings.soniox_language = nonempty_setting(settings.soniox_language, "en");
     settings.soniox_voice = nonempty_setting(settings.soniox_voice, DEFAULT_TTS_SONIOX_VOICE);
-    settings.deepgram_model = nonempty_setting(settings.deepgram_model, "aura-2-thalia-en");
+    settings.deepgram_model = nonempty_setting(settings.deepgram_model, DEFAULT_TTS_DEEPGRAM_MODEL);
     settings.openai_model = nonempty_setting(settings.openai_model, "gpt-4o-mini-tts");
     settings.openai_voice = nonempty_setting(settings.openai_voice, DEFAULT_TTS_OPENAI_VOICE);
     settings.murf_key_source = crate::settings::TtsKeySource::Separate;
@@ -1728,7 +1729,9 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.file_history_max_storage_mb = settings.file_history_max_storage_mb.clamp(1, 1_048_576);
     settings.speed = match settings.provider {
         TtsProvider::Soniox => settings.speed.clamp(0.7, 1.3),
-        TtsProvider::Deepgram => settings.speed.clamp(0.7, 1.5),
+        TtsProvider::Deepgram => {
+            normalize_deepgram_tts_speed(&settings.deepgram_model, settings.speed)
+        }
         TtsProvider::OpenAi => settings.speed.clamp(0.25, 4.0),
         TtsProvider::OpenAiCompatible => settings.speed.clamp(0.25, 4.0),
         TtsProvider::Murf => 1.0,
@@ -1789,7 +1792,10 @@ fn normalize_synthesis_config(
                 .to_ascii_lowercase();
         }
         TtsProvider::Deepgram => {
-            config.model = nonempty_setting(std::mem::take(&mut config.model), "aura-2-thalia-en");
+            config.model = nonempty_setting(
+                std::mem::take(&mut config.model),
+                DEFAULT_TTS_DEEPGRAM_MODEL,
+            );
             config.voice = config.model.clone();
             config.language.clear();
         }
@@ -1858,7 +1864,7 @@ fn normalize_synthesis_config(
     }
     config.speed = match config.provider {
         TtsProvider::Soniox => config.speed.clamp(0.7, 1.3),
-        TtsProvider::Deepgram => config.speed.clamp(0.7, 1.5),
+        TtsProvider::Deepgram => normalize_deepgram_tts_speed(&config.model, config.speed),
         TtsProvider::OpenAi | TtsProvider::OpenAiCompatible => config.speed.clamp(0.25, 4.0),
         TtsProvider::Murf => 1.0,
         TtsProvider::ElevenLabs if config.model == "eleven_v3" => 1.0,

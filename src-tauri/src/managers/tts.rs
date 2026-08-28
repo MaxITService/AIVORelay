@@ -24,8 +24,8 @@ use crate::managers::windows_tts::{self, WINDOWS_TTS_PROVIDER_LIMIT};
 use crate::settings::{
     apply_text_replacements, ElevenLabsTextNormalization, TtsKeySource, TtsLlmScope,
     TtsOutputFormat, TtsProvider, TtsSettings, DEFAULT_TTS_CARTESIA_VOICE,
-    DEFAULT_TTS_ELEVENLABS_MODEL, DEFAULT_TTS_ELEVENLABS_VOICE, DEFAULT_TTS_MURF_GEN2_VOICE,
-    DEFAULT_TTS_MURF_VOICE, DEFAULT_TTS_OPENAI_COMPATIBLE_MODEL,
+    DEFAULT_TTS_DEEPGRAM_MODEL, DEFAULT_TTS_ELEVENLABS_MODEL, DEFAULT_TTS_ELEVENLABS_VOICE,
+    DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE, DEFAULT_TTS_OPENAI_COMPATIBLE_MODEL,
     DEFAULT_TTS_OPENAI_COMPATIBLE_VOICE, DEFAULT_TTS_OPENAI_VOICE, DEFAULT_TTS_SONIOX_VOICE,
 };
 
@@ -84,7 +84,9 @@ pub const MP3_OUTPUT_SAMPLE_RATE: u32 = 32_000;
 pub const SUPPORTED_MP3_BITRATES: [u16; 6] = [64, 96, 128, 192, 256, 320];
 
 const SONIOX_TTS_URL: &str = "https://tts-rt.soniox.com/tts";
-const DEEPGRAM_TTS_URL: &str = "https://api.deepgram.com/v1/speak";
+const DEEPGRAM_AURA_TTS_URL: &str = "https://api.deepgram.com/v1/speak";
+const DEEPGRAM_FLUX_TTS_URL: &str = "https://api.deepgram.com/v2/speak";
+const DEEPGRAM_FLUX_SPEEDS: [f32; 7] = [0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15];
 const OPENAI_TTS_URL: &str = "https://api.openai.com/v1/audio/speech";
 const MURF_FALCON_TTS_URL: &str = "https://global.api.murf.ai/v1/speech/stream";
 const MURF_GEN2_TTS_URL: &str = "https://api.murf.ai/v1/speech/generate";
@@ -117,6 +119,38 @@ pub(crate) const MAX_TTS_TEXT_INPUT_BYTES: usize = 8 * 1024 * 1024;
 // from the original source so chunking and resumable manifests stay finite.
 pub(crate) const MAX_TTS_PROCESSED_TEXT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TTS_BATCH_FILES: usize = 100_000;
+
+pub(crate) fn is_deepgram_flux_tts_model(model: &str) -> bool {
+    model
+        .trim()
+        .get(..5)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("flux-"))
+}
+
+fn deepgram_tts_url(model: &str) -> &'static str {
+    if is_deepgram_flux_tts_model(model) {
+        DEEPGRAM_FLUX_TTS_URL
+    } else {
+        DEEPGRAM_AURA_TTS_URL
+    }
+}
+
+pub(crate) fn normalize_deepgram_tts_speed(model: &str, speed: f32) -> f32 {
+    let speed = if speed.is_finite() { speed } else { 1.0 };
+    if !is_deepgram_flux_tts_model(model) {
+        return speed.clamp(0.7, 1.5);
+    }
+
+    DEEPGRAM_FLUX_SPEEDS
+        .iter()
+        .copied()
+        .min_by(|left, right| {
+            (speed - left)
+                .abs()
+                .total_cmp(&(speed - right).abs())
+        })
+        .unwrap_or(1.0)
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -911,7 +945,7 @@ impl TtsManager {
                     voices,
                     source: "live".to_string(),
                     supports_live_refresh: true,
-                    replace_builtin: true,
+                    replace_builtin: false,
                     warning: None,
                 })
             }
@@ -3432,21 +3466,19 @@ impl TtsManager {
                     }))
             }
             TtsProvider::Deepgram => {
+                let model = nonempty_or(&settings.deepgram_model, DEFAULT_TTS_DEEPGRAM_MODEL);
                 let query = vec![
-                    (
-                        "model".to_string(),
-                        nonempty_or(&settings.deepgram_model, "aura-2-thalia-en").to_string(),
-                    ),
+                    ("model".to_string(), model.to_string()),
                     ("encoding".to_string(), "linear16".to_string()),
                     ("container".to_string(), "none".to_string()),
                     ("sample_rate".to_string(), "24000".to_string()),
                     (
                         "speed".to_string(),
-                        settings.speed.clamp(0.7, 1.5).to_string(),
+                        normalize_deepgram_tts_speed(model, settings.speed).to_string(),
                     ),
                 ];
                 self.client
-                    .post(DEEPGRAM_TTS_URL)
+                    .post(deepgram_tts_url(model))
                     .query(&query)
                     .header("Authorization", format!("Token {api_key}"))
                     .json(&json!({ "text": text }))
@@ -6025,6 +6057,19 @@ fn mp3_encode_buffer_capacity(input_samples: usize, input_sample_rate: u32) -> u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deepgram_tts_routes_flux_and_aura_to_their_required_endpoints() {
+        assert_eq!(deepgram_tts_url("flux-kit-en"), DEEPGRAM_FLUX_TTS_URL);
+        assert_eq!(deepgram_tts_url("aura-2-thalia-en"), DEEPGRAM_AURA_TTS_URL);
+    }
+
+    #[test]
+    fn deepgram_flux_speed_uses_supported_steps() {
+        assert_eq!(normalize_deepgram_tts_speed("flux-kit-en", 0.7), 0.85);
+        assert_eq!(normalize_deepgram_tts_speed("flux-kit-en", 1.08), 1.1);
+        assert_eq!(normalize_deepgram_tts_speed("aura-2-thalia-en", 1.4), 1.4);
+    }
 
     #[test]
     fn cloud_voice_catalog_parsers_keep_provider_ids_and_groups() {

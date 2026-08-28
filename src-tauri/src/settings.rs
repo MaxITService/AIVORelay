@@ -919,6 +919,7 @@ pub enum TtsProvider {
 }
 
 pub(crate) const DEFAULT_TTS_SONIOX_VOICE: &str = "Maya";
+pub(crate) const DEFAULT_TTS_DEEPGRAM_MODEL: &str = "flux-kit-en";
 pub(crate) const DEFAULT_TTS_OPENAI_VOICE: &str = "marin";
 pub(crate) const DEFAULT_TTS_OPENAI_COMPATIBLE_BASE_URL: &str = "https://api.openai.com/v1";
 pub(crate) const DEFAULT_TTS_OPENAI_COMPATIBLE_MODEL: &str = "tts-1";
@@ -929,7 +930,7 @@ pub(crate) const DEFAULT_TTS_ELEVENLABS_MODEL: &str = "eleven_flash_v2_5";
 pub(crate) const DEFAULT_TTS_ELEVENLABS_VOICE: &str = "JBFqnCBsd6RMkjVDRZzb";
 pub(crate) const DEFAULT_TTS_CARTESIA_VOICE: &str =
     "f786b574-daa5-4673-aa0c-cbe3e8534c02";
-const DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION: u8 = 3;
+const DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION: u8 = 4;
 // Deepgram recommends requests close to its 2,000-character maximum when
 // chunking long input: https://developers.deepgram.com/docs/text-to-speech-latency
 const DEEPGRAM_RECOMMENDED_INTERACTIVE_TARGET_CHARS: u32 = 2_000;
@@ -1629,6 +1630,15 @@ fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
             "tts-rt-v1",
             "Daniel",
             "en",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_deepgram_flux_kit",
+            "Deepgram Flux — Kit (Recommended)",
+            TtsProvider::Deepgram,
+            DEFAULT_TTS_DEEPGRAM_MODEL,
+            DEFAULT_TTS_DEEPGRAM_MODEL,
+            "",
             1.0,
         ),
         builtin_tts_synthesis_preset(
@@ -4332,7 +4342,7 @@ fn default_tts_soniox_voice() -> String {
 }
 
 fn default_tts_deepgram_model() -> String {
-    "aura-2-thalia-en".to_string()
+    DEFAULT_TTS_DEEPGRAM_MODEL.to_string()
 }
 
 fn default_tts_openai_model() -> String {
@@ -6309,12 +6319,15 @@ fn ensure_default_tts_synthesis_presets(settings: &mut AppSettings) -> bool {
         "builtin_tts_cartesia_sonic_3_5",
     ];
     const VERSION_THREE_PRESET_IDS: [&str; 1] = ["builtin_tts_elevenlabs_flash_v2_5"];
+    const VERSION_FOUR_PRESET_IDS: [&str; 1] = ["builtin_tts_deepgram_flux_kit"];
     for preset in default_tts_synthesis_presets().into_iter().filter(|preset| {
         previous_seed_version == 0
             || (previous_seed_version < 2
                 && VERSION_TWO_PRESET_IDS.contains(&preset.id.as_str()))
             || (previous_seed_version < 3
                 && VERSION_THREE_PRESET_IDS.contains(&preset.id.as_str()))
+            || (previous_seed_version < 4
+                && VERSION_FOUR_PRESET_IDS.contains(&preset.id.as_str()))
     }) {
         if settings.tts.synthesis_presets.len() >= 100 {
             break;
@@ -7586,7 +7599,7 @@ mod tests {
         assert_eq!(settings.soniox_model, "tts-rt-v1");
         assert_eq!(settings.soniox_language, "en");
         assert_eq!(settings.soniox_voice, "Maya");
-        assert_eq!(settings.deepgram_model, "aura-2-thalia-en");
+        assert_eq!(settings.deepgram_model, DEFAULT_TTS_DEEPGRAM_MODEL);
         assert_eq!(settings.openai_model, "gpt-4o-mini-tts");
         assert_eq!(settings.openai_voice, "marin");
         assert_eq!(settings.murf_model, "falcon-2");
@@ -7693,7 +7706,7 @@ mod tests {
         assert_eq!(settings.tts.synthesis_presets_seed_version, 0);
 
         assert!(ensure_default_tts_synthesis_presets(&mut settings));
-        assert_eq!(settings.tts.synthesis_presets.len(), 20);
+        assert_eq!(settings.tts.synthesis_presets.len(), 21);
         assert_eq!(
             settings.tts.synthesis_presets_seed_version,
             DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION
@@ -7715,7 +7728,8 @@ mod tests {
             TtsProvider::LocalKokoro,
             TtsProvider::Windows,
         ] {
-            assert_eq!(provider_counts.get(provider.as_str()), Some(&2));
+            let expected = if provider == TtsProvider::Deepgram { 3 } else { 2 };
+            assert_eq!(provider_counts.get(provider.as_str()), Some(&expected));
         }
         assert_eq!(provider_counts.get(TtsProvider::ElevenLabs.as_str()), Some(&3));
         assert_eq!(provider_counts.get(TtsProvider::Cartesia.as_str()), Some(&1));
@@ -7759,15 +7773,24 @@ mod tests {
             .tts
             .synthesis_presets
             .retain(|preset| preset.id != "builtin_tts_edge_aria");
+        settings
+            .tts
+            .synthesis_presets
+            .retain(|preset| preset.id != "builtin_tts_deepgram_flux_kit");
         settings.tts.synthesis_presets_seed_version = 1;
 
         assert!(ensure_default_tts_synthesis_presets(&mut settings));
-        assert_eq!(settings.tts.synthesis_presets.len(), 19);
+        assert_eq!(settings.tts.synthesis_presets.len(), 20);
         assert!(!settings
             .tts
             .synthesis_presets
             .iter()
             .any(|preset| preset.id == "builtin_tts_edge_aria"));
+        assert!(settings
+            .tts
+            .synthesis_presets
+            .iter()
+            .any(|preset| preset.id == "builtin_tts_deepgram_flux_kit"));
         assert_eq!(
             settings
                 .tts

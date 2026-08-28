@@ -298,6 +298,12 @@ pub async fn transcribe_audio_file(
                 .to_string(),
         );
     }
+    // Reserve the remote operation before decoding so Cancel can also stop a
+    // file that has not reached network I/O yet.
+    let remote_operation_id = use_remote.then(|| {
+        app.state::<Arc<RemoteSttManager>>()
+            .start_operation()
+    });
     let _local_transcription_guard = if use_local {
         Some(
             app.state::<Arc<TranscriptionManager>>()
@@ -339,9 +345,9 @@ pub async fn transcribe_audio_file(
 
     let mut local_execution_meta = None;
     let (transcription_text, segments) = if use_remote {
-        // Remote STT - currently doesn't support segments
+        // Remote STT; timestamp-capable models can also return subtitle segments.
         let remote_manager = app.state::<Arc<RemoteSttManager>>();
-        let operation_id = remote_manager.start_operation();
+        let operation_id = remote_operation_id.expect("remote operation ID must be reserved");
 
         // Determine translate_to_english: use profile setting if available, otherwise global setting
         let translate_to_english = profile
@@ -392,7 +398,7 @@ pub async fn transcribe_audio_file(
                 require_remote_segments(
                     transcript.segments,
                     &corrected,
-                    "the selected OpenAI-compatible model",
+                    "the selected remote model",
                 )?,
                 &settings,
                 should_apply_custom_words,
