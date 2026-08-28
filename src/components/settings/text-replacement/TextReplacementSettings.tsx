@@ -75,6 +75,93 @@ const splitShortcutTokens = (binding: string): string[] =>
     .map((part) => part.trim().toLowerCase())
     .filter((part) => part.length > 0);
 
+interface ColumnSortControlProps {
+  column: "find" | "replacement";
+  direction: TextReplacementColumnSortDirection;
+  onChange: (direction: TextReplacementColumnSortDirection) => void;
+  onTurnOff: () => void;
+}
+
+function ColumnSortControl({
+  column,
+  direction,
+  onChange,
+  onTurnOff,
+}: ColumnSortControlProps) {
+  const { t } = useTranslation();
+  const isFindColumn = column === "find";
+  const label = isFindColumn
+    ? t("textReplacement.findTextColumn", "Find Text")
+    : t("textReplacement.replaceWithColumn", "Replace with");
+  const ariaLabel = isFindColumn
+    ? t("textReplacement.sortFindTextLabel", "Sort Find Text")
+    : t("textReplacement.sortReplaceWithLabel", "Sort Replace with");
+  const offTooltip = t(
+    "textReplacement.sortOffTooltip",
+    "Off restores the order in which rules were added, oldest first. Shift-click either sorting control to turn sorting off.",
+  );
+  const activeTooltip = t(
+    "textReplacement.sortShiftClickTooltip",
+    "Shift-click to turn sorting off.",
+  );
+  const handleMouseDown = (event: React.MouseEvent<HTMLSelectElement>) => {
+    if (!event.shiftKey) return;
+    event.preventDefault();
+    onTurnOff();
+    event.currentTarget.blur();
+  };
+
+  return (
+    <div className="flex min-w-0 flex-1 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+      <span className="truncate text-xs font-medium text-[#a8a8a8]">
+        {label}
+      </span>
+      <Tooltip
+        content={direction === "off" ? offTooltip : activeTooltip}
+        position="top"
+      >
+        <span className="relative inline-block w-[5.75rem] shrink-0">
+          <ArrowUpDown
+            className={`pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 ${
+              direction === "off" ? "text-[#606060]" : "text-[#c69cff]"
+            }`}
+            aria-hidden="true"
+          />
+          <select
+            value={direction}
+            onMouseDown={handleMouseDown}
+            onChange={(event) =>
+              onChange(
+                event.target.value as TextReplacementColumnSortDirection,
+              )
+            }
+            aria-label={ariaLabel}
+            className={`min-h-7 w-full appearance-none rounded-md border bg-[#181818] py-1 pl-7 pr-7 text-xs outline-none transition-colors focus:border-[#9b5de5] [color-scheme:dark] ${
+              direction === "off"
+                ? "border-[#3c3c3c] text-[#8a8a8a] hover:border-[#505050]"
+                : "border-[#9b5de5] text-[#c69cff]"
+            }`}
+          >
+            <option value="off" title={offTooltip}>
+              {t("textReplacement.sortOff", "Off")}
+            </option>
+            <option value="asc">
+              {t("textReplacement.sortAscending", "A → Z")}
+            </option>
+            <option value="desc">
+              {t("textReplacement.sortDescending", "Z → A")}
+            </option>
+          </select>
+          <ChevronDown
+            className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#707070]"
+            aria-hidden="true"
+          />
+        </span>
+      </Tooltip>
+    </div>
+  );
+}
+
 export const TextReplacementSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting, isUpdating } = useSettings();
@@ -170,20 +257,6 @@ export const TextReplacementSettings: React.FC = () => {
         : (`${column}-${direction}` as TextReplacementSortOrder),
     );
   };
-  const handleSortMouseDown = (event: React.MouseEvent<HTMLSelectElement>) => {
-    if (!event.shiftKey) return;
-    event.preventDefault();
-    setRuleSortOrder("added");
-    event.currentTarget.blur();
-  };
-  const sortOffTooltip = t(
-    "textReplacement.sortOffTooltip",
-    "Off restores the order in which rules were added, oldest first. Shift-click either sorting control to turn sorting off.",
-  );
-  const sortShiftClickTooltip = t(
-    "textReplacement.sortShiftClickTooltip",
-    "Shift-click to turn sorting off.",
-  );
   const isEnabled = settings?.text_replacements_enabled ?? false;
   const decapitalizeAfterEditEnabled =
     settings?.text_replacement_decapitalize_after_edit_key_enabled ?? false;
@@ -1489,123 +1562,23 @@ export const TextReplacementSettings: React.FC = () => {
             <div className="mb-2 flex items-center gap-3 px-3">
               <span className="h-4 w-4 shrink-0" aria-hidden="true" />
 
-              <div className="flex min-w-0 flex-1 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
-                <span className="truncate text-xs font-medium text-[#a8a8a8]">
-                  {t("textReplacement.findTextColumn", "Find Text")}
-                </span>
-                <Tooltip
-                  content={
-                    findSortDirection === "off"
-                      ? sortOffTooltip
-                      : sortShiftClickTooltip
-                  }
-                  position="top"
-                >
-                  <span className="relative inline-block w-[5.75rem] shrink-0">
-                    <ArrowUpDown
-                      className={`pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 ${
-                        findSortDirection === "off"
-                          ? "text-[#606060]"
-                          : "text-[#c69cff]"
-                      }`}
-                      aria-hidden="true"
-                    />
-                    <select
-                      value={findSortDirection}
-                      onMouseDown={handleSortMouseDown}
-                      onChange={(event) =>
-                        setColumnSort(
-                          "find",
-                          event.target.value as TextReplacementColumnSortDirection,
-                        )
-                      }
-                      aria-label={t(
-                        "textReplacement.sortFindTextLabel",
-                        "Sort Find Text",
-                      )}
-                      className={`min-h-7 w-full appearance-none rounded-md border bg-[#181818] py-1 pl-7 pr-7 text-xs outline-none transition-colors focus:border-[#9b5de5] [color-scheme:dark] ${
-                        findSortDirection === "off"
-                          ? "border-[#3c3c3c] text-[#8a8a8a] hover:border-[#505050]"
-                          : "border-[#9b5de5] text-[#c69cff]"
-                      }`}
-                    >
-                      <option value="off" title={sortOffTooltip}>
-                        {t("textReplacement.sortOff", "Off")}
-                      </option>
-                      <option value="asc">
-                        {t("textReplacement.sortAscending", "A → Z")}
-                      </option>
-                      <option value="desc">
-                        {t("textReplacement.sortDescending", "Z → A")}
-                      </option>
-                    </select>
-                    <ChevronDown
-                      className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#707070]"
-                      aria-hidden="true"
-                    />
-                  </span>
-                </Tooltip>
-              </div>
+              <ColumnSortControl
+                column="find"
+                direction={findSortDirection}
+                onChange={(direction) => setColumnSort("find", direction)}
+                onTurnOff={() => setRuleSortOrder("added")}
+              />
 
               <span className="h-4 w-4 shrink-0" aria-hidden="true" />
 
-              <div className="flex min-w-0 flex-1 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
-                <span className="truncate text-xs font-medium text-[#a8a8a8]">
-                  {t("textReplacement.replaceWithColumn", "Replace with")}
-                </span>
-                <Tooltip
-                  content={
-                    replacementSortDirection === "off"
-                      ? sortOffTooltip
-                      : sortShiftClickTooltip
-                  }
-                  position="top"
-                >
-                  <span className="relative inline-block w-[5.75rem] shrink-0">
-                    <ArrowUpDown
-                      className={`pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 ${
-                        replacementSortDirection === "off"
-                          ? "text-[#606060]"
-                          : "text-[#c69cff]"
-                      }`}
-                      aria-hidden="true"
-                    />
-                    <select
-                      value={replacementSortDirection}
-                      onMouseDown={handleSortMouseDown}
-                      onChange={(event) =>
-                        setColumnSort(
-                          "replacement",
-                          event.target.value as TextReplacementColumnSortDirection,
-                        )
-                      }
-                      aria-label={t(
-                        "textReplacement.sortReplaceWithLabel",
-                        "Sort Replace with",
-                      )}
-                      className={`min-h-7 w-full appearance-none rounded-md border bg-[#181818] py-1 pl-7 pr-7 text-xs outline-none transition-colors focus:border-[#9b5de5] [color-scheme:dark] ${
-                        replacementSortDirection === "off"
-                          ? "border-[#3c3c3c] text-[#8a8a8a] hover:border-[#505050]"
-                          : "border-[#9b5de5] text-[#c69cff]"
-                      }`}
-                    >
-                      <option value="off" title={sortOffTooltip}>
-                        {t("textReplacement.sortOff", "Off")}
-                      </option>
-                      <option value="asc">
-                        {t("textReplacement.sortAscending", "A → Z")}
-                      </option>
-                      <option value="desc">
-                        {t("textReplacement.sortDescending", "Z → A")}
-                      </option>
-                    </select>
-                    <ChevronDown
-                      className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#707070]"
-                      aria-hidden="true"
-                    />
-                  </span>
-                </Tooltip>
-              </div>
+              <ColumnSortControl
+                column="replacement"
+                direction={replacementSortDirection}
+                onChange={(direction) =>
+                  setColumnSort("replacement", direction)
+                }
+                onTurnOff={() => setRuleSortOrder("added")}
+              />
 
               <span className="h-7 w-10 shrink-0" aria-hidden="true" />
             </div>
