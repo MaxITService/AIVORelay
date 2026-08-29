@@ -725,18 +725,18 @@ impl TtsHistoryManager {
         );
         let mut deleted = 0;
         for (entry, _) in entry_sizes.into_iter().take(delete_count) {
-            let (status, error) = self.remove_managed_audio(&entry.managed_audio_filename);
-            if status == TtsHistoryManagedAudioDeleteStatus::Failed {
-                return Err(anyhow!(
-                    "Could not remove oldest TTS History result {} while applying retention limits: {}",
-                    entry.id,
-                    error.as_deref().unwrap_or("unknown filesystem error")
-                ));
-            }
             let affected =
                 connection.execute("DELETE FROM tts_history WHERE id = ?1", params![entry.id])?;
             if affected != 0 {
                 deleted += 1;
+                let (status, error) = self.remove_managed_audio(&entry.managed_audio_filename);
+                if status == TtsHistoryManagedAudioDeleteStatus::Failed {
+                    log::warn!(
+                        "Deleted TTS History record {} but could not remove its managed audio: {}",
+                        entry.id,
+                        error.as_deref().unwrap_or("unknown filesystem error")
+                    );
+                }
             }
         }
         Ok(deleted)
@@ -769,7 +769,7 @@ impl TtsHistoryManager {
         };
         if outcome.managed_audio_status == TtsHistoryManagedAudioDeleteStatus::Failed {
             return Err(anyhow!(
-                "History record {id} was kept because its retained audio could not be removed: {}",
+                "History record {id} was deleted, but its retained audio could not be removed: {}",
                 outcome
                     .managed_audio_error
                     .as_deref()
@@ -779,10 +779,9 @@ impl TtsHistoryManager {
         Ok(true)
     }
 
-    /// Deletes the database row only after its managed audio was deleted or was
-    /// already missing. A filesystem failure leaves the row available for a
-    /// later retry. External user output paths are metadata only and are never
-    /// touched.
+    /// Commits the database deletion before removing managed audio so a SQLite
+    /// rollback can never leave a retained record pointing at a deleted file.
+    /// External user output paths are metadata only and are never touched.
     pub fn delete_entry_detailed(&self, id: i64) -> Result<Option<TtsHistoryDeleteOutcome>> {
         let _mutation_guard = self.mutation_lock.lock();
         let mut connection = self.connection()?;
@@ -792,18 +791,10 @@ impl TtsHistoryManager {
         };
         let deleted = transaction.execute("DELETE FROM tts_history WHERE id = ?1", params![id])?;
         debug_assert_eq!(deleted, 1);
-        let (managed_audio_status, managed_audio_error) =
-            self.remove_managed_audio(&entry.managed_audio_filename);
-        if managed_audio_status == TtsHistoryManagedAudioDeleteStatus::Failed {
-            return Ok(Some(TtsHistoryDeleteOutcome {
-                id,
-                record_deleted: false,
-                managed_audio_status,
-                managed_audio_error,
-            }));
-        }
         transaction.commit()?;
         let _ = self.app_handle.emit(TTS_HISTORY_CHANGED_EVENT, ());
+        let (managed_audio_status, managed_audio_error) =
+            self.remove_managed_audio(&entry.managed_audio_filename);
         Ok(Some(TtsHistoryDeleteOutcome {
             id,
             record_deleted: true,
@@ -827,18 +818,25 @@ impl TtsHistoryManager {
             "DELETE FROM tts_history WHERE scope = ?1",
             params![scope_to_db(scope)],
         )?;
-        for filename in filenames {
-            let (status, error) = self.remove_managed_audio(&filename);
-            if status == TtsHistoryManagedAudioDeleteStatus::Failed {
-                return Err(anyhow!(
-                    "TTS History records were kept because managed audio removal failed: {}",
-                    error.as_deref().unwrap_or("unknown filesystem error")
-                ));
-            }
-        }
         transaction.commit()?;
         if deleted != 0 {
             let _ = self.app_handle.emit(TTS_HISTORY_CHANGED_EVENT, ());
+        }
+        let mut cleanup_failures = Vec::new();
+        for filename in filenames {
+            let (status, error) = self.remove_managed_audio(&filename);
+            if status == TtsHistoryManagedAudioDeleteStatus::Failed {
+                cleanup_failures.push(
+                    error.unwrap_or_else(|| "unknown filesystem error".to_string()),
+                );
+            }
+        }
+        if !cleanup_failures.is_empty() {
+            return Err(anyhow!(
+                "TTS History records were deleted, but {} managed audio file(s) could not be removed: {}",
+                cleanup_failures.len(),
+                cleanup_failures.join("; ")
+            ));
         }
         Ok(deleted)
     }

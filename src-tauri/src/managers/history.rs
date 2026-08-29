@@ -469,12 +469,11 @@ impl HistoryManager {
         let mut deleted_count = 0;
 
         for (id, _) in entries {
-            match self.delete_entry(*id) {
+            match self.delete_unsaved_entry(*id) {
                 Ok(true) => deleted_count += 1,
                 Ok(false) => {}
                 Err(error) => {
-                    // Retention cleanup is best-effort. Keep both the database
-                    // row and audio file so a later cleanup can retry safely.
+                    deleted_count += error.deleted_count;
                     error!("Failed to clean up history entry {}: {}", id, error);
                 }
             }
@@ -723,10 +722,11 @@ impl HistoryManager {
     }
 
     pub async fn toggle_saved_status(&self, id: i64) -> Result<()> {
-        let conn = self.get_connection()?;
+        let mut conn = self.get_connection()?;
+        let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         // Get current saved status
-        let current_saved: bool = conn.query_row(
+        let current_saved: bool = transaction.query_row(
             "SELECT saved FROM transcription_history WHERE id = ?1",
             params![id],
             |row| row.get("saved"),
@@ -734,10 +734,11 @@ impl HistoryManager {
 
         let new_saved = !current_saved;
 
-        conn.execute(
+        transaction.execute(
             "UPDATE transcription_history SET saved = ?1 WHERE id = ?2",
             params![new_saved, id],
         )?;
+        transaction.commit()?;
 
         debug!("Toggled saved status for entry {}: {}", id, new_saved);
 
@@ -768,11 +769,25 @@ impl HistoryManager {
         Ok(entry)
     }
 
-    /// Deletes a history row only when its last-referenced managed audio file
-    /// was deleted or was already missing. The database deletion stays inside
-    /// an uncommitted transaction while the filesystem operation runs, so a
-    /// sharing or permission error rolls the row back and leaves it retryable.
     pub fn delete_entry(&self, id: i64) -> std::result::Result<bool, HistoryDeleteError> {
+        self.delete_entry_matching(id, false)
+    }
+
+    /// Retention candidates are snapshots. Re-check `saved` while holding the
+    /// SQLite write transaction so a newly saved entry cannot be deleted from
+    /// a stale cleanup list.
+    fn delete_unsaved_entry(
+        &self,
+        id: i64,
+    ) -> std::result::Result<bool, HistoryDeleteError> {
+        self.delete_entry_matching(id, true)
+    }
+
+    fn delete_entry_matching(
+        &self,
+        id: i64,
+        require_unsaved: bool,
+    ) -> std::result::Result<bool, HistoryDeleteError> {
         let mut conn = self
             .get_connection()
             .map_err(|error| HistoryDeleteError::database(error, 1))?;
@@ -780,9 +795,14 @@ impl HistoryManager {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|error| HistoryDeleteError::database(error, 1))?;
 
+        let select_sql = if require_unsaved {
+            "SELECT file_name FROM transcription_history WHERE id = ?1 AND saved = 0"
+        } else {
+            "SELECT file_name FROM transcription_history WHERE id = ?1"
+        };
         let file_name = transaction
             .query_row(
-                "SELECT file_name FROM transcription_history WHERE id = ?1",
+                select_sql,
                 params![id],
                 |row| row.get::<_, String>(0),
             )
@@ -792,32 +812,43 @@ impl HistoryManager {
             return Ok(false);
         };
 
+        let delete_sql = if require_unsaved {
+            "DELETE FROM transcription_history WHERE id = ?1 AND saved = 0"
+        } else {
+            "DELETE FROM transcription_history WHERE id = ?1"
+        };
         let deleted = transaction
-            .execute(
-                "DELETE FROM transcription_history WHERE id = ?1",
-                params![id],
-            )
+            .execute(delete_sql, params![id])
             .map_err(|error| HistoryDeleteError::database(error, 1))?;
         debug_assert_eq!(deleted, 1);
 
-        if !file_name.is_empty() {
+        let remove_audio = if file_name.is_empty() {
+            false
+        } else {
             let has_other = Self::has_file_reference(&transaction, &file_name)
                 .map_err(|error| HistoryDeleteError::database(error, 1))?;
-            if !has_other {
-                self.remove_history_audio(&file_name)?;
-            }
-        }
+            !has_other
+        };
 
         transaction
             .commit()
             .map_err(|error| HistoryDeleteError::database(error, 1))?;
         debug!("Deleted history entry with id: {}", id);
         self.emit_history_deleted(id);
+
+        if remove_audio {
+            if let Err(mut error) = self.remove_history_audio(&file_name) {
+                error.deleted_count = 1;
+                error.remaining_count = 0;
+                return Err(error);
+            }
+        }
+
         Ok(true)
     }
 
-    /// Deletes every entry it can safely remove. Entries whose audio is locked
-    /// or protected stay in History, while unrelated entries still succeed.
+    /// Deletes every requested database entry. Managed-audio cleanup runs only
+    /// after each row is committed, so cleanup failures cannot corrupt History.
     pub fn delete_all_entries(&self) -> std::result::Result<usize, HistoryDeleteError> {
         let ids = {
             let conn = self
@@ -842,6 +873,7 @@ impl HistoryManager {
                 Ok(true) => deleted_count += 1,
                 Ok(false) => {}
                 Err(error) => {
+                    deleted_count += error.deleted_count;
                     let database_failed = error
                         .failures
                         .iter()

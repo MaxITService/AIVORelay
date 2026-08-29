@@ -4863,17 +4863,25 @@ async fn paste_preview_buffer_to_target(
 
     let ah_for_paste = app.clone();
     let main_thread_timeout_ms = get_settings(app).paste_delay_ms.saturating_add(1500);
-    run_on_main_thread_sync(app, main_thread_timeout_ms, move || {
+    let paste_result = run_on_main_thread_sync_with_result(app, main_thread_timeout_ms, move || {
         if operation_stamp.is_some_and(|stamp| stamp.was_cancelled(&ah_for_paste)) {
-            return;
+            return Ok(false);
         }
-        match utils::paste(text, ah_for_paste.clone()) {
-            Ok(()) => play_result_ready_sound(&ah_for_paste),
-            Err(err) => warn!("Preview paste failed: {}", err),
-        }
-    })?;
+        utils::paste(text, ah_for_paste.clone())?;
+        play_result_ready_sound(&ah_for_paste);
+        Ok(true)
+    })
+    .and_then(|result: Result<bool, String>| result);
 
-    Ok(true)
+    match paste_result {
+        Ok(pasted) => Ok(pasted),
+        Err(err) => {
+            warn!("Preview paste failed: {}", err);
+            crate::managers::preview_output_mode::set_error(app, Some(err.clone()));
+            crate::overlay::show_live_preview_window(app);
+            Err(err)
+        }
+    }
 }
 
 async fn finalize_preview_workflow_after_stop(
@@ -4927,17 +4935,28 @@ fn run_on_main_thread_sync<F>(app: &AppHandle, timeout_ms: u64, f: F) -> Result<
 where
     F: FnOnce() + Send + 'static,
 {
-    let (tx, rx) = std::sync::mpsc::channel::<()>();
-    app.run_on_main_thread(move || {
+    run_on_main_thread_sync_with_result(app, timeout_ms, move || {
         f();
-        let _ = tx.send(());
+    })
+}
+
+fn run_on_main_thread_sync_with_result<F, T>(
+    app: &AppHandle,
+    timeout_ms: u64,
+    f: F,
+) -> Result<T, String>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let (tx, rx) = std::sync::mpsc::channel::<T>();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(f());
     })
     .map_err(|err| format!("Failed to dispatch main-thread task: {}", err))?;
 
     rx.recv_timeout(Duration::from_millis(timeout_ms))
-        .map_err(|err| format!("Timed out waiting for main-thread task: {}", err))?;
-
-    Ok(())
+        .map_err(|err| format!("Timed out waiting for main-thread task: {}", err))
 }
 
 /// Queue clipboard restoration behind every previously dispatched main-thread
