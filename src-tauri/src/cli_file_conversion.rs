@@ -30,7 +30,9 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
@@ -40,6 +42,157 @@ const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 const TTS_LLM_INSTRUCTIONS_MAX_CHARS: usize = 32_768;
 const UTF8_BOM_BYTES: usize = 3;
 const UTF8_MAX_BYTES_PER_CHAR: usize = 4;
+const HEADLESS_CONTROL_FILE_PREFIX: &str = "aivorelay-headless-conversion-";
+const HEADLESS_CONTROL_FILE_SUFFIX: &str = ".ctl";
+static HEADLESS_CANCEL_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+pub struct HeadlessCancelListener {
+    registry_path: PathBuf,
+    shutdown: Arc<AtomicBool>,
+}
+
+impl Drop for HeadlessCancelListener {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        let _ = fs::remove_file(&self.registry_path);
+    }
+}
+
+fn headless_control_dir() -> PathBuf {
+    std::env::temp_dir().join("aivorelay-headless-control")
+}
+
+fn cancel_active_headless_conversion(app: &AppHandle) {
+    if let Some(manager) = app.try_state::<Arc<TtsManager>>() {
+        manager.cancel_active_batch();
+        let operation_id = manager.current_state().operation_id;
+        if operation_id != 0 {
+            manager.cancel_operation(operation_id);
+        }
+    }
+    if let Some(manager) = app.try_state::<Arc<TranscriptionManager>>() {
+        manager.cancel_file_transcription();
+    }
+    if let Some(manager) = app.try_state::<Arc<RemoteSttManager>>() {
+        manager.cancel();
+    }
+    if let Some(manager) = app.try_state::<Arc<SonioxSttManager>>() {
+        manager.cancel();
+    }
+    if let Some(manager) = app.try_state::<Arc<DeepgramSttManager>>() {
+        manager.cancel();
+    }
+}
+
+pub fn start_headless_cancel_listener(
+    app: &AppHandle,
+) -> Result<HeadlessCancelListener, String> {
+    HEADLESS_CANCEL_REQUESTED.store(false, Ordering::SeqCst);
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|error| format!("Failed to open headless cancellation endpoint: {error}"))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| format!("Failed to configure headless cancellation endpoint: {error}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|error| format!("Failed to read headless cancellation endpoint: {error}"))?
+        .port();
+    let token = format!(
+        "{}-{}-{}",
+        std::process::id(),
+        port,
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
+    let control_dir = headless_control_dir();
+    fs::create_dir_all(&control_dir).map_err(|error| {
+        format!("Failed to create headless cancellation directory: {error}")
+    })?;
+    let registry_path = control_dir.join(format!(
+        "{HEADLESS_CONTROL_FILE_PREFIX}{}-{port}{HEADLESS_CONTROL_FILE_SUFFIX}",
+        std::process::id()
+    ));
+    fs::write(&registry_path, format!("{port}\n{token}\n")).map_err(|error| {
+        format!("Failed to publish headless cancellation endpoint: {error}")
+    })?;
+
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let thread_shutdown = Arc::clone(&shutdown);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        while !thread_shutdown.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+                    let mut request = String::new();
+                    let _ = (&mut stream).take(512).read_to_string(&mut request);
+                    if request.trim() == token {
+                        HEADLESS_CANCEL_REQUESTED.store(true, Ordering::SeqCst);
+                        cancel_active_headless_conversion(&app);
+                        let _ = stream.write_all(b"ok\n");
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    Ok(HeadlessCancelListener {
+        registry_path,
+        shutdown,
+    })
+}
+
+pub fn request_headless_conversion_cancel() -> bool {
+    let Ok(entries) = fs::read_dir(headless_control_dir()) else {
+        return false;
+    };
+    let mut cancelled = false;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !file_name.starts_with(HEADLESS_CONTROL_FILE_PREFIX)
+            || !file_name.ends_with(HEADLESS_CONTROL_FILE_SUFFIX)
+        {
+            continue;
+        }
+        let Ok(control) = fs::read_to_string(&path) else {
+            let _ = fs::remove_file(&path);
+            continue;
+        };
+        let mut lines = control.lines();
+        let Some(port) = lines.next().and_then(|value| value.parse::<u16>().ok()) else {
+            let _ = fs::remove_file(&path);
+            continue;
+        };
+        let Some(token) = lines.next().filter(|value| !value.is_empty()) else {
+            let _ = fs::remove_file(&path);
+            continue;
+        };
+        let address = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+        let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(400)) else {
+            let _ = fs::remove_file(&path);
+            continue;
+        };
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+        if stream.write_all(format!("{token}\n").as_bytes()).is_err() {
+            continue;
+        }
+        let _ = stream.shutdown(Shutdown::Write);
+        let mut response = String::new();
+        if stream.read_to_string(&mut response).is_ok() && response.trim() == "ok" {
+            cancelled = true;
+        }
+    }
+    cancelled
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CliFileConversionKind {
@@ -72,6 +225,21 @@ impl CliFailure {
             exit_code: 1,
             message: message.into(),
         }
+    }
+
+    fn cancelled() -> Self {
+        Self {
+            exit_code: 130,
+            message: "File conversion was cancelled".to_string(),
+        }
+    }
+}
+
+fn ensure_headless_conversion_not_cancelled() -> Result<(), CliFailure> {
+    if HEADLESS_CANCEL_REQUESTED.load(Ordering::SeqCst) {
+        Err(CliFailure::cancelled())
+    } else {
+        Ok(())
     }
 }
 
@@ -160,6 +328,21 @@ pub fn initialize_file_conversion_managers(
 /// Human progress goes to stderr, leaving stdout available for the final human
 /// result or one machine-readable JSON object.
 pub fn run_file_conversion(app: &AppHandle, args: &CliArgs) -> i32 {
+    if HEADLESS_CANCEL_REQUESTED.load(Ordering::SeqCst) {
+        if args.json {
+            println!(
+                "{}",
+                json!({
+                    "ok": false,
+                    "operation": "file_conversion",
+                    "error": "File conversion was cancelled",
+                })
+            );
+        } else {
+            eprintln!("File conversion was cancelled.");
+        }
+        return 130;
+    }
     if args.convert_file.len() > 1 {
         return run_multi_tts_file_conversion(app, args);
     }
@@ -194,6 +377,7 @@ fn run_multi_tts_file_conversion(app: &AppHandle, args: &CliArgs) -> i32 {
     let result = prepare_multi_tts_inputs(args).and_then(|inputs| {
         initialize_file_conversion_managers(app, CliFileConversionKind::TextToAudio)
             .map_err(CliFailure::runtime)?;
+        ensure_headless_conversion_not_cancelled()?;
         tauri::async_runtime::block_on(convert_multiple_text_files(app, args, inputs))
     });
     match result {
@@ -291,6 +475,7 @@ async fn convert_multiple_text_files(
     let mut completed = 0usize;
     let mut failed = 0usize;
     for (index, input) in inputs.into_iter().enumerate() {
+        ensure_headless_conversion_not_cancelled()?;
         let destination = output_directory
             .as_deref()
             .or_else(|| input.parent())
@@ -377,6 +562,7 @@ fn run_file_conversion_inner(app: &AppHandle, args: &CliArgs) -> Result<Value, C
     let plan = build_plan(args)?;
     validate_direction_specific_args(args, plan.kind)?;
     initialize_file_conversion_managers(app, plan.kind).map_err(CliFailure::runtime)?;
+    ensure_headless_conversion_not_cancelled()?;
 
     tauri::async_runtime::block_on(async {
         match plan.kind {

@@ -397,7 +397,29 @@ fn has_last_remote_recording_retry() -> bool {
     }
 }
 
-fn begin_last_remote_recording_retry() -> Result<RemoteRecordingRetryRequest, String> {
+fn remote_recording_retry_is_in_flight(retry_id: Option<u64>) -> bool {
+    LAST_REMOTE_RECORDING_RETRY.lock().is_ok_and(|slot| {
+        matches!(
+            &*slot,
+            Some(RemoteRecordingRetryState::InFlight(active_id))
+                if retry_id.is_none_or(|retry_id| retry_id == *active_id)
+        )
+    })
+}
+
+fn begin_last_remote_recording_retry(
+    app: &AppHandle,
+) -> Result<RemoteRecordingRetryRequest, String> {
+    let state = app.state::<ManagedSessionState>();
+    let state_guard =
+        session_manager::lock_session_state(&state, "begin_last_remote_recording_retry");
+    if !matches!(&*state_guard, session_manager::SessionState::Idle) {
+        return Err(
+            "Wait for the active recording or processing operation to finish before retrying."
+                .to_string(),
+        );
+    }
+
     match LAST_REMOTE_RECORDING_RETRY.lock() {
         Ok(mut slot) => match &*slot {
             Some(RemoteRecordingRetryState::Ready(req)) => {
@@ -1484,6 +1506,14 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
             );
             return false;
         }
+    }
+
+    if remote_recording_retry_is_in_flight(None) {
+        warn!(
+            "Shortcut '{}' ignored because a remote transcription retry is in progress",
+            binding_id
+        );
+        return false;
     }
 
     // Mark as recording immediately to prevent concurrent starts
@@ -2602,6 +2632,7 @@ async fn get_transcription_or_cleanup_detailed(
                 .await
             {
                 Ok(text) => {
+                    gemini_realtime_manager.clear_reported_runtime_error();
                     let filtered = apply_profile_output_filters(
                         &recording_settings,
                         text,
@@ -2611,8 +2642,10 @@ async fn get_transcription_or_cleanup_detailed(
                 }
                 Err(err) => {
                     let err_str = format!("{}", err);
-                    let _ = app.emit("remote-stt-error", err_str.clone());
-                    crate::plus_overlay_state::handle_transcription_error(app, &err_str);
+                    if !gemini_realtime_manager.take_reported_runtime_error(&err_str) {
+                        let _ = app.emit("remote-stt-error", err_str.clone());
+                        crate::plus_overlay_state::handle_transcription_error(app, &err_str);
+                    }
                     return TranscriptionFetchOutcome::ErrorOverlayShown;
                 }
             }
@@ -2959,7 +2992,8 @@ async fn transcribe_stopped_recording_for_transcribe_action(
 #[tauri::command]
 #[specta::specta]
 pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), String> {
-    let request = begin_last_remote_recording_retry()?;
+    let request = begin_last_remote_recording_retry(&app)?;
+    let retry_id = request.retry_id;
 
     tauri::async_runtime::spawn(async move {
         debug!(
@@ -2996,6 +3030,10 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
             }
         };
 
+        if !remote_recording_retry_is_in_flight(Some(retry_id)) {
+            return;
+        }
+
         if transcription.trim().is_empty() {
             clear_last_remote_recording_retry_by_id(request.retry_id);
             utils::hide_recording_overlay(&app);
@@ -3026,21 +3064,34 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
             }
         };
 
-        clear_last_remote_recording_retry_by_id(request.retry_id);
+        if !remote_recording_retry_is_in_flight(Some(retry_id)) {
+            return;
+        }
+
         before_dictation_final_output(&app, &final_text);
         let app_for_main_thread = app.clone();
         let overlay_generation = crate::plus_overlay_state::current_recording_overlay_generation();
-        app.run_on_main_thread(move || {
+        if let Err(error) = app.run_on_main_thread(move || {
+            if !remote_recording_retry_is_in_flight(Some(retry_id)) {
+                return;
+            }
             if let Err(err) = utils::paste(final_text, app_for_main_thread.clone()) {
                 error!("Failed to paste retried transcription: {}", err);
                 let _ = app_for_main_thread.emit("paste-error", ());
             }
+            clear_last_remote_recording_retry_by_id(retry_id);
             crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
                 &app_for_main_thread,
                 overlay_generation,
             );
-        })
-        .ok();
+        }) {
+            warn!("Failed to queue retried transcription for insertion: {error}");
+            clear_last_remote_recording_retry_by_id(retry_id);
+            crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
+                &app,
+                overlay_generation,
+            );
+        }
     });
 
     Ok(())
@@ -7149,13 +7200,20 @@ impl ShortcutAction for TranscribeAction {
                 }
                 let mut recovered_from_soniox_replay = false;
                 let transcription = match transcription_result {
-                    Ok(text) => apply_profile_output_filters(
-                        &recording_settings,
-                        text,
-                        profile_id_for_postprocess.as_deref(),
-                    ),
+                    Ok(text) => {
+                        if is_gemini_live_provider {
+                            gemini_realtime_manager.clear_reported_runtime_error();
+                        }
+                        apply_profile_output_filters(
+                            &recording_settings,
+                            text,
+                            profile_id_for_postprocess.as_deref(),
+                        )
+                    }
                     Err(err) => {
                         let err_str = format!("{}", err);
+                        let runtime_error_already_reported = is_gemini_live_provider
+                            && gemini_realtime_manager.take_reported_runtime_error(&err_str);
                         let can_replay_soniox = should_replay_soniox_live_timeout(
                             &err_str,
                             !is_deepgram_live_provider
@@ -7257,7 +7315,7 @@ impl ShortcutAction for TranscribeAction {
                                 &ah,
                                 &binding_id,
                                 err_str,
-                                false,
+                                runtime_error_already_reported,
                                 preview_output_only_enabled,
                                 recording_operation_id,
                                 streaming_clipboard_timeout_ms,

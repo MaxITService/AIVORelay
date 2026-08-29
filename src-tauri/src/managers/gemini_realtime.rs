@@ -222,6 +222,7 @@ pub struct GeminiRealtimeManager {
     session_params: Mutex<Option<SessionParams>>,
     pending_audio: Mutex<Vec<Vec<u8>>>,
     time_limit_completion: Arc<Mutex<Option<GeminiTimeLimitCompletion>>>,
+    reported_runtime_error: Arc<Mutex<Option<String>>>,
 }
 
 impl GeminiRealtimeManager {
@@ -232,6 +233,7 @@ impl GeminiRealtimeManager {
             session_params: Mutex::new(None),
             pending_audio: Mutex::new(Vec::new()),
             time_limit_completion: Arc::new(Mutex::new(None)),
+            reported_runtime_error: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -329,6 +331,8 @@ impl GeminiRealtimeManager {
         let session_audio_tx = audio_tx.clone();
         let time_limit_completion = Arc::clone(&self.time_limit_completion);
         *time_limit_completion.lock() = None;
+        let reported_runtime_error = Arc::clone(&self.reported_runtime_error);
+        *reported_runtime_error.lock() = None;
 
         let join_handle = tauri::async_runtime::spawn(async move {
             let session_result: Result<()> = async {
@@ -387,15 +391,18 @@ impl GeminiRealtimeManager {
                     "Gemini 3.5 Transcribe Live session runtime error (binding='{}'): {}",
                     binding_id_for_task, err_str
                 );
+                let callback_is_current = live_sound_session_id
+                    .map(crate::managers::live_sound_transcription::is_session_current)
+                    .unwrap_or(true);
+                if callback_is_current {
+                    *reported_runtime_error.lock() = Some(err_str.clone());
+                }
                 if live_sound_session_id.is_none() {
                     crate::actions::stop_transcription_after_realtime_error(
                         &app_handle_for_task,
                         &binding_id_for_task,
                     );
                 }
-                let callback_is_current = live_sound_session_id
-                    .map(crate::managers::live_sound_transcription::is_session_current)
-                    .unwrap_or(true);
                 if callback_is_current {
                     let _ = app_handle_for_task.emit("remote-stt-error", err_str.clone());
                     if live_sound_session_id.is_none() {
@@ -473,6 +480,19 @@ impl GeminiRealtimeManager {
 
     pub fn has_active_session(&self) -> bool {
         self.active_session.lock().is_some()
+    }
+
+    pub fn take_reported_runtime_error(&self, error: &str) -> bool {
+        let mut reported = self.reported_runtime_error.lock();
+        if reported.as_deref() != Some(error) {
+            return false;
+        }
+        *reported = None;
+        true
+    }
+
+    pub fn clear_reported_runtime_error(&self) {
+        *self.reported_runtime_error.lock() = None;
     }
 
     fn normalize_gemini_model(model: &str) -> String {
