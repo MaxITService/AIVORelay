@@ -3,6 +3,7 @@ pub mod connector;
 pub mod deepgram_realtime;
 pub mod deepgram_stt;
 pub mod edge_tts;
+pub mod gemini_realtime;
 pub mod gguf_meta;
 pub mod history;
 pub mod key_listener;

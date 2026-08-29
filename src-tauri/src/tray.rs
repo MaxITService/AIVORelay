@@ -1,3 +1,6 @@
+use crate::managers::gemini_realtime::{
+    GEMINI_LIVE_DEFAULT_MODEL, GEMINI_LIVE_GOOGLE_DEFAULT_MODEL,
+};
 use crate::managers::history::{HistoryEntry, HistoryManager};
 use crate::managers::model::ModelManager;
 use crate::managers::transcription::TranscriptionManager;
@@ -844,9 +847,19 @@ fn append_remote_openai_model_items(
             "Vercel: Gemini 3.5 Transcribe".to_string(),
         ),
         (
+            REMOTE_STT_PRESET_VERCEL.to_string(),
+            GEMINI_LIVE_DEFAULT_MODEL.to_string(),
+            "Vercel: Gemini 3.5 Transcribe Live (Realtime)".to_string(),
+        ),
+        (
             REMOTE_STT_PRESET_GOOGLE.to_string(),
             REMOTE_STT_GOOGLE_DEFAULT_MODEL.to_string(),
             "Google: Gemini 3.5 Transcribe · Experimental".to_string(),
+        ),
+        (
+            REMOTE_STT_PRESET_GOOGLE.to_string(),
+            GEMINI_LIVE_GOOGLE_DEFAULT_MODEL.to_string(),
+            "Google: Gemini 3.5 Transcribe Live (Realtime)".to_string(),
         ),
         (
             REMOTE_STT_PRESET_OPENAI.to_string(),

@@ -13,6 +13,9 @@ use crate::managers::deepgram_realtime::{
     FinalChunkCallback as DeepgramFinalChunkCallback,
 };
 use crate::managers::deepgram_stt::{DeepgramSttManager, DeepgramTranscriptionOptions};
+use crate::managers::gemini_realtime::{
+    GeminiRealtimeManager, GeminiRealtimeOptions, GEMINI_LIVE_FINALIZE_TIMEOUT_MS,
+};
 use crate::managers::history::HistoryManager;
 use crate::managers::llm_operation::LlmOperationTracker;
 use crate::managers::model::{self, EngineType, ModelManager};
@@ -33,7 +36,9 @@ use crate::settings::{
 };
 use crate::soniox_stream_processor::SonioxStreamProcessor;
 use crate::tray::{change_tray_icon, TrayIconState};
-use crate::url_security::REMOTE_STT_PRESET_OPENAI;
+use crate::url_security::{
+    REMOTE_STT_PRESET_GOOGLE, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_VERCEL,
+};
 use crate::utils::{
     self, show_finalizing_overlay, show_recording_overlay, show_sending_overlay,
     show_thinking_overlay, show_transcribing_overlay,
@@ -1270,7 +1275,9 @@ fn post_process_allowed_for_output_route(
                 && !output_is_held_in_preview
         }
         TranscriptionProvider::RemoteOpenAiCompatible => {
-            should_use_openai_realtime_whisper_live(settings) && !output_is_held_in_preview
+            (should_use_openai_realtime_whisper_live(settings)
+                || should_use_gemini_realtime_live(settings))
+                && !output_is_held_in_preview
         }
     };
 
@@ -1578,6 +1585,16 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
                     openai_realtime_whisper_manager.push_audio_frame(frame);
                 }));
             }
+            TranscriptionProvider::RemoteOpenAiCompatible
+                if should_use_gemini_realtime_live(&settings) =>
+            {
+                let gemini_realtime_manager =
+                    Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
+                gemini_realtime_manager.cancel();
+                rm.set_stream_frame_callback(Arc::new(move |frame| {
+                    gemini_realtime_manager.push_audio_frame(frame);
+                }));
+            }
             _ => {}
         }
     }
@@ -1697,6 +1714,7 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
                 app.state::<Arc<SonioxRealtimeManager>>().cancel();
                 app.state::<Arc<DeepgramRealtimeManager>>().cancel();
                 app.state::<Arc<OpenAiRealtimeWhisperManager>>().cancel();
+                app.state::<Arc<GeminiRealtimeManager>>().cancel();
                 if use_native_local_streaming {
                     tm.cancel_stream();
                 }
@@ -1723,6 +1741,7 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
             app.state::<Arc<SonioxRealtimeManager>>().cancel();
             app.state::<Arc<DeepgramRealtimeManager>>().cancel();
             app.state::<Arc<OpenAiRealtimeWhisperManager>>().cancel();
+            app.state::<Arc<GeminiRealtimeManager>>().cancel();
             if use_native_local_streaming {
                 tm.cancel_stream();
             }
@@ -2518,11 +2537,15 @@ async fn get_transcription_or_cleanup_detailed(
     let deepgram_live_manager = Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
     let openai_realtime_whisper_manager =
         Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
+    let gemini_realtime_manager = Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
     let has_soniox_live_session = soniox_live_manager.has_active_session();
     let has_deepgram_live_session = deepgram_live_manager.has_active_session();
     let has_openai_realtime_whisper_session = openai_realtime_whisper_manager.has_active_session();
-    let has_live_session =
-        has_soniox_live_session || has_deepgram_live_session || has_openai_realtime_whisper_session;
+    let has_gemini_realtime_session = gemini_realtime_manager.has_active_session();
+    let has_live_session = has_soniox_live_session
+        || has_deepgram_live_session
+        || has_openai_realtime_whisper_session
+        || has_gemini_realtime_session;
 
     if let Some(samples) = rm.stop_recording(binding_id) {
         if has_live_session {
@@ -2543,6 +2566,9 @@ async fn get_transcription_or_cleanup_detailed(
             }
             if has_openai_realtime_whisper_session {
                 openai_realtime_whisper_manager.cancel();
+            }
+            if has_gemini_realtime_session {
+                gemini_realtime_manager.cancel();
             }
             return TranscriptionFetchOutcome::Success((String::new(), samples));
         }
@@ -2619,6 +2645,30 @@ async fn get_transcription_or_cleanup_detailed(
             }
         }
 
+        if has_gemini_realtime_session
+            && should_use_gemini_realtime_live(&recording_settings)
+        {
+            match gemini_realtime_manager
+                .finish_session(GEMINI_LIVE_FINALIZE_TIMEOUT_MS)
+                .await
+            {
+                Ok(text) => {
+                    let filtered = apply_profile_output_filters(
+                        &recording_settings,
+                        text,
+                        captured_profile_id.as_deref(),
+                    );
+                    return TranscriptionFetchOutcome::Success((filtered, samples));
+                }
+                Err(err) => {
+                    let err_str = format!("{}", err);
+                    let _ = app.emit("remote-stt-error", err_str.clone());
+                    crate::plus_overlay_state::handle_transcription_error(app, &err_str);
+                    return TranscriptionFetchOutcome::ErrorOverlayShown;
+                }
+            }
+        }
+
         if is_transcribe_binding_id(binding_id)
             && recording_settings.text_replacement_decapitalize_after_edit_key_enabled
         {
@@ -2657,6 +2707,7 @@ async fn get_transcription_or_cleanup_detailed(
             soniox_live_manager.cancel();
             deepgram_live_manager.cancel();
             openai_realtime_whisper_manager.cancel();
+            gemini_realtime_manager.cancel();
         }
         debug!("No samples retrieved from recording stop");
         utils::hide_recording_overlay(app);
@@ -2993,15 +3044,39 @@ fn resolve_profile_for_binding<'a>(
     None
 }
 
+fn is_openai_realtime_whisper_configured(settings: &AppSettings) -> bool {
+    settings.remote_stt.provider_preset == REMOTE_STT_PRESET_OPENAI
+        && OpenAiRealtimeWhisperManager::is_realtime_model(&settings.remote_stt.model_id)
+}
+
 fn is_openai_realtime_whisper_selected(settings: &AppSettings) -> bool {
     settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible
-        && settings.remote_stt.provider_preset == REMOTE_STT_PRESET_OPENAI
-        && OpenAiRealtimeWhisperManager::is_realtime_model(&settings.remote_stt.model_id)
+        && is_openai_realtime_whisper_configured(settings)
 }
 
 fn should_use_openai_realtime_whisper_live(settings: &AppSettings) -> bool {
     is_openai_realtime_whisper_selected(settings)
         && !settings.openai_realtime_whisper_flatten_enabled
+}
+
+fn should_use_openai_realtime_whisper_for_live_sound(settings: &AppSettings) -> bool {
+    is_openai_realtime_whisper_configured(settings)
+        && !settings.openai_realtime_whisper_flatten_enabled
+}
+
+fn is_gemini_realtime_configured(settings: &AppSettings) -> bool {
+    (settings.remote_stt.provider_preset == REMOTE_STT_PRESET_VERCEL
+            || settings.remote_stt.provider_preset == REMOTE_STT_PRESET_GOOGLE)
+        && GeminiRealtimeManager::is_realtime_model(&settings.remote_stt.model_id)
+}
+
+fn is_gemini_realtime_selected(settings: &AppSettings) -> bool {
+    settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible
+        && is_gemini_realtime_configured(settings)
+}
+
+fn should_use_gemini_realtime_live(settings: &AppSettings) -> bool {
+    is_gemini_realtime_selected(settings)
 }
 
 fn should_route_live_output_to_preview(settings: &AppSettings) -> bool {
@@ -3020,6 +3095,7 @@ fn should_route_live_output_to_preview(settings: &AppSettings) -> bool {
         }
         TranscriptionProvider::RemoteOpenAiCompatible => {
             should_use_openai_realtime_whisper_live(settings)
+                || should_use_gemini_realtime_live(settings)
         }
         _ => false,
     }
@@ -4604,6 +4680,7 @@ fn drop_preview_recording_without_finalize(
     app.state::<Arc<SonioxRealtimeManager>>().cancel();
     app.state::<Arc<DeepgramRealtimeManager>>().cancel();
     app.state::<Arc<OpenAiRealtimeWhisperManager>>().cancel();
+    app.state::<Arc<GeminiRealtimeManager>>().cancel();
 
     utils::hide_recording_overlay(app);
     change_tray_icon(app, TrayIconState::Idle);
@@ -4879,6 +4956,13 @@ pub(crate) fn transcribe_action_for_binding(binding_id: &str) -> Option<Arc<dyn 
 }
 
 pub(crate) fn start_live_sound_transcription_session(app: &AppHandle) -> Result<(), String> {
+    if crate::managers::live_sound_transcription::is_recording() {
+        return Err("Live sound audio session is already active".to_string());
+    }
+    if crate::managers::live_sound_audio::is_active() {
+        crate::managers::live_sound_audio::stop(app);
+    }
+
     let auto_stop_minutes = crate::settings::get_settings(app).live_sound_auto_stop_minutes;
     let session_id = crate::managers::live_sound_transcription::activate_session(
         app,
@@ -4995,6 +5079,31 @@ fn is_recording_for_binding(app: &AppHandle, binding_id: &str) -> bool {
     )
 }
 
+pub(crate) fn stop_transcription_after_realtime_error(
+    app: &AppHandle,
+    binding_id: &str,
+) -> bool {
+    if !is_recording_for_binding(app, binding_id) {
+        return false;
+    }
+
+    let Some(action) = transcribe_action_for_binding(binding_id) else {
+        warn!(
+            "Could not stop failed realtime transcription: no action is registered for binding '{}'",
+            binding_id
+        );
+        return false;
+    };
+    let stop_source =
+        if crate::managers::preview_output_mode::is_active_for_binding(binding_id) {
+            "preview_output_mode_realtime_provider_error"
+        } else {
+            "realtime_provider_error"
+        };
+    action.stop(app, binding_id, stop_source);
+    true
+}
+
 fn use_push_to_talk_for_transcribe_binding(settings: &AppSettings, binding_id: &str) -> bool {
     if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
         true
@@ -5069,7 +5178,8 @@ pub(crate) fn live_sound_use_live_streaming(settings: &AppSettings) -> bool {
                 && DeepgramRealtimeManager::is_realtime_model(&settings.deepgram_model)
         }
         TranscriptionProvider::RemoteOpenAiCompatible => {
-            should_use_openai_realtime_whisper_live(settings)
+            should_use_openai_realtime_whisper_for_live_sound(settings)
+                || is_gemini_realtime_configured(settings)
         }
         _ => false,
     }
@@ -5118,6 +5228,36 @@ pub(crate) fn build_openai_options_for_live_sound(
     build_openai_realtime_whisper_options(settings, &language, prompt)
 }
 
+pub(crate) fn build_gemini_options_for_live_sound(
+    settings: &AppSettings,
+) -> GeminiRealtimeOptions {
+    let profile = resolve_profile_for_binding(settings, LIVE_SOUND_TRANSCRIPTION_BINDING_ID);
+    let language = profile
+        .as_ref()
+        .map(|p| p.language.clone())
+        .unwrap_or_else(|| settings.selected_language.clone());
+    let translate_to_english = resolve_effective_translate_to_english(settings, profile);
+    build_gemini_realtime_options(settings, &language, translate_to_english)
+}
+
+fn build_gemini_realtime_options(
+    settings: &AppSettings,
+    language: &str,
+    translate_to_english: bool,
+) -> GeminiRealtimeOptions {
+    let language = if language.trim().is_empty() || language.eq_ignore_ascii_case("auto") {
+        None
+    } else {
+        Some(language.to_string())
+    };
+    GeminiRealtimeOptions {
+        model: settings.remote_stt.model_id.clone(),
+        language,
+        preset: settings.remote_stt.provider_preset.clone(),
+        translate_to_english,
+    }
+}
+
 fn should_use_live_streaming(settings: &AppSettings) -> bool {
     match settings.transcription_provider {
         TranscriptionProvider::RemoteSoniox => {
@@ -5130,6 +5270,7 @@ fn should_use_live_streaming(settings: &AppSettings) -> bool {
         }
         TranscriptionProvider::RemoteOpenAiCompatible => {
             should_use_openai_realtime_whisper_live(settings)
+                || should_use_gemini_realtime_live(settings)
         }
         _ => false,
     }
@@ -5171,7 +5312,10 @@ fn should_use_live_for_recording(app: &AppHandle, binding_id: &str) -> bool {
             TranscriptionProvider::RemoteOpenAiCompatible => {
                 let openai_realtime_whisper_manager =
                     Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
-                openai_realtime_whisper_manager.has_active_session()
+                let gemini_realtime_manager =
+                    Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
+                (openai_realtime_whisper_manager.has_active_session()
+                    || gemini_realtime_manager.has_active_session())
                     && should_use_live_streaming(captured_settings)
             }
             _ => false,
@@ -5245,6 +5389,26 @@ fn setup_and_start_live(
             let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
                 .map_err(|e| format!("{}", e))?;
             openai_realtime_whisper_manager
+                .start_session(binding_id, &api_key, options, None)
+                .map_err(|e| {
+                    app.state::<Arc<AudioRecordingManager>>()
+                        .clear_stream_frame_callback();
+                    format!("{}", e)
+                })
+        }
+        TranscriptionProvider::RemoteOpenAiCompatible
+            if should_use_gemini_realtime_live(settings) =>
+        {
+            let options = build_gemini_realtime_options(
+                settings,
+                &language,
+                resolve_effective_translate_to_english(settings, profile),
+            );
+            let gemini_realtime_manager =
+                Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
+            let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
+                .map_err(|e| format!("{}", e))?;
+            gemini_realtime_manager
                 .start_session(binding_id, &api_key, options, None)
                 .map_err(|e| {
                     app.state::<Arc<AudioRecordingManager>>()
@@ -6519,6 +6683,130 @@ impl ShortcutAction for TranscribeAction {
                         );
                     }
                 }
+                TranscriptionProvider::RemoteOpenAiCompatible
+                    if should_use_gemini_realtime_live(&settings) =>
+                {
+                    let gemini_realtime_manager =
+                        Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
+                    let api_key = match crate::managers::remote_stt::get_remote_stt_api_key(
+                        &settings.remote_stt,
+                    ) {
+                        Ok(api_key) => api_key,
+                        Err(err) => {
+                            let _ = take_soniox_stream_processor(&binding_id);
+                            let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
+                            let err_str = format!("{}", err);
+                            if !preview_output_only_enabled {
+                                let _ = crate::clipboard::end_streaming_paste_session_if_matches(
+                                    &app_handle,
+                                    recording_operation_id,
+                                );
+                            }
+                            app_handle
+                                .state::<Arc<AudioRecordingManager>>()
+                                .clear_stream_frame_callback();
+                            if preview_output_only_enabled {
+                                crate::managers::preview_output_mode::deactivate_session(
+                                    &app_handle,
+                                );
+                                crate::overlay::end_soniox_live_preview_session();
+                                crate::overlay::hide_soniox_live_preview_window(&app_handle);
+                                crate::overlay::reset_soniox_live_preview(&app_handle);
+                            }
+                            crate::utils::cancel_current_operation(&app_handle);
+                            let _ = app_handle.emit("remote-stt-error", err_str.clone());
+                            crate::plus_overlay_state::handle_transcription_error(
+                                &app_handle,
+                                &err_str,
+                            );
+                            return;
+                        }
+                    };
+
+                    set_openai_realtime_whisper_stream_emitted(&binding_id, false);
+                    let chunk_callback = stream_processor.map(|stream_processor| {
+                        Arc::new({
+                            let ah_for_cb = app_handle.clone();
+                            let binding_id_for_cb = binding_id.clone();
+                            move |chunk: String| {
+                                if chunk.is_empty() {
+                                    return;
+                                }
+                                let delta = match stream_processor.lock() {
+                                    Ok(mut processor) => processor.push_chunk(&chunk),
+                                    Err(_) => {
+                                        warn!(
+                                            "Failed to lock Gemini 3.5 Transcribe Live stream processor"
+                                        );
+                                        String::new()
+                                    }
+                                };
+                                if delta.is_empty() {
+                                    return;
+                                }
+                                mark_openai_realtime_whisper_stream_emitted(&binding_id_for_cb);
+                                let ah_for_call = ah_for_cb.clone();
+                                let ah_for_clip = ah_for_call.clone();
+                                let _ = ah_for_call.run_on_main_thread(move || {
+                                    if operation_stamp.was_cancelled(&ah_for_clip) {
+                                        debug!(
+                                            "Skipping queued Gemini 3.5 Transcribe Live chunk for cancelled operation {}",
+                                            operation_stamp.operation_id
+                                        );
+                                        return;
+                                    }
+                                    let _ = crate::clipboard::paste_stream_chunk(
+                                        delta,
+                                        ah_for_clip.clone(),
+                                    );
+                                });
+                            }
+                        }) as OpenAiRealtimeWhisperFinalChunkCallback
+                    });
+
+                    let start_result = gemini_realtime_manager.start_session(
+                        &binding_id,
+                        &api_key,
+                        build_gemini_realtime_options(
+                            &settings,
+                            &language,
+                            resolve_effective_translate_to_english(&settings, profile),
+                        ),
+                        chunk_callback,
+                    );
+
+                    if let Err(err) = start_result {
+                        let _ = take_soniox_stream_processor(&binding_id);
+                        let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
+                        let err_str = format!("{}", err);
+                        if !preview_output_only_enabled {
+                            let _ = crate::clipboard::end_streaming_paste_session_if_matches(
+                                &app_handle,
+                                recording_operation_id,
+                            );
+                        }
+                        app_handle
+                            .state::<Arc<AudioRecordingManager>>()
+                            .clear_stream_frame_callback();
+                        if preview_output_only_enabled {
+                            crate::managers::preview_output_mode::deactivate_session(&app_handle);
+                            crate::overlay::end_soniox_live_preview_session();
+                            crate::overlay::hide_soniox_live_preview_window(&app_handle);
+                            crate::overlay::reset_soniox_live_preview(&app_handle);
+                        }
+                        crate::utils::cancel_current_operation(&app_handle);
+                        let _ = app_handle.emit("remote-stt-error", err_str.clone());
+                        crate::plus_overlay_state::handle_transcription_error(
+                            &app_handle,
+                            &err_str,
+                        );
+                    } else {
+                        debug!(
+                            "Gemini 3.5 Transcribe Live session started for binding '{}'",
+                            binding_id
+                        );
+                    }
+                }
                 _ => {}
             }
         }
@@ -6534,9 +6822,11 @@ impl ShortcutAction for TranscribeAction {
         let deepgram_live_manager = Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
         let openai_realtime_whisper_manager =
             Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
+        let gemini_realtime_manager = Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
         let use_live_streaming = should_use_live_for_recording(app, binding_id);
-        let invoked_from_preview_action = shortcut_str == "preview_output_mode"
+        let invoked_from_preview_action = shortcut_str.contains("preview_output_mode")
             || binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID;
+        let invoked_from_realtime_error = shortcut_str.contains("realtime_provider_error");
 
         if use_live_streaming {
             let stop_context = match prepare_stop_recording_with_options(app, binding_id, false) {
@@ -6564,9 +6854,11 @@ impl ShortcutAction for TranscribeAction {
                 recording_settings.transcription_provider == TranscriptionProvider::RemoteDeepgram;
             let is_openai_realtime_whisper_live_provider =
                 should_use_openai_realtime_whisper_live(&recording_settings);
+            let is_gemini_live_provider =
+                should_use_gemini_realtime_live(&recording_settings);
             let live_instant_stop = if is_deepgram_live_provider {
                 recording_settings.deepgram_live_instant_stop
-            } else if is_openai_realtime_whisper_live_provider {
+            } else if is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
                 false
             } else {
                 recording_settings.soniox_live_instant_stop
@@ -6575,6 +6867,8 @@ impl ShortcutAction for TranscribeAction {
                 recording_settings.deepgram_live_finalize_timeout_ms
             } else if is_openai_realtime_whisper_live_provider {
                 OPENAI_REALTIME_WHISPER_LIVE_FINALIZE_TIMEOUT_MS
+            } else if is_gemini_live_provider {
+                GEMINI_LIVE_FINALIZE_TIMEOUT_MS
             } else {
                 recording_settings.soniox_live_finalize_timeout_ms
             };
@@ -6600,7 +6894,7 @@ impl ShortcutAction for TranscribeAction {
                     FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
                 let mut stream_processor = take_soniox_stream_processor(&binding_id);
                 let had_soniox_stream_output =
-                    if is_deepgram_live_provider || is_openai_realtime_whisper_live_provider {
+                    if is_deepgram_live_provider || is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
                         false
                     } else {
                         take_soniox_stream_emitted(&binding_id)
@@ -6611,7 +6905,7 @@ impl ShortcutAction for TranscribeAction {
                     false
                 };
                 let mut had_openai_realtime_whisper_stream_output =
-                    if is_openai_realtime_whisper_live_provider {
+                    if is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
                         take_openai_realtime_whisper_stream_emitted(&binding_id)
                     } else {
                         false
@@ -6625,6 +6919,8 @@ impl ShortcutAction for TranscribeAction {
                                 deepgram_live_manager.cancel();
                             } else if is_openai_realtime_whisper_live_provider {
                                 openai_realtime_whisper_manager.cancel();
+                            } else if is_gemini_live_provider {
+                                gemini_realtime_manager.cancel();
                             } else {
                                 soniox_live_manager.cancel();
                             }
@@ -6635,6 +6931,10 @@ impl ShortcutAction for TranscribeAction {
                                     .await
                             } else if is_openai_realtime_whisper_live_provider {
                                 openai_realtime_whisper_manager
+                                    .finish_session(live_finalize_timeout_ms)
+                                    .await
+                            } else if is_gemini_live_provider {
+                                gemini_realtime_manager
                                     .finish_session(live_finalize_timeout_ms)
                                     .await
                             } else {
@@ -6666,7 +6966,7 @@ impl ShortcutAction for TranscribeAction {
 
                 let had_stream_output = if is_deepgram_live_provider {
                     had_deepgram_stream_output
-                } else if is_openai_realtime_whisper_live_provider {
+                } else if is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
                     had_openai_realtime_whisper_stream_output
                 } else {
                     had_soniox_stream_output
@@ -6685,6 +6985,8 @@ impl ShortcutAction for TranscribeAction {
                         deepgram_live_manager.cancel();
                     } else if is_openai_realtime_whisper_live_provider {
                         openai_realtime_whisper_manager.cancel();
+                    } else if is_gemini_live_provider {
+                        gemini_realtime_manager.cancel();
                     } else {
                         soniox_live_manager.cancel();
                     }
@@ -6707,7 +7009,9 @@ impl ShortcutAction for TranscribeAction {
                             crate::managers::preview_output_mode::set_error(&ah, Some(err));
                         }
                     }
-                    utils::hide_recording_overlay(&ah);
+                    if !invoked_from_realtime_error {
+                        utils::hide_recording_overlay(&ah);
+                    }
                     change_tray_icon(&ah, TrayIconState::Idle);
                     if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
                         crate::managers::live_sound_transcription::finish_session(&ah);
@@ -6721,6 +7025,8 @@ impl ShortcutAction for TranscribeAction {
                         deepgram_live_manager.cancel();
                     } else if is_openai_realtime_whisper_live_provider {
                         openai_realtime_whisper_manager.cancel();
+                    } else if is_gemini_live_provider {
+                        gemini_realtime_manager.cancel();
                     } else {
                         soniox_live_manager.cancel();
                     }
@@ -6758,6 +7064,10 @@ impl ShortcutAction for TranscribeAction {
                     openai_realtime_whisper_manager
                         .finish_session(live_finalize_timeout_ms)
                         .await
+                } else if is_gemini_live_provider {
+                    gemini_realtime_manager
+                        .finish_session(live_finalize_timeout_ms)
+                        .await
                 } else if preview_output_only_enabled {
                     // Preview output is still reversible, so surface a partial
                     // Soniox timeout and let the complete-recording replay repair it.
@@ -6788,7 +7098,9 @@ impl ShortcutAction for TranscribeAction {
                         let err_str = format!("{}", err);
                         let can_replay_soniox = should_replay_soniox_live_timeout(
                             &err_str,
-                            !is_deepgram_live_provider && !is_openai_realtime_whisper_live_provider,
+                            !is_deepgram_live_provider
+                                && !is_openai_realtime_whisper_live_provider
+                                && !is_gemini_live_provider,
                             preview_output_only_enabled,
                             had_soniox_stream_output,
                         );
@@ -6910,7 +7222,7 @@ impl ShortcutAction for TranscribeAction {
                     // Re-check after finalization so we do not also run the full-text fallback.
                     had_deepgram_stream_output |= take_deepgram_stream_emitted(&binding_id);
                 }
-                if is_openai_realtime_whisper_live_provider {
+                if is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
                     had_openai_realtime_whisper_stream_output |=
                         take_openai_realtime_whisper_stream_emitted(&binding_id);
                 }
@@ -6926,7 +7238,7 @@ impl ShortcutAction for TranscribeAction {
                     if !tail_delta.is_empty() {
                         if is_deepgram_live_provider {
                             had_deepgram_stream_output = true;
-                        } else if is_openai_realtime_whisper_live_provider {
+                        } else if is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
                             had_openai_realtime_whisper_stream_output = true;
                         }
                         let ah_for_call = ah.clone();
@@ -6969,7 +7281,9 @@ impl ShortcutAction for TranscribeAction {
                             crate::managers::preview_output_mode::set_error(&ah, Some(err));
                         }
                     }
-                    utils::hide_recording_overlay(&ah);
+                    if !invoked_from_realtime_error {
+                        utils::hide_recording_overlay(&ah);
+                    }
                     change_tray_icon(&ah, TrayIconState::Idle);
                     if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
                         crate::managers::live_sound_transcription::finish_session(&ah);
@@ -7064,7 +7378,10 @@ impl ShortcutAction for TranscribeAction {
                         return;
                     }
                     if !preview_output_only_enabled {
-                        if is_deepgram_live_provider || is_openai_realtime_whisper_live_provider {
+                        if is_deepgram_live_provider
+                            || is_openai_realtime_whisper_live_provider
+                            || is_gemini_live_provider
+                        {
                             // Some live providers may return all stable text only at finalization;
                             // if no stream chunks were actually inserted, paste the final text now.
                             //
@@ -7100,10 +7417,12 @@ impl ShortcutAction for TranscribeAction {
                         }
                     }
 
-                    crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
-                        &ah_clone,
-                        overlay_generation,
-                    );
+                    if !invoked_from_realtime_error {
+                        crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
+                            &ah_clone,
+                            overlay_generation,
+                        );
+                    }
                 }) {
                     warn!("{}", err);
                 }
@@ -9640,6 +9959,12 @@ pub fn preview_clear_action(app: AppHandle) -> Result<(), String> {
         .restart_session()
     {
         warn!("Failed to restart OpenAI Realtime Whisper Session: {}", e);
+    }
+    if let Err(e) = app
+        .state::<Arc<GeminiRealtimeManager>>()
+        .restart_session()
+    {
+        warn!("Failed to restart Gemini 3.5 Transcribe Live session: {}", e);
     }
     if crate::managers::preview_output_mode::is_active() {
         crate::managers::preview_output_mode::set_recording_prefix_text(&app, String::new());

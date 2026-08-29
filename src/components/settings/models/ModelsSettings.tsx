@@ -29,6 +29,7 @@ import {
 type RemoteApiRowId =
   | "groq"
   | "gemini_transcribe"
+  | "gemini_live"
   | "openai_transcribe"
   | "openai_live_transcribe"
   | "openai_realtime_whisper"
@@ -181,7 +182,10 @@ export const ModelsSettings: React.FC = () => {
       : remotePreset === "groq"
         ? "groq"
         : remotePreset === "vercel" || remotePreset === "google"
-          ? "gemini_transcribe"
+          ? (remoteModelId === "google/gemini-3.5-transcribe-live" ||
+             remoteModelId === "gemini-3.5-transcribe-live"
+            ? "gemini_live"
+            : "gemini_transcribe")
         : remotePreset === "custom"
           ? "custom"
           : remoteModelId === "gpt-transcribe"
@@ -214,6 +218,15 @@ export const ModelsSettings: React.FC = () => {
       preset: "vercel",
       modelId: "google/gemini-3.5-transcribe",
       iconClassName: "text-amber-300",
+    },
+    {
+      id: "gemini_live",
+      title: "Remote via Gemini 3.5 Transcribe Live",
+      description:
+        "Low-latency streaming via Gemini 3.5 Transcribe Live over Vercel AI Gateway or Google",
+      preset: "vercel",
+      modelId: "google/gemini-3.5-transcribe-live",
+      iconClassName: "text-amber-400",
     },
     {
       id: "custom",
@@ -381,14 +394,29 @@ export const ModelsSettings: React.FC = () => {
     invalidateModelDownloadActivationIntent();
     setSwitchingRemoteApiId(row.id);
     try {
+      const isGeminiRow =
+        row.id === "gemini_transcribe" || row.id === "gemini_live";
+      const selectedPreset =
+        isGeminiRow && (remotePreset === "vercel" || remotePreset === "google")
+          ? remotePreset
+          : row.preset;
+      const selectedModelId = isGeminiRow
+        ? row.id === "gemini_live"
+          ? selectedPreset === "google"
+            ? "gemini-3.5-transcribe-live"
+            : "google/gemini-3.5-transcribe-live"
+          : selectedPreset === "google"
+            ? "gemini-3.5-transcribe"
+            : "google/gemini-3.5-transcribe"
+        : row.modelId;
       const presetResult = await commands.changeRemoteSttProviderPresetSetting(
-        row.preset,
+        selectedPreset,
       );
       if (presetResult.status === "error") {
         throw new Error(presetResult.error);
       }
-      if (row.modelId) {
-        await updateRemoteSttModelId(row.modelId);
+      if (selectedModelId) {
+        await updateRemoteSttModelId(selectedModelId);
       }
       await setTranscriptionProvider("remote_openai_compatible");
       await refreshSettings();

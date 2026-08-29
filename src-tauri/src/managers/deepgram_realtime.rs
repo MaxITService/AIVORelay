@@ -366,10 +366,12 @@ impl DeepgramRealtimeManager {
                     .unwrap_or(true);
                 if callback_is_current {
                     let _ = app_handle_for_task.emit("remote-stt-error", err_str.clone());
-                    crate::plus_overlay_state::handle_transcription_error(
-                        &app_handle_for_task,
-                        &err_str,
-                    );
+                    if live_sound_session_id.is_none() {
+                        crate::plus_overlay_state::handle_transcription_error(
+                            &app_handle_for_task,
+                            &err_str,
+                        );
+                    }
                 }
 
                 if crate::managers::preview_output_mode::is_active_for_binding(&binding_id_for_task)

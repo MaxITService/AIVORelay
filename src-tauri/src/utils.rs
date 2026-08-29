@@ -1,6 +1,7 @@
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::deepgram_realtime::DeepgramRealtimeManager;
 use crate::managers::deepgram_stt::DeepgramSttManager;
+use crate::managers::gemini_realtime::GeminiRealtimeManager;
 use crate::managers::llm_operation::LlmOperationTracker;
 use crate::managers::openai_realtime_whisper::OpenAiRealtimeWhisperManager;
 use crate::managers::remote_stt::RemoteSttManager;
@@ -134,6 +135,8 @@ pub fn cancel_current_operation(app: &AppHandle) {
     remote_stt_manager.cancel();
     let openai_realtime_whisper_manager = app.state::<Arc<OpenAiRealtimeWhisperManager>>();
     openai_realtime_whisper_manager.cancel();
+    let gemini_realtime_manager = app.state::<Arc<GeminiRealtimeManager>>();
+    gemini_realtime_manager.cancel();
     let soniox_live_manager = app.state::<Arc<SonioxRealtimeManager>>();
     soniox_live_manager.cancel();
     let soniox_stt_manager = app.state::<Arc<SonioxSttManager>>();

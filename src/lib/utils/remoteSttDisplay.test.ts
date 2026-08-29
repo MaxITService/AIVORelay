@@ -29,3 +29,17 @@ assert.equal(
   }),
   "Google: Gemini 3.5 Transcribe",
 );
+assert.equal(
+  getRemoteApiDisplayLabel({
+    provider_preset: "vercel",
+    model_id: "google/gemini-3.5-transcribe-live",
+  }),
+  "Vercel: Gemini 3.5 Transcribe Live",
+);
+assert.equal(
+  getRemoteApiDisplayLabel({
+    provider_preset: "google",
+    model_id: "gemini-3.5-transcribe-live",
+  }),
+  "Google: Gemini 3.5 Transcribe Live",
+);

@@ -366,7 +366,7 @@ pub fn supports_subtitle_timestamps(model_id: &str) -> bool {
             && !is_openai_realtime_translate_model(&model_id))
 }
 
-fn normalize_gemini_language_code(language: &str) -> Option<&'static str> {
+pub(crate) fn normalize_gemini_language_code(language: &str) -> Option<&'static str> {
     let normalized = language.trim().replace('_', "-").to_ascii_lowercase();
     Some(match normalized.as_str() {
         "af" | "af-za" => "af-ZA",
@@ -979,7 +979,7 @@ impl RemoteSttManager {
         if let Some(expected_model) = gemini_expected_model {
             if settings.model_id.trim() != expected_model {
                 let message = format!(
-                    "The {} Gemini route requires model '{}', but settings contain '{}'. Select Gemini 3.5 Transcribe again in Settings -> Models.",
+                    "The {} Gemini 3.5 Transcribe route requires model '{}', but settings contain '{}'. Select Gemini 3.5 Transcribe again in Settings -> Models.",
                     remote_stt_api_key_provider_label(settings),
                     expected_model,
                     settings.model_id.trim()
@@ -1178,7 +1178,7 @@ impl RemoteSttManager {
                     )
                     .await
                 }
-                _ => unreachable!("Gemini route was checked above"),
+                _ => unreachable!("Gemini 3.5 Transcribe route was checked above"),
             };
             return self.migrate_legacy_api_key_after_success(settings, &api_key, result);
         }
@@ -1360,7 +1360,7 @@ impl RemoteSttManager {
             self.record_info(
                 settings,
                 format!(
-                    "Gemini STT request route={} model={} wav_bytes={}",
+                    "Gemini 3.5 Transcribe request route={} model={} wav_bytes={}",
                     route, settings.model_id, file_size
                 ),
             );
@@ -1368,13 +1368,19 @@ impl RemoteSttManager {
 
         let start = Instant::now();
         let response = request.send().await.map_err(|error| {
-            let message = format!("Gemini STT request via {} failed: {}", route, error);
+            let message = format!(
+                "Gemini 3.5 Transcribe request via {} failed: {}",
+                route, error
+            );
             self.record_error(settings, message.clone());
             anyhow!(message)
         })?;
         let status = response.status();
         let body = response.bytes().await.map_err(|error| {
-            let message = format!("Gemini STT response via {} could not be read: {}", route, error);
+            let message = format!(
+                "Gemini 3.5 Transcribe response via {} could not be read: {}",
+                route, error
+            );
             self.record_error(settings, message.clone());
             anyhow!(message)
         })?;
@@ -1384,7 +1390,7 @@ impl RemoteSttManager {
             self.record_info(
                 settings,
                 format!(
-                    "Gemini STT response route={} status={} elapsed_ms={}",
+                    "Gemini 3.5 Transcribe response route={} status={} elapsed_ms={}",
                     route, status, elapsed_ms
                 ),
             );
@@ -1400,7 +1406,7 @@ impl RemoteSttManager {
             self.record_error(
                 settings,
                 format!(
-                    "Gemini STT failed: route={} status={} elapsed_ms={} body_snippet={}",
+                    "Gemini 3.5 Transcribe failed: route={} status={} elapsed_ms={} body_snippet={}",
                     route, status, elapsed_ms, snippet
                 ),
             );
@@ -1440,7 +1446,7 @@ impl RemoteSttManager {
         let parsed: VercelTranscriptionResponse = serde_json::from_slice(&response_body)
             .map_err(|error| {
                 let message = format!(
-                    "Vercel Gemini transcription response could not be parsed: {}",
+                    "Vercel Gemini 3.5 Transcribe response could not be parsed: {}",
                     error
                 );
                 self.record_error(settings, message.clone());
@@ -1454,7 +1460,10 @@ impl RemoteSttManager {
         if settings.debug_mode == RemoteSttDebugMode::Verbose {
             self.record_info(
                 settings,
-                format!("Gemini STT success output_len={}", result.text.len()),
+                format!(
+                    "Gemini 3.5 Transcribe success output_len={}",
+                    result.text.len()
+                ),
             );
         }
         Ok(result)
@@ -1487,7 +1496,7 @@ impl RemoteSttManager {
         let parsed: GoogleInteractionsTranscriptionResponse =
             serde_json::from_slice(&response_body).map_err(|error| {
                 let message = format!(
-                    "Google Gemini transcription response could not be parsed: {}",
+                    "Google Gemini 3.5 Transcribe response could not be parsed: {}",
                     error
                 );
                 self.record_error(settings, message.clone());
@@ -1497,7 +1506,10 @@ impl RemoteSttManager {
         if settings.debug_mode == RemoteSttDebugMode::Verbose {
             self.record_info(
                 settings,
-                format!("Gemini STT success output_len={}", result.text.len()),
+                format!(
+                    "Gemini 3.5 Transcribe success output_len={}",
+                    result.text.len()
+                ),
             );
         }
         Ok(result)

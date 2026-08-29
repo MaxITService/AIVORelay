@@ -86,6 +86,7 @@ use managers::audio::AudioRecordingManager;
 use managers::connector::ConnectorManager;
 use managers::deepgram_realtime::DeepgramRealtimeManager;
 use managers::deepgram_stt::DeepgramSttManager;
+use managers::gemini_realtime::GeminiRealtimeManager;
 use managers::history::HistoryManager;
 use managers::key_listener::KeyListenerState;
 use managers::llm_operation::LlmOperationTracker;
@@ -425,6 +426,10 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         OpenAiRealtimeWhisperManager::new(app_handle)
             .expect("Failed to initialize OpenAI realtime Whisper STT"),
     );
+    let gemini_realtime_manager = Arc::new(
+        GeminiRealtimeManager::new(app_handle)
+            .expect("Failed to initialize Gemini 3.5 Transcribe Live"),
+    );
     let soniox_realtime_manager = Arc::new(
         SonioxRealtimeManager::new(app_handle).expect("Failed to initialize Soniox realtime STT"),
     );
@@ -461,6 +466,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(remote_stt_manager.clone());
     app_handle.manage(openai_realtime_whisper_manager.clone());
+    app_handle.manage(gemini_realtime_manager.clone());
     app_handle.manage(soniox_realtime_manager.clone());
     app_handle.manage(soniox_stt_manager.clone());
     app_handle.manage(deepgram_realtime_manager.clone());
