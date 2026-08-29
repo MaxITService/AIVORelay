@@ -27,6 +27,7 @@ import { SettingsGroup } from "../ui/SettingsGroup";
 import { SettingContainer } from "../ui/SettingContainer";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
+import { Textarea } from "../ui/Textarea";
 import { Dropdown } from "../ui/Dropdown";
 import { Badge } from "../ui/Badge";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
@@ -45,6 +46,8 @@ import { isLanguageSupportedBySoniox } from "../../lib/constants/sonioxLanguages
 import { getModelPromptInfo } from "./TranscriptionSystemPrompt";
 import { useNavigationStore } from "../../stores/navigationStore";
 import { getPostProcessingAvailability } from "../../lib/postProcessingAvailability";
+import { GEMINI_LOCALES } from "../../lib/gemini/geminiConfig";
+import { parseGeminiVocabulary } from "../../lib/gemini/vocabulary";
 
 /** Navigate to the User Interface section and scroll to the Live Preview settings anchor. */
 const openLivePreviewSettings = () => {
@@ -100,6 +103,8 @@ interface ExtendedTranscriptionProfile extends TranscriptionProfile {
   soniox_context_general_json: string;
   soniox_context_text: string;
   soniox_context_terms: string[];
+  gemini_language_code_override?: string | null;
+  gemini_custom_vocabulary_override?: string[] | null;
 }
 
 interface ProfileCardProps {
@@ -124,6 +129,9 @@ interface ProfileCardProps {
   isSonioxProvider: boolean;
   postProcessingAvailable: boolean;
   globalSonioxLanguageHintsStrict: boolean;
+  isGeminiProvider: boolean;
+  globalGeminiLanguageCode: string;
+  globalGeminiVocabulary: string[];
   // Note: resolvedOsLanguage removed - language is detected at transcription time, not in UI
 }
 
@@ -149,6 +157,9 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   isSonioxProvider,
   postProcessingAvailable,
   globalSonioxLanguageHintsStrict,
+  isGeminiProvider,
+  globalGeminiLanguageCode,
+  globalGeminiVocabulary,
 }) => {
   const { t } = useTranslation();
   const [isUpdating, setIsUpdating] = useState(false);
@@ -166,6 +177,40 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   );
   // Track whether user is actively editing to prevent useEffect from clobbering
   const isEditingRef = useRef(false);
+  const [geminiVocabularyDraft, setGeminiVocabularyDraft] = useState(
+    (profile.gemini_custom_vocabulary_override ?? []).join("\n"),
+  );
+  const geminiVocabularyDirtyRef = useRef(false);
+  const persistedGeminiVocabulary = JSON.stringify(
+    profile.gemini_custom_vocabulary_override ?? null,
+  );
+  const persistedGeminiVocabularyDraft = (
+    profile.gemini_custom_vocabulary_override ?? []
+  ).join("\n");
+  const geminiVocabularySyncRef = useRef({
+    profileId: profile.id,
+    persisted: persistedGeminiVocabulary,
+  });
+  const geminiVocabularyResult = useMemo(
+    () => parseGeminiVocabulary(geminiVocabularyDraft),
+    [geminiVocabularyDraft],
+  );
+
+  useEffect(() => {
+    const previous = geminiVocabularySyncRef.current;
+    const profileChanged = previous.profileId !== profile.id;
+    const persistedChanged = previous.persisted !== persistedGeminiVocabulary;
+
+    if (profileChanged || (!geminiVocabularyDirtyRef.current && persistedChanged)) {
+      setGeminiVocabularyDraft(persistedGeminiVocabularyDraft);
+      geminiVocabularyDirtyRef.current = false;
+    }
+
+    geminiVocabularySyncRef.current = {
+      profileId: profile.id,
+      persisted: persistedGeminiVocabulary,
+    };
+  }, [profile.id, persistedGeminiVocabulary, persistedGeminiVocabularyDraft]);
 
   // Sync local prompt when profile or global prompt changes (but not during active editing)
   useEffect(() => {
@@ -184,11 +229,26 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   const bindingId = `transcribe_${profile.id}`;
 
   const languageLabel = useMemo(() => {
+    if (isGeminiProvider) {
+      const selection = profile.gemini_language_code_override ?? globalGeminiLanguageCode;
+      if (selection === "auto") return t("settings.gemini.language.auto", "Auto Detect");
+      if (selection === "os_input") {
+        return t("settings.gemini.language.osInput", "Follow OS Input Language");
+      }
+      const locale = GEMINI_LOCALES.find(([, value]) => value === selection);
+      return locale ? `${locale[0]} (${selection})` : selection;
+    }
     const lang = LANGUAGES.find((l) => l.value === profile.language);
     return (
       lang?.label || profile.language || t("settings.general.language.auto")
     );
-  }, [profile.language, t]);
+  }, [
+    globalGeminiLanguageCode,
+    isGeminiProvider,
+    profile.gemini_language_code_override,
+    profile.language,
+    t,
+  ]);
 
   const effectiveLanguageOptions = useMemo(() => {
     if (languageOptions.some((option) => option.value === profile.language)) {
@@ -488,7 +548,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
             </div>
             <span className="text-xs text-mid-gray break-words">
               {languageLabel}
-              {profile.translate_to_english && (
+              {supportsTranslation && profile.translate_to_english && (
                 <span className="text-purple-400 ml-1">
                   {t("settings.transcriptionProfiles.toEnglish", "→ EN")}
                 </span>
@@ -630,7 +690,8 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
           {/* Language + Translate to English — same row */}
           <div className="grid gap-3 lg:grid-cols-2">
             {/* Language Selection */}
-            <div className="space-y-2 relative z-20 min-w-0">
+            {!isGeminiProvider && (
+              <div className="space-y-2 relative z-20 min-w-0">
               <label className="text-xs font-semibold text-text/70">
                 {t("settings.transcriptionProfiles.language")}
               </label>
@@ -686,49 +747,174 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                       )}
                 </p>
               )}
-            </div>
+              </div>
+            )}
 
             {/* Translate to English Toggle */}
-            <div className="space-y-2 min-w-0">
-              <label className="text-xs font-semibold text-text/70">
-                {t("settings.transcriptionProfiles.translateToEnglish")}
-              </label>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleTranslateChange(!profile.translate_to_english)
-                  }
-                  disabled={
-                    isUpdating ||
-                    (!supportsTranslation && !profile.translate_to_english)
-                  }
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
-                    profile.translate_to_english
-                      ? "bg-purple-500"
-                      : "bg-mid-gray/30"
-                  } ${isUpdating || (!supportsTranslation && !profile.translate_to_english) ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            {supportsTranslation && (
+              <div className="space-y-2 min-w-0">
+                <label className="text-xs font-semibold text-text/70">
+                  {t("settings.transcriptionProfiles.translateToEnglish")}
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleTranslateChange(!profile.translate_to_english)
+                    }
+                    disabled={isUpdating}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
                       profile.translate_to_english
-                        ? "translate-x-6"
-                        : "translate-x-1"
-                    }`}
-                  />
-                </button>
-                <span className="text-xs text-mid-gray leading-snug">
-                  {!supportsTranslation
-                    ? t(
-                        "settings.advanced.translateToEnglish.descriptionRemoteUnsupported",
-                      )
-                    : t(
-                        "settings.transcriptionProfiles.translateToEnglishDescription",
+                        ? "bg-purple-500"
+                        : "bg-mid-gray/30"
+                    } ${isUpdating ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        profile.translate_to_english
+                          ? "translate-x-6"
+                          : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                  <span className="text-xs text-mid-gray leading-snug">
+                    {t(
+                      "settings.transcriptionProfiles.translateToEnglishDescription",
+                    )}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {isGeminiProvider && (
+            <div className="space-y-3 border-t border-mid-gray/10 pt-3">
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-text/70">
+                  {t("settings.gemini.language.title", "Gemini language")}
+                </label>
+                <Dropdown
+                  selectedValue={profile.gemini_language_code_override ?? "__inherit__"}
+                  options={[
+                    {
+                      value: "__inherit__",
+                      label: t("settings.gemini.inheritLanguage", {
+                        language: globalGeminiLanguageCode,
+                        defaultValue: `Inherit global (${globalGeminiLanguageCode})`,
+                      }),
+                    },
+                    { value: "auto", label: t("settings.gemini.language.auto", "Auto Detect") },
+                    { value: "os_input", label: t("settings.gemini.language.osInput", "Follow OS Input Language") },
+                    ...GEMINI_LOCALES.map(([label, value]) => ({ value, label: `${label} (${value})` })),
+                  ]}
+                  onSelect={async value => {
+                    if (!value) return;
+                    setIsUpdating(true);
+                    try {
+                      await onUpdate({
+                        ...profile,
+                        gemini_language_code_override: value === "__inherit__" ? null : value,
+                      });
+                    } finally {
+                      setIsUpdating(false);
+                    }
+                  }}
+                  disabled={isUpdating}
+                />
+                <p className="text-xs text-mid-gray">
+                  {t(
+                    "settings.gemini.language.mappingHelp",
+                    "If the OS input language does not map unambiguously to an exact supported locale, AivoRelay uses automatic detection and does not send an unsupported hint.",
+                  )}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-xs font-semibold text-text/70">
+                    {t("settings.gemini.vocabulary.title", "Gemini Custom Vocabulary")}
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-mid-gray">
+                    <input
+                      type="checkbox"
+                      checked={profile.gemini_custom_vocabulary_override != null}
+                      onChange={async event => {
+                        const enabled = event.target.checked;
+                        const next = enabled ? [] : null;
+                        geminiVocabularyDirtyRef.current = false;
+                        setGeminiVocabularyDraft("");
+                        setIsUpdating(true);
+                        try {
+                          await onUpdate({ ...profile, gemini_custom_vocabulary_override: next });
+                        } catch (error) {
+                          setGeminiVocabularyDraft(persistedGeminiVocabularyDraft);
+                          throw error;
+                        } finally {
+                          setIsUpdating(false);
+                        }
+                      }}
+                      disabled={isUpdating}
+                    />
+                    {t("settings.gemini.vocabulary.override", "Replace global vocabulary")}
+                  </label>
+                </div>
+                {profile.gemini_custom_vocabulary_override == null ? (
+                  <p className="text-xs text-mid-gray">
+                    {t("settings.gemini.vocabulary.inherited", "Inheriting {{count}} global terms.", { count: globalGeminiVocabulary.length })}
+                  </p>
+                ) : (
+                  <>
+                    <Textarea
+                      value={geminiVocabularyDraft}
+                      className="w-full"
+                      onChange={event => {
+                        const nextDraft = event.target.value;
+                        geminiVocabularyDirtyRef.current =
+                          nextDraft !== persistedGeminiVocabularyDraft;
+                        setGeminiVocabularyDraft(nextDraft);
+                      }}
+                      onBlur={async () => {
+                        if (!geminiVocabularyResult.safeToPersist) return;
+                        const normalizedTerms = geminiVocabularyResult.normalizedTerms;
+                        setIsUpdating(true);
+                        try {
+                          await onUpdate({
+                            ...profile,
+                            gemini_custom_vocabulary_override: normalizedTerms,
+                          });
+                          geminiVocabularyDirtyRef.current = false;
+                          setGeminiVocabularyDraft(normalizedTerms.join("\n"));
+                        } finally {
+                          setIsUpdating(false);
+                        }
+                      }}
+                      rows={7}
+                      disabled={isUpdating}
+                      placeholder={'Gemini\nKubernetes\nBigQuery'}
+                    />
+                    <p className={`text-xs ${geminiVocabularyResult.errors.length ? "text-red-400" : "text-mid-gray"}`}>
+                      {t("settings.gemini.vocabulary.status", "Detected {{format}} · {{count}}/1000 terms", {
+                        format: geminiVocabularyResult.format,
+                        count: geminiVocabularyResult.normalizedTerms.length,
+                      })}
+                    </p>
+                    <p className="text-xs text-mid-gray">
+                      {t(
+                        "settings.gemini.vocabulary.formatHelp",
+                        "Paste one term per line, CSV, quoted CSV, or a JSON string array. Example: Gemini, Kubernetes, BigQuery",
                       )}
-                </span>
+                    </p>
+                    {geminiVocabularyResult.errors.map(issue => (
+                      <p key={`${issue.code}-${issue.position ?? 0}`} className="text-xs text-red-400">{issue.message}</p>
+                    ))}
+                    {geminiVocabularyResult.warnings.map(issue => (
+                      <p key={`${issue.code}-${issue.position ?? 0}`} className="text-xs text-amber-400">{issue.message}</p>
+                    ))}
+                  </>
+                )}
               </div>
             </div>
-          </div>
+          )}
 
           {isSonioxProvider && (
             <SonioxContextEditor
@@ -1171,6 +1357,28 @@ export const TranscriptionProfiles: React.FC = () => {
     setNewSonioxLanguageHintsStrictMode,
   ] = useState<TriStateValue>("global");
   const [newProfileError, setNewProfileError] = useState<string | null>(null);
+  const globalGeminiVocabulary = ((settings as any)?.gemini_custom_vocabulary ?? []) as string[];
+  const persistedGlobalGeminiVocabulary = JSON.stringify(globalGeminiVocabulary);
+  const persistedGlobalGeminiVocabularyDraft = globalGeminiVocabulary.join("\n");
+  const [globalGeminiVocabularyDraft, setGlobalGeminiVocabularyDraft] = useState(
+    persistedGlobalGeminiVocabularyDraft,
+  );
+  const globalGeminiVocabularyDirtyRef = useRef(false);
+  const globalGeminiVocabularySyncRef = useRef(persistedGlobalGeminiVocabulary);
+  const globalGeminiVocabularyResult = useMemo(
+    () => parseGeminiVocabulary(globalGeminiVocabularyDraft),
+    [globalGeminiVocabularyDraft],
+  );
+
+  useEffect(() => {
+    if (
+      !globalGeminiVocabularyDirtyRef.current &&
+      globalGeminiVocabularySyncRef.current !== persistedGlobalGeminiVocabulary
+    ) {
+      setGlobalGeminiVocabularyDraft(persistedGlobalGeminiVocabularyDraft);
+    }
+    globalGeminiVocabularySyncRef.current = persistedGlobalGeminiVocabulary;
+  }, [persistedGlobalGeminiVocabulary, persistedGlobalGeminiVocabularyDraft]);
 
   const profiles = (settings?.transcription_profiles ||
     []) as ExtendedTranscriptionProfile[];
@@ -1247,6 +1455,26 @@ export const TranscriptionProfiles: React.FC = () => {
     ? settings?.transcription_prompts?.[activeModelId] || ""
     : "";
   const activeProvider = String(settings?.transcription_provider || "local");
+  const [remoteSupportsTranslation, setRemoteSupportsTranslation] =
+    useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setRemoteSupportsTranslation(false);
+    if (activeProvider !== "remote_openai_compatible") return;
+
+    void commands
+      .remoteSttSupportsTranslation()
+      .then((supported) => {
+        if (!cancelled) setRemoteSupportsTranslation(supported);
+      })
+      .catch(() => {
+        if (!cancelled) setRemoteSupportsTranslation(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProvider, activeModelId]);
   const nativeLiveOutputEnabledForActiveModel = useMemo(() => {
     if (activeProvider !== "local" || !activeModelId) return false;
     const localModelInfo = getModelInfo(activeModelId);
@@ -1263,22 +1491,23 @@ export const TranscriptionProfiles: React.FC = () => {
     getModelInfo,
     settings,
   ]);
-  const remoteTranscriptionOnlyModel =
-    activeProvider === "remote_openai_compatible" &&
-    [
-      "gpt-transcribe",
-      "gpt-live-transcribe",
-      "gpt-realtime-whisper",
-      "google/gemini-3.5-transcribe",
-      "gemini-3.5-transcribe",
-      "google/gemini-3.5-transcribe-live",
-      "gemini-3.5-transcribe-live",
-    ].includes(activeModelId.toLowerCase());
-  const supportsTranslation =
-    activeProvider !== "remote_soniox" &&
-    activeProvider !== "remote_deepgram" &&
-    !remoteTranscriptionOnlyModel;
+  const supportsTranslation = useMemo(() => {
+    if (
+      activeProvider === "remote_soniox" ||
+      activeProvider === "remote_deepgram"
+    ) {
+      return false;
+    }
+    if (activeProvider === "remote_openai_compatible") {
+      return remoteSupportsTranslation;
+    }
+    return getModelInfo(activeModelId)?.supports_translation ?? true;
+  }, [activeModelId, activeProvider, getModelInfo, remoteSupportsTranslation]);
   const isSonioxProvider = activeProvider === "remote_soniox";
+  const isGeminiProvider =
+    activeProvider === "remote_openai_compatible" &&
+    activeModelId.toLowerCase().includes("gemini-3.5-transcribe");
+  const globalGeminiLanguageCode = String((settings as any)?.gemini_language_code ?? "auto");
   const newPostProcessingAvailability = getPostProcessingAvailability(settings, {
     profilePreviewOutputOnlyEnabled: newPreviewOutputOnly,
   });
@@ -1429,6 +1658,8 @@ export const TranscriptionProfiles: React.FC = () => {
             sonioxLanguageHintsStrict: strictModeToApi(
               newSonioxLanguageHintsStrictMode,
             ),
+            geminiLanguageCodeOverride: null,
+            geminiCustomVocabularyOverride: null,
           },
         },
       );
@@ -1511,6 +1742,8 @@ export const TranscriptionProfiles: React.FC = () => {
           sonioxContextText: profile.soniox_context_text || "",
           sonioxContextTerms: profile.soniox_context_terms || [],
           sonioxLanguageHintsStrict: profile.soniox_language_hints_strict ?? null,
+          geminiLanguageCodeOverride: profile.gemini_language_code_override ?? null,
+          geminiCustomVocabularyOverride: profile.gemini_custom_vocabulary_override ?? null,
         },
       });
       await refreshSettings();
@@ -1736,7 +1969,15 @@ export const TranscriptionProfiles: React.FC = () => {
                     )}
                   </div>
                   <span className="text-xs text-mid-gray break-words">
-                    {(() => {
+                    {isGeminiProvider ? (
+                      globalGeminiLanguageCode === "auto" ? (
+                        t("settings.gemini.language.auto", "Auto Detect")
+                      ) : globalGeminiLanguageCode === "os_input" ? (
+                        t("settings.gemini.language.osInput", "Follow OS Input Language")
+                      ) : (
+                        globalGeminiLanguageCode
+                      )
+                    ) : (() => {
                       const selectedLang =
                         settings?.selected_language || "auto";
                       const lang = LANGUAGES.find(
@@ -1744,12 +1985,12 @@ export const TranscriptionProfiles: React.FC = () => {
                       );
                       return lang?.label || t("settings.general.language.auto");
                     })()}
-                    {settings?.translate_to_english && (
+                    {supportsTranslation && settings?.translate_to_english && (
                       <span className="text-purple-400 ml-1">
                         {t("settings.transcriptionProfiles.toEnglish", "→ EN")}
                       </span>
                     )}
-                    {settings?.selected_language === "os_input" && (
+                    {!isGeminiProvider && settings?.selected_language === "os_input" && (
                       <span
                         className="text-amber-400/60 ml-2 text-[10px]"
                         title={t(
@@ -1879,7 +2120,8 @@ export const TranscriptionProfiles: React.FC = () => {
 
                 {/* Language + Translate to English — same row */}
                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                  <div className="space-y-2 min-w-0">
+                  {!isGeminiProvider && (
+                    <div className="space-y-2 min-w-0">
                     <label className="text-xs font-semibold text-text/70">
                       {t("settings.general.language.title")}
                     </label>
@@ -1941,52 +2183,123 @@ export const TranscriptionProfiles: React.FC = () => {
                             )}
                       </p>
                     )}
-                  </div>
-
-                  <div className="space-y-2 min-w-0">
-                    <label className="text-xs font-semibold text-text/70">
-                      {t("settings.transcriptionProfiles.translateToEnglish")}
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateSetting &&
-                          updateSetting(
-                            "translate_to_english" as any,
-                            !(settings?.translate_to_english ?? false),
-                          )
-                        }
-                        disabled={
-                          !supportsTranslation &&
-                          !(settings?.translate_to_english ?? false)
-                        }
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
-                          settings?.translate_to_english
-                            ? "bg-purple-500"
-                            : "bg-mid-gray/30"
-                        } ${!supportsTranslation && !(settings?.translate_to_english ?? false) ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                      >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                            settings?.translate_to_english
-                              ? "translate-x-6"
-                              : "translate-x-1"
-                          }`}
-                        />
-                      </button>
-                      <span className="text-xs text-mid-gray leading-snug">
-                        {!supportsTranslation
-                          ? t(
-                              "settings.advanced.translateToEnglish.descriptionRemoteUnsupported",
-                            )
-                          : t(
-                              "settings.transcriptionProfiles.translateToEnglishDescription",
-                            )}
-                      </span>
                     </div>
-                  </div>
+                  )}
+
+                  {supportsTranslation && (
+                    <div className="space-y-2 min-w-0">
+                      <label className="text-xs font-semibold text-text/70">
+                        {t("settings.transcriptionProfiles.translateToEnglish")}
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateSetting &&
+                            updateSetting(
+                              "translate_to_english" as any,
+                              !(settings?.translate_to_english ?? false),
+                            )
+                          }
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
+                            settings?.translate_to_english
+                              ? "bg-purple-500"
+                              : "bg-mid-gray/30"
+                          } cursor-pointer`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              settings?.translate_to_english
+                                ? "translate-x-6"
+                                : "translate-x-1"
+                            }`}
+                          />
+                        </button>
+                        <span className="text-xs text-mid-gray leading-snug">
+                          {t(
+                            "settings.transcriptionProfiles.translateToEnglishDescription",
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
+
+                {isGeminiProvider && (
+                  <>
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold text-text/70">
+                        {t("settings.gemini.language.title", "Gemini language")}
+                      </label>
+                      <Dropdown
+                        selectedValue={globalGeminiLanguageCode}
+                        options={[
+                          { value: "auto", label: t("settings.gemini.language.auto", "Auto Detect") },
+                          { value: "os_input", label: t("settings.gemini.language.osInput", "Follow OS Input Language") },
+                          ...GEMINI_LOCALES.map(([label, value]) => ({ value, label: `${label} (${value})` })),
+                        ]}
+                        onSelect={value => value && updateSetting("gemini_language_code" as any, value as any)}
+                      />
+                      <p className="text-xs text-mid-gray">
+                        {t(
+                          "settings.gemini.language.mappingHelp",
+                          "If the OS input language does not map unambiguously to an exact supported locale, AivoRelay uses automatic detection and does not send an unsupported hint.",
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold text-text/70">
+                        {t("settings.gemini.vocabulary.title", "Gemini Custom Vocabulary")}
+                      </label>
+                      <Textarea
+                        value={globalGeminiVocabularyDraft}
+                        className="w-full"
+                        onChange={event => {
+                          const nextDraft = event.target.value;
+                          globalGeminiVocabularyDirtyRef.current =
+                            nextDraft !== persistedGlobalGeminiVocabularyDraft;
+                          setGlobalGeminiVocabularyDraft(nextDraft);
+                        }}
+                        onBlur={async () => {
+                          if (!globalGeminiVocabularyResult.safeToPersist) return;
+                          const normalizedTerms = globalGeminiVocabularyResult.normalizedTerms;
+                          try {
+                            await updateSetting(
+                              "gemini_custom_vocabulary" as any,
+                              normalizedTerms as any,
+                              { throwOnError: true },
+                            );
+                            globalGeminiVocabularyDirtyRef.current = false;
+                            setGlobalGeminiVocabularyDraft(normalizedTerms.join("\n"));
+                          } catch {
+                            // Keep the dirty draft so the user can retry or repair it.
+                          }
+                        }}
+                        rows={8}
+                        placeholder={'Gemini\nKubernetes\nBigQuery'}
+                      />
+                      <p className={`text-xs ${globalGeminiVocabularyResult.errors.length ? "text-red-400" : "text-mid-gray"}`}>
+                        {t("settings.gemini.vocabulary.status", "Detected {{format}} · {{count}}/1000 terms", {
+                          format: globalGeminiVocabularyResult.format,
+                          count: globalGeminiVocabularyResult.normalizedTerms.length,
+                        })}
+                      </p>
+                      <p className="text-xs text-mid-gray">
+                        {t(
+                          "settings.gemini.vocabulary.formatHelp",
+                          "Paste one term per line, CSV, quoted CSV, or a JSON string array. Example: Gemini, Kubernetes, BigQuery",
+                        )}
+                      </p>
+                      {globalGeminiVocabularyResult.errors.map(issue => (
+                        <p key={`${issue.code}-${issue.position ?? 0}`} className="text-xs text-red-400">{issue.message}</p>
+                      ))}
+                      {globalGeminiVocabularyResult.warnings.map(issue => (
+                        <p key={`${issue.code}-${issue.position ?? 0}`} className="text-xs text-amber-400">{issue.message}</p>
+                      ))}
+                    </div>
+                  </>
+                )}
 
                 {isSonioxProvider && (
                   <SonioxContextEditor
@@ -2189,6 +2502,9 @@ export const TranscriptionProfiles: React.FC = () => {
                 }).available
               }
               globalSonioxLanguageHintsStrict={Boolean((settings as any)?.soniox_language_hints_strict)}
+              isGeminiProvider={isGeminiProvider}
+              globalGeminiLanguageCode={globalGeminiLanguageCode}
+              globalGeminiVocabulary={globalGeminiVocabulary}
               showSonioxLanguageFallbackWarning={
                 !filteredLanguages.some(
                   (language) => language.value === profile.language,
@@ -2295,7 +2611,8 @@ export const TranscriptionProfiles: React.FC = () => {
 
           <div className="grid gap-3 lg:grid-cols-2">
             {/* Language Selection */}
-            <div className="space-y-2 relative z-10 min-w-0">
+            {!isGeminiProvider && (
+              <div className="space-y-2 relative z-10 min-w-0">
               <label className="text-xs font-semibold text-text/70">
                 {t("settings.transcriptionProfiles.language")}
               </label>
@@ -2334,42 +2651,38 @@ export const TranscriptionProfiles: React.FC = () => {
                   />
                 </div>
               )}
-            </div>
+              </div>
+            )}
 
             {/* Translate to English Toggle — matches ProfileCard layout */}
-            <div className="space-y-2 min-w-0">
-              <label className="text-xs font-semibold text-text/70">
-                {t("settings.transcriptionProfiles.translateToEnglish")}
-              </label>
-              <div className="flex flex-col gap-2 rounded-md border border-mid-gray/10 bg-mid-gray/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-mid-gray leading-snug">
-                  {t(
-                    "settings.transcriptionProfiles.translateToEnglishDescription",
-                  )}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setNewTranslate(!newTranslate)}
-                  disabled={isCreating || (!supportsTranslation && !newTranslate)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
-                    newTranslate ? "bg-purple-500" : "bg-mid-gray/30"
-                  } ${isCreating ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      newTranslate ? "translate-x-6" : "translate-x-1"
-                    }`}
-                  />
-                </button>
+            {supportsTranslation && (
+              <div className="space-y-2 min-w-0">
+                <label className="text-xs font-semibold text-text/70">
+                  {t("settings.transcriptionProfiles.translateToEnglish")}
+                </label>
+                <div className="flex flex-col gap-2 rounded-md border border-mid-gray/10 bg-mid-gray/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-mid-gray leading-snug">
+                    {t(
+                      "settings.transcriptionProfiles.translateToEnglishDescription",
+                    )}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setNewTranslate(!newTranslate)}
+                    disabled={isCreating}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
+                      newTranslate ? "bg-purple-500" : "bg-mid-gray/30"
+                    } ${isCreating ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        newTranslate ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
-              {!supportsTranslation && (
-                <p className="text-xs text-mid-gray">
-                  {t(
-                    "settings.advanced.translateToEnglish.descriptionRemoteUnsupported",
-                  )}
-                </p>
-              )}
-            </div>
+            )}
           </div>
 
           {isSonioxProvider && (

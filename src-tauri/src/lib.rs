@@ -14,6 +14,7 @@ mod cli_tts_history;
 mod clipboard;
 mod commands;
 mod file_transcription_diarization;
+mod gemini_config;
 mod helpers;
 mod hotkey_guide;
 mod input;
@@ -1174,6 +1175,11 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_soniox_context_terms_setting,
         shortcut::change_soniox_use_profile_language_hint_only_setting,
         shortcut::change_soniox_language_hints_strict_setting,
+        shortcut::change_gemini_language_code_setting,
+        shortcut::change_gemini_custom_vocabulary_setting,
+        shortcut::change_gemini_live_mode_setting,
+        shortcut::change_gemini_file_mode_setting,
+        shortcut::change_gemini_file_diarization_setting,
         shortcut::change_soniox_endpoint_detection_setting,
         shortcut::change_soniox_max_endpoint_delay_ms_setting,
         shortcut::change_soniox_endpoint_sensitivity_setting,

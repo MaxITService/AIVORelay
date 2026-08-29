@@ -28,6 +28,11 @@ import { SettingContainer } from "../../ui/SettingContainer";
 import { Textarea } from "../../ui/Textarea";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
+import { getModelPromptInfo } from "../TranscriptionSystemPrompt";
+import {
+  ProfileScopedSttSettingsNotice,
+  type ProfileScopedSttFeature,
+} from "../models/ProfileScopedSttSettingsNotice";
 
 interface RemoteSttSettingsProps {
   descriptionMode?: "inline" | "tooltip";
@@ -126,6 +131,8 @@ const buildProfileUpdatePayload = (
   pushToTalk: profile.push_to_talk ?? true,
   previewOutputOnlyEnabled: profile.preview_output_only_enabled ?? false,
   sonioxLanguageHintsStrict: profile.soniox_language_hints_strict ?? null,
+  geminiLanguageCodeOverride: (profile as any).gemini_language_code_override ?? null,
+  geminiCustomVocabularyOverride: (profile as any).gemini_custom_vocabulary_override ?? null,
   llmSettings: {
     enabled: profile.llm_post_process_enabled ?? false,
     promptOverride: profile.llm_prompt_override ?? null,
@@ -134,7 +141,7 @@ const buildProfileUpdatePayload = (
   sonioxContextGeneralJson: profile.soniox_context_general_json ?? "",
   sonioxContextText: profile.soniox_context_text ?? "",
   sonioxContextTerms: profile.soniox_context_terms ?? [],
-});
+} as any);
 
 export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   descriptionMode = "tooltip",
@@ -295,6 +302,9 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     currentRemoteInterface === "gemini_live"
       ? "Gemini 3.5 Transcribe Live"
       : "Gemini 3.5 Transcribe";
+  const geminiFileDiarization = Boolean(
+    (settings as any)?.gemini_file_diarization ?? false,
+  );
   const remoteApiKeyTitle =
     remotePreset === "vercel"
       ? "Vercel AI Gateway API Key"
@@ -930,7 +940,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       const nextModel = currentRemoteInterface === "gemini_live"
         ? (value === "vercel" ? "google/gemini-3.5-transcribe-live" : "gemini-3.5-transcribe-live")
         : REMOTE_STT_PRESETS[value].defaultModel;
-      if (currentRemoteInterface === "gemini_live") {
+      if (
+        currentRemoteInterface === "gemini_transcribe" ||
+        currentRemoteInterface === "gemini_live"
+      ) {
         await updateRemoteSttModelId(nextModel);
       }
       setModelIdInput(nextModel);
@@ -1451,6 +1464,54 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const showOpenAiFields = isWindows && isRemoteOpenAiProvider;
   const showSonioxFields = isWindows && isSonioxProvider;
   const showDeepgramFields = isWindows && isDeepgramProvider;
+  const profileScopedFeatures = useMemo<ProfileScopedSttFeature[]>(() => {
+    if (isSonioxProvider) {
+      return [
+        "language",
+        "strictLanguageHint",
+        "contextJson",
+        "contextText",
+        "contextTerms",
+      ];
+    }
+    if (isDeepgramProvider) {
+      return ["language"];
+    }
+    if (!isRemoteOpenAiProvider) {
+      return [];
+    }
+    if (
+      currentRemoteInterface === "gemini_transcribe" ||
+      currentRemoteInterface === "gemini_live"
+    ) {
+      return ["geminiLanguage", "customVocabulary"];
+    }
+    if (currentRemoteInterface === "openai_realtime_translate") {
+      return ["language", "translateToEnglish"];
+    }
+    const modelId = remoteSettings?.model_id ?? "";
+    const supportsPrompt = getModelPromptInfo(
+      modelId,
+      undefined,
+      false,
+    ).supportsPrompt;
+    const isTranscriptionOnlyModel = [
+      "gpt-transcribe",
+      "gpt-live-transcribe",
+      "gpt-realtime-whisper",
+    ].includes(modelId.toLowerCase());
+    return [
+      "language",
+      ...(!isTranscriptionOnlyModel ? ["translateToEnglish" as const] : []),
+      ...(supportsPrompt ? ["systemPrompt" as const] : []),
+    ];
+  }, [
+    currentRemoteInterface,
+    isDeepgramProvider,
+    isRemoteOpenAiProvider,
+    isSonioxProvider,
+    remoteSettings?.model_id,
+  ]);
   const canTestConnection =
     isRemoteOpenAiProvider &&
     baseUrlInput.trim().length > 0 &&
@@ -1482,6 +1543,13 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
             )}
           </div>
         </SettingContainer>
+      )}
+
+      {showRemoteFields && (
+        <ProfileScopedSttSettingsNotice
+          features={profileScopedFeatures}
+          className="mx-4"
+        />
       )}
 
       {showRemoteFields && (
@@ -1539,7 +1607,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 <>
                   <SettingContainer
                     title={`${geminiModelDisplayName} connection route`}
-                    description="Choose who receives the audio and bills the request. Vercel AI Gateway is the safer default for a small test."
+                    description="The transcription model is Google's Gemini on both routes. This setting only chooses whether AivoRelay connects directly to Google or sends the request through Vercel AI Gateway for transport, authentication, and billing."
                     descriptionMode={descriptionMode}
                     grouped={grouped}
                     layout="stacked"
@@ -1607,6 +1675,11 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                         Recommended for testing
                       </p>
                       <p className="mt-1">
+                        Vercel is the gateway, not the model provider. It forwards
+                        these requests and Gemini-specific options to Google's
+                        Gemini 3.5 Transcribe model.
+                      </p>
+                      <p className="mt-1">
                         Create a dedicated Vercel AI Gateway key, enable its Spend
                         Quota, and use prepaid Gateway credits. The request that
                         crosses a quota may still finish; later requests are
@@ -1656,9 +1729,21 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     ) : (
                       <>
                         Gemini 3.5 Transcribe processes completed recordings and
-                        audio files; it is not live transcription. Text output
-                        supports audio up to 60 minutes; SRT/VTT timestamps
-                        support up to 30 minutes. Known language choices use
+                        audio files; it is not live transcription. {remotePreset === "google" ? (
+                          <>
+                            Google Direct requires the complete inline JSON
+                            request to remain under 20 MB. After WAV preparation
+                            and base64 encoding, the practical audio limit is
+                            about 7 minutes 47 seconds. AivoRelay checks the exact
+                            serialized request and does not send it when it is too
+                            large.
+                          </>
+                        ) : (
+                          <>
+                            Text output supports audio up to 60 minutes; SRT/VTT
+                            timestamps support up to 30 minutes.
+                          </>
+                        )}{" "}Known language choices use
                         Google's documented locale codes; unsupported or
                         ambiguous choices fall back to automatic detection. The
                         dedicated API does not accept AivoRelay's free-form STT
@@ -1666,12 +1751,64 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                       </>
                     )}
                   </div>
-                  {effectiveRealtimeAgentTranslateToEnglish && (
-                    <div className="mx-4 rounded-lg border border-red-500/45 bg-red-500/10 p-3 text-xs text-red-100">
-                      Translate to English is enabled in the active profile or
-                      global settings. {geminiModelDisplayName} cannot use that
-                      AivoRelay option; turn it off before testing.
-                    </div>
+                  {currentRemoteInterface === "gemini_live" ? (
+                    <>
+                      <SettingContainer
+                        title={t("settings.gemini.liveMode.title", "Default Live transcription mode")}
+                        description={t("settings.gemini.liveMode.description", "Smart removes disfluencies and applies readable formatting. Verbatim preserves fillers, repetitions, and false starts.")}
+                        descriptionMode={descriptionMode}
+                        grouped={grouped}
+                        layout="stacked"
+                      >
+                        <Select
+                          value={String((settings as any)?.gemini_live_mode ?? "smart")}
+                          options={[
+                            { value: "smart", label: t("settings.gemini.mode.smart", "Smart") },
+                            { value: "verbatim", label: t("settings.gemini.mode.verbatim", "Verbatim") },
+                          ]}
+                          onChange={value => value && void updateSetting("gemini_live_mode" as any, value as any)}
+                          isClearable={false}
+                          className="w-full"
+                        />
+                      </SettingContainer>
+                      <div className="mx-4 rounded-lg border border-amber-400/35 bg-amber-400/10 p-3 text-xs text-amber-100">
+                        {t(
+                          "settings.gemini.liveLimitWarning",
+                          "Gemini Live supports sessions up to 10 minutes. AivoRelay automatically finalizes at 9:50 to preserve the transcript.",
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <SettingContainer
+                      title={t("settings.gemini.fileMode.title", "Default file transcription mode")}
+                      description={t("settings.gemini.fileMode.description", "SRT/VTT and speaker diarization require Verbatim.")}
+                      descriptionMode={descriptionMode}
+                      grouped={grouped}
+                      layout="stacked"
+                    >
+                      <Select
+                        value={String((settings as any)?.gemini_file_mode ?? "smart")}
+                        options={[
+                          {
+                            value: "smart",
+                            label: t("settings.gemini.mode.smart", "Smart"),
+                            isDisabled: geminiFileDiarization,
+                          },
+                          { value: "verbatim", label: t("settings.gemini.mode.verbatim", "Verbatim") },
+                        ]}
+                        onChange={value => value && void updateSetting("gemini_file_mode" as any, value as any)}
+                        isClearable={false}
+                        className="w-full"
+                      />
+                      {geminiFileDiarization && (
+                        <p className="mt-2 text-xs text-[#808080]">
+                          {t(
+                            "transcribeFile.gemini.diarization.requiresVerbatim",
+                            "Select Verbatim to enable speaker diarization.",
+                          )}
+                        </p>
+                      )}
+                    </SettingContainer>
                   )}
                 </>
               )}

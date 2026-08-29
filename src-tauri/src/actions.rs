@@ -617,9 +617,7 @@ fn resolve_effective_translate_to_english(
     settings: &AppSettings,
     profile: Option<&TranscriptionProfile>,
 ) -> bool {
-    profile
-        .map(|p| p.translate_to_english)
-        .unwrap_or(settings.translate_to_english)
+    crate::managers::remote_stt::resolve_effective_translate_to_english(settings, profile)
 }
 
 fn resolve_profile_name(profile: Option<&TranscriptionProfile>) -> String {
@@ -1871,11 +1869,8 @@ async fn perform_transcription_for_profile_with_retry_action(
     let preview_output_only_enabled = should_route_output_to_preview(settings, profile);
 
     if settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible {
-        // Determine translate_to_english: use profile setting if available, otherwise global setting
-        let translate_to_english = profile
-            .as_ref()
-            .map(|p| p.translate_to_english)
-            .unwrap_or(settings.translate_to_english);
+        let translate_to_english =
+            resolve_effective_translate_to_english(settings, profile);
 
         // Determine language: use profile setting if available, otherwise global setting
         let language = profile
@@ -1910,6 +1905,31 @@ async fn perform_transcription_for_profile_with_retry_action(
             &settings.transcription_prompts,
             &settings.remote_stt.model_id,
         );
+        let gemini_config = if GeminiRealtimeManager::is_realtime_model(&settings.remote_stt.model_id) {
+            None
+        } else if matches!(
+            settings.remote_stt.provider_preset.as_str(),
+            crate::url_security::REMOTE_STT_PRESET_GOOGLE
+                | crate::url_security::REMOTE_STT_PRESET_VERCEL
+        ) {
+            let os_locale = crate::input_source::get_language_from_input_source();
+            match crate::gemini_config::resolve_effective_config(
+                settings,
+                profile,
+                crate::gemini_config::GeminiWorkflow::Dictation,
+                os_locale.as_deref(),
+            ) {
+                Ok(config) => Some(config),
+                Err(error) => {
+                    return TranscriptionOutcome::Error {
+                        message: error,
+                        shown_in_overlay: false,
+                    }
+                }
+            }
+        } else {
+            None
+        };
 
         let result = remote_manager
             .transcribe_with_operation(
@@ -1919,6 +1939,7 @@ async fn perform_transcription_for_profile_with_retry_action(
                 prompt,
                 Some(language.clone()),
                 translate_to_english,
+                gemini_config,
             )
             .await
             .map(|text| {
@@ -5104,6 +5125,21 @@ pub(crate) fn stop_transcription_after_realtime_error(
     true
 }
 
+pub(crate) fn stop_transcription_at_realtime_limit(app: &AppHandle, binding_id: &str) -> bool {
+    if !is_recording_for_binding(app, binding_id) {
+        return false;
+    }
+    let Some(action) = transcribe_action_for_binding(binding_id) else {
+        warn!(
+            "Could not finalize time-limited realtime transcription: no action is registered for binding '{}'",
+            binding_id
+        );
+        return false;
+    };
+    action.stop(app, binding_id, "gemini_live_time_limit");
+    true
+}
+
 fn use_push_to_talk_for_transcribe_binding(settings: &AppSettings, binding_id: &str) -> bool {
     if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
         true
@@ -5232,29 +5268,31 @@ pub(crate) fn build_gemini_options_for_live_sound(
     settings: &AppSettings,
 ) -> GeminiRealtimeOptions {
     let profile = resolve_profile_for_binding(settings, LIVE_SOUND_TRANSCRIPTION_BINDING_ID);
-    let language = profile
-        .as_ref()
-        .map(|p| p.language.clone())
-        .unwrap_or_else(|| settings.selected_language.clone());
-    let translate_to_english = resolve_effective_translate_to_english(settings, profile);
-    build_gemini_realtime_options(settings, &language, translate_to_english)
+    build_gemini_realtime_options(settings, profile)
 }
 
 fn build_gemini_realtime_options(
     settings: &AppSettings,
-    language: &str,
-    translate_to_english: bool,
+    profile: Option<&crate::settings::TranscriptionProfile>,
 ) -> GeminiRealtimeOptions {
-    let language = if language.trim().is_empty() || language.eq_ignore_ascii_case("auto") {
-        None
-    } else {
-        Some(language.to_string())
-    };
+    let os_locale = crate::input_source::get_language_from_input_source();
+    let effective = crate::gemini_config::resolve_effective_config(
+        settings,
+        profile,
+        crate::gemini_config::GeminiWorkflow::Live,
+        os_locale.as_deref(),
+    );
+    let validation_error = effective.as_ref().err().cloned();
+    let (language, custom_vocabulary, mode) = effective
+        .map(|config| (config.language_code, config.custom_vocabulary, config.mode))
+        .unwrap_or_else(|_| (None, Vec::new(), settings.gemini_live_mode));
     GeminiRealtimeOptions {
         model: settings.remote_stt.model_id.clone(),
         language,
         preset: settings.remote_stt.provider_preset.clone(),
-        translate_to_english,
+        custom_vocabulary,
+        mode,
+        validation_error,
     }
 }
 
@@ -5399,11 +5437,7 @@ fn setup_and_start_live(
         TranscriptionProvider::RemoteOpenAiCompatible
             if should_use_gemini_realtime_live(settings) =>
         {
-            let options = build_gemini_realtime_options(
-                settings,
-                &language,
-                resolve_effective_translate_to_english(settings, profile),
-            );
+            let options = build_gemini_realtime_options(settings, profile);
             let gemini_realtime_manager =
                 Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
             let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
@@ -5655,10 +5689,7 @@ fn apply_profile_output_filters(
         .as_ref()
         .map(|profile| profile.language.as_str())
         .unwrap_or(settings.selected_language.as_str());
-    let translate_to_english = profile
-        .as_ref()
-        .map(|profile| profile.translate_to_english)
-        .unwrap_or(settings.translate_to_english);
+    let translate_to_english = resolve_effective_translate_to_english(settings, profile);
     let output_language = if settings.transcription_provider == TranscriptionProvider::RemoteSoniox
     {
         // Soniox accepts language hints but may still return multilingual text,
@@ -6724,6 +6755,8 @@ impl ShortcutAction for TranscribeAction {
                     };
 
                     set_openai_realtime_whisper_stream_emitted(&binding_id, false);
+                    let gemini_stream_insert_timeout_ms =
+                        settings.paste_delay_ms.saturating_add(1500);
                     let chunk_callback = stream_processor.map(|stream_processor| {
                         Arc::new({
                             let ah_for_cb = app_handle.clone();
@@ -6744,22 +6777,51 @@ impl ShortcutAction for TranscribeAction {
                                 if delta.is_empty() {
                                     return;
                                 }
-                                mark_openai_realtime_whisper_stream_emitted(&binding_id_for_cb);
                                 let ah_for_call = ah_for_cb.clone();
                                 let ah_for_clip = ah_for_call.clone();
-                                let _ = ah_for_call.run_on_main_thread(move || {
-                                    if operation_stamp.was_cancelled(&ah_for_clip) {
-                                        debug!(
-                                            "Skipping queued Gemini 3.5 Transcribe Live chunk for cancelled operation {}",
-                                            operation_stamp.operation_id
-                                        );
-                                        return;
-                                    }
-                                    let _ = crate::clipboard::paste_stream_chunk(
-                                        delta,
-                                        ah_for_clip.clone(),
+                                let binding_id_for_paste = binding_id_for_cb.clone();
+                                if let Err(error) = run_on_main_thread_sync(
+                                    &ah_for_call,
+                                    gemini_stream_insert_timeout_ms,
+                                    move || {
+                                        if !operation_stamp.is_current(&ah_for_clip)
+                                            || operation_stamp.was_cancelled(&ah_for_clip)
+                                        {
+                                            debug!(
+                                                "Skipping queued Gemini 3.5 Transcribe Live chunk for stale or cancelled operation {}",
+                                                operation_stamp.operation_id
+                                            );
+                                            return;
+                                        }
+                                        match crate::clipboard::paste_stream_chunk(
+                                            delta,
+                                            ah_for_clip.clone(),
+                                        ) {
+                                            Ok(()) => mark_openai_realtime_whisper_stream_emitted(
+                                                &binding_id_for_paste,
+                                            ),
+                                            Err(error) => {
+                                                let message = format!(
+                                                    "Failed to insert Gemini 3.5 Transcribe Live stream chunk: {}",
+                                                    error
+                                                );
+                                                warn!("{}", message);
+                                                handle_remote_transcription_error(
+                                                    &ah_for_clip,
+                                                    &message,
+                                                    false,
+                                                );
+                                            }
+                                        }
+                                    },
+                                ) {
+                                    let message = format!(
+                                        "Gemini 3.5 Transcribe Live stream insertion was not confirmed: {}",
+                                        error
                                     );
-                                });
+                                    warn!("{}", message);
+                                    handle_remote_transcription_error(&ah_for_cb, &message, false);
+                                }
                             }
                         }) as OpenAiRealtimeWhisperFinalChunkCallback
                     });
@@ -6767,11 +6829,7 @@ impl ShortcutAction for TranscribeAction {
                     let start_result = gemini_realtime_manager.start_session(
                         &binding_id,
                         &api_key,
-                        build_gemini_realtime_options(
-                            &settings,
-                            &language,
-                            resolve_effective_translate_to_english(&settings, profile),
-                        ),
+                        build_gemini_realtime_options(&settings, profile),
                         chunk_callback,
                     );
 
@@ -6827,6 +6885,7 @@ impl ShortcutAction for TranscribeAction {
         let invoked_from_preview_action = shortcut_str.contains("preview_output_mode")
             || binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID;
         let invoked_from_realtime_error = shortcut_str.contains("realtime_provider_error");
+        let invoked_from_gemini_time_limit = shortcut_str == "gemini_live_time_limit";
 
         if use_live_streaming {
             let stop_context = match prepare_stop_recording_with_options(app, binding_id, false) {
@@ -6889,6 +6948,7 @@ impl ShortcutAction for TranscribeAction {
             let force_post_process = take_force_post_process_for_binding(&binding_id);
             let preview_output_only_enabled = preview_output_only_enabled;
             let invoked_from_preview_action = invoked_from_preview_action;
+            let invoked_from_gemini_time_limit = invoked_from_gemini_time_limit;
             tauri::async_runtime::spawn(async move {
                 let mut finish_guard =
                     FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
@@ -7238,25 +7298,77 @@ impl ShortcutAction for TranscribeAction {
                     if !tail_delta.is_empty() {
                         if is_deepgram_live_provider {
                             had_deepgram_stream_output = true;
-                        } else if is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
+                        } else if is_openai_realtime_whisper_live_provider {
                             had_openai_realtime_whisper_stream_output = true;
                         }
                         let ah_for_call = ah.clone();
                         let ah_for_clip = ah_for_call.clone();
-                        if let Err(err) = ah_for_call.run_on_main_thread(move || {
-                            if operation_stamp.was_cancelled(&ah_for_clip) {
-                                debug!(
-                                    "Skipping queued live stream tail for cancelled operation {}",
-                                    operation_stamp.operation_id
+                        let binding_id_for_tail = binding_id.clone();
+                        let queue_result = if is_gemini_live_provider {
+                            run_on_main_thread_sync(
+                                &ah_for_call,
+                                recording_settings.paste_delay_ms.saturating_add(1500),
+                                move || {
+                                    if !operation_stamp.is_current(&ah_for_clip)
+                                        || operation_stamp.was_cancelled(&ah_for_clip)
+                                    {
+                                        debug!(
+                                            "Skipping queued Gemini live stream tail for stale or cancelled operation {}",
+                                            operation_stamp.operation_id
+                                        );
+                                        return;
+                                    }
+                                    match crate::clipboard::paste_stream_chunk(
+                                        tail_delta,
+                                        ah_for_clip.clone(),
+                                    ) {
+                                        Ok(()) => mark_openai_realtime_whisper_stream_emitted(
+                                            &binding_id_for_tail,
+                                        ),
+                                        Err(error) => {
+                                            let message = format!(
+                                                "Failed to insert Gemini 3.5 Transcribe Live stream tail: {}",
+                                                error
+                                            );
+                                            warn!("{}", message);
+                                            handle_remote_transcription_error(
+                                                &ah_for_clip,
+                                                &message,
+                                                false,
+                                            );
+                                        }
+                                    }
+                                },
+                            )
+                        } else {
+                            ah_for_call.run_on_main_thread(move || {
+                                if operation_stamp.was_cancelled(&ah_for_clip) {
+                                    debug!(
+                                        "Skipping queued live stream tail for cancelled operation {}",
+                                        operation_stamp.operation_id
+                                    );
+                                    return;
+                                }
+                                let _ = crate::clipboard::paste_stream_chunk(
+                                    tail_delta,
+                                    ah_for_clip.clone(),
                                 );
-                                return;
+                            })
+                            .map_err(|error| {
+                                format!("Failed to dispatch main-thread task: {}", error)
+                            })
+                        };
+                        if let Err(err) = queue_result {
+                            if is_gemini_live_provider {
+                                let message = format!(
+                                    "Gemini 3.5 Transcribe Live stream tail insertion was not confirmed: {}",
+                                    err
+                                );
+                                warn!("{}", message);
+                                handle_remote_transcription_error(&ah, &message, false);
+                            } else {
+                                warn!("Failed to queue Soniox stream tail paste: {}", err);
                             }
-                            let _ = crate::clipboard::paste_stream_chunk(
-                                tail_delta,
-                                ah_for_clip.clone(),
-                            );
-                        }) {
-                            warn!("Failed to queue Soniox stream tail paste: {}", err);
                         }
                     }
                 }
@@ -7369,10 +7481,13 @@ impl ShortcutAction for TranscribeAction {
                 let main_thread_timeout_ms = recording_settings.paste_delay_ms.saturating_add(1500);
                 let overlay_generation =
                     crate::plus_overlay_state::current_recording_overlay_generation();
+                let binding_id_for_final_output = binding_id.clone();
                 if let Err(err) = run_on_main_thread_sync(&ah, main_thread_timeout_ms, move || {
-                    if operation_stamp.was_cancelled(&ah_clone) {
+                    if operation_stamp.was_cancelled(&ah_clone)
+                        || (is_gemini_live_provider && !operation_stamp.is_current(&ah_clone))
+                    {
                         debug!(
-                            "Skipping queued live output for cancelled operation {}",
+                            "Skipping queued live output for stale or cancelled operation {}",
                             operation_stamp.operation_id
                         );
                         return;
@@ -7389,14 +7504,36 @@ impl ShortcutAction for TranscribeAction {
                             // behavior and avoid restoring clipboard before target app consumes paste.
                             let had_provider_stream_output = if is_deepgram_live_provider {
                                 had_deepgram_stream_output
+                            } else if is_gemini_live_provider {
+                                // A timed-out Gemini chunk closure remains ahead of this fallback
+                                // in the main-thread queue. Re-read delivery here so a late but
+                                // successful chunk is not followed by a duplicate full transcript.
+                                had_openai_realtime_whisper_stream_output
+                                    || take_openai_realtime_whisper_stream_emitted(
+                                        &binding_id_for_final_output,
+                                    )
                             } else {
                                 had_openai_realtime_whisper_stream_output
                             };
                             if !had_provider_stream_output {
-                                let _ = crate::clipboard::paste_stream_chunk(
+                                let fallback_result = crate::clipboard::paste_stream_chunk(
                                     final_text_for_ui.clone(),
                                     ah_clone.clone(),
                                 );
+                                if is_gemini_live_provider {
+                                    if let Err(error) = fallback_result {
+                                        let message = format!(
+                                            "Failed to insert finalized Gemini 3.5 Transcribe Live text: {}",
+                                            error
+                                        );
+                                        warn!("{}", message);
+                                        handle_remote_transcription_error(
+                                            &ah_clone,
+                                            &message,
+                                            false,
+                                        );
+                                    }
+                                }
                             }
                         } else {
                             if recovered_from_soniox_replay {
@@ -7478,6 +7615,23 @@ impl ShortcutAction for TranscribeAction {
                 }
 
                 finish_guard.finish();
+                if invoked_from_gemini_time_limit
+                    && binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+                {
+                    if let Some(completion) = gemini_realtime_manager.take_time_limit_completion() {
+                        match completion {
+                            crate::managers::gemini_realtime::GeminiTimeLimitCompletion::Complete => {
+                                crate::overlay::show_gemini_live_completion_overlay(&ah, false);
+                            }
+                            crate::managers::gemini_realtime::GeminiTimeLimitCompletion::Partial => {
+                                crate::overlay::show_gemini_live_completion_overlay(&ah, true);
+                            }
+                            crate::managers::gemini_realtime::GeminiTimeLimitCompletion::Failed(error) => {
+                                crate::plus_overlay_state::handle_transcription_error(&ah, &error);
+                            }
+                        }
+                    }
+                }
             });
             return;
         }

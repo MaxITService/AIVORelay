@@ -245,6 +245,22 @@ mod tests {
     }
 
     #[test]
+    fn non_diarized_subtitles_remain_unlabelled() {
+        let segments = vec![SubtitleSegment {
+            start: 0.0,
+            end: 1.0,
+            text: "Hello world".to_string(),
+        }];
+
+        let srt = segments_to_srt(&segments);
+        let vtt = segments_to_vtt(&segments);
+        assert!(srt.contains("\nHello world\n"));
+        assert!(vtt.contains("\nHello world\n"));
+        assert!(!srt.contains("[Speaker"));
+        assert!(!vtt.contains("[Speaker"));
+    }
+
+    #[test]
     fn test_segments_to_vtt() {
         let segments = vec![SubtitleSegment {
             start: 0.0,

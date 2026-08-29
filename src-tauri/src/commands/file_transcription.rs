@@ -8,12 +8,14 @@ use crate::audio_toolkit::{
     apply_custom_words, clean_transcription_output, detect_output_language, OutputLanguageEvidence,
 };
 use crate::file_transcription_diarization::{
-    create_diarized_transcript_session, normalize_raw_speaker_blocks, reapply_diarized_transcript,
-    render_diarized_transcript, DiarizedTranscriptBlock, DiarizedTranscriptProvider,
-    FileTranscriptionSpeakerNameInput, FileTranscriptionSpeakerSession, RawSpeakerBlock,
+    create_diarized_transcript_session, normalize_raw_diarized_words,
+    normalize_raw_speaker_blocks, reapply_diarized_transcript, render_diarized_subtitle_segments,
+    render_diarized_transcript, DiarizedSubtitleSegment, DiarizedTranscriptBlock,
+    DiarizedTranscriptProvider, FileTranscriptionSpeakerNameInput,
+    FileTranscriptionSpeakerSession, RawDiarizedTranscriptWord, RawSpeakerBlock,
 };
 use crate::managers::deepgram_stt::{DeepgramSttManager, DeepgramTranscriptionOptions};
-use crate::managers::remote_stt::RemoteSttManager;
+use crate::managers::remote_stt::{RemoteFileTranscription, RemoteSttManager};
 use crate::managers::soniox_stt::{SonioxAsyncTranscriptionOptions, SonioxSttManager};
 use crate::managers::transcription::{
     FileTranscriptionChunkTraceEntry, FileTranscriptionOverrideLoadDecision, TranscriptionManager,
@@ -283,6 +285,12 @@ pub async fn transcribe_audio_file(
     let use_deepgram = model_override.is_none()
         && settings.transcription_provider == TranscriptionProvider::RemoteDeepgram;
     let use_local = file_transcription_uses_local_model(&settings, model_override.as_deref());
+    let is_gemini = use_remote
+        && matches!(
+            settings.remote_stt.provider_preset.as_str(),
+            crate::url_security::REMOTE_STT_PRESET_GOOGLE
+                | crate::url_security::REMOTE_STT_PRESET_VERCEL
+        );
     if use_remote
         && needs_segments
         && !crate::managers::remote_stt::supports_subtitle_timestamps(&settings.remote_stt.model_id)
@@ -298,6 +306,28 @@ pub async fn transcribe_audio_file(
                 .to_string(),
         );
     }
+    let gemini_config = if is_gemini {
+        let os_locale = crate::input_source::get_language_from_input_source();
+        let config = crate::gemini_config::resolve_effective_config(
+            &settings,
+            profile,
+            crate::gemini_config::GeminiWorkflow::File {
+                word_timestamps: needs_segments,
+            },
+            os_locale.as_deref(),
+        )?;
+        let source_duration = probe_audio_duration(&path)?;
+        crate::gemini_config::validate_duration(source_duration, &config)?;
+        if config.route == crate::gemini_config::GeminiRoute::GoogleDirect {
+            crate::managers::remote_stt::validate_google_gemini_inline_request_duration(
+                source_duration,
+                &config,
+            )?;
+        }
+        Some(config)
+    } else {
+        None
+    };
     // Reserve the remote operation before decoding so Cancel can also stop a
     // file that has not reached network I/O yet.
     let remote_operation_id = use_remote.then(|| {
@@ -349,11 +379,11 @@ pub async fn transcribe_audio_file(
         let remote_manager = app.state::<Arc<RemoteSttManager>>();
         let operation_id = remote_operation_id.expect("remote operation ID must be reserved");
 
-        // Determine translate_to_english: use profile setting if available, otherwise global setting
-        let translate_to_english = profile
-            .as_ref()
-            .map(|p| p.translate_to_english)
-            .unwrap_or(settings.translate_to_english);
+        let translate_to_english =
+            crate::managers::remote_stt::resolve_effective_translate_to_english(
+                &settings,
+                profile,
+            );
 
         // Determine language: use profile setting if available, otherwise global setting
         let language = profile
@@ -367,6 +397,10 @@ pub async fn transcribe_audio_file(
             &settings.remote_stt.model_id,
         );
 
+        if let Some(config) = gemini_config.as_ref() {
+            crate::gemini_config::validate_duration(samples.len() as f64 / 16_000.0, config)?;
+        }
+
         let transcript = remote_manager
             .transcribe_file_with_operation(
                 operation_id,
@@ -376,9 +410,20 @@ pub async fn transcribe_audio_file(
                 Some(language.clone()),
                 translate_to_english,
                 needs_segments,
+                gemini_config.clone(),
             )
             .await
             .map_err(|e| format!("Remote transcription failed: {}", e))?;
+
+        if is_gemini && needs_segments {
+            require_complete_gemini_timestamps(&transcript)?;
+        }
+        if gemini_config
+            .as_ref()
+            .is_some_and(|config| config.diarization)
+        {
+            require_complete_gemini_diarization(&transcript)?;
+        }
 
         let output_language = OutputLanguageEvidence::from_requested_language(
             Some(language.as_str()),
@@ -386,24 +431,98 @@ pub async fn transcribe_audio_file(
         );
         let output_language =
             resolved_output_language_for_text(&settings, &transcript.text, output_language);
-        let corrected = apply_transcription_post_processing(
-            transcript.text,
-            &settings,
-            should_apply_custom_words,
-            &output_language,
-        );
+        let (corrected, diarized_segments, new_speaker_session) = if gemini_config
+            .as_ref()
+            .is_some_and(|config| config.diarization)
+        {
+            if matches!(format, OutputFormat::Text) {
+                if let Some((rendered_text, session)) = build_diarized_text_output(
+                    DiarizedTranscriptProvider::Gemini,
+                    transcript.speaker_blocks.clone(),
+                    &format,
+                    save_to_file,
+                    &settings,
+                    should_apply_custom_words,
+                    &output_language,
+                )? {
+                    (rendered_text, None, session)
+                } else {
+                    (
+                        apply_transcription_post_processing(
+                            transcript.text,
+                            &settings,
+                            should_apply_custom_words,
+                            &output_language,
+                        ),
+                        None,
+                        None,
+                    )
+                }
+            } else {
+                let raw_words = transcript
+                    .annotated_words
+                    .iter()
+                    .map(|word| RawDiarizedTranscriptWord {
+                        speaker_key: word.speaker.clone(),
+                        default_name: word.speaker.clone(),
+                        text: word.text.clone(),
+                        start: word.start,
+                        end: word.end,
+                    })
+                    .collect();
+                if let Some((rendered_text, subtitle_segments, session)) =
+                    build_gemini_diarized_output(
+                        raw_words,
+                        &format,
+                        save_to_file,
+                        &settings,
+                        should_apply_custom_words,
+                        &output_language,
+                    )?
+                {
+                    (rendered_text, subtitle_segments, session)
+                } else {
+                    (
+                        apply_transcription_post_processing(
+                            transcript.text,
+                            &settings,
+                            should_apply_custom_words,
+                            &output_language,
+                        ),
+                        None,
+                        None,
+                    )
+                }
+            }
+        } else {
+            (
+                apply_transcription_post_processing(
+                    transcript.text,
+                    &settings,
+                    should_apply_custom_words,
+                    &output_language,
+                ),
+                None,
+                None,
+            )
+        };
+        speaker_session = new_speaker_session;
 
         let segs = if needs_segments {
-            Some(post_process_remote_segments(
-                require_remote_segments(
-                    transcript.segments,
-                    &corrected,
-                    "the selected remote model",
-                )?,
-                &settings,
-                should_apply_custom_words,
-                &output_language,
-            ))
+            if let Some(diarized_segments) = diarized_segments {
+                Some(diarized_segments)
+            } else {
+                Some(post_process_remote_segments(
+                    require_remote_segments(
+                        transcript.segments,
+                        &corrected,
+                        "the selected remote model",
+                    )?,
+                    &settings,
+                    should_apply_custom_words,
+                    &output_language,
+                ))
+            }
         } else {
             None
         };
@@ -775,12 +894,24 @@ pub async fn transcribe_audio_file(
             let segs = segments.as_ref().ok_or_else(|| {
                 "Transcription completed without timestamps required for SRT output.".to_string()
             })?;
+            if segs.is_empty() {
+                return Err(
+                    "Transcription completed without valid timestamps required for SRT output. No empty subtitle file was created."
+                        .to_string(),
+                );
+            }
             segments_to_srt(segs)
         }
         OutputFormat::Vtt => {
             let segs = segments.as_ref().ok_or_else(|| {
                 "Transcription completed without timestamps required for VTT output.".to_string()
             })?;
+            if segs.is_empty() {
+                return Err(
+                    "Transcription completed without valid timestamps required for VTT output. No empty subtitle file was created."
+                        .to_string(),
+                );
+            }
             segments_to_vtt(segs)
         }
     };
@@ -928,6 +1059,91 @@ fn apply_transcription_post_processing_to_blocks(
     processed_blocks
 }
 
+fn apply_transcription_post_processing_to_diarized_segments(
+    segments: Vec<DiarizedSubtitleSegment>,
+    settings: &AppSettings,
+    should_apply_custom_words: bool,
+    output_language: &OutputLanguageEvidence,
+) -> Vec<DiarizedSubtitleSegment> {
+    segments
+        .into_iter()
+        .filter_map(|mut segment| {
+            segment.text = apply_transcription_post_processing(
+                segment.text,
+                settings,
+                should_apply_custom_words,
+                output_language,
+            );
+            (!segment.text.trim().is_empty()).then_some(segment)
+        })
+        .collect()
+}
+
+fn build_gemini_diarized_output(
+    raw_words: Vec<RawDiarizedTranscriptWord>,
+    format: &OutputFormat,
+    save_to_file: bool,
+    settings: &AppSettings,
+    should_apply_custom_words: bool,
+    output_language: &OutputLanguageEvidence,
+) -> Result<
+    Option<(
+        String,
+        Option<Vec<SubtitleSegment>>,
+        Option<FileTranscriptionSpeakerSession>,
+    )>,
+    String,
+> {
+    let (normalized_blocks, subtitle_segments) = normalize_raw_diarized_words(raw_words);
+    if normalized_blocks.is_empty() {
+        return Ok(None);
+    }
+
+    let combined_text = normalized_blocks
+        .iter()
+        .map(|block| block.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let output_language =
+        resolved_output_language_for_text(settings, &combined_text, output_language.clone());
+    let processed_blocks = apply_transcription_post_processing_to_blocks(
+        normalized_blocks,
+        settings,
+        should_apply_custom_words,
+        &output_language,
+    );
+    let processed_subtitle_segments = apply_transcription_post_processing_to_diarized_segments(
+        subtitle_segments,
+        settings,
+        should_apply_custom_words,
+        &output_language,
+    );
+    if processed_blocks.is_empty() {
+        return Ok(None);
+    }
+
+    let labelled_segments = matches!(format, OutputFormat::Srt | OutputFormat::Vtt)
+        .then(|| render_diarized_subtitle_segments(&processed_subtitle_segments, &[]));
+    let rendered_text = match format {
+        OutputFormat::Text => render_diarized_transcript(&processed_blocks, &[]),
+        OutputFormat::Srt => segments_to_srt(labelled_segments.as_deref().unwrap_or_default()),
+        OutputFormat::Vtt => segments_to_vtt(labelled_segments.as_deref().unwrap_or_default()),
+    };
+    let session = if save_to_file {
+        None
+    } else {
+        create_diarized_transcript_session(
+            DiarizedTranscriptProvider::Gemini,
+            processed_blocks,
+            *format,
+            processed_subtitle_segments,
+        )?
+        .map(|(session, _)| session)
+    };
+
+    Ok(Some((rendered_text, labelled_segments, session)))
+}
+
 fn build_diarized_text_output(
     provider: DiarizedTranscriptProvider,
     raw_blocks: Vec<RawSpeakerBlock>,
@@ -968,7 +1184,13 @@ fn build_diarized_text_output(
     let session = if save_to_file {
         None
     } else {
-        create_diarized_transcript_session(provider, processed_blocks)?.map(|(session, _)| session)
+        create_diarized_transcript_session(
+            provider,
+            processed_blocks,
+            OutputFormat::Text,
+            Vec::new(),
+        )?
+        .map(|(session, _)| session)
     };
 
     Ok(Some((rendered_text, session)))
@@ -985,6 +1207,72 @@ fn require_remote_segments(
         ));
     }
     Ok(segments)
+}
+
+fn normalized_coverage_text(text: &str) -> String {
+    let normalized = text
+        .chars()
+        .filter(|character| character.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    if normalized.is_empty() {
+        text.split_whitespace().collect::<String>()
+    } else {
+        normalized
+    }
+}
+
+fn transcript_coverage_matches(transcript_text: &str, annotated_text: &str) -> bool {
+    normalized_coverage_text(transcript_text) == normalized_coverage_text(annotated_text)
+}
+
+fn require_complete_gemini_timestamps(
+    transcript: &RemoteFileTranscription,
+) -> Result<(), String> {
+    if transcript.text.trim().is_empty() {
+        return Err(
+            "Gemini returned no transcript text for subtitle output. Select Text output or try the transcription again."
+                .to_string(),
+        );
+    }
+    let timed_text = transcript
+        .segments
+        .iter()
+        .map(|segment| segment.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if transcript.segments.is_empty()
+        || !transcript_coverage_matches(&transcript.text, &timed_text)
+    {
+        return Err(
+            "Gemini returned incomplete or invalid word timestamps. No SRT/VTT file was created; select Text output or try the transcription again."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn require_complete_gemini_diarization(
+    transcript: &RemoteFileTranscription,
+) -> Result<(), String> {
+    if transcript.text.trim().is_empty() {
+        return Err("Gemini returned no transcript text for speaker diarization.".to_string());
+    }
+    let diarized_text = transcript
+        .speaker_blocks
+        .iter()
+        .map(|block| block.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if transcript.speaker_blocks.is_empty()
+        || !transcript_coverage_matches(&transcript.text, &diarized_text)
+    {
+        return Err(
+            "Gemini returned incomplete speaker annotations. The full transcript was preserved by rejecting the partial diarized result; disable diarization or try again."
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 fn post_process_remote_segments(
@@ -1051,6 +1339,51 @@ fn normalize_soniox_language_hints(hints: Option<Vec<String>>) -> Option<Vec<Str
 }
 
 /// Decode an audio file to f32 PCM samples at 16kHz
+fn probe_audio_duration(path: &PathBuf) -> Result<f64, String> {
+    use rodio::Source;
+    use std::fs::File;
+    use std::io::BufReader;
+
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_lowercase())
+        .unwrap_or_default();
+
+    if extension == "wav" {
+        let reader = hound::WavReader::open(path)
+            .map_err(|error| format!("Failed to inspect WAV file: {error}"))?;
+        let sample_rate = reader.spec().sample_rate;
+        validate_audio_sample_rate(sample_rate)?;
+        return Ok(reader.duration() as f64 / sample_rate as f64);
+    }
+
+    let file = File::open(path).map_err(|error| format!("Failed to open file: {error}"))?;
+    let byte_len = file
+        .metadata()
+        .map_err(|error| format!("Failed to read file metadata: {error}"))?
+        .len();
+    let reader = BufReader::new(file);
+    let mut decoder_builder = rodio::Decoder::builder()
+        .with_data(reader)
+        .with_byte_len(byte_len)
+        .with_seekable(true);
+    if !extension.is_empty() {
+        decoder_builder = decoder_builder.with_hint(&extension);
+    }
+    if let Some(mime_type) = audio_mime_type_for_extension(&extension) {
+        decoder_builder = decoder_builder.with_mime_type(mime_type);
+    }
+    let source = decoder_builder
+        .build()
+        .map_err(|error| format!("Failed to inspect audio file: {error}"))?;
+    validate_audio_sample_rate(source.sample_rate())?;
+    source.total_duration().map(|duration| duration.as_secs_f64()).ok_or_else(|| {
+        "The audio duration could not be determined safely before decoding. Convert the file to WAV and try again."
+            .to_string()
+    })
+}
+
 fn decode_audio_file(path: &PathBuf) -> Result<Vec<f32>, String> {
     use rodio::Source;
     use std::fs::File;

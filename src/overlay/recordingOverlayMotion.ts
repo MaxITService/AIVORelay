@@ -8,7 +8,8 @@ type RecordingOverlayMotionState =
   | "transcribing"
   | "error"
   | "profile_switch"
-  | "microphone_switch";
+  | "microphone_switch"
+  | "gemini_live_completion";
 
 export interface RecordingOverlayMotionOptions {
   isVisible?: boolean;

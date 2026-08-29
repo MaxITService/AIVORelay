@@ -15,6 +15,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::url_security::{REMOTE_STT_PRESET_GOOGLE, REMOTE_STT_PRESET_VERCEL};
+use crate::settings::GeminiTranscriptionMode;
 
 pub const GEMINI_LIVE_DEFAULT_MODEL: &str = "google/gemini-3.5-transcribe-live";
 pub const GEMINI_LIVE_GOOGLE_DEFAULT_MODEL: &str = "gemini-3.5-transcribe-live";
@@ -31,9 +32,11 @@ const VERCEL_TRANSCRIPTION_SPECIFICATION_VERSION: &str = "4";
 const VERCEL_MAX_AUDIO_FRAME_BYTES: usize = 64 * 1024;
 
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
-const GEMINI_LIVE_MAX_SESSION_SECS: u64 = 10 * 60;
+pub const GEMINI_LIVE_SAFE_FINALIZE_SECS: u64 = 9 * 60 + 50;
 const GOOGLE_FINAL_TRANSCRIPT_GRACE_MS: u64 = 3_000;
 const AUDIO_QUEUE_CAPACITY: usize = 256;
+const GOOGLE_SETUP_TIMEOUT_SECS: u64 = 5;
+const GEMINI_LIVE_TIME_LIMIT_COMPLETED_EVENT: &str = "gemini-live-time-limit-completed";
 
 pub type FinalChunkCallback = Arc<dyn Fn(String) + Send + Sync + 'static>;
 
@@ -42,7 +45,9 @@ pub struct GeminiRealtimeOptions {
     pub model: String,
     pub language: Option<String>,
     pub preset: String,
-    pub translate_to_english: bool,
+    pub custom_vocabulary: Vec<String>,
+    pub mode: GeminiTranscriptionMode,
+    pub validation_error: Option<String>,
 }
 
 impl Default for GeminiRealtimeOptions {
@@ -51,7 +56,9 @@ impl Default for GeminiRealtimeOptions {
             model: GEMINI_LIVE_DEFAULT_MODEL.to_string(),
             language: None,
             preset: REMOTE_STT_PRESET_VERCEL.to_string(),
-            translate_to_english: false,
+            custom_vocabulary: Vec::new(),
+            mode: GeminiTranscriptionMode::Smart,
+            validation_error: None,
         }
     }
 }
@@ -66,6 +73,126 @@ enum ControlMessage {
 enum GeminiLiveTransport {
     GoogleDirect,
     VercelGateway,
+}
+
+fn initial_session_limit(
+    transport: GeminiLiveTransport,
+    ready_session_limit: Duration,
+) -> Duration {
+    if transport == GeminiLiveTransport::VercelGateway {
+        ready_session_limit
+    } else {
+        Duration::from_secs(GOOGLE_SETUP_TIMEOUT_SECS)
+    }
+}
+
+fn live_audio_done_payload(transport: GeminiLiveTransport) -> Value {
+    match transport {
+        GeminiLiveTransport::GoogleDirect => {
+            json!({ "realtimeInput": { "audioStreamEnd": true } })
+        }
+        GeminiLiveTransport::VercelGateway => {
+            json!({ "type": "transcription-stream.audio-done" })
+        }
+    }
+}
+
+fn time_limit_completion_payload(
+    binding_id: &str,
+    transport: GeminiLiveTransport,
+    options: &GeminiRealtimeOptions,
+    provider_confirmed_finalization: bool,
+) -> Value {
+    let partial = !provider_confirmed_finalization;
+    let route = match transport {
+        GeminiLiveTransport::GoogleDirect => "google_direct",
+        GeminiLiveTransport::VercelGateway => "vercel_ai_gateway",
+    };
+    let mode = match options.mode {
+        GeminiTranscriptionMode::Smart => "smart",
+        GeminiTranscriptionMode::Verbatim => "verbatim",
+    };
+    json!({
+        "bindingId": binding_id,
+        "partial": partial,
+        "provider": "google",
+        "model": options.model,
+        "route": route,
+        "profileBindingId": binding_id,
+        "mode": mode,
+        "language": options.language.as_deref().unwrap_or("auto"),
+        "vocabularyTermCount": options.custom_vocabulary.len(),
+        "endedBy": "provider_time_limit",
+        "fullyFinalized": !partial,
+        "completionVariant": if partial {
+            "partial"
+        } else {
+            "complete"
+        }
+    })
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum GeminiTimeLimitCompletion {
+    Complete,
+    Partial,
+    Failed(String),
+}
+
+impl GeminiTimeLimitCompletion {
+    fn from_provider_confirmation(provider_confirmed_finalization: bool) -> Self {
+        if provider_confirmed_finalization {
+            Self::Complete
+        } else {
+            Self::Partial
+        }
+    }
+}
+
+fn record_time_limit_failure(
+    completion: &Arc<Mutex<Option<GeminiTimeLimitCompletion>>>,
+    error: &str,
+) -> bool {
+    let mut completion = completion.lock();
+    if completion.is_none() {
+        return false;
+    }
+    *completion = Some(GeminiTimeLimitCompletion::Failed(error.to_string()));
+    true
+}
+
+fn planned_provider_error_message(
+    transport: GeminiLiveTransport,
+    payload: &Value,
+) -> Option<String> {
+    match transport {
+        GeminiLiveTransport::VercelGateway
+            if payload.get("type").and_then(Value::as_str) == Some("error") =>
+        {
+            Some(format!(
+                "Vercel AI Gateway transcription error after the time-limit end signal: {}",
+                gateway_stream_error_message(payload)
+            ))
+        }
+        GeminiLiveTransport::GoogleDirect => payload.get("error").map(|error| {
+            let message = error
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("Unknown Gemini 3.5 Transcribe Live error");
+            format!(
+                "Gemini 3.5 Transcribe Live returned error after the time-limit end signal: {}",
+                message
+            )
+        }),
+        _ => None,
+    }
+}
+
+fn planned_read_error_message(error: impl std::fmt::Display) -> String {
+    format!(
+        "Gemini 3.5 Transcribe Live WebSocket read failed after the time-limit end signal: {}",
+        error
+    )
 }
 
 struct CompletedDirectSegment {
@@ -94,6 +221,7 @@ pub struct GeminiRealtimeManager {
     active_session: Mutex<Option<ActiveSession>>,
     session_params: Mutex<Option<SessionParams>>,
     pending_audio: Mutex<Vec<Vec<u8>>>,
+    time_limit_completion: Arc<Mutex<Option<GeminiTimeLimitCompletion>>>,
 }
 
 impl GeminiRealtimeManager {
@@ -103,6 +231,7 @@ impl GeminiRealtimeManager {
             active_session: Mutex::new(None),
             session_params: Mutex::new(None),
             pending_audio: Mutex::new(Vec::new()),
+            time_limit_completion: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -135,6 +264,9 @@ impl GeminiRealtimeManager {
         if api_key.trim().is_empty() {
             return Err(anyhow!("Gemini 3.5 Transcribe Live API key is missing"));
         }
+        if let Some(error) = options.validation_error.as_deref() {
+            return Err(anyhow!(error.to_string()));
+        }
 
         let transport = match options.preset.as_str() {
             REMOTE_STT_PRESET_GOOGLE => GeminiLiveTransport::GoogleDirect,
@@ -156,10 +288,15 @@ impl GeminiRealtimeManager {
                 options.model.trim()
             ));
         }
-        if options.translate_to_english {
-            return Err(anyhow!(
-                "Gemini 3.5 Transcribe Live does not support AivoRelay's Translate to English option. Disable it in the active profile or global settings."
-            ));
+        crate::gemini_config::validate_vocabulary(&options.custom_vocabulary)
+            .map_err(anyhow::Error::msg)?;
+        if let Some(language) = options.language.as_deref() {
+            if !crate::gemini_config::is_supported_exact_locale(language) {
+                return Err(anyhow!(
+                    "'{}' is not an exact locale supported by Gemini 3.5 Transcribe Live",
+                    language
+                ));
+            }
         }
 
         let mut active_session_guard = self.active_session.lock();
@@ -190,6 +327,8 @@ impl GeminiRealtimeManager {
             .then(crate::managers::live_sound_transcription::current_session_id);
         let api_key_for_task = api_key.trim().to_string();
         let session_audio_tx = audio_tx.clone();
+        let time_limit_completion = Arc::clone(&self.time_limit_completion);
+        *time_limit_completion.lock() = None;
 
         let join_handle = tauri::async_runtime::spawn(async move {
             let session_result: Result<()> = async {
@@ -209,13 +348,12 @@ impl GeminiRealtimeManager {
 
                 let (mut write, mut read) = stream.split();
 
-                let language = Self::resolve_language(options.language.as_deref());
                 let setup_payload = match transport {
                     GeminiLiveTransport::GoogleDirect => {
-                        Self::build_google_setup_payload(&options.model, language.as_deref())
+                        Self::build_google_setup_payload(&options.model, &options)
                     }
                     GeminiLiveTransport::VercelGateway => {
-                        Self::build_vercel_start_payload(language.as_deref())
+                        Self::build_vercel_start_payload(&options)
                     }
                 };
                 write
@@ -234,6 +372,9 @@ impl GeminiRealtimeManager {
                     live_sound_session_id,
                     on_final_chunk,
                     transport,
+                    options.clone(),
+                    Duration::from_secs(GEMINI_LIVE_SAFE_FINALIZE_SECS),
+                    Arc::clone(&time_limit_completion),
                 )
                 .await
             }
@@ -241,6 +382,7 @@ impl GeminiRealtimeManager {
 
             if let Err(err) = &session_result {
                 let err_str = err.to_string();
+                record_time_limit_failure(&time_limit_completion, &err_str);
                 warn!(
                     "Gemini 3.5 Transcribe Live session runtime error (binding='{}'): {}",
                     binding_id_for_task, err_str
@@ -343,33 +485,33 @@ impl GeminiRealtimeManager {
         }
     }
 
-    fn resolve_language(language: Option<&str>) -> Option<String> {
-        let mut language = language?.trim().to_string();
-        if language.eq_ignore_ascii_case("os_input") {
-            language = crate::input_source::get_language_from_input_source()?;
+    fn build_google_setup_payload(model: &str, options: &GeminiRealtimeOptions) -> Value {
+        let mut input_audio_transcription = serde_json::Map::new();
+        if let Some(value) = options.language.as_deref() {
+            input_audio_transcription.insert("languageCodes".to_string(), json!([value]));
         }
-        if language.is_empty() || language.eq_ignore_ascii_case("auto") {
-            return None;
+        if !options.custom_vocabulary.is_empty() {
+            input_audio_transcription.insert("customVocabulary".to_string(), json!(options.custom_vocabulary));
         }
-        crate::managers::remote_stt::normalize_gemini_language_code(&language)
-            .map(str::to_string)
-    }
-
-    fn build_google_setup_payload(model: &str, language: Option<&str>) -> Value {
-        let input_audio_transcription = language
-            .map(|value| json!({ "languageCodes": [value] }))
-            .unwrap_or_else(|| json!({}));
-        // The current Google SDK omits generationConfig because it suppresses
-        // finalized inputTranscription events on this dedicated model.
+        input_audio_transcription.insert(
+            "mode".to_string(),
+            json!(match options.mode {
+                GeminiTranscriptionMode::Smart => "SMART",
+                GeminiTranscriptionMode::Verbatim => "VERBATIM",
+            }),
+        );
         json!({
             "setup": {
                 "model": Self::normalize_gemini_model(model),
-                "inputAudioTranscription": input_audio_transcription
+                "generationConfig": {
+                    "responseModalities": ["TEXT"]
+                },
+                "inputAudioTranscription": Value::Object(input_audio_transcription)
             }
         })
     }
 
-    fn build_vercel_start_payload(language: Option<&str>) -> Value {
+    fn build_vercel_start_payload(options: &GeminiRealtimeOptions) -> Value {
         let mut payload = json!({
             "type": "transcription-stream.start",
             "inputAudioFormat": {
@@ -377,13 +519,21 @@ impl GeminiRealtimeManager {
                 "rate": 16000
             }
         });
-        if let Some(language) = language {
-            payload["providerOptions"] = json!({
-                "google": {
-                    "languageCodes": [language]
-                }
-            });
+        let mut google_options = serde_json::Map::new();
+        if let Some(language) = options.language.as_deref() {
+            google_options.insert("languageCodes".to_string(), json!([language]));
         }
+        if !options.custom_vocabulary.is_empty() {
+            google_options.insert("customVocabulary".to_string(), json!(options.custom_vocabulary));
+        }
+        google_options.insert(
+            "mode".to_string(),
+            json!(match options.mode {
+                GeminiTranscriptionMode::Smart => "SMART",
+                GeminiTranscriptionMode::Verbatim => "VERBATIM",
+            }),
+        );
+        payload["providerOptions"] = json!({ "google": Value::Object(google_options) });
         payload
     }
 
@@ -399,6 +549,9 @@ impl GeminiRealtimeManager {
         live_sound_session_id: Option<u64>,
         on_final_chunk: Option<FinalChunkCallback>,
         transport: GeminiLiveTransport,
+        completion_options: GeminiRealtimeOptions,
+        time_limit_duration: Duration,
+        time_limit_completion: Arc<Mutex<Option<GeminiTimeLimitCompletion>>>,
     ) -> Result<()>
     where
         S: Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
@@ -411,18 +564,51 @@ impl GeminiRealtimeManager {
         let mut gateway_segment_has_delta = false;
         let mut direct_segment_text = String::new();
         let mut latest_interim = String::new();
-        let session_limit = tokio::time::sleep(Duration::from_secs(GEMINI_LIVE_MAX_SESSION_SECS));
+        let mut time_limit_finalizing = false;
+        let mut provider_confirmed_finalization = false;
+        let mut time_limit_failure = None;
+        let session_limit = tokio::time::sleep(initial_session_limit(
+            transport,
+            time_limit_duration,
+        ));
         tokio::pin!(session_limit);
         let google_finish_grace =
-            tokio::time::sleep(Duration::from_secs(GEMINI_LIVE_MAX_SESSION_SECS));
+            tokio::time::sleep(Duration::from_secs(GEMINI_LIVE_SAFE_FINALIZE_SECS));
         tokio::pin!(google_finish_grace);
 
         loop {
             tokio::select! {
-                _ = &mut session_limit => {
-                    return Err(anyhow!(
-                        "Gemini 3.5 Transcribe Live reached its 10-minute session limit. Start a new recording to continue."
-                    ));
+                _ = &mut session_limit, if !time_limit_finalizing => {
+                    if transport == GeminiLiveTransport::GoogleDirect && !google_setup_complete {
+                        return Err(anyhow!(
+                            "Gemini 3.5 Transcribe Live did not confirm setup within {} seconds",
+                            GOOGLE_SETUP_TIMEOUT_SECS
+                        ));
+                    }
+                    time_limit_finalizing = true;
+                    audio_input_closed = true;
+                    let end_payload = live_audio_done_payload(transport);
+                    write.send(Message::Text(end_payload.to_string().into())).await
+                        .map_err(|e| anyhow!("Failed to finalize Gemini Live at the safe time limit: {}", e))?;
+                    end_signal_sent = true;
+                    *time_limit_completion.lock() = Some(GeminiTimeLimitCompletion::Partial);
+                    let app_for_stop = app_handle.clone();
+                    let binding_for_stop = binding_id.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if binding_for_stop == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                            crate::managers::live_sound_audio::stop(&app_for_stop);
+                        } else {
+                            crate::actions::stop_transcription_at_realtime_limit(
+                                &app_for_stop,
+                                &binding_for_stop,
+                            );
+                        }
+                    });
+                    if transport == GeminiLiveTransport::GoogleDirect {
+                        google_finish_grace.as_mut().reset(
+                            tokio::time::Instant::now() + Duration::from_millis(GOOGLE_FINAL_TRANSCRIPT_GRACE_MS),
+                        );
+                    }
                 }
                 _ = &mut google_finish_grace,
                     if transport == GeminiLiveTransport::GoogleDirect && end_signal_sent =>
@@ -465,14 +651,7 @@ impl GeminiRealtimeManager {
                         Some(_) => {}
                         None => {
                             audio_input_closed = true;
-                            let end_payload = match transport {
-                                GeminiLiveTransport::GoogleDirect => {
-                                    json!({ "realtimeInput": { "audioStreamEnd": true } })
-                                }
-                                GeminiLiveTransport::VercelGateway => {
-                                    json!({ "type": "transcription-stream.audio-done" })
-                                }
-                            };
+                            let end_payload = live_audio_done_payload(transport);
                             write.send(Message::Text(end_payload.to_string().into())).await
                                 .map_err(|e| anyhow!("Failed to finish Gemini 3.5 Transcribe Live audio input: {}", e))?;
                             end_signal_sent = true;
@@ -487,8 +666,15 @@ impl GeminiRealtimeManager {
                 }
                 frame = read.next() => {
                     let frame = match frame {
+                        Some(Err(error)) if time_limit_finalizing => {
+                            time_limit_failure = Some(anyhow!(planned_read_error_message(error)));
+                            break;
+                        }
                         Some(frame) => frame.map_err(|e| anyhow!("Gemini 3.5 Transcribe Live WebSocket read failed: {}", e))?,
                         None => {
+                            if time_limit_finalizing {
+                                break;
+                            }
                             if transport == GeminiLiveTransport::VercelGateway {
                                 return Err(anyhow!(
                                     "Vercel AI Gateway transcription stream closed before a finish message was received"
@@ -509,6 +695,9 @@ impl GeminiRealtimeManager {
                             continue;
                         }
                         Message::Close(_) => {
+                            if time_limit_finalizing {
+                                break;
+                            }
                             if transport == GeminiLiveTransport::VercelGateway {
                                 return Err(anyhow!(
                                     "Vercel AI Gateway transcription stream closed before a finish message was received"
@@ -526,16 +715,30 @@ impl GeminiRealtimeManager {
                         anyhow!("Invalid Gemini 3.5 Transcribe Live payload: {} (body: {})", e, preview)
                     })?;
 
+                    if time_limit_finalizing {
+                        if let Some(message) = planned_provider_error_message(transport, &payload) {
+                            time_limit_failure = Some(anyhow!(message));
+                            break;
+                        }
+                    }
+
                     if transport == GeminiLiveTransport::VercelGateway {
                         let part_type = payload.get("type").and_then(Value::as_str).unwrap_or("");
                         match part_type {
                             "transcript-delta" => {
                                 if let Some(delta) = payload.get("delta").and_then(Value::as_str) {
-                                    accumulated_text.push_str(delta);
+                                    let delta = normalize_gateway_delta_boundary(
+                                        &accumulated_text,
+                                        delta,
+                                    );
+                                    accumulated_text.push_str(&delta);
                                     gateway_segment_has_delta = true;
-                                    *final_text.lock() = accumulated_text.clone();
+                                    store_gateway_authoritative_text(
+                                        &accumulated_text,
+                                        &final_text,
+                                    );
                                     if let Some(callback) = &on_final_chunk {
-                                        callback(delta.to_string());
+                                        callback(delta);
                                     }
                                     emit_live_text(
                                         &app_handle,
@@ -547,7 +750,11 @@ impl GeminiRealtimeManager {
                             }
                             "transcript-partial" => {
                                 if let Some(partial) = payload.get("text").and_then(Value::as_str) {
-                                    let display = join_transcript_text(&accumulated_text, partial);
+                                    let display = preserve_gateway_partial_fallback(
+                                        &accumulated_text,
+                                        partial,
+                                        &final_text,
+                                    );
                                     emit_live_text(
                                         &app_handle,
                                         &binding_id,
@@ -561,7 +768,6 @@ impl GeminiRealtimeManager {
                                     if let Some(text) = payload.get("text").and_then(Value::as_str) {
                                         accumulated_text =
                                             join_transcript_text(&accumulated_text, text);
-                                        *final_text.lock() = accumulated_text.clone();
                                         if let Some(callback) = &on_final_chunk {
                                             callback(text.to_string());
                                         }
@@ -574,17 +780,23 @@ impl GeminiRealtimeManager {
                                         .is_some_and(char::is_whitespace)
                                 {
                                     accumulated_text.push(' ');
-                                    *final_text.lock() = accumulated_text.clone();
                                     if let Some(callback) = &on_final_chunk {
                                         callback(" ".to_string());
                                     }
                                 }
+                                store_gateway_authoritative_text(
+                                    &accumulated_text,
+                                    &final_text,
+                                );
                                 gateway_segment_has_delta = false;
                             }
                             "finish" => {
                                 if let Some(text) = payload.get("text").and_then(Value::as_str) {
                                     accumulated_text = text.to_string();
-                                    *final_text.lock() = accumulated_text.clone();
+                                    store_gateway_authoritative_text(
+                                        &accumulated_text,
+                                        &final_text,
+                                    );
                                     emit_live_text(
                                         &app_handle,
                                         &binding_id,
@@ -592,6 +804,7 @@ impl GeminiRealtimeManager {
                                         accumulated_text.trim(),
                                     );
                                 }
+                                provider_confirmed_finalization = true;
                                 break;
                             }
                             "error" => {
@@ -603,10 +816,14 @@ impl GeminiRealtimeManager {
                         continue;
                     }
 
-                    if payload.get("setupComplete").is_some()
-                        || payload.get("setup_complete").is_some()
+                    if !google_setup_complete
+                        && (payload.get("setupComplete").is_some()
+                            || payload.get("setup_complete").is_some())
                     {
                         google_setup_complete = true;
+                        session_limit.as_mut().reset(
+                            tokio::time::Instant::now() + time_limit_duration,
+                        );
                     }
 
                     // Check for error payloads
@@ -743,6 +960,7 @@ impl GeminiRealtimeManager {
                                     on_final_chunk.as_ref(),
                                     completed,
                                 );
+                                provider_confirmed_finalization = true;
                                 break;
                             }
                         }
@@ -815,8 +1033,47 @@ impl GeminiRealtimeManager {
             emit_direct_segment_completion(on_final_chunk.as_ref(), completed);
         }
 
+        if let Some(error) = time_limit_failure {
+            record_time_limit_failure(&time_limit_completion, &error.to_string());
+            let _ = write.close().await;
+            return Err(error);
+        }
+
+        if time_limit_finalizing {
+            let partial = !provider_confirmed_finalization;
+            *time_limit_completion.lock() = Some(
+                GeminiTimeLimitCompletion::from_provider_confirmation(
+                    provider_confirmed_finalization,
+                ),
+            );
+            let completion_payload = time_limit_completion_payload(
+                &binding_id,
+                transport,
+                &completion_options,
+                provider_confirmed_finalization,
+            );
+            info!(
+                "Gemini Live time-limit completion binding={} model={} route={} mode={} language={} vocabulary_terms={} partial={}",
+                binding_id,
+                completion_options.model,
+                completion_payload["route"].as_str().unwrap_or("unknown"),
+                completion_payload["mode"].as_str().unwrap_or("unknown"),
+                completion_options.language.as_deref().unwrap_or("auto"),
+                completion_options.custom_vocabulary.len(),
+                partial,
+            );
+            let _ = app_handle.emit(
+                GEMINI_LIVE_TIME_LIMIT_COMPLETED_EVENT,
+                completion_payload,
+            );
+        }
+
         let _ = write.close().await;
         Ok(())
+    }
+
+    pub(crate) fn take_time_limit_completion(&self) -> Option<GeminiTimeLimitCompletion> {
+        self.time_limit_completion.lock().take()
     }
 
     pub fn push_audio_frame(&self, frame_16khz_mono: Vec<f32>) {
@@ -893,7 +1150,10 @@ impl GeminiRealtimeManager {
                     !partial.is_empty(),
                     error
                 );
-                return Ok(partial);
+                if !partial.is_empty() {
+                    return Ok(partial);
+                }
+                return Err(error);
             }
             Ok(Err(error)) => {
                 let partial = read_final_text();
@@ -1032,6 +1292,40 @@ fn join_transcript_text(committed: &str, next: &str) -> String {
     }
 }
 
+fn normalize_gateway_delta_boundary(committed: &str, delta: &str) -> String {
+    let Some(previous) = committed.chars().last() else {
+        return delta.to_string();
+    };
+    let Some(next) = delta.chars().next() else {
+        return String::new();
+    };
+    if previous.is_whitespace() || next.is_whitespace() {
+        return delta.to_string();
+    }
+
+    let sentence_finished = matches!(previous, '.' | '!' | '?' | '…' | '。' | '！' | '？');
+    let sentence_started = next.is_alphabetic() || matches!(next, '"' | '“' | '‘' | '«' | '(');
+    if sentence_finished && sentence_started {
+        format!(" {}", delta)
+    } else {
+        delta.to_string()
+    }
+}
+
+fn preserve_gateway_partial_fallback(
+    accumulated_text: &str,
+    partial: &str,
+    final_text: &Arc<Mutex<String>>,
+) -> String {
+    let display = join_transcript_text(accumulated_text, partial);
+    *final_text.lock() = display.clone();
+    display
+}
+
+fn store_gateway_authoritative_text(accumulated_text: &str, final_text: &Arc<Mutex<String>>) {
+    *final_text.lock() = accumulated_text.to_string();
+}
+
 fn complete_direct_segment(
     accumulated_text: &mut String,
     segment_text: &mut String,
@@ -1143,16 +1437,27 @@ mod tests {
 
     #[test]
     fn google_setup_uses_live_transcription_camel_case_contract() {
+        let options = GeminiRealtimeOptions {
+            language: Some("ru-RU".to_string()),
+            custom_vocabulary: vec!["Gemini".to_string(), "BigQuery".to_string()],
+            mode: GeminiTranscriptionMode::Verbatim,
+            ..Default::default()
+        };
         assert_eq!(
             GeminiRealtimeManager::build_google_setup_payload(
                 GEMINI_LIVE_GOOGLE_DEFAULT_MODEL,
-                Some("ru-RU"),
+                &options,
             ),
             json!({
                 "setup": {
                     "model": "models/gemini-3.5-transcribe-live",
+                    "generationConfig": {
+                        "responseModalities": ["TEXT"]
+                    },
                     "inputAudioTranscription": {
-                        "languageCodes": ["ru-RU"]
+                        "languageCodes": ["ru-RU"],
+                        "customVocabulary": ["Gemini", "BigQuery"],
+                        "mode": "VERBATIM"
                     }
                 }
             })
@@ -1164,12 +1469,17 @@ mod tests {
         assert_eq!(
             GeminiRealtimeManager::build_google_setup_payload(
                 GEMINI_LIVE_GOOGLE_DEFAULT_MODEL,
-                None,
+                &GeminiRealtimeOptions::default(),
             ),
             json!({
-                "setup": {
-                    "model": "models/gemini-3.5-transcribe-live",
-                    "inputAudioTranscription": {}
+                    "setup": {
+                        "model": "models/gemini-3.5-transcribe-live",
+                        "generationConfig": {
+                            "responseModalities": ["TEXT"]
+                        },
+                        "inputAudioTranscription": {
+                            "mode": "SMART"
+                    }
                 }
             })
         );
@@ -1177,8 +1487,14 @@ mod tests {
 
     #[test]
     fn vercel_start_frame_uses_streaming_transcription_envelope() {
+        let options = GeminiRealtimeOptions {
+            language: Some("ru-RU".to_string()),
+            custom_vocabulary: vec!["Gemini".to_string()],
+            mode: GeminiTranscriptionMode::Verbatim,
+            ..Default::default()
+        };
         assert_eq!(
-            GeminiRealtimeManager::build_vercel_start_payload(Some("ru-RU")),
+            GeminiRealtimeManager::build_vercel_start_payload(&options),
             json!({
                 "type": "transcription-stream.start",
                 "inputAudioFormat": {
@@ -1187,7 +1503,9 @@ mod tests {
                 },
                 "providerOptions": {
                     "google": {
-                        "languageCodes": ["ru-RU"]
+                        "languageCodes": ["ru-RU"],
+                        "customVocabulary": ["Gemini"],
+                        "mode": "VERBATIM"
                     }
                 }
             })
@@ -1259,5 +1577,188 @@ mod tests {
         assert!(!completed.was_streamed);
         assert_eq!(accumulated, "fallback words");
         assert_eq!(*final_text.lock(), "fallback words");
+    }
+
+    #[test]
+    fn vercel_partial_is_preserved_until_authoritative_text_replaces_it() {
+        let final_text = Arc::new(Mutex::new("committed".to_string()));
+
+        let display = preserve_gateway_partial_fallback(
+            "committed",
+            "latest hypothesis",
+            &final_text,
+        );
+        assert_eq!(display, "committed latest hypothesis");
+        assert_eq!(*final_text.lock(), "committed latest hypothesis");
+
+        let display = preserve_gateway_partial_fallback(
+            "committed",
+            "newest hypothesis",
+            &final_text,
+        );
+        assert_eq!(display, "committed newest hypothesis");
+        assert_eq!(*final_text.lock(), "committed newest hypothesis");
+
+        store_gateway_authoritative_text("committed authoritative delta", &final_text);
+        assert_eq!(*final_text.lock(), "committed authoritative delta");
+    }
+
+    #[test]
+    fn vercel_final_without_text_discards_a_stale_partial_fallback() {
+        let accumulated_text = "committed authoritative text".to_string();
+        let final_text = Arc::new(Mutex::new(String::new()));
+        preserve_gateway_partial_fallback(
+            &accumulated_text,
+            "stale hypothesis",
+            &final_text,
+        );
+
+        store_gateway_authoritative_text(&accumulated_text, &final_text);
+
+        assert_eq!(*final_text.lock(), "committed authoritative text");
+    }
+
+    #[test]
+    fn deadline_waits_for_google_setup_acknowledgement() {
+        let short_test_limit = Duration::from_millis(25);
+        assert_eq!(
+            initial_session_limit(GeminiLiveTransport::VercelGateway, short_test_limit),
+            short_test_limit
+        );
+        assert_eq!(
+            initial_session_limit(GeminiLiveTransport::GoogleDirect, short_test_limit),
+            Duration::from_secs(GOOGLE_SETUP_TIMEOUT_SECS)
+        );
+    }
+
+    #[test]
+    fn time_limit_uses_each_transport_normal_finalization_signal() {
+        assert_eq!(
+            live_audio_done_payload(GeminiLiveTransport::GoogleDirect),
+            json!({ "realtimeInput": { "audioStreamEnd": true } })
+        );
+        assert_eq!(
+            live_audio_done_payload(GeminiLiveTransport::VercelGateway),
+            json!({ "type": "transcription-stream.audio-done" })
+        );
+    }
+
+    #[test]
+    fn time_limit_completion_is_informational_and_classifies_full_or_partial() {
+        let options = GeminiRealtimeOptions {
+            model: GEMINI_LIVE_DEFAULT_MODEL.to_string(),
+            language: Some("ru-RU".to_string()),
+            custom_vocabulary: vec!["private term".to_string()],
+            mode: GeminiTranscriptionMode::Verbatim,
+            ..Default::default()
+        };
+        let complete = time_limit_completion_payload(
+            "transcribe_profile",
+            GeminiLiveTransport::VercelGateway,
+            &options,
+            true,
+        );
+        assert_eq!(GEMINI_LIVE_TIME_LIMIT_COMPLETED_EVENT, "gemini-live-time-limit-completed");
+        assert_eq!(complete["partial"], false);
+        assert_eq!(complete["fullyFinalized"], true);
+        assert_eq!(complete["endedBy"], "provider_time_limit");
+        assert_eq!(complete["provider"], "google");
+        assert_eq!(complete["route"], "vercel_ai_gateway");
+        assert_eq!(complete["vocabularyTermCount"], 1);
+        assert_eq!(complete["completionVariant"], "complete");
+        assert!(complete.get("error").is_none());
+        assert!(!complete.to_string().contains("private term"));
+
+        let partial = time_limit_completion_payload(
+            "transcribe_profile",
+            GeminiLiveTransport::GoogleDirect,
+            &options,
+            false,
+        );
+        assert_eq!(partial["partial"], true);
+        assert_eq!(partial["fullyFinalized"], false);
+        assert_eq!(partial["completionVariant"], "partial");
+        assert!(partial.get("message").is_none());
+    }
+
+    #[test]
+    fn failed_planned_finalization_cannot_be_classified_as_completion() {
+        let errors = [
+            planned_provider_error_message(
+                GeminiLiveTransport::GoogleDirect,
+                &json!({ "error": { "message": "Google failed" } }),
+            )
+            .unwrap(),
+            planned_provider_error_message(
+                GeminiLiveTransport::VercelGateway,
+                &json!({ "type": "error", "error": { "message": "Vercel failed" } }),
+            )
+            .unwrap(),
+            planned_read_error_message("socket reset"),
+        ];
+
+        for error in errors {
+            let completion = Arc::new(Mutex::new(Some(GeminiTimeLimitCompletion::Partial)));
+            assert!(record_time_limit_failure(&completion, &error));
+            assert_eq!(
+                completion.lock().as_ref(),
+                Some(&GeminiTimeLimitCompletion::Failed(error))
+            );
+            assert!(matches!(
+                completion.lock().as_ref(),
+                Some(GeminiTimeLimitCompletion::Failed(_))
+            ));
+        }
+
+        let manual_stop = Arc::new(Mutex::new(None));
+        assert!(!record_time_limit_failure(&manual_stop, "manual read failure"));
+        assert_eq!(*manual_stop.lock(), None);
+        assert_eq!(
+            planned_provider_error_message(
+                GeminiLiveTransport::GoogleDirect,
+                &json!({ "serverContent": {} }),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn direct_error_flush_preserves_accumulated_and_interim_text() {
+        let mut accumulated = "stable words".to_string();
+        let mut segment = String::new();
+        let mut interim = "latest partial".to_string();
+        let final_text = Arc::new(Mutex::new(accumulated.clone()));
+
+        let completed = complete_direct_segment(
+            &mut accumulated,
+            &mut segment,
+            &mut interim,
+            &final_text,
+        )
+        .unwrap();
+
+        assert_eq!(completed.text, "latest partial");
+        assert_eq!(accumulated, "stable words latest partial");
+        assert_eq!(*final_text.lock(), "stable words latest partial");
+    }
+
+    #[test]
+    fn finalized_direct_text_does_not_duplicate_its_interim_hypothesis() {
+        let mut accumulated = "first segment".to_string();
+        let mut segment = "final words".to_string();
+        let mut interim = "final words".to_string();
+        let final_text = Arc::new(Mutex::new(String::new()));
+
+        let completed = complete_direct_segment(
+            &mut accumulated,
+            &mut segment,
+            &mut interim,
+            &final_text,
+        )
+        .unwrap();
+
+        assert_eq!(accumulated, "first segment final words");
+        assert_eq!(*final_text.lock(), "first segment final words");
+        assert!(completed.was_streamed);
     }
 }

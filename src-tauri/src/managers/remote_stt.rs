@@ -1,9 +1,16 @@
 use crate::audio_toolkit::encode_wav_bytes;
+use crate::file_transcription_diarization::{
+    RawSpeakerBlock, UNATTRIBUTED_SPEAKER_KEY, UNATTRIBUTED_SPEAKER_NAME,
+};
+use crate::gemini_config::{EffectiveGeminiConfig, GeminiWorkflow};
 use crate::managers::openai_realtime_whisper::{
     OpenAiRealtimeWhisperManager, OpenAiRealtimeWhisperOptions, OPENAI_TRANSCRIBE_MODEL,
 };
 use crate::managers::provider_error::{parse_provider_error, parse_provider_error_value};
-use crate::settings::{RemoteSttDebugMode, RemoteSttSettings};
+use crate::settings::{
+    AppSettings, GeminiTranscriptionMode, RemoteSttDebugMode, RemoteSttSettings,
+    TranscriptionProfile, TranscriptionProvider,
+};
 use crate::subtitle::{
     timed_tokens_to_subtitle_segments, SubtitleSegment, TimedTranscriptToken,
 };
@@ -33,6 +40,9 @@ use tokio_util::sync::CancellationToken;
 const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 60;
 /// Default connection timeout (10 seconds)
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
+/// Gemini file transcription can accept up to one hour of audio. Leave an
+/// additional processing margin while retaining a finite request deadline.
+const GEMINI_FILE_REQUEST_TIMEOUT_GRACE_SECS: u64 = 5 * 60;
 
 const REMOTE_STT_SERVICE: &str = "fi.maxits.aivorelay";
 const REMOTE_STT_USER_PREFIX: &str = "remote_stt_api_key";
@@ -45,8 +55,9 @@ const OPENAI_REALTIME_TRANSLATE_WS_URL: &str =
     "wss://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate";
 const VERCEL_GATEWAY_PROTOCOL_VERSION: &str = "0.0.1";
 const VERCEL_TRANSCRIPTION_SPECIFICATION_VERSION: &str = "4";
-const GEMINI_MAX_AUDIO_SAMPLES: usize = 60 * 60 * 16_000;
-const GEMINI_WORD_TIMESTAMP_MAX_AUDIO_SAMPLES: usize = 30 * 60 * 16_000;
+// Google documents inline audio as requiring a total request size under 20 MB.
+// Keep the check on the serialized JSON body so base64 and request options count.
+const GOOGLE_GEMINI_INLINE_REQUEST_LIMIT_BYTES: usize = 20_000_000;
 const OPENAI_REALTIME_AUDIO_CHUNK_BYTES: usize = 48_000;
 const OPENAI_REALTIME_AGENT_DEFAULT_PROMPT: &str =
     "Additional context for speech-to-text transcription. \
@@ -255,6 +266,7 @@ struct GoogleWordAnnotation {
     text: Option<String>,
     start_offset: Option<String>,
     end_offset: Option<String>,
+    speaker: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -273,12 +285,26 @@ struct GoogleInteractionStep {
 #[derive(Debug, Deserialize)]
 struct GoogleInteractionsTranscriptionResponse {
     steps: Option<Vec<GoogleInteractionStep>>,
+    output_text: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnnotatedTranscriptWord {
+    pub text: String,
+    pub start: f32,
+    pub end: f32,
+    pub speaker: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct RemoteFileTranscription {
     pub text: String,
     pub segments: Vec<SubtitleSegment>,
+    // Retain provider-neutral word annotations for consumers that need the
+    // original timing/speaker representation rather than derived outputs.
+    #[allow(dead_code)]
+    pub annotated_words: Vec<AnnotatedTranscriptWord>,
+    pub speaker_blocks: Vec<RawSpeakerBlock>,
 }
 
 /// Returns whether a remote STT model supports translation to English.
@@ -327,6 +353,26 @@ pub fn supports_translation(model_id: &str) -> bool {
     false
 }
 
+/// Resolves a saved translation preference against the active provider/model.
+/// Unsupported providers keep the preference stored but do not apply it.
+pub fn resolve_effective_translate_to_english(
+    settings: &AppSettings,
+    profile: Option<&TranscriptionProfile>,
+) -> bool {
+    let requested = profile
+        .map(|profile| profile.translate_to_english)
+        .unwrap_or(settings.translate_to_english);
+
+    requested
+        && match settings.transcription_provider {
+            TranscriptionProvider::RemoteOpenAiCompatible => {
+                supports_translation(&settings.remote_stt.model_id)
+            }
+            TranscriptionProvider::RemoteSoniox | TranscriptionProvider::RemoteDeepgram => false,
+            _ => true,
+        }
+}
+
 fn is_openai_realtime_model(model_id: &str) -> bool {
     let model_id = model_id.trim();
     model_id.eq_ignore_ascii_case(OPENAI_REALTIME_MODEL)
@@ -366,118 +412,32 @@ pub fn supports_subtitle_timestamps(model_id: &str) -> bool {
             && !is_openai_realtime_translate_model(&model_id))
 }
 
-pub(crate) fn normalize_gemini_language_code(language: &str) -> Option<&'static str> {
-    let normalized = language.trim().replace('_', "-").to_ascii_lowercase();
-    Some(match normalized.as_str() {
-        "af" | "af-za" => "af-ZA",
-        "am" | "am-et" => "am-ET",
-        "ar" | "ar-eg" => "ar-EG",
-        "as" | "as-in" => "as-IN",
-        "az" | "az-az" => "az-AZ",
-        "be" | "be-by" => "be-BY",
-        "bn-in" => "bn-IN",
-        "bn-bd" => "bn-BD",
-        "bs" | "bs-ba" => "bs-BA",
-        "bg" | "bg-bg" => "bg-BG",
-        "rup" | "rup-bg" => "rup-BG",
-        "my" | "my-mm" => "my-MM",
-        "ca" | "ca-es" => "ca-ES",
-        "ceb" => "ceb",
-        "km" | "km-kh" => "km-KH",
-        "hr" | "hr-hr" => "hr-HR",
-        "cs" | "cs-cz" => "cs-CZ",
-        "da" | "da-dk" => "da-DK",
-        "nl" | "nl-nl" => "nl-NL",
-        "en-us" => "en-US",
-        "en-gb" => "en-GB",
-        "en-in" => "en-IN",
-        "et" | "et-ee" => "et-EE",
-        "fa" | "fa-ir" => "fa-IR",
-        "fil" | "tl" | "fil-ph" => "fil-PH",
-        "fi" | "fi-fi" => "fi-FI",
-        "fr" | "fr-fr" => "fr-FR",
-        "gl" | "gl-es" => "gl-ES",
-        "ka" | "ka-ge" => "ka-GE",
-        "de" | "de-de" => "de-DE",
-        "el" | "el-gr" => "el-GR",
-        "gu" | "gu-in" => "gu-IN",
-        "ha" | "ha-ng" => "ha-NG",
-        "he" | "he-il" => "he-IL",
-        "hi" | "hi-in" => "hi-IN",
-        "hu" | "hu-hu" => "hu-HU",
-        "hy" | "hy-am" => "hy-AM",
-        "is" | "is-is" => "is-IS",
-        "id" | "id-id" => "id-ID",
-        "it" | "it-it" => "it-IT",
-        "ja" | "ja-jp" => "ja-JP",
-        "jv" | "jw" | "jv-id" => "jv-ID",
-        "kea" | "kea-cv" => "kea-CV",
-        "kn" | "kn-in" => "kn-IN",
-        "kk" | "kk-kz" => "kk-KZ",
-        "ko" | "ko-kr" => "ko-KR",
-        "ky" | "ky-kg" => "ky-KG",
-        "lv" | "lv-lv" => "lv-LV",
-        "ln" | "ln-cd" => "ln-CD",
-        "lt" | "lt-lt" => "lt-LT",
-        "mk" | "mk-mk" => "mk-MK",
-        "ms" | "ms-my" => "ms-MY",
-        "ml" | "ml-in" => "ml-IN",
-        "mt" | "mt-mt" => "mt-MT",
-        "cmn" | "zh-hans" | "cmn-hans-cn" => "cmn-Hans-CN",
-        "mr" | "mr-in" => "mr-IN",
-        "mn" | "mn-mn" => "mn-MN",
-        "ne" | "ne-np" => "ne-NP",
-        "nb" | "no" | "nb-no" => "nb-NO",
-        "or" | "or-in" => "or-IN",
-        "pa-in" => "pa-IN",
-        "pa-guru-in" => "pa-Guru-IN",
-        "pl" | "pl-pl" => "pl-PL",
-        "pt-br" => "pt-BR",
-        "pt-pt" => "pt-PT",
-        "ro" | "ro-ro" => "ro-RO",
-        "ru" | "ru-ru" => "ru-RU",
-        "sr" | "sr-rs" => "sr-RS",
-        "sd" | "sd-arab-in" => "sd-Arab-IN",
-        "sk" | "sk-sk" => "sk-SK",
-        "sl" | "sl-si" => "sl-SI",
-        "es-419" => "es-419",
-        "es-us" => "es-US",
-        "sw" | "sw-ke" => "sw-KE",
-        "sv" | "sv-se" => "sv-SE",
-        "tg" | "tg-tj" => "tg-TJ",
-        "te" | "te-in" => "te-IN",
-        "th" | "th-th" => "th-TH",
-        "tr" | "tr-tr" => "tr-TR",
-        "uk" | "uk-ua" => "uk-UA",
-        "uz" | "uz-uz" => "uz-UZ",
-        "vi" | "vi-vn" => "vi-VN",
-        "yue" | "yue-hant-hk" => "yue-Hant-HK",
-        _ => return None,
-    })
-}
-
-fn resolve_gemini_language(language: Option<String>) -> Option<String> {
-    let mut language = language?;
-    if language.eq_ignore_ascii_case("os_input") {
-        language = crate::input_source::get_language_from_input_source()?;
-    }
-    if language.trim().is_empty() || language.eq_ignore_ascii_case("auto") {
-        return None;
-    }
-    normalize_gemini_language_code(&language).map(str::to_string)
-}
-
 fn build_vercel_gemini_request_body(
     audio_base64: String,
-    language: Option<&str>,
-    request_word_timestamps: bool,
+    config: &EffectiveGeminiConfig,
 ) -> Value {
     let mut google_options = serde_json::Map::new();
-    if let Some(language) = language {
+    if let Some(language) = config.language_code.as_deref() {
         google_options.insert("languageCodes".to_string(), serde_json::json!([language]));
     }
-    if request_word_timestamps {
+    if !config.custom_vocabulary.is_empty() {
+        google_options.insert(
+            "customVocabulary".to_string(),
+            serde_json::json!(config.custom_vocabulary),
+        );
+    }
+    google_options.insert(
+        "mode".to_string(),
+        serde_json::json!(match config.mode {
+            GeminiTranscriptionMode::Smart => "SMART",
+            GeminiTranscriptionMode::Verbatim => "VERBATIM",
+        }),
+    );
+    if config.word_timestamps {
         google_options.insert("wordTimestamp".to_string(), Value::Bool(true));
+    }
+    if config.diarization {
+        google_options.insert("diarization".to_string(), Value::Bool(true));
     }
 
     let mut body = serde_json::json!({
@@ -494,22 +454,36 @@ fn build_vercel_gemini_request_body(
 
 fn build_google_gemini_request_body(
     audio_base64: String,
-    language: Option<&str>,
-    request_word_timestamps: bool,
+    config: &EffectiveGeminiConfig,
 ) -> Value {
     let mut transcription_config = serde_json::Map::new();
-    if let Some(language) = language {
+    if let Some(language) = config.language_code.as_deref() {
         transcription_config.insert("language_codes".to_string(), serde_json::json!([language]));
     }
-    if request_word_timestamps {
+    if !config.custom_vocabulary.is_empty() {
         transcription_config.insert(
-            "mode".to_string(),
-            serde_json::json!({
-                "type": "verbatim",
-                "timestamp_granularities": ["word"]
-            }),
+            "custom_vocabulary".to_string(),
+            serde_json::json!(config.custom_vocabulary),
         );
     }
+    let mode = match config.mode {
+        GeminiTranscriptionMode::Smart => serde_json::json!("smart"),
+        GeminiTranscriptionMode::Verbatim => {
+            let mut mode = serde_json::Map::new();
+            mode.insert("type".to_string(), serde_json::json!("verbatim"));
+            if config.diarization {
+                mode.insert("diarization_mode".to_string(), serde_json::json!("speaker"));
+            }
+            if config.word_timestamps {
+                mode.insert(
+                    "timestamp_granularities".to_string(),
+                    serde_json::json!(["word"]),
+                );
+            }
+            Value::Object(mode)
+        }
+    };
+    transcription_config.insert("mode".to_string(), mode);
 
     let mut body = serde_json::json!({
         "model": REMOTE_STT_GOOGLE_DEFAULT_MODEL,
@@ -553,17 +527,104 @@ fn build_google_gemini_request(
     client: &reqwest::Client,
     base_url: &str,
     api_key: &str,
-    body: &Value,
+    serialized_body: Vec<u8>,
 ) -> reqwest::RequestBuilder {
     client
         .post(format!("{}/interactions", base_url))
         .header("x-goog-api-key", api_key)
-        .json(body)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(serialized_body)
+}
+
+fn validate_google_gemini_inline_request_size(serialized_body: Vec<u8>) -> Result<Vec<u8>> {
+    validate_google_gemini_inline_request_byte_len(serialized_body.len())?;
+    Ok(serialized_body)
+}
+
+fn validate_google_gemini_inline_request_byte_len(request_bytes: usize) -> Result<()> {
+    if request_bytes >= GOOGLE_GEMINI_INLINE_REQUEST_LIMIT_BYTES {
+        return Err(anyhow!(
+            "Google Direct accepts inline requests up to 20 MB, and the complete JSON request must remain under 20,000,000 bytes. The prepared JSON request is {:.2} MB ({} bytes), so it was not sent. Select a shorter file or another provider/model.",
+            request_bytes as f64 / 1_000_000.0,
+            request_bytes,
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_google_gemini_inline_request_duration(
+    duration_seconds: f64,
+    config: &EffectiveGeminiConfig,
+) -> Result<(), String> {
+    let sample_count = (duration_seconds * 16_000.0).ceil() as usize;
+    let wav_bytes = sample_count
+        .checked_mul(2)
+        .and_then(|bytes| bytes.checked_add(44))
+        .ok_or_else(|| "The prepared Gemini audio size is too large to calculate safely.".to_string())?;
+    let base64_bytes = wav_bytes
+        .checked_add(2)
+        .and_then(|bytes| bytes.checked_div(3))
+        .and_then(|groups| groups.checked_mul(4))
+        .ok_or_else(|| "The prepared Gemini request size is too large to calculate safely.".to_string())?;
+    let json_overhead = serde_json::to_vec(&build_google_gemini_request_body(
+        String::new(),
+        config,
+    ))
+    .map_err(|error| format!("Google Gemini request size could not be estimated: {error}"))?
+    .len();
+    let estimated_bytes = json_overhead
+        .checked_add(base64_bytes)
+        .ok_or_else(|| "The prepared Gemini request size is too large to calculate safely.".to_string())?;
+    validate_google_gemini_inline_request_byte_len(estimated_bytes)
+        .map_err(|error| error.to_string())
 }
 
 fn parse_google_offset_seconds(offset: &str) -> Option<f32> {
     let seconds = offset.trim().strip_suffix('s').unwrap_or(offset.trim());
     seconds.parse::<f32>().ok().filter(|value| value.is_finite())
+}
+
+fn gemini_file_request_timeout(config: &EffectiveGeminiConfig) -> Duration {
+    Duration::from_secs(
+        config
+            .max_duration_seconds
+            .saturating_add(GEMINI_FILE_REQUEST_TIMEOUT_GRACE_SECS),
+    )
+}
+
+fn append_google_speaker_word(
+    speaker_blocks: &mut Vec<RawSpeakerBlock>,
+    speaker: Option<&str>,
+    text: &str,
+) {
+    let (speaker_key, default_name) = speaker
+        .map(|speaker| (speaker, speaker))
+        .unwrap_or((UNATTRIBUTED_SPEAKER_KEY, UNATTRIBUTED_SPEAKER_NAME));
+    if let Some(last) = speaker_blocks
+        .last_mut()
+        .filter(|block| block.speaker_key == speaker_key)
+    {
+        if !last.text.is_empty() {
+            last.text.push(' ');
+        }
+        last.text.push_str(text);
+    } else {
+        speaker_blocks.push(RawSpeakerBlock {
+            speaker_key: speaker_key.to_string(),
+            default_name: Some(default_name.to_string()),
+            text: text.to_string(),
+        });
+    }
+}
+
+fn append_google_content_text(text: &mut String, fragment: &str) {
+    if !text.is_empty()
+        && !text.chars().last().is_some_and(char::is_whitespace)
+        && !fragment.chars().next().is_some_and(char::is_whitespace)
+    {
+        text.push(' ');
+    }
+    text.push_str(fragment);
 }
 
 fn timed_tokens_from_vercel_segments(
@@ -583,16 +644,23 @@ fn timed_tokens_from_vercel_segments(
 fn parse_google_gemini_response(
     response: GoogleInteractionsTranscriptionResponse,
 ) -> RemoteFileTranscription {
-    let mut text = String::new();
-    let mut timed_tokens = Vec::new();
+    let mut text = response
+        .output_text
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_default();
+    let use_content_text = text.is_empty();
+    let mut annotated_words = Vec::new();
+    let mut speaker_blocks = Vec::new();
 
     for step in response.steps.unwrap_or_default() {
         for content in step.content.unwrap_or_default() {
             if content.content_type.as_deref() != Some("text") {
                 continue;
             }
-            if let Some(content_text) = content.text {
-                text.push_str(&content_text);
+            if use_content_text {
+                if let Some(content_text) = content.text {
+                    append_google_content_text(&mut text, &content_text);
+                }
             }
             for annotation in content.annotations.unwrap_or_default() {
                 if annotation.annotation_type.as_deref() != Some("word_info") {
@@ -601,33 +669,51 @@ fn parse_google_gemini_response(
                 let Some(annotation_text) = annotation.text else {
                     continue;
                 };
-                let Some(start) = annotation
+                let speaker = annotation
+                    .speaker
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+                append_google_speaker_word(
+                    &mut speaker_blocks,
+                    speaker.as_deref(),
+                    &annotation_text,
+                );
+                let start = annotation
                     .start_offset
                     .as_deref()
-                    .and_then(parse_google_offset_seconds)
-                else {
-                    continue;
-                };
-                let Some(end) = annotation
+                    .and_then(parse_google_offset_seconds);
+                let end = annotation
                     .end_offset
                     .as_deref()
-                    .and_then(parse_google_offset_seconds)
-                else {
-                    continue;
-                };
-                timed_tokens.push(TimedTranscriptToken {
-                    start,
-                    end,
-                    text: annotation_text,
-                    prepend_space: true,
-                });
+                    .and_then(parse_google_offset_seconds);
+                if let (Some(start), Some(end)) = (start, end) {
+                    annotated_words.push(AnnotatedTranscriptWord {
+                        start,
+                        end,
+                        text: annotation_text,
+                        speaker,
+                    });
+                }
             }
         }
     }
 
+    let timed_tokens = annotated_words
+        .iter()
+        .map(|word| TimedTranscriptToken {
+            start: word.start,
+            end: word.end,
+            text: word.text.clone(),
+            prepend_space: true,
+        })
+        .collect::<Vec<_>>();
     RemoteFileTranscription {
         text,
         segments: timed_tokens_to_subtitle_segments(&timed_tokens),
+        annotated_words,
+        speaker_blocks,
     }
 }
 
@@ -875,6 +961,7 @@ impl RemoteSttManager {
         prompt: Option<String>,
         language: Option<String>,
         translate_to_english: bool,
+        gemini_config: Option<EffectiveGeminiConfig>,
     ) -> Result<String> {
         self.transcribe_with_operation_inner(
             operation_id,
@@ -884,6 +971,7 @@ impl RemoteSttManager {
             language,
             translate_to_english,
             false,
+            gemini_config,
         )
         .await
         .map(|result| result.text)
@@ -898,6 +986,7 @@ impl RemoteSttManager {
         language: Option<String>,
         translate_to_english: bool,
         request_segments: bool,
+        gemini_config: Option<EffectiveGeminiConfig>,
     ) -> Result<RemoteFileTranscription> {
         self.transcribe_with_operation_inner(
             operation_id,
@@ -907,6 +996,7 @@ impl RemoteSttManager {
             language,
             translate_to_english,
             request_segments,
+            gemini_config,
         )
         .await
     }
@@ -920,6 +1010,7 @@ impl RemoteSttManager {
         language: Option<String>,
         translate_to_english: bool,
         request_segments: bool,
+        gemini_config: Option<EffectiveGeminiConfig>,
     ) -> Result<RemoteFileTranscription> {
         let cancel_token = CancellationToken::new();
         self.active_requests
@@ -940,6 +1031,7 @@ impl RemoteSttManager {
                 language,
                 translate_to_english,
                 request_segments,
+                gemini_config,
             ) => result,
         };
 
@@ -955,6 +1047,7 @@ impl RemoteSttManager {
         language: Option<String>,
         translate_to_english: bool,
         request_segments: bool,
+        gemini_config: Option<EffectiveGeminiConfig>,
     ) -> Result<RemoteFileTranscription> {
         if audio_samples.is_empty() {
             return Ok(RemoteFileTranscription::default());
@@ -976,6 +1069,7 @@ impl RemoteSttManager {
             REMOTE_STT_PRESET_GOOGLE => Some(REMOTE_STT_GOOGLE_DEFAULT_MODEL),
             _ => None,
         };
+        let mut effective_gemini_config = gemini_config;
         if let Some(expected_model) = gemini_expected_model {
             if settings.model_id.trim() != expected_model {
                 let message = format!(
@@ -987,28 +1081,29 @@ impl RemoteSttManager {
                 self.record_error(settings, message.clone());
                 return Err(anyhow!(message));
             }
-            let max_audio_samples = if request_segments {
-                GEMINI_WORD_TIMESTAMP_MAX_AUDIO_SAMPLES
-            } else {
-                GEMINI_MAX_AUDIO_SAMPLES
-            };
-            if audio_samples.len() > max_audio_samples {
-                let limit_minutes = if request_segments { 30 } else { 60 };
-                let output_hint = if request_segments {
-                    " Select Text output or use a file no longer than 30 minutes."
-                } else {
-                    " Split the recording into files no longer than 60 minutes."
-                };
-                let message = format!(
-                    "Gemini 3.5 Transcribe supports at most {limit_minutes} minutes for this output type.{output_hint}"
+            if effective_gemini_config.is_none() {
+                let app_settings = crate::settings::get_settings(&self.app_handle);
+                let profile = app_settings.transcription_profile(&app_settings.active_profile_id);
+                let os_locale = crate::input_source::get_language_from_input_source();
+                effective_gemini_config = Some(
+                    crate::gemini_config::resolve_effective_config(
+                        &app_settings,
+                        profile,
+                        GeminiWorkflow::Dictation,
+                        os_locale.as_deref(),
+                    )
+                    .map_err(anyhow::Error::msg)?,
                 );
-                self.record_error(settings, message.clone());
-                return Err(anyhow!(message));
             }
-            if translate_to_english {
+            let effective = effective_gemini_config
+                .as_ref()
+                .expect("Gemini effective config was resolved");
+            let max_audio_samples = effective.max_duration_seconds as usize * 16_000;
+            if audio_samples.len() > max_audio_samples {
                 let message = format!(
-                    "{} does not support AivoRelay's Translate to English option. Disable translation before using Gemini 3.5 Transcribe.",
-                    expected_model
+                    "The decoded audio is {:.2} minutes, exceeding the {}-minute Gemini limit for this configuration. The file was not sent.",
+                    audio_samples.len() as f64 / 16_000.0 / 60.0,
+                    effective.max_duration_seconds / 60,
                 );
                 self.record_error(settings, message.clone());
                 return Err(anyhow!(message));
@@ -1080,6 +1175,7 @@ impl RemoteSttManager {
                 .map(|text| RemoteFileTranscription {
                     text,
                     segments: Vec::new(),
+                    ..Default::default()
                 });
         }
 
@@ -1108,6 +1204,7 @@ impl RemoteSttManager {
                 .map(|text| RemoteFileTranscription {
                     text,
                     segments: Vec::new(),
+                    ..Default::default()
                 });
         }
 
@@ -1136,6 +1233,7 @@ impl RemoteSttManager {
                 .map(|text| RemoteFileTranscription {
                     text,
                     segments: Vec::new(),
+                    ..Default::default()
                 });
         }
 
@@ -1154,15 +1252,19 @@ impl RemoteSttManager {
                     "Gemini 3.5 Transcribe does not accept a free-form STT prompt; AivoRelay omitted it from the request.".to_string(),
                 );
             }
-            let language = resolve_gemini_language(language);
+            let effective = effective_gemini_config
+                .as_ref()
+                .expect("Gemini effective config was resolved");
+            if let Some(warning) = effective.language_warning.as_deref() {
+                self.record_info(settings, warning.to_string());
+            }
             let result = match settings.provider_preset.as_str() {
                 REMOTE_STT_PRESET_VERCEL => {
                     self.transcribe_gemini_via_vercel(
                         settings,
                         &base_url,
                         &wav_bytes,
-                        language.as_deref(),
-                        request_segments,
+                        effective,
                         &api_key.value,
                     )
                     .await
@@ -1172,8 +1274,7 @@ impl RemoteSttManager {
                         settings,
                         &base_url,
                         &wav_bytes,
-                        language.as_deref(),
-                        request_segments,
+                        effective,
                         &api_key.value,
                     )
                     .await
@@ -1345,6 +1446,7 @@ impl RemoteSttManager {
                         && !segment.text.trim().is_empty()
                 })
                 .collect(),
+            ..Default::default()
         })
     }
 
@@ -1424,16 +1526,15 @@ impl RemoteSttManager {
         settings: &RemoteSttSettings,
         base_url: &str,
         wav_bytes: &[u8],
-        language: Option<&str>,
-        request_segments: bool,
+        config: &EffectiveGeminiConfig,
         api_key: &str,
     ) -> Result<RemoteFileTranscription> {
         let body = build_vercel_gemini_request_body(
             BASE64_STANDARD.encode(wav_bytes),
-            language,
-            request_segments,
+            config,
         );
-        let request = build_vercel_gemini_request(&self.client, base_url, api_key, &body);
+        let request = build_vercel_gemini_request(&self.client, base_url, api_key, &body)
+            .timeout(gemini_file_request_timeout(config));
         let response_body = self
             .send_gemini_json_request(
                 settings,
@@ -1456,6 +1557,7 @@ impl RemoteSttManager {
         let result = RemoteFileTranscription {
             text: parsed.text,
             segments: timed_tokens_to_subtitle_segments(&timed_tokens),
+            ..Default::default()
         };
         if settings.debug_mode == RemoteSttDebugMode::Verbose {
             self.record_info(
@@ -1474,16 +1576,27 @@ impl RemoteSttManager {
         settings: &RemoteSttSettings,
         base_url: &str,
         wav_bytes: &[u8],
-        language: Option<&str>,
-        request_segments: bool,
+        config: &EffectiveGeminiConfig,
         api_key: &str,
     ) -> Result<RemoteFileTranscription> {
         let body = build_google_gemini_request_body(
             BASE64_STANDARD.encode(wav_bytes),
-            language,
-            request_segments,
+            config,
         );
-        let request = build_google_gemini_request(&self.client, base_url, api_key, &body);
+        let serialized_body = serde_json::to_vec(&body).map_err(|error| {
+            anyhow!(
+                "Google Gemini 3.5 Transcribe request could not be prepared: {}",
+                error
+            )
+        })?;
+        let serialized_body = validate_google_gemini_inline_request_size(serialized_body)?;
+        let request = build_google_gemini_request(
+            &self.client,
+            base_url,
+            api_key,
+            serialized_body,
+        )
+        .timeout(gemini_file_request_timeout(config));
         let response_body = self
             .send_gemini_json_request(
                 settings,
@@ -2303,15 +2416,32 @@ mod tests {
     use super::{
         build_google_gemini_request, build_google_gemini_request_body,
         build_openai_realtime_agent_session_update, build_vercel_gemini_request,
-        build_vercel_gemini_request_body, normalize_gemini_language_code,
+        build_vercel_gemini_request_body, gemini_file_request_timeout,
         parse_google_gemini_response,
         remote_stt_allows_legacy_api_key_fallback, remote_stt_api_key_clear_targets,
         redact_remote_stt_api_key,
         remote_stt_api_key_redaction_marker, remote_stt_log_value, select_remote_stt_api_key,
-        supports_subtitle_timestamps, supports_translation, uses_plural_language_hints,
+        supports_subtitle_timestamps, supports_translation,
+        uses_plural_language_hints, validate_google_gemini_inline_request_size,
         GoogleInteractionsTranscriptionResponse, RemoteSttApiKeySource, TranscriptionResponse,
+        GEMINI_FILE_REQUEST_TIMEOUT_GRACE_SECS, GOOGLE_GEMINI_INLINE_REQUEST_LIMIT_BYTES,
     };
     use crate::url_security::{REMOTE_STT_GOOGLE_BASE_URL, REMOTE_STT_VERCEL_BASE_URL};
+    use crate::gemini_config::{EffectiveGeminiConfig, GeminiRoute};
+    use crate::settings::GeminiTranscriptionMode;
+
+    fn gemini_config(route: GeminiRoute) -> EffectiveGeminiConfig {
+        EffectiveGeminiConfig {
+            language_code: Some("ru-RU".to_string()),
+            language_warning: None,
+            custom_vocabulary: vec!["Gemini".to_string(), "Kubernetes".to_string()],
+            mode: GeminiTranscriptionMode::Verbatim,
+            diarization: false,
+            word_timestamps: true,
+            max_duration_seconds: 1_800,
+            route,
+        }
+    }
 
     fn remote_settings(provider_preset: &str) -> crate::settings::RemoteSttSettings {
         crate::settings::RemoteSttSettings {
@@ -2377,23 +2507,10 @@ mod tests {
     }
 
     #[test]
-    fn gemini_language_hints_use_documented_bcp47_locales() {
-        assert_eq!(normalize_gemini_language_code("ru"), Some("ru-RU"));
-        assert_eq!(normalize_gemini_language_code("en-GB"), Some("en-GB"));
-        assert_eq!(
-            normalize_gemini_language_code("zh-Hans"),
-            Some("cmn-Hans-CN")
-        );
-        assert_eq!(normalize_gemini_language_code("en"), None);
-        assert_eq!(normalize_gemini_language_code("cy"), None);
-    }
-
-    #[test]
     fn vercel_gemini_request_matches_gateway_transcription_v4_contract() {
         let body = build_vercel_gemini_request_body(
             "AQIDBA==".to_string(),
-            Some("ru-RU"),
-            true,
+            &gemini_config(GeminiRoute::VercelGateway),
         );
         assert_eq!(
             body,
@@ -2403,6 +2520,8 @@ mod tests {
                 "providerOptions": {
                     "google": {
                         "languageCodes": ["ru-RU"],
+                        "customVocabulary": ["Gemini", "Kubernetes"],
+                        "mode": "VERBATIM",
                         "wordTimestamp": true
                     }
                 }
@@ -2445,8 +2564,7 @@ mod tests {
     fn direct_google_gemini_request_matches_interactions_contract() {
         let body = build_google_gemini_request_body(
             "AQIDBA==".to_string(),
-            Some("ru-RU"),
-            true,
+            &gemini_config(GeminiRoute::GoogleDirect),
         );
         assert_eq!(
             body,
@@ -2460,6 +2578,7 @@ mod tests {
                 "generation_config": {
                     "transcription_config": {
                         "language_codes": ["ru-RU"],
+                        "custom_vocabulary": ["Gemini", "Kubernetes"],
                         "mode": {
                             "type": "verbatim",
                             "timestamp_granularities": ["word"]
@@ -2473,7 +2592,7 @@ mod tests {
             &reqwest::Client::new(),
             REMOTE_STT_GOOGLE_BASE_URL,
             "test-google-key",
-            &body,
+            serde_json::to_vec(&body).unwrap(),
         )
         .build()
         .unwrap();
@@ -2493,12 +2612,134 @@ mod tests {
     }
 
     #[test]
-    fn gemini_request_omits_optional_configuration_when_not_needed() {
-        let vercel = build_vercel_gemini_request_body("AQID".to_string(), None, false);
-        assert!(vercel.get("providerOptions").is_none());
+    fn direct_google_inline_limit_checks_exact_serialized_request_boundaries() {
+        let request_with_size = |target_size: usize| {
+            let config = gemini_config(GeminiRoute::GoogleDirect);
+            let empty_body = build_google_gemini_request_body(String::new(), &config);
+            let fixed_size = serde_json::to_vec(&empty_body).unwrap().len();
+            let body = build_google_gemini_request_body(
+                "A".repeat(target_size - fixed_size),
+                &config,
+            );
+            let serialized = serde_json::to_vec(&body).unwrap();
+            assert_eq!(serialized.len(), target_size);
+            serialized
+        };
 
-        let google = build_google_gemini_request_body("AQID".to_string(), None, false);
-        assert!(google.get("generation_config").is_none());
+        assert!(validate_google_gemini_inline_request_size(request_with_size(
+            GOOGLE_GEMINI_INLINE_REQUEST_LIMIT_BYTES - 1,
+        ))
+        .is_ok());
+
+        let at_limit = validate_google_gemini_inline_request_size(request_with_size(
+            GOOGLE_GEMINI_INLINE_REQUEST_LIMIT_BYTES,
+        ))
+        .unwrap_err();
+        assert!(at_limit.to_string().contains("up to 20 MB"));
+        assert!(at_limit
+            .to_string()
+            .contains("20.00 MB (20000000 bytes)"));
+
+        assert!(validate_google_gemini_inline_request_size(request_with_size(
+            GOOGLE_GEMINI_INLINE_REQUEST_LIMIT_BYTES + 1,
+        ))
+        .is_err());
+    }
+
+    #[test]
+    fn vercel_gemini_route_does_not_use_google_inline_request_limit() {
+        let body = build_vercel_gemini_request_body(
+            "A".repeat(GOOGLE_GEMINI_INLINE_REQUEST_LIMIT_BYTES),
+            &gemini_config(GeminiRoute::VercelGateway),
+        );
+        let request = build_vercel_gemini_request(
+            &reqwest::Client::new(),
+            REMOTE_STT_VERCEL_BASE_URL,
+            "test-vercel-key",
+            &body,
+        )
+        .build()
+        .unwrap();
+
+        assert!(request.body().unwrap().as_bytes().unwrap().len()
+            > GOOGLE_GEMINI_INLINE_REQUEST_LIMIT_BYTES);
+    }
+
+    #[test]
+    fn gemini_request_omits_disabled_optional_fields() {
+        let config = EffectiveGeminiConfig {
+            language_code: None,
+            language_warning: None,
+            custom_vocabulary: vec![],
+            mode: GeminiTranscriptionMode::Smart,
+            diarization: false,
+            word_timestamps: false,
+            max_duration_seconds: 3_600,
+            route: GeminiRoute::GoogleDirect,
+        };
+        let vercel = build_vercel_gemini_request_body("AQID".to_string(), &config);
+        assert!(vercel["providerOptions"]["google"].get("languageCodes").is_none());
+        assert!(vercel["providerOptions"]["google"].get("wordTimestamp").is_none());
+        assert!(vercel["providerOptions"]["google"].get("diarization").is_none());
+        assert_eq!(vercel["providerOptions"]["google"]["mode"], "SMART");
+
+        let google = build_google_gemini_request_body("AQID".to_string(), &config);
+        assert_eq!(google["generation_config"]["transcription_config"]["mode"], "smart");
+    }
+
+    #[test]
+    fn direct_google_verbatim_feature_payloads_are_independent_and_composable() {
+        let base = EffectiveGeminiConfig {
+            language_code: None,
+            language_warning: None,
+            custom_vocabulary: vec![],
+            mode: GeminiTranscriptionMode::Verbatim,
+            diarization: false,
+            word_timestamps: false,
+            max_duration_seconds: 3_600,
+            route: GeminiRoute::GoogleDirect,
+        };
+
+        let timestamps = build_google_gemini_request_body(
+            "AQID".to_string(),
+            &EffectiveGeminiConfig { word_timestamps: true, ..base.clone() },
+        );
+        assert_eq!(
+            timestamps["generation_config"]["transcription_config"]["mode"],
+            serde_json::json!({
+                "type": "verbatim",
+                "timestamp_granularities": ["word"]
+            })
+        );
+
+        let diarization = build_google_gemini_request_body(
+            "AQID".to_string(),
+            &EffectiveGeminiConfig { diarization: true, ..base.clone() },
+        );
+        assert_eq!(
+            diarization["generation_config"]["transcription_config"]["mode"],
+            serde_json::json!({
+                "type": "verbatim",
+                "diarization_mode": "speaker"
+            })
+        );
+
+        let combined = build_google_gemini_request_body(
+            "AQID".to_string(),
+            &EffectiveGeminiConfig {
+                diarization: true,
+                word_timestamps: true,
+                ..base
+            },
+        );
+        assert_eq!(
+            combined["generation_config"]["transcription_config"]["mode"],
+            serde_json::json!({
+                "type": "verbatim",
+                "diarization_mode": "speaker",
+                "timestamp_granularities": ["word"]
+            })
+        );
     }
 
     #[test]
@@ -2541,6 +2782,123 @@ mod tests {
         assert_eq!(parsed.segments[0].text, "The quick fox.");
         assert_eq!(parsed.segments[0].start, 0.1);
         assert_eq!(parsed.segments[0].end, 1.0);
+    }
+
+    #[test]
+    fn direct_google_response_concatenates_ordered_text_blocks_without_non_text() {
+        let response: GoogleInteractionsTranscriptionResponse =
+            serde_json::from_value(serde_json::json!({
+                "steps": [{ "content": [
+                    { "type": "text", "text": "First " },
+                    { "type": "image", "text": "ignored" },
+                    { "type": "text", "text": "second" }
+                ] }, { "content": [{ "type": "text", "text": " third" }] }]
+            }))
+            .unwrap();
+        let parsed = parse_google_gemini_response(response);
+        assert_eq!(parsed.text, "First second third");
+
+        let response: GoogleInteractionsTranscriptionResponse =
+            serde_json::from_value(serde_json::json!({
+                "output_text": "authoritative",
+                "steps": [{ "content": [{ "type": "text", "text": "duplicate" }] }]
+            }))
+            .unwrap();
+        assert_eq!(parse_google_gemini_response(response).text, "authoritative");
+    }
+
+    #[test]
+    fn direct_google_response_preserves_speaker_changes() {
+        let response: GoogleInteractionsTranscriptionResponse =
+            serde_json::from_value(serde_json::json!({
+                "output_text": "Hello there General Kenobi",
+                "steps": [{ "content": [{
+                    "type": "text",
+                    "annotations": [
+                        { "type": "word_info", "text": "Hello", "speaker": "spk_1", "start_offset": "0s", "end_offset": "0.2s" },
+                        { "type": "word_info", "text": "there", "speaker": "spk_1", "start_offset": "0.2s", "end_offset": "0.4s" },
+                        { "type": "word_info", "text": "General", "speaker": "spk_2", "start_offset": "0.5s", "end_offset": "0.8s" },
+                        { "type": "word_info", "text": "Kenobi", "speaker": "spk_2", "start_offset": "0.8s", "end_offset": "1.1s" }
+                    ]
+                }] }]
+            })).unwrap();
+        let parsed = parse_google_gemini_response(response);
+        assert_eq!(parsed.annotated_words.len(), 4);
+        assert_eq!(parsed.speaker_blocks.len(), 2);
+        assert_eq!(parsed.speaker_blocks[0].speaker_key, "spk_1");
+        assert_eq!(parsed.speaker_blocks[0].text, "Hello there");
+        assert_eq!(parsed.speaker_blocks[1].speaker_key, "spk_2");
+        assert_eq!(parsed.speaker_blocks[1].text, "General Kenobi");
+    }
+
+    #[test]
+    fn direct_google_diarization_does_not_require_timestamp_offsets() {
+        let response: GoogleInteractionsTranscriptionResponse =
+            serde_json::from_value(serde_json::json!({
+                "output_text": "Hello there General Kenobi",
+                "steps": [{ "content": [{
+                    "type": "text",
+                    "annotations": [
+                        { "type": "word_info", "text": "Hello", "speaker": "spk_1" },
+                        { "type": "word_info", "text": "there", "speaker": "spk_1" },
+                        { "type": "word_info", "text": "General", "speaker": "spk_2" },
+                        { "type": "word_info", "text": "Kenobi", "speaker": "spk_2" }
+                    ]
+                }] }]
+            }))
+            .unwrap();
+        let parsed = parse_google_gemini_response(response);
+        assert!(parsed.annotated_words.is_empty());
+        assert!(parsed.segments.is_empty());
+        assert_eq!(parsed.speaker_blocks.len(), 2);
+        assert_eq!(parsed.speaker_blocks[0].text, "Hello there");
+        assert_eq!(parsed.speaker_blocks[1].text, "General Kenobi");
+    }
+
+    #[test]
+    fn direct_google_diarization_preserves_words_without_speaker_metadata() {
+        let response: GoogleInteractionsTranscriptionResponse =
+            serde_json::from_value(serde_json::json!({
+                "output_text": "Hello there again",
+                "steps": [{ "content": [{
+                    "type": "text",
+                    "annotations": [
+                        { "type": "word_info", "text": "Hello", "speaker": "spk_1" },
+                        { "type": "word_info", "text": "there" },
+                        { "type": "word_info", "text": "again", "speaker": "spk_1" }
+                    ]
+                }] }]
+            }))
+            .unwrap();
+        let parsed = parse_google_gemini_response(response);
+        assert_eq!(parsed.speaker_blocks.len(), 3);
+        assert_eq!(parsed.speaker_blocks[0].text, "Hello");
+        assert_eq!(
+            parsed.speaker_blocks[1].default_name.as_deref(),
+            Some(crate::file_transcription_diarization::UNATTRIBUTED_SPEAKER_NAME)
+        );
+        assert_eq!(parsed.speaker_blocks[1].text, "there");
+        assert_eq!(parsed.speaker_blocks[2].text, "again");
+        assert_eq!(
+            parsed
+                .speaker_blocks
+                .iter()
+                .map(|block| block.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+            parsed.text
+        );
+    }
+
+    #[test]
+    fn gemini_file_timeout_covers_the_supported_duration_plus_processing_margin() {
+        let config = gemini_config(GeminiRoute::GoogleDirect);
+        assert_eq!(
+            gemini_file_request_timeout(&config),
+            std::time::Duration::from_secs(
+                config.max_duration_seconds + GEMINI_FILE_REQUEST_TIMEOUT_GRACE_SECS
+            )
+        );
     }
 
     #[test]

@@ -411,6 +411,16 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   });
 (settingUpdaters as any).soniox_language_hints_strict = (value: any) =>
   invoke("change_soniox_language_hints_strict_setting", { enabled: value });
+(settingUpdaters as any).gemini_language_code = (value: any) =>
+  invoke("change_gemini_language_code_setting", { language: value });
+(settingUpdaters as any).gemini_custom_vocabulary = (value: any) =>
+  invoke("change_gemini_custom_vocabulary_setting", { terms: value });
+(settingUpdaters as any).gemini_live_mode = (value: any) =>
+  invoke("change_gemini_live_mode_setting", { mode: value });
+(settingUpdaters as any).gemini_file_mode = (value: any) =>
+  invoke("change_gemini_file_mode_setting", { mode: value });
+(settingUpdaters as any).gemini_file_diarization = (value: any) =>
+  invoke("change_gemini_file_diarization_setting", { enabled: value });
 (settingUpdaters as any).soniox_enable_endpoint_detection = (value: any) =>
   invoke("change_soniox_endpoint_detection_setting", { enabled: value });
 (settingUpdaters as any).soniox_max_endpoint_delay_ms = (value: any) =>

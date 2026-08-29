@@ -379,6 +379,17 @@ impl HistoryManager {
         Ok(entry)
     }
 
+    /// Saves a transcript that has no retained recording, such as an
+    /// independent Live Session stream. An empty file name is the existing
+    /// schema's text-only marker; callers and deletion must not fabricate an
+    /// audio file for it.
+    pub fn save_text_only_transcription(
+        &self,
+        transcription_text: String,
+    ) -> Result<HistoryEntry> {
+        self.save_entry(String::new(), transcription_text, false, None, None)
+    }
+
     pub fn update_transcription(
         &self,
         id: i64,
@@ -789,10 +800,12 @@ impl HistoryManager {
             .map_err(|error| HistoryDeleteError::database(error, 1))?;
         debug_assert_eq!(deleted, 1);
 
-        let has_other = Self::has_file_reference(&transaction, &file_name)
-            .map_err(|error| HistoryDeleteError::database(error, 1))?;
-        if !has_other {
-            self.remove_history_audio(&file_name)?;
+        if !file_name.is_empty() {
+            let has_other = Self::has_file_reference(&transaction, &file_name)
+                .map_err(|error| HistoryDeleteError::database(error, 1))?;
+            if !has_other {
+                self.remove_history_audio(&file_name)?;
+            }
         }
 
         transaction

@@ -1223,6 +1223,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
     ? (entry.ai_response ?? entry.transcription_text)
     : (entry.post_processed_text ?? entry.transcription_text);
   const hasDisplayText = displayText.trim().length > 0;
+  const hasAudio = entry.file_name.trim().length > 0;
 
   const handleLoadAudio = useCallback(
     () => getAudioUrl(entry.file_name),
@@ -1312,7 +1313,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
               fill={entry.saved ? "currentColor" : "none"}
             />
           </IconButton>
-          {!isAiReplace && (
+          {!isAiReplace && hasAudio && (
             <IconButton
               onClick={handleRetranscribe}
               disabled={retrying}
@@ -1417,7 +1418,9 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
                 ? displayText
                 : t("settings.history.transcriptionFailed")}
           </p>
-          <AudioPlayer onLoadRequest={handleLoadAudio} className="w-full" />
+          {hasAudio && (
+            <AudioPlayer onLoadRequest={handleLoadAudio} className="w-full" />
+          )}
         </>
       )}
     </div>

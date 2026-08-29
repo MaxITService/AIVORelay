@@ -98,6 +98,13 @@ struct TransientMessageOverlayPayload {
     message: String,
 }
 
+#[derive(Serialize, Clone)]
+struct GeminiLiveCompletionOverlayPayload {
+    state: &'static str,
+    #[serde(rename = "completionVariant")]
+    completion_variant: &'static str,
+}
+
 #[derive(Serialize, Clone, Default, Type)]
 pub struct SonioxLivePreviewChangedRange {
     pub start: usize,
@@ -2868,6 +2875,21 @@ fn show_transient_message_overlay(
     message: &str,
     auto_hide_ms: u64,
 ) {
+    show_transient_overlay(
+        app_handle,
+        TransientMessageOverlayPayload {
+            state: overlay_state.to_string(),
+            message: message.to_string(),
+        },
+        auto_hide_ms,
+    );
+}
+
+fn show_transient_overlay<P: Serialize + Clone>(
+    app_handle: &AppHandle,
+    payload: P,
+    auto_hide_ms: u64,
+) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
     let overlay_generation = plus_overlay_state::invalidate_error_overlay_auto_hide();
 
@@ -2890,10 +2912,6 @@ fn show_transient_message_overlay(
         let shown =
             plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
                 set_recording_overlay_default_layout(app_handle);
-                let payload = TransientMessageOverlayPayload {
-                    state: overlay_state.to_string(),
-                    message: message.to_string(),
-                };
                 let _ = overlay_window.emit("show-message-overlay", payload);
                 show_positioned_recording_overlay_window(app_handle);
             });
@@ -2933,6 +2951,27 @@ pub fn show_profile_switch_overlay(app_handle: &AppHandle, profile_name: &str) {
 /// Uses the existing recording overlay to display the new microphone name.
 pub fn show_microphone_switch_overlay(app_handle: &AppHandle, microphone_name: &str) {
     show_transient_message_overlay(app_handle, "microphone_switch", microphone_name, 1500);
+}
+
+// ============================================================================
+// Gemini Live Time-Limit Completion Overlay
+// ============================================================================
+
+/// Shows the normal, non-error completion notice after a Gemini Live time-limit stop.
+pub fn show_gemini_live_completion_overlay(app_handle: &AppHandle, partial: bool) {
+    let completion_variant = if partial {
+        "partial"
+    } else {
+        "complete"
+    };
+    show_transient_overlay(
+        app_handle,
+        GeminiLiveCompletionOverlayPayload {
+            state: "gemini_live_completion",
+            completion_variant,
+        },
+        8_000,
+    );
 }
 
 pub fn emit_recording_overlay_position_settings_changed(app_handle: &AppHandle) {

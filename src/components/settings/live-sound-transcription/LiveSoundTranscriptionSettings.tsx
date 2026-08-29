@@ -14,6 +14,7 @@ import { useSettings } from "../../../hooks/useSettings";
 import { getRemoteApiDisplayLabel } from "../../../lib/utils/remoteSttDisplay";
 import { MicrophoneSelector } from "../MicrophoneSelector";
 import { OutputDeviceSelector } from "../OutputDeviceSelector";
+import type { GeminiLiveCompletionVariant } from "../../../overlay/plus_overlay_states";
 
 type LiveSoundSegment = {
   speaker_id?: number | null;
@@ -177,6 +178,8 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const [autoStopInput, setAutoStopInput] = useState<string>("");
   const [autoStopRemainingSeconds, setAutoStopRemainingSeconds] = useState<number | null>(null);
   const [showWhatIsThis, setShowWhatIsThis] = useState(false);
+  const [geminiCompletionVariant, setGeminiCompletionVariant] =
+    useState<GeminiLiveCompletionVariant | null>(null);
 
   const liveSoundProviderSetting = String(
     (settings as any)?.live_sound_transcription_provider ?? "remote_soniox",
@@ -203,17 +206,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     (remoteModelId === "gpt-live-transcribe" ||
       remoteModelId === "gpt-realtime-whisper") &&
     !Boolean((settings as any)?.openai_realtime_whisper_flatten_enabled ?? false);
-  const activeProfileId = String((settings as any)?.active_profile_id ?? "default");
-  const activeProfile =
-    activeProfileId === "default"
-      ? null
-      : ((settings as any)?.transcription_profiles ?? []).find(
-          (profile: any) => String(profile?.id ?? "") === activeProfileId,
-        );
-  const effectiveTranslateToEnglish = Boolean(
-    activeProfile?.translate_to_english ?? (settings as any)?.translate_to_english ?? false,
-  );
-  const geminiTranslateBlocked = remoteIsGeminiLive && effectiveTranslateToEnglish;
   const remoteLiveReady = remoteIsGeminiLive || remoteIsOpenAiLive;
   const remoteApiLabel = getRemoteApiDisplayLabel(remoteStt);
 
@@ -384,6 +376,18 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
           setSegments(getSegments(event.payload));
           setErrorMessage(getErrorMessage(event.payload));
           setAutoStopRemainingSeconds(getAutoStopRemainingSeconds(event.payload));
+        }),
+      );
+      unlistenPromises.push(
+        listen<{
+          bindingId?: string;
+          completionVariant?: GeminiLiveCompletionVariant;
+        }>("gemini-live-time-limit-completed", event => {
+          if (!active || event.payload.bindingId !== "live_sound_transcription") return;
+          setGeminiCompletionVariant(
+            event.payload.completionVariant === "partial" ? "partial" : "complete",
+          );
+          setIsRecording(false);
         }),
       );
       unlistenPromises.push(
@@ -780,9 +784,60 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               </div>
             )}
 
-            {provider === "remote_openai_compatible" && geminiTranslateBlocked && (
-              <div className="rounded-lg border border-red-500/35 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-                {t("settings.liveSoundTranscription.session.geminiTranslateUnsupported")}
+            {remoteIsGeminiLive && (
+              <div className="space-y-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3">
+                <p className="text-sm text-amber-100">
+                  {t(
+                    "settings.gemini.liveLimitWarning",
+                    "Gemini Live supports sessions up to 10 minutes. AivoRelay automatically finalizes at 9:50 to preserve the transcript.",
+                  )}
+                </p>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-[#f5f5f5]">
+                      {t("settings.gemini.liveMode.title", "Live transcription mode")}
+                    </p>
+                    <p className="text-xs text-[#9a9a9a]">
+                      {String((settings as any)?.gemini_live_mode ?? "smart") === "smart"
+                        ? t("settings.gemini.liveMode.smartHelp", "Smart removes disfluencies and applies readable formatting.")
+                        : t("settings.gemini.liveMode.verbatimHelp", "Verbatim preserves fillers, repetitions, and false starts.")}
+                    </p>
+                  </div>
+                  <Dropdown
+                    selectedValue={String((settings as any)?.gemini_live_mode ?? "smart")}
+                    options={[
+                      { value: "smart", label: t("settings.gemini.mode.smart", "Smart") },
+                      { value: "verbatim", label: t("settings.gemini.mode.verbatim", "Verbatim") },
+                    ]}
+                    onSelect={async value => {
+                      if (!value) return;
+                      await invoke("change_gemini_live_mode_setting", { mode: value });
+                      await refreshSettings();
+                    }}
+                    disabled={isRecording || sourceBusy || actionBusy !== null}
+                  />
+                </div>
+              </div>
+            )}
+
+            {geminiCompletionVariant && (
+              <div className="rounded-lg border border-sky-400/30 bg-sky-400/10 px-4 py-3 text-sm text-sky-100">
+                <p className="font-semibold">
+                  {t("overlay.geminiLiveCompletion.title", "Gemini Live session completed")}
+                </p>
+                <p className="mt-1">
+                  {t(
+                    geminiCompletionVariant === "partial"
+                      ? "overlay.geminiLiveCompletion.partial"
+                      : "overlay.geminiLiveCompletion.complete",
+                    geminiCompletionVariant === "partial"
+                      ? "The model's time limit was reached. A partial transcript was recovered and saved. Review the last words before continuing."
+                      : "The model's time limit was reached. Your transcript was finalized and saved. Start a new session to continue.",
+                  )}
+                </p>
+                <Button variant="secondary" className="mt-3" onClick={() => setGeminiCompletionVariant(null)}>
+                  {t("common.dismiss", "Dismiss")}
+                </Button>
               </div>
             )}
 
@@ -822,8 +877,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                   !liveModeEnabled ||
                   isRecording ||
                   sourceBusy ||
-                  actionBusy !== null ||
-                  (provider === "remote_openai_compatible" && geminiTranslateBlocked)
+                  actionBusy !== null
                 }
                 onClick={() =>
                   void runAction("start", "live_sound_transcription_start")
