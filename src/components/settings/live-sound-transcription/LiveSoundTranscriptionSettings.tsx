@@ -11,6 +11,7 @@ import { Dropdown } from "../../ui/Dropdown";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { useSettings } from "../../../hooks/useSettings";
+import { getRemoteApiDisplayLabel } from "../../../lib/utils/remoteSttDisplay";
 import { MicrophoneSelector } from "../MicrophoneSelector";
 import { OutputDeviceSelector } from "../OutputDeviceSelector";
 
@@ -184,20 +185,45 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const provider =
     liveSoundProviderSetting === "system" || liveSoundProviderSetting === "remote_soniox"
       ? "remote_soniox"
-      : "remote_deepgram";
+      : liveSoundProviderSetting === "remote_deepgram"
+        ? "remote_deepgram"
+        : liveSoundProviderSetting === "remote_openai_compatible"
+          ? "remote_openai_compatible"
+          : "unsupported";
 
-  const providerLabel =
-    provider === "remote_soniox"
-      ? "Soniox"
-      : provider === "remote_deepgram"
-        ? "Deepgram"
-        : provider === "remote_openai_compatible"
-          ? "OpenAI-compatible API"
-          : t("settings.liveSoundTranscription.session.providerUnsupported");
+  const remoteStt = (settings as any)?.remote_stt ?? {};
+  const remotePreset = String(remoteStt.provider_preset ?? "").toLowerCase();
+  const remoteModelId = String(remoteStt.model_id ?? "").toLowerCase();
+  const remoteIsGeminiLive =
+    (remotePreset === "vercel" || remotePreset === "google") &&
+    (remoteModelId === "google/gemini-3.5-transcribe-live" ||
+      remoteModelId === "gemini-3.5-transcribe-live");
+  const remoteIsOpenAiLive =
+    remotePreset === "openai" &&
+    (remoteModelId === "gpt-live-transcribe" ||
+      remoteModelId === "gpt-realtime-whisper") &&
+    !Boolean((settings as any)?.openai_realtime_whisper_flatten_enabled ?? false);
+  const activeProfileId = String((settings as any)?.active_profile_id ?? "default");
+  const activeProfile =
+    activeProfileId === "default"
+      ? null
+      : ((settings as any)?.transcription_profiles ?? []).find(
+          (profile: any) => String(profile?.id ?? "") === activeProfileId,
+        );
+  const effectiveTranslateToEnglish = Boolean(
+    activeProfile?.translate_to_english ?? (settings as any)?.translate_to_english ?? false,
+  );
+  const geminiTranslateBlocked = remoteIsGeminiLive && effectiveTranslateToEnglish;
+  const remoteLiveReady = remoteIsGeminiLive || remoteIsOpenAiLive;
+  const remoteApiLabel = getRemoteApiDisplayLabel(remoteStt);
 
   const providerOptions = [
     { value: "remote_soniox", label: "Soniox" },
     { value: "remote_deepgram", label: "Deepgram" },
+    {
+      value: "remote_openai_compatible",
+      label: remoteLiveReady ? remoteApiLabel : "Configured live API model",
+    },
   ];
 
   const handleProviderChange = async (value: string | null) => {
@@ -242,17 +268,18 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       ? String((settings as any)?.soniox_model ?? "stt-rt-v5")
       : provider === "remote_deepgram"
         ? String((settings as any)?.deepgram_model ?? "nova-3")
-        : String(
-            settings?.selected_model ??
-              t("settings.liveSoundTranscription.session.notAvailable"),
-          );
+        : provider === "remote_openai_compatible"
+          ? remoteApiLabel
+          : t("settings.liveSoundTranscription.session.notAvailable");
 
   const providerLiveModeEnabled =
     provider === "remote_soniox"
       ? Boolean((settings as any)?.soniox_live_enabled ?? true)
       : provider === "remote_deepgram"
         ? Boolean((settings as any)?.deepgram_live_enabled ?? true)
-        : false;
+        : provider === "remote_openai_compatible"
+          ? remoteLiveReady
+          : false;
   const liveModeEnabled = supportsRemoteLiveSound && providerLiveModeEnabled;
   const autoStopMinutes = Number((settings as any)?.live_sound_auto_stop_minutes ?? 60);
 
@@ -264,7 +291,11 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
 
   const liveProviderReady =
     supportsRemoteLiveSound &&
-    (provider === "remote_soniox" || provider === "remote_deepgram");
+    (provider === "remote_soniox" ||
+      provider === "remote_deepgram" ||
+      (provider === "remote_openai_compatible" && remoteLiveReady));
+  const providerSupportsDiarization =
+    provider === "remote_soniox" || provider === "remote_deepgram";
   const diarizationEnabled = Boolean(
     (settings as any)?.live_sound_enable_speaker_diarization ?? true,
   );
@@ -719,7 +750,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                     : t("settings.liveSoundTranscription.session.disabled")}
                 </p>
               </div>
-              {liveProviderReady && (
+              {providerSupportsDiarization && (
                 <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3">
                   <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
                     {t("settings.liveSoundTranscription.session.diarizationLabel")}
@@ -743,13 +774,19 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               </div>
             ) : null}
 
-            {liveProviderReady && !diarizationEnabled && (
+            {providerSupportsDiarization && !diarizationEnabled && (
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                 {t("settings.liveSoundTranscription.session.diarizationDisabledHint")}
               </div>
             )}
 
-            {liveProviderReady && (
+            {provider === "remote_openai_compatible" && geminiTranslateBlocked && (
+              <div className="rounded-lg border border-red-500/35 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                {t("settings.liveSoundTranscription.session.geminiTranslateUnsupported")}
+              </div>
+            )}
+
+            {providerSupportsDiarization && (
               <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#333333] bg-[#121212]/50 px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-[#f5f5f5]">
@@ -785,7 +822,8 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                   !liveModeEnabled ||
                   isRecording ||
                   sourceBusy ||
-                  actionBusy !== null
+                  actionBusy !== null ||
+                  (provider === "remote_openai_compatible" && geminiTranslateBlocked)
                 }
                 onClick={() =>
                   void runAction("start", "live_sound_transcription_start")

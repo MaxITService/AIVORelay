@@ -4434,7 +4434,7 @@ ai_response: string | null }
 export type LLMPrompt = { id: string; name: string; prompt: string }
 export type LiveSoundCaptureSource = "microphone" | "system_output" | "both"
 export type LiveSoundTranscriptSegmentPayload = { speaker_id: number | null; speaker_label: string | null; text: string; is_interim: boolean }
-export type LiveSoundTranscriptionProvider = "system" | "remote_soniox" | "remote_deepgram"
+export type LiveSoundTranscriptionProvider = "system" | "remote_soniox" | "remote_deepgram" | "remote_openai_compatible"
 export type LiveSoundTranscriptionStatePayload = { active: boolean; recording: boolean; processing_llm: boolean; binding_id: string | null; error_message: string | null; final_text: string; interim_text: string; segments: LiveSoundTranscriptSegmentPayload[]; auto_stop_remaining_seconds: number | null }
 /**
  * Which feature is requesting LLM access.

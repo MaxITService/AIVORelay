@@ -33,7 +33,7 @@ use crate::url_security::{
     canonical_llm_provider_base_url, remote_stt_base_url_for_preset,
     remote_stt_default_model_for_preset, validate_remote_stt_base_url,
     REMOTE_STT_CUSTOM_DEFAULT_BASE_URL, REMOTE_STT_CUSTOM_DEFAULT_MODEL, REMOTE_STT_PRESET_CUSTOM,
-    REMOTE_STT_PRESET_OPENAI,
+    REMOTE_STT_PRESET_GOOGLE, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_VERCEL,
 };
 use crate::ManagedToggleState;
 
@@ -136,11 +136,16 @@ fn uses_live_streaming_for_settings(settings: &settings::AppSettings) -> bool {
                 )
         }
         TranscriptionProvider::RemoteOpenAiCompatible => {
-            !settings.openai_realtime_whisper_flatten_enabled
+            (!settings.openai_realtime_whisper_flatten_enabled
                 && settings.remote_stt.provider_preset == REMOTE_STT_PRESET_OPENAI
                 && crate::managers::openai_realtime_whisper::OpenAiRealtimeWhisperManager::is_realtime_model(
                     &settings.remote_stt.model_id,
-                )
+                ))
+                || ((settings.remote_stt.provider_preset == REMOTE_STT_PRESET_VERCEL
+                    || settings.remote_stt.provider_preset == REMOTE_STT_PRESET_GOOGLE)
+                    && crate::managers::gemini_realtime::GeminiRealtimeManager::is_realtime_model(
+                        &settings.remote_stt.model_id,
+                    ))
         }
         TranscriptionProvider::Local => settings
             .native_streaming_live_output_models

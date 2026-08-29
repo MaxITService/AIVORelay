@@ -39,6 +39,7 @@ interface RemoteSttSettingsProps {
 type RemoteSttInterfaceId =
   | "groq"
   | "gemini_transcribe"
+  | "gemini_live"
   | "openai_transcribe"
   | "openai_live_transcribe"
   | "openai_realtime_whisper"
@@ -272,7 +273,11 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     remotePreset === "groq"
       ? "groq"
       : remotePreset === "vercel" || remotePreset === "google"
-        ? "gemini_transcribe"
+        ? ((remoteSettings?.model_id ?? "") ===
+             "google/gemini-3.5-transcribe-live" ||
+           (remoteSettings?.model_id ?? "") === "gemini-3.5-transcribe-live"
+          ? "gemini_live"
+          : "gemini_transcribe")
       : remotePreset === "custom"
         ? "custom"
         : (remoteSettings?.model_id ?? "") === "gpt-transcribe"
@@ -286,6 +291,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         : (remoteSettings?.model_id ?? "") === "gpt-realtime-translate"
           ? "openai_realtime_translate"
           : "openai_realtime_agent";
+  const geminiModelDisplayName =
+    currentRemoteInterface === "gemini_live"
+      ? "Gemini 3.5 Transcribe Live"
+      : "Gemini 3.5 Transcribe";
   const remoteApiKeyTitle =
     remotePreset === "vercel"
       ? "Vercel AI Gateway API Key"
@@ -742,6 +751,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           label: "Google Gemini 3.5 Transcribe · File / post-recording",
         },
         {
+          value: "gemini_live",
+          label: "Google Gemini 3.5 Transcribe Live · Live (Realtime)",
+        },
+        {
           value: "openai_transcribe",
           label: "OpenAI gpt-transcribe · File / post-recording",
         },
@@ -777,7 +790,9 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     const hints: Record<RemoteSttInterfaceId, string> = {
       groq: "Classic OpenAI-compatible /audio/transcriptions endpoint.",
       gemini_transcribe:
-        "Dedicated Gemini transcription API for completed recordings and audio files. Vercel AI Gateway is the default route.",
+        "Dedicated Gemini 3.5 Transcribe API for completed recordings and audio files. Vercel AI Gateway is the default route.",
+      gemini_live:
+        "Low-latency streaming via Gemini 3.5 Transcribe Live. Vercel AI Gateway is the default route.",
       openai_transcribe:
         "Recommended for completed recordings, file transcription, and batch workloads.",
       openai_live_transcribe:
@@ -785,14 +800,15 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       openai_realtime_whisper:
         "Legacy Realtime transcription model. Existing integrations can keep using it.",
       openai_realtime_agent_legacy:
-        "Legacy voice-agent model coerced into transcript-only output.",
+        "Legacy system prompt hack forcing gpt-realtime-2 into an exact STT mode. Higher latency, higher token cost, and higher hallucination risk than gpt-transcribe.",
       openai_realtime_agent:
-        "Latest voice-agent model coerced into transcript-only output. Uses global/profile STT prompts.",
+        "Latest system prompt hack forcing gpt-realtime-2.1 into an exact STT mode. Higher latency, higher token cost, and higher hallucination risk than gpt-transcribe.",
       openai_realtime_translate:
-        "Translation session used as STT by targeting the same language.",
-      custom: "Self-hosted or non-standard OpenAI-compatible endpoint.",
+        "Runs the dedicated Realtime translation model so output language matches spoken language across supported languages.",
+      custom:
+        "Use your own self-hosted or proxy OpenAI-compatible STT endpoint.",
     };
-    return hints[currentRemoteInterface];
+    return hints[currentRemoteInterface] ?? "";
   }, [currentRemoteInterface]);
 
   const showOpenAiRealtimeNotes =
@@ -840,11 +856,15 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   };
 
   const handleRemoteInterfaceSelect = async (interfaceId: RemoteSttInterfaceId) => {
+    const isGeminiInterface =
+      interfaceId === "gemini_transcribe" || interfaceId === "gemini_live";
     const nextPreset: RemoteSttPreset =
       interfaceId === "groq"
         ? "groq"
-        : interfaceId === "gemini_transcribe"
-          ? "vercel"
+        : isGeminiInterface
+          ? remotePreset === "google" || remotePreset === "vercel"
+            ? remotePreset
+            : "vercel"
         : interfaceId === "custom"
           ? "custom"
           : "openai";
@@ -852,7 +872,13 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       interfaceId === "groq"
         ? REMOTE_STT_PRESETS.groq.defaultModel
         : interfaceId === "gemini_transcribe"
-          ? REMOTE_STT_PRESETS.vercel.defaultModel
+          ? nextPreset === "google"
+            ? REMOTE_STT_PRESETS.google.defaultModel
+            : REMOTE_STT_PRESETS.vercel.defaultModel
+        : interfaceId === "gemini_live"
+          ? nextPreset === "google"
+            ? "gemini-3.5-transcribe-live"
+            : "google/gemini-3.5-transcribe-live"
         : interfaceId === "openai_transcribe"
           ? "gpt-transcribe"
         : interfaceId === "openai_live_transcribe"
@@ -861,13 +887,13 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           ? "gpt-realtime-whisper"
         : interfaceId === "openai_realtime_agent_legacy"
           ? "gpt-realtime-2"
-          : interfaceId === "openai_realtime_translate"
-            ? "gpt-realtime-translate"
-            : interfaceId === "openai_realtime_agent"
-              ? "gpt-realtime-2.1"
-            : remotePreset === "custom"
-              ? customModelId.trim() || modelIdInput.trim()
-              : REMOTE_STT_PRESETS.custom.defaultModel;
+        : interfaceId === "openai_realtime_translate"
+          ? "gpt-realtime-translate"
+          : interfaceId === "openai_realtime_agent"
+            ? "gpt-realtime-2.1"
+          : remotePreset === "custom"
+            ? customModelId.trim() || modelIdInput.trim()
+            : REMOTE_STT_PRESETS.custom.defaultModel;
 
     try {
       if (remotePreset === "custom") {
@@ -901,7 +927,13 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       if (result.status === "error") {
         throw new Error(result.error);
       }
-      setModelIdInput(REMOTE_STT_PRESETS[value].defaultModel);
+      const nextModel = currentRemoteInterface === "gemini_live"
+        ? (value === "vercel" ? "google/gemini-3.5-transcribe-live" : "gemini-3.5-transcribe-live")
+        : REMOTE_STT_PRESETS[value].defaultModel;
+      if (currentRemoteInterface === "gemini_live") {
+        await updateRemoteSttModelId(nextModel);
+      }
+      setModelIdInput(nextModel);
       await refreshSettings();
     } catch (error) {
       toast.error(String(error));
@@ -1502,10 +1534,11 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 />
               </SettingContainer>
 
-              {currentRemoteInterface === "gemini_transcribe" && (
+              {(currentRemoteInterface === "gemini_transcribe" ||
+                currentRemoteInterface === "gemini_live") && (
                 <>
                   <SettingContainer
-                    title="Gemini connection route"
+                    title={`${geminiModelDisplayName} connection route`}
                     description="Choose who receives the audio and bills the request. Vercel AI Gateway is the safer default for a small test."
                     descriptionMode={descriptionMode}
                     grouped={grouped}
@@ -1580,31 +1613,63 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                         rejected. Keep automatic top-ups and BYOK fallback off if
                         you want the test bounded by that balance and quota.
                       </p>
-                      <a
-                        href="https://vercel.com/ai-gateway"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-2 inline-block text-emerald-200 hover:underline"
-                      >
-                        Open Vercel AI Gateway
-                      </a>
+                      <p className="mt-2 text-amber-100">
+                        Privacy: Hobby and Trial Pro teams are opted in to
+                        Vercel's optional AI model training program by default.
+                        Before sending speech, open Team Settings → Data
+                        Preferences and turn off “Improve models with my data” if
+                        you do not want your content used or shared for model
+                        improvement.
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                        <a
+                          href="https://vercel.com/ai-gateway"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-emerald-200 hover:underline"
+                        >
+                          Open Vercel AI Gateway
+                        </a>
+                        <a
+                          href="https://vercel.com/changelog/updates-to-terms-of-service-march-2026"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-amber-100 hover:underline"
+                        >
+                          Vercel data-training defaults
+                        </a>
+                      </div>
                     </div>
                   )}
 
                   <div className="mx-4 rounded-lg border border-amber-300/20 bg-amber-300/5 p-3 text-xs text-text/75">
-                    Gemini 3.5 Transcribe processes completed recordings and
-                    audio files; it is not live transcription. Text output
-                    supports audio up to 60 minutes; SRT/VTT timestamps support
-                    up to 30 minutes. Known language choices use Google's
-                    documented locale codes; unsupported or ambiguous choices
-                    fall back to automatic detection. The dedicated API does not
-                    accept AivoRelay's free-form STT prompt, so that prompt is not
-                    uploaded.
+                    {currentRemoteInterface === "gemini_live" ? (
+                      <>
+                        Gemini 3.5 Transcribe Live streams microphone audio and
+                        returns interim and final text with low latency. A session
+                        can run for up to 10 minutes. Known language choices use
+                        Google's documented locale codes; unsupported or
+                        ambiguous choices fall back to automatic detection. The
+                        model does not accept AivoRelay's free-form STT prompt, so
+                        that prompt is not uploaded.
+                      </>
+                    ) : (
+                      <>
+                        Gemini 3.5 Transcribe processes completed recordings and
+                        audio files; it is not live transcription. Text output
+                        supports audio up to 60 minutes; SRT/VTT timestamps
+                        support up to 30 minutes. Known language choices use
+                        Google's documented locale codes; unsupported or
+                        ambiguous choices fall back to automatic detection. The
+                        dedicated API does not accept AivoRelay's free-form STT
+                        prompt, so that prompt is not uploaded.
+                      </>
+                    )}
                   </div>
                   {effectiveRealtimeAgentTranslateToEnglish && (
                     <div className="mx-4 rounded-lg border border-red-500/45 bg-red-500/10 p-3 text-xs text-red-100">
                       Translate to English is enabled in the active profile or
-                      global settings. Gemini 3.5 Transcribe cannot use that
+                      global settings. {geminiModelDisplayName} cannot use that
                       AivoRelay option; turn it off before testing.
                     </div>
                   )}
@@ -3129,7 +3194,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
               <div className="flex flex-col gap-2">
                 {showOpenAiFields &&
-                  currentRemoteInterface !== "gemini_transcribe" && (
+                  currentRemoteInterface !== "gemini_transcribe" &&
+                  currentRemoteInterface !== "gemini_live" && (
                   <>
                     <div className="flex items-center gap-2">
                       <Button

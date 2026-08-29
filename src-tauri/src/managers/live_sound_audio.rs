@@ -9,6 +9,9 @@ use crate::audio_toolkit::{
     list_input_devices, list_output_devices, AudioCaptureSource, AudioRecorder,
 };
 use crate::managers::deepgram_realtime::DeepgramRealtimeManager;
+use crate::managers::gemini_realtime::{
+    GeminiRealtimeManager, GEMINI_LIVE_FINALIZE_TIMEOUT_MS,
+};
 use crate::managers::openai_realtime_whisper::OpenAiRealtimeWhisperManager;
 use crate::managers::soniox_realtime::SonioxRealtimeManager;
 use crate::settings::{get_settings, AppSettings, LiveSoundCaptureSource, TranscriptionProvider};
@@ -22,6 +25,18 @@ enum ActiveRealtimeManager {
     Soniox(Arc<SonioxRealtimeManager>),
     Deepgram(Arc<DeepgramRealtimeManager>),
     OpenAiRealtimeWhisper(Arc<OpenAiRealtimeWhisperManager>),
+    Gemini(Arc<GeminiRealtimeManager>),
+}
+
+impl ActiveRealtimeManager {
+    fn cancel(&self) {
+        match self {
+            Self::Soniox(manager) => manager.cancel(),
+            Self::Deepgram(manager) => manager.cancel(),
+            Self::OpenAiRealtimeWhisper(manager) => manager.cancel(),
+            Self::Gemini(manager) => manager.cancel(),
+        }
+    }
 }
 
 struct LiveSoundAudioSession {
@@ -82,6 +97,42 @@ fn wire_mic_clock_callback(
             mic_recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
                 let mixed = mix_with_secondary_buf(&frame, &loopback_buf);
                 m.push_audio_frame(mixed);
+            })));
+        }
+        ActiveRealtimeManager::Gemini(m) => {
+            let m = Arc::clone(m);
+            mic_recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                let mixed = mix_with_secondary_buf(&frame, &loopback_buf);
+                m.push_audio_frame(mixed);
+            })));
+        }
+    }
+}
+
+fn wire_primary_callback(recorder: &mut AudioRecorder, manager: &ActiveRealtimeManager) {
+    match manager {
+        ActiveRealtimeManager::Soniox(manager) => {
+            let manager = Arc::clone(manager);
+            recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                manager.push_audio_frame(frame);
+            })));
+        }
+        ActiveRealtimeManager::Deepgram(manager) => {
+            let manager = Arc::clone(manager);
+            recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                manager.push_audio_frame(frame);
+            })));
+        }
+        ActiveRealtimeManager::OpenAiRealtimeWhisper(manager) => {
+            let manager = Arc::clone(manager);
+            recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                manager.push_audio_frame(frame);
+            })));
+        }
+        ActiveRealtimeManager::Gemini(manager) => {
+            let manager = Arc::clone(manager);
+            recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                manager.push_audio_frame(frame);
             })));
         }
     }
@@ -184,38 +235,69 @@ fn start_live_session(
         TranscriptionProvider::RemoteOpenAiCompatible
             if crate::actions::live_sound_use_live_streaming(settings) =>
         {
-            let manager =
-                Arc::new(OpenAiRealtimeWhisperManager::new(app).map_err(|e| {
-                    format!("Failed to create OpenAI Realtime Whisper manager: {}", e)
+            let is_gemini = (settings.remote_stt.provider_preset == crate::url_security::REMOTE_STT_PRESET_VERCEL
+                || settings.remote_stt.provider_preset == crate::url_security::REMOTE_STT_PRESET_GOOGLE)
+                && GeminiRealtimeManager::is_realtime_model(&settings.remote_stt.model_id);
+
+            if is_gemini {
+                let manager = Arc::new(GeminiRealtimeManager::new(app).map_err(|e| {
+                    format!("Failed to create Gemini 3.5 Transcribe Live manager: {}", e)
                 })?);
 
-            let manager_cb = Arc::clone(&manager);
-            recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
-                manager_cb.push_audio_frame(frame);
-            })));
+                let manager_cb = Arc::clone(&manager);
+                recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                    manager_cb.push_audio_frame(frame);
+                })));
 
-            let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
-                .map_err(|e| format!("Failed to get OpenAI API key: {}", e))?;
-            let options = crate::actions::build_openai_options_for_live_sound(settings);
-            manager
-                .start_session(
-                    crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
-                    &api_key,
-                    options,
-                    None,
-                )
-                .map_err(|e| {
-                    format!(
-                        "Failed to start OpenAI Realtime Whisper live session: {}",
-                        e
+                let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
+                    .map_err(|e| format!("Failed to get Gemini 3.5 Transcribe Live API key: {}", e))?;
+                let options = crate::actions::build_gemini_options_for_live_sound(settings);
+                manager
+                    .start_session(
+                        crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
+                        &api_key,
+                        options,
+                        None,
                     )
-                })?;
+                    .map_err(|e| {
+                        format!("Failed to start Gemini 3.5 Transcribe Live session: {}", e)
+                    })?;
 
-            Ok(ActiveRealtimeManager::OpenAiRealtimeWhisper(manager))
+                Ok(ActiveRealtimeManager::Gemini(manager))
+            } else {
+                let manager =
+                    Arc::new(OpenAiRealtimeWhisperManager::new(app).map_err(|e| {
+                        format!("Failed to create OpenAI Realtime Whisper manager: {}", e)
+                    })?);
+
+                let manager_cb = Arc::clone(&manager);
+                recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                    manager_cb.push_audio_frame(frame);
+                })));
+
+                let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
+                    .map_err(|e| format!("Failed to get OpenAI API key: {}", e))?;
+                let options = crate::actions::build_openai_options_for_live_sound(settings);
+                manager
+                    .start_session(
+                        crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
+                        &api_key,
+                        options,
+                        None,
+                    )
+                    .map_err(|e| {
+                        format!(
+                            "Failed to start OpenAI Realtime Whisper live session: {}",
+                            e
+                        )
+                    })?;
+
+                Ok(ActiveRealtimeManager::OpenAiRealtimeWhisper(manager))
+            }
         }
 
         _ => Err(
-            "Live streaming requires Soniox, Deepgram, or OpenAI Realtime Whisper provider"
+            "Live streaming requires Soniox, Deepgram, OpenAI Realtime Whisper, or Gemini 3.5 Transcribe Live"
                 .to_string(),
         ),
     }
@@ -349,7 +431,7 @@ pub fn start(app: &AppHandle, session_id: u64) -> Result<(), String> {
 
     // In Both mode, open a second recorder for the mic and wire a mixer so
     // the loopback callback blends in mic samples before pushing to WebSocket.
-    let mic_recorder = if is_both {
+    let mut mic_recorder = if is_both {
         match open_mic_recorder_for_both(&settings, &mut recorder, realtime.as_ref()) {
             Ok(r) => Some(r),
             Err(e) => {
@@ -357,6 +439,9 @@ pub fn start(app: &AppHandle, session_id: u64) -> Result<(), String> {
                     "Both mode: mic recorder failed to open, falling back to loopback only: {}",
                     e
                 );
+                if let Some(manager) = realtime.as_ref() {
+                    wire_primary_callback(&mut recorder, manager);
+                }
                 None
             }
         }
@@ -364,13 +449,28 @@ pub fn start(app: &AppHandle, session_id: u64) -> Result<(), String> {
         None
     };
 
-    recorder
-        .start()
-        .map_err(|e| format!("Failed to start recording: {}", e))?;
+    if let Err(e) = recorder.start() {
+        if let Some(manager) = realtime.as_ref() {
+            manager.cancel();
+        }
+        if let Some(mut mic) = mic_recorder.take() {
+            let _ = mic.close();
+        }
+        let _ = recorder.close();
+        return Err(format!("Failed to start recording: {}", e));
+    }
 
-    if let Some(ref mic) = mic_recorder {
-        if let Err(e) = mic.start() {
-            warn!("Both mode: mic recorder failed to start: {}", e);
+    let mic_start_error = mic_recorder.as_ref().and_then(|mic| mic.start().err());
+    if let Some(e) = mic_start_error {
+        warn!(
+            "Both mode: mic recorder failed to start, falling back to loopback only: {}",
+            e
+        );
+        if let Some(mut mic) = mic_recorder.take() {
+            let _ = mic.close();
+        }
+        if let Some(manager) = realtime.as_ref() {
+            wire_primary_callback(&mut recorder, manager);
         }
     }
 
@@ -466,6 +566,41 @@ pub fn stop(app: &AppHandle) {
                         "Live sound OpenAI Realtime Whisper finalization error: {}",
                         e
                     );
+                }
+                crate::managers::live_sound_transcription::set_recording_if_session_matches(
+                    &app, session_id, false,
+                );
+            });
+        }
+
+        Some(ActiveRealtimeManager::Gemini(manager)) => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                match manager
+                    .finish_session(GEMINI_LIVE_FINALIZE_TIMEOUT_MS)
+                    .await
+                {
+                    Ok(text) => {
+                        crate::managers::live_sound_transcription::append_final_result_if_session_matches(
+                            &app,
+                            session_id,
+                            &text,
+                            Vec::new(),
+                            true,
+                        );
+                        crate::managers::live_sound_transcription::set_interim_result_if_session_matches(
+                            &app,
+                            session_id,
+                            String::new(),
+                            Vec::new(),
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Live Sound Gemini 3.5 Transcribe Live finalization error: {}",
+                            e
+                        );
+                    }
                 }
                 crate::managers::live_sound_transcription::set_recording_if_session_matches(
                     &app, session_id, false,

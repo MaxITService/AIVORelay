@@ -1271,6 +1271,8 @@ export const TranscriptionProfiles: React.FC = () => {
       "gpt-realtime-whisper",
       "google/gemini-3.5-transcribe",
       "gemini-3.5-transcribe",
+      "google/gemini-3.5-transcribe-live",
+      "gemini-3.5-transcribe-live",
     ].includes(activeModelId.toLowerCase());
   const supportsTranslation =
     activeProvider !== "remote_soniox" &&

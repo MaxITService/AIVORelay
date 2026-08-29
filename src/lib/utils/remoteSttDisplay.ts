@@ -50,10 +50,22 @@ export const getRemoteApiDisplayLabel = (
   }
 
   if (preset === "vercel") {
+    if (
+      modelId === "google/gemini-3.5-transcribe-live" ||
+      modelId === "gemini-3.5-transcribe-live"
+    ) {
+      return "Vercel: Gemini 3.5 Transcribe Live";
+    }
     return "Vercel: Gemini 3.5 Transcribe";
   }
 
   if (preset === "google") {
+    if (
+      modelId === "gemini-3.5-transcribe-live" ||
+      modelId === "google/gemini-3.5-transcribe-live"
+    ) {
+      return "Google: Gemini 3.5 Transcribe Live";
+    }
     return "Google: Gemini 3.5 Transcribe";
   }
 

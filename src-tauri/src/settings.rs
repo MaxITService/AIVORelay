@@ -3052,6 +3052,8 @@ pub enum LiveSoundTranscriptionProvider {
     RemoteSoniox,
     #[serde(rename = "remote_deepgram")]
     RemoteDeepgram,
+    #[serde(rename = "remote_openai_compatible")]
+    RemoteOpenAiCompatible,
 }
 
 impl Default for LiveSoundTranscriptionProvider {
@@ -3068,6 +3070,9 @@ pub fn resolve_live_sound_provider(settings: &AppSettings) -> TranscriptionProvi
         LiveSoundTranscriptionProvider::System => TranscriptionProvider::RemoteSoniox,
         LiveSoundTranscriptionProvider::RemoteSoniox => TranscriptionProvider::RemoteSoniox,
         LiveSoundTranscriptionProvider::RemoteDeepgram => TranscriptionProvider::RemoteDeepgram,
+        LiveSoundTranscriptionProvider::RemoteOpenAiCompatible => {
+            TranscriptionProvider::RemoteOpenAiCompatible
+        }
     }
 }
 
@@ -8024,6 +8029,13 @@ mod tests {
         assert_eq!(
             resolve_live_sound_provider(&settings),
             TranscriptionProvider::RemoteDeepgram
+        );
+
+        settings.live_sound_transcription_provider =
+            LiveSoundTranscriptionProvider::RemoteOpenAiCompatible;
+        assert_eq!(
+            resolve_live_sound_provider(&settings),
+            TranscriptionProvider::RemoteOpenAiCompatible
         );
     }
 
