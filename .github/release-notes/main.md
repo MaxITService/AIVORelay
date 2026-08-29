@@ -5,11 +5,11 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Added search and sorting for Text Replacement rules, including output-only filtering and a clear count of results hidden by search.
-- Added JSON import and export for replacement rules, with replace or merge modes and optional conflict overwriting.
-- Improved special-character and regular-expression replacement handling, including Unicode escape sequences and clearer in-app guidance.
-- Fixed Groq Qwen requests so turning Extended Thinking off reliably disables provider reasoning across LLM-powered features.
-- Updated the local transcription runtime and fixed Windows packages to include the required acceleration backends.
+- Added Gemini 3.5 transcription for recordings, audio files, and live audio.
+- Added file and command presets for Send Selected Text, with paginated history and more reliable concurrent workflows.
+- Added selectable voice-activity detection and improved captured-audio diagnostics.
+- Added column sorting for Text Replacement rules.
+- Improved tray reliability and application updates.
 - Included the latest upstream Handy transcription improvements and fixes.
 
 ---
