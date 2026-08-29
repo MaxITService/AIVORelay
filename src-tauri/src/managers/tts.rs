@@ -1101,6 +1101,20 @@ impl TtsManager {
         }
     }
 
+    pub(crate) fn cancel_active_batch(&self) -> bool {
+        let cancellation = self
+            .active_batch
+            .lock()
+            .as_ref()
+            .map(|batch| Arc::clone(&batch.cancellation));
+        if let Some(cancellation) = cancellation {
+            cancellation.cancel(self);
+            true
+        } else {
+            false
+        }
+    }
+
     pub(crate) async fn wait_for_batch_foreground_slot(
         &self,
         cancellation: &TtsBatchCancellation,
@@ -3625,10 +3639,12 @@ impl TtsManager {
                         settings.elevenlabs_apply_text_normalization
                     ),
                 });
-                // ElevenLabs explicitly does not support language_code for
-                // Multilingual v2. Eleven v3 accepts it as a pronunciation and
-                // text-normalization hint for short or ambiguous input.
-                if is_v3 && !settings.elevenlabs_language.trim().is_empty() {
+                // ElevenLabs supports language_code for Flash v2.5 and Eleven
+                // v3. Multilingual v2 is the documented exception and infers
+                // language directly from the input text.
+                if settings.elevenlabs_model != "eleven_multilingual_v2"
+                    && !settings.elevenlabs_language.trim().is_empty()
+                {
                     body["language_code"] = Value::String(
                         settings.elevenlabs_language.trim().to_ascii_lowercase(),
                     );

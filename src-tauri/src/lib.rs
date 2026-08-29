@@ -1035,6 +1035,10 @@ fn run_headless_transcription(app: &AppHandle, args: &CliArgs) -> i32 {
 pub fn run(cli_args: CliArgs) {
     portable::init();
 
+    if cli_args.cancel && cli_file_conversion::request_headless_conversion_cancel() {
+        return;
+    }
+
     // Headless commands must not perform GUI-only startup work such as
     // regenerating TypeScript bindings. In particular, a directly invoked
     // debug executable must behave the same regardless of its working
@@ -1708,9 +1712,14 @@ pub fn run(cli_args: CliArgs) {
                     let handle = app_handle.clone();
                     let args = cli_args.clone();
                     std::thread::spawn(move || {
+                        let cancel_listener =
+                            cli_file_conversion::start_headless_cancel_listener(&handle)
+                                .map_err(|error| eprintln!("warning: {error}"))
+                                .ok();
                         let code = run_headless_guarded("file_conversion", args.json, || {
                             cli_file_conversion::run_file_conversion(&handle, &args)
                         });
+                        drop(cancel_listener);
                         if let Some(tm) = handle.try_state::<Arc<TranscriptionManager>>() {
                             let _ = tm.unload_model();
                         }
