@@ -16,7 +16,15 @@ Markdown beside the input file.
 
 The command uses the provider, credentials, model, language, diarization,
 chunking, and other file-transcription options saved in the app. Configure
-them under **Settings → Transcribe File**.
+file-specific behavior under **Settings → Transcribe File**.
+
+### Gemini 3.5 Transcribe
+
+The CLI uses the active profile's Gemini language and Custom Vocabulary from
+**Manage Profiles**, plus the saved file mode and diarization settings. CLI
+output remains plain `.txt` or `.md`, so word timestamps are not requested.
+The limit is 60 minutes normally or 30 minutes with Google Direct diarization;
+Gemini diarization is unavailable through Vercel AI Gateway.
 
 ## Progress and automation
 

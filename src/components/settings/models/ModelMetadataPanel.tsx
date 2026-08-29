@@ -9,6 +9,8 @@ import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { Slider } from "../../ui/Slider";
 import { sessionToast as toast } from "../../../lib/sessionToast";
 import { isMoonshineStreamingModel } from "../../model-selector/nativeStreamingModel";
+import { getModelPromptInfo } from "../TranscriptionSystemPrompt";
+import { ProfileScopedSttSettingsNotice } from "./ProfileScopedSttSettingsNotice";
 
 const NATIVE_STREAMING_LATENCY_PRESETS: NativeStreamingLatencyPreset[] = [
   "fastest",
@@ -399,6 +401,18 @@ export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
   );
   const nativeStreamingCurrentlyOff =
     supportsNativeLiveOutput && !livePreviewEnabled && !liveOutputEnabled;
+  const supportsProfilePrompt = getModelPromptInfo(
+    model.id,
+    model.engine_type,
+  ).supportsPrompt;
+  const profileScopedFeatures =
+    supportsProfilePrompt || model.supports_translation
+      ? ([
+          "language",
+          ...(model.supports_translation ? ["translateToEnglish" as const] : []),
+          ...(supportsProfilePrompt ? ["systemPrompt" as const] : []),
+        ] as const)
+      : [];
 
   useEffect(() => {
     setLatencyPosition(latencyPresetPosition(savedLatencyPreset));
@@ -486,6 +500,10 @@ export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
           </span>
         ))}
       </div>
+
+      <ProfileScopedSttSettingsNotice
+        features={[...profileScopedFeatures]}
+      />
 
       {supportsNativeLiveOutput && (
         <div className="rounded-lg border border-yellow-400/25 bg-yellow-400/[0.06] px-3 py-2.5">

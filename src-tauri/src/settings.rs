@@ -198,6 +198,19 @@ pub struct SonioxContext {
     pub terms: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum GeminiTranscriptionMode {
+    Smart,
+    Verbatim,
+}
+
+impl Default for GeminiTranscriptionMode {
+    fn default() -> Self {
+        Self::Smart
+    }
+}
+
 impl SonioxContext {
     pub fn is_empty(&self) -> bool {
         self.general.is_empty() && self.text.trim().is_empty() && self.terms.is_empty()
@@ -241,6 +254,12 @@ pub struct TranscriptionProfile {
     /// Enforce language hints strictly in Soniox (None = inherit global)
     #[serde(default)]
     pub soniox_language_hints_strict: Option<bool>,
+    /// Gemini exact BCP-47 locale, `auto`, or `os_input`; None inherits global.
+    #[serde(default)]
+    pub gemini_language_code_override: Option<String>,
+    /// Gemini vocabulary replacement; None inherits global and Some([]) explicitly clears it.
+    #[serde(default)]
+    pub gemini_custom_vocabulary_override: Option<Vec<String>>,
     // ==================== LLM Post-Processing Settings ====================
     /// Whether LLM post-processing is enabled for this profile
     /// Inherits from global post_process_enabled when profile is created
@@ -3287,6 +3306,17 @@ pub struct AppSettings {
     pub soniox_live_enabled: bool,
     #[serde(default = "default_soniox_language_hints")]
     pub soniox_language_hints: Vec<String>,
+    /// Gemini exact BCP-47 locale, `auto`, or `os_input`.
+    #[serde(default = "default_gemini_language_code")]
+    pub gemini_language_code: String,
+    #[serde(default)]
+    pub gemini_custom_vocabulary: Vec<String>,
+    #[serde(default)]
+    pub gemini_live_mode: GeminiTranscriptionMode,
+    #[serde(default)]
+    pub gemini_file_mode: GeminiTranscriptionMode,
+    #[serde(default)]
+    pub gemini_file_diarization: bool,
     #[serde(default)]
     pub soniox_context_general_json: String,
     #[serde(default)]
@@ -4094,6 +4124,10 @@ fn default_soniox_live_enabled() -> bool {
 
 fn default_soniox_language_hints() -> Vec<String> {
     vec!["en".to_string()]
+}
+
+fn default_gemini_language_code() -> String {
+    "auto".to_string()
 }
 
 fn default_soniox_max_endpoint_delay_ms() -> u32 {
@@ -5517,6 +5551,11 @@ pub fn get_default_settings() -> AppSettings {
         soniox_timeout_seconds: default_soniox_timeout_seconds(),
         soniox_live_enabled: default_soniox_live_enabled(),
         soniox_language_hints: default_soniox_language_hints(),
+        gemini_language_code: default_gemini_language_code(),
+        gemini_custom_vocabulary: Vec::new(),
+        gemini_live_mode: GeminiTranscriptionMode::Smart,
+        gemini_file_mode: GeminiTranscriptionMode::Smart,
+        gemini_file_diarization: false,
         soniox_context_general_json: String::new(),
         soniox_context_text: String::new(),
         soniox_context_terms: Vec::new(),
@@ -7238,6 +7277,28 @@ mod tests {
         })
         .unwrap();
         assert_eq!(earshot.vad_backend, VadBackend::Earshot);
+    }
+
+    #[test]
+    fn older_settings_deserialize_with_safe_gemini_defaults() {
+        let mut value = serde_json::to_value(get_default_settings()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        for key in [
+            "gemini_language_code",
+            "gemini_custom_vocabulary",
+            "gemini_live_mode",
+            "gemini_file_mode",
+            "gemini_file_diarization",
+        ] {
+            object.remove(key);
+        }
+
+        let settings: AppSettings = serde_json::from_value(value).unwrap();
+        assert_eq!(settings.gemini_language_code, "auto");
+        assert!(settings.gemini_custom_vocabulary.is_empty());
+        assert_eq!(settings.gemini_live_mode, GeminiTranscriptionMode::Smart);
+        assert_eq!(settings.gemini_file_mode, GeminiTranscriptionMode::Smart);
+        assert!(!settings.gemini_file_diarization);
     }
 
     #[test]

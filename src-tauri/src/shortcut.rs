@@ -3091,6 +3091,80 @@ pub fn change_soniox_language_hints_strict_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_gemini_language_code_setting(app: AppHandle, language: String) -> Result<(), String> {
+    let language = language.trim();
+    if language != "auto"
+        && language != "os_input"
+        && !crate::gemini_config::is_supported_exact_locale(language)
+    {
+        return Err(format!("Unsupported Gemini language locale: '{}'", language));
+    }
+    let mut settings = settings::get_settings(&app);
+    settings.gemini_language_code = language.to_string();
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_gemini_custom_vocabulary_setting(
+    app: AppHandle,
+    terms: Vec<String>,
+) -> Result<(), String> {
+    let terms = crate::gemini_config::validate_vocabulary(&terms)?;
+    let mut settings = settings::get_settings(&app);
+    settings.gemini_custom_vocabulary = terms;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_gemini_live_mode_setting(
+    app: AppHandle,
+    mode: settings::GeminiTranscriptionMode,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.gemini_live_mode = mode;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_gemini_file_mode_setting(
+    app: AppHandle,
+    mode: settings::GeminiTranscriptionMode,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    if mode == settings::GeminiTranscriptionMode::Smart && settings.gemini_file_diarization {
+        return Err("Disable Gemini file speaker diarization before selecting Smart mode.".to_string());
+    }
+    settings.gemini_file_mode = mode;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_gemini_file_diarization_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    if enabled && settings.gemini_file_mode == settings::GeminiTranscriptionMode::Smart {
+        return Err("Gemini speaker diarization requires Verbatim file mode.".to_string());
+    }
+    if enabled && settings.remote_stt.provider_preset != "google" {
+        return Err("Gemini speaker diarization is currently available only through Google Direct.".to_string());
+    }
+    settings.gemini_file_diarization = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_soniox_endpoint_detection_setting(
     app: AppHandle,
     enabled: bool,
@@ -4169,6 +4243,10 @@ pub struct AddTranscriptionProfilePayload {
     pub preview_output_only_enabled: bool,
     #[serde(default)]
     pub soniox_language_hints_strict: Option<bool>,
+    #[serde(default)]
+    pub gemini_language_code_override: Option<String>,
+    #[serde(default)]
+    pub gemini_custom_vocabulary_override: Option<Vec<String>>,
     pub include_in_cycle: Option<bool>,
     pub llm_settings: Option<settings::ProfileLlmSettings>,
     pub soniox_context_general_json: Option<String>,
@@ -4190,6 +4268,10 @@ pub struct UpdateTranscriptionProfilePayload {
     pub preview_output_only_enabled: bool,
     #[serde(default)]
     pub soniox_language_hints_strict: Option<bool>,
+    #[serde(default)]
+    pub gemini_language_code_override: Option<String>,
+    #[serde(default)]
+    pub gemini_custom_vocabulary_override: Option<Vec<String>>,
     pub llm_settings: settings::ProfileLlmSettings,
     pub soniox_context_general_json: Option<String>,
     pub soniox_context_text: Option<String>,
@@ -4213,6 +4295,8 @@ pub fn add_transcription_profile(
         push_to_talk,
         preview_output_only_enabled,
         soniox_language_hints_strict,
+        gemini_language_code_override,
+        gemini_custom_vocabulary_override,
         include_in_cycle,
         llm_settings,
         soniox_context_general_json,
@@ -4245,6 +4329,20 @@ pub fn add_transcription_profile(
     let context_text = soniox_context_text.unwrap_or_default();
     let context_terms = settings::normalize_soniox_terms(&soniox_context_terms.unwrap_or_default());
     settings::build_soniox_context_from_parts(&general_json, &context_text, &context_terms)?;
+    let gemini_language_code_override = gemini_language_code_override
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if let Some(language) = gemini_language_code_override.as_deref() {
+        if language != "auto"
+            && language != "os_input"
+            && !crate::gemini_config::is_supported_exact_locale(language)
+        {
+            return Err(format!("Unsupported Gemini language locale: '{}'", language));
+        }
+    }
+    let gemini_custom_vocabulary_override = gemini_custom_vocabulary_override
+        .map(|terms| crate::gemini_config::validate_vocabulary(&terms))
+        .transpose()?;
 
     let new_profile = settings::TranscriptionProfile {
         id: profile_id.clone(),
@@ -4258,6 +4356,8 @@ pub fn add_transcription_profile(
         push_to_talk,
         preview_output_only_enabled,
         soniox_language_hints_strict,
+        gemini_language_code_override,
+        gemini_custom_vocabulary_override,
         llm_post_process_enabled,
         llm_prompt_override,
         llm_model_override,
@@ -4301,6 +4401,8 @@ pub fn update_transcription_profile(
         push_to_talk,
         preview_output_only_enabled,
         soniox_language_hints_strict,
+        gemini_language_code_override,
+        gemini_custom_vocabulary_override,
         llm_settings,
         soniox_context_general_json,
         soniox_context_text,
@@ -4332,6 +4434,21 @@ pub fn update_transcription_profile(
     profile.push_to_talk = push_to_talk;
     profile.preview_output_only_enabled = preview_output_only_enabled;
     profile.soniox_language_hints_strict = soniox_language_hints_strict;
+    let gemini_language_code_override = gemini_language_code_override
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if let Some(language) = gemini_language_code_override.as_deref() {
+        if language != "auto"
+            && language != "os_input"
+            && !crate::gemini_config::is_supported_exact_locale(language)
+        {
+            return Err(format!("Unsupported Gemini language locale: '{}'", language));
+        }
+    }
+    profile.gemini_language_code_override = gemini_language_code_override;
+    profile.gemini_custom_vocabulary_override = gemini_custom_vocabulary_override
+        .map(|terms| crate::gemini_config::validate_vocabulary(&terms))
+        .transpose()?;
     profile.llm_post_process_enabled = llm_settings.enabled;
     profile.llm_prompt_override = llm_settings.prompt_override;
     profile.llm_model_override = llm_settings.model_override;

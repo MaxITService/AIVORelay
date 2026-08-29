@@ -458,6 +458,7 @@ impl SonioxRealtimeManager {
                             session_id,
                             Some(err_str.clone()),
                         );
+                        crate::managers::live_sound_audio::stop(&app_handle_for_task);
                     }
                 }
             }

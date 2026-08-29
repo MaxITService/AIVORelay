@@ -12,12 +12,13 @@ use crate::managers::deepgram_realtime::DeepgramRealtimeManager;
 use crate::managers::gemini_realtime::{
     GeminiRealtimeManager, GEMINI_LIVE_FINALIZE_TIMEOUT_MS,
 };
+use crate::managers::history::HistoryManager;
 use crate::managers::openai_realtime_whisper::OpenAiRealtimeWhisperManager;
 use crate::managers::soniox_realtime::SonioxRealtimeManager;
 use crate::settings::{get_settings, AppSettings, LiveSoundCaptureSource, TranscriptionProvider};
 use log::{info, warn};
 use std::sync::{Arc, LazyLock, Mutex};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter, Manager};
 
 /* ── internal types ───────────────────────────────────────────────────────── */
 
@@ -581,6 +582,17 @@ pub fn stop(app: &AppHandle) {
                     .await
                 {
                     Ok(text) => {
+                        if !text.trim().is_empty() {
+                            let history_manager = app.state::<Arc<HistoryManager>>();
+                            if let Err(error) = history_manager
+                                .save_text_only_transcription(text.trim().to_string())
+                            {
+                                warn!(
+                                    "Live Sound Gemini transcript was retained in the session, but History persistence failed: {}",
+                                    error
+                                );
+                            }
+                        }
                         crate::managers::live_sound_transcription::append_final_result_if_session_matches(
                             &app,
                             session_id,
@@ -596,10 +608,23 @@ pub fn stop(app: &AppHandle) {
                         );
                     }
                     Err(e) => {
+                        let error_message = format!(
+                            "Gemini 3.5 Transcribe Live finalization failed: {}",
+                            e
+                        );
                         warn!(
                             "Live Sound Gemini 3.5 Transcribe Live finalization error: {}",
                             e
                         );
+                        if crate::managers::live_sound_transcription::is_session_current(session_id)
+                        {
+                            crate::managers::live_sound_transcription::set_error_if_session_matches(
+                                &app,
+                                session_id,
+                                Some(error_message.clone()),
+                            );
+                            let _ = app.emit("remote-stt-error", error_message);
+                        }
                     }
                 }
                 crate::managers::live_sound_transcription::set_recording_if_session_matches(

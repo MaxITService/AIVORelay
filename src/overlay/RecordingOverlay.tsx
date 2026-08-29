@@ -45,6 +45,7 @@ import {
   isExtendedPayload,
 } from "./plus_overlay_states";
 import type {
+  GeminiLiveCompletionVariant,
   OverlayErrorCategory,
   OverlayErrorContext,
   OverlayErrorEnvelope,
@@ -444,6 +445,8 @@ const RecordingOverlay: React.FC = () => {
   const [appearance, setAppearance] = useState<RecordingOverlayAppearanceState>(
     DEFAULT_OVERLAY_APPEARANCE,
   );
+  const [geminiLiveCompletionVariant, setGeminiLiveCompletionVariant] =
+    useState<GeminiLiveCompletionVariant>("complete");
   const smoothedLevelsRef = useRef<number[]>(Array(20).fill(0));
   const dragGripStateRef = useRef<{
     armed: boolean;
@@ -801,8 +804,12 @@ const RecordingOverlay: React.FC = () => {
       });
 
       const unlistenMessageOverlay = await listen<{
-        state: "profile_switch" | "microphone_switch";
-        message: string;
+        state:
+          | "profile_switch"
+          | "microphone_switch"
+          | "gemini_live_completion";
+        message?: string;
+        completionVariant?: GeminiLiveCompletionVariant;
       }>("show-message-overlay", async (event) => {
         const presentationSequence = ++overlayPresentationSequenceRef.current;
         await syncLanguageFromSettings();
@@ -810,7 +817,10 @@ const RecordingOverlay: React.FC = () => {
           return;
         }
 
-        setTransientMessage(event.payload.message);
+        setTransientMessage(event.payload.message ?? "");
+        setGeminiLiveCompletionVariant(
+          event.payload.completionVariant === "partial" ? "partial" : "complete",
+        );
         setState(event.payload.state);
         setDecapIndicatorEligible(false);
         setDecapIndicatorArmed(false);
@@ -882,6 +892,7 @@ const RecordingOverlay: React.FC = () => {
       decapIndicatorEligible &&
       state !== "profile_switch" &&
       state !== "microphone_switch" &&
+      state !== "gemini_live_completion" &&
       state !== "error";
     if (!shouldPoll) {
       if (!decapIndicatorEligible || !isVisible) {
@@ -983,7 +994,8 @@ const RecordingOverlay: React.FC = () => {
       state === "transcribing" ||
       state === "error" ||
       state === "profile_switch" ||
-      state === "microphone_switch"
+      state === "microphone_switch" ||
+      state === "gemini_live_completion"
         ? state
         : "transcribing",
     levels: visibleLevels,
@@ -1029,6 +1041,8 @@ const RecordingOverlay: React.FC = () => {
         return <TranscriptionIcon color={statusIconColor} />;
       case "microphone_switch":
         return <MicrophoneIcon color={statusIconColor} />;
+      case "gemini_live_completion":
+        return <TranscriptionIcon color={statusIconColor} />;
       case "transcribing":
       default:
         return <TranscriptionIcon color={statusIconColor} />;
@@ -1206,6 +1220,7 @@ const RecordingOverlay: React.FC = () => {
         appearance.decapitalize_indicator_mode !== "hidden" &&
         state !== "profile_switch" &&
         state !== "microphone_switch" &&
+        state !== "gemini_live_completion" &&
         state !== "error" && (
           <div
             className="overlay-decapitalize-indicator"
@@ -1310,6 +1325,22 @@ const RecordingOverlay: React.FC = () => {
         )}
         {state === "profile_switch" && (
           <div className="transcribing-text">{transientMessage}</div>
+        )}
+        {state === "gemini_live_completion" && (
+          <div className="transcribing-text">
+            {t(
+              "overlay.geminiLiveCompletion.title",
+              "Gemini Live session completed",
+            )}{" "}
+            — {t(
+              geminiLiveCompletionVariant === "partial"
+                ? "overlay.geminiLiveCompletion.partial"
+                : "overlay.geminiLiveCompletion.complete",
+              geminiLiveCompletionVariant === "partial"
+                ? "The model's time limit was reached. A partial transcript was recovered and saved. Review the last words before continuing."
+                : "The model's time limit was reached. Your transcript was finalized and saved. Start a new session to continue.",
+            )}
+          </div>
         )}
         {state === "microphone_switch" && (
           <div className="microphone-switch-copy">

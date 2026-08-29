@@ -872,6 +872,12 @@
   "transcribeFile": {
     "cancelling": "Отмена...",
     "cancelled": "Транскрипция файла отменена.",
+    "liveModelUnsupported": "Gemini Live не поддерживает транскрипцию файлов. В разделе «Модели» выберите обычную модель Gemini 3.5 Transcribe.",
+    "gemini": {
+      "googleInlineLimit": "Google Direct требует, чтобы полный inline-запрос JSON был меньше {{limitSize}} МБ. После подготовки WAV и кодирования base64 практический лимит аудио составляет около {{duration}} независимо от размера исходного сжатого файла.",
+      "googleInlineEstimate": "Оценочный размер подготовленного JSON: {{estimatedSize}} МБ из {{limitSize}} МБ.",
+      "googleInlineLimitExceeded": "Оценочный размер подготовленного JSON — {{estimatedSize}} МБ, но Google Direct требует, чтобы полный inline-запрос был меньше {{limitSize}} МБ. Файл не будет отправлен."
+    },
     "outputFormat": {
       "localHint": "Локальные модели поддерживают точные таймкоды для SRT/VTT, а для длинных файлов доступна умная нарезка.",
       "remoteHint": "Cloud-провайдеры используют отдельный upload flow. Умная нарезка там пока не применяется, поэтому блок настроек нарезки здесь скрыт."
@@ -1302,6 +1308,21 @@
     "remoteApiActive": "Remote API",
     "remoteSonioxActive": "Remote Soniox",
     "remoteDeepgramActive": "Remote Deepgram",
+    "profileSettingsNotice": {
+      "title": "У этой модели есть дополнительные настройки в профилях транскрипции",
+      "description": "Проверьте Speech / Mic → Manage Profiles. Настройки профиля переопределяют или дополняют параметры модели на этой странице.",
+      "features": {
+        "language": "Язык",
+        "translateToEnglish": "Перевод на английский",
+        "systemPrompt": "Системный промпт",
+        "geminiLanguage": "Язык Gemini",
+        "customVocabulary": "Пользовательский словарь",
+        "strictLanguageHint": "Строгая языковая подсказка",
+        "contextJson": "Контекст JSON",
+        "contextText": "Текстовый контекст",
+        "contextTerms": "Термины контекста"
+      }
+    },
     "nativeLiveOutput": {
       "title": "Живой ввод финального текста",
       "finalOnly": "Только финальные чанки",
@@ -3107,6 +3128,11 @@
     "thinking": "Размышление...",
     "transcribing": "Расшифровка...",
     "finalizing": "Финализация...",
+    "geminiLiveCompletion": {
+      "title": "Сессия Gemini Live завершена",
+      "complete": "Достигнут лимит времени модели. Транскрипция финализирована и сохранена. Начните новую сессию, чтобы продолжить.",
+      "partial": "Достигнут лимит времени модели. Частичная транскрипция восстановлена и сохранена. Проверьте последние слова перед продолжением."
+    },
     "microphoneChanged": "Микрофон: {{name}}",
     "decapitalizationIndicator": "Декапитализация",
     "retryWithShortcut": "Повторить через {{shortcut}}",

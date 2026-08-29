@@ -1308,6 +1308,21 @@
     "remoteApiActive": "Remote API",
     "remoteSonioxActive": "Remote Soniox",
     "remoteDeepgramActive": "Remote Deepgram",
+    "profileSettingsNotice": {
+      "title": "This model has additional settings in transcription profiles",
+      "description": "Check Speech / Mic → Manage Profiles. Profile settings override or extend the model settings shown here.",
+      "features": {
+        "language": "Language",
+        "translateToEnglish": "Translate to English",
+        "systemPrompt": "System prompt",
+        "geminiLanguage": "Gemini language",
+        "customVocabulary": "Custom vocabulary",
+        "strictLanguageHint": "Strict language hint",
+        "contextJson": "Context JSON",
+        "contextText": "Context text",
+        "contextTerms": "Context terms"
+      }
+    },
     "nativeLiveOutput": {
       "title": "Live final output",
       "finalOnly": "Final chunks only",
@@ -1855,6 +1870,42 @@
           "invalidWarning": "Without <code>${output}</code>, the LLM won't receive your transcript and cannot process it!",
           "tip": "Tip: Position <code>${output}</code> where you want your transcript to appear. You can add instructions before and/or after it."
         }
+      }
+    },
+    "gemini": {
+      "mode": {
+        "smart": "Smart",
+        "verbatim": "Verbatim"
+      },
+      "liveMode": {
+        "title": "Live transcription mode",
+        "description": "Smart removes disfluencies and applies readable formatting. Verbatim preserves fillers, repetitions, and false starts.",
+        "smartHelp": "Smart removes disfluencies and applies readable formatting.",
+        "verbatimHelp": "Verbatim preserves fillers, repetitions, and false starts."
+      },
+      "fileMode": {
+        "title": "Default file transcription mode",
+        "description": "File mode is independent from Live mode. SRT/VTT and speaker diarization require Verbatim."
+      },
+      "liveLimitWarning": "Gemini Live supports sessions up to 10 minutes. AivoRelay automatically finalizes at 9:50 to preserve the transcript.",
+      "language": {
+        "title": "Gemini language",
+        "auto": "Auto Detect",
+        "osInput": "Follow OS Input Language",
+        "mappingHelp": "If the OS input language does not map unambiguously to an exact supported locale, AivoRelay uses automatic detection and does not send an unsupported hint."
+      },
+      "inheritLanguage": "Inherit global ({{language}})",
+      "vocabulary": {
+        "title": "Gemini Custom Vocabulary",
+        "override": "Replace global vocabulary",
+        "inherited": "Inheriting {{count}} global terms.",
+        "status": "Detected {{format}} · {{count}}/1000 terms",
+        "formatHelp": "Paste one term per line, CSV, quoted CSV, or a JSON string array. Example: Gemini, Kubernetes, BigQuery"
+      },
+      "timeLimitCompleted": {
+        "title": "Gemini Live session completed",
+        "complete": "The model's time limit was reached. Your transcript was finalized and saved. Start a new session to continue.",
+        "partial": "The model's time limit was reached. A partial transcript was recovered and saved. Review the last words before continuing."
       }
     },
     "liveSoundTranscription": {
@@ -3785,6 +3836,11 @@
     "thinking": "Thinking...",
     "transcribing": "Transcribing...",
     "finalizing": "Finalizing...",
+    "geminiLiveCompletion": {
+      "title": "Gemini Live session completed",
+      "complete": "The model's time limit was reached. Your transcript was finalized and saved. Start a new session to continue.",
+      "partial": "The model's time limit was reached. A partial transcript was recovered and saved. Review the last words before continuing."
+    },
     "microphoneChanged": "Microphone: {{name}}",
     "decapitalizationIndicator": "Decapitalization",
     "retryWithShortcut": "Retry with {{shortcut}}",
@@ -3869,6 +3925,7 @@
     "defaultProfile": "Default (Global)",
     "cancelling": "Cancelling...",
     "cancelled": "File transcription cancelled.",
+    "liveModelUnsupported": "Gemini Live cannot transcribe files. In Models, select the regular Gemini 3.5 Transcribe model.",
     "dropZone": {
       "title": "Drop audio file here or click to browse",
       "subtitle": "Select an audio file to transcribe",
@@ -3879,6 +3936,32 @@
     "outputMode": {
       "textarea": "Show in text area",
       "file": "Save to Documents (.txt)"
+    },
+    "gemini": {
+      "mode": {
+        "title": "Gemini file transcription mode",
+        "smartHelp": "Smart removes fillers and disfluencies and applies readable formatting. It cannot be combined with timestamps or diarization.",
+        "verbatimHelp": "Verbatim preserves fillers, repetitions, and false starts. It is required for timestamps and speaker diarization."
+      },
+      "timestampsAutomatic": "SRT/VTT automatically requests word timestamps and therefore requires Verbatim mode.",
+      "outputFormatHint": "Gemini Text output does not request timestamps. SRT/VTT automatically requests word timestamps and requires Verbatim mode.",
+      "durationLimit": "Current Gemini file limit: {{minutes}} minutes{{reason}}.",
+      "durationLimitExceeded": "The selected audio is {{duration}}, exceeding the {{limit}} Gemini limit for {{reason}}. The file will not be sent.",
+      "googleInlineLimit": "Google Direct limits the complete inline JSON request to under {{limitSize}} MB. After WAV preparation and base64 encoding, the practical audio limit is about {{duration}} regardless of the original compressed file size.",
+      "googleInlineEstimate": "Estimated prepared JSON: {{estimatedSize}} MB of {{limitSize}} MB.",
+      "googleInlineLimitExceeded": "The prepared JSON request is estimated at {{estimatedSize}} MB, but Google Direct requires the complete inline request to remain under {{limitSize}} MB. The file will not be sent.",
+      "limitReasons": {
+        "timestampsAndDiarization": "word timestamps and speaker diarization",
+        "timestamps": "word timestamps required by SRT/VTT",
+        "diarization": "speaker diarization",
+        "standard": "standard transcription"
+      },
+      "diarization": {
+        "title": "Speaker diarization",
+        "vercelUnavailable": "Unavailable through Vercel because stable speaker identities are not exposed in its transcription response. Use Google Direct to enable it.",
+        "requiresVerbatim": "Select Verbatim to enable speaker diarization.",
+        "help": "Supports up to eight speakers. Attribution for three or more speakers is experimental."
+      }
     },
     "outputFormat": {
       "label": "Output Format",

@@ -42,10 +42,38 @@ import {
   parseAndNormalizeSonioxLanguageHints,
   SONIOX_LANGUAGE_HINTS_MAX_COUNT,
 } from "@/lib/constants/sonioxLanguages";
+import {
+  geminiFileLimitSeconds,
+  validateGeminiCompatibility,
+  type GeminiTranscriptionMode,
+} from "@/lib/gemini/geminiConfig";
 
 const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 const DEEPGRAM_MAX_FILE_DURATION_SECONDS = 10 * 60;
 const SONIOX_MAX_FILE_DURATION_SECONDS = 300 * 60;
+const GOOGLE_INLINE_REQUEST_LIMIT_BYTES = 20_000_000;
+const GOOGLE_INLINE_REQUEST_OPTIONS_RESERVE_BYTES = 64 * 1024;
+const PREPARED_AUDIO_BYTES_PER_SECOND = 16_000 * 2;
+const PREPARED_WAV_HEADER_BYTES = 44;
+const GOOGLE_INLINE_PRACTICAL_MAX_AUDIO_SECONDS = Math.floor(
+  ((GOOGLE_INLINE_REQUEST_LIMIT_BYTES -
+    GOOGLE_INLINE_REQUEST_OPTIONS_RESERVE_BYTES) *
+    3) /
+    4 /
+    PREPARED_AUDIO_BYTES_PER_SECOND -
+    PREPARED_WAV_HEADER_BYTES / PREPARED_AUDIO_BYTES_PER_SECOND,
+);
+
+const estimateGoogleInlineRequestBytes = (durationSeconds: number): number => {
+  const preparedWavBytes =
+    Math.ceil(durationSeconds * PREPARED_AUDIO_BYTES_PER_SECOND) +
+    PREPARED_WAV_HEADER_BYTES;
+  const base64AudioBytes = 4 * Math.ceil(preparedWavBytes / 3);
+  return base64AudioBytes + GOOGLE_INLINE_REQUEST_OPTIONS_RESERVE_BYTES;
+};
+
+const formatDecimalMegabytes = (bytes: number): string =>
+  (bytes / 1_000_000).toFixed(2);
 
 type SpeakerNameSetProfile = {
   id: string;
@@ -370,6 +398,38 @@ export const TranscribeFileSettings: React.FC = () => {
   );
   const isSonioxProvider = transcriptionProvider === "remote_soniox";
   const isDeepgramProvider = transcriptionProvider === "remote_deepgram";
+  const remoteModelId = String((settings as any)?.remote_stt?.model_id ?? "");
+  const remotePreset = String((settings as any)?.remote_stt?.provider_preset ?? "");
+  const isGeminiLiveFileUnsupported =
+    transcriptionProvider === "remote_openai_compatible" &&
+    !overrideModelId &&
+    [
+      "google/gemini-3.5-transcribe-live",
+      "gemini-3.5-transcribe-live",
+    ].includes(remoteModelId);
+  const isGeminiFile =
+    transcriptionProvider === "remote_openai_compatible" &&
+    !overrideModelId &&
+    ["google/gemini-3.5-transcribe", "gemini-3.5-transcribe"].includes(remoteModelId);
+  const isGoogleDirectGeminiFile =
+    isGeminiFile &&
+    remotePreset === "google" &&
+    remoteModelId === "gemini-3.5-transcribe";
+  const geminiFileMode = String((settings as any)?.gemini_file_mode ?? "smart") as GeminiTranscriptionMode;
+  const geminiFileDiarization = Boolean((settings as any)?.gemini_file_diarization ?? false);
+  const geminiNeedsWordTimestamps = outputFormat === "srt" || outputFormat === "vtt";
+  const geminiCompatibilityError = isGeminiFile
+    ? validateGeminiCompatibility({
+        mode: geminiFileMode,
+        wordTimestamps: geminiNeedsWordTimestamps,
+        diarization: geminiFileDiarization,
+        route: remotePreset,
+      })
+    : null;
+  const geminiDurationLimitSeconds = geminiFileLimitSeconds(
+    geminiNeedsWordTimestamps,
+    geminiFileDiarization,
+  );
   const showLocalChunkingOptions =
     !!selectedFile && (transcriptionProvider === "local" || !!overrideModelId);
   const showRemoteProviderHint =
@@ -393,10 +453,12 @@ export const TranscribeFileSettings: React.FC = () => {
     speakerCards.length > 0 &&
     !savedFilePath;
   const speakerProviderLabel =
-    speakerProvider === "deepgram"
+    String(speakerProvider) === "deepgram"
       ? "Deepgram"
-      : speakerProvider === "soniox"
+      : String(speakerProvider) === "soniox"
         ? "Soniox"
+        : String(speakerProvider) === "gemini"
+          ? "Gemini"
         : null;
   const settingsSonioxLanguageHints = (settings as any)
     ?.soniox_language_hints as string[] | undefined;
@@ -767,12 +829,48 @@ export const TranscribeFileSettings: React.FC = () => {
     showSonioxFileOptions &&
     selectedFileDurationSeconds != null &&
     selectedFileDurationSeconds > SONIOX_MAX_FILE_DURATION_SECONDS;
+  const selectedFileExceedsGeminiLimit =
+    isGeminiFile &&
+    !isGoogleDirectGeminiFile &&
+    selectedFileDurationSeconds != null &&
+    selectedFileDurationSeconds > geminiDurationLimitSeconds;
+  const selectedGoogleInlineRequestBytes =
+    isGoogleDirectGeminiFile && selectedFileDurationSeconds != null
+      ? estimateGoogleInlineRequestBytes(selectedFileDurationSeconds)
+      : null;
+  const selectedFileExceedsGoogleInlineLimit =
+    selectedGoogleInlineRequestBytes != null &&
+    selectedGoogleInlineRequestBytes >=
+      GOOGLE_INLINE_REQUEST_LIMIT_BYTES;
+  const googleInlineLimitExceededMessage = t(
+    "transcribeFile.gemini.googleInlineLimitExceeded",
+    "The prepared JSON request is estimated at {{estimatedSize}} MB, but Google Direct requires the complete inline request to remain under {{limitSize}} MB. The file will not be sent.",
+    {
+      estimatedSize:
+        selectedGoogleInlineRequestBytes == null
+          ? "—"
+          : formatDecimalMegabytes(selectedGoogleInlineRequestBytes),
+      limitSize: formatDecimalMegabytes(GOOGLE_INLINE_REQUEST_LIMIT_BYTES),
+    },
+  );
   const selectedFileHasUnknownRemoteDuration =
-    (showDeepgramFileOptions || showSonioxFileOptions) &&
+    (showDeepgramFileOptions || showSonioxFileOptions || isGeminiFile) &&
     selectedFileDurationSeconds == null;
   const selectedFileDurationWarning = selectedFileHasUnknownRemoteDuration
     ? t("transcribeFile.durationUnknownWarning")
-    : selectedFileExceedsDeepgramLimit
+    : selectedFileExceedsGeminiLimit
+      ? t("transcribeFile.gemini.durationLimitExceeded", "The selected audio is {{duration}}, exceeding the {{limit}} Gemini limit for {{reason}}. The file will not be sent.", {
+          duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
+          limit: formatAudioDurationWithUnits(geminiDurationLimitSeconds),
+          reason: geminiNeedsWordTimestamps && geminiFileDiarization
+            ? t("transcribeFile.gemini.limitReasons.timestampsAndDiarization", "word timestamps and speaker diarization")
+            : geminiNeedsWordTimestamps
+              ? t("transcribeFile.gemini.limitReasons.timestamps", "word timestamps required by SRT/VTT")
+              : geminiFileDiarization
+                ? t("transcribeFile.gemini.limitReasons.diarization", "speaker diarization")
+                : t("transcribeFile.gemini.limitReasons.standard", "standard transcription"),
+        })
+      : selectedFileExceedsDeepgramLimit
       ? t("transcribeFile.deepgram.durationLimitExceeded", {
           duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
           limit: formatAudioDurationWithUnits(
@@ -789,17 +887,25 @@ export const TranscribeFileSettings: React.FC = () => {
         : null;
   const durationLimitWarningProvider = selectedFileExceedsDeepgramLimit
     ? "Deepgram"
-    : selectedFileExceedsSonioxLimit
+    : selectedFileExceedsGeminiLimit
+      ? "Gemini"
+      : selectedFileExceedsSonioxLimit
       ? "Soniox"
       : showDeepgramFileOptions
         ? "Deepgram"
-        : showSonioxFileOptions
-          ? "Soniox"
-          : null;
+      : showSonioxFileOptions
+      ? "Soniox"
+      : isGeminiFile
+        ? "Gemini"
+      : null;
   const canTranscribe =
     !isTranscribing &&
     !isTranscriptionCommandPending &&
-    !recordingBlocksFileTranscription;
+    !recordingBlocksFileTranscription &&
+    !isGeminiLiveFileUnsupported &&
+    !selectedFileExceedsGeminiLimit &&
+    !selectedFileExceedsGoogleInlineLimit &&
+    !geminiCompatibilityError;
   const isFinalizingCancelledTranscription =
     isTranscriptionCommandPending && !isTranscribing;
   const activeFileTranscriptionModelId =
@@ -1000,6 +1106,11 @@ export const TranscribeFileSettings: React.FC = () => {
   // Transcribe the selected file
   const handleTranscribe = async () => {
     if (!selectedFile) return;
+    if (isGeminiLiveFileUnsupported) return;
+    if (selectedFileExceedsGoogleInlineLimit) {
+      setError(googleInlineLimitExceededMessage);
+      return;
+    }
     if (selectedFileDurationWarning) {
       setError(null);
       setShowDurationLimitWarningDialog(true);
@@ -1050,7 +1161,7 @@ export const TranscribeFileSettings: React.FC = () => {
 
     return {
       filePath: selectedFile.path,
-      profileId: effectiveProfileId === "default" ? null : effectiveProfileId,
+      profileId: effectiveProfileId,
       saveToFile: outputMode === "file",
       outputFormat,
       modelOverride: overrideModelId,
@@ -1066,6 +1177,15 @@ export const TranscribeFileSettings: React.FC = () => {
   const runTranscription = async (
     request = buildFileTranscriptionRequest(),
   ) => {
+    if (isGeminiLiveFileUnsupported) {
+      setIsTranscribing(false);
+      return;
+    }
+    if (selectedFileExceedsGoogleInlineLimit) {
+      setError(googleInlineLimitExceededMessage);
+      setIsTranscribing(false);
+      return;
+    }
     if (!request) {
       setIsTranscribing(false);
       return;
@@ -1420,6 +1540,7 @@ export const TranscribeFileSettings: React.FC = () => {
                       // Make sure we have a model selected if switching to subtitle format
                       if (
                         fmt !== "text" &&
+                        transcriptionProvider === "local" &&
                         !overrideModelId &&
                         availableModels.length > 0
                       ) {
@@ -1448,6 +1569,11 @@ export const TranscribeFileSettings: React.FC = () => {
                     "transcribeFile.outputFormat.localHint",
                     "Local models support accurate timestamps for SRT/VTT, and Smart Chunking is available for longer files.",
                   )
+                : isGeminiFile
+                  ? t(
+                      "transcribeFile.gemini.outputFormatHint",
+                      "Gemini Text output does not request timestamps. SRT/VTT automatically requests word timestamps and requires Verbatim mode.",
+                    )
                 : showRemoteProviderHint
                   ? t(
                       "transcribeFile.outputFormat.remoteHint",
@@ -1458,6 +1584,125 @@ export const TranscribeFileSettings: React.FC = () => {
                       "Accurate timestamps (SRT/VTT) require a local model. Remote STT returns text-only output in this version.",
                     )}
             </p>
+            {isGeminiFile && (
+              <div className="mt-4 space-y-3 rounded-lg border border-purple-500/25 bg-purple-500/5 p-3">
+                <div>
+                  <p className="text-sm font-medium text-[#f5f5f5]">
+                    {t("transcribeFile.gemini.mode.title", "Gemini file transcription mode")}
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    {(["smart", "verbatim"] as const).map(mode => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => void updateSetting("gemini_file_mode" as any, mode as any)}
+                        disabled={mode === "smart" && geminiFileDiarization}
+                        className={`rounded px-3 py-1.5 text-xs font-medium ${
+                          geminiFileMode === mode
+                            ? "bg-purple-500 text-white"
+                            : "border border-[#3c3c3c] bg-[#1a1a1a] text-[#b8b8b8]"
+                        } disabled:cursor-not-allowed disabled:opacity-40`}
+                      >
+                        {mode === "smart"
+                          ? t("settings.gemini.mode.smart", "Smart")
+                          : t("settings.gemini.mode.verbatim", "Verbatim")}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-[#808080]">
+                    {geminiFileMode === "smart"
+                      ? t("transcribeFile.gemini.mode.smartHelp", "Smart removes fillers and disfluencies and applies readable formatting. It cannot be combined with timestamps or diarization.")
+                      : t("transcribeFile.gemini.mode.verbatimHelp", "Verbatim preserves fillers, repetitions, and false starts. It is required for timestamps and speaker diarization.")}
+                  </p>
+                </div>
+                <label className={`flex items-start gap-3 ${remotePreset !== "google" || geminiFileMode !== "verbatim" ? "opacity-50" : ""}`}>
+                  <input
+                    type="checkbox"
+                    checked={geminiFileDiarization}
+                    onChange={event => void updateSetting("gemini_file_diarization" as any, event.target.checked as any)}
+                    disabled={
+                      !geminiFileDiarization &&
+                      (remotePreset !== "google" || geminiFileMode !== "verbatim")
+                    }
+                    className="mt-0.5 accent-[#9b5de5]"
+                  />
+                  <span>
+                    <span className="block text-sm text-[#f5f5f5]">
+                      {t("transcribeFile.gemini.diarization.title", "Speaker diarization")}
+                    </span>
+                    <span className="block text-xs text-[#808080]">
+                      {remotePreset !== "google"
+                        ? t("transcribeFile.gemini.diarization.vercelUnavailable", "Unavailable through Vercel because stable speaker identities are not exposed in its transcription response. Use Google Direct to enable it.")
+                        : geminiFileMode !== "verbatim"
+                          ? t("transcribeFile.gemini.diarization.requiresVerbatim", "Select Verbatim to enable speaker diarization.")
+                          : t("transcribeFile.gemini.diarization.help", "Supports up to eight speakers. Attribution for three or more speakers is experimental.")}
+                    </span>
+                  </span>
+                </label>
+                {geminiNeedsWordTimestamps && (
+                  <p className="text-xs text-amber-300">
+                    {t("transcribeFile.gemini.timestampsAutomatic", "SRT/VTT automatically requests word timestamps and therefore requires Verbatim mode.")}
+                  </p>
+                )}
+                {isGoogleDirectGeminiFile ? (
+                  <div className="space-y-1">
+                    <p className="text-xs text-[#808080]">
+                      {t(
+                        "transcribeFile.gemini.googleInlineLimit",
+                        "Google Direct limits the complete inline JSON request to under {{limitSize}} MB. After WAV preparation and base64 encoding, the practical audio limit is about {{duration}} regardless of the original compressed file size.",
+                        {
+                          limitSize: formatDecimalMegabytes(
+                            GOOGLE_INLINE_REQUEST_LIMIT_BYTES,
+                          ),
+                          duration: formatAudioDurationClock(
+                            GOOGLE_INLINE_PRACTICAL_MAX_AUDIO_SECONDS,
+                          ),
+                        },
+                      )}
+                    </p>
+                    {selectedGoogleInlineRequestBytes != null && (
+                      <p
+                        className={`text-xs ${
+                          selectedFileExceedsGoogleInlineLimit
+                            ? "text-red-400"
+                            : "text-[#b8b8b8]"
+                        }`}
+                      >
+                        {t(
+                          "transcribeFile.gemini.googleInlineEstimate",
+                          "Estimated prepared JSON: {{estimatedSize}} MB of {{limitSize}} MB.",
+                          {
+                            estimatedSize: formatDecimalMegabytes(
+                              selectedGoogleInlineRequestBytes,
+                            ),
+                            limitSize: formatDecimalMegabytes(
+                              GOOGLE_INLINE_REQUEST_LIMIT_BYTES,
+                            ),
+                          },
+                        )}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-[#808080]">
+                    {t("transcribeFile.gemini.durationLimit", "Current Gemini file limit: {{minutes}} minutes{{reason}}.", {
+                      minutes: geminiDurationLimitSeconds / 60,
+                      reason: geminiNeedsWordTimestamps || geminiFileDiarization
+                        ? " because timestamps or diarization are enabled"
+                        : "",
+                    })}
+                  </p>
+                )}
+                {selectedFileExceedsGoogleInlineLimit && (
+                  <p className="text-xs text-red-400">
+                    {googleInlineLimitExceededMessage}
+                  </p>
+                )}
+                {geminiCompatibilityError && (
+                  <p className="text-xs text-red-400">{geminiCompatibilityError}</p>
+                )}
+              </div>
+            )}
             {showSonioxFileOptions &&
               sonioxModel.trim() !== "stt-async-v5" &&
               !infoMessage && (
@@ -1745,6 +1990,8 @@ export const TranscribeFileSettings: React.FC = () => {
                 title={
                   recordingBlocksFileTranscription
                     ? t("transcribeFile.recordingLocalConflict")
+                    : selectedFileExceedsGoogleInlineLimit
+                      ? googleInlineLimitExceededMessage
                     : selectedFileDurationWarning
                       ? selectedFileDurationWarning
                       : undefined
@@ -1786,6 +2033,11 @@ export const TranscribeFileSettings: React.FC = () => {
             {recordingBlocksFileTranscription && (
               <p className="text-xs text-amber-400 mt-2">
                 {t("transcribeFile.recordingLocalConflict")}
+              </p>
+            )}
+            {isGeminiLiveFileUnsupported && (
+              <p className="text-xs text-amber-400 mt-2">
+                {t("transcribeFile.liveModelUnsupported")}
               </p>
             )}
             {isFinalizingCancelledTranscription && (

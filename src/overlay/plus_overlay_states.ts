@@ -14,7 +14,10 @@ export type ExtendedOverlayState =
   | "finalizing"
   | "error"
   | "profile_switch"
-  | "microphone_switch";
+  | "microphone_switch"
+  | "gemini_live_completion";
+
+export type GeminiLiveCompletionVariant = "complete" | "partial";
 
 /**
  * Error categories matching Rust OverlayErrorCategory enum

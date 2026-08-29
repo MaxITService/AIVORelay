@@ -97,7 +97,7 @@ The "Default Profile" uses your global settings (Settings → Speech). It cannot
 
 ### 🔊 Text to Speech (App can also do that!)
 
-**Read text aloud or turn complete documents into narrated MP3 or WAV files.** AivoRelay can speak clipboard or selected text in most Windows applications and convert `.txt` and `.md` documents with cloud, Windows, or optional local voices. Cloud services receive the supplied text and set their own pricing; Windows voices and local models keep synthesis on the device.
+**Read text aloud or turn complete documents into narrated MP3 or WAV files.** AivoRelay can speak clipboard or selected text in most Windows applications and convert `.txt` and `.md` documents to mp3 with cloud, Windows, or optional local voices. Cloud services receive the supplied text and set their own pricing; Windows voices and local models keep synthesis on the device.
 
 You do not need to understand every setting to begin. AivoRelay includes ready-made presets for every TTS provider and automatically opens the recommended preset the first time you select a provider on each TTS page.
 

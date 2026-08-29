@@ -116,12 +116,13 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
       };
     }, [loadCurrentModel]);
 
+    if (isDisabledTranslation) return null;
+
     return (
       <ToggleSwitch
         checked={translateToEnglish}
         onChange={(enabled) => updateSetting("translate_to_english", enabled)}
         isUpdating={isUpdating("translate_to_english")}
-        disabled={isDisabledTranslation && !translateToEnglish}
         label={t("settings.advanced.translateToEnglish.label")}
         description={description}
         descriptionMode={descriptionMode}

@@ -242,16 +242,19 @@ impl OpenAiRealtimeWhisperManager {
                     );
                 }
                 if let Some(session_id) = live_sound_session_id {
-                    crate::managers::live_sound_transcription::set_recording_if_session_matches(
-                        &app_handle_for_task,
-                        session_id,
-                        false,
-                    );
-                    crate::managers::live_sound_transcription::set_error_if_session_matches(
-                        &app_handle_for_task,
-                        session_id,
-                        Some(err_str.clone()),
-                    );
+                    if crate::managers::live_sound_transcription::is_session_current(session_id) {
+                        crate::managers::live_sound_transcription::set_recording_if_session_matches(
+                            &app_handle_for_task,
+                            session_id,
+                            false,
+                        );
+                        crate::managers::live_sound_transcription::set_error_if_session_matches(
+                            &app_handle_for_task,
+                            session_id,
+                            Some(err_str.clone()),
+                        );
+                        crate::managers::live_sound_audio::stop(&app_handle_for_task);
+                    }
                 }
             }
 
