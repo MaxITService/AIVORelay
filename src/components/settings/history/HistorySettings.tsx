@@ -141,6 +141,7 @@ const showHistoryDeleteFailure = (
   const { payload } = deletionError;
   const failure = payload.failures[0] ?? UNKNOWN_HISTORY_DELETE_FAILURE;
   const isPartial = payload.deleted_count > 0;
+  const recordsRemain = payload.remaining_count > 0;
   const isPermissionFailure =
     failure.reason === "access_denied" ||
     failure.reason === "read_only" ||
@@ -161,7 +162,7 @@ const showHistoryDeleteFailure = (
     {
       description: `${deleteFailureDescription(t, failure)} ${help}`,
       duration: 12000,
-      action: isPermissionFailure
+      action: isPermissionFailure || !recordsRemain
         ? {
             label: t("settings.history.deleteFailure.openFolderAction"),
             onClick: () => {
@@ -1038,8 +1039,11 @@ export const HistorySettings: React.FC = () => {
       }
     } catch (error) {
       console.error("Failed to delete audio entry:", error);
-      restoreDeletedEntry();
-      throw toHistoryDeleteCommandError(error);
+      const deletionError = toHistoryDeleteCommandError(error);
+      if (deletionError.payload.remaining_count > 0) {
+        restoreDeletedEntry();
+      }
+      throw deletionError;
     }
   };
 
