@@ -28,6 +28,7 @@ import { SettingsGroup } from "../../ui/SettingsGroup";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { useSettings } from "@/hooks/useSettings";
+import { useNavigationStore } from "@/stores/navigationStore";
 
 const PAGE_SIZE = 30;
 
@@ -1141,8 +1142,24 @@ export const HistorySettings: React.FC = () => {
               />
             </div>
             <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
-              <div className="px-4 py-3 text-center text-text/60">
-                {t("settings.history.empty")}
+              <div className="flex flex-col items-center gap-3 px-4 py-6 text-center">
+                <div>
+                  <p className="text-sm font-medium text-text">
+                    {t("settings.history.emptyTitle")}
+                  </p>
+                  <p className="mt-1 text-sm text-text/60">
+                    {t("settings.history.empty")}
+                  </p>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    useNavigationStore.getState().setSection("general")
+                  }
+                >
+                  {t("settings.history.configureDictation")}
+                </Button>
               </div>
             </div>
           </div>

@@ -2326,10 +2326,25 @@ export const TranscribeFileSettings: React.FC = () => {
         />
 
         {!transcriptionResult && !error && (
-          <div className="px-4 pb-4 text-sm text-[#707070]">
-            {t(
-              "transcribeFile.stages.resultEmpty",
-              "The transcript will appear here after processing.",
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-4">
+            <p className="text-sm text-[#707070]">
+              {t(
+                selectedFile
+                  ? "transcribeFile.stages.resultReady"
+                  : "transcribeFile.stages.resultEmpty",
+                selectedFile
+                  ? "Your file is ready. Review the settings, then start transcription."
+                  : "Select an audio or video file to create a transcript.",
+              )}
+            </p>
+            {!selectedFile && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleSelectFile}
+              >
+                {t("transcribeFile.selectFile", "Select file")}
+              </Button>
             )}
           </div>
         )}
