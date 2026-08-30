@@ -1313,7 +1313,7 @@
     "remoteDeepgramActive": "Remote Deepgram",
     "profileSettingsNotice": {
       "title": "У этой модели есть дополнительные настройки в профилях транскрипции",
-      "description": "Проверьте Speech / Mic → Manage Profiles. Настройки профиля переопределяют или дополняют параметры модели на этой странице.",
+      "description": "Проверьте <profileLink>Speech / Mic</profileLink> → Manage Profiles. Настройки профиля переопределяют или дополняют параметры модели на этой странице.",
       "features": {
         "language": "Язык",
         "translateToEnglish": "Перевод на английский",

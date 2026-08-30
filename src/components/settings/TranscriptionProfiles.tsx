@@ -53,6 +53,7 @@ import {
   globalSttSelection,
   type SttModelSelection,
 } from "../../lib/sttModelSelection";
+import { getTranscriptionProfileAnchorId } from "../../lib/transcriptionProfileNavigation";
 
 /** Navigate to the User Interface section and scroll to the Live Preview settings anchor. */
 const openLivePreviewSettings = () => {
@@ -490,6 +491,8 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
 
   return (
     <div
+      id={getTranscriptionProfileAnchorId(profile.id)}
+      tabIndex={-1}
       className={`min-w-0 border rounded-lg transition-colors ${isActive ? "border-purple-500/50 bg-purple-500/5" : "border-mid-gray/30 bg-background/50"}`}
     >
       {/* Header - always visible */}
@@ -2013,6 +2016,8 @@ export const TranscriptionProfiles: React.FC = () => {
         <div className="space-y-3">
           {/* Default Profile Card - Expandable with global settings */}
           <div
+            id={getTranscriptionProfileAnchorId("default")}
+            tabIndex={-1}
             className={`min-w-0 border rounded-lg transition-colors ${activeProfileId === "default" ? "border-purple-500/50 bg-purple-500/5" : "border-mid-gray/30 bg-background/50"}`}
           >
             {/* Header - clickable to expand */}
