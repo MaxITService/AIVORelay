@@ -871,6 +871,7 @@
     "cancelling": "Отмена...",
     "cancelled": "Транскрипция файла отменена.",
     "liveModelUnsupported": "Gemini Live не поддерживает транскрипцию файлов. В разделе «Модели» выберите обычную модель Gemini 3.5 Transcribe.",
+    "selectFileBeforeTranscribing": "Перед запуском транскрипции выберите файл. Модель и параметры можно настроить уже сейчас.",
     "gemini": {
       "googleInlineLimit": "Google Direct требует, чтобы полный inline-запрос JSON был меньше {{limitSize}} МБ. После подготовки WAV и кодирования base64 практический лимит аудио составляет около {{duration}} независимо от размера исходного сжатого файла.",
       "googleInlineEstimate": "Оценочный размер подготовленного JSON: {{estimatedSize}} МБ из {{limitSize}} МБ.",
@@ -1361,6 +1362,13 @@
     }
   },
   "settings": {
+    "sttModelSelector": {
+      "provider": "Провайдер",
+      "model": "Модель",
+      "missingApiKey": "API-ключ не настроен в разделе «Модели».",
+      "notConfigured": "Модель не настроена.",
+      "downloadLocalModel": "Перед использованием скачайте эту локальную модель в разделе «Модели»."
+    },
     "userInterface": {
       "title": "Пользовательский интерфейс",
       "sidebarReorder": {

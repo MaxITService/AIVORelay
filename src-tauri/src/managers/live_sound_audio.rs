@@ -380,7 +380,15 @@ pub fn start(app: &AppHandle, session_id: u64) -> Result<(), String> {
         return Err("Live sound audio session is already active".to_string());
     }
 
-    let settings = get_settings(app);
+    let mut settings = get_settings(app);
+    if let Some(selection) = settings.live_sound_model_selection.clone() {
+        crate::settings::apply_stt_model_selection(&mut settings, &selection)?;
+        settings.live_sound_transcription_provider =
+            crate::settings::LiveSoundTranscriptionProvider::from_transcription_provider(
+                selection.provider,
+            )
+            .ok_or_else(|| "Live Monitor does not support local STT models.".to_string())?;
+    }
     let use_live = crate::actions::live_sound_use_live_streaming(&settings);
 
     let is_both = settings.live_sound_capture_source == LiveSoundCaptureSource::Both;

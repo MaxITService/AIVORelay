@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/Button";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { Dropdown } from "@/components/ui/Dropdown";
+import { SttModelSelector } from "@/components/settings/SttModelSelector";
 import {
   useTranscribeFileStore,
   type SelectedFile,
@@ -47,6 +48,11 @@ import {
   validateGeminiCompatibility,
   type GeminiTranscriptionMode,
 } from "@/lib/gemini/geminiConfig";
+import {
+  globalSttSelection,
+  sttSelectionKey,
+  type SttModelSelection,
+} from "@/lib/sttModelSelection";
 
 const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 const DEEPGRAM_MAX_FILE_DURATION_SECONDS = 10 * 60;
@@ -314,7 +320,6 @@ export const TranscribeFileSettings: React.FC = () => {
     selectedFile,
     outputMode,
     outputFormat,
-    overrideModelId,
     customWordsEnabledOverride,
     transcriptionResult,
     savedFilePath,
@@ -328,7 +333,6 @@ export const TranscribeFileSettings: React.FC = () => {
     setSelectedFile,
     setOutputMode,
     setOutputFormat,
-    setOverrideModelId,
     setCustomWordsEnabledOverride,
     setTranscriptionResult,
     setSavedFilePath,
@@ -392,24 +396,33 @@ export const TranscribeFileSettings: React.FC = () => {
   const fileSelectionGenerationRef = useRef(0);
   const speakerReapplyGenerationRef = useRef(0);
   const transcriptionRunIdRef = useRef(0);
-  const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v5";
-  const transcriptionProvider = String(
-    settings?.transcription_provider ?? "local",
-  );
+  const inheritedFileSelection = globalSttSelection(settings);
+  const fileSelection = ((settings as any)?.file_transcription_model_selection ??
+    inheritedFileSelection) as SttModelSelection;
+  const fileSelectionKey = sttSelectionKey(fileSelection);
+  const transcriptionProvider = fileSelection.provider;
+  const sonioxModel =
+    transcriptionProvider === "remote_soniox"
+      ? fileSelection.model_id
+      : ((settings as any)?.soniox_model ?? "stt-rt-v5");
   const isSonioxProvider = transcriptionProvider === "remote_soniox";
   const isDeepgramProvider = transcriptionProvider === "remote_deepgram";
-  const remoteModelId = String((settings as any)?.remote_stt?.model_id ?? "");
-  const remotePreset = String((settings as any)?.remote_stt?.provider_preset ?? "");
+  const remoteModelId =
+    transcriptionProvider === "remote_openai_compatible"
+      ? fileSelection.model_id
+      : "";
+  const remotePreset =
+    transcriptionProvider === "remote_openai_compatible"
+      ? fileSelection.provider_preset
+      : "";
   const isGeminiLiveFileUnsupported =
     transcriptionProvider === "remote_openai_compatible" &&
-    !overrideModelId &&
     [
       "google/gemini-3.5-transcribe-live",
       "gemini-3.5-transcribe-live",
     ].includes(remoteModelId);
   const isGeminiFile =
     transcriptionProvider === "remote_openai_compatible" &&
-    !overrideModelId &&
     ["google/gemini-3.5-transcribe", "gemini-3.5-transcribe"].includes(remoteModelId);
   const isGoogleDirectGeminiFile =
     isGeminiFile &&
@@ -430,10 +443,8 @@ export const TranscribeFileSettings: React.FC = () => {
     geminiNeedsWordTimestamps,
     geminiFileDiarization,
   );
-  const showLocalChunkingOptions =
-    !!selectedFile && (transcriptionProvider === "local" || !!overrideModelId);
-  const showRemoteProviderHint =
-    !!selectedFile && transcriptionProvider !== "local" && !overrideModelId;
+  const showLocalChunkingOptions = transcriptionProvider === "local";
+  const showRemoteProviderHint = transcriptionProvider !== "local";
   const fileChunkingMode = String(
     (settings as any)?.file_transcription_chunking_mode ?? "auto",
   ) as "auto" | "off" | "custom";
@@ -443,10 +454,8 @@ export const TranscribeFileSettings: React.FC = () => {
   const fileChunkingMaxMinutes = Number.isFinite(fileChunkingMaxMinutesRaw)
     ? Math.min(10, Math.max(0.25, fileChunkingMaxMinutesRaw))
     : 0.5;
-  const showSonioxFileOptions =
-    !!selectedFile && isSonioxProvider && !overrideModelId;
-  const showDeepgramFileOptions =
-    !!selectedFile && isDeepgramProvider && !overrideModelId;
+  const showSonioxFileOptions = isSonioxProvider;
+  const showDeepgramFileOptions = isDeepgramProvider;
   const canReapplySpeakerNames =
     !!transcriptionResult &&
     !!speakerArtifactPath &&
@@ -605,6 +614,14 @@ export const TranscribeFileSettings: React.FC = () => {
     [updateSetting],
   );
 
+  const changeFileModelSelection = useCallback(
+    async (selection: SttModelSelection) => {
+      await invoke("change_file_transcription_model_selection", { selection });
+      await refreshSettings();
+    },
+    [refreshSettings],
+  );
+
   useEffect(() => {
     return () => {
       fileSelectionGenerationRef.current += 1;
@@ -714,7 +731,7 @@ export const TranscribeFileSettings: React.FC = () => {
       try {
         const state = await invoke<FileTranscriptionRecordingState>(
           "get_file_transcription_recording_state",
-          { modelOverride: overrideModelId },
+          { modelOverride: null },
         );
         setIsRecording(Boolean(state.isRecording));
         setRecordingBlocksFileTranscription(
@@ -725,7 +742,7 @@ export const TranscribeFileSettings: React.FC = () => {
           const isRec = await commands.isRecording();
           setIsRecording(isRec);
           setRecordingBlocksFileTranscription(
-            isRec && (transcriptionProvider === "local" || !!overrideModelId),
+            isRec && transcriptionProvider === "local",
           );
         } catch {
           // Ignore errors
@@ -736,14 +753,13 @@ export const TranscribeFileSettings: React.FC = () => {
     checkRecording();
     const interval = setInterval(checkRecording, 500);
     return () => clearInterval(interval);
-  }, [overrideModelId, transcriptionProvider]);
+  }, [fileSelectionKey, transcriptionProvider]);
 
   // Fetch available models on mount
   useEffect(() => {
     commands.getAvailableModels().then((result) => {
       if (result.status === "ok") {
-        // Filter only downloaded models
-        setAvailableModels(result.data.filter((m) => m.is_downloaded));
+        setAvailableModels(result.data);
       }
     });
   }, []);
@@ -908,8 +924,7 @@ export const TranscribeFileSettings: React.FC = () => {
     !geminiCompatibilityError;
   const isFinalizingCancelledTranscription =
     isTranscriptionCommandPending && !isTranscribing;
-  const activeFileTranscriptionModelId =
-    overrideModelId ?? String(settings?.selected_model ?? "");
+  const activeFileTranscriptionModelId = fileSelection.model_id;
   const activeFileTranscriptionModel = availableModels.find(
     (model) => model.id === activeFileTranscriptionModelId,
   );
@@ -1164,13 +1179,12 @@ export const TranscribeFileSettings: React.FC = () => {
       profileId: effectiveProfileId,
       saveToFile: outputMode === "file",
       outputFormat,
-      modelOverride: overrideModelId,
+      modelOverride: null,
       customWordsEnabledOverride,
       sonioxOptionsOverride,
       deepgramOptionsOverride,
       retryableRemoteApi:
-        transcriptionProvider === "remote_openai_compatible" &&
-        !overrideModelId,
+        transcriptionProvider === "remote_openai_compatible",
     };
   };
 
@@ -1478,26 +1492,42 @@ export const TranscribeFileSettings: React.FC = () => {
               {selectedFile.audioUrl && (
                 <AudioPlayer src={selectedFile.audioUrl} className="w-full" />
               )}
-
-              {/* Profile Selector */}
-              <div className="space-y-2">
-                <label className="text-xs text-[#808080]">
-                  {t("transcribeFile.profileLabel")}
-                </label>
-                <Dropdown
-                  className="w-full"
-                  selectedValue={effectiveProfileId}
-                  options={profileOptions}
-                  onSelect={(value) => setSelectedProfileId(value)}
-                />
-              </div>
             </div>
           )}
         </div>
 
+        <div className="space-y-4 border-t border-white/[0.05] px-4 py-4">
+          {!selectedFile && (
+            <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+              {t(
+                "transcribeFile.selectFileBeforeTranscribing",
+                "Select a file before starting transcription. You can configure the model and options now.",
+              )}
+            </div>
+          )}
+          <SttModelSelector
+            workflow="file"
+            selection={fileSelection}
+            localModels={availableModels}
+            onChange={changeFileModelSelection}
+            disabled={isTranscribing || isTranscriptionCommandPending}
+          />
+          <div className="space-y-2">
+            <label className="text-xs text-[#808080]">
+              {t("transcribeFile.profileLabel")}
+            </label>
+            <Dropdown
+              className="w-full"
+              selectedValue={effectiveProfileId}
+              options={profileOptions}
+              onSelect={(value) => setSelectedProfileId(value)}
+              dropUp={false}
+            />
+          </div>
+        </div>
+
         {/* Output Mode Selection */}
-        {selectedFile && (
-          <div className="px-4 py-3 border-t border-white/[0.05]">
+        <div className="px-4 py-3 border-t border-white/[0.05]">
             <div className="flex items-center gap-4">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -1537,20 +1567,6 @@ export const TranscribeFileSettings: React.FC = () => {
                     key={fmt}
                     onClick={() => {
                       setOutputFormat(fmt);
-                      // Make sure we have a model selected if switching to subtitle format
-                      if (
-                        fmt !== "text" &&
-                        transcriptionProvider === "local" &&
-                        !overrideModelId &&
-                        availableModels.length > 0
-                      ) {
-                        const current = availableModels.find(
-                          (m) => m.id === settings?.selected_model,
-                        );
-                        setOverrideModelId(
-                          current ? current.id : availableModels[0].id,
-                        );
-                      }
                     }}
                     className={`px-3 py-1 text-xs font-medium rounded transition-all ${
                       outputFormat === fmt
@@ -1925,58 +1941,7 @@ export const TranscribeFileSettings: React.FC = () => {
               </div>
             )}
 
-            {/* Override Model Option */}
-            <div className="mt-4 space-y-3">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={!!overrideModelId}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      // Default to currently selected model if available, or first available
-                      const current = availableModels.find(
-                        (m) => m.id === settings?.selected_model,
-                      );
-                      setOverrideModelId(
-                        current ? current.id : (availableModels[0]?.id ?? null),
-                      );
-                    } else {
-                      setOverrideModelId(null);
-                    }
-                  }}
-                  className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
-                />
-                <span className="text-sm text-[#f5f5f5]">
-                  {t("transcribeFile.modelOverride.label", "Override Model")}
-                </span>
-              </label>
-
-              {overrideModelId && (
-                <div className="pl-6">
-                  <Dropdown
-                    className="w-full"
-                    selectedValue={overrideModelId}
-                    options={availableModels.map((m) => ({
-                      value: m.id,
-                      label: m.name,
-                    }))}
-                    onSelect={setOverrideModelId}
-                    placeholder={t(
-                      "transcribeFile.modelOverride.placeholder",
-                      "Select a model...",
-                    )}
-                  />
-                  <p className="text-xs text-[#606060] mt-1.5">
-                    {t(
-                      "transcribeFile.modelOverride.hint",
-                      "Select a specific local model for this transcription. Local models support accurate timestamping for SRT/VTT.",
-                    )}
-                  </p>
-                </div>
-              )}
-            </div>
           </div>
-        )}
 
         {/* Action Buttons */}
         {selectedFile && (

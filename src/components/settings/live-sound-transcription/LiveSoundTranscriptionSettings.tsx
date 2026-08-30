@@ -11,7 +11,11 @@ import { Dropdown } from "../../ui/Dropdown";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { useSettings } from "../../../hooks/useSettings";
-import { getRemoteApiDisplayLabel } from "../../../lib/utils/remoteSttDisplay";
+import { SttModelSelector } from "../SttModelSelector";
+import {
+  legacyLiveSttSelection,
+  type SttModelSelection,
+} from "../../../lib/sttModelSelection";
 import { MicrophoneSelector } from "../MicrophoneSelector";
 import { OutputDeviceSelector } from "../OutputDeviceSelector";
 import type { GeminiLiveCompletionVariant } from "../../../overlay/plus_overlay_states";
@@ -181,22 +185,11 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const [geminiCompletionVariant, setGeminiCompletionVariant] =
     useState<GeminiLiveCompletionVariant | null>(null);
 
-  const liveSoundProviderSetting = String(
-    (settings as any)?.live_sound_transcription_provider ?? "remote_soniox",
-  );
-  // "system" is a legacy value — treat it as Soniox (the new default)
-  const provider =
-    liveSoundProviderSetting === "system" || liveSoundProviderSetting === "remote_soniox"
-      ? "remote_soniox"
-      : liveSoundProviderSetting === "remote_deepgram"
-        ? "remote_deepgram"
-        : liveSoundProviderSetting === "remote_openai_compatible"
-          ? "remote_openai_compatible"
-          : "unsupported";
-
-  const remoteStt = (settings as any)?.remote_stt ?? {};
-  const remotePreset = String(remoteStt.provider_preset ?? "").toLowerCase();
-  const remoteModelId = String(remoteStt.model_id ?? "").toLowerCase();
+  const liveSelection = ((settings as any)?.live_sound_model_selection ??
+    legacyLiveSttSelection(settings)) as SttModelSelection;
+  const provider = liveSelection.provider;
+  const remotePreset = liveSelection.provider_preset.toLowerCase();
+  const remoteModelId = liveSelection.model_id.toLowerCase();
   const remoteIsGeminiLive =
     (remotePreset === "vercel" || remotePreset === "google") &&
     (remoteModelId === "google/gemini-3.5-transcribe-live" ||
@@ -207,23 +200,11 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       remoteModelId === "gpt-realtime-whisper") &&
     !Boolean((settings as any)?.openai_realtime_whisper_flatten_enabled ?? false);
   const remoteLiveReady = remoteIsGeminiLive || remoteIsOpenAiLive;
-  const remoteApiLabel = getRemoteApiDisplayLabel(remoteStt);
-
-  const providerOptions = [
-    { value: "remote_soniox", label: "Soniox" },
-    { value: "remote_deepgram", label: "Deepgram" },
-    {
-      value: "remote_openai_compatible",
-      label: remoteLiveReady ? remoteApiLabel : "Configured live API model",
-    },
-  ];
-
-  const handleProviderChange = async (value: string | null) => {
-    if (!value) return;
+  const handleModelSelectionChange = async (selection: SttModelSelection) => {
     setSourceBusy(true);
     setErrorMessage(null);
     try {
-      await invoke("change_live_sound_transcription_provider", { provider: value });
+      await invoke("change_live_sound_model_selection", { selection });
       await refreshSettings();
     } catch (error) {
       setErrorMessage(
@@ -254,15 +235,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       throw error;
     }
   };
-
-  const modelLabel =
-    provider === "remote_soniox"
-      ? String((settings as any)?.soniox_model ?? "stt-rt-v5")
-      : provider === "remote_deepgram"
-        ? String((settings as any)?.deepgram_model ?? "nova-3")
-        : provider === "remote_openai_compatible"
-          ? remoteApiLabel
-          : t("settings.liveSoundTranscription.session.notAvailable");
 
   const providerLiveModeEnabled =
     provider === "remote_soniox"
@@ -719,15 +691,11 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
         >
           <div className="space-y-4">
             <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a] mb-1.5">
-                  {t("settings.liveSoundTranscription.session.providerLabel")}
-                </p>
-                <Dropdown
-                  className="w-full"
-                  selectedValue={liveSoundProviderSetting}
-                  options={providerOptions}
-                  onSelect={(v) => void handleProviderChange(v)}
+              <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3 md:col-span-2">
+                <SttModelSelector
+                  workflow="live"
+                  selection={liveSelection}
+                  onChange={handleModelSelectionChange}
                   disabled={
                     !supportsRemoteLiveSound ||
                     sourceBusy ||
@@ -735,14 +703,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                     actionBusy !== null
                   }
                 />
-              </div>
-              <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
-                  {t("settings.liveSoundTranscription.session.modelLabel")}
-                </p>
-                <p className="mt-1 text-sm font-medium text-[#f5f5f5]">
-                  {modelLabel}
-                </p>
               </div>
               <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
