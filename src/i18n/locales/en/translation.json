@@ -1279,6 +1279,7 @@
     "downloadModels": "Download Models",
     "chooseModel": "Choose a Model",
     "active": "Active",
+    "profileModelChanged": "Profile \"{{profile}}\" now uses {{model}}.",
     "download": "Download",
     "downloadSize": "Download size",
     "noModelsAvailable": "No models available",

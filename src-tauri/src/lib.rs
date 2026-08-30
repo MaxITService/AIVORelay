@@ -1254,6 +1254,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_diarization_speaker_name_profiles_setting,
         shortcut::add_transcription_profile,
         shortcut::update_transcription_profile,
+        shortcut::change_active_profile_stt_model_selection_override,
         shortcut::delete_transcription_profile,
         shortcut::get_active_profile,
         shortcut::set_active_profile,

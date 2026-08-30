@@ -1280,6 +1280,7 @@
     "downloadModels": "Скачать модели",
     "chooseModel": "Выберите модель",
     "active": "Активный",
+    "profileModelChanged": "Для профиля «{{profile}}» выбрана модель {{model}}.",
     "download": "Скачать",
     "downloadSize": "Размер загрузки",
     "noModelsAvailable": "Нет доступных моделей",
