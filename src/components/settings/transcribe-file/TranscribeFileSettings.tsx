@@ -1967,7 +1967,11 @@ export const TranscribeFileSettings: React.FC = () => {
                   </p>
                 </div>
                 {selectedModelSupportsDiarization && (
-                <label className={`flex items-start gap-3 ${geminiFileMode !== "verbatim" ? "opacity-50" : ""}`}>
+                <label
+                  id="transcribe-file-diarization"
+                  tabIndex={-1}
+                  className={`flex items-start gap-3 outline-none ${geminiFileMode !== "verbatim" ? "opacity-50" : ""}`}
+                >
                   <input
                     type="checkbox"
                     checked={geminiFileDiarization}
@@ -2221,7 +2225,11 @@ export const TranscribeFileSettings: React.FC = () => {
                     aria-invalid={sonioxLanguageHintsOverLimit}
                   />
                 </div>
-                <label className="flex items-center gap-2 cursor-pointer select-none">
+                <label
+                  id="transcribe-file-diarization"
+                  tabIndex={-1}
+                  className="flex items-center gap-2 cursor-pointer select-none outline-none"
+                >
                   <input
                     type="checkbox"
                     checked={sonioxEnableSpeakerDiarization}
@@ -2278,7 +2286,11 @@ export const TranscribeFileSettings: React.FC = () => {
                       })}`
                     : ""}
                 </Alert>
-                <label className="flex items-center gap-2 cursor-pointer select-none">
+                <label
+                  id="transcribe-file-diarization"
+                  tabIndex={-1}
+                  className="flex items-center gap-2 cursor-pointer select-none outline-none"
+                >
                   <input
                     type="checkbox"
                     checked={deepgramFileDiarize}
