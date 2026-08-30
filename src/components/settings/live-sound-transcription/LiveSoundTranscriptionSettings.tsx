@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
@@ -60,6 +60,26 @@ type LiveSessionCommand =
   | "live_sound_transcription_stop"
   | "live_sound_transcription_clear"
   | "live_sound_transcription_process";
+
+type RetryableLiveSessionAction = {
+  action: LiveSessionAction;
+  command: LiveSessionCommand;
+};
+
+type LiveErrorState = {
+  message: string | null;
+  retryableAction: RetryableLiveSessionAction | null;
+};
+
+type LiveErrorUpdate = string | null | LiveErrorState;
+
+const replaceLiveError = (
+  _current: LiveErrorState,
+  update: LiveErrorUpdate,
+): LiveErrorState =>
+  typeof update === "string" || update === null
+    ? { message: update, retryableAction: null }
+    : update;
 
 const getRecording = (state: LiveSoundState) => Boolean(state.recording);
 
@@ -177,7 +197,11 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [segments, setSegments] = useState<LiveSoundSegment[]>([]);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [{ message: errorMessage, retryableAction }, setErrorMessage] =
+    useReducer(replaceLiveError, {
+      message: null,
+      retryableAction: null,
+    });
   const [actionBusy, setActionBusy] = useState<null | "start" | "stop" | "clear" | "process">(null);
   const [sourceBusy, setSourceBusy] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -192,10 +216,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const [autoStopRemainingSeconds, setAutoStopRemainingSeconds] = useState<number | null>(null);
   const [showWhatIsThis, setShowWhatIsThis] = useState(false);
   const [sessionSettingsCollapsed, setSessionSettingsCollapsed] = useState(true);
-  const [retryableAction, setRetryableAction] = useState<{
-    action: LiveSessionAction;
-    command: LiveSessionCommand;
-  } | null>(null);
   const [geminiCompletionVariant, setGeminiCompletionVariant] =
     useState<GeminiLiveCompletionVariant | null>(null);
 
@@ -452,7 +472,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   ) => {
     setActionBusy(action);
     setErrorMessage(null);
-    setRetryableAction(null);
     if (action === "clear") {
       setSpeakerNames(new Map());
       setSelectedSpeakerNameProfileId(null);
@@ -461,14 +480,16 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     try {
       await invoke(command);
     } catch (error) {
-      setRetryableAction({ action, command });
-      setErrorMessage(
+      const message =
         error instanceof Error
           ? error.message
           : typeof error === "string"
             ? error
-            : t("settings.liveSoundTranscription.session.actionFailed"),
-      );
+            : t("settings.liveSoundTranscription.session.actionFailed");
+      setErrorMessage({
+        message,
+        retryableAction: { action, command },
+      });
     } finally {
       setActionBusy(null);
     }
