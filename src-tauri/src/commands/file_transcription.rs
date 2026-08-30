@@ -332,16 +332,13 @@ fn compatible_initial_file_selection(settings: &AppSettings) -> SttModelSelectio
     }
 }
 
-#[tauri::command]
-#[specta::specta]
-pub fn initialize_file_transcription_model_settings(app: AppHandle) -> Result<(), String> {
-    let mut settings = get_settings(&app);
+fn initialize_file_transcription_model_state(settings: &mut AppSettings) -> Result<(), String> {
     if settings.gemini_dictation_mode.is_none() {
         settings.gemini_dictation_mode = Some(settings.gemini_file_mode);
     }
     if settings.file_transcription_model_selection.is_none() {
         settings.file_transcription_model_selection =
-            Some(compatible_initial_file_selection(&settings));
+            Some(compatible_initial_file_selection(settings));
     }
 
     let selection = settings
@@ -350,14 +347,22 @@ pub fn initialize_file_transcription_model_settings(app: AppHandle) -> Result<()
         .ok_or_else(|| "No compatible Transcribe File model is available.".to_string())?;
     if !stt_model_selection_supports_file(&selection) {
         settings.file_transcription_model_selection =
-            Some(compatible_initial_file_selection(&settings));
+            Some(compatible_initial_file_selection(settings));
     }
     let selection = settings.file_transcription_model_selection.clone().unwrap();
     let key = stt_model_selection_key(&selection);
-    let config = load_file_model_config(&mut settings, &selection)
-        .unwrap_or_else(|| seed_file_model_config(&settings, &selection));
-    apply_file_model_config(&mut settings, &config);
+    let config = load_file_model_config(settings, &selection)
+        .unwrap_or_else(|| seed_file_model_config(settings, &selection));
+    apply_file_model_config(settings, &config);
     settings.file_transcription_model_configs.insert(key, config);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn initialize_file_transcription_model_settings(app: AppHandle) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    initialize_file_transcription_model_state(&mut settings)?;
     write_settings(&app, settings);
     Ok(())
 }
@@ -2144,10 +2149,17 @@ fn save_transcription_without_overwrite(
 #[cfg(test)]
 mod tests {
     use super::{
+        apply_file_model_config, compatible_initial_file_selection, load_file_model_config,
+        initialize_file_transcription_model_state, legacy_file_model_config_key,
         require_remote_segments, resample_audio, save_transcription_without_overwrite,
-        session_blocks_local_file_transcription, validate_audio_sample_rate,
+        seed_file_model_config, session_blocks_local_file_transcription,
+        sync_active_file_model_config, validate_audio_sample_rate,
     };
     use crate::session_manager::SessionState;
+    use crate::settings::{
+        get_default_settings, stt_model_selection_supports_file, GeminiTranscriptionMode,
+        SttModelSelection, TranscriptionProfile, TranscriptionProvider,
+    };
     use crate::subtitle::SubtitleSegment;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -2228,5 +2240,212 @@ mod tests {
             "Provider",
         )
         .is_ok());
+    }
+
+    fn remote_selection(preset: &str, model_id: &str) -> SttModelSelection {
+        SttModelSelection {
+            provider: TranscriptionProvider::RemoteOpenAiCompatible,
+            model_id: model_id.to_string(),
+            provider_preset: preset.to_string(),
+        }
+    }
+
+    fn profile_with_selection(selection: SttModelSelection) -> TranscriptionProfile {
+        let mut profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
+            "id": "profile_test",
+            "name": "Test",
+            "language": "auto",
+            "translate_to_english": false
+        }))
+        .unwrap();
+        profile.stt_model_selection_override = Some(selection);
+        profile
+    }
+
+    #[test]
+    fn initial_file_model_uses_only_compatible_profile_overrides() {
+        let mut settings = get_default_settings();
+        settings.active_profile_id = "profile_test".to_string();
+        settings.transcription_profiles.push(profile_with_selection(remote_selection(
+            "vercel",
+            "google/gemini-3.5-transcribe-live",
+        )));
+
+        let fallback = compatible_initial_file_selection(&settings);
+        assert_ne!(
+            fallback.model_id,
+            "google/gemini-3.5-transcribe-live"
+        );
+
+        let compatible = remote_selection("google", "gemini-3.5-transcribe");
+        settings.transcription_profiles[0].stt_model_selection_override =
+            Some(compatible.clone());
+        assert_eq!(compatible_initial_file_selection(&settings), compatible);
+    }
+
+    #[test]
+    fn switching_back_to_a_file_model_restores_its_saved_settings() {
+        let mut settings = get_default_settings();
+        let google = remote_selection("google", "gemini-3.5-transcribe");
+        let soniox = SttModelSelection {
+            provider: TranscriptionProvider::RemoteSoniox,
+            model_id: "stt-async-v5".to_string(),
+            provider_preset: String::new(),
+        };
+
+        settings.file_transcription_model_selection = Some(google.clone());
+        settings.gemini_file_mode = GeminiTranscriptionMode::Verbatim;
+        settings.gemini_file_diarization = true;
+        sync_active_file_model_config(&mut settings);
+
+        let soniox_config = seed_file_model_config(&settings, &soniox);
+        apply_file_model_config(&mut settings, &soniox_config);
+        settings.file_transcription_model_selection = Some(soniox);
+
+        let restored = load_file_model_config(&mut settings, &google).unwrap();
+        apply_file_model_config(&mut settings, &restored);
+        assert_eq!(settings.gemini_file_mode, GeminiTranscriptionMode::Verbatim);
+        assert!(settings.gemini_file_diarization);
+    }
+
+    #[test]
+    fn seeding_vercel_gemini_drops_google_only_diarization() {
+        let mut settings = get_default_settings();
+        settings.file_transcription_model_selection = Some(remote_selection(
+            "google",
+            "gemini-3.5-transcribe",
+        ));
+        settings.gemini_file_mode = GeminiTranscriptionMode::Verbatim;
+        settings.gemini_file_diarization = true;
+        sync_active_file_model_config(&mut settings);
+
+        let config = seed_file_model_config(
+            &settings,
+            &remote_selection("vercel", "google/gemini-3.5-transcribe"),
+        );
+        assert_eq!(config.gemini_mode, GeminiTranscriptionMode::Verbatim);
+        assert!(!config.gemini_diarization);
+    }
+
+    #[test]
+    fn reopening_file_settings_preserves_its_independent_model_selection() {
+        let mut settings = get_default_settings();
+        let file_selection = SttModelSelection {
+            provider: TranscriptionProvider::RemoteSoniox,
+            model_id: "stt-async-v5".to_string(),
+            provider_preset: String::new(),
+        };
+        settings.file_transcription_model_selection = Some(file_selection.clone());
+        settings.active_profile_id = "profile_test".to_string();
+        settings.transcription_profiles.push(profile_with_selection(
+            remote_selection("google", "gemini-3.5-transcribe"),
+        ));
+
+        initialize_file_transcription_model_state(&mut settings).unwrap();
+
+        assert_eq!(settings.file_transcription_model_selection, Some(file_selection));
+    }
+
+    #[test]
+    fn reopening_file_settings_replaces_an_incompatible_saved_selection() {
+        let mut settings = get_default_settings();
+        let incompatible = remote_selection("vercel", "google/gemini-3.5-transcribe-live");
+        settings.file_transcription_model_selection = Some(incompatible.clone());
+
+        initialize_file_transcription_model_state(&mut settings).unwrap();
+
+        let restored = settings.file_transcription_model_selection.unwrap();
+        assert_ne!(restored, incompatible);
+        assert!(stt_model_selection_supports_file(&restored));
+    }
+
+    #[test]
+    fn incompatible_model_seed_does_not_copy_file_only_settings() {
+        let mut settings = get_default_settings();
+        settings.file_transcription_model_selection = Some(remote_selection(
+            "google",
+            "gemini-3.5-transcribe",
+        ));
+        settings.file_transcription_chunking_mode =
+            crate::settings::FileTranscriptionChunkingMode::Custom;
+        settings.file_transcription_chunking_max_minutes = 8.0;
+        settings.gemini_file_mode = GeminiTranscriptionMode::Verbatim;
+        settings.gemini_file_diarization = true;
+        sync_active_file_model_config(&mut settings);
+
+        let soniox = SttModelSelection {
+            provider: TranscriptionProvider::RemoteSoniox,
+            model_id: "stt-async-v5".to_string(),
+            provider_preset: String::new(),
+        };
+        let config = seed_file_model_config(&settings, &soniox);
+
+        assert_eq!(
+            config.chunking_mode,
+            crate::settings::FileTranscriptionChunkingMode::Auto
+        );
+        assert_eq!(config.chunking_max_minutes, 0.5);
+        assert_eq!(config.gemini_mode, GeminiTranscriptionMode::Smart);
+        assert!(!config.gemini_diarization);
+    }
+
+    #[test]
+    fn legacy_file_model_config_key_migrates_without_losing_settings() {
+        let mut settings = get_default_settings();
+        let selection = remote_selection("google", "gemini-3.5-transcribe");
+        let mut config = seed_file_model_config(&settings, &selection);
+        config.gemini_mode = GeminiTranscriptionMode::Verbatim;
+        config.gemini_diarization = true;
+        let legacy_key = legacy_file_model_config_key(&selection);
+        let canonical_key = crate::settings::stt_model_selection_key(&selection);
+        settings
+            .file_transcription_model_configs
+            .insert(legacy_key.clone(), config);
+
+        let migrated = load_file_model_config(&mut settings, &selection).unwrap();
+
+        assert_eq!(migrated.gemini_mode, GeminiTranscriptionMode::Verbatim);
+        assert!(migrated.gemini_diarization);
+        assert!(!settings.file_transcription_model_configs.contains_key(&legacy_key));
+        assert!(settings
+            .file_transcription_model_configs
+            .contains_key(&canonical_key));
+    }
+
+    #[test]
+    fn switching_back_restores_file_model_language_and_vocabulary() {
+        let mut settings = get_default_settings();
+        let google = remote_selection("google", "gemini-3.5-transcribe");
+        settings.file_transcription_model_selection = Some(google.clone());
+        sync_active_file_model_config(&mut settings);
+        let google_key = crate::settings::stt_model_selection_key(&google);
+        let profile = settings
+            .file_transcription_model_configs
+            .get_mut(&google_key)
+            .and_then(|config| config.profile_snapshot.as_mut())
+            .unwrap();
+        profile.gemini_language_code_override = Some("ru-RU".to_string());
+        profile.gemini_custom_vocabulary_override =
+            Some(vec!["AIVORelay".to_string(), "Gemini".to_string()]);
+
+        let soniox = SttModelSelection {
+            provider: TranscriptionProvider::RemoteSoniox,
+            model_id: "stt-async-v5".to_string(),
+            provider_preset: String::new(),
+        };
+        let soniox_config = seed_file_model_config(&settings, &soniox);
+        apply_file_model_config(&mut settings, &soniox_config);
+        settings.file_transcription_model_selection = Some(soniox);
+
+        let restored = load_file_model_config(&mut settings, &google).unwrap();
+        let profile = restored.profile_snapshot.unwrap();
+        assert_eq!(
+            profile.gemini_language_code_override.as_deref(),
+            Some("ru-RU")
+        );
+        assert_eq!(
+            profile.gemini_custom_vocabulary_override,
+            Some(vec!["AIVORelay".to_string(), "Gemini".to_string()])
+        );
     }
 }

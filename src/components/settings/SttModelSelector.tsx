@@ -6,6 +6,7 @@ import type { ModelInfo } from "@/bindings";
 import { Dropdown } from "@/components/ui/Dropdown";
 import {
   sttCatalog,
+  sttModelDropdownOptions,
   sttProviderId,
   sttSelectionKey,
   type SttCatalogOption,
@@ -155,15 +156,7 @@ export const SttModelSelector: React.FC<Props> = ({
         <Dropdown
           className="w-full"
           selectedValue={currentKey}
-          options={modelOptions.map((option) => {
-            const problem = readiness.get(sttSelectionKey(option.selection));
-            return {
-              value: sttSelectionKey(option.selection),
-              label: `${problem ? "⚠ " : ""}${option.modelLabel}`,
-              className: problem ? "text-red-400" : undefined,
-              title: problem || undefined,
-            };
-          })}
+          options={sttModelDropdownOptions(modelOptions, readiness)}
           onSelect={(value) => {
             const option = modelOptions.find(
               (item) => sttSelectionKey(item.selection) === value,

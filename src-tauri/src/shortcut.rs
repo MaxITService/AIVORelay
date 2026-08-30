@@ -4513,15 +4513,11 @@ pub fn update_transcription_profile(
     Ok(())
 }
 
-/// Changes only the STT provider/model override of the active custom profile.
-/// Provider credentials and model-specific infrastructure remain global.
-#[tauri::command]
-#[specta::specta]
-pub fn change_active_profile_stt_model_selection_override(
-    app: AppHandle,
+/// Apply a validated model selection to only the active custom profile.
+fn apply_active_profile_stt_model_selection_override(
+    settings: &mut settings::AppSettings,
     selection: settings::SttModelSelection,
 ) -> Result<(), String> {
-    let mut settings = settings::get_settings(&app);
     let active_profile_id = settings.active_profile_id.clone();
 
     if active_profile_id == "default" {
@@ -4537,9 +4533,67 @@ pub fn change_active_profile_stt_model_selection_override(
         .find(|profile| profile.id == active_profile_id)
         .ok_or_else(|| format!("Profile with id '{}' not found", active_profile_id))?;
     profile.stt_model_selection_override = Some(selection);
+    Ok(())
+}
 
+/// Changes only the STT provider/model override of the active custom profile.
+/// Provider credentials and model-specific infrastructure remain global.
+#[tauri::command]
+#[specta::specta]
+pub fn change_active_profile_stt_model_selection_override(
+    app: AppHandle,
+    selection: settings::SttModelSelection,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    apply_active_profile_stt_model_selection_override(&mut settings, selection)?;
     settings::write_settings(&app, settings);
     Ok(())
+}
+
+#[cfg(test)]
+mod stt_profile_model_tests {
+    use super::apply_active_profile_stt_model_selection_override;
+    use crate::settings::{
+        get_default_settings, SttModelSelection, TranscriptionProfile, TranscriptionProvider,
+    };
+
+    #[test]
+    fn active_profile_model_change_is_scoped_and_default_profile_is_rejected() {
+        let selection = SttModelSelection {
+            provider: TranscriptionProvider::RemoteDeepgram,
+            model_id: "nova-3".to_string(),
+            provider_preset: String::new(),
+        };
+        let mut default_settings = get_default_settings();
+        let default_provider = default_settings.transcription_provider;
+        assert!(apply_active_profile_stt_model_selection_override(
+            &mut default_settings,
+            selection.clone(),
+        )
+        .is_err());
+        assert_eq!(default_settings.transcription_provider, default_provider);
+
+        let mut settings = get_default_settings();
+        let profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
+            "id": "profile_test",
+            "name": "Test",
+            "language": "auto",
+            "translate_to_english": false
+        }))
+        .unwrap();
+        settings.active_profile_id = profile.id.clone();
+        settings.transcription_profiles.push(profile);
+        let global_provider = settings.transcription_provider;
+
+        apply_active_profile_stt_model_selection_override(&mut settings, selection.clone())
+            .unwrap();
+
+        assert_eq!(settings.transcription_provider, global_provider);
+        assert_eq!(
+            settings.transcription_profiles[0].stt_model_selection_override,
+            Some(selection)
+        );
+    }
 }
 
 /// Deletes a transcription profile and its associated shortcut binding.

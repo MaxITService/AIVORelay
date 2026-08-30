@@ -107,6 +107,24 @@ fn validate_optional_range(
     Ok(())
 }
 
+fn apply_live_sound_model_selection(
+    settings: &mut crate::settings::AppSettings,
+    selection: SttModelSelection,
+) -> Result<(), String> {
+    validate_live_sound_model_selection(&selection)?;
+    let Some(provider) =
+        LiveSoundTranscriptionProvider::from_transcription_provider(selection.provider)
+    else {
+        return Err("Live Monitor does not support local STT models.".to_string());
+    };
+
+    let mut candidate = settings.clone();
+    apply_stt_model_selection(&mut candidate, &selection)?;
+    settings.live_sound_transcription_provider = provider;
+    settings.live_sound_model_selection = Some(selection);
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn live_sound_transcription_start(app: AppHandle) -> Result<(), String> {
@@ -185,18 +203,8 @@ pub fn change_live_sound_model_selection(
     app: AppHandle,
     selection: SttModelSelection,
 ) -> Result<(), String> {
-    validate_live_sound_model_selection(&selection)?;
-    let Some(provider) =
-        LiveSoundTranscriptionProvider::from_transcription_provider(selection.provider)
-    else {
-        return Err("Live Monitor does not support local STT models.".to_string());
-    };
-
     let mut settings = get_settings(&app);
-    let mut candidate = settings.clone();
-    apply_stt_model_selection(&mut candidate, &selection)?;
-    settings.live_sound_transcription_provider = provider;
-    settings.live_sound_model_selection = Some(selection);
+    apply_live_sound_model_selection(&mut settings, selection)?;
     write_settings(&app, settings);
     Ok(())
 }
@@ -275,7 +283,14 @@ pub fn set_live_sound_deepgram_endpointing_ms(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_optional_range;
+    use super::{
+        apply_live_sound_model_selection, legacy_live_sound_selection,
+        validate_live_sound_model_selection, validate_optional_range,
+    };
+    use crate::settings::{
+        get_default_settings, LiveSoundTranscriptionProvider, SttModelSelection,
+        TranscriptionProvider,
+    };
 
     #[test]
     fn optional_endpoint_range_accepts_clear_and_boundaries() {
@@ -288,5 +303,107 @@ mod tests {
     fn optional_endpoint_range_rejects_values_outside_boundaries() {
         assert!(validate_optional_range(Some(9), 10, 5000, "Endpointing").is_err());
         assert!(validate_optional_range(Some(5001), 10, 5000, "Endpointing").is_err());
+    }
+
+    #[test]
+    fn live_model_selection_does_not_mutate_ordinary_dictation_model() {
+        let mut settings = get_default_settings();
+        let original_provider = settings.transcription_provider;
+        let original_model = settings.remote_stt.model_id.clone();
+        let original_preset = settings.remote_stt.provider_preset.clone();
+        let selection = SttModelSelection {
+            provider: TranscriptionProvider::RemoteDeepgram,
+            model_id: "nova-3".to_string(),
+            provider_preset: String::new(),
+        };
+
+        apply_live_sound_model_selection(&mut settings, selection.clone()).unwrap();
+
+        assert_eq!(settings.transcription_provider, original_provider);
+        assert_eq!(settings.remote_stt.model_id, original_model);
+        assert_eq!(settings.remote_stt.provider_preset, original_preset);
+        assert_eq!(
+            settings.live_sound_transcription_provider,
+            LiveSoundTranscriptionProvider::RemoteDeepgram
+        );
+        assert_eq!(settings.live_sound_model_selection, Some(selection));
+    }
+
+    #[test]
+    fn live_model_validation_accepts_only_technically_compatible_models() {
+        let supported = [
+            SttModelSelection {
+                provider: TranscriptionProvider::RemoteSoniox,
+                model_id: "stt-rt-v5".to_string(),
+                provider_preset: String::new(),
+            },
+            SttModelSelection {
+                provider: TranscriptionProvider::RemoteDeepgram,
+                model_id: "nova-3".to_string(),
+                provider_preset: String::new(),
+            },
+            SttModelSelection {
+                provider: TranscriptionProvider::RemoteOpenAiCompatible,
+                model_id: "google/gemini-3.5-transcribe-live".to_string(),
+                provider_preset: "vercel".to_string(),
+            },
+            SttModelSelection {
+                provider: TranscriptionProvider::RemoteOpenAiCompatible,
+                model_id: "gemini-3.5-transcribe-live".to_string(),
+                provider_preset: "google".to_string(),
+            },
+        ];
+        for selection in supported {
+            assert!(validate_live_sound_model_selection(&selection).is_ok());
+        }
+
+        let unsupported = [
+            SttModelSelection {
+                provider: TranscriptionProvider::Local,
+                model_id: "whisper-large-v3-turbo".to_string(),
+                provider_preset: String::new(),
+            },
+            SttModelSelection {
+                provider: TranscriptionProvider::RemoteSoniox,
+                model_id: "stt-async-v5".to_string(),
+                provider_preset: String::new(),
+            },
+            SttModelSelection {
+                provider: TranscriptionProvider::RemoteOpenAiCompatible,
+                model_id: "gemini-3.5-transcribe".to_string(),
+                provider_preset: "google".to_string(),
+            },
+        ];
+        for selection in unsupported {
+            assert!(validate_live_sound_model_selection(&selection).is_err());
+        }
+    }
+
+    #[test]
+    fn legacy_live_selection_preserves_valid_gemini_and_falls_back_from_batch_models() {
+        let mut settings = get_default_settings();
+        settings.live_sound_transcription_provider =
+            LiveSoundTranscriptionProvider::RemoteOpenAiCompatible;
+        settings.remote_stt.provider_preset = "google".to_string();
+        settings.remote_stt.model_id = "gemini-3.5-transcribe-live".to_string();
+
+        assert_eq!(
+            legacy_live_sound_selection(&settings),
+            SttModelSelection {
+                provider: TranscriptionProvider::RemoteOpenAiCompatible,
+                model_id: "gemini-3.5-transcribe-live".to_string(),
+                provider_preset: "google".to_string(),
+            }
+        );
+
+        settings.remote_stt.model_id = "gemini-3.5-transcribe".to_string();
+        assert_eq!(
+            legacy_live_sound_selection(&settings),
+            SttModelSelection {
+                provider: TranscriptionProvider::RemoteSoniox,
+                model_id: "stt-rt-v5".to_string(),
+                provider_preset: String::new(),
+            }
+        );
     }
 }
