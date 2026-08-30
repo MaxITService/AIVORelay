@@ -22,8 +22,9 @@ use crate::managers::transcription::{
 };
 use crate::session_manager::{ManagedSessionState, SessionState};
 use crate::settings::{
-    apply_output_whitespace_policy_for_settings, get_settings, resolve_live_sound_provider,
-    write_settings, AppSettings, FileTranscriptionChunkingMode, TranscriptionProvider,
+    apply_output_whitespace_policy_for_settings, apply_stt_model_selection, get_settings,
+    resolve_live_sound_provider, write_settings, AppSettings, FileTranscriptionChunkingMode,
+    SttModelSelection, TranscriptionProvider,
 };
 use crate::subtitle::{
     get_format_extension, segments_to_srt, segments_to_vtt, timed_tokens_to_subtitle_segments,
@@ -80,6 +81,27 @@ pub struct FileTranscriptionRecordingState {
     pub blocks_file_transcription: bool,
 }
 
+fn apply_file_transcription_selection(settings: &mut AppSettings) -> Result<(), String> {
+    let Some(selection) = settings.file_transcription_model_selection.clone() else {
+        return Ok(());
+    };
+    apply_stt_model_selection(settings, &selection)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_file_transcription_model_selection(
+    app: AppHandle,
+    selection: SttModelSelection,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    let mut candidate = settings.clone();
+    apply_stt_model_selection(&mut candidate, &selection)?;
+    settings.file_transcription_model_selection = Some(selection);
+    write_settings(&app, settings);
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn change_file_transcription_chunking_mode_setting(
@@ -119,7 +141,8 @@ pub fn get_file_transcription_recording_state(
     app: AppHandle,
     model_override: Option<String>,
 ) -> FileTranscriptionRecordingState {
-    let settings = get_settings(&app);
+    let mut settings = get_settings(&app);
+    let _ = apply_file_transcription_selection(&mut settings);
     let file_transcription_uses_local_model =
         file_transcription_uses_local_model(&settings, model_override.as_deref());
     let recording_uses_local_model = active_recording_uses_local_model(&app);
@@ -229,7 +252,7 @@ pub async fn transcribe_audio_file(
     profile_id: Option<String>,
     save_to_file: bool,
     output_format: Option<OutputFormat>,
-    model_override: Option<String>,
+    mut model_override: Option<String>,
     custom_words_enabled_override: Option<bool>,
     soniox_options_override: Option<SonioxFileTranscriptionOptions>,
     deepgram_options_override: Option<DeepgramFileTranscriptionOptions>,
@@ -264,7 +287,11 @@ pub async fn transcribe_audio_file(
     let transcription_started_at = Instant::now();
 
     // Get settings and determine profile to use
-    let settings = get_settings(&app);
+    let mut settings = get_settings(&app);
+    apply_file_transcription_selection(&mut settings)?;
+    if model_override.is_none() && settings.transcription_provider == TranscriptionProvider::Local {
+        model_override = Some(settings.selected_model.clone());
+    }
     let profile_id = profile_id.unwrap_or_else(|| settings.active_profile_id.clone());
     let profile = settings.transcription_profile(&profile_id);
     let apply_custom_words_enabled =

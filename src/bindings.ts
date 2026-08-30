@@ -3937,7 +3937,7 @@ async isLaptop() : Promise<Result<boolean, string>> {
 /** user-defined types **/
 
 export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; pushToTalk: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; openai_realtime_whisper_delay?: OpenAiRealtimeWhisperDelay; openai_realtime_whisper_keywords?: string; openai_realtime_whisper_flatten_enabled?: boolean; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[];
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; file_transcription_model_selection?: SttModelSelection | null; live_sound_model_selection?: SttModelSelection | null; openai_realtime_whisper_delay?: OpenAiRealtimeWhisperDelay; openai_realtime_whisper_keywords?: string; openai_realtime_whisper_flatten_enabled?: boolean; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[];
 /**
  * Gemini exact BCP-47 locale, `auto`, or `os_input`.
  */
@@ -4788,6 +4788,7 @@ soniox_context_text?: string;
  */
 soniox_context_terms?: string[] }
 export type TranscriptionProvider = "local" | "remote_openai_compatible" | "remote_soniox" | "remote_deepgram"
+export type SttModelSelection = { provider: TranscriptionProvider; model_id: string; provider_preset: string }
 export type TtsBatchFilePlan = { inputPath: string; relativePath: string; outputPath: string; scanError: string | null }
 export type TtsBatchFileResult = { index: number; inputPath: string; relativePath: string; outputPath: string; status: TtsBatchFileStatus; error: string | null; warning: string | null; operationId: string | null; resumedChunks: number }
 export type TtsBatchFileStatus = "queued" | "processing" | "completed" | "skipped" | "failed"

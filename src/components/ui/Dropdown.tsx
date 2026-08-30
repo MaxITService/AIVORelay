@@ -13,6 +13,7 @@ export interface DropdownOption {
   label: string;
   disabled?: boolean;
   className?: string;
+  title?: string;
 }
 
 interface DropdownProps {
@@ -271,6 +272,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
                   onClick={() => handleSelect(option.value)}
                   disabled={option.disabled}
                   onMouseEnter={() => setHighlightedIndex(index)}
+                  title={option.title}
                 >
                   <span className="block whitespace-normal break-words">
                     {option.label}

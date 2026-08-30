@@ -2643,6 +2643,58 @@ pub enum TranscriptionProvider {
     RemoteDeepgram,
 }
 
+/// A workflow-specific STT provider/model choice. Provider credentials and
+/// advanced controls remain in their existing global settings; this value only
+/// selects which configured provider/model a workflow should use.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
+pub struct SttModelSelection {
+    pub provider: TranscriptionProvider,
+    #[serde(default)]
+    pub model_id: String,
+    #[serde(default)]
+    pub provider_preset: String,
+}
+
+pub fn apply_stt_model_selection(
+    settings: &mut AppSettings,
+    selection: &SttModelSelection,
+) -> Result<(), String> {
+    let model_id = selection.model_id.trim();
+    if model_id.is_empty() {
+        return Err("STT model selection is empty.".to_string());
+    }
+
+    settings.transcription_provider = selection.provider;
+    match selection.provider {
+        TranscriptionProvider::Local => settings.selected_model = model_id.to_string(),
+        TranscriptionProvider::RemoteSoniox => settings.soniox_model = model_id.to_string(),
+        TranscriptionProvider::RemoteDeepgram => settings.deepgram_model = model_id.to_string(),
+        TranscriptionProvider::RemoteOpenAiCompatible => {
+            let preset = selection.provider_preset.trim();
+            if preset.is_empty() {
+                return Err("Remote STT provider selection is empty.".to_string());
+            }
+            if preset != crate::url_security::REMOTE_STT_PRESET_CUSTOM {
+                let Some(base_url) = remote_stt_base_url_for_preset(preset) else {
+                    return Err(format!("Unknown Remote STT provider preset '{preset}'."));
+                };
+                settings.remote_stt.base_url = base_url.to_string();
+                settings.remote_stt.allow_insecure_http = false;
+            } else if settings.remote_stt.provider_preset
+                != crate::url_security::REMOTE_STT_PRESET_CUSTOM
+            {
+                return Err(
+                    "Configure the Custom Remote STT endpoint in Models before selecting it here."
+                        .to_string(),
+                );
+            }
+            settings.remote_stt.provider_preset = preset.to_string();
+            settings.remote_stt.model_id = model_id.to_string();
+        }
+    }
+    Ok(())
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum FileTranscriptionChunkingMode {
@@ -3081,6 +3133,17 @@ impl Default for LiveSoundTranscriptionProvider {
     }
 }
 
+impl LiveSoundTranscriptionProvider {
+    pub fn from_transcription_provider(provider: TranscriptionProvider) -> Option<Self> {
+        match provider {
+            TranscriptionProvider::RemoteSoniox => Some(Self::RemoteSoniox),
+            TranscriptionProvider::RemoteDeepgram => Some(Self::RemoteDeepgram),
+            TranscriptionProvider::RemoteOpenAiCompatible => Some(Self::RemoteOpenAiCompatible),
+            TranscriptionProvider::Local => None,
+        }
+    }
+}
+
 /// Resolve the effective transcription provider for Live Sound Transcription.
 /// `System` is a legacy alias kept so old settings still deserialize; it maps to
 /// Soniox (the current default), matching the frontend migration semantics.
@@ -3292,6 +3355,14 @@ pub struct AppSettings {
     pub transcription_provider: TranscriptionProvider,
     #[serde(default = "default_remote_stt_settings")]
     pub remote_stt: RemoteSttSettings,
+    /// Independent model choice for Transcribe File. None inherits the current
+    /// Speech / Mic selection until the user chooses a file-specific model.
+    #[serde(default)]
+    pub file_transcription_model_selection: Option<SttModelSelection>,
+    /// Independent model choice for Live Monitor. None keeps the legacy
+    /// provider-specific selection behavior.
+    #[serde(default)]
+    pub live_sound_model_selection: Option<SttModelSelection>,
     #[serde(default)]
     pub openai_realtime_whisper_delay: OpenAiRealtimeWhisperDelay,
     #[serde(default)]
@@ -5544,6 +5615,8 @@ pub fn get_default_settings() -> AppSettings {
         selected_model: "".to_string(),
         transcription_provider: default_transcription_provider(),
         remote_stt: default_remote_stt_settings(),
+        file_transcription_model_selection: None,
+        live_sound_model_selection: None,
         openai_realtime_whisper_delay: OpenAiRealtimeWhisperDelay::default(),
         openai_realtime_whisper_keywords: String::new(),
         openai_realtime_whisper_flatten_enabled: false,

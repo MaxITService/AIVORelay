@@ -2,9 +2,61 @@ use crate::managers::remote_stt::{
     clear_remote_stt_api_key, has_remote_stt_api_key, set_remote_stt_api_key, supports_translation,
     RemoteSttManager,
 };
-use crate::settings::get_settings;
+use crate::settings::{
+    apply_stt_model_selection, get_settings, SttModelSelection, TranscriptionProvider,
+};
+use serde::Serialize;
+use specta::Type;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
+
+#[derive(Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SttModelSelectionReadiness {
+    pub selection: SttModelSelection,
+    pub ready: bool,
+    pub reason: Option<String>,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn stt_model_selections_readiness(
+    app: AppHandle,
+    selections: Vec<SttModelSelection>,
+) -> Vec<SttModelSelectionReadiness> {
+    let settings = get_settings(&app);
+    selections
+        .into_iter()
+        .map(|selection| {
+            let mut candidate = settings.clone();
+            let configuration_error = apply_stt_model_selection(&mut candidate, &selection).err();
+            let ready = if configuration_error.is_some() {
+                false
+            } else {
+                match selection.provider {
+                    TranscriptionProvider::Local => true,
+                    TranscriptionProvider::RemoteSoniox => {
+                        crate::secure_keys::has_soniox_api_key()
+                    }
+                    TranscriptionProvider::RemoteDeepgram => {
+                        crate::secure_keys::has_deepgram_api_key()
+                    }
+                    TranscriptionProvider::RemoteOpenAiCompatible => {
+                        has_remote_stt_api_key(&candidate.remote_stt)
+                    }
+                }
+            };
+            let reason = configuration_error.or_else(|| {
+                (!ready).then(|| "API key is not configured in Models.".to_string())
+            });
+            SttModelSelectionReadiness {
+                selection,
+                ready,
+                reason,
+            }
+        })
+        .collect()
+}
 
 #[tauri::command]
 #[specta::specta]

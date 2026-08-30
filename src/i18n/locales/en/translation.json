@@ -1361,6 +1361,13 @@
     }
   },
   "settings": {
+    "sttModelSelector": {
+      "provider": "Provider",
+      "model": "Model",
+      "missingApiKey": "API key is not configured in Models.",
+      "notConfigured": "Model is not configured.",
+      "downloadLocalModel": "Download this local model in Models before using it."
+    },
     "generalHelp": {
       "title": "See what AivoRelay can do",
       "description": "Open Help for a short guide to every feature and the settings page that controls it.",
@@ -3924,6 +3931,7 @@
     "cancelling": "Cancelling...",
     "cancelled": "File transcription cancelled.",
     "liveModelUnsupported": "Gemini Live cannot transcribe files. In Models, select the regular Gemini 3.5 Transcribe model.",
+    "selectFileBeforeTranscribing": "Select a file before starting transcription. You can configure the model and options now.",
     "dropZone": {
       "title": "Drop audio file here or click to browse",
       "subtitle": "Select an audio file to transcribe",

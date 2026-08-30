@@ -1,6 +1,9 @@
 use crate::actions;
 use crate::managers::live_sound_transcription::LiveSoundTranscriptionStatePayload;
-use crate::settings::{get_settings, write_settings, LiveSoundTranscriptionProvider};
+use crate::settings::{
+    apply_stt_model_selection, get_settings, write_settings, LiveSoundTranscriptionProvider,
+    SttModelSelection,
+};
 use tauri::AppHandle;
 
 const SONIOX_ENDPOINT_DELAY_MIN_MS: u32 = 500;
@@ -87,6 +90,28 @@ pub fn change_live_sound_transcription_provider(
 ) -> Result<(), String> {
     let mut settings = get_settings(&app);
     settings.live_sound_transcription_provider = provider;
+    settings.live_sound_model_selection = None;
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_live_sound_model_selection(
+    app: AppHandle,
+    selection: SttModelSelection,
+) -> Result<(), String> {
+    let Some(provider) =
+        LiveSoundTranscriptionProvider::from_transcription_provider(selection.provider)
+    else {
+        return Err("Live Monitor does not support local STT models.".to_string());
+    };
+
+    let mut settings = get_settings(&app);
+    let mut candidate = settings.clone();
+    apply_stt_model_selection(&mut candidate, &selection)?;
+    settings.live_sound_transcription_provider = provider;
+    settings.live_sound_model_selection = Some(selection);
     write_settings(&app, settings);
     Ok(())
 }
