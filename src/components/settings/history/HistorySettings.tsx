@@ -1221,18 +1221,74 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   const { t, i18n } = useTranslation();
   const [showCopied, setShowCopied] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [playableAudio, setPlayableAudio] = useState<{
+    url: string;
+    durationSeconds: number;
+  } | null>(null);
 
   const isAiReplace = entry.action_type === "ai_replace";
   const displayText = isAiReplace
     ? (entry.ai_response ?? entry.transcription_text)
     : (entry.post_processed_text ?? entry.transcription_text);
   const hasDisplayText = displayText.trim().length > 0;
-  const hasAudio = entry.file_name.trim().length > 0;
+  const hasAudioReference =
+    !isAiReplace && entry.file_name.trim().length > 0;
+  const hasPlayableAudio = playableAudio !== null;
 
-  const handleLoadAudio = useCallback(
-    () => getAudioUrl(entry.file_name),
-    [getAudioUrl, entry.file_name],
-  );
+  useEffect(() => {
+    let cancelled = false;
+    let metadataAudio: HTMLAudioElement | null = null;
+    let timeoutId: number | null = null;
+
+    setPlayableAudio(null);
+    if (!hasAudioReference) {
+      return;
+    }
+
+    void getAudioUrl(entry.file_name).then((url) => {
+      if (cancelled || !url) {
+        return;
+      }
+
+      metadataAudio = document.createElement("audio");
+      metadataAudio.preload = "metadata";
+
+      const finish = (durationSeconds: number | null) => {
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        if (!cancelled && durationSeconds !== null && durationSeconds >= 1) {
+          setPlayableAudio({ url, durationSeconds });
+        }
+        metadataAudio?.removeAttribute("src");
+        metadataAudio?.load();
+        metadataAudio = null;
+      };
+
+      metadataAudio.onloadedmetadata = () => {
+        const durationSeconds = metadataAudio?.duration ?? Number.NaN;
+        finish(
+          Number.isFinite(durationSeconds) && durationSeconds > 0
+            ? durationSeconds
+            : null,
+        );
+      };
+      metadataAudio.onerror = () => finish(null);
+      metadataAudio.src = url;
+      metadataAudio.load();
+      timeoutId = window.setTimeout(() => finish(null), 5000);
+    });
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+      metadataAudio?.removeAttribute("src");
+      metadataAudio?.load();
+    };
+  }, [entry.file_name, getAudioUrl, hasAudioReference]);
 
   const handleCopyText = () => {
     if (!hasDisplayText || retrying) {
@@ -1317,7 +1373,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
               fill={entry.saved ? "currentColor" : "none"}
             />
           </IconButton>
-          {!isAiReplace && hasAudio && (
+          {!isAiReplace && hasPlayableAudio && (
             <IconButton
               onClick={handleRetranscribe}
               disabled={retrying}
@@ -1422,8 +1478,12 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
                 ? displayText
                 : t("settings.history.transcriptionFailed")}
           </p>
-          {hasAudio && (
-            <AudioPlayer onLoadRequest={handleLoadAudio} className="w-full" />
+          {playableAudio && (
+            <AudioPlayer
+              src={playableAudio.url}
+              initialDurationSeconds={playableAudio.durationSeconds}
+              className="w-full"
+            />
           )}
         </>
       )}
