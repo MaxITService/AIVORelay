@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AivoRelay — Gemini 3.5 and audiobooks</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #f5f5f5;
+      background: #ffffff;
+      font-synthesis: none;
+      --pink: #ff4d8d;
+      --purple: #9b5de5;
+      --gold: #ffd93d;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: start center;
+      padding: 12px;
+      background: #ffffff;
+    }
+
+    .promo {
+      width: min(100%, 680px);
+      aspect-ratio: 4 / 5;
+      overflow: hidden;
+      padding: clamp(26px, 4.7vw, 32px);
+      border: 1px solid rgba(255, 255, 255, .13);
+      border-radius: 30px;
+      background:
+        radial-gradient(circle at 100% 0%, hsla(267, 32.5%, 63%, .23), transparent 34%),
+        radial-gradient(circle at 0 100%, hsla(338, 45%, 65%, .13), transparent 33%),
+        linear-gradient(150deg, #202024, #121214 56%, hsl(307, 10%, 8%));
+      box-shadow: 0 30px 90px rgba(0, 0, 0, .52);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 17px;
+    }
+
+    .brand img {
+      width: clamp(62px, 10.2vw, 72px);
+      height: clamp(62px, 10.2vw, 72px);
+      display: block;
+      border-radius: 19px;
+      object-fit: cover;
+      box-shadow: 0 10px 26px rgba(0, 0, 0, .4);
+    }
+
+    .brand-name {
+      font-size: clamp(30px, 5vw, 36px);
+      font-weight: 800;
+      letter-spacing: -.04em;
+    }
+
+    .brand-tagline {
+      margin-top: 2px;
+      color: rgba(245, 245, 245, .62);
+      font-size: clamp(15px, 2.5vw, 18px);
+      font-weight: 650;
+    }
+
+    h1 {
+      max-width: 590px;
+      margin: clamp(16px, 3vw, 20px) 0 0;
+      color: #fafafd;
+      font-size: clamp(38px, 6.9vw, 50px);
+      font-weight: 810;
+      letter-spacing: -.055em;
+      line-height: 1.01;
+    }
+
+    h1 strong {
+      display: inline-block;
+      padding-right: .08em;
+      margin-right: -.08em;
+      color: #4285f4;
+      background: linear-gradient(90deg,
+        #4285f4 0%, #4285f4 18%,
+        #ea4335 31%,
+        #fbbc05 44%,
+        #4285f4 58%,
+        #34a853 76%,
+        #ea4335 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .routes {
+      margin: 9px 0 0;
+      color: rgba(245, 245, 245, .74);
+      font-size: clamp(19px, 3.3vw, 24px);
+      font-weight: 680;
+      line-height: 1.25;
+    }
+
+    .routes b { color: #fff; }
+
+    .chips,
+    .providers {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chips { margin-top: 12px; }
+
+    .chip,
+    .provider {
+      border: 1px solid rgba(255, 255, 255, .11);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, .045);
+      color: rgba(250, 250, 253, .84);
+      font-weight: 690;
+    }
+
+    .chip {
+      padding: 7px 10px;
+      font-size: clamp(13px, 2.25vw, 16px);
+    }
+
+    .chip::first-letter { color: #89e5b3; }
+
+    .chart-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 15px;
+      margin-top: 0;
+    }
+
+    .chart-card {
+      margin-top: clamp(18px, 3.1vw, 22px);
+      padding: clamp(11px, 1.9vw, 14px) clamp(13px, 2.2vw, 17px) clamp(9px, 1.6vw, 12px);
+      border: 1px solid rgba(255, 255, 255, .14);
+      border-radius: 17px;
+      background: rgba(255, 255, 255, .032);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+    }
+
+    .chart-heading strong {
+      font-size: clamp(16px, 2.7vw, 19px);
+      font-weight: 790;
+    }
+
+    .chart-heading span {
+      color: rgba(245, 245, 245, .5);
+      font-size: clamp(9px, 1.55vw, 11px);
+      white-space: nowrap;
+    }
+
+    .chart {
+      height: clamp(132px, 22vw, 150px);
+      display: flex;
+      align-items: stretch;
+      gap: clamp(7px, 1.35vw, 10px);
+      margin-top: 11px;
+      padding-top: 4px;
+      border-bottom: 1px solid rgba(255, 255, 255, .11);
+    }
+
+    .bar-item {
+      flex: 1;
+      min-width: 0;
+      display: grid;
+      grid-template-rows: 21px 1fr 39px;
+      gap: 4px;
+      align-items: end;
+      text-align: center;
+    }
+
+    .bar-value {
+      color: rgba(250, 250, 253, .84);
+      font-size: clamp(11px, 1.95vw, 14px);
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .bar {
+      position: relative;
+      width: 100%;
+      align-self: end;
+      border-radius: 7px 7px 2px 2px;
+      background: rgba(255, 255, 255, .16);
+    }
+
+    .bar.best {
+      background: linear-gradient(180deg, #72a8ff, #3d82f7);
+      box-shadow: 0 0 24px rgba(66, 133, 244, .27);
+    }
+
+    .bar.best::after {
+      content: "BEST";
+      position: absolute;
+      left: 50%;
+      top: -18px;
+      translate: -50% 0;
+      color: #aec8ff;
+      font-size: clamp(7px, 1.2vw, 9px);
+      font-weight: 900;
+      letter-spacing: .08em;
+    }
+
+    .bar-label {
+      align-self: start;
+      color: rgba(245, 245, 245, .66);
+      font-size: clamp(10px, 1.7vw, 12px);
+      font-weight: 690;
+      line-height: 1.05;
+    }
+
+    .bar-item:first-child .bar-value,
+    .bar-item:first-child .bar-label { color: #b8ceff; }
+
+    .source {
+      margin: 9px 0 0;
+      color: rgba(245, 245, 245, .55);
+      font-size: clamp(10px, 1.75vw, 12px);
+      font-weight: 650;
+    }
+
+    .divider {
+      height: 1px;
+      margin: clamp(18px, 3vw, 22px) 0;
+      background: linear-gradient(90deg, var(--pink), var(--purple), transparent);
+      opacity: .66;
+    }
+
+    h2 {
+      margin: 0;
+      color: #fafafd;
+      font-size: clamp(28px, 4.7vw, 34px);
+      font-weight: 790;
+      letter-spacing: -.045em;
+      line-height: 1.08;
+    }
+
+    h2 .new-feature { color: #ff8bb5; }
+
+    .cli-note {
+      margin: 9px 0 0;
+      color: rgba(245, 245, 245, .74);
+      font-size: clamp(17px, 2.9vw, 21px);
+      font-weight: 620;
+      line-height: 1.35;
+    }
+
+    .providers { margin-top: 12px; }
+
+    .provider {
+      padding: 6px 8px;
+      font-size: clamp(10px, 1.7vw, 12px);
+    }
+
+    .provider.highlight {
+      border-color: rgba(255, 77, 141, .28);
+      color: #ffb0cc;
+      background: rgba(255, 77, 141, .08);
+    }
+
+    @media (max-width: 520px) {
+      body { padding: 6px; }
+      .promo {
+        min-height: 780px;
+        aspect-ratio: auto;
+        padding: 25px;
+        border-radius: 23px;
+      }
+      .chart-heading { display: block; }
+      .chart-heading span { display: block; margin-top: 3px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="promo">
+    <header class="brand">
+      <img src="Squre-logo-Taskbar-transparent-contrasty.png" alt="AivoRelay logo">
+      <div>
+        <div class="brand-name">AivoRelay</div>
+        <div class="brand-tagline">Press key, speak, text appears.</div>
+      </div>
+    </header>
+
+    <h1>AivoRelay now supports <strong>Gemini 3.5 Transcribe</strong></h1>
+    <p class="routes">via <b>Vercel AI Gateway</b> or <b>Google Direct</b></p>
+
+    <div class="chips" aria-label="Supported transcription modes">
+      <span class="chip">✓ Speaker diarization</span>
+      <span class="chip">✓ Standard speech-to-text</span>
+      <span class="chip">✓ Audio files to text</span>
+    </div>
+
+    <section class="chart-card" aria-label="Google benchmark comparison">
+      <div class="chart-heading">
+        <strong>FLEURS · top locales</strong>
+        <span>Word error rate · lower is better</span>
+      </div>
+      <div class="chart" aria-label="FLEURS word error rate comparison">
+        <span class="bar-item" title="Gemini 3.5 Transcribe Live — 5.50%">
+          <span class="bar-value">5.50%</span><span class="bar best" style="height:35%"></span><span class="bar-label">Gemini<br>3.5 Live</span>
+        </span>
+        <span class="bar-item" title="Google Cloud Chirp 3 — 7.32%">
+          <span class="bar-value">7.32%</span><span class="bar" style="height:46%"></span><span class="bar-label">Chirp 3</span>
+        </span>
+        <span class="bar-item" title="ElevenLabs Scribe v2 Realtime — 9.70%">
+          <span class="bar-value">9.70%</span><span class="bar" style="height:62%"></span><span class="bar-label">Scribe v2<br>Realtime</span>
+        </span>
+        <span class="bar-item" title="OpenAI GPT Live Transcribe — 8.97%">
+          <span class="bar-value">8.97%</span><span class="bar" style="height:57%"></span><span class="bar-label">GPT Live</span>
+        </span>
+        <span class="bar-item" title="Deepgram Nova-3 — 15.77%">
+          <span class="bar-value">15.77%</span><span class="bar" style="height:100%"></span><span class="bar-label">Nova-3</span>
+        </span>
+      </div>
+      <p class="source">Source: Google · Gemini 3.5 Transcribe launch benchmark</p>
+    </section>
+
+    <div class="divider"></div>
+
+    <section aria-labelledby="tts-title">
+      <h2 id="tts-title"><span class="new-feature">+ New feature:</span> Create audiobooks with your favorite API or read selected text aloud.</h2>
+      <p class="cli-note">Also CLI — so your agent can make audiobooks for you.</p>
+      <div class="providers" aria-label="Supported text to speech providers">
+        <span class="provider highlight">7 cloud APIs</span>
+        <span class="provider">Qwen3-TTS · Local</span><span class="provider">Kokoro · Local</span><span class="provider">Windows voices</span>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
