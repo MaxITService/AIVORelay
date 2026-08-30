@@ -166,6 +166,7 @@ const formatAudioDurationClock = (
 
 const formatAudioDurationWithUnits = (
   seconds: number | null | undefined,
+  locale: string,
 ): string => {
   if (seconds == null || !Number.isFinite(seconds) || seconds < 0) {
     return "";
@@ -176,14 +177,35 @@ const formatAudioDurationWithUnits = (
   const minutes = Math.floor((rounded % 3600) / 60);
   const remainingSeconds = rounded % 60;
 
+  const formatUnit = (value: number, unit: "hour" | "minute" | "second") =>
+    new Intl.NumberFormat(locale, {
+      style: "unit",
+      unit,
+      unitDisplay: "short",
+    }).format(value);
+
   if (hours > 0) {
-    return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(
-      remainingSeconds,
-    ).padStart(2, "0")}s`;
+    return [
+      formatUnit(hours, "hour"),
+      formatUnit(minutes, "minute"),
+      formatUnit(remainingSeconds, "second"),
+    ].join(" ");
   }
 
-  return `${minutes}m ${String(remainingSeconds).padStart(2, "0")}s`;
+  return [
+    formatUnit(minutes, "minute"),
+    formatUnit(remainingSeconds, "second"),
+  ].join(" ");
 };
+
+const formatSecondsWithUnit = (seconds: number, locale: string): string =>
+  new Intl.NumberFormat(locale, {
+    style: "unit",
+    unit: "second",
+    unitDisplay: "short",
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(seconds);
 
 const formatChunkTraceTime = (seconds: number): string => {
   const safeSeconds = Math.max(0, seconds);
@@ -344,7 +366,7 @@ const openCustomWordsSettings = () => {
 };
 
 export const TranscribeFileSettings: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { settings, refreshSettings, updateSetting } = useSettings();
 
   const {
@@ -1024,8 +1046,8 @@ export const TranscribeFileSettings: React.FC = () => {
     ? t("transcribeFile.durationUnknownWarning")
     : selectedFileExceedsGeminiLimit
       ? t("transcribeFile.gemini.durationLimitExceeded", "The selected audio is {{duration}}, exceeding the {{limit}} Gemini limit for {{reason}}. The file will not be sent.", {
-          duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
-          limit: formatAudioDurationWithUnits(geminiDurationLimitSeconds),
+          duration: formatAudioDurationWithUnits(selectedFileDurationSeconds, i18n.language),
+          limit: formatAudioDurationWithUnits(geminiDurationLimitSeconds, i18n.language),
           reason: geminiNeedsWordTimestamps && geminiFileDiarization
             ? t("transcribeFile.gemini.limitReasons.timestampsAndDiarization", "word timestamps and speaker diarization")
             : geminiNeedsWordTimestamps
@@ -1036,16 +1058,18 @@ export const TranscribeFileSettings: React.FC = () => {
         })
       : selectedFileExceedsDeepgramLimit
       ? t("transcribeFile.deepgram.durationLimitExceeded", {
-          duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
+          duration: formatAudioDurationWithUnits(selectedFileDurationSeconds, i18n.language),
           limit: formatAudioDurationWithUnits(
             DEEPGRAM_MAX_FILE_DURATION_SECONDS,
+            i18n.language,
           ),
         })
       : selectedFileExceedsSonioxLimit
         ? t("transcribeFile.soniox.durationLimitExceeded", {
-            duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
+            duration: formatAudioDurationWithUnits(selectedFileDurationSeconds, i18n.language),
             limit: formatAudioDurationWithUnits(
               SONIOX_MAX_FILE_DURATION_SECONDS,
+              i18n.language,
             ),
           })
         : null;
@@ -1552,20 +1576,19 @@ export const TranscribeFileSettings: React.FC = () => {
       >
         <details className="group border-b border-white/[0.05] px-4 py-3">
           <summary className="cursor-pointer select-none text-sm font-medium text-[#d7b9ff]">
-            CLI help — audio file to text or Markdown
+            {t("transcribeFile.cliHelp.title")}
           </summary>
           <div className="mt-3 space-y-2 text-xs leading-relaxed text-[#a0a0a0]">
             <p>
-              Uses the provider and file-transcription settings configured in
-              this section.
+              {t("transcribeFile.cliHelp.settingsSource")}
             </p>
             <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
               AivoRelay.exe --convert-file .\meeting.mp3 --output .\meeting.md
             </code>
             <p>
-              Progress is printed in the current terminal. Add{" "}
-              <span className="font-mono">--json</span> for machine-readable
-              output.
+              {t("transcribeFile.cliHelp.progress")} {t("transcribeFile.cliHelp.jsonBefore")}{" "}
+              <span className="font-mono">--json</span>{" "}
+              {t("transcribeFile.cliHelp.jsonAfter")}
             </p>
           </div>
         </details>
@@ -1922,7 +1945,7 @@ export const TranscribeFileSettings: React.FC = () => {
                     {t("transcribeFile.gemini.durationLimit", "Current Gemini file limit: {{minutes}} minutes{{reason}}.", {
                       minutes: geminiDurationLimitSeconds / 60,
                       reason: geminiNeedsWordTimestamps || geminiFileDiarization
-                        ? " because timestamps or diarization are enabled"
+                        ? t("transcribeFile.gemini.durationLimitEnabledReason")
                         : "",
                     })}
                   </p>
@@ -1944,7 +1967,8 @@ export const TranscribeFileSettings: React.FC = () => {
                   <p className="text-xs text-[#d7b9ff]">
                     {t("transcribeFile.soniox.autoSwitchNotice", {
                       targetModel: "stt-async-v5",
-                      selectedModel: sonioxModel.trim() || "(empty)",
+                      selectedModel:
+                        sonioxModel.trim() || t("transcribeFile.emptyValue"),
                     })}
                   </p>
                 </div>
@@ -2069,9 +2093,11 @@ export const TranscribeFileSettings: React.FC = () => {
                     ? ` ${t("transcribeFile.soniox.durationLimitExceeded", {
                         duration: formatAudioDurationWithUnits(
                           selectedFileDurationSeconds,
+                          i18n.language,
                         ),
                         limit: formatAudioDurationWithUnits(
                           SONIOX_MAX_FILE_DURATION_SECONDS,
+                          i18n.language,
                         ),
                       })}`
                     : ""}
@@ -2150,9 +2176,11 @@ export const TranscribeFileSettings: React.FC = () => {
                     ? ` ${t("transcribeFile.deepgram.durationLimitExceeded", {
                         duration: formatAudioDurationWithUnits(
                           selectedFileDurationSeconds,
+                          i18n.language,
                         ),
                         limit: formatAudioDurationWithUnits(
                           DEEPGRAM_MAX_FILE_DURATION_SECONDS,
+                          i18n.language,
                         ),
                       })}`
                     : ""}
@@ -2559,7 +2587,7 @@ export const TranscribeFileSettings: React.FC = () => {
                           {formatChunkTraceTime(entry.endSecs)}
                         </span>
                         <span className="text-[#8a8a8a]">
-                          {`(${entry.durationSecs.toFixed(1)}s)`}
+                          ({formatSecondsWithUnit(entry.durationSecs, i18n.language)})
                         </span>
                         <span className="text-[#9ad1ff]">
                           {t(
