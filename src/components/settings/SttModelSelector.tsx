@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { ModelInfo } from "@/bindings";
+import { commands, type ModelInfo } from "@/bindings";
+import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
+import { useNavigationStore } from "@/stores/navigationStore";
 import {
   sttCatalog,
   sttModelDropdownOptions,
@@ -19,6 +21,11 @@ type Readiness = {
   ready: boolean;
   reason?: string | null;
 };
+
+type ReadinessProblemKind =
+  | "missingApiKey"
+  | "downloadOnUse"
+  | "notConfigured";
 
 type Props = {
   workflow: SttWorkflow;
@@ -47,6 +54,16 @@ export const SttModelSelector: React.FC<Props> = ({
   const [readiness, setReadiness] = useState<Map<string, string | null>>(
     new Map(),
   );
+  const [problemKinds, setProblemKinds] = useState<
+    Map<string, ReadinessProblemKind>
+  >(new Map());
+  const [readinessRefreshToken, setReadinessRefreshToken] = useState(0);
+  const [readinessCheckFailed, setReadinessCheckFailed] = useState(false);
+  const [downloadStarting, setDownloadStarting] = useState(false);
+  const [downloadedModelIds, setDownloadedModelIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const options = useMemo<SttCatalogOption[]>(() => {
     if (catalog.some((option) => sttSelectionKey(option.selection) === currentKey)) {
@@ -75,43 +92,64 @@ export const SttModelSelector: React.FC<Props> = ({
 
   useEffect(() => {
     let active = true;
+    setReadinessCheckFailed(false);
     void invoke<Readiness[]>("stt_model_selections_readiness", {
       selections: options.map((option) => option.selection),
     })
       .then((items) => {
         if (!active) return;
         const next = new Map<string, string | null>();
+        const nextKinds = new Map<string, ReadinessProblemKind>();
         for (const item of items) {
+          const key = sttSelectionKey(item.selection);
           next.set(
-            sttSelectionKey(item.selection),
+            key,
             item.ready
               ? null
               : item.reason === "API key is not configured in Models."
                 ? t("settings.sttModelSelector.missingApiKey")
                 : item.reason || t("settings.sttModelSelector.notConfigured"),
           );
+          if (!item.ready) {
+            nextKinds.set(
+              key,
+              item.reason === "API key is not configured in Models."
+                ? "missingApiKey"
+                : "notConfigured",
+            );
+          }
         }
         for (const option of options) {
           if (
             option.selection.provider === "local" &&
             option.localModel &&
-            !option.localModel.is_downloaded
+            !option.localModel.is_downloaded &&
+            !downloadedModelIds.has(option.localModel.id)
           ) {
             next.set(
               sttSelectionKey(option.selection),
               t("settings.sttModelSelector.downloadLocalModel"),
             );
+            nextKinds.set(
+              sttSelectionKey(option.selection),
+              "downloadOnUse",
+            );
           }
         }
         setReadiness(next);
+        setProblemKinds(nextKinds);
       })
       .catch(() => {
-        if (active) setReadiness(new Map());
+        if (active) {
+          setReadiness(new Map());
+          setProblemKinds(new Map());
+          setReadinessCheckFailed(true);
+        }
       });
     return () => {
       active = false;
     };
-  }, [options, t]);
+  }, [downloadedModelIds, options, readinessRefreshToken, t]);
 
   const providerOptions = useMemo(() => {
     const providers = new Map<string, string>();
@@ -123,7 +161,40 @@ export const SttModelSelector: React.FC<Props> = ({
   const modelOptions = options.filter(
     (option) => option.providerId === currentProviderId,
   );
-  const currentProblem = readiness.get(currentKey) ?? null;
+  const currentCatalogOption = catalog.find(
+    (option) => sttSelectionKey(option.selection) === currentKey,
+  );
+  const currentProblemKind = problemKinds.get(currentKey) ?? null;
+  const currentProblem = !currentCatalogOption
+    ? t("settings.sttModelSelector.incompatibleModel")
+    : readinessCheckFailed
+      ? t("settings.sttModelSelector.readinessCheckFailed")
+      : readiness.get(currentKey) ?? null;
+
+  const retryReadiness = () => {
+    setActionError(null);
+    setReadinessRefreshToken((value) => value + 1);
+  };
+
+  const downloadCurrentModel = async () => {
+    const modelId = currentCatalogOption?.localModel?.id;
+    if (!modelId || downloadStarting) return;
+    setDownloadStarting(true);
+    setActionError(null);
+    try {
+      const result = await commands.downloadModel(modelId);
+      if (result.status === "error") {
+        setActionError(result.error);
+      } else {
+        setDownloadedModelIds((previous) => new Set(previous).add(modelId));
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDownloadStarting(false);
+      setReadinessRefreshToken((value) => value + 1);
+    }
+  };
 
   const selectProvider = (providerId: string) => {
     const first = options.find((option) => option.providerId === providerId);
@@ -167,10 +238,67 @@ export const SttModelSelector: React.FC<Props> = ({
           dropUp={false}
         />
         {currentProblem && (
-          <p className="flex items-start gap-1.5 text-xs text-red-400">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>{currentProblem}</span>
-          </p>
+          <div className="space-y-2 rounded-lg border border-red-500/25 bg-red-500/5 p-2.5">
+            <p className="flex items-start gap-1.5 text-xs text-red-400">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{currentProblem}</span>
+            </p>
+            <div className="flex flex-wrap items-center gap-2 pl-5">
+              {!currentCatalogOption ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={disabled || catalog.length === 0}
+                  onClick={() => {
+                    const compatible = catalog[0];
+                    if (compatible) void onChange(compatible.selection);
+                  }}
+                >
+                  {t("settings.sttModelSelector.selectCompatibleModel")}
+                </Button>
+              ) : currentProblemKind === "missingApiKey" ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => useNavigationStore.getState().setSection("models")}
+                >
+                  {t("settings.sttModelSelector.configureApiKey")}
+                </Button>
+              ) : currentProblemKind === "downloadOnUse" ? (
+                <>
+                  <span className="text-xs text-amber-300">
+                    {t("settings.sttModelSelector.downloadWhenStarted")}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={disabled || downloadStarting}
+                    onClick={() => void downloadCurrentModel()}
+                  >
+                    {downloadStarting
+                      ? t("settings.sttModelSelector.downloading")
+                      : t("settings.sttModelSelector.downloadNow")}
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={disabled}
+                  onClick={retryReadiness}
+                >
+                  {t("common.retry", "Retry")}
+                </Button>
+              )}
+            </div>
+            {actionError && (
+              <p className="pl-5 text-xs text-red-300">{actionError}</p>
+            )}
+          </div>
         )}
       </div>
     </div>
