@@ -203,6 +203,26 @@ export const SttModelSelector: React.FC<Props> = ({
 
   return (
     <div className="grid gap-3 md:grid-cols-2">
+      {catalog.length === 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 md:col-span-2">
+          <div>
+            <p className="text-sm font-medium text-amber-100">
+              {t("settings.sttModelSelector.noCompatibleModelsTitle")}
+            </p>
+            <p className="mt-1 text-xs text-amber-200/70">
+              {t("settings.sttModelSelector.noCompatibleModelsHint")}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => useNavigationStore.getState().setSection("models")}
+          >
+            {t("settings.sttModelSelector.openModels")}
+          </Button>
+        </div>
+      )}
       <div className="space-y-1.5">
         <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
           {t("settings.sttModelSelector.provider")}

@@ -1447,6 +1447,9 @@
       "downloadLocalModel": "Not installed yet. It will download automatically on first use; you can also download it now in Models.",
       "incompatibleModel": "The selected model is not compatible with this workflow.",
       "readinessCheckFailed": "Could not check whether this model is ready.",
+      "noCompatibleModelsTitle": "No compatible models are available",
+      "noCompatibleModelsHint": "Open Models to configure or download a model for this workflow.",
+      "openModels": "Open Models",
       "configureApiKey": "Configure API key",
       "downloadWhenStarted": "Downloads automatically when started.",
       "downloadNow": "Download now",
@@ -3020,7 +3023,9 @@
       "title": "History",
       "openFolder": "Open Recordings Folder",
       "loading": "Loading history...",
-      "empty": "No transcriptions yet. Start recording to build your history!",
+      "emptyTitle": "Your transcription history is empty",
+      "empty": "Use the Transcribe shortcut to dictate something. Successful transcriptions will appear here.",
+      "configureDictation": "Configure dictation",
       "settings": {
         "title": "History Settings"
       },
@@ -4032,8 +4037,10 @@
       "file": "File",
       "modelAndSettings": "Model & settings",
       "result": "Result",
-      "resultEmpty": "The transcript will appear here after processing."
+      "resultEmpty": "Select an audio or video file to create a transcript.",
+      "resultReady": "Your file is ready. Review the settings, then start transcription."
     },
+    "selectFile": "Select file",
     "defaultProfile": "Default (Global)",
     "cancelling": "Cancelling...",
     "cancelled": "File transcription cancelled.",
