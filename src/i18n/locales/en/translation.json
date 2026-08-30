@@ -1251,6 +1251,48 @@
     }
   },
   "modelSelector": {
+    "remoteApiRows": {
+      "groq": {
+        "title": "Remote via Groq",
+        "description": "Groq OpenAI-compatible transcription"
+      },
+      "geminiTranscribe": {
+        "title": "Remote via Gemini 3.5 Transcribe (Non-live)",
+        "description": "Completed recordings and audio files through Vercel AI Gateway (default) or Google directly"
+      },
+      "geminiLive": {
+        "title": "Remote via Gemini 3.5 Transcribe Live",
+        "description": "Low-latency streaming via Gemini 3.5 Transcribe Live over Vercel AI Gateway or Google"
+      },
+      "custom": {
+        "title": "Remote via Custom API",
+        "description": "Custom OpenAI-compatible transcription endpoint"
+      },
+      "openAiTranscribe": {
+        "title": "Remote via OpenAI gpt-transcribe",
+        "description": "Recommended for completed recordings and file transcription"
+      },
+      "openAiLiveTranscribe": {
+        "title": "Remote via OpenAI gpt-live-transcribe",
+        "description": "Recommended for low-latency live transcription"
+      },
+      "openAiRealtimeWhisper": {
+        "title": "Remote via OpenAI gpt-realtime-whisper · Legacy",
+        "description": "Legacy native Realtime transcription model kept for compatibility"
+      },
+      "openAiRealtime2": {
+        "title": "Remote via OpenAI gpt-realtime-2 STT Hack",
+        "description": "Voice-agent model coerced into transcript-only output"
+      },
+      "openAiRealtime21": {
+        "title": "Remote via OpenAI gpt-realtime-2.1 STT Hack",
+        "description": "Latest voice-agent model coerced into transcript-only output"
+      },
+      "openAiTranslate": {
+        "title": "Remote via OpenAI gpt-realtime-translate",
+        "description": "Dedicated Realtime translation model with matching input/output language"
+      }
+    },
     "tellMeMore": {
       "title": "Tell me more about Models",
       "headline": "AivoRelay supports multiple transcription methods.",
@@ -3939,6 +3981,14 @@
   "transcribeFile": {
     "title": "Transcribe Audio File",
     "description": "Upload an audio file and transcribe it to text. Supports WAV, MP3, M4A, OGG, FLAC, and WebM formats.",
+    "cliHelp": {
+      "title": "CLI help — audio file to text or Markdown",
+      "settingsSource": "Uses the provider and file-transcription settings configured in this section.",
+      "progress": "Progress is printed in the current terminal.",
+      "jsonBefore": "Add",
+      "jsonAfter": "for machine-readable output."
+    },
+    "emptyValue": "(empty)",
     "stages": {
       "file": "File",
       "modelAndSettings": "Model & settings",
@@ -3970,6 +4020,7 @@
       "timestampsAutomatic": "SRT/VTT automatically requests word timestamps and therefore requires Verbatim mode.",
       "outputFormatHint": "Gemini Text output does not request timestamps. SRT/VTT automatically requests word timestamps and requires Verbatim mode.",
       "durationLimit": "Current Gemini file limit: {{minutes}} minutes{{reason}}.",
+      "durationLimitEnabledReason": " because timestamps or diarization are enabled",
       "durationLimitExceeded": "The selected audio is {{duration}}, exceeding the {{limit}} Gemini limit for {{reason}}. The file will not be sent.",
       "googleInlineLimit": "Google Direct limits the complete inline JSON request to under {{limitSize}} MB. After WAV preparation and base64 encoding, the practical audio limit is about {{duration}} regardless of the original compressed file size.",
       "googleInlineEstimate": "Estimated prepared JSON: {{estimatedSize}} MB of {{limitSize}} MB.",
