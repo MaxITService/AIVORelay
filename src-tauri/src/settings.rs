@@ -3363,6 +3363,12 @@ pub struct AppSettings {
     /// Speech / Mic selection until the user chooses a file-specific model.
     #[serde(default)]
     pub file_transcription_model_selection: Option<SttModelSelection>,
+    /// File-workflow Soniox diarization. None migrates from the legacy shared value.
+    #[serde(default)]
+    pub file_soniox_enable_speaker_diarization: Option<bool>,
+    /// File-workflow Deepgram diarization. None migrates from the legacy shared value.
+    #[serde(default)]
+    pub file_deepgram_diarize: Option<bool>,
     /// Independent model choice for Live Monitor. None keeps the legacy
     /// provider-specific selection behavior.
     #[serde(default)]
@@ -5620,6 +5626,8 @@ pub fn get_default_settings() -> AppSettings {
         transcription_provider: default_transcription_provider(),
         remote_stt: default_remote_stt_settings(),
         file_transcription_model_selection: None,
+        file_soniox_enable_speaker_diarization: None,
+        file_deepgram_diarize: None,
         live_sound_model_selection: None,
         openai_realtime_whisper_delay: OpenAiRealtimeWhisperDelay::default(),
         openai_realtime_whisper_keywords: String::new(),

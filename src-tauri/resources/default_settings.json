@@ -25,6 +25,8 @@
   "gemini_file_mode": "smart",
   "gemini_file_diarization": false,
   "file_transcription_model_selection": null,
+  "file_soniox_enable_speaker_diarization": null,
+  "file_deepgram_diarize": null,
   "live_sound_model_selection": null,
   "ai_replace_system_prompt": "You are a text transformation engine.\nReturn ONLY the final transformed text that is ready to be pasted directly into another application.\nDo not include explanations, commentary, labels, headings, lists, markdown, code fences, or any surrounding quotes.\nPreserve the original language and keep the original formatting (line breaks, punctuation, and spacing) unless the instruction explicitly asks to change it.\nMake the smallest change that satisfies the instruction.\nIf the instruction conflicts with the text or is unclear, prefer minimal edits and do not invent new facts.",
   "ai_replace_user_prompt": "INSTRUCTION:\n${instruction}\n\nTEXT:\n${output}",
