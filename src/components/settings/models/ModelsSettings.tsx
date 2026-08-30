@@ -943,6 +943,13 @@ export const ModelsSettings: React.FC = () => {
         {filteredDownloadable.map((model) => {
           const isDownloading = downloadingModels.has(model.id);
           const isExtracting = extractingModels.has(model.id);
+          const effectiveLocalModelId =
+            profileModelSelection?.provider === "local"
+              ? profileModelSelection.model_id
+              : currentModel;
+          const isActive =
+            model.id === effectiveLocalModelId && !isRemoteProvider;
+          const isSwitching = switchingModelId === model.id;
           const progress = downloadProgress.get(model.id);
           const percent = progress
             ? Math.max(0, Math.min(100, Math.round(progress.percentage)))
@@ -960,6 +967,11 @@ export const ModelsSettings: React.FC = () => {
                     className="mr-2 text-[10px] font-normal text-[#777]"
                   />
                   {getTranslatedModelName(model, t)}
+                  {isActive && (
+                    <span className="ml-2 text-xs text-[#ff4d8d]">
+                      {t("modelSelector.active")}
+                    </span>
+                  )}
                 </p>
                 <p className="text-xs text-[#a0a0a0] mt-1">
                   {getTranslatedModelDescription(model, t)}
@@ -979,9 +991,26 @@ export const ModelsSettings: React.FC = () => {
                     {t("modelSelector.extractingGeneric")}
                   </p>
                 )}
+                {isActive && !isDownloading && !isExtracting && (
+                  <p className="mt-1 text-xs text-red-400">
+                    {t("modelSelector.selectedDownloadOnUse")}
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
+                {!isActive && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleSelectModel(model.id)}
+                    disabled={isSwitching || isExtracting}
+                  >
+                    {isSwitching
+                      ? t("modelSelector.loadingGeneric")
+                      : t("modelSelector.chooseModel")}
+                  </Button>
+                )}
                 {isDownloading ? (
                   <Button
                     variant="secondary"

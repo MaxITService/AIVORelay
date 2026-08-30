@@ -37,6 +37,10 @@ type ModelDownloadProgressPayload = {
   model_id: string;
 };
 
+type OnDemandModelDownloadPayload = ModelDownloadProgressPayload & {
+  model_name?: string;
+};
+
 type TtsBackgroundStatePayload = {
   operation_id?: number | string;
   operationId?: number | string;
@@ -63,6 +67,7 @@ function App() {
     useNavigationStore();
   const { refreshSettings, refreshAudioDevices } = useSettings();
   const notifiedModelDownloadStarts = useRef(new Set<string>());
+  const onDemandModelDownloads = useRef(new Set<string>());
 
   useEffect(() => {
     checkOnboardingStatus();
@@ -225,6 +230,7 @@ function App() {
       error: string;
     }>("model-download-failed", (event) => {
       notifiedModelDownloadStarts.current.delete(event.payload.model_id);
+      onDemandModelDownloads.current.delete(event.payload.model_id);
       toast.error(
         t("errors.modelDownloadFailed", {
           model:
@@ -236,6 +242,20 @@ function App() {
         },
       );
     });
+    const unlistenOnDemandModelDownload = listen<OnDemandModelDownloadPayload>(
+      "model-download-on-demand",
+      (event) => {
+        const modelId = event.payload.model_id;
+        onDemandModelDownloads.current.add(modelId);
+        notifiedModelDownloadStarts.current.add(modelId);
+        toast(t("modelSelector.onDemandDownloadTitle"), {
+          duration: 8000,
+          description: t("modelSelector.onDemandDownloadDescription", {
+            model: event.payload.model_name || modelId,
+          }),
+        });
+      },
+    );
     const unlistenModelDownloadProgress = listen<ModelDownloadProgressPayload>(
       "model-download-progress",
       (event) => {
@@ -255,6 +275,14 @@ function App() {
       "model-download-cancelled",
       (event) => {
         notifiedModelDownloadStarts.current.delete(event.payload);
+        onDemandModelDownloads.current.delete(event.payload);
+      },
+    );
+    const unlistenModelDownloadComplete = listen<string>(
+      "model-download-complete",
+      (event) => {
+        notifiedModelDownloadStarts.current.delete(event.payload);
+        onDemandModelDownloads.current.delete(event.payload);
       },
     );
 
@@ -279,8 +307,10 @@ function App() {
       unlistenPaste.then((unlisten) => unlisten());
       unlistenModelState.then((unlisten) => unlisten());
       unlistenModelDownloadFailed.then((unlisten) => unlisten());
+      unlistenOnDemandModelDownload.then((unlisten) => unlisten());
       unlistenModelDownloadProgress.then((unlisten) => unlisten());
       unlistenModelDownloadCancelled.then((unlisten) => unlisten());
+      unlistenModelDownloadComplete.then((unlisten) => unlisten());
       unlistenAuthFailed.then((unlisten) => unlisten());
     };
   }, [t]);
