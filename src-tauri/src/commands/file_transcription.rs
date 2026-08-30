@@ -662,6 +662,13 @@ pub async fn transcribe_audio_file(
                 .to_string(),
         );
     }
+    if use_local {
+        let local_model_id = model_override
+            .as_deref()
+            .unwrap_or(settings.selected_model.as_str());
+        crate::commands::models::ensure_local_model_downloaded_for_use(&app, local_model_id)
+            .await?;
+    }
     let gemini_config = if is_gemini {
         let os_locale = crate::input_source::get_language_from_input_source();
         let config = crate::gemini_config::resolve_effective_config(

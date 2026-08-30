@@ -50,6 +50,58 @@ pub async fn download_model(
     result
 }
 
+/// Ensures a selectable local model is installed before a workflow uses it.
+/// A model already being downloaded elsewhere is awaited instead of starting
+/// a competing download of the same files.
+pub(crate) async fn ensure_local_model_downloaded_for_use(
+    app: &AppHandle,
+    model_id: &str,
+) -> Result<(), String> {
+    let model_manager = app.state::<Arc<ModelManager>>();
+    let mut waited_for_existing_download = false;
+
+    loop {
+        let model_info = model_manager
+            .get_model_info(model_id)
+            .ok_or_else(|| format!("Model not found: {model_id}"))?;
+        if model_info.is_downloaded {
+            return Ok(());
+        }
+        if model_info.is_downloading {
+            waited_for_existing_download = true;
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            continue;
+        }
+        if waited_for_existing_download {
+            return Err(format!("Model download did not complete: {model_id}"));
+        }
+
+        let _ = app.emit(
+            "model-download-on-demand",
+            serde_json::json!({
+                "model_id": model_id,
+                "model_name": model_info.name,
+            }),
+        );
+        let result = model_manager
+            .download_model(model_id)
+            .await
+            .map_err(|error| error.to_string());
+        if let Err(ref error) = result {
+            let _ = app.emit(
+                "model-download-failed",
+                serde_json::json!({ "model_id": model_id, "error": error }),
+            );
+        }
+        result?;
+        return model_manager
+            .get_model_info(model_id)
+            .filter(|model| model.is_downloaded)
+            .map(|_| ())
+            .ok_or_else(|| format!("Model download did not complete: {model_id}"));
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_model(
@@ -138,10 +190,6 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
         .get_model_info(model_id)
         .ok_or_else(|| format!("Model not found: {}", model_id))?;
 
-    if !model_info.is_downloaded {
-        return Err(format!("Model not downloaded: {}", model_id));
-    }
-
     let settings = get_settings(app);
     let unload_timeout = settings.model_unload_timeout;
     let previous_model_id = settings.selected_model.clone();
@@ -166,6 +214,21 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
             model_id
         );
         updated_settings.selected_language = "auto".to_string();
+    }
+
+    if !model_info.is_downloaded {
+        write_settings(app, updated_settings);
+        let _ = app.emit(
+            "model-state-changed",
+            ModelStateEvent {
+                event_type: "selection_changed".to_string(),
+                model_id: Some(model_id.to_string()),
+                model_name: Some(model_info.name.clone()),
+                error: None,
+            },
+        );
+        tray::refresh_tray_menu(app, None);
+        return Ok(());
     }
 
     if unload_timeout == ModelUnloadTimeout::Immediately {

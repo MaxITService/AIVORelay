@@ -2370,6 +2370,19 @@ async fn perform_transcription_for_profile_with_retry_action(
     } else {
         let tm = app.state::<Arc<TranscriptionManager>>();
 
+        if let Err(err) = crate::commands::models::ensure_local_model_downloaded_for_use(
+            app,
+            &settings.selected_model,
+        )
+        .await
+        {
+            debug!("Local transcription model download failed: {}", err);
+            return TranscriptionOutcome::Error {
+                message: err,
+                shown_in_overlay: false,
+            };
+        }
+
         if let Err(err) = tm.ensure_model_loaded(&settings.selected_model) {
             let err_str = format!("{}", err);
             debug!("Local transcription model load failed: {}", err_str);
