@@ -270,7 +270,8 @@ pub fn initialize_file_conversion_managers(
             }
         }
         CliFileConversionKind::AudioToText => {
-            let settings = get_settings(app);
+            let mut settings = get_settings(app);
+            file_transcription::apply_file_transcription_selection(&mut settings)?;
             match settings.transcription_provider {
                 TranscriptionProvider::Local => {
                     if app.try_state::<Arc<TranscriptionManager>>().is_none() {
@@ -1724,7 +1725,9 @@ async fn convert_audio_to_text(
 ) -> Result<Value, CliFailure> {
     let output = resolve_transcription_output(args.output.as_deref(), &input)?;
     refuse_existing_output(&output)?;
-    let settings = get_settings(app);
+    let mut settings = get_settings(app);
+    file_transcription::apply_file_transcription_selection(&mut settings)
+        .map_err(CliFailure::runtime)?;
     let provider = transcription_provider_name(
         settings.transcription_provider,
         &settings.remote_stt.provider_preset,
