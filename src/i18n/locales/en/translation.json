@@ -3933,6 +3933,12 @@
   "transcribeFile": {
     "title": "Transcribe Audio File",
     "description": "Upload an audio file and transcribe it to text. Supports WAV, MP3, M4A, OGG, FLAC, and WebM formats.",
+    "stages": {
+      "file": "File",
+      "modelAndSettings": "Model & settings",
+      "result": "Result",
+      "resultEmpty": "The transcript will appear here after processing."
+    },
     "defaultProfile": "Default (Global)",
     "cancelling": "Cancelling...",
     "cancelled": "File transcription cancelled.",

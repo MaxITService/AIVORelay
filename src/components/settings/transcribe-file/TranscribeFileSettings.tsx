@@ -126,6 +126,23 @@ type FileTranscriptionRequest = {
   retryableRemoteApi: boolean;
 };
 
+type WorkflowStageHeaderProps = {
+  step: number;
+  title: string;
+};
+
+const WorkflowStageHeader: React.FC<WorkflowStageHeaderProps> = ({
+  step,
+  title,
+}) => (
+  <div className="flex items-center gap-3 border-t border-white/[0.05] px-4 py-3 first:border-t-0">
+    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#9b5de5]/20 text-xs font-semibold text-[#d7b9ff]">
+      {step}
+    </span>
+    <h3 className="text-sm font-semibold text-[#f5f5f5]">{title}</h3>
+  </div>
+);
+
 const formatAudioDurationClock = (
   seconds: number | null | undefined,
 ): string => {
@@ -1552,8 +1569,12 @@ export const TranscribeFileSettings: React.FC = () => {
             </p>
           </div>
         </details>
+        <WorkflowStageHeader
+          step={1}
+          title={t("transcribeFile.stages.file", "File")}
+        />
         {/* Drop Zone / File Selection */}
-        <div className="px-4 py-4">
+        <div className="px-4 pb-4">
           {!selectedFile ? (
             <div
               ref={dropZoneRef}
@@ -1627,7 +1648,14 @@ export const TranscribeFileSettings: React.FC = () => {
           )}
         </div>
 
-        <div className="space-y-4 border-t border-white/[0.05] px-4 py-4">
+        <WorkflowStageHeader
+          step={2}
+          title={t(
+            "transcribeFile.stages.modelAndSettings",
+            "Model & settings",
+          )}
+        />
+        <div className="space-y-4 px-4 pb-4">
           {!selectedFile && (
             <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
               {t(
@@ -2245,9 +2273,23 @@ export const TranscribeFileSettings: React.FC = () => {
           </div>
         )}
 
+        <WorkflowStageHeader
+          step={3}
+          title={t("transcribeFile.stages.result", "Result")}
+        />
+
+        {!transcriptionResult && !error && (
+          <div className="px-4 pb-4 text-sm text-[#707070]">
+            {t(
+              "transcribeFile.stages.resultEmpty",
+              "The transcript will appear here after processing.",
+            )}
+          </div>
+        )}
+
         {/* Error Display */}
         {error && (
-          <div className="px-4 py-3 border-t border-white/[0.05]">
+          <div className="px-4 pb-4">
             <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
               <p className="text-sm text-red-400">{error}</p>
               {fileRetryRequest && (
@@ -2267,7 +2309,7 @@ export const TranscribeFileSettings: React.FC = () => {
 
         {/* Results */}
         {transcriptionResult && (
-          <div className="px-4 py-3 border-t border-white/[0.05]">
+          <div className="px-4 pb-4">
             <div className="space-y-2">
               {speakerCards.length > 0 && (
                 <div className="mb-3 rounded-lg border border-[#333333] bg-[#151515] p-3">
