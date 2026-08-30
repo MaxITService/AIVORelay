@@ -612,7 +612,11 @@ export const ModelsSettings: React.FC = () => {
     });
 
   return (
-    <div className="max-w-3xl w-full mx-auto space-y-8 pb-12">
+    <div
+      id="settings-models"
+      tabIndex={-1}
+      className="max-w-3xl w-full mx-auto space-y-8 pb-12 outline-none"
+    >
       {/* Help Section */}
       <TellMeMore title={t("modelSelector.tellMeMore.title")}>
         <div className="space-y-3">
@@ -656,7 +660,7 @@ export const ModelsSettings: React.FC = () => {
 
       {/* Remote providers depend on Windows Credential Manager. */}
       {supportsRemoteProviders && (
-        <SettingsGroup title={t("modelSelector.remoteMode")}>
+        <SettingsGroup id="settings-api-keys" title={t("modelSelector.remoteMode")}>
         {renderRemoteApiRows(primaryRemoteApiRows)}
 
         {/* Remote via Soniox */}

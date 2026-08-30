@@ -1023,6 +1023,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       <div ref={floatingPreviewAnchorRef} className="h-0" aria-hidden="true" />
     )}
     <SettingsGroup
+      id="recording-overlay-settings"
       title={t(
         "settings.userInterface.recordingOverlay.title",
         "Recording Overlay",

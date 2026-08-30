@@ -44,7 +44,7 @@ export const SettingsGroup: React.FC<SettingsGroupProps> = ({
   }, [collapsed, isCollapsed, onCollapsedChange]);
 
   return (
-    <div id={id} className="space-y-4">
+    <div id={id} tabIndex={id ? -1 : undefined} className="space-y-4 outline-none">
       {title && (
         <div className="px-1 pt-2">
           {isCollapsible ? (

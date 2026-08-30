@@ -127,15 +127,21 @@ type FileTranscriptionRequest = {
 };
 
 type WorkflowStageHeaderProps = {
+  id?: string;
   step: number;
   title: string;
 };
 
 const WorkflowStageHeader: React.FC<WorkflowStageHeaderProps> = ({
+  id,
   step,
   title,
 }) => (
-  <div className="flex items-center gap-3 border-t border-white/[0.05] px-4 py-3 first:border-t-0">
+  <div
+    id={id}
+    tabIndex={id ? -1 : undefined}
+    className="flex items-center gap-3 border-t border-white/[0.05] px-4 py-3 first:border-t-0 outline-none"
+  >
     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#9b5de5]/20 text-xs font-semibold text-[#d7b9ff]">
       {step}
     </span>
@@ -1758,6 +1764,7 @@ export const TranscribeFileSettings: React.FC = () => {
         {transcriptionActionBar}
 
         <WorkflowStageHeader
+          id="transcribe-file-model-settings"
           step={2}
           title={t(
             "transcribeFile.stages.modelAndSettings",

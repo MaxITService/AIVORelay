@@ -30,6 +30,38 @@
     "help": "Help",
     "about": "About"
   },
+  "settingsSearch": {
+    "label": "Search settings",
+    "placeholder": "Search settings…",
+    "clear": "Clear search",
+    "noResults": "No matching settings",
+    "items": {
+      "microphone": "Microphone and dictation shortcut",
+      "profiles": "Transcription profiles",
+      "models": "Transcription models",
+      "apiKeys": "API keys and remote providers",
+      "advanced": "Advanced application settings",
+      "postProcessing": "LLM post-processing",
+      "aiReplace": "AI Replace",
+      "sendSelectedText": "Send selected text",
+      "voiceCommands": "Voice commands",
+      "connector": "Browser connector",
+      "customWords": "Custom Words",
+      "textProcessing": "Text replacement and processing",
+      "overlay": "Recording overlay",
+      "livePreview": "Live Preview",
+      "interface": "Interface appearance and behaviour",
+      "history": "History and recordings",
+      "audioProcessing": "Speech and audio processing",
+      "debug": "Debug and logs",
+      "liveModel": "Live Monitor model and session settings",
+      "liveDiarization": "Live Monitor speaker diarization",
+      "fileModel": "File transcription model and settings",
+      "fileDiarization": "File transcription speaker diarization",
+      "tts": "Text-to-speech provider and voice",
+      "ttsFiles": "Text file to MP3"
+    }
+  },
   "quickHelp": {
     "learnMore": "Learn more",
     "general": "Set the microphone, shortcut, and transcription profiles used for everyday dictation.",
