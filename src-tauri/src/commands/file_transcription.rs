@@ -203,14 +203,30 @@ fn seed_file_model_config(
     settings: &AppSettings,
     selection: &SttModelSelection,
 ) -> FileTranscriptionModelConfig {
-    let profile_snapshot = Some(initial_file_profile_snapshot(settings, selection));
     let mut config = if settings
         .file_transcription_model_selection
         .as_ref()
         .is_some_and(|current| file_selections_structurally_compatible(current, selection))
     {
-        capture_file_model_config(settings, profile_snapshot)
+        let mut profile_snapshot = settings
+            .file_transcription_model_selection
+            .as_ref()
+            .and_then(|current| {
+                settings
+                    .file_transcription_model_configs
+                    .get(&stt_model_selection_key(current))
+                    .or_else(|| {
+                        settings
+                            .file_transcription_model_configs
+                            .get(&legacy_file_model_config_key(current))
+                    })
+            })
+            .and_then(|config| config.profile_snapshot.clone())
+            .unwrap_or_else(|| initial_file_profile_snapshot(settings, selection));
+        profile_snapshot.stt_model_selection_override = Some(selection.clone());
+        capture_file_model_config(settings, Some(profile_snapshot))
     } else {
+        let profile_snapshot = Some(initial_file_profile_snapshot(settings, selection));
         FileTranscriptionModelConfig {
             profile_snapshot,
             chunking_mode: FileTranscriptionChunkingMode::default(),
@@ -245,6 +261,32 @@ fn apply_file_model_config(settings: &mut AppSettings, config: &FileTranscriptio
     settings.file_deepgram_multichannel = Some(config.deepgram_multichannel);
     settings.gemini_file_mode = config.gemini_mode;
     settings.gemini_file_diarization = config.gemini_diarization;
+}
+
+fn legacy_file_model_config_key(selection: &SttModelSelection) -> String {
+    format!(
+        "{:?}|{}|{}",
+        selection.provider,
+        selection.provider_preset.trim(),
+        selection.model_id.trim()
+    )
+}
+
+fn load_file_model_config(
+    settings: &mut AppSettings,
+    selection: &SttModelSelection,
+) -> Option<FileTranscriptionModelConfig> {
+    let key = stt_model_selection_key(selection);
+    if let Some(config) = settings.file_transcription_model_configs.get(&key) {
+        return Some(config.clone());
+    }
+
+    let legacy_key = legacy_file_model_config_key(selection);
+    let config = settings.file_transcription_model_configs.remove(&legacy_key)?;
+    settings
+        .file_transcription_model_configs
+        .insert(key, config.clone());
+    Some(config)
 }
 
 pub(crate) fn sync_active_file_model_config(settings: &mut AppSettings) {
@@ -294,6 +336,9 @@ fn compatible_initial_file_selection(settings: &AppSettings) -> SttModelSelectio
 #[specta::specta]
 pub fn initialize_file_transcription_model_settings(app: AppHandle) -> Result<(), String> {
     let mut settings = get_settings(&app);
+    if settings.gemini_dictation_mode.is_none() {
+        settings.gemini_dictation_mode = Some(settings.gemini_file_mode);
+    }
     if settings.file_transcription_model_selection.is_none() {
         settings.file_transcription_model_selection =
             Some(compatible_initial_file_selection(&settings));
@@ -309,10 +354,7 @@ pub fn initialize_file_transcription_model_settings(app: AppHandle) -> Result<()
     }
     let selection = settings.file_transcription_model_selection.clone().unwrap();
     let key = stt_model_selection_key(&selection);
-    let config = settings
-        .file_transcription_model_configs
-        .get(&key)
-        .cloned()
+    let config = load_file_model_config(&mut settings, &selection)
         .unwrap_or_else(|| seed_file_model_config(&settings, &selection));
     apply_file_model_config(&mut settings, &config);
     settings.file_transcription_model_configs.insert(key, config);
@@ -335,10 +377,7 @@ pub fn change_file_transcription_model_selection(
 
     sync_active_file_model_config(&mut settings);
     let key = stt_model_selection_key(&selection);
-    let config = settings
-        .file_transcription_model_configs
-        .get(&key)
-        .cloned()
+    let config = load_file_model_config(&mut settings, &selection)
         .unwrap_or_else(|| seed_file_model_config(&settings, &selection));
     apply_file_model_config(&mut settings, &config);
     settings.file_transcription_model_selection = Some(selection);
@@ -417,6 +456,59 @@ pub fn change_file_deepgram_multichannel_setting(
     let mut settings = get_settings(&app);
     settings.file_deepgram_multichannel = Some(enabled);
     sync_active_file_model_config(&mut settings);
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_file_gemini_language_setting(
+    app: AppHandle,
+    language_code: String,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    let selection = settings
+        .file_transcription_model_selection
+        .clone()
+        .ok_or_else(|| "Transcribe File has no selected model.".to_string())?;
+    let key = stt_model_selection_key(&selection);
+    let mut config = settings
+        .file_transcription_model_configs
+        .get(&key)
+        .cloned()
+        .unwrap_or_else(|| seed_file_model_config(&settings, &selection));
+    let profile = config
+        .profile_snapshot
+        .get_or_insert_with(|| initial_file_profile_snapshot(&settings, &selection));
+    profile.gemini_language_code_override = Some(language_code);
+    settings.file_transcription_model_configs.insert(key, config);
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_file_gemini_vocabulary_setting(
+    app: AppHandle,
+    terms: Vec<String>,
+) -> Result<(), String> {
+    let terms = crate::gemini_config::validate_vocabulary(&terms)?;
+    let mut settings = get_settings(&app);
+    let selection = settings
+        .file_transcription_model_selection
+        .clone()
+        .ok_or_else(|| "Transcribe File has no selected model.".to_string())?;
+    let key = stt_model_selection_key(&selection);
+    let mut config = settings
+        .file_transcription_model_configs
+        .get(&key)
+        .cloned()
+        .unwrap_or_else(|| seed_file_model_config(&settings, &selection));
+    let profile = config
+        .profile_snapshot
+        .get_or_insert_with(|| initial_file_profile_snapshot(&settings, &selection));
+    profile.gemini_custom_vocabulary_override = Some(terms);
+    settings.file_transcription_model_configs.insert(key, config);
     write_settings(&app, settings);
     Ok(())
 }

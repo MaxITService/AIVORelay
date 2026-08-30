@@ -44,10 +44,12 @@ import {
   SONIOX_LANGUAGE_HINTS_MAX_COUNT,
 } from "@/lib/constants/sonioxLanguages";
 import {
+  GEMINI_LOCALES,
   geminiFileLimitSeconds,
   validateGeminiCompatibility,
   type GeminiTranscriptionMode,
 } from "@/lib/gemini/geminiConfig";
+import { parseGeminiVocabulary } from "@/lib/gemini/vocabulary";
 import {
   globalSttSelection,
   sttSupports,
@@ -383,6 +385,7 @@ export const TranscribeFileSettings: React.FC = () => {
   ] = useState(false);
   const [fileRetryRequest, setFileRetryRequest] =
     useState<FileTranscriptionRequest | null>(null);
+  const [geminiVocabularyDraft, setGeminiVocabularyDraft] = useState("");
   const parsedSonioxLanguageHintsInput = useMemo(
     () => parseAndNormalizeSonioxLanguageHints(sonioxLanguageHintsInput),
     [sonioxLanguageHintsInput],
@@ -399,20 +402,24 @@ export const TranscribeFileSettings: React.FC = () => {
   const fileSelection = ((settings as any)?.file_transcription_model_selection ??
     globalSttSelection(settings)) as SttModelSelection;
   const fileSelectionKey = sttSelectionKey(fileSelection);
+  const fileModelConfig = (settings as any)?.file_transcription_model_configs?.[
+    fileSelectionKey
+  ];
+  const fileProfileSnapshot = fileModelConfig?.profile_snapshot;
   const transcriptionProvider = fileSelection.provider;
   const sonioxModel =
     transcriptionProvider === "remote_soniox"
-      ? fileSelection.model_id
+      ? (fileSelection.model_id ?? "")
       : ((settings as any)?.soniox_model ?? "stt-rt-v5");
   const isSonioxProvider = transcriptionProvider === "remote_soniox";
   const isDeepgramProvider = transcriptionProvider === "remote_deepgram";
   const remoteModelId =
     transcriptionProvider === "remote_openai_compatible"
-      ? fileSelection.model_id
+      ? (fileSelection.model_id ?? "")
       : "";
   const remotePreset =
     transcriptionProvider === "remote_openai_compatible"
-      ? fileSelection.provider_preset
+      ? (fileSelection.provider_preset ?? "")
       : "";
   const isGeminiLiveFileUnsupported =
     transcriptionProvider === "remote_openai_compatible" &&
@@ -429,6 +436,21 @@ export const TranscribeFileSettings: React.FC = () => {
     remoteModelId === "gemini-3.5-transcribe";
   const geminiFileMode = String((settings as any)?.gemini_file_mode ?? "smart") as GeminiTranscriptionMode;
   const geminiFileDiarization = Boolean((settings as any)?.gemini_file_diarization ?? false);
+  const fileGeminiLanguage = String(
+    fileProfileSnapshot?.gemini_language_code_override ??
+      (settings as any)?.gemini_language_code ??
+      "auto",
+  );
+  const fileGeminiVocabulary = (
+    fileProfileSnapshot?.gemini_custom_vocabulary_override ??
+    (settings as any)?.gemini_custom_vocabulary ??
+    []
+  ) as string[];
+  const persistedGeminiVocabularyDraft = fileGeminiVocabulary.join("\n");
+  const parsedGeminiVocabulary = useMemo(
+    () => parseGeminiVocabulary(geminiVocabularyDraft),
+    [geminiVocabularyDraft],
+  );
   const geminiNeedsWordTimestamps = outputFormat === "srt" || outputFormat === "vtt";
   const geminiCompatibilityError = isGeminiFile
     ? validateGeminiCompatibility({
@@ -512,6 +534,10 @@ export const TranscribeFileSettings: React.FC = () => {
   useEffect(() => {
     activateModelUiConfig(fileSelectionKey);
   }, [activateModelUiConfig, fileSelectionKey]);
+
+  useEffect(() => {
+    setGeminiVocabularyDraft(persistedGeminiVocabularyDraft);
+  }, [fileSelectionKey, persistedGeminiVocabularyDraft]);
 
   const invalidateSpeakerNameReapply = useCallback(() => {
     speakerReapplyGenerationRef.current += 1;
@@ -672,6 +698,25 @@ export const TranscribeFileSettings: React.FC = () => {
     },
     [refreshSettings, setError],
   );
+
+  const changeFileGeminiLanguage = useCallback(
+    async (languageCode: string) => {
+      await invoke("change_file_gemini_language_setting", { languageCode });
+      await refreshSettings();
+    },
+    [refreshSettings],
+  );
+
+  const persistFileGeminiVocabulary = useCallback(async () => {
+    if (!parsedGeminiVocabulary.safeToPersist) return;
+    await invoke("change_file_gemini_vocabulary_setting", {
+      terms: parsedGeminiVocabulary.normalizedTerms,
+    });
+    setGeminiVocabularyDraft(
+      parsedGeminiVocabulary.normalizedTerms.join("\n"),
+    );
+    await refreshSettings();
+  }, [parsedGeminiVocabulary, refreshSettings]);
 
   const persistFileSonioxLanguageHints = useCallback(async () => {
     const parsed = parsedSonioxLanguageHintsInput;
@@ -1692,6 +1737,78 @@ export const TranscribeFileSettings: React.FC = () => {
                     {geminiFileMode === "smart"
                       ? t("transcribeFile.gemini.mode.smartHelp", "Smart removes fillers and disfluencies and applies readable formatting. It cannot be combined with timestamps or diarization.")
                       : t("transcribeFile.gemini.mode.verbatimHelp", "Verbatim preserves fillers, repetitions, and false starts. It is required for timestamps and speaker diarization.")}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-[#f5f5f5]">
+                    {t("settings.gemini.language.title", "Gemini language")}
+                  </p>
+                  <Dropdown
+                    selectedValue={fileGeminiLanguage}
+                    options={[
+                      {
+                        value: "auto",
+                        label: t(
+                          "settings.gemini.language.auto",
+                          "Auto Detect",
+                        ),
+                      },
+                      {
+                        value: "os_input",
+                        label: t(
+                          "settings.gemini.language.osInput",
+                          "Follow OS Input Language",
+                        ),
+                      },
+                      ...GEMINI_LOCALES.map(([label, value]) => ({
+                        value,
+                        label: `${label} (${value})`,
+                      })),
+                    ]}
+                    onSelect={(value) =>
+                      value && void changeFileGeminiLanguage(value)
+                    }
+                  />
+                  <p className="text-xs text-[#808080]">
+                    {t(
+                      "transcribeFile.gemini.languageIndependent",
+                      "Saved independently for this file model.",
+                    )}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-[#f5f5f5]">
+                    {t(
+                      "settings.gemini.vocabulary.title",
+                      "Gemini Custom Vocabulary",
+                    )}
+                  </p>
+                  <textarea
+                    value={geminiVocabularyDraft}
+                    onChange={(event) =>
+                      setGeminiVocabularyDraft(event.target.value)
+                    }
+                    onBlur={() => void persistFileGeminiVocabulary()}
+                    rows={5}
+                    className="w-full rounded border border-[#333333] bg-[#101010] px-3 py-2 text-sm text-[#f5f5f5] focus:border-purple-500 focus:outline-none"
+                    placeholder={"Gemini\nKubernetes\nBigQuery"}
+                  />
+                  <p
+                    className={`text-xs ${
+                      parsedGeminiVocabulary.errors.length > 0
+                        ? "text-red-400"
+                        : "text-[#808080]"
+                    }`}
+                  >
+                    {parsedGeminiVocabulary.errors[0]?.message ??
+                      t(
+                        "transcribeFile.gemini.vocabularyIndependent",
+                        "{{count}}/1000 terms · saved independently for this file model.",
+                        {
+                          count:
+                            parsedGeminiVocabulary.normalizedTerms.length,
+                        },
+                      )}
                   </p>
                 </div>
                 {selectedModelSupportsDiarization && (

@@ -93,7 +93,7 @@ const remoteSelection = (
 });
 
 export const sttSelectionKey = (selection: SttModelSelection): string =>
-  `${selection.provider}|${selection.provider_preset}|${selection.model_id}`;
+  `${selection.provider}|${selection.provider_preset ?? ""}|${selection.model_id ?? ""}`;
 
 export const sttProviderId = (selection: SttModelSelection): string => {
   if (selection.provider === "local") return "local";
@@ -109,8 +109,8 @@ export const sttModelCapabilities = (
   if (selection.provider === "remote_soniox") return SONIOX_CAPABILITIES;
   if (selection.provider === "remote_deepgram") return DEEPGRAM_CAPABILITIES;
 
-  const modelId = selection.model_id.toLowerCase();
-  const preset = selection.provider_preset.toLowerCase();
+  const modelId = (selection.model_id ?? "").toLowerCase();
+  const preset = (selection.provider_preset ?? "").toLowerCase();
   if (
     (preset === "vercel" || preset === "google") &&
     modelId.includes("gemini-3.5-transcribe-live")

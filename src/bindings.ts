@@ -981,6 +981,14 @@ async changeGeminiLiveModeSetting(mode: GeminiTranscriptionMode) : Promise<Resul
     else return { status: "error", error: e  as any };
 }
 },
+async changeGeminiDictationModeSetting(mode: GeminiTranscriptionMode) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_gemini_dictation_mode_setting", { mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeGeminiFileModeSetting(mode: GeminiTranscriptionMode) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_gemini_file_mode_setting", { mode }) };
@@ -1572,6 +1580,18 @@ async addTranscriptionProfile(payload: AddTranscriptionProfilePayload) : Promise
 async updateTranscriptionProfile(payload: UpdateTranscriptionProfilePayload) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_transcription_profile", { payload }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Changes only the STT provider/model override of the active custom profile.
+ * Provider credentials and model-specific infrastructure remain global.
+ */
+async changeActiveProfileSttModelSelectionOverride(selection: SttModelSelection) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_active_profile_stt_model_selection_override", { selection }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2556,6 +2576,9 @@ async remoteSttHasApiKey() : Promise<Result<boolean, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async sttModelSelectionsReadiness(selections: SttModelSelection[]) : Promise<SttModelSelectionReadiness[]> {
+    return await TAURI_INVOKE("stt_model_selections_readiness", { selections });
+},
 async remoteSttSetApiKey(apiKey: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("remote_stt_set_api_key", { apiKey }) };
@@ -3395,6 +3418,30 @@ async changeLiveSoundTranscriptionProvider(provider: LiveSoundTranscriptionProvi
     else return { status: "error", error: e  as any };
 }
 },
+async changeLiveSoundModelSelection(selection: SttModelSelection) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_live_sound_model_selection", { selection }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async initializeLiveSoundModelSettings() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("initialize_live_sound_model_settings") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeLiveSoundGeminiMode(mode: GeminiTranscriptionMode) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_live_sound_gemini_mode", { mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async setLiveSoundSonioxEndpointDetection(value: boolean | null) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_live_sound_soniox_endpoint_detection", { value }) };
@@ -3683,7 +3730,7 @@ async voiceActivationButtonRelease() : Promise<Result<null, string>> {
  *
  * # Arguments
  * * `file_path` - Path to the audio file
- * * `profile_id` - Optional transcription profile ID (uses active profile if not specified)
+ * * `profile_id` - Retained for command compatibility; file settings use their saved snapshot
  * * `save_to_file` - If true, saves the transcription to a file in Documents folder
  * * `output_format` - Output format: "text" (default), "srt", or "vtt"
  * * `custom_words_enabled_override` - Optional override for applying custom words
@@ -3695,6 +3742,62 @@ async voiceActivationButtonRelease() : Promise<Result<null, string>> {
 async transcribeAudioFile(filePath: string, profileId: string | null, saveToFile: boolean, outputFormat: OutputFormat | null, modelOverride: string | null, customWordsEnabledOverride: boolean | null, sonioxOptionsOverride: SonioxFileTranscriptionOptions | null, deepgramOptionsOverride: DeepgramFileTranscriptionOptions | null) : Promise<Result<FileTranscriptionResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("transcribe_audio_file", { filePath, profileId, saveToFile, outputFormat, modelOverride, customWordsEnabledOverride, sonioxOptionsOverride, deepgramOptionsOverride }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async initializeFileTranscriptionModelSettings() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("initialize_file_transcription_model_settings") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeFileSonioxSpeakerDiarizationSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_file_soniox_speaker_diarization_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeFileSonioxLanguageHintsSetting(languageHints: string[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_file_soniox_language_hints_setting", { languageHints }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeFileSonioxLanguageIdentificationSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_file_soniox_language_identification_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeFileDeepgramDiarizationSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_file_deepgram_diarization_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeFileDeepgramMultichannelSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_file_deepgram_multichannel_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeFileTranscriptionModelSelection(selection: SttModelSelection) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_file_transcription_model_selection", { selection }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -3714,6 +3817,22 @@ async changeFileTranscriptionChunkingModeSetting(mode: FileTranscriptionChunking
 async changeFileTranscriptionChunkingMaxMinutesSetting(minutes: number) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_file_transcription_chunking_max_minutes_setting", { minutes }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeFileGeminiLanguageSetting(languageCode: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_file_gemini_language_setting", { languageCode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeFileGeminiVocabularySetting(terms: string[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_file_gemini_vocabulary_setting", { terms }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -3937,11 +4056,41 @@ async isLaptop() : Promise<Result<boolean, string>> {
 /** user-defined types **/
 
 export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; sttModelSelectionOverride?: SttModelSelection | null; pushToTalk: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; file_transcription_model_selection?: SttModelSelection | null; live_sound_model_selection?: SttModelSelection | null; openai_realtime_whisper_delay?: OpenAiRealtimeWhisperDelay; openai_realtime_whisper_keywords?: string; openai_realtime_whisper_flatten_enabled?: boolean; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[];
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings;
+/**
+ * Independent model choice for Transcribe File. None inherits the current
+ * Speech / Mic selection until the user chooses a file-specific model.
+ */
+file_transcription_model_selection?: SttModelSelection | null;
+/**
+ * Per-model file settings. Switching models restores the matching entry.
+ */
+file_transcription_model_configs?: Partial<{ [key in string]: FileTranscriptionModelConfig }>;
+/**
+ * File-workflow Soniox diarization. None migrates from the legacy shared value.
+ */
+file_soniox_enable_speaker_diarization?: boolean | null; file_soniox_language_hints?: string[] | null; file_soniox_enable_language_identification?: boolean | null;
+/**
+ * File-workflow Deepgram diarization. None migrates from the legacy shared value.
+ */
+file_deepgram_diarize?: boolean | null; file_deepgram_multichannel?: boolean | null;
+/**
+ * Independent model choice for Live Monitor. None keeps the legacy
+ * provider-specific selection behavior.
+ */
+live_sound_model_selection?: SttModelSelection | null;
+/**
+ * Gemini mode used only by Live Monitor. None migrates the legacy shared value.
+ */
+live_sound_gemini_mode?: GeminiTranscriptionMode | null; openai_realtime_whisper_delay?: OpenAiRealtimeWhisperDelay; openai_realtime_whisper_keywords?: string; openai_realtime_whisper_flatten_enabled?: boolean; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[];
 /**
  * Gemini exact BCP-47 locale, `auto`, or `os_input`.
  */
-gemini_language_code?: string; gemini_custom_vocabulary?: string[]; gemini_live_mode?: GeminiTranscriptionMode; gemini_file_mode?: GeminiTranscriptionMode; gemini_file_diarization?: boolean; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_endpoint_sensitivity?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_optimize_delivery_preconnect_enabled?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; live_sound_enable_speaker_diarization?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null;
+gemini_language_code?: string; gemini_custom_vocabulary?: string[]; gemini_live_mode?: GeminiTranscriptionMode;
+/**
+ * Batch Gemini mode used by ordinary dictation. None migrates the former shared file value.
+ */
+gemini_dictation_mode?: GeminiTranscriptionMode | null; gemini_file_mode?: GeminiTranscriptionMode; gemini_file_diarization?: boolean; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_endpoint_sensitivity?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_optimize_delivery_preconnect_enabled?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; live_sound_enable_speaker_diarization?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null;
 /**
  * Which microphone input channel to use. None averages all channels.
  */
@@ -4428,6 +4577,12 @@ export type ExtensionStatus =
 "unknown"
 export type FileTranscriptionChunkTraceEntry = { chunkIndex: number; startSecs: number; endSecs: number; durationSecs: number; reason: string }
 export type FileTranscriptionChunkingMode = "auto" | "off" | "custom"
+/**
+ * File-only values saved independently for every compatible STT model.
+ * The existing top-level file fields mirror the currently selected entry so
+ * older UI and CLI code can keep reading a simple active configuration.
+ */
+export type FileTranscriptionModelConfig = { profile_snapshot?: TranscriptionProfile | null; chunking_mode?: FileTranscriptionChunkingMode; chunking_max_minutes?: number; soniox_language_hints?: string[]; soniox_enable_speaker_diarization?: boolean; soniox_enable_language_identification?: boolean; deepgram_diarize?: boolean; deepgram_multichannel?: boolean; gemini_mode?: GeminiTranscriptionMode; gemini_diarization?: boolean }
 export type FileTranscriptionRecordingState = { isRecording: boolean; recordingUsesLocalModel: boolean; fileTranscriptionUsesLocalModel: boolean; blocksFileTranscription: boolean }
 /**
  * Result of a file transcription operation
@@ -4651,6 +4806,13 @@ export type SonioxLivePreviewSize = "small" | "medium" | "large" | "custom"
 export type SonioxLivePreviewTheme = "main_dark" | "ocean" | "light"
 export type SoundTheme = "marimba" | "pop" | "custom"
 /**
+ * A workflow-specific STT provider/model choice. Provider credentials and
+ * advanced controls remain in their existing global settings; this value only
+ * selects which configured provider/model a workflow should use.
+ */
+export type SttModelSelection = { provider: TranscriptionProvider; model_id?: string; provider_preset?: string }
+export type SttModelSelectionReadiness = { selection: SttModelSelection; ready: boolean; reason: string | null }
+/**
  * A transcription segment with timing information
  */
 export type SubtitleSegment = {
@@ -4793,7 +4955,6 @@ soniox_context_text?: string;
  */
 soniox_context_terms?: string[] }
 export type TranscriptionProvider = "local" | "remote_openai_compatible" | "remote_soniox" | "remote_deepgram"
-export type SttModelSelection = { provider: TranscriptionProvider; model_id: string; provider_preset: string }
 export type TtsBatchFilePlan = { inputPath: string; relativePath: string; outputPath: string; scanError: string | null }
 export type TtsBatchFileResult = { index: number; inputPath: string; relativePath: string; outputPath: string; status: TtsBatchFileStatus; error: string | null; warning: string | null; operationId: string | null; resumedChunks: number }
 export type TtsBatchFileStatus = "queued" | "processing" | "completed" | "skipped" | "failed"

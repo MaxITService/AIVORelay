@@ -299,9 +299,6 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     currentRemoteInterface === "gemini_live"
       ? "Gemini 3.5 Transcribe Live"
       : "Gemini 3.5 Transcribe";
-  const geminiFileDiarization = Boolean(
-    (settings as any)?.gemini_file_diarization ?? false,
-  );
   const remoteApiKeyTitle =
     remotePreset === "vercel"
       ? "Vercel AI Gateway API Key"
@@ -1777,34 +1774,25 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     </>
                   ) : (
                     <SettingContainer
-                      title={t("settings.gemini.fileMode.title", "Default file transcription mode")}
-                      description={t("settings.gemini.fileMode.description", "SRT/VTT and speaker diarization require Verbatim.")}
+                      title={t("settings.gemini.dictationMode.title", "Dictation transcription mode")}
+                      description={t("settings.gemini.dictationMode.description", "Used by ordinary Transcribe shortcuts. Transcribe File keeps its own mode.")}
                       descriptionMode={descriptionMode}
                       grouped={grouped}
                       layout="stacked"
                     >
                       <Select
-                        value={String((settings as any)?.gemini_file_mode ?? "smart")}
+                        value={String((settings as any)?.gemini_dictation_mode ?? (settings as any)?.gemini_file_mode ?? "smart")}
                         options={[
                           {
                             value: "smart",
                             label: t("settings.gemini.mode.smart", "Smart"),
-                            isDisabled: geminiFileDiarization,
                           },
                           { value: "verbatim", label: t("settings.gemini.mode.verbatim", "Verbatim") },
                         ]}
-                        onChange={value => value && void updateSetting("gemini_file_mode" as any, value as any)}
+                        onChange={value => value && void invoke("change_gemini_dictation_mode_setting", { mode: value }).then(() => refreshSettings())}
                         isClearable={false}
                         className="w-full"
                       />
-                      {geminiFileDiarization && (
-                        <p className="mt-2 text-xs text-[#808080]">
-                          {t(
-                            "transcribeFile.gemini.diarization.requiresVerbatim",
-                            "Select Verbatim to enable speaker diarization.",
-                          )}
-                        </p>
-                      )}
                     </SettingContainer>
                   )}
                 </>

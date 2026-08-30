@@ -2660,9 +2660,15 @@ pub struct SttModelSelection {
 }
 
 pub fn stt_model_selection_key(selection: &SttModelSelection) -> String {
+    let provider = match selection.provider {
+        TranscriptionProvider::Local => "local",
+        TranscriptionProvider::RemoteOpenAiCompatible => "remote_openai_compatible",
+        TranscriptionProvider::RemoteSoniox => "remote_soniox",
+        TranscriptionProvider::RemoteDeepgram => "remote_deepgram",
+    };
     format!(
-        "{:?}|{}|{}",
-        selection.provider,
+        "{}|{}|{}",
+        provider,
         selection.provider_preset.trim(),
         selection.model_id.trim()
     )
@@ -3459,6 +3465,9 @@ pub struct AppSettings {
     pub gemini_custom_vocabulary: Vec<String>,
     #[serde(default)]
     pub gemini_live_mode: GeminiTranscriptionMode,
+    /// Batch Gemini mode used by ordinary dictation. None migrates the former shared file value.
+    #[serde(default)]
+    pub gemini_dictation_mode: Option<GeminiTranscriptionMode>,
     #[serde(default)]
     pub gemini_file_mode: GeminiTranscriptionMode,
     #[serde(default)]
@@ -5709,6 +5718,7 @@ pub fn get_default_settings() -> AppSettings {
         gemini_language_code: default_gemini_language_code(),
         gemini_custom_vocabulary: Vec::new(),
         gemini_live_mode: GeminiTranscriptionMode::Smart,
+        gemini_dictation_mode: None,
         gemini_file_mode: GeminiTranscriptionMode::Smart,
         gemini_file_diarization: false,
         soniox_context_general_json: String::new(),

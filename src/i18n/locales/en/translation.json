@@ -4016,7 +4016,7 @@
     },
     "soniox": {
       "title": "Soniox File Transcription Options",
-      "usesGlobalDefaults": "Defaults are loaded from your global Soniox API settings. You can override them for this transcription.",
+      "usesGlobalDefaults": "These settings are saved independently for the selected file model.",
       "autoSwitchNotice": "Soniox API detected. We are auto switching for the following model: {{targetModel}}. Selected model was '{{selectedModel}}'. Reason: Transcribe File uses Soniox async endpoint (/v1/transcriptions), and latest-only mode enforces the latest async model.",
       "durationLimitWarning": "Soniox documentation says file transcription is supported up to 5 hours of audio. Longer files may be rejected or fail after upload.",
       "durationLimitExceeded": "This file is {{duration}} long. The Soniox limit here is {{limit}}.",
@@ -4029,7 +4029,7 @@
     },
     "deepgram": {
       "title": "Deepgram File Transcription Options",
-      "usesGlobalDefaults": "Diarization starts from your global Deepgram setting. Multichannel is a file-only override.",
+      "usesGlobalDefaults": "These settings are saved independently for the selected file model.",
       "modeHint": "Use multichannel when each speaker is isolated to a separate audio channel. Use diarization when multiple speakers share a channel. You can enable both.",
       "durationLimitWarning": "Deepgram documentation says file transcription is supported up to 10 minutes of audio. Longer files may be rejected or fail after upload.",
       "durationLimitExceeded": "This file is {{duration}} long. The Deepgram limit here is {{limit}}.",
