@@ -1,6 +1,11 @@
 import React from "react";
 import { AlertTriangle } from "lucide-react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
+import {
+  getTranscriptionProfileAnchorId,
+  openActiveTranscriptionProfile,
+} from "@/lib/transcriptionProfileNavigation";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 export type ProfileScopedSttFeature =
   | "language"
@@ -30,6 +35,9 @@ export const ProfileScopedSttSettingsNotice: React.FC<{
   className?: string;
 }> = ({ features, className = "" }) => {
   const { t } = useTranslation();
+  const activeProfileId = useSettingsStore(
+    (state) => state.settings?.active_profile_id || "default",
+  );
 
   if (features.length === 0) return null;
 
@@ -47,10 +55,22 @@ export const ProfileScopedSttSettingsNotice: React.FC<{
             )}
           </p>
           <p className="mt-1 text-[11px] leading-snug text-red-200/80">
-            {t(
-              "modelSelector.profileSettingsNotice.description",
-              "Check Speech / Mic → Manage Profiles. Profile settings override or extend the model settings shown here.",
-            )}
+            <Trans
+              i18nKey="modelSelector.profileSettingsNotice.description"
+              defaults="Check <profileLink>Speech / Mic</profileLink> → Manage Profiles. Profile settings override or extend the model settings shown here."
+              components={{
+                profileLink: (
+                  <a
+                    href={`#${getTranscriptionProfileAnchorId(activeProfileId)}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      openActiveTranscriptionProfile();
+                    }}
+                    className="font-medium text-red-100 underline decoration-red-300/70 underline-offset-2 transition-colors hover:text-white"
+                  />
+                ),
+              }}
+            />
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {features.map((feature) => (

@@ -80,6 +80,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/settings/debug/RecordingBuffer.tsx` | Local-only extra recording buffer UI for trailing speech capture after hotkey release. |
 | `src/components/settings/GlobalShortcutInput.tsx` | Browser-side shortcut capture for Tauri/rdev engines. |
 | `src/components/settings/HandyKeysShortcutInput.tsx` | Backend-side shortcut capture UI for HandyKeys engine. |
+| `src/lib/transcriptionProfileNavigation.ts` | Cross-section navigation to the active transcription profile card with anchor focus and highlight. |
 | `src/components/model-selector/nativeStreamingModel.ts` | Shared frontend detection for Moonshine streaming models whose external output is final-only. |
 | `src/components/settings/debug/ShortcutEngineSelector.tsx` | Shortcut engine toggle UI. |
 | `src/lib/constants/sonioxLanguages.ts` | Soniox languages mapping. |

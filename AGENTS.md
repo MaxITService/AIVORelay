@@ -17,6 +17,7 @@ This is the entry file for AI/code agents working with this fork.
 - something isane in user's request? Ask user first!
 - When interrupted wiht off topic request, this doed not mean that previous request is cancelled! Ask user.
 - Before build or test ask user if this is needed. User usually builds themselves.
+- When text in one interface points to an interface in another section of the program, make the linking text clickable and navigate to that section.
 - Keep TODOs, implementation-status notes, unfinished-work plans, verification plans, and similar non-final implementation documents only under `.AGENTS/.untracked/`, never under public `docs/`.
 
 ## Active Branches

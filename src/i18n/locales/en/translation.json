@@ -1312,7 +1312,7 @@
     "remoteDeepgramActive": "Remote Deepgram",
     "profileSettingsNotice": {
       "title": "This model has additional settings in transcription profiles",
-      "description": "Check Speech / Mic → Manage Profiles. Profile settings override or extend the model settings shown here.",
+      "description": "Check <profileLink>Speech / Mic</profileLink> → Manage Profiles. Profile settings override or extend the model settings shown here.",
       "features": {
         "language": "Language",
         "translateToEnglish": "Translate to English",
