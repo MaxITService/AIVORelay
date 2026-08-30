@@ -1929,6 +1929,10 @@
       "session": {
         "title": "Session",
         "description": "Start and stop a dedicated live transcription workflow without auto-pasting into another app.",
+        "settingsTitle": "Session settings",
+        "settingsDescription": "Choose the model, transcription behavior, speaker handling, and automatic stop timing.",
+        "showSettings": "Show settings",
+        "hideSettings": "Hide settings",
         "providerLabel": "Provider",
         "providerSystem": "System Default",
         "providerLocal": "Local",

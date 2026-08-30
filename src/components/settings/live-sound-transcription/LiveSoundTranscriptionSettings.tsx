@@ -184,6 +184,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const [autoStopInput, setAutoStopInput] = useState<string>("");
   const [autoStopRemainingSeconds, setAutoStopRemainingSeconds] = useState<number | null>(null);
   const [showWhatIsThis, setShowWhatIsThis] = useState(false);
+  const [sessionSettingsCollapsed, setSessionSettingsCollapsed] = useState(true);
   const [geminiCompletionVariant, setGeminiCompletionVariant] =
     useState<GeminiLiveCompletionVariant | null>(null);
 
@@ -710,44 +711,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
           layout="stacked"
         >
           <div className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3 md:col-span-2">
-                <SttModelSelector
-                  workflow="live"
-                  selection={liveSelection}
-                  onChange={handleModelSelectionChange}
-                  disabled={
-                    !supportsRemoteLiveSound ||
-                    sourceBusy ||
-                    isRecording ||
-                    actionBusy !== null
-                  }
-                />
-              </div>
-              <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
-                  {t("settings.liveSoundTranscription.session.liveModeLabel")}
-                </p>
-                <p className="mt-1 text-sm font-medium text-[#f5f5f5]">
-                  {liveModeEnabled
-                    ? t("settings.liveSoundTranscription.session.enabled")
-                    : t("settings.liveSoundTranscription.session.disabled")}
-                </p>
-              </div>
-              {providerSupportsDiarization && (
-                <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
-                    {t("settings.liveSoundTranscription.session.diarizationLabel")}
-                  </p>
-                  <p className="mt-1 text-sm font-medium text-[#f5f5f5]">
-                    {diarizationEnabled
-                      ? t("settings.liveSoundTranscription.session.enabled")
-                      : t("settings.liveSoundTranscription.session.disabled")}
-                  </p>
-                </div>
-              )}
-            </div>
-
             {!supportsRemoteLiveSound ? (
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                 {t("settings.liveSoundTranscription.session.windowsOnly")}
@@ -757,50 +720,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                 {t("settings.liveSoundTranscription.session.remoteOnly")}
               </div>
             ) : null}
-
-            {providerSupportsDiarization && !diarizationEnabled && (
-              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                {t("settings.liveSoundTranscription.session.diarizationDisabledHint")}
-              </div>
-            )}
-
-            {remoteIsGeminiLive && (
-              <div className="space-y-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3">
-                <p className="text-sm text-amber-100">
-                  {t(
-                    "settings.gemini.liveLimitWarning",
-                    "Gemini Live supports sessions up to 10 minutes. AivoRelay automatically finalizes at 9:50 to preserve the transcript.",
-                  )}
-                </p>
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-[#f5f5f5]">
-                      {t("settings.gemini.liveMode.title", "Live transcription mode")}
-                    </p>
-                    <p className="text-xs text-[#9a9a9a]">
-                      {liveGeminiMode === "smart"
-                        ? t("settings.gemini.liveMode.smartHelp", "Smart removes disfluencies and applies readable formatting.")
-                        : t("settings.gemini.liveMode.verbatimHelp", "Verbatim preserves fillers, repetitions, and false starts.")}
-                    </p>
-                  </div>
-                  <Dropdown
-                    selectedValue={liveGeminiMode}
-                    options={[
-                      { value: "smart", label: t("settings.gemini.mode.smart", "Smart") },
-                      { value: "verbatim", label: t("settings.gemini.mode.verbatim", "Verbatim") },
-                    ]}
-                    onSelect={async value => {
-                      if (!value) return;
-                      await invoke("change_live_sound_gemini_mode", {
-                        mode: value,
-                      });
-                      await refreshSettings();
-                    }}
-                    disabled={isRecording || sourceBusy || actionBusy !== null}
-                  />
-                </div>
-              </div>
-            )}
 
             {geminiCompletionVariant && (
               <div className="rounded-lg border border-sky-400/30 bg-sky-400/10 px-4 py-3 text-sm text-sky-100">
@@ -819,28 +738,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                 </p>
                 <Button variant="secondary" className="mt-3" onClick={() => setGeminiCompletionVariant(null)}>
                   {t("common.dismiss", "Dismiss")}
-                </Button>
-              </div>
-            )}
-
-            {providerSupportsDiarization && (
-              <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#333333] bg-[#121212]/50 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-[#f5f5f5]">
-                    {t("settings.liveSoundTranscription.session.diarizationToggleTitle")}
-                  </p>
-                  <p className="text-xs text-[#9a9a9a]">
-                    {t("settings.liveSoundTranscription.session.diarizationToggleDescription")}
-                  </p>
-                </div>
-                <Button
-                  variant={diarizationEnabled ? "secondary" : "primary"}
-                  disabled={sourceBusy || actionBusy !== null || isRecording}
-                  onClick={() => void handleDiarizationToggle()}
-                >
-                  {diarizationEnabled
-                    ? t("settings.liveSoundTranscription.session.diarizationTurnOff")
-                    : t("settings.liveSoundTranscription.session.diarizationTurnOn")}
                 </Button>
               </div>
             )}
@@ -914,6 +811,135 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               </Button>
             </div>
 
+            <p className="text-sm text-[#9a9a9a]">
+              {isRecording
+                ? t("settings.liveSoundTranscription.session.recordingHint")
+                : t("settings.liveSoundTranscription.session.idleHint")}
+            </p>
+          </div>
+        </SettingContainer>
+      </SettingsGroup>
+
+      <SettingsGroup
+        title={t("settings.liveSoundTranscription.session.settingsTitle")}
+        description={t("settings.liveSoundTranscription.session.settingsDescription")}
+        collapsible
+        collapsed={sessionSettingsCollapsed}
+        onCollapsedChange={setSessionSettingsCollapsed}
+        collapseLabel={t("settings.liveSoundTranscription.session.hideSettings")}
+        expandLabel={t("settings.liveSoundTranscription.session.showSettings")}
+      >
+        <SettingContainer
+          title={t("settings.liveSoundTranscription.session.settingsTitle")}
+          description={t("settings.liveSoundTranscription.session.settingsDescription")}
+          grouped={true}
+          layout="stacked"
+        >
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3 md:col-span-2">
+                <SttModelSelector
+                  workflow="live"
+                  selection={liveSelection}
+                  onChange={handleModelSelectionChange}
+                  disabled={
+                    !supportsRemoteLiveSound ||
+                    sourceBusy ||
+                    isRecording ||
+                    actionBusy !== null
+                  }
+                />
+              </div>
+              <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
+                  {t("settings.liveSoundTranscription.session.liveModeLabel")}
+                </p>
+                <p className="mt-1 text-sm font-medium text-[#f5f5f5]">
+                  {liveModeEnabled
+                    ? t("settings.liveSoundTranscription.session.enabled")
+                    : t("settings.liveSoundTranscription.session.disabled")}
+                </p>
+              </div>
+              {providerSupportsDiarization && (
+                <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
+                    {t("settings.liveSoundTranscription.session.diarizationLabel")}
+                  </p>
+                  <p className="mt-1 text-sm font-medium text-[#f5f5f5]">
+                    {diarizationEnabled
+                      ? t("settings.liveSoundTranscription.session.enabled")
+                      : t("settings.liveSoundTranscription.session.disabled")}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {providerSupportsDiarization && !diarizationEnabled && (
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                {t("settings.liveSoundTranscription.session.diarizationDisabledHint")}
+              </div>
+            )}
+
+            {remoteIsGeminiLive && (
+              <div className="space-y-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3">
+                <p className="text-sm text-amber-100">
+                  {t(
+                    "settings.gemini.liveLimitWarning",
+                    "Gemini Live supports sessions up to 10 minutes. AivoRelay automatically finalizes at 9:50 to preserve the transcript.",
+                  )}
+                </p>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-[#f5f5f5]">
+                      {t("settings.gemini.liveMode.title", "Live transcription mode")}
+                    </p>
+                    <p className="text-xs text-[#9a9a9a]">
+                      {liveGeminiMode === "smart"
+                        ? t("settings.gemini.liveMode.smartHelp", "Smart removes disfluencies and applies readable formatting.")
+                        : t("settings.gemini.liveMode.verbatimHelp", "Verbatim preserves fillers, repetitions, and false starts.")}
+                    </p>
+                  </div>
+                  <Dropdown
+                    selectedValue={liveGeminiMode}
+                    options={[
+                      { value: "smart", label: t("settings.gemini.mode.smart", "Smart") },
+                      { value: "verbatim", label: t("settings.gemini.mode.verbatim", "Verbatim") },
+                    ]}
+                    onSelect={async value => {
+                      if (!value) return;
+                      await invoke("change_live_sound_gemini_mode", {
+                        mode: value,
+                      });
+                      await refreshSettings();
+                    }}
+                    disabled={isRecording || sourceBusy || actionBusy !== null}
+                  />
+                </div>
+              </div>
+            )}
+
+            {providerSupportsDiarization && (
+              <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#333333] bg-[#121212]/50 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-[#f5f5f5]">
+                    {t("settings.liveSoundTranscription.session.diarizationToggleTitle")}
+                  </p>
+                  <p className="text-xs text-[#9a9a9a]">
+                    {t("settings.liveSoundTranscription.session.diarizationToggleDescription")}
+                  </p>
+                </div>
+                <Button
+                  variant={diarizationEnabled ? "secondary" : "primary"}
+                  disabled={sourceBusy || actionBusy !== null || isRecording}
+                  onClick={() => void handleDiarizationToggle()}
+                >
+                  {diarizationEnabled
+                    ? t("settings.liveSoundTranscription.session.diarizationTurnOff")
+                    : t("settings.liveSoundTranscription.session.diarizationTurnOn")}
+                </Button>
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               <span className="text-sm text-[#9a9a9a]">
                 {t("settings.liveSoundTranscription.session.autoStop")}
@@ -947,11 +973,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               </span>
             </div>
 
-            <p className="text-sm text-[#9a9a9a]">
-              {isRecording
-                ? t("settings.liveSoundTranscription.session.recordingHint")
-                : t("settings.liveSoundTranscription.session.idleHint")}
-            </p>
           </div>
         </SettingContainer>
       </SettingsGroup>
