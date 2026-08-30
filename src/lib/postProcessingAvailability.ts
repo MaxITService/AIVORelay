@@ -1,4 +1,4 @@
-import type { AppSettings } from "@/bindings";
+import type { AppSettings, SttModelSelection } from "@/bindings";
 
 export type PostProcessingUnavailableReason = "direct_realtime_output";
 
@@ -9,6 +9,7 @@ export interface PostProcessingAvailability {
 
 interface AvailabilityOptions {
   profilePreviewOutputOnlyEnabled?: boolean;
+  sttSelection?: SttModelSelection;
 }
 
 const REALTIME_OPENAI_MODELS = new Set([
@@ -54,7 +55,9 @@ export const getPostProcessingAvailability = (
 ): PostProcessingAvailability => {
   if (!settings) return { available: true, reason: null };
 
-  const provider = String(settings.transcription_provider || "local");
+  const provider = String(
+    options.sttSelection?.provider ?? settings.transcription_provider ?? "local",
+  );
   const activeProfileId = String(settings.active_profile_id || "default");
   const activeProfile =
     activeProfileId === "default"
@@ -72,27 +75,39 @@ export const getPostProcessingAvailability = (
   let insertsRealtimeTextDirectly = false;
 
   if (provider === "local") {
-    const selectedModel = String(settings.selected_model || "");
+    const selectedModel = String(
+      options.sttSelection?.model_id ?? settings.selected_model ?? "",
+    );
     const directOutputModels =
       settings.native_streaming_live_output_models ?? [];
     // Native direct output takes precedence over Preview in the backend.
     insertsRealtimeTextDirectly = directOutputModels.includes(selectedModel);
   } else if (provider === "remote_soniox") {
-    const model = String(settings.soniox_model || "").trim();
+    const model = String(
+      options.sttSelection?.model_id ?? settings.soniox_model ?? "",
+    ).trim();
     const realtimeModel = model.length === 0 || model.startsWith("stt-rt");
     insertsRealtimeTextDirectly =
       Boolean(settings.soniox_live_enabled) &&
       realtimeModel &&
       !outputIsHeldInPreview;
   } else if (provider === "remote_deepgram") {
-    const model = String(settings.deepgram_model || "").trim();
+    const model = String(
+      options.sttSelection?.model_id ?? settings.deepgram_model ?? "",
+    ).trim();
     insertsRealtimeTextDirectly =
       Boolean(settings.deepgram_live_enabled) &&
       model.length > 0 &&
       !outputIsHeldInPreview;
   } else if (provider === "remote_openai_compatible") {
-    const preset = String(settings.remote_stt?.provider_preset || "");
-    const model = String(settings.remote_stt?.model_id || "").toLowerCase();
+    const preset = String(
+      options.sttSelection?.provider_preset ??
+        settings.remote_stt?.provider_preset ??
+        "",
+    );
+    const model = String(
+      options.sttSelection?.model_id ?? settings.remote_stt?.model_id ?? "",
+    ).toLowerCase();
     insertsRealtimeTextDirectly =
       preset === "openai" &&
       REALTIME_OPENAI_MODELS.has(model) &&

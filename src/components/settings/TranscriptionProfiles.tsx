@@ -70,6 +70,75 @@ const openPostProcessingSettings = () => {
   useNavigationStore.getState().setSection("postprocessing");
 };
 
+const remoteModelSupportsTranslation = (modelId: string): boolean => {
+  const lower = modelId.toLowerCase();
+  if (
+    lower === "gpt-transcribe" ||
+    lower === "gpt-live-transcribe" ||
+    lower === "gpt-realtime-whisper" ||
+    (lower.includes("whisper") && lower.includes("turbo"))
+  ) {
+    return false;
+  }
+  return (
+    lower.includes("whisper-large-v3") ||
+    lower === "whisper-1" ||
+    lower === "gpt-realtime-2.1" ||
+    lower === "gpt-realtime-2" ||
+    lower === "gpt-realtime-translate" ||
+    (lower.includes("whisper") && !lower.includes("turbo"))
+  );
+};
+
+const profileSttPresentation = (
+  selection: SttModelSelection,
+  localModels: ModelInfo[],
+) => {
+  const provider = selection.provider;
+  const modelId = selection.model_id ?? "";
+  const isSonioxProvider = provider === "remote_soniox";
+  const isGeminiProvider =
+    provider === "remote_openai_compatible" &&
+    modelId.toLowerCase().includes("gemini-3.5-transcribe");
+  const localModel =
+    provider === "local"
+      ? localModels.find((model) => model.id === modelId)
+      : undefined;
+  const promptInfo =
+    provider === "remote_soniox" || provider === "remote_deepgram"
+      ? { supportsPrompt: false, charLimit: 0 }
+      : provider === "remote_openai_compatible"
+        ? getModelPromptInfo(modelId, undefined, false)
+        : getModelPromptInfo(modelId, localModel?.engine_type);
+  const supportsTranslation =
+    provider === "local"
+      ? (localModel?.supports_translation ?? true)
+      : provider === "remote_openai_compatible"
+        ? remoteModelSupportsTranslation(modelId)
+        : false;
+  const languageOptions = isSonioxProvider
+    ? LANGUAGES.filter((language) =>
+        isLanguageSupportedBySoniox(language.value),
+      )
+    : provider === "local" && localModel?.supported_languages?.length
+      ? LANGUAGES.filter(
+          (language) =>
+            language.value === "auto" ||
+            language.value === "os_input" ||
+            localModel.supported_languages.includes(language.value),
+        )
+      : LANGUAGES;
+
+  return {
+    isGeminiProvider,
+    isSonioxProvider,
+    languageOptions,
+    promptLimit: promptInfo.supportsPrompt ? promptInfo.charLimit : 0,
+    supportsSttPrompt: promptInfo.supportsPrompt,
+    supportsTranslation,
+  };
+};
+
 const APPLE_PROVIDER_ID = "apple_intelligence";
 
 const strictModeFromApi = (
@@ -2549,46 +2618,55 @@ export const TranscriptionProfiles: React.FC = () => {
           </div>
 
           {/* Custom Profiles */}
-          {profiles.map((profile) => (
-            <ProfileCard
-              key={profile.id}
-              profile={profile}
-              languageOptions={filteredLanguages}
-              isExpanded={isExpanded(profile.id)}
-              onToggleExpand={() => toggleExpanded(profile.id)}
-              onUpdate={handleUpdate}
-              onDelete={handleDelete}
-              canDelete={true}
-              supportsTranslation={supportsTranslation}
-              supportsSttPrompt={modelInfo.supportsPrompt}
-              promptLimit={promptLimit}
-              isActive={activeProfileId === profile.id}
-              onSetActive={handleSetActive}
-              llmModelOptions={llmModelOptions}
-              globalLlmModel={globalLlmModel}
-              onRefreshModels={handleRefreshModels}
-              isFetchingModels={isFetchingModels}
-              defaultLlmPrompt={globalPromptText}
-              isSonioxProvider={isSonioxProvider}
-              postProcessingAvailable={
-                getPostProcessingAvailability(settings, {
-                  profilePreviewOutputOnlyEnabled:
-                    profile.preview_output_only_enabled ?? false,
-                }).available
-              }
-              globalSonioxLanguageHintsStrict={Boolean((settings as any)?.soniox_language_hints_strict)}
-              isGeminiProvider={isGeminiProvider}
-              globalGeminiLanguageCode={globalGeminiLanguageCode}
-              globalGeminiVocabulary={globalGeminiVocabulary}
-              localSttModels={localSttModels}
-              globalSttModelSelection={globalSttModelSelection}
-              showSonioxLanguageFallbackWarning={
-                !filteredLanguages.some(
-                  (language) => language.value === profile.language,
-                )
-              }
-            />
-          ))}
+          {profiles.map((profile) => {
+            const effectiveSelection =
+              profile.stt_model_selection_override ?? globalSttModelSelection;
+            const presentation = profileSttPresentation(
+              effectiveSelection,
+              localSttModels,
+            );
+            return (
+              <ProfileCard
+                key={profile.id}
+                profile={profile}
+                languageOptions={presentation.languageOptions}
+                isExpanded={isExpanded(profile.id)}
+                onToggleExpand={() => toggleExpanded(profile.id)}
+                onUpdate={handleUpdate}
+                onDelete={handleDelete}
+                canDelete={true}
+                supportsTranslation={presentation.supportsTranslation}
+                supportsSttPrompt={presentation.supportsSttPrompt}
+                promptLimit={presentation.promptLimit}
+                isActive={activeProfileId === profile.id}
+                onSetActive={handleSetActive}
+                llmModelOptions={llmModelOptions}
+                globalLlmModel={globalLlmModel}
+                onRefreshModels={handleRefreshModels}
+                isFetchingModels={isFetchingModels}
+                defaultLlmPrompt={globalPromptText}
+                isSonioxProvider={presentation.isSonioxProvider}
+                postProcessingAvailable={
+                  getPostProcessingAvailability(settings, {
+                    profilePreviewOutputOnlyEnabled:
+                      profile.preview_output_only_enabled ?? false,
+                    sttSelection: effectiveSelection,
+                  }).available
+                }
+                globalSonioxLanguageHintsStrict={Boolean((settings as any)?.soniox_language_hints_strict)}
+                isGeminiProvider={presentation.isGeminiProvider}
+                globalGeminiLanguageCode={globalGeminiLanguageCode}
+                globalGeminiVocabulary={globalGeminiVocabulary}
+                localSttModels={localSttModels}
+                globalSttModelSelection={globalSttModelSelection}
+                showSonioxLanguageFallbackWarning={
+                  !presentation.languageOptions.some(
+                    (language) => language.value === profile.language,
+                  )
+                }
+              />
+            );
+          })}
         </div>
       </SettingContainer>
 
