@@ -229,6 +229,7 @@ export const SttModelSelector: React.FC<Props> = ({
         </p>
         <Dropdown
           className="w-full"
+          ariaLabel={t("settings.sttModelSelector.provider")}
           selectedValue={currentProviderId}
           options={providerOptions}
           onSelect={selectProvider}
@@ -246,6 +247,7 @@ export const SttModelSelector: React.FC<Props> = ({
         </p>
         <Dropdown
           className="w-full"
+          ariaLabel={t("settings.sttModelSelector.model")}
           selectedValue={currentKey}
           options={sttModelDropdownOptions(modelOptions, readiness)}
           onSelect={(value) => {
@@ -258,7 +260,10 @@ export const SttModelSelector: React.FC<Props> = ({
           dropUp={false}
         />
         {currentProblem && (
-          <div className="space-y-2 rounded-lg border border-red-500/25 bg-red-500/5 p-2.5">
+          <div
+            role="alert"
+            className="space-y-2 rounded-lg border border-red-500/25 bg-red-500/5 p-2.5"
+          >
             <p className="flex items-start gap-1.5 text-xs text-red-400">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>{currentProblem}</span>

@@ -24,6 +24,7 @@ interface DropdownProps {
   placeholder?: string;
   disabled?: boolean;
   onRefresh?: () => void;
+  ariaLabel?: string;
   /** Open the menu upward instead of downward */
   dropUp?: boolean;
 }
@@ -36,9 +37,12 @@ export const Dropdown: React.FC<DropdownProps> = ({
   placeholder = "Select an option...",
   disabled = false,
   onRefresh,
+  ariaLabel,
   dropUp = true,
 }) => {
   const { t } = useTranslation();
+  const triggerId = React.useId();
+  const listboxId = React.useId();
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -211,8 +215,19 @@ export const Dropdown: React.FC<DropdownProps> = ({
       ref={dropdownRef}
     >
       <button
+        id={triggerId}
         type="button"
-        className={`px-3 py-2 text-sm font-medium bg-[#1e1e1e]/80 border border-[#3c3c3c] rounded-md min-w-[200px] w-full text-left grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center transition-all duration-200 ${
+        role="combobox"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={listboxId}
+        aria-activedescendant={
+          isOpen && highlightedIndex >= 0
+            ? `${listboxId}-option-${highlightedIndex}`
+            : undefined
+        }
+        className={`px-3 py-2 text-sm font-medium bg-[#1e1e1e]/80 border border-[#3c3c3c] rounded-md min-w-[200px] w-full text-left grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/60 ${
           disabled
             ? "opacity-40 cursor-not-allowed"
             : "hover:bg-[#252525]/80 hover:border-[#4a4a4a] cursor-pointer"
@@ -225,6 +240,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
           {selectedOption?.label || placeholder}
         </span>
         <svg
+          aria-hidden="true"
           className={`w-4 h-4 transition-transform duration-200 text-[#6b6b6b] ${isOpen ? "transform rotate-180" : ""}`}
           fill="none"
           stroke="currentColor"
@@ -242,7 +258,10 @@ export const Dropdown: React.FC<DropdownProps> = ({
         !disabled &&
         createPortal(
           <div
+            id={listboxId}
             ref={listRef}
+            role="listbox"
+            aria-labelledby={triggerId}
             className="fixed z-[9998] w-max max-w-sm max-h-60 overflow-y-auto rounded-lg border border-[#3c3c3c] bg-[#252525]/98 p-1 shadow-[0_12px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl"
             style={
               menuStyle ?? {
@@ -254,15 +273,19 @@ export const Dropdown: React.FC<DropdownProps> = ({
             onKeyDown={handleKeyDown}
           >
             {options.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-[#6b6b6b]">
+              <div role="status" className="px-3 py-2 text-sm text-[#6b6b6b]">
                 {t("common.noOptionsFound")}
               </div>
             ) : (
               options.map((option, index) => (
                 <button
                   key={option.value}
+                  id={`${listboxId}-option-${index}`}
                   type="button"
-                  className={`w-full px-3 py-2 text-sm text-left rounded-md transition-all duration-150 ${
+                  role="option"
+                  aria-selected={selectedValue === option.value}
+                  tabIndex={-1}
+                  className={`w-full px-3 py-2 text-sm text-left rounded-md transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#ff4d8d]/60 ${
                     selectedValue === option.value
                       ? `bg-[#ff4d8d]/20 font-medium ${option.className || "text-[#ff4d8d]"}`
                       : index === highlightedIndex
