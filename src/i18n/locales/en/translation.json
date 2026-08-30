@@ -3983,7 +3983,9 @@
     },
     "customWords": {
       "label": "Apply Custom Words",
-      "hint": "Applies your Custom Words list to this file transcription only."
+      "hint": "Applies your Custom Words list to this file transcription only.",
+      "tooltip": "Custom Words correct close transcription matches to the names, brands, technical terms, and other vocabulary in your saved list.",
+      "openSettings": "Edit Custom Words in Text Replacement"
     },
     "chunking": {
       "title": "Smart Chunking",

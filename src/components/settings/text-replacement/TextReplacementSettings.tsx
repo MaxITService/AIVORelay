@@ -1971,7 +1971,9 @@ export const TextReplacementSettings: React.FC = () => {
           </TellMeMore>
         </div>
 
-        <CustomWords descriptionMode="inline" grouped={true} />
+        <div id="custom-words-settings" className="divide-y divide-white/[0.05]">
+          <CustomWords descriptionMode="inline" grouped={true} />
+        </div>
 
         {/* N-gram toggle for multi-word fuzzy correction */}
         <div className="px-4 py-3 border-t border-white/[0.05]">

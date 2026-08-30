@@ -83,7 +83,9 @@ pub struct FileTranscriptionRecordingState {
     pub blocks_file_transcription: bool,
 }
 
-fn apply_file_transcription_selection(settings: &mut AppSettings) -> Result<(), String> {
+pub(crate) fn apply_file_transcription_selection(
+    settings: &mut AppSettings,
+) -> Result<(), String> {
     let Some(selection) = settings.file_transcription_model_selection.clone() else {
         return Ok(());
     };

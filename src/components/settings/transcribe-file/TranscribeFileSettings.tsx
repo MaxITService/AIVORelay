@@ -34,11 +34,13 @@ import { Button } from "@/components/ui/Button";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { Dropdown } from "@/components/ui/Dropdown";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { SttModelSelector } from "@/components/settings/SttModelSelector";
 import {
   useTranscribeFileStore,
   type SelectedFile,
 } from "@/stores/transcribeFileStore";
+import { useNavigationStore } from "@/stores/navigationStore";
 import {
   parseAndNormalizeSonioxLanguageHints,
   SONIOX_LANGUAGE_HINTS_MAX_COUNT,
@@ -313,6 +315,15 @@ const buildSelectedFile = async (path: string): Promise<SelectedFile> => {
     previewAssetPath,
     durationSeconds,
   };
+};
+
+const openCustomWordsSettings = () => {
+  useNavigationStore.getState().setSection("textReplacement");
+  setTimeout(() => {
+    document
+      .getElementById("custom-words-settings")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 120);
 };
 
 export const TranscribeFileSettings: React.FC = () => {
@@ -1913,25 +1924,47 @@ export const TranscribeFileSettings: React.FC = () => {
 
             {/* Custom Words Toggle */}
             <div className="mt-4 space-y-2">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={customWordsEnabledOverride}
-                  onChange={(e) =>
-                    setCustomWordsEnabledOverride(e.target.checked)
-                  }
-                  className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
+              <div className="flex items-center gap-1.5">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={customWordsEnabledOverride}
+                    onChange={(e) =>
+                      setCustomWordsEnabledOverride(e.target.checked)
+                    }
+                    className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
+                  />
+                  <span className="text-sm text-[#f5f5f5]">
+                    {t("transcribeFile.customWords.label", "Apply Custom Words")}
+                  </span>
+                </label>
+                <InfoTooltip
+                  content={t(
+                    "transcribeFile.customWords.tooltip",
+                    "Custom Words correct close transcription matches to the names, brands, technical terms, and other vocabulary in your saved list.",
+                  )}
                 />
-                <span className="text-sm text-[#f5f5f5]">
-                  {t("transcribeFile.customWords.label", "Apply Custom Words")}
-                </span>
-              </label>
-              <p className="text-xs text-[#606060] pl-6">
-                {t(
-                  "transcribeFile.customWords.hint",
-                  "Applies your Custom Words list to this file transcription only.",
-                )}
-              </p>
+              </div>
+              <div className="space-y-1 pl-6">
+                <p className="text-xs text-[#606060]">
+                  {t(
+                    "transcribeFile.customWords.hint",
+                    "Applies your Custom Words list to this file transcription only.",
+                  )}
+                </p>
+                <div>
+                  <button
+                    type="button"
+                    onClick={openCustomWordsSettings}
+                    className="text-xs text-[#ff4d8d] underline underline-offset-2 hover:opacity-75 transition-opacity"
+                  >
+                    {t(
+                      "transcribeFile.customWords.openSettings",
+                      "Edit Custom Words in Text Replacement",
+                    )}
+                  </button>
+                </div>
+              </div>
             </div>
 
             {showLocalChunkingOptions && (
