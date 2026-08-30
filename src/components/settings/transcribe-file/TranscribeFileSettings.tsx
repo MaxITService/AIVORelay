@@ -396,7 +396,15 @@ export const TranscribeFileSettings: React.FC = () => {
   const fileSelectionGenerationRef = useRef(0);
   const speakerReapplyGenerationRef = useRef(0);
   const transcriptionRunIdRef = useRef(0);
-  const inheritedFileSelection = globalSttSelection(settings);
+  const inheritedProfileSelection = (
+    settings?.transcription_profiles?.find(
+      (profile) =>
+        profile.id ===
+        (selectedProfileId ?? settings.active_profile_id ?? "default"),
+    ) as ({ stt_model_selection_override?: SttModelSelection | null } | undefined)
+  )?.stt_model_selection_override;
+  const inheritedFileSelection =
+    inheritedProfileSelection ?? globalSttSelection(settings);
   const fileSelection = ((settings as any)?.file_transcription_model_selection ??
     inheritedFileSelection) as SttModelSelection;
   const fileSelectionKey = sttSelectionKey(fileSelection);

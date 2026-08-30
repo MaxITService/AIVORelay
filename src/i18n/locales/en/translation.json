@@ -1366,7 +1366,9 @@
       "model": "Model",
       "missingApiKey": "API key is not configured in Models.",
       "notConfigured": "Model is not configured.",
-      "downloadLocalModel": "Download this local model in Models before using it."
+      "downloadLocalModel": "Download this local model in Models before using it.",
+      "profileOverrideTitle": "Override dictation model",
+      "profileOverrideDescription": "Use a different provider and model for ordinary dictation with this profile."
     },
     "generalHelp": {
       "title": "See what AivoRelay can do",

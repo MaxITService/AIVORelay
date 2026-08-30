@@ -18,7 +18,7 @@ import {
   RotateCcw,
   Pencil,
 } from "lucide-react";
-import { commands, TranscriptionProfile } from "@/bindings";
+import { commands, TranscriptionProfile, type ModelInfo } from "@/bindings";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -48,6 +48,11 @@ import { useNavigationStore } from "../../stores/navigationStore";
 import { getPostProcessingAvailability } from "../../lib/postProcessingAvailability";
 import { GEMINI_LOCALES } from "../../lib/gemini/geminiConfig";
 import { parseGeminiVocabulary } from "../../lib/gemini/vocabulary";
+import { SttModelSelector } from "./SttModelSelector";
+import {
+  globalSttSelection,
+  type SttModelSelection,
+} from "../../lib/sttModelSelection";
 
 /** Navigate to the User Interface section and scroll to the Live Preview settings anchor. */
 const openLivePreviewSettings = () => {
@@ -100,6 +105,7 @@ interface ExtendedTranscriptionProfile extends TranscriptionProfile {
   preview_output_only_enabled: boolean;
   soniox_language_hints_strict?: boolean | null;
   stt_prompt_override_enabled: boolean;
+  stt_model_selection_override?: SttModelSelection | null;
   soniox_context_general_json: string;
   soniox_context_text: string;
   soniox_context_terms: string[];
@@ -132,6 +138,8 @@ interface ProfileCardProps {
   isGeminiProvider: boolean;
   globalGeminiLanguageCode: string;
   globalGeminiVocabulary: string[];
+  localSttModels: ModelInfo[];
+  globalSttModelSelection: SttModelSelection;
   // Note: resolvedOsLanguage removed - language is detected at transcription time, not in UI
 }
 
@@ -160,6 +168,8 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   isGeminiProvider,
   globalGeminiLanguageCode,
   globalGeminiVocabulary,
+  localSttModels,
+  globalSttModelSelection,
 }) => {
   const { t } = useTranslation();
   const [isUpdating, setIsUpdating] = useState(false);
@@ -343,6 +353,29 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     setIsUpdating(true);
     try {
       await onUpdate({ ...profile, stt_prompt_override_enabled: newValue });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleSttModelOverrideEnabledChange = async (enabled: boolean) => {
+    setIsUpdating(true);
+    try {
+      await onUpdate({
+        ...profile,
+        stt_model_selection_override: enabled ? globalSttModelSelection : null,
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleSttModelOverrideChange = async (
+    selection: SttModelSelection,
+  ) => {
+    setIsUpdating(true);
+    try {
+      await onUpdate({ ...profile, stt_model_selection_override: selection });
     } finally {
       setIsUpdating(false);
     }
@@ -677,6 +710,39 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                 </span>
               </div>
             </div>
+          </div>
+
+          <div className="space-y-3 rounded-lg border border-mid-gray/10 bg-mid-gray/5 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-text/70">
+                  {t(
+                    "settings.sttModelSelector.profileOverrideTitle",
+                    "Override dictation model",
+                  )}
+                </p>
+                <p className="mt-1 text-xs text-mid-gray">
+                  {t(
+                    "settings.sttModelSelector.profileOverrideDescription",
+                    "Use a different provider and model for ordinary dictation with this profile.",
+                  )}
+                </p>
+              </div>
+              <ToggleSwitch
+                checked={profile.stt_model_selection_override != null}
+                onChange={handleSttModelOverrideEnabledChange}
+                disabled={isUpdating}
+              />
+            </div>
+            {profile.stt_model_selection_override && (
+              <SttModelSelector
+                workflow="dictation"
+                selection={profile.stt_model_selection_override}
+                localModels={localSttModels}
+                onChange={handleSttModelOverrideChange}
+                disabled={isUpdating}
+              />
+            )}
           </div>
 
           {/* Shortcut */}
@@ -1323,7 +1389,7 @@ export const TranscriptionProfiles: React.FC = () => {
     postProcessModelOptions,
     fetchPostProcessModels,
   } = useSettings();
-  const { getModelInfo } = useModels();
+  const { models: localSttModels, getModelInfo } = useModels();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(
     () => new Set(["default"]),
   );
@@ -1382,6 +1448,7 @@ export const TranscriptionProfiles: React.FC = () => {
 
   const profiles = (settings?.transcription_profiles ||
     []) as ExtendedTranscriptionProfile[];
+  const globalSttModelSelection = globalSttSelection(settings);
   const newLlmEnabled =
     newLlmEnabledOverride ?? Boolean(settings?.post_process_enabled);
 
@@ -1636,6 +1703,7 @@ export const TranscriptionProfiles: React.FC = () => {
             translateToEnglish: newTranslate,
             systemPrompt: newSystemPrompt,
             sttPromptOverrideEnabled: newSttPromptOverrideEnabled,
+            sttModelSelectionOverride: null,
             pushToTalk: newPushToTalk,
             previewOutputOnlyEnabled: newPreviewOutputOnly,
             includeInCycle: newIncludeInCycle,
@@ -1729,6 +1797,8 @@ export const TranscriptionProfiles: React.FC = () => {
           systemPrompt: profile.system_prompt || "",
           sttPromptOverrideEnabled:
             profile.stt_prompt_override_enabled ?? false,
+          sttModelSelectionOverride:
+            profile.stt_model_selection_override ?? null,
           includeInCycle: profile.include_in_cycle,
           pushToTalk: profile.push_to_talk,
           previewOutputOnlyEnabled:
@@ -2505,6 +2575,8 @@ export const TranscriptionProfiles: React.FC = () => {
               isGeminiProvider={isGeminiProvider}
               globalGeminiLanguageCode={globalGeminiLanguageCode}
               globalGeminiVocabulary={globalGeminiVocabulary}
+              localSttModels={localSttModels}
+              globalSttModelSelection={globalSttModelSelection}
               showSonioxLanguageFallbackWarning={
                 !filteredLanguages.some(
                   (language) => language.value === profile.language,

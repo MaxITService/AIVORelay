@@ -241,6 +241,10 @@ pub struct TranscriptionProfile {
     /// When false, falls back to global per-model prompt.
     #[serde(default)]
     pub stt_prompt_override_enabled: bool,
+    /// Optional provider/model override used only by ordinary dictation.
+    /// File transcription may use it as an initial default, but keeps its own selection.
+    #[serde(default)]
+    pub stt_model_selection_override: Option<SttModelSelection>,
     /// Whether this profile participates in the cycle shortcut rotation
     #[serde(default = "default_true")]
     pub include_in_cycle: bool,

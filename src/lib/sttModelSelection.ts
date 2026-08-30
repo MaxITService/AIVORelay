@@ -4,7 +4,7 @@ import type {
   SttModelSelection as BindingSttModelSelection,
 } from "@/bindings";
 
-export type SttWorkflow = "file" | "live";
+export type SttWorkflow = "dictation" | "file" | "live";
 
 export type SttModelSelection = BindingSttModelSelection;
 
@@ -108,7 +108,7 @@ export const sttCatalog = (
   localModels: ModelInfo[],
 ): SttCatalogOption[] => {
   const localOptions =
-    workflow === "file"
+    workflow !== "live"
       ? localModels.map((model) => ({
           id: `local:${model.id}`,
           providerId: "local",
@@ -123,8 +123,7 @@ export const sttCatalog = (
         }))
       : [];
 
-  if (workflow === "live") {
-    return [
+  const liveOptions: SttCatalogOption[] = [
       {
         id: "soniox:stt-rt-v5",
         providerId: "soniox",
@@ -172,10 +171,12 @@ export const sttCatalog = (
         "GPT Realtime Whisper · Legacy",
       ),
     ];
+
+  if (workflow === "live") {
+    return liveOptions;
   }
 
-  return [
-    ...localOptions,
+  const fileOptions: SttCatalogOption[] = [
     {
       id: "soniox:stt-async-v5",
       providerId: "soniox",
@@ -218,4 +219,18 @@ export const sttCatalog = (
       "Whisper Large v3 Turbo",
     ),
   ];
+
+  if (workflow === "file") {
+    return [...localOptions, ...fileOptions];
+  }
+
+  const remoteOptions = [...liveOptions, ...fileOptions].filter(
+    (option, index, options) =>
+      options.findIndex(
+        (candidate) =>
+          sttSelectionKey(candidate.selection) ===
+          sttSelectionKey(option.selection),
+      ) === index,
+  );
+  return [...localOptions, ...remoteOptions];
 };

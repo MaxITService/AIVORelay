@@ -4238,6 +4238,8 @@ pub struct AddTranscriptionProfilePayload {
     pub system_prompt: String,
     #[serde(default)]
     pub stt_prompt_override_enabled: bool,
+    #[serde(default)]
+    pub stt_model_selection_override: Option<settings::SttModelSelection>,
     pub push_to_talk: bool,
     #[serde(default)]
     pub preview_output_only_enabled: bool,
@@ -4263,6 +4265,8 @@ pub struct UpdateTranscriptionProfilePayload {
     pub translate_to_english: bool,
     pub system_prompt: String,
     pub stt_prompt_override_enabled: bool,
+    #[serde(default)]
+    pub stt_model_selection_override: Option<settings::SttModelSelection>,
     pub include_in_cycle: bool,
     pub push_to_talk: bool,
     pub preview_output_only_enabled: bool,
@@ -4292,6 +4296,7 @@ pub fn add_transcription_profile(
         translate_to_english,
         system_prompt,
         stt_prompt_override_enabled,
+        stt_model_selection_override,
         push_to_talk,
         preview_output_only_enabled,
         soniox_language_hints_strict,
@@ -4305,6 +4310,11 @@ pub fn add_transcription_profile(
     } = payload;
 
     let mut settings = settings::get_settings(&app);
+
+    if let Some(selection) = stt_model_selection_override.as_ref() {
+        let mut candidate = settings.clone();
+        settings::apply_stt_model_selection(&mut candidate, selection)?;
+    }
 
     // Generate unique ID using timestamp
     let profile_id = format!("profile_{}", chrono::Utc::now().timestamp_millis());
@@ -4352,6 +4362,7 @@ pub fn add_transcription_profile(
         description: description.clone(),
         system_prompt,
         stt_prompt_override_enabled,
+        stt_model_selection_override,
         include_in_cycle: include_in_cycle.unwrap_or(true), // Include in cycle by default
         push_to_talk,
         preview_output_only_enabled,
@@ -4397,6 +4408,7 @@ pub fn update_transcription_profile(
         translate_to_english,
         system_prompt,
         stt_prompt_override_enabled,
+        stt_model_selection_override,
         include_in_cycle,
         push_to_talk,
         preview_output_only_enabled,
@@ -4410,6 +4422,11 @@ pub fn update_transcription_profile(
     } = payload;
 
     let mut settings = settings::get_settings(&app);
+
+    if let Some(selection) = stt_model_selection_override.as_ref() {
+        let mut candidate = settings.clone();
+        settings::apply_stt_model_selection(&mut candidate, selection)?;
+    }
 
     // Find and update the profile
     let profile = settings
@@ -4430,6 +4447,7 @@ pub fn update_transcription_profile(
     profile.description = description.clone();
     profile.system_prompt = system_prompt;
     profile.stt_prompt_override_enabled = stt_prompt_override_enabled;
+    profile.stt_model_selection_override = stt_model_selection_override;
     profile.include_in_cycle = include_in_cycle;
     profile.push_to_talk = push_to_talk;
     profile.preview_output_only_enabled = preview_output_only_enabled;
