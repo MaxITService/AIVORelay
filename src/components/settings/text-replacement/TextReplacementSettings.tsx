@@ -1971,7 +1971,11 @@ export const TextReplacementSettings: React.FC = () => {
           </TellMeMore>
         </div>
 
-        <div id="custom-words-settings" className="divide-y divide-white/[0.05]">
+        <div
+          id="custom-words-settings"
+          tabIndex={-1}
+          className="divide-y divide-white/[0.05] outline-none"
+        >
           <CustomWords descriptionMode="inline" grouped={true} />
         </div>
 

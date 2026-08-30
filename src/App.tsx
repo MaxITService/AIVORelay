@@ -52,7 +52,15 @@ type TtsBackgroundStatePayload = {
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
     SECTIONS_CONFIG[section]?.component || SECTIONS_CONFIG.general.component;
-  return <ActiveComponent />;
+  return (
+    <div
+      id={`settings-section-${section}`}
+      tabIndex={-1}
+      className="w-full outline-none"
+    >
+      <ActiveComponent />
+    </div>
+  );
 };
 
 function App() {

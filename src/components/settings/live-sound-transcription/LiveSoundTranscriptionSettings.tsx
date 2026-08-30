@@ -848,6 +848,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       </SettingsGroup>
 
       <SettingsGroup
+        id="live-monitor-session-settings"
         title={t("settings.liveSoundTranscription.session.settingsTitle")}
         description={t("settings.liveSoundTranscription.session.settingsDescription")}
         collapsible
@@ -946,7 +947,11 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
             )}
 
             {providerSupportsDiarization && (
-              <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#333333] bg-[#121212]/50 px-4 py-3">
+              <div
+                id="live-monitor-diarization"
+                tabIndex={-1}
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-[#333333] bg-[#121212]/50 px-4 py-3 outline-none"
+              >
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-[#f5f5f5]">
                     {t("settings.liveSoundTranscription.session.diarizationToggleTitle")}
