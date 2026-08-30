@@ -1567,6 +1567,90 @@ export const TranscribeFileSettings: React.FC = () => {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  const transcriptionActionBar = selectedFile ? (
+    <div className="sticky top-3 z-40 mx-3 rounded-xl border border-[#9b5de5]/35 bg-[#111111]/95 px-4 py-3 shadow-[0_12px_32px_rgba(0,0,0,0.45)] backdrop-blur-md">
+      <div className="flex flex-wrap gap-3">
+        <Button
+          variant="primary"
+          onClick={handleTranscribe}
+          disabled={!canTranscribe}
+          className="flex items-center gap-2"
+          title={
+            recordingBlocksFileTranscription
+              ? t("transcribeFile.recordingLocalConflict")
+              : selectedFileExceedsGoogleInlineLimit
+                ? googleInlineLimitExceededMessage
+                : selectedFileDurationWarning
+                  ? selectedFileDurationWarning
+                  : undefined
+          }
+        >
+          {isFinalizingCancelledTranscription ? (
+            t(
+              "transcribeFile.finalizingCancellation",
+              "Finishing cancellation...",
+            )
+          ) : isTranscribing ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              {t("transcribeFile.transcribing")}
+            </>
+          ) : (
+            t("transcribeFile.transcribe")
+          )}
+        </Button>
+        {isTranscribing && (
+          <Button
+            variant="danger"
+            onClick={handleCancelTranscription}
+            disabled={isCancellingTranscription}
+          >
+            {isCancellingTranscription
+              ? t("transcribeFile.cancelling")
+              : t("common.cancel")}
+          </Button>
+        )}
+        <Button
+          variant="secondary"
+          onClick={handleClear}
+          disabled={isTranscribing}
+        >
+          {t("transcribeFile.clear")}
+        </Button>
+      </div>
+      {recordingBlocksFileTranscription && (
+        <p className="mt-2 text-xs text-amber-400">
+          {t("transcribeFile.recordingLocalConflict")}
+        </p>
+      )}
+      {isGeminiLiveFileUnsupported && (
+        <p className="mt-2 text-xs text-amber-400">
+          {t("transcribeFile.liveModelUnsupported")}
+        </p>
+      )}
+      {isFinalizingCancelledTranscription && (
+        <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-200">
+          <p className="font-medium text-amber-100">
+            {t(
+              "transcribeFile.cancelWait.requested",
+              "Cancellation requested.",
+            )}
+          </p>
+          <p className="mt-1">{cancelWaitCopy}</p>
+          <p className="mt-1">
+            {t(
+              "transcribeFile.cancelWait.elapsed",
+              "Elapsed: {{seconds}}s",
+              {
+                seconds: cancelElapsedSeconds,
+              },
+            )}
+          </p>
+        </div>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6 pb-12">
       {/* Help Section */}
@@ -1670,6 +1754,8 @@ export const TranscribeFileSettings: React.FC = () => {
             </div>
           )}
         </div>
+
+        {transcriptionActionBar}
 
         <WorkflowStageHeader
           step={2}
@@ -2215,92 +2301,6 @@ export const TranscribeFileSettings: React.FC = () => {
             )}
 
           </div>
-
-        {/* Action Buttons */}
-        {selectedFile && (
-          <div className="px-4 py-3 border-t border-white/[0.05]">
-            <div className="flex gap-3">
-              <Button
-                variant="primary"
-                onClick={handleTranscribe}
-                disabled={!canTranscribe}
-                className="flex items-center gap-2"
-                title={
-                  recordingBlocksFileTranscription
-                    ? t("transcribeFile.recordingLocalConflict")
-                    : selectedFileExceedsGoogleInlineLimit
-                      ? googleInlineLimitExceededMessage
-                    : selectedFileDurationWarning
-                      ? selectedFileDurationWarning
-                      : undefined
-                }
-              >
-                {isFinalizingCancelledTranscription ? (
-                  t(
-                    "transcribeFile.finalizingCancellation",
-                    "Finishing cancellation...",
-                  )
-                ) : isTranscribing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    {t("transcribeFile.transcribing")}
-                  </>
-                ) : (
-                  t("transcribeFile.transcribe")
-                )}
-              </Button>
-              {isTranscribing && (
-                <Button
-                  variant="danger"
-                  onClick={handleCancelTranscription}
-                  disabled={isCancellingTranscription}
-                >
-                  {isCancellingTranscription
-                    ? t("transcribeFile.cancelling")
-                    : t("common.cancel")}
-                </Button>
-              )}
-              <Button
-                variant="secondary"
-                onClick={handleClear}
-                disabled={isTranscribing}
-              >
-                {t("transcribeFile.clear")}
-              </Button>
-            </div>
-            {recordingBlocksFileTranscription && (
-              <p className="text-xs text-amber-400 mt-2">
-                {t("transcribeFile.recordingLocalConflict")}
-              </p>
-            )}
-            {isGeminiLiveFileUnsupported && (
-              <p className="text-xs text-amber-400 mt-2">
-                {t("transcribeFile.liveModelUnsupported")}
-              </p>
-            )}
-            {isFinalizingCancelledTranscription && (
-              <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-200">
-                <p className="font-medium text-amber-100">
-                  {t(
-                    "transcribeFile.cancelWait.requested",
-                    "Cancellation requested.",
-                  )}
-                </p>
-                <p className="mt-1">{cancelWaitCopy}</p>
-                <p className="mt-1">
-                  {t(
-                    "transcribeFile.cancelWait.elapsed",
-                    "Elapsed: {{seconds}}s",
-                    {
-                      seconds: cancelElapsedSeconds,
-                    },
-                  )}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
         <WorkflowStageHeader
           step={3}
           title={t("transcribeFile.stages.result", "Result")}

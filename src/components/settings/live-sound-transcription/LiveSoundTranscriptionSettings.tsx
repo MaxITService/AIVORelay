@@ -773,74 +773,76 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               </div>
             )}
 
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="primary"
-                disabled={
-                  !liveProviderReady ||
-                  !liveModeEnabled ||
-                  isRecording ||
-                  sourceBusy ||
-                  actionBusy !== null
-                }
-                onClick={() =>
-                  void runAction("start", "live_sound_transcription_start")
-                }
-              >
-                {actionBusy === "start"
-                  ? t("settings.liveSoundTranscription.session.starting")
-                  : t("settings.liveSoundTranscription.session.start")}
-              </Button>
-              <Button
-                variant="danger"
-                disabled={!isRecording || sourceBusy || actionBusy !== null}
-                onClick={() =>
-                  void runAction("stop", "live_sound_transcription_stop")
-                }
-              >
-                {actionBusy === "stop"
-                  ? t("settings.liveSoundTranscription.session.stopping")
-                  : t("settings.liveSoundTranscription.session.stop")}
-              </Button>
-              <Button
-                variant="secondary"
-                disabled={
-                  sourceBusy ||
-                  actionBusy !== null ||
-                  (finalText.trim().length === 0 && interimText.trim().length === 0)
-                }
-                onClick={() =>
-                  void runAction("clear", "live_sound_transcription_clear")
-                }
-              >
-                {actionBusy === "clear"
-                  ? t("settings.liveSoundTranscription.session.clearing")
-                  : t("settings.liveSoundTranscription.session.clear")}
-              </Button>
-              <Button
-                variant="secondary"
-                disabled={
-                  sourceBusy ||
-                  actionBusy !== null ||
-                  isProcessing ||
-                  isRecording ||
-                  finalText.trim().length === 0
-                }
-                onClick={() =>
-                  void runAction("process", "live_sound_transcription_process")
-                }
-              >
-                {actionBusy === "process" || isProcessing
-                  ? t("settings.liveSoundTranscription.session.processing")
-                  : t("settings.liveSoundTranscription.session.process")}
-              </Button>
-            </div>
+            <div className="sticky top-3 z-40 -mx-2 space-y-2 rounded-xl border border-[#9b5de5]/35 bg-[#111111]/95 p-3 shadow-[0_12px_32px_rgba(0,0,0,0.45)] backdrop-blur-md">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="primary"
+                  disabled={
+                    !liveProviderReady ||
+                    !liveModeEnabled ||
+                    isRecording ||
+                    sourceBusy ||
+                    actionBusy !== null
+                  }
+                  onClick={() =>
+                    void runAction("start", "live_sound_transcription_start")
+                  }
+                >
+                  {actionBusy === "start"
+                    ? t("settings.liveSoundTranscription.session.starting")
+                    : t("settings.liveSoundTranscription.session.start")}
+                </Button>
+                <Button
+                  variant="danger"
+                  disabled={!isRecording || sourceBusy || actionBusy !== null}
+                  onClick={() =>
+                    void runAction("stop", "live_sound_transcription_stop")
+                  }
+                >
+                  {actionBusy === "stop"
+                    ? t("settings.liveSoundTranscription.session.stopping")
+                    : t("settings.liveSoundTranscription.session.stop")}
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={
+                    sourceBusy ||
+                    actionBusy !== null ||
+                    (finalText.trim().length === 0 && interimText.trim().length === 0)
+                  }
+                  onClick={() =>
+                    void runAction("clear", "live_sound_transcription_clear")
+                  }
+                >
+                  {actionBusy === "clear"
+                    ? t("settings.liveSoundTranscription.session.clearing")
+                    : t("settings.liveSoundTranscription.session.clear")}
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={
+                    sourceBusy ||
+                    actionBusy !== null ||
+                    isProcessing ||
+                    isRecording ||
+                    finalText.trim().length === 0
+                  }
+                  onClick={() =>
+                    void runAction("process", "live_sound_transcription_process")
+                  }
+                >
+                  {actionBusy === "process" || isProcessing
+                    ? t("settings.liveSoundTranscription.session.processing")
+                    : t("settings.liveSoundTranscription.session.process")}
+                </Button>
+              </div>
 
-            <p className="text-sm text-[#9a9a9a]">
-              {isRecording
-                ? t("settings.liveSoundTranscription.session.recordingHint")
-                : t("settings.liveSoundTranscription.session.idleHint")}
-            </p>
+              <p className="text-sm text-[#9a9a9a]">
+                {isRecording
+                  ? t("settings.liveSoundTranscription.session.recordingHint")
+                  : t("settings.liveSoundTranscription.session.idleHint")}
+              </p>
+            </div>
           </div>
         </SettingContainer>
       </SettingsGroup>
