@@ -23,8 +23,10 @@ use crate::managers::transcription::{
 use crate::session_manager::{ManagedSessionState, SessionState};
 use crate::settings::{
     apply_output_whitespace_policy_for_settings, apply_stt_model_selection, get_settings,
-    resolve_live_sound_provider, write_settings, AppSettings, FileTranscriptionChunkingMode,
-    SttModelSelection, TranscriptionProvider,
+    resolve_live_sound_provider, stt_model_selection_key, stt_model_selection_supports_file,
+    write_settings, AppSettings, FileTranscriptionChunkingMode,
+    FileTranscriptionModelConfig, SttModelSelection, TranscriptionProfile,
+    TranscriptionProvider,
 };
 use crate::subtitle::{
     get_format_extension, segments_to_srt, segments_to_vtt, timed_tokens_to_subtitle_segments,
@@ -88,16 +90,259 @@ fn apply_file_transcription_selection(settings: &mut AppSettings) -> Result<(), 
     apply_stt_model_selection(settings, &selection)
 }
 
+fn global_stt_selection(settings: &AppSettings) -> SttModelSelection {
+    let (model_id, provider_preset) = match settings.transcription_provider {
+        TranscriptionProvider::Local => (settings.selected_model.clone(), String::new()),
+        TranscriptionProvider::RemoteSoniox => (settings.soniox_model.clone(), String::new()),
+        TranscriptionProvider::RemoteDeepgram => (settings.deepgram_model.clone(), String::new()),
+        TranscriptionProvider::RemoteOpenAiCompatible => (
+            settings.remote_stt.model_id.clone(),
+            settings.remote_stt.provider_preset.clone(),
+        ),
+    };
+    SttModelSelection {
+        provider: settings.transcription_provider,
+        model_id,
+        provider_preset,
+    }
+}
+
+fn default_file_profile_snapshot(
+    settings: &AppSettings,
+    selection: &SttModelSelection,
+) -> TranscriptionProfile {
+    let prompt = settings
+        .transcription_prompts
+        .get(selection.model_id.trim())
+        .cloned()
+        .unwrap_or_default();
+    TranscriptionProfile {
+        id: "file_transcription".to_string(),
+        name: "Transcribe File".to_string(),
+        language: settings.selected_language.clone(),
+        translate_to_english: settings.translate_to_english,
+        description: String::new(),
+        system_prompt: prompt.clone(),
+        stt_prompt_override_enabled: !prompt.trim().is_empty(),
+        stt_model_selection_override: Some(selection.clone()),
+        include_in_cycle: false,
+        push_to_talk: false,
+        preview_output_only_enabled: false,
+        soniox_language_hints_strict: Some(settings.soniox_language_hints_strict),
+        gemini_language_code_override: Some(settings.gemini_language_code.clone()),
+        gemini_custom_vocabulary_override: Some(settings.gemini_custom_vocabulary.clone()),
+        llm_post_process_enabled: settings.post_process_enabled,
+        llm_prompt_override: None,
+        llm_model_override: None,
+        soniox_context_general_json: settings.soniox_context_general_json.clone(),
+        soniox_context_text: settings.soniox_context_text.clone(),
+        soniox_context_terms: settings.soniox_context_terms.clone(),
+    }
+}
+
+fn initial_file_profile_snapshot(
+    settings: &AppSettings,
+    selection: &SttModelSelection,
+) -> TranscriptionProfile {
+    if settings.active_profile_id != "default" {
+        if let Some(profile) = settings.transcription_profile(&settings.active_profile_id) {
+            let mut snapshot = profile.clone();
+            snapshot.id = "file_transcription".to_string();
+            snapshot.name = "Transcribe File".to_string();
+            snapshot.stt_model_selection_override = Some(selection.clone());
+            return snapshot;
+        }
+    }
+    default_file_profile_snapshot(settings, selection)
+}
+
+fn capture_file_model_config(
+    settings: &AppSettings,
+    profile_snapshot: Option<TranscriptionProfile>,
+) -> FileTranscriptionModelConfig {
+    FileTranscriptionModelConfig {
+        profile_snapshot,
+        chunking_mode: settings.file_transcription_chunking_mode,
+        chunking_max_minutes: settings.file_transcription_chunking_max_minutes,
+        soniox_language_hints: settings
+            .file_soniox_language_hints
+            .clone()
+            .unwrap_or_else(|| settings.soniox_language_hints.clone()),
+        soniox_enable_speaker_diarization: settings
+            .file_soniox_enable_speaker_diarization
+            .unwrap_or(settings.soniox_enable_speaker_diarization),
+        soniox_enable_language_identification: settings
+            .file_soniox_enable_language_identification
+            .unwrap_or(settings.soniox_enable_language_identification),
+        deepgram_diarize: settings
+            .file_deepgram_diarize
+            .unwrap_or(settings.deepgram_diarize),
+        deepgram_multichannel: settings.file_deepgram_multichannel.unwrap_or(false),
+        gemini_mode: settings.gemini_file_mode,
+        gemini_diarization: settings.gemini_file_diarization,
+    }
+}
+
+fn file_selections_structurally_compatible(
+    current: &SttModelSelection,
+    next: &SttModelSelection,
+) -> bool {
+    if current.provider != next.provider {
+        return false;
+    }
+    if current.provider != TranscriptionProvider::RemoteOpenAiCompatible {
+        return true;
+    }
+
+    let current_is_gemini = current.model_id.contains("gemini-3.5-transcribe");
+    let next_is_gemini = next.model_id.contains("gemini-3.5-transcribe");
+    current_is_gemini == next_is_gemini
+}
+
+fn seed_file_model_config(
+    settings: &AppSettings,
+    selection: &SttModelSelection,
+) -> FileTranscriptionModelConfig {
+    let profile_snapshot = Some(initial_file_profile_snapshot(settings, selection));
+    let mut config = if settings
+        .file_transcription_model_selection
+        .as_ref()
+        .is_some_and(|current| file_selections_structurally_compatible(current, selection))
+    {
+        capture_file_model_config(settings, profile_snapshot)
+    } else {
+        FileTranscriptionModelConfig {
+            profile_snapshot,
+            chunking_mode: FileTranscriptionChunkingMode::default(),
+            chunking_max_minutes: 0.5,
+            soniox_language_hints: settings.soniox_language_hints.clone(),
+            soniox_enable_speaker_diarization: settings.soniox_enable_speaker_diarization,
+            soniox_enable_language_identification: settings
+                .soniox_enable_language_identification,
+            deepgram_diarize: settings.deepgram_diarize,
+            deepgram_multichannel: false,
+            gemini_mode: crate::settings::GeminiTranscriptionMode::Smart,
+            gemini_diarization: false,
+        }
+    };
+    if selection.provider == TranscriptionProvider::RemoteOpenAiCompatible
+        && selection.provider_preset != crate::url_security::REMOTE_STT_PRESET_GOOGLE
+    {
+        config.gemini_diarization = false;
+    }
+    config
+}
+
+fn apply_file_model_config(settings: &mut AppSettings, config: &FileTranscriptionModelConfig) {
+    settings.file_transcription_chunking_mode = config.chunking_mode;
+    settings.file_transcription_chunking_max_minutes = config.chunking_max_minutes;
+    settings.file_soniox_language_hints = Some(config.soniox_language_hints.clone());
+    settings.file_soniox_enable_speaker_diarization =
+        Some(config.soniox_enable_speaker_diarization);
+    settings.file_soniox_enable_language_identification =
+        Some(config.soniox_enable_language_identification);
+    settings.file_deepgram_diarize = Some(config.deepgram_diarize);
+    settings.file_deepgram_multichannel = Some(config.deepgram_multichannel);
+    settings.gemini_file_mode = config.gemini_mode;
+    settings.gemini_file_diarization = config.gemini_diarization;
+}
+
+pub(crate) fn sync_active_file_model_config(settings: &mut AppSettings) {
+    let Some(selection) = settings.file_transcription_model_selection.clone() else {
+        return;
+    };
+    let key = stt_model_selection_key(&selection);
+    let profile_snapshot = settings
+        .file_transcription_model_configs
+        .get(&key)
+        .and_then(|config| config.profile_snapshot.clone())
+        .or_else(|| Some(initial_file_profile_snapshot(settings, &selection)));
+    let config = capture_file_model_config(settings, profile_snapshot);
+    settings.file_transcription_model_configs.insert(key, config);
+}
+
+fn compatible_initial_file_selection(settings: &AppSettings) -> SttModelSelection {
+    let profile_selection = settings
+        .transcription_profile(&settings.active_profile_id)
+        .and_then(|profile| profile.stt_model_selection_override.clone())
+        .filter(stt_model_selection_supports_file);
+    if let Some(selection) = profile_selection {
+        return selection;
+    }
+
+    let global = global_stt_selection(settings);
+    if stt_model_selection_supports_file(&global) {
+        return global;
+    }
+
+    if !settings.selected_model.trim().is_empty() {
+        return SttModelSelection {
+            provider: TranscriptionProvider::Local,
+            model_id: settings.selected_model.clone(),
+            provider_preset: String::new(),
+        };
+    }
+
+    SttModelSelection {
+        provider: TranscriptionProvider::RemoteSoniox,
+        model_id: SONIOX_LATEST_ASYNC_MODEL.to_string(),
+        provider_preset: String::new(),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn initialize_file_transcription_model_settings(app: AppHandle) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    if settings.file_transcription_model_selection.is_none() {
+        settings.file_transcription_model_selection =
+            Some(compatible_initial_file_selection(&settings));
+    }
+
+    let selection = settings
+        .file_transcription_model_selection
+        .clone()
+        .ok_or_else(|| "No compatible Transcribe File model is available.".to_string())?;
+    if !stt_model_selection_supports_file(&selection) {
+        settings.file_transcription_model_selection =
+            Some(compatible_initial_file_selection(&settings));
+    }
+    let selection = settings.file_transcription_model_selection.clone().unwrap();
+    let key = stt_model_selection_key(&selection);
+    let config = settings
+        .file_transcription_model_configs
+        .get(&key)
+        .cloned()
+        .unwrap_or_else(|| seed_file_model_config(&settings, &selection));
+    apply_file_model_config(&mut settings, &config);
+    settings.file_transcription_model_configs.insert(key, config);
+    write_settings(&app, settings);
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn change_file_transcription_model_selection(
     app: AppHandle,
     selection: SttModelSelection,
 ) -> Result<(), String> {
+    if !stt_model_selection_supports_file(&selection) {
+        return Err("This STT model is not compatible with Transcribe File.".to_string());
+    }
     let mut settings = get_settings(&app);
     let mut candidate = settings.clone();
     apply_stt_model_selection(&mut candidate, &selection)?;
+
+    sync_active_file_model_config(&mut settings);
+    let key = stt_model_selection_key(&selection);
+    let config = settings
+        .file_transcription_model_configs
+        .get(&key)
+        .cloned()
+        .unwrap_or_else(|| seed_file_model_config(&settings, &selection));
+    apply_file_model_config(&mut settings, &config);
     settings.file_transcription_model_selection = Some(selection);
+    settings.file_transcription_model_configs.insert(key, config);
     write_settings(&app, settings);
     Ok(())
 }
@@ -110,6 +355,42 @@ pub fn change_file_soniox_speaker_diarization_setting(
 ) -> Result<(), String> {
     let mut settings = get_settings(&app);
     settings.file_soniox_enable_speaker_diarization = Some(enabled);
+    sync_active_file_model_config(&mut settings);
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_file_soniox_language_hints_setting(
+    app: AppHandle,
+    language_hints: Vec<String>,
+) -> Result<(), String> {
+    let language_hints = crate::settings::normalize_soniox_terms(&language_hints);
+    if language_hints.len()
+        > crate::managers::soniox_stt::SONIOX_LANGUAGE_HINTS_MAX_COUNT
+    {
+        return Err(format!(
+            "Soniox accepts at most {} language hints.",
+            crate::managers::soniox_stt::SONIOX_LANGUAGE_HINTS_MAX_COUNT
+        ));
+    }
+    let mut settings = get_settings(&app);
+    settings.file_soniox_language_hints = Some(language_hints);
+    sync_active_file_model_config(&mut settings);
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_file_soniox_language_identification_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.file_soniox_enable_language_identification = Some(enabled);
+    sync_active_file_model_config(&mut settings);
     write_settings(&app, settings);
     Ok(())
 }
@@ -122,6 +403,20 @@ pub fn change_file_deepgram_diarization_setting(
 ) -> Result<(), String> {
     let mut settings = get_settings(&app);
     settings.file_deepgram_diarize = Some(enabled);
+    sync_active_file_model_config(&mut settings);
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_file_deepgram_multichannel_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.file_deepgram_multichannel = Some(enabled);
+    sync_active_file_model_config(&mut settings);
     write_settings(&app, settings);
     Ok(())
 }
@@ -134,6 +429,7 @@ pub fn change_file_transcription_chunking_mode_setting(
 ) -> Result<(), String> {
     let mut settings = get_settings(&app);
     settings.file_transcription_chunking_mode = mode;
+    sync_active_file_model_config(&mut settings);
     write_settings(&app, settings);
     Ok(())
 }
@@ -146,6 +442,7 @@ pub fn change_file_transcription_chunking_max_minutes_setting(
 ) -> Result<(), String> {
     let mut settings = get_settings(&app);
     settings.file_transcription_chunking_max_minutes = minutes.clamp(0.25, 10.0);
+    sync_active_file_model_config(&mut settings);
     write_settings(&app, settings);
     Ok(())
 }
@@ -260,7 +557,7 @@ fn ensure_file_transcription_not_cancelled(app: &AppHandle) -> Result<(), String
 ///
 /// # Arguments
 /// * `file_path` - Path to the audio file
-/// * `profile_id` - Optional transcription profile ID (uses active profile if not specified)
+/// * `profile_id` - Retained for command compatibility; file settings use their saved snapshot
 /// * `save_to_file` - If true, saves the transcription to a file in Documents folder
 /// * `output_format` - Output format: "text" (default), "srt", or "vtt"
 /// * `custom_words_enabled_override` - Optional override for applying custom words
@@ -273,7 +570,7 @@ fn ensure_file_transcription_not_cancelled(app: &AppHandle) -> Result<(), String
 pub async fn transcribe_audio_file(
     app: AppHandle,
     file_path: String,
-    profile_id: Option<String>,
+    _profile_id: Option<String>,
     save_to_file: bool,
     output_format: Option<OutputFormat>,
     mut model_override: Option<String>,
@@ -310,14 +607,22 @@ pub async fn transcribe_audio_file(
     );
     let transcription_started_at = Instant::now();
 
-    // Get settings and determine profile to use
+    // File settings are independent after their initial profile snapshot.
     let mut settings = get_settings(&app);
     apply_file_transcription_selection(&mut settings)?;
     if model_override.is_none() && settings.transcription_provider == TranscriptionProvider::Local {
         model_override = Some(settings.selected_model.clone());
     }
-    let profile_id = profile_id.unwrap_or_else(|| settings.active_profile_id.clone());
-    let profile = settings.transcription_profile(&profile_id);
+    let file_profile_snapshot = settings
+        .file_transcription_model_selection
+        .as_ref()
+        .and_then(|selection| {
+            settings
+                .file_transcription_model_configs
+                .get(&stt_model_selection_key(selection))
+        })
+        .and_then(|config| config.profile_snapshot.clone());
+    let profile = file_profile_snapshot.as_ref();
     let apply_custom_words_enabled =
         custom_words_enabled_override.unwrap_or(settings.custom_words_enabled);
     let should_apply_custom_words = apply_custom_words_enabled && !settings.custom_words.is_empty();
@@ -607,7 +912,12 @@ pub async fn transcribe_audio_file(
         let language_hints =
             normalize_soniox_language_hints(soniox_options_override.language_hints.clone())
                 .or_else(|| {
-                    normalize_soniox_language_hints(Some(settings.soniox_language_hints.clone()))
+                    normalize_soniox_language_hints(Some(
+                        settings
+                            .file_soniox_language_hints
+                            .clone()
+                            .unwrap_or_else(|| settings.soniox_language_hints.clone()),
+                    ))
                 });
         let enable_speaker_diarization = soniox_options_override
             .enable_speaker_diarization
@@ -618,7 +928,11 @@ pub async fn transcribe_audio_file(
             });
         let enable_language_identification = soniox_options_override
             .enable_language_identification
-            .unwrap_or(settings.soniox_enable_language_identification);
+            .unwrap_or_else(|| {
+                settings
+                    .file_soniox_enable_language_identification
+                    .unwrap_or(settings.soniox_enable_language_identification)
+            });
         let soniox_options = SonioxAsyncTranscriptionOptions {
             language_hints,
             context: crate::settings::resolve_soniox_context(profile, &settings),
@@ -728,7 +1042,7 @@ pub async fn transcribe_audio_file(
                 deepgram_options_override
                     .as_ref()
                     .and_then(|options| options.multichannel)
-                    .unwrap_or(false),
+                    .unwrap_or(settings.file_deepgram_multichannel.unwrap_or(false)),
             ),
         };
         let audio_bytes = deepgram_audio_bytes

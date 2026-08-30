@@ -2659,6 +2659,59 @@ pub struct SttModelSelection {
     pub provider_preset: String,
 }
 
+pub fn stt_model_selection_key(selection: &SttModelSelection) -> String {
+    format!(
+        "{:?}|{}|{}",
+        selection.provider,
+        selection.provider_preset.trim(),
+        selection.model_id.trim()
+    )
+}
+
+pub fn stt_model_selection_supports_file(selection: &SttModelSelection) -> bool {
+    let model_id = selection.model_id.trim().to_ascii_lowercase();
+    if model_id.is_empty() {
+        return false;
+    }
+
+    match selection.provider {
+        TranscriptionProvider::Local | TranscriptionProvider::RemoteDeepgram => true,
+        TranscriptionProvider::RemoteSoniox => model_id.starts_with("stt-async"),
+        TranscriptionProvider::RemoteOpenAiCompatible => {
+            !model_id.contains("transcribe-live")
+                && !model_id.contains("live-transcribe")
+                && !model_id.contains("realtime")
+        }
+    }
+}
+
+/// File-only values saved independently for every compatible STT model.
+/// The existing top-level file fields mirror the currently selected entry so
+/// older UI and CLI code can keep reading a simple active configuration.
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct FileTranscriptionModelConfig {
+    #[serde(default)]
+    pub profile_snapshot: Option<TranscriptionProfile>,
+    #[serde(default = "default_file_transcription_chunking_mode")]
+    pub chunking_mode: FileTranscriptionChunkingMode,
+    #[serde(default = "default_file_transcription_chunking_max_minutes")]
+    pub chunking_max_minutes: f32,
+    #[serde(default = "default_soniox_language_hints")]
+    pub soniox_language_hints: Vec<String>,
+    #[serde(default = "default_true")]
+    pub soniox_enable_speaker_diarization: bool,
+    #[serde(default = "default_true")]
+    pub soniox_enable_language_identification: bool,
+    #[serde(default)]
+    pub deepgram_diarize: bool,
+    #[serde(default)]
+    pub deepgram_multichannel: bool,
+    #[serde(default)]
+    pub gemini_mode: GeminiTranscriptionMode,
+    #[serde(default)]
+    pub gemini_diarization: bool,
+}
+
 pub fn apply_stt_model_selection(
     settings: &mut AppSettings,
     selection: &SttModelSelection,
@@ -3363,12 +3416,21 @@ pub struct AppSettings {
     /// Speech / Mic selection until the user chooses a file-specific model.
     #[serde(default)]
     pub file_transcription_model_selection: Option<SttModelSelection>,
+    /// Per-model file settings. Switching models restores the matching entry.
+    #[serde(default)]
+    pub file_transcription_model_configs: HashMap<String, FileTranscriptionModelConfig>,
     /// File-workflow Soniox diarization. None migrates from the legacy shared value.
     #[serde(default)]
     pub file_soniox_enable_speaker_diarization: Option<bool>,
+    #[serde(default)]
+    pub file_soniox_language_hints: Option<Vec<String>>,
+    #[serde(default)]
+    pub file_soniox_enable_language_identification: Option<bool>,
     /// File-workflow Deepgram diarization. None migrates from the legacy shared value.
     #[serde(default)]
     pub file_deepgram_diarize: Option<bool>,
+    #[serde(default)]
+    pub file_deepgram_multichannel: Option<bool>,
     /// Independent model choice for Live Monitor. None keeps the legacy
     /// provider-specific selection behavior.
     #[serde(default)]
@@ -5626,8 +5688,12 @@ pub fn get_default_settings() -> AppSettings {
         transcription_provider: default_transcription_provider(),
         remote_stt: default_remote_stt_settings(),
         file_transcription_model_selection: None,
+        file_transcription_model_configs: HashMap::new(),
         file_soniox_enable_speaker_diarization: None,
+        file_soniox_language_hints: None,
+        file_soniox_enable_language_identification: None,
         file_deepgram_diarize: None,
+        file_deepgram_multichannel: None,
         live_sound_model_selection: None,
         openai_realtime_whisper_delay: OpenAiRealtimeWhisperDelay::default(),
         openai_realtime_whisper_keywords: String::new(),

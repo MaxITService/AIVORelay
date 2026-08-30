@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type {
   DiarizedTranscriptProvider,
   FileTranscriptionSpeakerSession,
@@ -22,6 +23,12 @@ export interface EditableSpeakerCard {
   name: string;
 }
 
+interface FileModelUiConfig {
+  outputMode: OutputMode;
+  outputFormat: OutputFormat;
+  customWordsEnabledOverride: boolean;
+}
+
 interface TranscribeFileState {
   selectedFile: SelectedFile | null;
   outputMode: OutputMode;
@@ -31,7 +38,8 @@ interface TranscribeFileState {
   savedFilePath: string | null;
   error: string | null;
   isTranscribing: boolean;
-  selectedProfileId: string | null;
+  activeModelKey: string | null;
+  modelUiConfigs: Record<string, FileModelUiConfig>;
   speakerArtifactPath: string | null;
   speakerProvider: DiarizedTranscriptProvider | null;
   speakerCards: EditableSpeakerCard[];
@@ -44,7 +52,7 @@ interface TranscribeFileState {
   setSavedFilePath: (savedFilePath: string | null) => void;
   setError: (error: string | null) => void;
   setIsTranscribing: (isTranscribing: boolean) => void;
-  setSelectedProfileId: (selectedProfileId: string | null) => void;
+  activateModelUiConfig: (modelKey: string) => void;
   setSpeakerSession: (
     speakerSession: FileTranscriptionSpeakerSession | null,
   ) => void;
@@ -61,7 +69,9 @@ const emptySpeakerState = () => ({
   isReapplyingSpeakerNames: false,
 });
 
-export const useTranscribeFileStore = create<TranscribeFileState>((set) => ({
+export const useTranscribeFileStore = create<TranscribeFileState>()(
+  persist(
+    (set) => ({
   selectedFile: null,
   outputMode: "textarea",
   outputFormat: "text",
@@ -70,18 +80,77 @@ export const useTranscribeFileStore = create<TranscribeFileState>((set) => ({
   savedFilePath: null,
   error: null,
   isTranscribing: false,
-  selectedProfileId: null,
+  activeModelKey: null,
+  modelUiConfigs: {},
   ...emptySpeakerState(),
   setSelectedFile: (selectedFile) => set({ selectedFile, ...emptySpeakerState() }),
-  setOutputMode: (outputMode) => set({ outputMode }),
-  setOutputFormat: (outputFormat) => set({ outputFormat }),
+  setOutputMode: (outputMode) =>
+    set((state) => ({
+      outputMode,
+      modelUiConfigs: state.activeModelKey
+        ? {
+            ...state.modelUiConfigs,
+            [state.activeModelKey]: {
+              outputMode,
+              outputFormat: state.outputFormat,
+              customWordsEnabledOverride: state.customWordsEnabledOverride,
+            },
+          }
+        : state.modelUiConfigs,
+    })),
+  setOutputFormat: (outputFormat) =>
+    set((state) => ({
+      outputFormat,
+      modelUiConfigs: state.activeModelKey
+        ? {
+            ...state.modelUiConfigs,
+            [state.activeModelKey]: {
+              outputMode: state.outputMode,
+              outputFormat,
+              customWordsEnabledOverride: state.customWordsEnabledOverride,
+            },
+          }
+        : state.modelUiConfigs,
+    })),
   setCustomWordsEnabledOverride: (customWordsEnabledOverride) =>
-    set({ customWordsEnabledOverride }),
+    set((state) => ({
+      customWordsEnabledOverride,
+      modelUiConfigs: state.activeModelKey
+        ? {
+            ...state.modelUiConfigs,
+            [state.activeModelKey]: {
+              outputMode: state.outputMode,
+              outputFormat: state.outputFormat,
+              customWordsEnabledOverride,
+            },
+          }
+        : state.modelUiConfigs,
+    })),
   setTranscriptionResult: (transcriptionResult) => set({ transcriptionResult }),
   setSavedFilePath: (savedFilePath) => set({ savedFilePath }),
   setError: (error) => set({ error }),
   setIsTranscribing: (isTranscribing) => set({ isTranscribing }),
-  setSelectedProfileId: (selectedProfileId) => set({ selectedProfileId }),
+  activateModelUiConfig: (modelKey) =>
+    set((state) => {
+      const existing = state.modelUiConfigs[modelKey];
+      if (existing) {
+        return {
+          activeModelKey: modelKey,
+          outputMode: existing.outputMode,
+          outputFormat: existing.outputFormat,
+          customWordsEnabledOverride: existing.customWordsEnabledOverride,
+        };
+      }
+      const initial = {
+        outputMode: "textarea" as const,
+        outputFormat: "text" as const,
+        customWordsEnabledOverride: true,
+      };
+      return {
+        activeModelKey: modelKey,
+        modelUiConfigs: { ...state.modelUiConfigs, [modelKey]: initial },
+      };
+    }),
   setSpeakerSession: (speakerSession) =>
     set({
       speakerArtifactPath: speakerSession?.artifact_path ?? null,
@@ -110,4 +179,10 @@ export const useTranscribeFileStore = create<TranscribeFileState>((set) => ({
     })),
   setIsReapplyingSpeakerNames: (isReapplyingSpeakerNames) =>
     set({ isReapplyingSpeakerNames }),
-}));
+    }),
+    {
+      name: "aivorelay-transcribe-file-model-ui-v1",
+      partialize: (state) => ({ modelUiConfigs: state.modelUiConfigs }),
+    },
+  ),
+);
