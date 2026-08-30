@@ -1413,6 +1413,13 @@
       "missingApiKey": "API key is not configured in Models.",
       "notConfigured": "Model is not configured.",
       "downloadLocalModel": "Not installed yet. It will download automatically on first use; you can also download it now in Models.",
+      "incompatibleModel": "The selected model is not compatible with this workflow.",
+      "readinessCheckFailed": "Could not check whether this model is ready.",
+      "configureApiKey": "Configure API key",
+      "downloadWhenStarted": "Downloads automatically when started.",
+      "downloadNow": "Download now",
+      "downloading": "Downloading…",
+      "selectCompatibleModel": "Select compatible model",
       "profileOverrideTitle": "Override dictation model",
       "profileOverrideDescription": "Use a different provider and model for ordinary dictation with this profile."
     },

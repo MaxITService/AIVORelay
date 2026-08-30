@@ -54,6 +54,13 @@ type SpeakerNameSetProfile = {
   speaker_names: string[];
 };
 
+type LiveSessionAction = "start" | "stop" | "clear" | "process";
+type LiveSessionCommand =
+  | "live_sound_transcription_start"
+  | "live_sound_transcription_stop"
+  | "live_sound_transcription_clear"
+  | "live_sound_transcription_process";
+
 const getRecording = (state: LiveSoundState) => Boolean(state.recording);
 
 const getProcessing = (state: LiveSoundState) =>
@@ -185,6 +192,10 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const [autoStopRemainingSeconds, setAutoStopRemainingSeconds] = useState<number | null>(null);
   const [showWhatIsThis, setShowWhatIsThis] = useState(false);
   const [sessionSettingsCollapsed, setSessionSettingsCollapsed] = useState(true);
+  const [retryableAction, setRetryableAction] = useState<{
+    action: LiveSessionAction;
+    command: LiveSessionCommand;
+  } | null>(null);
   const [geminiCompletionVariant, setGeminiCompletionVariant] =
     useState<GeminiLiveCompletionVariant | null>(null);
 
@@ -436,15 +447,12 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   }, [savedSpeakerNameProfiles, selectedSpeakerNameProfileId]);
 
   const runAction = async (
-    action: "start" | "stop" | "clear" | "process",
-    command:
-      | "live_sound_transcription_start"
-      | "live_sound_transcription_stop"
-      | "live_sound_transcription_clear"
-      | "live_sound_transcription_process",
+    action: LiveSessionAction,
+    command: LiveSessionCommand,
   ) => {
     setActionBusy(action);
     setErrorMessage(null);
+    setRetryableAction(null);
     if (action === "clear") {
       setSpeakerNames(new Map());
       setSelectedSpeakerNameProfileId(null);
@@ -453,6 +461,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     try {
       await invoke(command);
     } catch (error) {
+      setRetryableAction({ action, command });
       setErrorMessage(
         error instanceof Error
           ? error.message
@@ -743,8 +752,24 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
             )}
 
             {errorMessage && (
-              <div className="rounded-lg border border-[#6b2c2c] bg-[#351616]/80 px-4 py-3 text-sm text-[#ffd4d4]">
-                {errorMessage}
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#6b2c2c] bg-[#351616]/80 px-4 py-3 text-sm text-[#ffd4d4]">
+                <span>{errorMessage}</span>
+                {retryableAction && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={actionBusy !== null}
+                    onClick={() =>
+                      void runAction(
+                        retryableAction.action,
+                        retryableAction.command,
+                      )
+                    }
+                  >
+                    {t("common.retry", "Retry")}
+                  </Button>
+                )}
               </div>
             )}
 
