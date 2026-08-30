@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { Cloud, Download, Filter, HardDrive, Radio, RotateCcw } from "lucide-react";
@@ -24,6 +25,7 @@ import {
   commands,
   type ModelInfo,
   type RemoteSttSettings as RemoteSttSettingsConfig,
+  type SttModelSelection,
 } from "@/bindings";
 
 type RemoteApiRowId =
@@ -140,6 +142,7 @@ export const ModelsSettings: React.FC = () => {
     deleteModel,
   } = useModels();
   const {
+    settings,
     getSetting,
     setTranscriptionProvider,
     updateRemoteSttModelId,
@@ -169,15 +172,36 @@ export const ModelsSettings: React.FC = () => {
   const transcriptionProvider = String(
     getSetting("transcription_provider") || "local",
   );
+  const activeProfile = useMemo(() => {
+    const activeProfileId = settings?.active_profile_id ?? "default";
+    if (activeProfileId === "default") return null;
+    return (
+      (settings?.transcription_profiles ?? []).find(
+        (profile) => profile.id === activeProfileId,
+      ) ?? null
+    );
+  }, [settings?.active_profile_id, settings?.transcription_profiles]);
+  const profileModelSelection = activeProfile?.stt_model_selection_override;
+  const effectiveTranscriptionProvider = String(
+    profileModelSelection?.provider ?? transcriptionProvider,
+  );
   const remoteStt = (getSetting("remote_stt") || {}) as RemoteSttSettingsConfig;
-  const remotePreset = remoteStt.provider_preset ?? "groq";
-  const remoteModelId = remoteStt.model_id ?? "";
+  const remotePreset =
+    profileModelSelection?.provider === "remote_openai_compatible"
+      ? profileModelSelection.provider_preset ||
+        remoteStt.provider_preset ||
+        "groq"
+      : remoteStt.provider_preset ?? "groq";
+  const remoteModelId =
+    profileModelSelection?.provider === "remote_openai_compatible"
+      ? profileModelSelection.model_id || remoteStt.model_id || ""
+      : remoteStt.model_id ?? "";
   const isRemoteProvider =
-    transcriptionProvider === "remote_openai_compatible" ||
-    transcriptionProvider === "remote_soniox" ||
-    transcriptionProvider === "remote_deepgram";
+    effectiveTranscriptionProvider === "remote_openai_compatible" ||
+    effectiveTranscriptionProvider === "remote_soniox" ||
+    effectiveTranscriptionProvider === "remote_deepgram";
   const activeRemoteApiId: RemoteApiRowId | null =
-    transcriptionProvider !== "remote_openai_compatible"
+    effectiveTranscriptionProvider !== "remote_openai_compatible"
       ? null
       : remotePreset === "groq"
         ? "groq"
@@ -339,6 +363,26 @@ export const ModelsSettings: React.FC = () => {
     [downloadedModels],
   );
 
+  const setActiveProfileModelSelection = async (
+    selection: SttModelSelection,
+    modelLabel: string,
+  ) => {
+    if (!activeProfile) return false;
+
+    await invoke("change_active_profile_stt_model_selection_override", {
+      selection,
+    });
+    await refreshSettings();
+    toast.success(
+      t("modelSelector.profileModelChanged", {
+        profile: activeProfile.name,
+        model: modelLabel,
+        defaultValue: 'Profile "{{profile}}" now uses {{model}}.',
+      }),
+    );
+    return true;
+  };
+
   const ensureLocalProvider = async () => {
     if (isRemoteProvider) {
       await setTranscriptionProvider("local");
@@ -348,6 +392,20 @@ export const ModelsSettings: React.FC = () => {
   const handleSelectModel = async (modelId: string) => {
     setSwitchingModelId(modelId);
     try {
+      const selectedModel = allLocalModels.find((model) => model.id === modelId);
+      if (
+        await setActiveProfileModelSelection(
+          {
+            provider: "local",
+            model_id: modelId,
+            provider_preset: "",
+          },
+          selectedModel ? getTranslatedModelName(selectedModel, t) : modelId,
+        )
+      ) {
+        return;
+      }
+
       await ensureLocalProvider();
       const selected = await selectModel(modelId);
       if (!selected) return;
@@ -358,7 +416,6 @@ export const ModelsSettings: React.FC = () => {
       const directOutputModels = (getSetting(
         "native_streaming_live_output_models",
       ) || []) as string[];
-      const selectedModel = allLocalModels.find((model) => model.id === modelId);
       if (
         directOutputModels.includes(modelId) &&
         selectedModel?.engine_type === "TranscribeCpp" &&
@@ -386,7 +443,6 @@ export const ModelsSettings: React.FC = () => {
   };
 
   const handleDownloadModel = async (modelId: string) => {
-    await ensureLocalProvider();
     await downloadModel(modelId);
   };
 
@@ -409,6 +465,19 @@ export const ModelsSettings: React.FC = () => {
             ? "gemini-3.5-transcribe"
             : "google/gemini-3.5-transcribe"
         : row.modelId;
+      if (
+        selectedModelId &&
+        (await setActiveProfileModelSelection(
+          {
+            provider: "remote_openai_compatible",
+            model_id: selectedModelId,
+            provider_preset: selectedPreset,
+          },
+          row.title.replace(/^Remote via /, ""),
+        ))
+      ) {
+        return;
+      }
       const presetResult = await commands.changeRemoteSttProviderPresetSetting(
         selectedPreset,
       );
@@ -427,9 +496,25 @@ export const ModelsSettings: React.FC = () => {
     }
   };
 
-  const handleRemoteProviderSelect = async (provider: string) => {
+  const handleRemoteProviderSelect = async (
+    provider: string,
+    modelId: string,
+    modelLabel: string,
+  ) => {
     invalidateModelDownloadActivationIntent();
     try {
+      if (
+        await setActiveProfileModelSelection(
+          {
+            provider: provider as SttModelSelection["provider"],
+            model_id: modelId,
+            provider_preset: "",
+          },
+          modelLabel,
+        )
+      ) {
+        return;
+      }
       await setTranscriptionProvider(provider);
     } catch (error) {
       toast.error(String(error));
@@ -563,7 +648,9 @@ export const ModelsSettings: React.FC = () => {
         {/* Remote via Soniox */}
         <div
           className={`px-6 py-4 flex flex-col gap-3 transition-colors ${
-            transcriptionProvider === "remote_soniox" ? "bg-green-500/5" : ""
+            effectiveTranscriptionProvider === "remote_soniox"
+              ? "bg-green-500/5"
+              : ""
           }`}
         >
           <div className="flex items-center justify-between">
@@ -573,29 +660,35 @@ export const ModelsSettings: React.FC = () => {
                 <p className="text-sm font-medium text-[#f5f5f5]">
                   {t("modelSelector.remoteSonioxMode")}
                 </p>
-                {transcriptionProvider === "remote_soniox" && (
+                {effectiveTranscriptionProvider === "remote_soniox" && (
                   <span className="text-xs text-teal-400">
                     {t("modelSelector.active")}
                   </span>
                 )}
               </div>
-              {transcriptionProvider === "remote_soniox" && (
+              {effectiveTranscriptionProvider === "remote_soniox" && (
                 <p className="text-xs text-[#a0a0a0] mt-1">
                   {t("modelSelector.remoteSonioxModeDescription")}
                 </p>
               )}
             </div>
-            {transcriptionProvider !== "remote_soniox" && (
+            {effectiveTranscriptionProvider !== "remote_soniox" && (
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => void handleRemoteProviderSelect("remote_soniox")}
+                onClick={() =>
+                  void handleRemoteProviderSelect(
+                    "remote_soniox",
+                    String(getSetting("soniox_model") || "stt-rt-v5"),
+                    "Soniox",
+                  )
+                }
               >
                 {t("modelSelector.chooseModel")}
               </Button>
             )}
           </div>
-          {transcriptionProvider === "remote_soniox" && (
+          {effectiveTranscriptionProvider === "remote_soniox" && (
             <div className="border-t border-[#3d3d3d] pt-3">
               <RemoteSttSettings
                 descriptionMode="tooltip"
@@ -611,7 +704,9 @@ export const ModelsSettings: React.FC = () => {
         {/* Remote via Deepgram */}
         <div
           className={`px-6 py-4 flex flex-col gap-3 transition-colors ${
-            transcriptionProvider === "remote_deepgram" ? "bg-green-500/5" : ""
+            effectiveTranscriptionProvider === "remote_deepgram"
+              ? "bg-green-500/5"
+              : ""
           }`}
         >
           <div className="flex items-center justify-between">
@@ -621,13 +716,13 @@ export const ModelsSettings: React.FC = () => {
                 <p className="text-sm font-medium text-[#f5f5f5]">
                   {t("modelSelector.remoteDeepgramMode", "Remote via Deepgram")}
                 </p>
-                {transcriptionProvider === "remote_deepgram" && (
+                {effectiveTranscriptionProvider === "remote_deepgram" && (
                   <span className="text-xs text-cyan-400">
                     {t("modelSelector.active")}
                   </span>
                 )}
               </div>
-              {transcriptionProvider === "remote_deepgram" && (
+              {effectiveTranscriptionProvider === "remote_deepgram" && (
                 <p className="text-xs text-[#a0a0a0] mt-1">
                   {t(
                     "modelSelector.remoteDeepgramModeDescription",
@@ -636,17 +731,23 @@ export const ModelsSettings: React.FC = () => {
                 </p>
               )}
             </div>
-            {transcriptionProvider !== "remote_deepgram" && (
+            {effectiveTranscriptionProvider !== "remote_deepgram" && (
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => void handleRemoteProviderSelect("remote_deepgram")}
+                onClick={() =>
+                  void handleRemoteProviderSelect(
+                    "remote_deepgram",
+                    String(getSetting("deepgram_model") || "nova-3"),
+                    "Deepgram",
+                  )
+                }
               >
                 {t("modelSelector.chooseModel")}
               </Button>
             )}
           </div>
-          {transcriptionProvider === "remote_deepgram" && (
+          {effectiveTranscriptionProvider === "remote_deepgram" && (
             <div className="border-t border-[#3d3d3d] pt-3">
               <RemoteSttSettings
                 descriptionMode="tooltip"
@@ -724,7 +825,12 @@ export const ModelsSettings: React.FC = () => {
         {!loading &&
           filteredDownloaded.map((model) => {
             const modelName = getTranslatedModelName(model, t);
-            const isActive = model.id === currentModel && !isRemoteProvider;
+            const effectiveLocalModelId =
+              profileModelSelection?.provider === "local"
+                ? profileModelSelection.model_id
+                : currentModel;
+            const isActive =
+              model.id === effectiveLocalModelId && !isRemoteProvider;
             const isSwitching = switchingModelId === model.id;
 
             return (

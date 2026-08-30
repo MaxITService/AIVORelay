@@ -4491,6 +4491,35 @@ pub fn update_transcription_profile(
     Ok(())
 }
 
+/// Changes only the STT provider/model override of the active custom profile.
+/// Provider credentials and model-specific infrastructure remain global.
+#[tauri::command]
+#[specta::specta]
+pub fn change_active_profile_stt_model_selection_override(
+    app: AppHandle,
+    selection: settings::SttModelSelection,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let active_profile_id = settings.active_profile_id.clone();
+
+    if active_profile_id == "default" {
+        return Err("The default profile does not use an STT model override.".to_string());
+    }
+
+    let mut candidate = settings.clone();
+    settings::apply_stt_model_selection(&mut candidate, &selection)?;
+
+    let profile = settings
+        .transcription_profiles
+        .iter_mut()
+        .find(|profile| profile.id == active_profile_id)
+        .ok_or_else(|| format!("Profile with id '{}' not found", active_profile_id))?;
+    profile.stt_model_selection_override = Some(selection);
+
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
 /// Deletes a transcription profile and its associated shortcut binding.
 #[tauri::command]
 #[specta::specta]
