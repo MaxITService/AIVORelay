@@ -3435,6 +3435,9 @@ pub struct AppSettings {
     /// provider-specific selection behavior.
     #[serde(default)]
     pub live_sound_model_selection: Option<SttModelSelection>,
+    /// Gemini mode used only by Live Monitor. None migrates the legacy shared value.
+    #[serde(default)]
+    pub live_sound_gemini_mode: Option<GeminiTranscriptionMode>,
     #[serde(default)]
     pub openai_realtime_whisper_delay: OpenAiRealtimeWhisperDelay,
     #[serde(default)]
@@ -5695,6 +5698,7 @@ pub fn get_default_settings() -> AppSettings {
         file_deepgram_diarize: None,
         file_deepgram_multichannel: None,
         live_sound_model_selection: None,
+        live_sound_gemini_mode: None,
         openai_realtime_whisper_delay: OpenAiRealtimeWhisperDelay::default(),
         openai_realtime_whisper_keywords: String::new(),
         openai_realtime_whisper_flatten_enabled: false,
