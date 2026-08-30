@@ -148,6 +148,7 @@ export const useTranscribeFileStore = create<TranscribeFileState>()(
       };
       return {
         activeModelKey: modelKey,
+        ...initial,
         modelUiConfigs: { ...state.modelUiConfigs, [modelKey]: initial },
       };
     }),
