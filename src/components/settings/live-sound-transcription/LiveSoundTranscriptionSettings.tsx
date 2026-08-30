@@ -14,6 +14,7 @@ import { useSettings } from "../../../hooks/useSettings";
 import { SttModelSelector } from "../SttModelSelector";
 import {
   legacyLiveSttSelection,
+  sttSupports,
   type SttModelSelection,
 } from "../../../lib/sttModelSelection";
 import { MicrophoneSelector } from "../MicrophoneSelector";
@@ -194,12 +195,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     (remotePreset === "vercel" || remotePreset === "google") &&
     (remoteModelId === "google/gemini-3.5-transcribe-live" ||
       remoteModelId === "gemini-3.5-transcribe-live");
-  const remoteIsOpenAiLive =
-    remotePreset === "openai" &&
-    (remoteModelId === "gpt-live-transcribe" ||
-      remoteModelId === "gpt-realtime-whisper") &&
-    !Boolean((settings as any)?.openai_realtime_whisper_flatten_enabled ?? false);
-  const remoteLiveReady = remoteIsGeminiLive || remoteIsOpenAiLive;
+  const remoteLiveReady = remoteIsGeminiLive;
   const handleModelSelectionChange = async (selection: SttModelSelection) => {
     setSourceBusy(true);
     setErrorMessage(null);
@@ -258,8 +254,11 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     (provider === "remote_soniox" ||
       provider === "remote_deepgram" ||
       (provider === "remote_openai_compatible" && remoteLiveReady));
-  const providerSupportsDiarization =
-    provider === "remote_soniox" || provider === "remote_deepgram";
+  const providerSupportsDiarization = sttSupports(
+    liveSelection,
+    "diarization",
+    "live",
+  );
   const diarizationEnabled = Boolean(
     (settings as any)?.live_sound_enable_speaker_diarization ?? true,
   );

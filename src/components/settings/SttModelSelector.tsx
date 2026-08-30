@@ -60,6 +60,14 @@ export const SttModelSelector: React.FC<Props> = ({
           currentProviderId.charAt(0).toUpperCase() + currentProviderId.slice(1),
         modelLabel: selection.model_id || "Current model",
         selection,
+        capabilities: catalog[0]?.capabilities ?? {
+          workflows: [workflow],
+          diarization: [],
+          languageHints: [],
+          vocabulary: [],
+          chunking: [],
+          timestamps: [],
+        },
       },
     ];
   }, [catalog, currentKey, currentProviderId]);

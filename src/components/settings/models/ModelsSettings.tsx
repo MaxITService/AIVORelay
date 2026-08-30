@@ -383,6 +383,15 @@ export const ModelsSettings: React.FC = () => {
     return true;
   };
 
+  const notifyDefaultProfileModelSelection = (modelLabel: string) => {
+    toast.success(
+      t("modelSelector.profileModelChanged", {
+        profile: t("settings.transcriptionProfiles.defaultProfile", "Default"),
+        model: modelLabel,
+      }),
+    );
+  };
+
   const ensureLocalProvider = async () => {
     if (isRemoteProvider) {
       await setTranscriptionProvider("local");
@@ -409,6 +418,9 @@ export const ModelsSettings: React.FC = () => {
       await ensureLocalProvider();
       const selected = await selectModel(modelId);
       if (!selected) return;
+      notifyDefaultProfileModelSelection(
+        selectedModel ? getTranslatedModelName(selectedModel, t) : modelId,
+      );
 
       // A model can have direct final output enabled before it becomes active.
       // Re-apply the setting after selection so enabling that model cannot
@@ -489,6 +501,9 @@ export const ModelsSettings: React.FC = () => {
       }
       await setTranscriptionProvider("remote_openai_compatible");
       await refreshSettings();
+      notifyDefaultProfileModelSelection(
+        row.title.replace(/^Remote via /, ""),
+      );
     } catch (error) {
       toast.error(String(error));
     } finally {
@@ -516,6 +531,7 @@ export const ModelsSettings: React.FC = () => {
         return;
       }
       await setTranscriptionProvider(provider);
+      notifyDefaultProfileModelSelection(modelLabel);
     } catch (error) {
       toast.error(String(error));
     }
