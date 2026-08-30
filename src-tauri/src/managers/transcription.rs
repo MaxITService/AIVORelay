@@ -1652,7 +1652,13 @@ impl TranscriptionManager {
     /// Kicks off the model loading in a background thread if it's not already loaded
     pub fn initiate_model_load(&self) {
         let settings = get_settings(&self.app_handle);
-        let model_id = settings.selected_model.trim().to_string();
+        self.initiate_model_load_for(&settings.selected_model);
+    }
+
+    /// Kicks off loading for an explicitly resolved model. Recording bindings use this so
+    /// profile-scoped model overrides are prepared instead of the global default model.
+    pub fn initiate_model_load_for(&self, model_id: &str) {
+        let model_id = model_id.trim().to_string();
 
         if model_id.is_empty() {
             error!("Failed to load model: no local transcription model is selected");

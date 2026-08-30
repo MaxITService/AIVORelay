@@ -1469,7 +1469,7 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     let tm = app.state::<Arc<TranscriptionManager>>();
     if settings.transcription_provider == TranscriptionProvider::Local {
         let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
-        tm.initiate_model_load();
+        tm.initiate_model_load_for(&settings.selected_model);
         std::thread::spawn(move || {
             if let Err(e) = rm.preload_audio_recorder() {
                 debug!("Audio recorder pre-load failed: {}", e);
