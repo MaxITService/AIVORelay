@@ -137,6 +137,8 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
           autoComplete="off"
           className="min-w-0 flex-1 bg-transparent py-2 text-xs text-[#f5f5f5] outline-none placeholder:text-[#666666] [&::-webkit-search-cancel-button]:hidden"
           role="combobox"
+          aria-autocomplete="list"
+          aria-haspopup="listbox"
           aria-expanded={showResults}
           aria-controls="global-settings-search-results"
           aria-activedescendant={
@@ -149,7 +151,8 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
           <button
             type="button"
             onClick={() => setQuery("")}
-            className="rounded p-0.5 text-[#777777] hover:bg-white/[0.06] hover:text-[#d0d0d0]"
+            aria-label={t("settingsSearch.clear", "Clear search")}
+            className="rounded p-0.5 text-[#777777] hover:bg-white/[0.06] hover:text-[#d0d0d0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/60"
             title={t("settingsSearch.clear", "Clear search")}
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" />
@@ -161,6 +164,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
         <div
           id="global-settings-search-results"
           role="listbox"
+          aria-label={t("settingsSearch.results", "Settings search results")}
           className="absolute left-0 top-full mt-1 max-h-80 w-80 overflow-y-auto rounded-lg border border-[#3b3b3b] bg-[#171717] p-1 shadow-2xl"
         >
           {results.length > 0 ? (
@@ -171,6 +175,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
                 type="button"
                 role="option"
                 aria-selected={index === activeIndex}
+                tabIndex={-1}
                 onMouseEnter={() => setActiveIndex(index)}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => selectEntry(entry)}
@@ -185,7 +190,11 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
               </button>
             ))
           ) : (
-            <p className="px-3 py-3 text-xs text-[#858585]">
+            <p
+              role="status"
+              aria-live="polite"
+              className="px-3 py-3 text-xs text-[#858585]"
+            >
               {t("settingsSearch.noResults", "No matching settings")}
             </p>
           )}

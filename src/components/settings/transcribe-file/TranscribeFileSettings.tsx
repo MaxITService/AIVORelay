@@ -1691,10 +1691,19 @@ export const TranscribeFileSettings: React.FC = () => {
           {!selectedFile ? (
             <div
               ref={dropZoneRef}
+              role="button"
+              tabIndex={0}
+              aria-label={t("transcribeFile.dropZone.title")}
               onClick={handleSelectFile}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  void handleSelectFile();
+                }
+              }}
               className={`
                 border-2 border-dashed rounded-xl p-8 text-center cursor-pointer
-                transition-all duration-200
+                transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/60
                 ${
                   isDragOver
                     ? "border-[#9b5de5] bg-[#9b5de5]/10"
@@ -2352,7 +2361,10 @@ export const TranscribeFileSettings: React.FC = () => {
         {/* Error Display */}
         {error && (
           <div className="px-4 pb-4">
-            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+            <div
+              role="alert"
+              className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg"
+            >
               <p className="text-sm text-red-400">{error}</p>
               {fileRetryRequest && (
                 <Button

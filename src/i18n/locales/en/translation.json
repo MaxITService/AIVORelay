@@ -34,6 +34,7 @@
     "label": "Search settings",
     "placeholder": "Search settings…",
     "clear": "Clear search",
+    "results": "Settings search results",
     "noResults": "No matching settings",
     "items": {
       "microphone": "Microphone and dictation shortcut",

@@ -1113,7 +1113,11 @@ export const HistorySettings: React.FC = () => {
               />
             </div>
             <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
-              <div className="px-4 py-3 text-center text-text/60">
+              <div
+                role="status"
+                aria-live="polite"
+                className="px-4 py-3 text-center text-text/60"
+              >
                 {t("settings.history.loading")}
               </div>
             </div>

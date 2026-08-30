@@ -190,6 +190,7 @@ const NumericOverrideInput: React.FC<NumericOverrideInputProps> = ({
 
 export const LiveSoundTranscriptionSettings: React.FC = () => {
   const { t } = useTranslation();
+  const whatIsThisContentId = React.useId();
   const { settings, refreshSettings } = useSettings();
   const supportsRemoteLiveSound = getOsType() === "windows";
   const [finalText, setFinalText] = useState("");
@@ -711,8 +712,11 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     <div className="max-w-3xl w-full mx-auto space-y-8 pb-12">
       <div className="rounded-lg border border-[#2a2a2a] bg-[#111111]">
         <button
+          type="button"
           onClick={() => setShowWhatIsThis((v) => !v)}
-          className="w-full flex items-center justify-between px-4 py-3 text-left"
+          aria-expanded={showWhatIsThis}
+          aria-controls={whatIsThisContentId}
+          className="w-full flex items-center justify-between px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#ff4d8d]/60"
         >
           <span className="text-[13px] text-[#8a8a8a] hover:text-[#c0c0c0] transition-colors">
             {t("settings.liveSoundTranscription.whatIsThis.toggle")}
@@ -723,7 +727,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
           />
         </button>
         {showWhatIsThis && (
-          <div className="px-4 pb-4">
+          <div id={whatIsThisContentId} className="px-4 pb-4">
             <p className="text-[13px] text-[#9a9a9a] leading-relaxed whitespace-pre-line">
               {t("settings.liveSoundTranscription.whatIsThis.content")}
             </p>
@@ -773,7 +777,10 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
             )}
 
             {errorMessage && (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#6b2c2c] bg-[#351616]/80 px-4 py-3 text-sm text-[#ffd4d4]">
+              <div
+                role="alert"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#6b2c2c] bg-[#351616]/80 px-4 py-3 text-sm text-[#ffd4d4]"
+              >
                 <span>{errorMessage}</span>
                 {retryableAction && (
                   <Button
