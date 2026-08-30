@@ -16,6 +16,8 @@ interface AudioPlayerProps {
   onLoadRequest?: () => Promise<string | null>;
   className?: string;
   autoPlay?: boolean;
+  /** Known duration from a metadata preflight, used to avoid an initial 0:00 flash. */
+  initialDurationSeconds?: number;
 }
 
 interface AudioPlayerGroupContextValue {
@@ -67,10 +69,11 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   onLoadRequest,
   className = "",
   autoPlay = false,
+  initialDurationSeconds = 0,
 }) => {
   const group = useContext(AudioPlayerGroupContext);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(initialDurationSeconds);
   const [currentTime, setCurrentTime] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [loadedSrc, setLoadedSrc] = useState<string | null>(initialSrc ?? null);
@@ -101,7 +104,9 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       }
       return initialSrc ?? null;
     });
-  }, [initialSrc]);
+    setDuration(initialDurationSeconds);
+    setCurrentTime(0);
+  }, [initialDurationSeconds, initialSrc]);
 
   // Stable animation loop with no dependencies
   const tick = useCallback(() => {
