@@ -3141,6 +3141,7 @@ pub fn change_gemini_file_mode_setting(
         return Err("Disable Gemini file speaker diarization before selecting Smart mode.".to_string());
     }
     settings.gemini_file_mode = mode;
+    crate::commands::file_transcription::sync_active_file_model_config(&mut settings);
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -3155,10 +3156,16 @@ pub fn change_gemini_file_diarization_setting(
     if enabled && settings.gemini_file_mode == settings::GeminiTranscriptionMode::Smart {
         return Err("Gemini speaker diarization requires Verbatim file mode.".to_string());
     }
-    if enabled && settings.remote_stt.provider_preset != "google" {
+    let file_preset = settings
+        .file_transcription_model_selection
+        .as_ref()
+        .map(|selection| selection.provider_preset.as_str())
+        .unwrap_or(settings.remote_stt.provider_preset.as_str());
+    if enabled && file_preset != "google" {
         return Err("Gemini speaker diarization is currently available only through Google Direct.".to_string());
     }
     settings.gemini_file_diarization = enabled;
+    crate::commands::file_transcription::sync_active_file_model_config(&mut settings);
     settings::write_settings(&app, settings);
     Ok(())
 }

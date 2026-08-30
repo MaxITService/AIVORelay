@@ -60,6 +60,11 @@ const GEMINI_CAPABILITIES = capabilities(["dictation", "file"], {
   vocabulary: ["dictation", "file"],
   timestamps: ["file"],
 });
+const GEMINI_GATEWAY_CAPABILITIES = capabilities(["dictation", "file"], {
+  languageHints: ["dictation", "file"],
+  vocabulary: ["dictation", "file"],
+  timestamps: ["file"],
+});
 const GEMINI_LIVE_CAPABILITIES = capabilities(["dictation", "live"], {
   languageHints: ["dictation", "live"],
   vocabulary: ["dictation", "live"],
@@ -116,7 +121,9 @@ export const sttModelCapabilities = (
     (preset === "vercel" || preset === "google") &&
     modelId.includes("gemini-3.5-transcribe")
   ) {
-    return GEMINI_CAPABILITIES;
+    return preset === "google"
+      ? GEMINI_CAPABILITIES
+      : GEMINI_GATEWAY_CAPABILITIES;
   }
   return GENERIC_REMOTE_CAPABILITIES;
 };
@@ -282,7 +289,7 @@ export const sttCatalog = (
       "Vercel",
       "google/gemini-3.5-transcribe",
       "Gemini 3.5 Transcribe",
-      GEMINI_CAPABILITIES,
+      GEMINI_GATEWAY_CAPABILITIES,
     ),
     remoteSelection(
       "google",

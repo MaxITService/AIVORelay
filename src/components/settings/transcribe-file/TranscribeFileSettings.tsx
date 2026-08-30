@@ -50,6 +50,7 @@ import {
 } from "@/lib/gemini/geminiConfig";
 import {
   globalSttSelection,
+  sttSupports,
   sttSelectionKey,
   type SttModelSelection,
 } from "@/lib/sttModelSelection";
@@ -325,7 +326,6 @@ export const TranscribeFileSettings: React.FC = () => {
     savedFilePath,
     isTranscribing,
     error,
-    selectedProfileId,
     speakerArtifactPath,
     speakerProvider,
     speakerCards,
@@ -338,12 +338,12 @@ export const TranscribeFileSettings: React.FC = () => {
     setSavedFilePath,
     setIsTranscribing,
     setError,
-    setSelectedProfileId,
     setSpeakerSession,
     clearSpeakerSession: clearSpeakerSessionStore,
     updateSpeakerCardName,
     applySpeakerCardNames,
     setIsReapplyingSpeakerNames,
+    activateModelUiConfig,
   } = useTranscribeFileStore();
   const [isRecording, setIsRecording] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -396,17 +396,8 @@ export const TranscribeFileSettings: React.FC = () => {
   const fileSelectionGenerationRef = useRef(0);
   const speakerReapplyGenerationRef = useRef(0);
   const transcriptionRunIdRef = useRef(0);
-  const inheritedProfileSelection = (
-    settings?.transcription_profiles?.find(
-      (profile) =>
-        profile.id ===
-        (selectedProfileId ?? settings.active_profile_id ?? "default"),
-    ) as ({ stt_model_selection_override?: SttModelSelection | null } | undefined)
-  )?.stt_model_selection_override;
-  const inheritedFileSelection =
-    inheritedProfileSelection ?? globalSttSelection(settings);
   const fileSelection = ((settings as any)?.file_transcription_model_selection ??
-    inheritedFileSelection) as SttModelSelection;
+    globalSttSelection(settings)) as SttModelSelection;
   const fileSelectionKey = sttSelectionKey(fileSelection);
   const transcriptionProvider = fileSelection.provider;
   const sonioxModel =
@@ -451,7 +442,16 @@ export const TranscribeFileSettings: React.FC = () => {
     geminiNeedsWordTimestamps,
     geminiFileDiarization,
   );
-  const showLocalChunkingOptions = transcriptionProvider === "local";
+  const showLocalChunkingOptions = sttSupports(
+    fileSelection,
+    "chunking",
+    "file",
+  );
+  const selectedModelSupportsDiarization = sttSupports(
+    fileSelection,
+    "diarization",
+    "file",
+  );
   const showRemoteProviderHint = transcriptionProvider !== "local";
   const fileChunkingMode = String(
     (settings as any)?.file_transcription_chunking_mode ?? "auto",
@@ -478,13 +478,18 @@ export const TranscribeFileSettings: React.FC = () => {
           ? "Gemini"
         : null;
   const settingsSonioxLanguageHints = (settings as any)
-    ?.soniox_language_hints as string[] | undefined;
+    ?.file_soniox_language_hints as string[] | undefined;
   const globalSonioxLanguageHints = useMemo(
-    () => settingsSonioxLanguageHints ?? ["en"],
-    [settingsSonioxLanguageHints],
+    () =>
+      settingsSonioxLanguageHints ??
+      ((settings as any)?.soniox_language_hints as string[] | undefined) ??
+      ["en"],
+    [settings, settingsSonioxLanguageHints],
   );
   const globalSonioxEnableLanguageIdentification = Boolean(
-    (settings as any)?.soniox_enable_language_identification ?? true,
+    (settings as any)?.file_soniox_enable_language_identification ??
+      (settings as any)?.soniox_enable_language_identification ??
+      true,
   );
   const fileSonioxEnableSpeakerDiarization = Boolean(
     (settings as any)?.file_soniox_enable_speaker_diarization ??
@@ -497,12 +502,16 @@ export const TranscribeFileSettings: React.FC = () => {
       false,
   );
   const globalDeepgramFileMultichannel = Boolean(
-    (settings as any)?.deepgram_multichannel ?? false,
+    (settings as any)?.file_deepgram_multichannel ?? false,
   );
 
   useEffect(() => {
     selectedFileRef.current = selectedFile;
   }, [selectedFile]);
+
+  useEffect(() => {
+    activateModelUiConfig(fileSelectionKey);
+  }, [activateModelUiConfig, fileSelectionKey]);
 
   const invalidateSpeakerNameReapply = useCallback(() => {
     speakerReapplyGenerationRef.current += 1;
@@ -664,6 +673,54 @@ export const TranscribeFileSettings: React.FC = () => {
     [refreshSettings, setError],
   );
 
+  const persistFileSonioxLanguageHints = useCallback(async () => {
+    const parsed = parsedSonioxLanguageHintsInput;
+    if (
+      parsed.rejected.length > 0 ||
+      parsed.normalized.length > SONIOX_LANGUAGE_HINTS_MAX_COUNT
+    ) {
+      return;
+    }
+    try {
+      await invoke("change_file_soniox_language_hints_setting", {
+        languageHints: parsed.normalized,
+      });
+      await refreshSettings();
+    } catch (error) {
+      setError(String(error));
+    }
+  }, [parsedSonioxLanguageHintsInput, refreshSettings, setError]);
+
+  const changeFileSonioxLanguageIdentification = useCallback(
+    async (enabled: boolean) => {
+      setSonioxEnableLanguageIdentification(enabled);
+      try {
+        await invoke("change_file_soniox_language_identification_setting", {
+          enabled,
+        });
+        await refreshSettings();
+      } catch (error) {
+        setError(String(error));
+        await refreshSettings();
+      }
+    },
+    [refreshSettings, setError],
+  );
+
+  const changeFileDeepgramMultichannel = useCallback(
+    async (enabled: boolean) => {
+      setDeepgramFileMultichannel(enabled);
+      try {
+        await invoke("change_file_deepgram_multichannel_setting", { enabled });
+        await refreshSettings();
+      } catch (error) {
+        setError(String(error));
+        await refreshSettings();
+      }
+    },
+    [refreshSettings, setError],
+  );
+
   useEffect(() => {
     return () => {
       fileSelectionGenerationRef.current += 1;
@@ -806,38 +863,14 @@ export const TranscribeFileSettings: React.FC = () => {
     });
   }, []);
 
-  const profiles = settings?.transcription_profiles ?? [];
-  const activeProfileId = settings?.active_profile_id ?? "default";
-  const effectiveProfileId = selectedProfileId ?? activeProfileId;
-
+  const fileSettingsInitializedRef = useRef(false);
   useEffect(() => {
-    if (!settings) return;
-
-    if (!selectedProfileId) {
-      setSelectedProfileId(activeProfileId);
-      return;
-    }
-
-    if (
-      selectedProfileId !== "default" &&
-      !settings.transcription_profiles?.some(
-        (profile) => profile.id === selectedProfileId,
-      )
-    ) {
-      setSelectedProfileId(activeProfileId);
-    }
-  }, [settings, selectedProfileId, activeProfileId, setSelectedProfileId]);
-
-  const profileOptions = useMemo(
-    () => [
-      { value: "default", label: t("transcribeFile.defaultProfile") },
-      ...profiles.map((profile) => ({
-        value: profile.id,
-        label: profile.name,
-      })),
-    ],
-    [profiles, t],
-  );
+    if (!settings || fileSettingsInitializedRef.current) return;
+    fileSettingsInitializedRef.current = true;
+    void invoke("initialize_file_transcription_model_settings")
+      .then(() => refreshSettings())
+      .catch((initializationError) => setError(String(initializationError)));
+  }, [refreshSettings, setError, settings]);
   const savedSpeakerNameProfiles = useMemo<SpeakerNameSetProfile[]>(
     () =>
       (settings?.diarization_speaker_name_profiles ?? []).map((profile) => ({
@@ -1218,7 +1251,7 @@ export const TranscribeFileSettings: React.FC = () => {
 
     return {
       filePath: selectedFile.path,
-      profileId: effectiveProfileId,
+      profileId: null,
       saveToFile: outputMode === "file",
       outputFormat,
       modelOverride: null,
@@ -1554,18 +1587,6 @@ export const TranscribeFileSettings: React.FC = () => {
             onChange={changeFileModelSelection}
             disabled={isTranscribing || isTranscriptionCommandPending}
           />
-          <div className="space-y-2">
-            <label className="text-xs text-[#808080]">
-              {t("transcribeFile.profileLabel")}
-            </label>
-            <Dropdown
-              className="w-full"
-              selectedValue={effectiveProfileId}
-              options={profileOptions}
-              onSelect={(value) => setSelectedProfileId(value)}
-              dropUp={false}
-            />
-          </div>
         </div>
 
         {/* Output Mode Selection */}
@@ -1673,14 +1694,14 @@ export const TranscribeFileSettings: React.FC = () => {
                       : t("transcribeFile.gemini.mode.verbatimHelp", "Verbatim preserves fillers, repetitions, and false starts. It is required for timestamps and speaker diarization.")}
                   </p>
                 </div>
-                <label className={`flex items-start gap-3 ${remotePreset !== "google" || geminiFileMode !== "verbatim" ? "opacity-50" : ""}`}>
+                {selectedModelSupportsDiarization && (
+                <label className={`flex items-start gap-3 ${geminiFileMode !== "verbatim" ? "opacity-50" : ""}`}>
                   <input
                     type="checkbox"
                     checked={geminiFileDiarization}
                     onChange={event => void updateSetting("gemini_file_diarization" as any, event.target.checked as any)}
                     disabled={
-                      !geminiFileDiarization &&
-                      (remotePreset !== "google" || geminiFileMode !== "verbatim")
+                      !geminiFileDiarization && geminiFileMode !== "verbatim"
                     }
                     className="mt-0.5 accent-[#9b5de5]"
                   />
@@ -1689,14 +1710,13 @@ export const TranscribeFileSettings: React.FC = () => {
                       {t("transcribeFile.gemini.diarization.title", "Speaker diarization")}
                     </span>
                     <span className="block text-xs text-[#808080]">
-                      {remotePreset !== "google"
-                        ? t("transcribeFile.gemini.diarization.vercelUnavailable", "Unavailable through Vercel because stable speaker identities are not exposed in its transcription response. Use Google Direct to enable it.")
-                        : geminiFileMode !== "verbatim"
+                      {geminiFileMode !== "verbatim"
                           ? t("transcribeFile.gemini.diarization.requiresVerbatim", "Select Verbatim to enable speaker diarization.")
                           : t("transcribeFile.gemini.diarization.help", "Supports up to eight speakers. Attribution for three or more speakers is experimental.")}
                     </span>
                   </span>
                 </label>
+                )}
                 {geminiNeedsWordTimestamps && (
                   <p className="text-xs text-amber-300">
                     {t("transcribeFile.gemini.timestampsAutomatic", "SRT/VTT automatically requests word timestamps and therefore requires Verbatim mode.")}
@@ -1896,6 +1916,7 @@ export const TranscribeFileSettings: React.FC = () => {
                     onChange={(event) =>
                       setSonioxLanguageHintsInput(event.target.value)
                     }
+                    onBlur={() => void persistFileSonioxLanguageHints()}
                     className="w-full rounded border border-[#333333] bg-[#0f0f0f] px-3 py-2 text-sm text-[#f5f5f5] focus:border-[#9b5de5] focus:outline-none"
                     placeholder={t(
                       "transcribeFile.soniox.languageHintsPlaceholder",
@@ -1921,7 +1942,9 @@ export const TranscribeFileSettings: React.FC = () => {
                     type="checkbox"
                     checked={sonioxEnableLanguageIdentification}
                     onChange={(e) =>
-                      setSonioxEnableLanguageIdentification(e.target.checked)
+                      void changeFileSonioxLanguageIdentification(
+                        e.target.checked,
+                      )
                     }
                     className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
                   />
@@ -1974,7 +1997,7 @@ export const TranscribeFileSettings: React.FC = () => {
                     type="checkbox"
                     checked={deepgramFileMultichannel}
                     onChange={(e) =>
-                      setDeepgramFileMultichannel(e.target.checked)
+                      void changeFileDeepgramMultichannel(e.target.checked)
                     }
                     className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
                   />
