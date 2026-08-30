@@ -203,9 +203,6 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const sonioxEnableLanguageIdentification = Boolean(
     (settings as any)?.soniox_enable_language_identification ?? true,
   );
-  const sonioxEnableSpeakerDiarization = Boolean(
-    (settings as any)?.soniox_enable_speaker_diarization ?? true,
-  );
   const sonioxKeepaliveSeconds = Number(
     (settings as any)?.soniox_keepalive_interval_seconds ?? 10,
   );
@@ -2578,7 +2575,6 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                       "profileLanguageHintOnly",
                       "strict",
                       "languageIdentification",
-                      "speakerDiarization",
                     ].map((id) => (
                       <li key={id}>
                         {t(`settings.advanced.soniox.tellMeMore.parameters.${id}`)}
@@ -2847,22 +2843,6 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 grouped={grouped}
               />
 
-              <ToggleSwitch
-                label={t("settings.advanced.soniox.speakerDiarization.title")}
-                description={t(
-                  "settings.advanced.soniox.speakerDiarization.description",
-                )}
-                checked={sonioxEnableSpeakerDiarization}
-                onChange={(enabled) =>
-                  void updateSetting(
-                    "soniox_enable_speaker_diarization" as any,
-                    enabled as any,
-                  )
-                }
-                isUpdating={isUpdating("soniox_enable_speaker_diarization")}
-                descriptionMode={descriptionMode}
-                grouped={grouped}
-              />
             </>
           )}
 

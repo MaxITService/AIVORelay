@@ -104,6 +104,30 @@ pub fn change_file_transcription_model_selection(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_file_soniox_speaker_diarization_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.file_soniox_enable_speaker_diarization = Some(enabled);
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_file_deepgram_diarization_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.file_deepgram_diarize = Some(enabled);
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_file_transcription_chunking_mode_setting(
     app: AppHandle,
     mode: FileTranscriptionChunkingMode,
@@ -587,7 +611,11 @@ pub async fn transcribe_audio_file(
                 });
         let enable_speaker_diarization = soniox_options_override
             .enable_speaker_diarization
-            .unwrap_or(settings.soniox_enable_speaker_diarization);
+            .unwrap_or_else(|| {
+                settings
+                    .file_soniox_enable_speaker_diarization
+                    .unwrap_or(settings.soniox_enable_speaker_diarization)
+            });
         let enable_language_identification = soniox_options_override
             .enable_language_identification
             .unwrap_or(settings.soniox_enable_language_identification);
@@ -690,7 +718,11 @@ pub async fn transcribe_audio_file(
                 deepgram_options_override
                     .as_ref()
                     .and_then(|options| options.diarize)
-                    .unwrap_or(settings.deepgram_diarize),
+                    .unwrap_or_else(|| {
+                        settings
+                            .file_deepgram_diarize
+                            .unwrap_or(settings.deepgram_diarize)
+                    }),
             ),
             multichannel: Some(
                 deepgram_options_override

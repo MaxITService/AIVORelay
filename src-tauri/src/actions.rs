@@ -5614,7 +5614,7 @@ fn build_soniox_realtime_options(
         enable_speaker_diarization: if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
             settings.live_sound_enable_speaker_diarization
         } else {
-            settings.soniox_enable_speaker_diarization
+            false
         },
         enable_language_identification: settings.soniox_enable_language_identification,
         enable_endpoint_detection: if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
@@ -5679,7 +5679,7 @@ fn build_soniox_async_options_for_shortcut(
             Some(language_hints)
         },
         context: crate::settings::resolve_soniox_context(profile, settings),
-        enable_speaker_diarization: Some(settings.soniox_enable_speaker_diarization),
+        enable_speaker_diarization: Some(false),
         enable_language_identification: Some(settings.soniox_enable_language_identification),
     }
 }
@@ -5696,7 +5696,7 @@ fn build_deepgram_realtime_options(
         diarize: if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
             settings.live_sound_enable_speaker_diarization
         } else {
-            settings.deepgram_diarize
+            false
         },
         endpointing_enabled: if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
             settings

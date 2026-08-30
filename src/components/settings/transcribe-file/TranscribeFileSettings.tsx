@@ -486,11 +486,15 @@ export const TranscribeFileSettings: React.FC = () => {
   const globalSonioxEnableLanguageIdentification = Boolean(
     (settings as any)?.soniox_enable_language_identification ?? true,
   );
-  const globalSonioxEnableSpeakerDiarization = Boolean(
-    (settings as any)?.soniox_enable_speaker_diarization ?? true,
+  const fileSonioxEnableSpeakerDiarization = Boolean(
+    (settings as any)?.file_soniox_enable_speaker_diarization ??
+      (settings as any)?.soniox_enable_speaker_diarization ??
+      true,
   );
-  const globalDeepgramFileDiarize = Boolean(
-    (settings as any)?.deepgram_diarize ?? false,
+  const savedDeepgramFileDiarize = Boolean(
+    (settings as any)?.file_deepgram_diarize ??
+      (settings as any)?.deepgram_diarize ??
+      false,
   );
   const globalDeepgramFileMultichannel = Boolean(
     (settings as any)?.deepgram_multichannel ?? false,
@@ -630,6 +634,36 @@ export const TranscribeFileSettings: React.FC = () => {
     [refreshSettings],
   );
 
+  const changeFileSonioxDiarization = useCallback(
+    async (enabled: boolean) => {
+      setSonioxEnableSpeakerDiarization(enabled);
+      try {
+        await invoke("change_file_soniox_speaker_diarization_setting", {
+          enabled,
+        });
+        await refreshSettings();
+      } catch (error) {
+        setError(String(error));
+        await refreshSettings();
+      }
+    },
+    [refreshSettings, setError],
+  );
+
+  const changeFileDeepgramDiarization = useCallback(
+    async (enabled: boolean) => {
+      setDeepgramFileDiarize(enabled);
+      try {
+        await invoke("change_file_deepgram_diarization_setting", { enabled });
+        await refreshSettings();
+      } catch (error) {
+        setError(String(error));
+        await refreshSettings();
+      }
+    },
+    [refreshSettings, setError],
+  );
+
   useEffect(() => {
     return () => {
       fileSelectionGenerationRef.current += 1;
@@ -640,20 +674,20 @@ export const TranscribeFileSettings: React.FC = () => {
 
   useEffect(() => {
     setSonioxLanguageHintsInput(globalSonioxLanguageHints.join(", "));
-    setSonioxEnableSpeakerDiarization(globalSonioxEnableSpeakerDiarization);
+    setSonioxEnableSpeakerDiarization(fileSonioxEnableSpeakerDiarization);
     setSonioxEnableLanguageIdentification(
       globalSonioxEnableLanguageIdentification,
     );
   }, [
     globalSonioxEnableLanguageIdentification,
-    globalSonioxEnableSpeakerDiarization,
+    fileSonioxEnableSpeakerDiarization,
     globalSonioxLanguageHints,
   ]);
 
   useEffect(() => {
-    setDeepgramFileDiarize(globalDeepgramFileDiarize);
+    setDeepgramFileDiarize(savedDeepgramFileDiarize);
     setDeepgramFileMultichannel(globalDeepgramFileMultichannel);
-  }, [globalDeepgramFileDiarize, globalDeepgramFileMultichannel]);
+  }, [savedDeepgramFileDiarize, globalDeepgramFileMultichannel]);
 
   useEffect(() => {
     if (!isTranscribing) {
@@ -1874,7 +1908,7 @@ export const TranscribeFileSettings: React.FC = () => {
                     type="checkbox"
                     checked={sonioxEnableSpeakerDiarization}
                     onChange={(e) =>
-                      setSonioxEnableSpeakerDiarization(e.target.checked)
+                      void changeFileSonioxDiarization(e.target.checked)
                     }
                     className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
                   />
@@ -1926,7 +1960,9 @@ export const TranscribeFileSettings: React.FC = () => {
                   <input
                     type="checkbox"
                     checked={deepgramFileDiarize}
-                    onChange={(e) => setDeepgramFileDiarize(e.target.checked)}
+                    onChange={(e) =>
+                      void changeFileDeepgramDiarization(e.target.checked)
+                    }
                     className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
                   />
                   <span className="text-sm text-[#f5f5f5]">

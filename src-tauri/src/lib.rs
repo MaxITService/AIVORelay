@@ -1524,6 +1524,8 @@ pub fn run(cli_args: CliArgs) {
         commands::voice_activation_button::voice_activation_button_press,
         commands::voice_activation_button::voice_activation_button_release,
         commands::file_transcription::transcribe_audio_file,
+        commands::file_transcription::change_file_soniox_speaker_diarization_setting,
+        commands::file_transcription::change_file_deepgram_diarization_setting,
         commands::file_transcription::change_file_transcription_model_selection,
         commands::file_transcription::get_file_transcription_recording_state,
         commands::file_transcription::change_file_transcription_chunking_mode_setting,
