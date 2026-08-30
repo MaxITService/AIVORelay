@@ -375,7 +375,9 @@ impl HistoryManager {
 
         debug!("Saved transcription to database");
         self.cleanup_old_entries()?;
-        self.emit_history_added(entry.clone());
+        if Self::entry_exists(&conn, entry.id)? {
+            self.emit_history_added(entry.clone());
+        }
         Ok(entry)
     }
 
@@ -575,6 +577,15 @@ impl HistoryManager {
             original_selection: row.get("original_selection")?,
             ai_response: row.get("ai_response")?,
         })
+    }
+
+    fn entry_exists(conn: &Connection, id: i64) -> Result<bool> {
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM transcription_history WHERE id = ?1)",
+            params![id],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
     }
 
     fn emit_history_added(&self, entry: HistoryEntry) {
@@ -960,21 +971,24 @@ impl HistoryManager {
         )?;
 
         debug!("Saved AI Replace entry to database");
+        let entry_id = conn.last_insert_rowid();
         self.cleanup_old_entries()?;
-        self.emit_history_added(HistoryEntry {
-            id: conn.last_insert_rowid(),
-            file_name,
-            timestamp,
-            saved: false,
-            title,
-            transcription_text: instruction,
-            post_processed_text: None,
-            post_process_prompt: None,
-            post_process_requested: false,
-            action_type: "ai_replace".to_string(),
-            original_selection: Some(original_selection),
-            ai_response,
-        });
+        if Self::entry_exists(&conn, entry_id)? {
+            self.emit_history_added(HistoryEntry {
+                id: entry_id,
+                file_name,
+                timestamp,
+                saved: false,
+                title,
+                transcription_text: instruction,
+                post_processed_text: None,
+                post_process_prompt: None,
+                post_process_requested: false,
+                action_type: "ai_replace".to_string(),
+                original_selection: Some(original_selection),
+                ai_response,
+            });
+        }
 
         Ok(())
     }
