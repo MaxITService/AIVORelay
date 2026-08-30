@@ -1891,6 +1891,8 @@
       "liveMode": {
         "title": "Live transcription mode",
         "description": "Smart removes disfluencies and applies readable formatting. Verbatim preserves fillers, repetitions, and false starts.",
+        "initialTitle": "Initial Live Monitor mode",
+        "initialDescription": "Used when Live Monitor first creates its independent Gemini settings. Later changes in Live Monitor stay independent.",
         "smartHelp": "Smart removes disfluencies and applies readable formatting.",
         "verbatimHelp": "Verbatim preserves fillers, repetitions, and false starts."
       },

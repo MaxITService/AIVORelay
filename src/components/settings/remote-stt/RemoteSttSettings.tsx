@@ -1748,8 +1748,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   {currentRemoteInterface === "gemini_live" ? (
                     <>
                       <SettingContainer
-                        title={t("settings.gemini.liveMode.title", "Default Live transcription mode")}
-                        description={t("settings.gemini.liveMode.description", "Smart removes disfluencies and applies readable formatting. Verbatim preserves fillers, repetitions, and false starts.")}
+                        title={t("settings.gemini.liveMode.initialTitle", "Initial Live Monitor mode")}
+                        description={t("settings.gemini.liveMode.initialDescription", "Used when Live Monitor first creates its independent Gemini settings. Later changes in Live Monitor stay independent.")}
                         descriptionMode={descriptionMode}
                         grouped={grouped}
                         layout="stacked"
