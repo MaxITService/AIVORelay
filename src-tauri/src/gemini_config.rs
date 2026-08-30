@@ -177,7 +177,10 @@ pub fn resolve_effective_config(
     let custom_vocabulary = validate_vocabulary(vocabulary)?;
     let mode = match workflow {
         GeminiWorkflow::Live => settings.gemini_live_mode,
-        GeminiWorkflow::File { .. } | GeminiWorkflow::Dictation => settings.gemini_file_mode,
+        GeminiWorkflow::Dictation => settings
+            .gemini_dictation_mode
+            .unwrap_or(settings.gemini_file_mode),
+        GeminiWorkflow::File { .. } => settings.gemini_file_mode,
     };
     let word_timestamps = matches!(workflow, GeminiWorkflow::File { word_timestamps: true });
     let diarization = matches!(workflow, GeminiWorkflow::File { .. }) && settings.gemini_file_diarization;

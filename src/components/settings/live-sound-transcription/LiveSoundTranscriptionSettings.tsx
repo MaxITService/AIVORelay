@@ -205,8 +205,8 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       );
   }, [refreshSettings, settings]);
   const provider = liveSelection.provider;
-  const remotePreset = liveSelection.provider_preset.toLowerCase();
-  const remoteModelId = liveSelection.model_id.toLowerCase();
+  const remotePreset = (liveSelection.provider_preset ?? "").toLowerCase();
+  const remoteModelId = (liveSelection.model_id ?? "").toLowerCase();
   const remoteIsGeminiLive =
     (remotePreset === "vercel" || remotePreset === "google") &&
     (remoteModelId === "google/gemini-3.5-transcribe-live" ||

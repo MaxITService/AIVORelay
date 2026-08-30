@@ -3132,11 +3132,26 @@ pub fn change_gemini_live_mode_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_gemini_dictation_mode_setting(
+    app: AppHandle,
+    mode: settings::GeminiTranscriptionMode,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.gemini_dictation_mode = Some(mode);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_gemini_file_mode_setting(
     app: AppHandle,
     mode: settings::GeminiTranscriptionMode,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
+    if settings.gemini_dictation_mode.is_none() {
+        settings.gemini_dictation_mode = Some(settings.gemini_file_mode);
+    }
     if mode == settings::GeminiTranscriptionMode::Smart && settings.gemini_file_diarization {
         return Err("Disable Gemini file speaker diarization before selecting Smart mode.".to_string());
     }
