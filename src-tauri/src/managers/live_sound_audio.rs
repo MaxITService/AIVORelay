@@ -366,21 +366,7 @@ fn open_mic_recorder_for_both(
 
 /* ── public API ───────────────────────────────────────────────────────────── */
 
-/// Start the Live Sound independent audio pipeline.
-///
-/// Opens the audio stream (loopback or mic according to settings), creates
-/// a private realtime-manager instance if live-streaming is enabled, wires
-/// the frame callback, and starts recording.
-pub fn start(app: &AppHandle, session_id: u64) -> Result<(), String> {
-    let mut guard = SESSION
-        .lock()
-        .map_err(|_| "Failed to lock live sound audio session".to_string())?;
-
-    if guard.is_some() {
-        return Err("Live sound audio session is already active".to_string());
-    }
-
-    let mut settings = get_settings(app);
+fn effective_live_sound_settings(mut settings: AppSettings) -> Result<AppSettings, String> {
     if let Some(selection) = settings.live_sound_model_selection.clone() {
         crate::commands::live_sound_transcription::validate_live_sound_model_selection(
             &selection,
@@ -395,6 +381,65 @@ pub fn start(app: &AppHandle, session_id: u64) -> Result<(), String> {
     if let Some(mode) = settings.live_sound_gemini_mode {
         settings.gemini_live_mode = mode;
     }
+    Ok(settings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::effective_live_sound_settings;
+    use crate::settings::{
+        get_default_settings, GeminiTranscriptionMode, SttModelSelection,
+        TranscriptionProvider,
+    };
+
+    #[test]
+    fn live_runtime_uses_its_own_model_and_gemini_mode_without_mutating_global_settings() {
+        let mut stored = get_default_settings();
+        let global_provider = stored.transcription_provider;
+        let global_preset = stored.remote_stt.provider_preset.clone();
+        let global_model = stored.remote_stt.model_id.clone();
+        let global_gemini_mode = stored.gemini_live_mode;
+        stored.live_sound_model_selection = Some(SttModelSelection {
+            provider: TranscriptionProvider::RemoteOpenAiCompatible,
+            model_id: "google/gemini-3.5-transcribe-live".to_string(),
+            provider_preset: "vercel".to_string(),
+        });
+        stored.live_sound_gemini_mode = Some(GeminiTranscriptionMode::Verbatim);
+
+        let effective = effective_live_sound_settings(stored.clone()).unwrap();
+
+        assert_eq!(
+            effective.transcription_provider,
+            TranscriptionProvider::RemoteOpenAiCompatible
+        );
+        assert_eq!(effective.remote_stt.provider_preset, "vercel");
+        assert_eq!(
+            effective.remote_stt.model_id,
+            "google/gemini-3.5-transcribe-live"
+        );
+        assert_eq!(effective.gemini_live_mode, GeminiTranscriptionMode::Verbatim);
+        assert_eq!(stored.transcription_provider, global_provider);
+        assert_eq!(stored.remote_stt.provider_preset, global_preset);
+        assert_eq!(stored.remote_stt.model_id, global_model);
+        assert_eq!(stored.gemini_live_mode, global_gemini_mode);
+    }
+}
+
+/// Start the Live Sound independent audio pipeline.
+///
+/// Opens the audio stream (loopback or mic according to settings), creates
+/// a private realtime-manager instance if live-streaming is enabled, wires
+/// the frame callback, and starts recording.
+pub fn start(app: &AppHandle, session_id: u64) -> Result<(), String> {
+    let mut guard = SESSION
+        .lock()
+        .map_err(|_| "Failed to lock live sound audio session".to_string())?;
+
+    if guard.is_some() {
+        return Err("Live sound audio session is already active".to_string());
+    }
+
+    let settings = effective_live_sound_settings(get_settings(app))?;
     let use_live = crate::actions::live_sound_use_live_streaming(&settings);
 
     let is_both = settings.live_sound_capture_source == LiveSoundCaptureSource::Both;

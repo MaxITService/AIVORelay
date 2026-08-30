@@ -18,6 +18,13 @@ export type SttCatalogOption = {
   capabilities: SttModelCapabilities;
 };
 
+export type SttModelDropdownOption = {
+  value: string;
+  label: string;
+  className?: string;
+  title?: string;
+};
+
 export type SttModelCapabilities = {
   workflows: SttWorkflow[];
   diarization: SttWorkflow[];
@@ -94,6 +101,20 @@ const remoteSelection = (
 
 export const sttSelectionKey = (selection: SttModelSelection): string =>
   `${selection.provider}|${selection.provider_preset ?? ""}|${selection.model_id ?? ""}`;
+
+export const sttModelDropdownOptions = (
+  options: SttCatalogOption[],
+  readiness: ReadonlyMap<string, string | null>,
+): SttModelDropdownOption[] =>
+  options.map((option) => {
+    const problem = readiness.get(sttSelectionKey(option.selection));
+    return {
+      value: sttSelectionKey(option.selection),
+      label: `${problem ? "⚠ " : ""}${option.modelLabel}`,
+      className: problem ? "text-red-400" : undefined,
+      title: problem || undefined,
+    };
+  });
 
 export const sttProviderId = (selection: SttModelSelection): string => {
   if (selection.provider === "local") return "local";

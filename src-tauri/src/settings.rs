@@ -7467,6 +7467,103 @@ mod tests {
     }
 
     #[test]
+    fn workflow_specific_stt_selections_and_file_config_survive_round_trip() {
+        let mut settings = get_default_settings();
+        let file_selection = SttModelSelection {
+            provider: TranscriptionProvider::RemoteOpenAiCompatible,
+            model_id: "gemini-3.5-transcribe".to_string(),
+            provider_preset: crate::url_security::REMOTE_STT_PRESET_GOOGLE.to_string(),
+        };
+        let file_config = FileTranscriptionModelConfig {
+            profile_snapshot: None,
+            chunking_mode: FileTranscriptionChunkingMode::Custom,
+            chunking_max_minutes: 1.25,
+            soniox_language_hints: vec!["en".to_string(), "ru".to_string()],
+            soniox_enable_speaker_diarization: false,
+            soniox_enable_language_identification: true,
+            deepgram_diarize: true,
+            deepgram_multichannel: true,
+            gemini_mode: GeminiTranscriptionMode::Verbatim,
+            gemini_diarization: true,
+        };
+        let config_key = stt_model_selection_key(&file_selection);
+        settings.file_transcription_model_selection = Some(file_selection.clone());
+        settings
+            .file_transcription_model_configs
+            .insert(config_key.clone(), file_config);
+        settings.live_sound_model_selection = Some(SttModelSelection {
+            provider: TranscriptionProvider::RemoteDeepgram,
+            model_id: "nova-3".to_string(),
+            provider_preset: String::new(),
+        });
+        settings.live_sound_gemini_mode = Some(GeminiTranscriptionMode::Verbatim);
+
+        let serialized = serde_json::to_string(&settings).unwrap();
+        let restored: AppSettings = serde_json::from_str(&serialized).unwrap();
+        let restored_config = restored
+            .file_transcription_model_configs
+            .get(&config_key)
+            .unwrap();
+
+        assert_eq!(restored.file_transcription_model_selection, Some(file_selection));
+        assert_eq!(restored_config.chunking_mode, FileTranscriptionChunkingMode::Custom);
+        assert_eq!(restored_config.chunking_max_minutes, 1.25);
+        assert_eq!(restored_config.gemini_mode, GeminiTranscriptionMode::Verbatim);
+        assert!(restored_config.gemini_diarization);
+        assert_eq!(
+            restored.live_sound_model_selection.unwrap().model_id,
+            "nova-3"
+        );
+        assert_eq!(
+            restored.live_sound_gemini_mode,
+            Some(GeminiTranscriptionMode::Verbatim)
+        );
+    }
+
+    #[test]
+    fn file_model_compatibility_rejects_live_only_models() {
+        let selection = |provider, preset: &str, model: &str| SttModelSelection {
+            provider,
+            provider_preset: preset.to_string(),
+            model_id: model.to_string(),
+        };
+        for supported in [
+            selection(TranscriptionProvider::Local, "", "whisper-large-v3-turbo"),
+            selection(TranscriptionProvider::RemoteDeepgram, "", "nova-3"),
+            selection(TranscriptionProvider::RemoteSoniox, "", "stt-async-v5"),
+            selection(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+                "google",
+                "gemini-3.5-transcribe",
+            ),
+        ] {
+            assert!(stt_model_selection_supports_file(&supported));
+        }
+
+        for unsupported in [
+            selection(TranscriptionProvider::Local, "", ""),
+            selection(TranscriptionProvider::RemoteSoniox, "", "stt-rt-v5"),
+            selection(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+                "vercel",
+                "google/gemini-3.5-transcribe-live",
+            ),
+            selection(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+                "custom",
+                "vendor-live-transcribe-model",
+            ),
+            selection(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+                "openai",
+                "gpt-realtime",
+            ),
+        ] {
+            assert!(!stt_model_selection_supports_file(&unsupported));
+        }
+    }
+
+    #[test]
     fn transcription_text_logging_defaults_to_off_when_missing() {
         let mut value = serde_json::to_value(get_default_settings()).unwrap();
         value

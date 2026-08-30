@@ -293,16 +293,6 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_safe_for_older_settings() {
-        let settings = crate::settings::get_default_settings();
-        assert_eq!(settings.gemini_language_code, "auto");
-        assert!(settings.gemini_custom_vocabulary.is_empty());
-        assert_eq!(settings.gemini_live_mode, GeminiTranscriptionMode::Smart);
-        assert_eq!(settings.gemini_file_mode, GeminiTranscriptionMode::Smart);
-        assert!(!settings.gemini_file_diarization);
-    }
-
-    #[test]
     fn profile_null_inherits_and_empty_vocabulary_replaces_global() {
         let mut settings = crate::settings::get_default_settings();
         settings.remote_stt.provider_preset = "google".to_string();

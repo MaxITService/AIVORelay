@@ -3131,8 +3131,10 @@ fn resolve_profile_for_binding<'a>(
 
 /// Resolve the effective provider/model without changing global settings.
 /// Profile overrides apply only to ordinary dictation bindings.
-fn settings_for_binding(app: &AppHandle, binding_id: &str) -> AppSettings {
-    let mut settings = get_settings(app);
+fn settings_with_model_override_for_binding(
+    mut settings: AppSettings,
+    binding_id: &str,
+) -> AppSettings {
     if !is_transcribe_binding_id(binding_id) {
         return settings;
     }
@@ -3148,6 +3150,104 @@ fn settings_for_binding(app: &AppHandle, binding_id: &str) -> AppSettings {
         }
     }
     settings
+}
+
+fn settings_for_binding(app: &AppHandle, binding_id: &str) -> AppSettings {
+    settings_with_model_override_for_binding(get_settings(app), binding_id)
+}
+
+fn should_hide_vercel_gemini_finalizing_after_streamed_output(
+    is_gemini_live_provider: bool,
+    provider_preset: &str,
+    preview_output_only_enabled: bool,
+    invoked_from_realtime_error: bool,
+    invoked_from_gemini_time_limit: bool,
+    had_stream_output: bool,
+) -> bool {
+    is_gemini_live_provider
+        && provider_preset == REMOTE_STT_PRESET_VERCEL
+        && !preview_output_only_enabled
+        && !invoked_from_realtime_error
+        && !invoked_from_gemini_time_limit
+        && had_stream_output
+}
+
+#[cfg(test)]
+mod stt_workflow_tests {
+    use super::{
+        settings_with_model_override_for_binding,
+        should_hide_vercel_gemini_finalizing_after_streamed_output,
+        LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
+    };
+    use crate::settings::{
+        get_default_settings, SttModelSelection, TranscriptionProfile, TranscriptionProvider,
+    };
+
+    fn profile_with_selection(selection: SttModelSelection) -> TranscriptionProfile {
+        let mut profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
+            "id": "profile_test",
+            "name": "Test",
+            "language": "auto",
+            "translate_to_english": false
+        }))
+        .unwrap();
+        profile.stt_model_selection_override = Some(selection);
+        profile
+    }
+
+    #[test]
+    fn profile_model_override_applies_to_dictation_but_not_live_monitor() {
+        let mut settings = get_default_settings();
+        settings.active_profile_id = "profile_test".to_string();
+        settings.transcription_profiles.push(profile_with_selection(
+            SttModelSelection {
+                provider: TranscriptionProvider::RemoteDeepgram,
+                model_id: "nova-3".to_string(),
+                provider_preset: String::new(),
+            },
+        ));
+        let global_provider = settings.transcription_provider;
+
+        let active = settings_with_model_override_for_binding(settings.clone(), "transcribe");
+        let shortcut = settings_with_model_override_for_binding(
+            settings.clone(),
+            "transcribe_profile_test",
+        );
+        let live = settings_with_model_override_for_binding(
+            settings,
+            LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
+        );
+
+        assert_eq!(active.transcription_provider, TranscriptionProvider::RemoteDeepgram);
+        assert_eq!(shortcut.transcription_provider, TranscriptionProvider::RemoteDeepgram);
+        assert_eq!(live.transcription_provider, global_provider);
+    }
+
+    #[test]
+    fn early_vercel_gemini_overlay_hide_requires_the_safe_streaming_case() {
+        let safe = (true, "vercel", false, false, false, true);
+        assert!(should_hide_vercel_gemini_finalizing_after_streamed_output(
+            safe.0, safe.1, safe.2, safe.3, safe.4, safe.5
+        ));
+
+        for unsafe_case in [
+            (false, "vercel", false, false, false, true),
+            (true, "google", false, false, false, true),
+            (true, "vercel", true, false, false, true),
+            (true, "vercel", false, true, false, true),
+            (true, "vercel", false, false, true, true),
+            (true, "vercel", false, false, false, false),
+        ] {
+            assert!(!should_hide_vercel_gemini_finalizing_after_streamed_output(
+                unsafe_case.0,
+                unsafe_case.1,
+                unsafe_case.2,
+                unsafe_case.3,
+                unsafe_case.4,
+                unsafe_case.5,
+            ));
+        }
+    }
 }
 
 fn is_openai_realtime_whisper_configured(settings: &AppSettings) -> bool {
@@ -7135,6 +7235,15 @@ impl ShortcutAction for TranscribeAction {
                 } else {
                     had_soniox_stream_output
                 };
+                let hide_vercel_gemini_finalizing_after_streamed_output =
+                    should_hide_vercel_gemini_finalizing_after_streamed_output(
+                        is_gemini_live_provider,
+                        &recording_settings.remote_stt.provider_preset,
+                        preview_output_only_enabled,
+                        invoked_from_realtime_error,
+                        invoked_from_gemini_time_limit,
+                        had_stream_output,
+                    );
                 if should_cancel_live_quick_stop_without_finalize(
                     stop_context.recording_elapsed,
                     preview_output_only_enabled,
@@ -7182,6 +7291,31 @@ impl ShortcutAction for TranscribeAction {
                     }
                     finish_guard.finish();
                     return;
+                }
+
+                if hide_vercel_gemini_finalizing_after_streamed_output {
+                    let overlay_generation =
+                        crate::plus_overlay_state::current_recording_overlay_generation();
+                    let ah_for_overlay = ah.clone();
+                    if let Err(error) = run_on_main_thread_sync(
+                        &ah,
+                        recording_settings.paste_delay_ms.saturating_add(1500),
+                        move || {
+                            crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
+                                &ah_for_overlay,
+                                overlay_generation,
+                            );
+                        },
+                    ) {
+                        warn!(
+                            "Failed to hide Vercel Gemini finalizing overlay after streamed output: {}",
+                            error
+                        );
+                    } else {
+                        debug!(
+                            "Hid Vercel Gemini finalizing overlay while provider completion continues"
+                        );
+                    }
                 }
 
                 if live_instant_stop && !preview_output_only_enabled {
