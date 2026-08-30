@@ -1488,6 +1488,8 @@ pub fn run(cli_args: CliArgs) {
         commands::live_sound_transcription::set_live_sound_auto_stop_minutes,
         commands::live_sound_transcription::change_live_sound_transcription_provider,
         commands::live_sound_transcription::change_live_sound_model_selection,
+        commands::live_sound_transcription::initialize_live_sound_model_settings,
+        commands::live_sound_transcription::change_live_sound_gemini_mode,
         commands::live_sound_transcription::set_live_sound_soniox_endpoint_detection,
         commands::live_sound_transcription::set_live_sound_soniox_max_endpoint_delay_ms,
         commands::live_sound_transcription::set_live_sound_deepgram_endpointing_enabled,

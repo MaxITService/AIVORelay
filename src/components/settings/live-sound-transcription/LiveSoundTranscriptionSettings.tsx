@@ -14,6 +14,7 @@ import { useSettings } from "../../../hooks/useSettings";
 import { SttModelSelector } from "../SttModelSelector";
 import {
   legacyLiveSttSelection,
+  sttModelCapabilities,
   sttSupports,
   type SttModelSelection,
 } from "../../../lib/sttModelSelection";
@@ -186,8 +187,23 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const [geminiCompletionVariant, setGeminiCompletionVariant] =
     useState<GeminiLiveCompletionVariant | null>(null);
 
-  const liveSelection = ((settings as any)?.live_sound_model_selection ??
-    legacyLiveSttSelection(settings)) as SttModelSelection;
+  const storedLiveSelection = (settings as any)
+    ?.live_sound_model_selection as SttModelSelection | null | undefined;
+  const liveSelection =
+    storedLiveSelection &&
+    sttModelCapabilities(storedLiveSelection).workflows.includes("live")
+      ? storedLiveSelection
+      : legacyLiveSttSelection(settings);
+  const liveSettingsInitializedRef = useRef(false);
+  useEffect(() => {
+    if (!settings || liveSettingsInitializedRef.current) return;
+    liveSettingsInitializedRef.current = true;
+    void invoke("initialize_live_sound_model_settings")
+      .then(() => refreshSettings())
+      .catch((initializationError) =>
+        setErrorMessage(String(initializationError)),
+      );
+  }, [refreshSettings, settings]);
   const provider = liveSelection.provider;
   const remotePreset = liveSelection.provider_preset.toLowerCase();
   const remoteModelId = liveSelection.model_id.toLowerCase();
@@ -196,6 +212,11 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     (remoteModelId === "google/gemini-3.5-transcribe-live" ||
       remoteModelId === "gemini-3.5-transcribe-live");
   const remoteLiveReady = remoteIsGeminiLive;
+  const liveGeminiMode = String(
+    (settings as any)?.live_sound_gemini_mode ??
+      (settings as any)?.gemini_live_mode ??
+      "smart",
+  );
   const handleModelSelectionChange = async (selection: SttModelSelection) => {
     setSourceBusy(true);
     setErrorMessage(null);
@@ -757,20 +778,22 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                       {t("settings.gemini.liveMode.title", "Live transcription mode")}
                     </p>
                     <p className="text-xs text-[#9a9a9a]">
-                      {String((settings as any)?.gemini_live_mode ?? "smart") === "smart"
+                      {liveGeminiMode === "smart"
                         ? t("settings.gemini.liveMode.smartHelp", "Smart removes disfluencies and applies readable formatting.")
                         : t("settings.gemini.liveMode.verbatimHelp", "Verbatim preserves fillers, repetitions, and false starts.")}
                     </p>
                   </div>
                   <Dropdown
-                    selectedValue={String((settings as any)?.gemini_live_mode ?? "smart")}
+                    selectedValue={liveGeminiMode}
                     options={[
                       { value: "smart", label: t("settings.gemini.mode.smart", "Smart") },
                       { value: "verbatim", label: t("settings.gemini.mode.verbatim", "Verbatim") },
                     ]}
                     onSelect={async value => {
                       if (!value) return;
-                      await invoke("change_gemini_live_mode_setting", { mode: value });
+                      await invoke("change_live_sound_gemini_mode", {
+                        mode: value,
+                      });
                       await refreshSettings();
                     }}
                     disabled={isRecording || sourceBusy || actionBusy !== null}
@@ -1059,10 +1082,11 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
         </SettingContainer>
       </SettingsGroup>
 
-      <SettingsGroup
-        title={t("settings.liveSoundTranscription.sessionOverrides.title")}
-        description={t("settings.liveSoundTranscription.sessionOverrides.description")}
-      >
+      {providerSupportsDiarization && (
+        <SettingsGroup
+          title={t("settings.liveSoundTranscription.sessionOverrides.title")}
+          description={t("settings.liveSoundTranscription.sessionOverrides.description")}
+        >
         <SettingContainer
           title={t("settings.liveSoundTranscription.sessionOverrides.endpointDetectionLabel")}
           description={t("settings.liveSoundTranscription.sessionOverrides.endpointDetectionHint")}
@@ -1070,58 +1094,33 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
           layout="stacked"
         >
           {(() => {
-            const globalVal = provider === "remote_soniox"
-              ? Boolean((settings as any)?.soniox_enable_endpoint_detection ?? true)
-              : Boolean((settings as any)?.deepgram_endpointing_enabled ?? true);
-            const overrideKey = provider === "remote_soniox"
-              ? "live_sound_soniox_endpoint_detection"
-              : "live_sound_deepgram_endpointing_enabled";
+            const currentValue = provider === "remote_soniox"
+                ? Boolean(
+                  (settings as any)?.live_sound_soniox_endpoint_detection ??
+                    (settings as any)?.soniox_enable_endpoint_detection ??
+                    true,
+                )
+              : Boolean(
+                  (settings as any)?.live_sound_deepgram_endpointing_enabled ??
+                    (settings as any)?.deepgram_endpointing_enabled ??
+                    true,
+                );
             const command = provider === "remote_soniox"
               ? "set_live_sound_soniox_endpoint_detection"
               : "set_live_sound_deepgram_endpointing_enabled";
-            const currentOverride = (settings as any)?.[overrideKey] as boolean | null | undefined;
-            const isOverridden = currentOverride != null;
-            const effectiveVal = isOverridden ? currentOverride : globalVal;
             return (
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-3">
-                  <Button
-                    variant={isOverridden ? "secondary" : "ghost"}
-                    size="sm"
-                    onClick={async () => {
-                      await invoke(command, { value: isOverridden ? null : effectiveVal });
-                      await refreshSettings();
-                    }}
-                  >
-                    {isOverridden
-                      ? t("settings.liveSoundTranscription.sessionOverrides.override")
-                      : t("settings.liveSoundTranscription.sessionOverrides.useGlobal")}
-                  </Button>
-                  {isOverridden && (
-                    <Button
-                      variant={effectiveVal ? "secondary" : "ghost"}
-                      size="sm"
-                      onClick={async () => {
-                        await invoke(command, { value: !effectiveVal });
-                        await refreshSettings();
-                      }}
-                    >
-                      {effectiveVal
-                        ? t("settings.liveSoundTranscription.sessionOverrides.on")
-                        : t("settings.liveSoundTranscription.sessionOverrides.off")}
-                    </Button>
-                  )}
-                  {!isOverridden && (
-                    <span className="text-[12px] text-[#666]">
-                      {t("settings.liveSoundTranscription.sessionOverrides.useGlobal")}
-                      {" — "}
-                      {globalVal
-                        ? t("settings.liveSoundTranscription.sessionOverrides.on")
-                        : t("settings.liveSoundTranscription.sessionOverrides.off")}
-                    </span>
-                  )}
-                </div>
-              </div>
+              <Button
+                variant={currentValue ? "secondary" : "ghost"}
+                size="sm"
+                onClick={async () => {
+                  await invoke(command, { value: !currentValue });
+                  await refreshSettings();
+                }}
+              >
+                {currentValue
+                  ? t("settings.liveSoundTranscription.sessionOverrides.on")
+                  : t("settings.liveSoundTranscription.sessionOverrides.off")}
+              </Button>
             );
           })()}
         </SettingContainer>
@@ -1134,46 +1133,24 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
             layout="stacked"
           >
             {(() => {
-              const globalVal = Number((settings as any)?.soniox_max_endpoint_delay_ms ?? 2000);
-              const currentOverride = (settings as any)?.live_sound_soniox_max_endpoint_delay_ms as number | null | undefined;
-              const isOverridden = currentOverride != null;
+              const currentValue = Number(
+                (settings as any)?.live_sound_soniox_max_endpoint_delay_ms ??
+                  (settings as any)?.soniox_max_endpoint_delay_ms ??
+                  2000,
+              );
               return (
-                <div className="flex items-center gap-3">
-                  <Button
-                    variant={isOverridden ? "secondary" : "ghost"}
-                    size="sm"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={async () => {
-                      await invoke("set_live_sound_soniox_max_endpoint_delay_ms", {
-                        value: isOverridden ? null : globalVal,
-                      });
-                      await refreshSettings();
-                    }}
-                  >
-                    {isOverridden
-                      ? t("settings.liveSoundTranscription.sessionOverrides.useGlobal")
-                      : t("settings.liveSoundTranscription.sessionOverrides.override")}
-                  </Button>
-                  {isOverridden ? (
-                    <NumericOverrideInput
-                      value={currentOverride}
-                      min={500}
-                      max={3000}
-                      step={100}
-                      onCommit={(value) =>
-                        persistNumericOverride(
-                          "set_live_sound_soniox_max_endpoint_delay_ms",
-                          value,
-                        )
-                      }
-                    />
-                  ) : (
-                    <span className="text-[12px] text-[#666]">
-                      {t("settings.liveSoundTranscription.sessionOverrides.useGlobal")}
-                      {" — "}{globalVal} ms
-                    </span>
-                  )}
-                </div>
+                <NumericOverrideInput
+                  value={currentValue}
+                  min={500}
+                  max={3000}
+                  step={100}
+                  onCommit={(value) =>
+                    persistNumericOverride(
+                      "set_live_sound_soniox_max_endpoint_delay_ms",
+                      value,
+                    )
+                  }
+                />
               );
             })()}
           </SettingContainer>
@@ -1187,53 +1164,33 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
             layout="stacked"
           >
             {(() => {
-              const globalVal = Number((settings as any)?.deepgram_endpointing_ms ?? 10);
-              const currentOverride = (settings as any)?.live_sound_deepgram_endpointing_ms as number | null | undefined;
-              const isOverridden = currentOverride != null;
+              const currentValue = Number(
+                (settings as any)?.live_sound_deepgram_endpointing_ms ??
+                  (settings as any)?.deepgram_endpointing_ms ??
+                  10,
+              );
               return (
-                <div className="flex items-center gap-3">
-                  <Button
-                    variant={isOverridden ? "secondary" : "ghost"}
-                    size="sm"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={async () => {
-                      await invoke("set_live_sound_deepgram_endpointing_ms", {
-                        value: isOverridden ? null : globalVal,
-                      });
-                      await refreshSettings();
-                    }}
-                  >
-                    {isOverridden
-                      ? t("settings.liveSoundTranscription.sessionOverrides.useGlobal")
-                      : t("settings.liveSoundTranscription.sessionOverrides.override")}
-                  </Button>
-                  {isOverridden ? (
-                    <NumericOverrideInput
-                      value={currentOverride}
-                      min={10}
-                      max={5000}
-                      step={10}
-                      onCommit={(value) =>
-                        persistNumericOverride(
-                          "set_live_sound_deepgram_endpointing_ms",
-                          value,
-                        )
-                      }
-                    />
-                  ) : (
-                    <span className="text-[12px] text-[#666]">
-                      {t("settings.liveSoundTranscription.sessionOverrides.useGlobal")}
-                      {" — "}{globalVal} ms
-                    </span>
-                  )}
-                </div>
+                <NumericOverrideInput
+                  value={currentValue}
+                  min={10}
+                  max={5000}
+                  step={10}
+                  onCommit={(value) =>
+                    persistNumericOverride(
+                      "set_live_sound_deepgram_endpointing_ms",
+                      value,
+                    )
+                  }
+                />
               );
             })()}
           </SettingContainer>
         )}
-      </SettingsGroup>
+        </SettingsGroup>
+      )}
 
-      <SettingsGroup
+      {providerSupportsDiarization && (
+        <SettingsGroup
         title={t("settings.liveSoundTranscription.speakerNames.title")}
         description={t("settings.liveSoundTranscription.speakerNames.hint")}
       >
@@ -1344,7 +1301,8 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
             </Button>
           </div>
         </SettingContainer>
-      </SettingsGroup>
+        </SettingsGroup>
+      )}
 
       <SettingsGroup title={t("settings.sound.title")}>
         <div className={micEnabled ? "rounded-xl ring-2 ring-emerald-500/40" : undefined}>

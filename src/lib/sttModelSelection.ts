@@ -180,10 +180,23 @@ export const legacyLiveSttSelection = (
     };
   }
   if (liveProvider === "remote_openai_compatible") {
+    const preset = settings?.remote_stt?.provider_preset || "";
+    const modelId = settings?.remote_stt?.model_id || "";
+    if (
+      (preset === "vercel" &&
+        modelId === "google/gemini-3.5-transcribe-live") ||
+      (preset === "google" && modelId === "gemini-3.5-transcribe-live")
+    ) {
+      return {
+        provider: "remote_openai_compatible",
+        model_id: modelId,
+        provider_preset: preset,
+      };
+    }
     return {
-      provider: "remote_openai_compatible",
-      model_id: settings?.remote_stt?.model_id || "gpt-live-transcribe",
-      provider_preset: settings?.remote_stt?.provider_preset || "openai",
+      provider: "remote_soniox",
+      model_id: "stt-rt-v5",
+      provider_preset: "",
     };
   }
   return {

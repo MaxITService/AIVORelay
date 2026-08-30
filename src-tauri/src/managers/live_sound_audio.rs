@@ -382,12 +382,18 @@ pub fn start(app: &AppHandle, session_id: u64) -> Result<(), String> {
 
     let mut settings = get_settings(app);
     if let Some(selection) = settings.live_sound_model_selection.clone() {
+        crate::commands::live_sound_transcription::validate_live_sound_model_selection(
+            &selection,
+        )?;
         crate::settings::apply_stt_model_selection(&mut settings, &selection)?;
         settings.live_sound_transcription_provider =
             crate::settings::LiveSoundTranscriptionProvider::from_transcription_provider(
                 selection.provider,
             )
             .ok_or_else(|| "Live Monitor does not support local STT models.".to_string())?;
+    }
+    if let Some(mode) = settings.live_sound_gemini_mode {
+        settings.gemini_live_mode = mode;
     }
     let use_live = crate::actions::live_sound_use_live_streaming(&settings);
 
