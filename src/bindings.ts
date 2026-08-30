@@ -3936,7 +3936,7 @@ async isLaptop() : Promise<Result<boolean, string>> {
 
 /** user-defined types **/
 
-export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; pushToTalk: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
+export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; sttModelSelectionOverride?: SttModelSelection | null; pushToTalk: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
 export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; file_transcription_model_selection?: SttModelSelection | null; live_sound_model_selection?: SttModelSelection | null; openai_realtime_whisper_delay?: OpenAiRealtimeWhisperDelay; openai_realtime_whisper_keywords?: string; openai_realtime_whisper_flatten_enabled?: boolean; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[];
 /**
  * Gemini exact BCP-47 locale, `auto`, or `os_input`.
@@ -4736,6 +4736,11 @@ system_prompt?: string;
  */
 stt_prompt_override_enabled?: boolean;
 /**
+ * Optional provider/model override used only by ordinary dictation.
+ * File transcription may use it as an initial default, but keeps its own selection.
+ */
+stt_model_selection_override?: SttModelSelection | null;
+/**
  * Whether this profile participates in the cycle shortcut rotation
  */
 include_in_cycle?: boolean;
@@ -4878,7 +4883,7 @@ export type TtsVoiceCatalogLocale = { locale: string; label: string; styles: str
 export type UiFileJobProgressStage = "ai_cleanup" | "speech"
 export type UiFileJobStatus = "planned" | "preparing" | "running" | "retrying" | "paused" | "interrupted" | "failed" | "completed"
 export type UiFileJobSummary = { jobId: string; sourcePath: string; outputPath: string; provider: TtsProvider; outputFormat: TtsOutputFormat; status: UiFileJobStatus; completedChunks: number; totalChunks: number; progressStage: UiFileJobProgressStage; partialAvailable: boolean; lastError: string | null; createdAtMs: number; updatedAtMs: number }
-export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled: boolean; includeInCycle: boolean; pushToTalk: boolean; previewOutputOnlyEnabled: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; llmSettings: ProfileLlmSettings; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
+export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled: boolean; sttModelSelectionOverride?: SttModelSelection | null; includeInCycle: boolean; pushToTalk: boolean; previewOutputOnlyEnabled: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; llmSettings: ProfileLlmSettings; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
 /**
  * Recording-side voice activity detector. This does not affect file
  * transcription chunking, which has its own VAD configuration.

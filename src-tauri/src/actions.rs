@@ -1463,7 +1463,7 @@ fn maybe_restore_ai_replace_selection(
 /// IMPORTANT: We hold the session state lock throughout the entire operation to prevent
 /// race conditions when the user rapidly presses the shortcut key.
 fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
-    let settings = get_settings(app);
+    let settings = settings_for_binding(app, binding_id);
 
     // Load model in the background if using local transcription
     let tm = app.state::<Arc<TranscriptionManager>>();
@@ -3114,6 +3114,27 @@ fn resolve_profile_for_binding<'a>(
     }
 
     None
+}
+
+/// Resolve the effective provider/model without changing global settings.
+/// Profile overrides apply only to ordinary dictation bindings.
+fn settings_for_binding(app: &AppHandle, binding_id: &str) -> AppSettings {
+    let mut settings = get_settings(app);
+    if !is_transcribe_binding_id(binding_id) {
+        return settings;
+    }
+
+    let selection = resolve_profile_for_binding(&settings, binding_id)
+        .and_then(|profile| profile.stt_model_selection_override.clone());
+    if let Some(selection) = selection {
+        if let Err(error) = crate::settings::apply_stt_model_selection(&mut settings, &selection) {
+            warn!(
+                "Ignoring invalid STT model override for binding '{}': {}",
+                binding_id, error
+            );
+        }
+    }
+    settings
 }
 
 fn is_openai_realtime_whisper_configured(settings: &AppSettings) -> bool {
@@ -6352,7 +6373,7 @@ impl ShortcutAction for TranscribeAction {
         let start_time = Instant::now();
         debug!("TranscribeAction::start called for binding: {}", binding_id);
 
-        let settings = get_settings(app);
+        let settings = settings_for_binding(app, binding_id);
         let use_live_streaming = should_use_live_streaming(&settings);
         let profile = resolve_profile_for_binding(&settings, binding_id);
         let optimized_delivery_profile_id = profile.map(|p| p.id.clone());
