@@ -15,13 +15,65 @@ export type SttCatalogOption = {
   modelLabel: string;
   selection: SttModelSelection;
   localModel?: ModelInfo;
+  capabilities: SttModelCapabilities;
 };
+
+export type SttModelCapabilities = {
+  workflows: SttWorkflow[];
+  diarization: SttWorkflow[];
+  languageHints: SttWorkflow[];
+  vocabulary: SttWorkflow[];
+  chunking: SttWorkflow[];
+  timestamps: SttWorkflow[];
+};
+
+const capabilities = (
+  workflows: SttWorkflow[],
+  overrides: Partial<Omit<SttModelCapabilities, "workflows">> = {},
+): SttModelCapabilities => ({
+  workflows,
+  diarization: [],
+  languageHints: [],
+  vocabulary: [],
+  chunking: [],
+  timestamps: [],
+  ...overrides,
+});
+
+const LOCAL_CAPABILITIES = capabilities(["dictation", "file"], {
+  chunking: ["file"],
+  timestamps: ["file"],
+});
+const SONIOX_CAPABILITIES = capabilities(["dictation", "file", "live"], {
+  diarization: ["file", "live"],
+  languageHints: ["dictation", "file"],
+  timestamps: ["file"],
+});
+const DEEPGRAM_CAPABILITIES = capabilities(["dictation", "file", "live"], {
+  diarization: ["file", "live"],
+  languageHints: ["dictation", "file"],
+  timestamps: ["file"],
+});
+const GEMINI_CAPABILITIES = capabilities(["dictation", "file"], {
+  diarization: ["file"],
+  languageHints: ["dictation", "file"],
+  vocabulary: ["dictation", "file"],
+  timestamps: ["file"],
+});
+const GEMINI_LIVE_CAPABILITIES = capabilities(["dictation", "live"], {
+  languageHints: ["dictation", "live"],
+  vocabulary: ["dictation", "live"],
+});
+const GENERIC_REMOTE_CAPABILITIES = capabilities(["dictation", "file"], {
+  languageHints: ["dictation", "file"],
+});
 
 const remoteSelection = (
   providerId: string,
   providerLabel: string,
   modelId: string,
   modelLabel: string,
+  modelCapabilities: SttModelCapabilities = GENERIC_REMOTE_CAPABILITIES,
 ): SttCatalogOption => ({
   id: `${providerId}:${modelId}`,
   providerId,
@@ -32,6 +84,7 @@ const remoteSelection = (
     model_id: modelId,
     provider_preset: providerId,
   },
+  capabilities: modelCapabilities,
 });
 
 export const sttSelectionKey = (selection: SttModelSelection): string =>
@@ -43,6 +96,36 @@ export const sttProviderId = (selection: SttModelSelection): string => {
   if (selection.provider === "remote_deepgram") return "deepgram";
   return selection.provider_preset || "custom";
 };
+
+export const sttModelCapabilities = (
+  selection: SttModelSelection,
+): SttModelCapabilities => {
+  if (selection.provider === "local") return LOCAL_CAPABILITIES;
+  if (selection.provider === "remote_soniox") return SONIOX_CAPABILITIES;
+  if (selection.provider === "remote_deepgram") return DEEPGRAM_CAPABILITIES;
+
+  const modelId = selection.model_id.toLowerCase();
+  const preset = selection.provider_preset.toLowerCase();
+  if (
+    (preset === "vercel" || preset === "google") &&
+    modelId.includes("gemini-3.5-transcribe-live")
+  ) {
+    return GEMINI_LIVE_CAPABILITIES;
+  }
+  if (
+    (preset === "vercel" || preset === "google") &&
+    modelId.includes("gemini-3.5-transcribe")
+  ) {
+    return GEMINI_CAPABILITIES;
+  }
+  return GENERIC_REMOTE_CAPABILITIES;
+};
+
+export const sttSupports = (
+  selection: SttModelSelection,
+  capability: Exclude<keyof SttModelCapabilities, "workflows">,
+  workflow: SttWorkflow,
+): boolean => sttModelCapabilities(selection)[capability].includes(workflow);
 
 export const globalSttSelection = (
   settings: AppSettings | null | undefined,
@@ -120,6 +203,7 @@ export const sttCatalog = (
             provider_preset: "",
           },
           localModel: model,
+          capabilities: LOCAL_CAPABILITIES,
         }))
       : [];
 
@@ -134,6 +218,7 @@ export const sttCatalog = (
           model_id: "stt-rt-v5",
           provider_preset: "",
         },
+        capabilities: SONIOX_CAPABILITIES,
       },
       {
         id: "deepgram:nova-3",
@@ -145,30 +230,21 @@ export const sttCatalog = (
           model_id: "nova-3",
           provider_preset: "",
         },
+        capabilities: DEEPGRAM_CAPABILITIES,
       },
       remoteSelection(
         "vercel",
         "Vercel",
         "google/gemini-3.5-transcribe-live",
         "Gemini 3.5 Transcribe Live",
+        GEMINI_LIVE_CAPABILITIES,
       ),
       remoteSelection(
         "google",
         "Google",
         "gemini-3.5-transcribe-live",
         "Gemini 3.5 Transcribe Live",
-      ),
-      remoteSelection(
-        "openai",
-        "OpenAI",
-        "gpt-live-transcribe",
-        "GPT Live Transcribe",
-      ),
-      remoteSelection(
-        "openai",
-        "OpenAI",
-        "gpt-realtime-whisper",
-        "GPT Realtime Whisper · Legacy",
+        GEMINI_LIVE_CAPABILITIES,
       ),
     ];
 
@@ -187,6 +263,7 @@ export const sttCatalog = (
         model_id: "stt-async-v5",
         provider_preset: "",
       },
+      capabilities: SONIOX_CAPABILITIES,
     },
     {
       id: "deepgram:nova-3",
@@ -198,18 +275,21 @@ export const sttCatalog = (
         model_id: "nova-3",
         provider_preset: "",
       },
+      capabilities: DEEPGRAM_CAPABILITIES,
     },
     remoteSelection(
       "vercel",
       "Vercel",
       "google/gemini-3.5-transcribe",
       "Gemini 3.5 Transcribe",
+      GEMINI_CAPABILITIES,
     ),
     remoteSelection(
       "google",
       "Google",
       "gemini-3.5-transcribe",
       "Gemini 3.5 Transcribe",
+      GEMINI_CAPABILITIES,
     ),
     remoteSelection("openai", "OpenAI", "gpt-transcribe", "GPT Transcribe"),
     remoteSelection(

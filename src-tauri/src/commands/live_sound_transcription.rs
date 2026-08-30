@@ -2,7 +2,7 @@ use crate::actions;
 use crate::managers::live_sound_transcription::LiveSoundTranscriptionStatePayload;
 use crate::settings::{
     apply_stt_model_selection, get_settings, write_settings, LiveSoundTranscriptionProvider,
-    SttModelSelection,
+    SttModelSelection, TranscriptionProvider,
 };
 use tauri::AppHandle;
 
@@ -10,6 +10,23 @@ const SONIOX_ENDPOINT_DELAY_MIN_MS: u32 = 500;
 const SONIOX_ENDPOINT_DELAY_MAX_MS: u32 = 3000;
 const DEEPGRAM_ENDPOINTING_MIN_MS: u32 = 10;
 const DEEPGRAM_ENDPOINTING_MAX_MS: u32 = 5000;
+
+fn validate_live_sound_model_selection(selection: &SttModelSelection) -> Result<(), String> {
+    let supported = match selection.provider {
+        TranscriptionProvider::RemoteSoniox => selection.model_id == "stt-rt-v5",
+        TranscriptionProvider::RemoteDeepgram => selection.model_id == "nova-3",
+        TranscriptionProvider::RemoteOpenAiCompatible => matches!(
+            (selection.provider_preset.as_str(), selection.model_id.as_str()),
+            ("vercel", "google/gemini-3.5-transcribe-live")
+                | ("google", "gemini-3.5-transcribe-live")
+        ),
+        TranscriptionProvider::Local => false,
+    };
+
+    supported
+        .then_some(())
+        .ok_or_else(|| "This STT model is not supported by Live Monitor.".to_string())
+}
 
 fn validate_optional_range(
     value: Option<u32>,
@@ -101,6 +118,7 @@ pub fn change_live_sound_model_selection(
     app: AppHandle,
     selection: SttModelSelection,
 ) -> Result<(), String> {
+    validate_live_sound_model_selection(&selection)?;
     let Some(provider) =
         LiveSoundTranscriptionProvider::from_transcription_provider(selection.provider)
     else {
