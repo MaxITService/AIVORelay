@@ -1,4 +1,6 @@
-use crate::file_transcription_diarization::{normalize_raw_speaker_blocks, RawSpeakerBlock};
+use crate::file_transcription_diarization::{
+    normalize_raw_speaker_blocks_with_state, RawSpeakerBlock, SpeakerBlockNormalizationState,
+};
 use serde::Serialize;
 use specta::Type;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -43,6 +45,7 @@ struct LiveSoundTranscriptionRuntime {
     interim_text: String,
     final_raw_blocks: Vec<RawSpeakerBlock>,
     interim_raw_blocks: Vec<RawSpeakerBlock>,
+    speaker_normalization_state: SpeakerBlockNormalizationState,
     final_segment_timestamps_ms: Vec<u64>,
     interim_segment_timestamps_ms: Vec<u64>,
     transcript_started_at: Option<Instant>,
@@ -86,16 +89,19 @@ impl LiveSoundTranscriptionRuntime {
             .map(|deadline| remaining_seconds(deadline.saturating_duration_since(Instant::now())));
 
         let mut final_segments: Vec<LiveSoundTranscriptSegmentPayload> =
-            normalize_raw_speaker_blocks(self.final_raw_blocks.clone())
-                .into_iter()
-                .map(|block| LiveSoundTranscriptSegmentPayload {
-                    speaker_id: Some(block.speaker_id),
-                    speaker_label: Some(block.default_name),
-                    text: block.text,
-                    is_interim: false,
-                    timestamp_ms: 0,
-                })
-                .collect();
+            normalize_raw_speaker_blocks_with_state(
+                self.final_raw_blocks.clone(),
+                &mut self.speaker_normalization_state,
+            )
+            .into_iter()
+            .map(|block| LiveSoundTranscriptSegmentPayload {
+                speaker_id: Some(block.speaker_id),
+                speaker_label: Some(block.default_name),
+                text: block.text,
+                is_interim: false,
+                timestamp_ms: 0,
+            })
+            .collect();
 
         if final_segments.is_empty() && !self.final_text.trim().is_empty() {
             final_segments.push(LiveSoundTranscriptSegmentPayload {
@@ -108,16 +114,19 @@ impl LiveSoundTranscriptionRuntime {
         }
 
         let mut interim_segments: Vec<LiveSoundTranscriptSegmentPayload> =
-            normalize_raw_speaker_blocks(self.interim_raw_blocks.clone())
-                .into_iter()
-                .map(|block| LiveSoundTranscriptSegmentPayload {
-                    speaker_id: Some(block.speaker_id),
-                    speaker_label: Some(block.default_name),
-                    text: block.text,
-                    is_interim: true,
-                    timestamp_ms: 0,
-                })
-                .collect();
+            normalize_raw_speaker_blocks_with_state(
+                self.interim_raw_blocks.clone(),
+                &mut self.speaker_normalization_state,
+            )
+            .into_iter()
+            .map(|block| LiveSoundTranscriptSegmentPayload {
+                speaker_id: Some(block.speaker_id),
+                speaker_label: Some(block.default_name),
+                text: block.text,
+                is_interim: true,
+                timestamp_ms: 0,
+            })
+            .collect();
 
         if self.interim_text.trim().len() > 0 && self.interim_raw_blocks.is_empty() {
             interim_segments.push(LiveSoundTranscriptSegmentPayload {
@@ -396,6 +405,7 @@ pub fn clear_transcript(app: &AppHandle) {
         state.interim_text.clear();
         state.final_raw_blocks.clear();
         state.interim_raw_blocks.clear();
+        state.speaker_normalization_state = SpeakerBlockNormalizationState::default();
         state.final_segment_timestamps_ms.clear();
         state.interim_segment_timestamps_ms.clear();
         state.transcript_started_at = None;
@@ -416,6 +426,7 @@ pub fn replace_final_text(app: &AppHandle, final_text: String) {
         state.interim_text.clear();
         state.final_raw_blocks.clear();
         state.interim_raw_blocks.clear();
+        state.speaker_normalization_state = SpeakerBlockNormalizationState::default();
         state.final_segment_timestamps_ms.truncate(1);
         state.interim_segment_timestamps_ms.clear();
         state.error_message = None;

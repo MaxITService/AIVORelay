@@ -23,6 +23,13 @@ pub struct RawSpeakerBlock {
     pub text: String,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct SpeakerBlockNormalizationState {
+    speaker_ids: HashMap<String, u32>,
+    default_names: HashMap<String, String>,
+    next_speaker_id: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiarizedTranscriptBlock {
     pub speaker_id: u32,
@@ -184,9 +191,16 @@ pub fn normalize_raw_diarized_words(
 pub fn normalize_raw_speaker_blocks(
     raw_blocks: Vec<RawSpeakerBlock>,
 ) -> Vec<DiarizedTranscriptBlock> {
-    let mut speaker_ids = HashMap::new();
-    let mut default_names = HashMap::new();
-    let mut next_speaker_id = 0u32;
+    normalize_raw_speaker_blocks_with_state(
+        raw_blocks,
+        &mut SpeakerBlockNormalizationState::default(),
+    )
+}
+
+pub fn normalize_raw_speaker_blocks_with_state(
+    raw_blocks: Vec<RawSpeakerBlock>,
+    state: &mut SpeakerBlockNormalizationState,
+) -> Vec<DiarizedTranscriptBlock> {
     let mut blocks = Vec::new();
 
     for raw_block in raw_blocks {
@@ -200,14 +214,19 @@ pub fn normalize_raw_speaker_blocks(
             continue;
         }
 
-        let speaker_id = *speaker_ids
-            .entry(speaker_key.to_string())
-            .or_insert_with(|| {
-                let assigned_id = next_speaker_id;
-                next_speaker_id += 1;
+        let speaker_id = match state.speaker_ids.get(speaker_key) {
+            Some(speaker_id) => *speaker_id,
+            None => {
+                let assigned_id = state.next_speaker_id;
+                state.next_speaker_id += 1;
+                state
+                    .speaker_ids
+                    .insert(speaker_key.to_string(), assigned_id);
                 assigned_id
-            });
-        default_names
+            }
+        };
+        state
+            .default_names
             .entry(speaker_key.to_string())
             .or_insert_with(|| {
                 raw_block
@@ -217,7 +236,8 @@ pub fn normalize_raw_speaker_blocks(
                     .filter(|default_name| !default_name.is_empty())
                     .unwrap_or_else(|| fallback_default_name(speaker_id))
             });
-        let default_name = default_names
+        let default_name = state
+            .default_names
             .get(speaker_key)
             .cloned()
             .unwrap_or_else(|| fallback_default_name(speaker_id));
