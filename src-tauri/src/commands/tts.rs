@@ -52,7 +52,7 @@ const TTS_QUEUE_SOURCE_CHARACTERS: usize = 96;
 const TTS_OVERLAY_NOTICE_MAX_CHARACTERS: usize = 480;
 static TTS_HISTORY_REPLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static TTS_LISTEN_QUEUE_ITEM_GENERATION: AtomicU64 = AtomicU64::new(1);
-static ACTIVE_TTS_BATCH_PROGRESS: Mutex<Option<TtsBatchProgress>> = Mutex::new(None);
+static ACTIVE_TTS_BATCH_RUNTIME: Mutex<Option<ActiveTtsBatchRuntime>> = Mutex::new(None);
 
 #[tauri::command]
 #[specta::specta]
@@ -428,6 +428,21 @@ pub struct TtsBatchProgress {
     pub work_started_at_ms: Option<i64>,
     pub message: Option<String>,
     pub file: Option<TtsBatchFileResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveTtsBatchSnapshot {
+    pub progress: TtsBatchProgress,
+    pub scan: TtsBatchScanResult,
+    pub files: Vec<TtsBatchFileResult>,
+}
+
+#[derive(Debug, Clone)]
+struct ActiveTtsBatchRuntime {
+    scan: TtsBatchScanResult,
+    progress: Option<TtsBatchProgress>,
+    files: Vec<TtsBatchFileResult>,
 }
 
 pub fn install_tts_event_bridge(app: &AppHandle) {
@@ -2845,14 +2860,16 @@ fn emit_batch_progress(
     message: Option<String>,
     file: Option<TtsBatchFileResult>,
 ) {
-    let mut active_progress = ACTIVE_TTS_BATCH_PROGRESS.lock();
-    let started_at_ms = active_progress
+    let mut active_runtime = ACTIVE_TTS_BATCH_RUNTIME.lock();
+    let started_at_ms = active_runtime
         .as_ref()
+        .and_then(|runtime| runtime.progress.as_ref())
         .filter(|progress| progress.batch_id == batch_id)
         .map(|progress| progress.started_at_ms)
         .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
-    let work_started_at_ms = active_progress
+    let work_started_at_ms = active_runtime
         .as_ref()
+        .and_then(|runtime| runtime.progress.as_ref())
         .filter(|progress| progress.batch_id == batch_id)
         .and_then(|progress| progress.work_started_at_ms)
         .or_else(|| {
@@ -2885,11 +2902,12 @@ fn emit_batch_progress(
         file,
     };
     if done {
-        *active_progress = None;
-    } else {
-        *active_progress = Some(progress.clone());
+        *active_runtime = None;
+    } else if let Some(runtime) = active_runtime.as_mut() {
+        runtime.progress = Some(progress.clone());
+        runtime.files = files.to_vec();
     }
-    drop(active_progress);
+    drop(active_runtime);
     if let Err(error) = app.emit(TTS_EVENT_BATCH_PROGRESS, progress) {
         log::warn!("Failed to emit TTS batch progress: {error}");
     }
@@ -2897,8 +2915,14 @@ fn emit_batch_progress(
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_active_tts_batch_progress() -> Option<TtsBatchProgress> {
-    ACTIVE_TTS_BATCH_PROGRESS.lock().clone()
+pub fn get_active_tts_batch_progress() -> Option<ActiveTtsBatchSnapshot> {
+    let runtime = ACTIVE_TTS_BATCH_RUNTIME.lock();
+    let runtime = runtime.as_ref()?;
+    Some(ActiveTtsBatchSnapshot {
+        progress: runtime.progress.clone()?,
+        scan: runtime.scan.clone(),
+        files: runtime.files.clone(),
+    })
 }
 
 #[tauri::command]
@@ -2920,6 +2944,11 @@ pub async fn convert_tts_batch(
     let batch_id = lease.id().to_string();
     let cancellation = Arc::clone(lease.cancellation());
     let total = request.scan.files.len();
+    *ACTIVE_TTS_BATCH_RUNTIME.lock() = Some(ActiveTtsBatchRuntime {
+        scan: request.scan.clone(),
+        progress: None,
+        files: Vec::new(),
+    });
     let mut settings = get_settings(&app)
         .tts
         .effective_for_scope(TtsOperationScope::File);
