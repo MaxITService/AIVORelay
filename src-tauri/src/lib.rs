@@ -1850,9 +1850,7 @@ pub fn run(cli_args: CliArgs) {
 
             // Show main window only if not starting hidden, unless permission onboarding must be shown
             if !settings.start_hidden || should_force_show_permissions {
-                let _ = main_window.unminimize();
-                main_window.show().unwrap();
-                main_window.set_focus().unwrap();
+                show_main_window(&app_handle);
             }
 
             Ok(())
