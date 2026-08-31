@@ -1546,7 +1546,7 @@ impl TtsManager {
                     }
                 }
             };
-            pending.push((input_path, relative_path, scan_error));
+            pending.push((input_path, relative_path, source_characters, scan_error));
         }
 
         let output_extension = match request.output_format {
@@ -1555,7 +1555,7 @@ impl TtsManager {
         };
         let mut reserved_outputs = HashSet::new();
         let mut files = Vec::with_capacity(pending.len());
-        for (input_path, relative_path, scan_error) in pending {
+        for (input_path, relative_path, source_characters, scan_error) in pending {
             let output_path = allocate_batch_output_path(
                 &output_directory,
                 &relative_path,
