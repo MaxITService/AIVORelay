@@ -1,16 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-
-export type SettingsSearchEntry = {
-  id: string;
-  section: string;
-  anchor?: string;
-  expandAnchor?: string;
-  labelKey: string;
-  fallbackLabel: string;
-  keywords: readonly string[];
-};
+import type { SettingsSearchEntry } from "./settingsSearchTypes";
 
 interface SettingsSearchProps {
   entries: readonly SettingsSearchEntry[];
@@ -21,7 +12,10 @@ interface SettingsSearchProps {
     anchor?: string,
     expandAnchor?: string,
   ) => void;
+  onSearchHelp: (query: string) => void;
 }
+
+const MAX_SETTINGS_SEARCH_RESULTS = 20;
 
 const normalizeSearchText = (value: string): string =>
   value
@@ -30,14 +24,37 @@ const normalizeSearchText = (value: string): string =>
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
 
+const HighlightMatch: React.FC<{ text: string; query: string }> = ({
+  text,
+  query,
+}) => {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const matchIndex = text.toLocaleLowerCase().indexOf(normalizedQuery);
+
+  if (!normalizedQuery || matchIndex < 0) return <>{text}</>;
+
+  const matchEnd = matchIndex + normalizedQuery.length;
+  return (
+    <>
+      {text.slice(0, matchIndex)}
+      <mark className="rounded-sm bg-[#ff4d8d]/25 px-0.5 text-inherit">
+        {text.slice(matchIndex, matchEnd)}
+      </mark>
+      {text.slice(matchEnd)}
+    </>
+  );
+};
+
 export const SettingsSearch: React.FC<SettingsSearchProps> = ({
   entries,
   availableSections,
   sectionLabelKey,
   onNavigate,
+  onSearchHelp,
 }) => {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -47,40 +64,85 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
     if (!normalizedQuery) return [];
 
     const available = new Set(availableSections);
-    return entries
-      .filter((entry) => available.has(entry.section))
+    const matches = entries
       .map((entry) => {
         const label = t(entry.labelKey, entry.fallbackLabel);
         const sectionKey = sectionLabelKey(entry.section);
         const sectionLabel = sectionKey ? t(sectionKey) : entry.section;
+        const groupLabel = entry.groupLabelKey
+          ? t(entry.groupLabelKey, entry.groupFallbackLabel ?? "")
+          : (entry.groupFallbackLabel ?? "");
         const normalizedLabel = normalizeSearchText(label);
-        const searchable = normalizeSearchText(
-          [label, sectionLabel, ...entry.keywords].join(" "),
+        const normalizedSection = normalizeSearchText(sectionLabel);
+        const normalizedGroup = normalizeSearchText(groupLabel);
+        const matchedKeyword = entry.keywords.find((keyword) =>
+          normalizeSearchText(keyword).includes(normalizedQuery),
         );
         const score = normalizedLabel.startsWith(normalizedQuery)
           ? 0
           : normalizedLabel.includes(normalizedQuery)
             ? 1
-            : searchable.includes(normalizedQuery)
+            : normalizedSection.includes(normalizedQuery) ||
+                normalizedGroup.includes(normalizedQuery)
               ? 2
-              : Number.POSITIVE_INFINITY;
+              : matchedKeyword
+                ? 3
+                : Number.POSITIVE_INFINITY;
+        const isAvailable = available.has(entry.section);
+        const unavailableReason = isAvailable
+          ? null
+          : entry.unavailableReasonKey
+            ? t(
+                entry.unavailableReasonKey,
+                entry.unavailableReasonFallback ?? "",
+              )
+            : (entry.unavailableReasonFallback ??
+              t(
+                "settingsSearch.unavailable.default",
+                "This section is currently unavailable.",
+              ));
 
-        return { entry, label, sectionLabel, score };
+        return {
+          entry,
+          label,
+          sectionLabel,
+          groupLabel,
+          matchedKeyword,
+          score,
+          isAvailable,
+          unavailableReason,
+        };
       })
-      .filter((result) => Number.isFinite(result.score))
-      .sort((left, right) =>
-        left.score === right.score
-          ? left.label.localeCompare(right.label)
-          : left.score - right.score,
-      )
-      .slice(0, 8);
-  }, [
-    availableSections,
-    entries,
-    normalizedQuery,
-    sectionLabelKey,
-    t,
-  ]);
+      .filter((result) => Number.isFinite(result.score));
+    const sectionScores = new Map<string, number>();
+    for (const result of matches) {
+      sectionScores.set(
+        result.entry.section,
+        Math.min(
+          sectionScores.get(result.entry.section) ?? Number.POSITIVE_INFINITY,
+          result.score,
+        ),
+      );
+    }
+
+    return matches
+      .sort((left, right) => {
+        const sectionScore =
+          (sectionScores.get(left.entry.section) ?? left.score) -
+          (sectionScores.get(right.entry.section) ?? right.score);
+        if (sectionScore !== 0) return sectionScore;
+        if (left.isAvailable !== right.isAvailable) {
+          return left.isAvailable ? -1 : 1;
+        }
+        const sectionOrder = left.sectionLabel.localeCompare(
+          right.sectionLabel,
+        );
+        if (sectionOrder !== 0) return sectionOrder;
+        if (left.score !== right.score) return left.score - right.score;
+        return left.label.localeCompare(right.label);
+      })
+      .slice(0, MAX_SETTINGS_SEARCH_RESULTS);
+  }, [availableSections, entries, normalizedQuery, sectionLabelKey, t]);
 
   const showResults = isFocused && normalizedQuery.length > 0;
 
@@ -88,10 +150,38 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
     setActiveIndex(0);
   }, [normalizedQuery]);
 
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent) => {
+      if (
+        event.key.toLocaleLowerCase() !== "k" ||
+        (!event.ctrlKey && !event.metaKey) ||
+        event.altKey
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      inputRef.current?.focus();
+      setIsFocused(true);
+    };
+
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, []);
+
   const selectEntry = (entry: SettingsSearchEntry) => {
+    if (!availableSections.includes(entry.section)) return;
     onNavigate(entry.section, entry.anchor, entry.expandAnchor);
     setQuery("");
     setIsFocused(false);
+  };
+
+  const searchHelp = () => {
+    const helpQuery = query.trim();
+    if (!helpQuery) return;
+    setQuery("");
+    setIsFocused(false);
+    onSearchHelp(helpQuery);
   };
 
   return (
@@ -110,6 +200,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
       <div className="flex items-center gap-2 rounded-lg border border-[#333333] bg-[#141414] px-2.5 focus-within:border-[#ff4d8d]/70 focus-within:ring-1 focus-within:ring-[#ff4d8d]/25">
         <Search className="h-4 w-4 shrink-0 text-[#777777]" aria-hidden="true" />
         <input
+          ref={inputRef}
           id="global-settings-search"
           type="search"
           value={query}
@@ -141,12 +232,18 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
           aria-haspopup="listbox"
           aria-expanded={showResults}
           aria-controls="global-settings-search-results"
+          aria-keyshortcuts="Control+K Meta+K"
           aria-activedescendant={
             showResults && results[activeIndex]
               ? `global-settings-search-result-${results[activeIndex].entry.id}`
               : undefined
           }
         />
+        {!query && (
+          <kbd className="hidden rounded border border-[#3a3a3a] px-1 text-[9px] text-[#777777] sm:inline">
+            Ctrl K
+          </kbd>
+        )}
         {query && (
           <button
             type="button"
@@ -165,38 +262,104 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
           id="global-settings-search-results"
           role="listbox"
           aria-label={t("settingsSearch.results", "Settings search results")}
-          className="absolute left-0 top-full mt-1 max-h-80 w-80 overflow-y-auto rounded-lg border border-[#3b3b3b] bg-[#171717] p-1 shadow-2xl"
+          className="absolute left-0 top-full mt-1 max-h-96 w-96 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-[#3b3b3b] bg-[#171717] p-1 shadow-2xl"
         >
           {results.length > 0 ? (
-            results.map(({ entry, label, sectionLabel }, index) => (
-              <button
-                key={entry.id}
-                id={`global-settings-search-result-${entry.id}`}
-                type="button"
-                role="option"
-                aria-selected={index === activeIndex}
-                tabIndex={-1}
-                onMouseEnter={() => setActiveIndex(index)}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => selectEntry(entry)}
-                className={`block w-full rounded-md px-3 py-2 text-left focus:outline-none ${
-                  index === activeIndex ? "bg-[#252525]" : "hover:bg-[#252525]"
-                }`}
-              >
-                <span className="block text-sm text-[#f0f0f0]">{label}</span>
-                <span className="mt-0.5 block text-[11px] text-[#858585]">
-                  {sectionLabel}
-                </span>
-              </button>
-            ))
+            results.map((result, index) => {
+              const {
+                entry,
+                label,
+                sectionLabel,
+                groupLabel,
+                matchedKeyword,
+                isAvailable,
+                unavailableReason,
+              } = result;
+              const startsSection =
+                index === 0 ||
+                results[index - 1].entry.section !== entry.section;
+
+              return (
+                <React.Fragment key={entry.id}>
+                  {startsSection && (
+                    <div
+                      role="presentation"
+                      className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-[#707070]"
+                    >
+                      <HighlightMatch text={sectionLabel} query={query} />
+                    </div>
+                  )}
+                  <button
+                    id={`global-settings-search-result-${entry.id}`}
+                    type="button"
+                    role="option"
+                    aria-selected={index === activeIndex}
+                    aria-disabled={!isAvailable}
+                    tabIndex={-1}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => selectEntry(entry)}
+                    className={`block w-full rounded-md px-3 py-2 text-left focus:outline-none ${
+                      index === activeIndex ? "bg-[#252525]" : "hover:bg-[#252525]"
+                    } ${isAvailable ? "" : "cursor-not-allowed opacity-65"}`}
+                  >
+                    <span className="block text-sm text-[#f0f0f0]">
+                      <HighlightMatch text={sectionLabel} query={query} />
+                      {groupLabel && (
+                        <>
+                          <span aria-hidden="true" className="px-1.5 text-[#626262]">
+                            →
+                          </span>
+                          <HighlightMatch text={groupLabel} query={query} />
+                        </>
+                      )}
+                      <span aria-hidden="true" className="px-1.5 text-[#626262]">
+                        →
+                      </span>
+                      <HighlightMatch text={label} query={query} />
+                    </span>
+                    {matchedKeyword &&
+                      !normalizeSearchText(label).includes(normalizedQuery) &&
+                      !normalizeSearchText(sectionLabel).includes(
+                        normalizedQuery,
+                      ) &&
+                      !normalizeSearchText(groupLabel).includes(
+                        normalizedQuery,
+                      ) && (
+                        <span className="mt-1 block text-[11px] text-[#858585]">
+                          {t("settingsSearch.matched", "Matched")}: {" "}
+                          <HighlightMatch text={matchedKeyword} query={query} />
+                        </span>
+                      )}
+                    {!isAvailable && unavailableReason && (
+                      <span className="mt-1 block text-[11px] text-[#d8a36f]">
+                        {unavailableReason}
+                      </span>
+                    )}
+                  </button>
+                </React.Fragment>
+              );
+            })
           ) : (
-            <p
-              role="status"
-              aria-live="polite"
-              className="px-3 py-3 text-xs text-[#858585]"
-            >
-              {t("settingsSearch.noResults", "No matching settings")}
-            </p>
+            <div className="px-3 py-3">
+              <p
+                role="status"
+                aria-live="polite"
+                className="text-xs text-[#858585]"
+              >
+                {t("settingsSearch.noResults", "No matching settings")}
+              </p>
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={searchHelp}
+                className="mt-2 text-left text-xs font-medium text-[#ff8ebb] hover:text-[#ffc0d5] focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/60"
+              >
+                {t("settingsSearch.searchHelp", "Search Help for “{{query}}”", {
+                  query: query.trim(),
+                })}
+              </button>
+            </div>
           )}
         </div>
       )}

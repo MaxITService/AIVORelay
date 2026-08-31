@@ -71,8 +71,11 @@ function App() {
     useState(false);
   const [onboardingPermissionOnly, setOnboardingPermissionOnly] =
     useState(false);
-  const { currentSection, setSection: setCurrentSection } =
-    useNavigationStore();
+  const {
+    currentSection,
+    setSection: setCurrentSection,
+    openHelpSearch,
+  } = useNavigationStore();
   const { refreshSettings, refreshAudioDevices } = useSettings();
   const notifiedModelDownloadStarts = useRef(new Set<string>());
   const onDemandModelDownloads = useRef(new Set<string>());
@@ -476,6 +479,7 @@ function App() {
         <Sidebar
           activeSection={currentSection}
           onSectionChange={setCurrentSection}
+          onSearchHelp={openHelpSearch}
         />
         {/* Scrollable content area with gradient background */}
         <div className="min-h-0 flex-1 flex flex-col overflow-hidden bg-gradient-to-br from-[#121212] via-[#161616] to-[#0f0f0f]">

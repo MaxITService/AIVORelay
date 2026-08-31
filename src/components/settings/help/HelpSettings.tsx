@@ -80,6 +80,12 @@ export const HelpSettings: React.FC = () => {
   const consumePendingHelpAnchor = useNavigationStore(
     (state) => state.consumePendingHelpAnchor,
   );
+  const pendingHelpSearchQuery = useNavigationStore(
+    (state) => state.pendingHelpSearchQuery,
+  );
+  const consumePendingHelpSearchQuery = useNavigationStore(
+    (state) => state.consumePendingHelpSearchQuery,
+  );
   const visibleSections = HELP_SECTIONS;
   const helpEntryByAnchor = useMemo(() => {
     const entries = new Map<string, HelpEntry>();
@@ -175,14 +181,8 @@ export const HelpSettings: React.FC = () => {
     return promise;
   }, []);
 
-  const handleSearchFocus = useCallback(() => {
-    setSearchResultsOpen(true);
-    void ensureSearchLoaded().catch(() => undefined);
-  }, [ensureSearchLoaded]);
-
-  const handleSearchChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const nextQuery = event.target.value;
+  const runSearch = useCallback(
+    (nextQuery: string) => {
       latestQueryRef.current = nextQuery;
       setSearchQuery(nextQuery);
       setSearchResultsOpen(true);
@@ -209,6 +209,34 @@ export const HelpSettings: React.FC = () => {
         });
     },
     [ensureSearchLoaded, helpEntryByAnchor],
+  );
+
+  useEffect(() => {
+    if (!pendingHelpSearchQuery) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      runSearch(pendingHelpSearchQuery);
+      consumePendingHelpSearchQuery();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    consumePendingHelpSearchQuery,
+    pendingHelpSearchQuery,
+    runSearch,
+  ]);
+
+  const handleSearchFocus = useCallback(() => {
+    setSearchResultsOpen(true);
+    void ensureSearchLoaded().catch(() => undefined);
+  }, [ensureSearchLoaded]);
+
+  const handleSearchChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      runSearch(event.target.value);
+    },
+    [runSearch],
   );
 
   const chooseSearchResult = useCallback(
