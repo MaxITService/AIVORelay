@@ -52,6 +52,7 @@ const TTS_QUEUE_SOURCE_CHARACTERS: usize = 96;
 const TTS_OVERLAY_NOTICE_MAX_CHARACTERS: usize = 480;
 static TTS_HISTORY_REPLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static TTS_LISTEN_QUEUE_ITEM_GENERATION: AtomicU64 = AtomicU64::new(1);
+static ACTIVE_TTS_BATCH_PROGRESS: Mutex<Option<TtsBatchProgress>> = Mutex::new(None);
 
 #[tauri::command]
 #[specta::specta]
@@ -423,6 +424,7 @@ pub struct TtsBatchProgress {
     pub failed: usize,
     pub cancelled: bool,
     pub done: bool,
+    pub started_at_ms: i64,
     pub message: Option<String>,
     pub file: Option<TtsBatchFileResult>,
 }
@@ -2842,6 +2844,12 @@ fn emit_batch_progress(
     message: Option<String>,
     file: Option<TtsBatchFileResult>,
 ) {
+    let mut active_progress = ACTIVE_TTS_BATCH_PROGRESS.lock();
+    let started_at_ms = active_progress
+        .as_ref()
+        .filter(|progress| progress.batch_id == batch_id)
+        .map(|progress| progress.started_at_ms)
+        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
     let progress = TtsBatchProgress {
         client_id: client_id.to_string(),
         batch_id: batch_id.to_string(),
@@ -2861,12 +2869,25 @@ fn emit_batch_progress(
             .count(),
         cancelled,
         done,
+        started_at_ms,
         message,
         file,
     };
+    if done {
+        *active_progress = None;
+    } else {
+        *active_progress = Some(progress.clone());
+    }
+    drop(active_progress);
     if let Err(error) = app.emit(TTS_EVENT_BATCH_PROGRESS, progress) {
         log::warn!("Failed to emit TTS batch progress: {error}");
     }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_active_tts_batch_progress() -> Option<TtsBatchProgress> {
+    ACTIVE_TTS_BATCH_PROGRESS.lock().clone()
 }
 
 #[tauri::command]
