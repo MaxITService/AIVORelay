@@ -100,6 +100,12 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
     setShowTooltip(true);
   };
 
+  const hideTooltipAfterMouseLeave = () => {
+    if (document.activeElement !== tooltipRef.current) {
+      setShowTooltip(false);
+    }
+  };
+
   const basePadding = compact ? "px-6 py-2.5" : "px-6 py-4";
   const containerClasses = grouped
     ? basePadding
@@ -158,7 +164,7 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
       ref={tooltipRef}
       className="relative flex items-center justify-center rounded p-1 text-[#707070] transition-colors duration-200 hover:text-[#ff4d8d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/60"
       onMouseEnter={() => setShowTooltip(true)}
-      onMouseLeave={() => setShowTooltip(false)}
+      onMouseLeave={hideTooltipAfterMouseLeave}
       onFocus={() => setShowTooltip(true)}
       onBlur={() => setShowTooltip(false)}
       onClick={showTooltipFromClick}
