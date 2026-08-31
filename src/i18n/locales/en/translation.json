@@ -450,6 +450,7 @@
       "existingAndEstimatedSize": "Existing files use {{actual}}. Allow up to {{estimated}} for repair or installation",
       "estimatedSize": "Allow up to {{size}} for download, extraction, and the managed runtime",
       "licenseTitle": "Model license",
+      "kokoroEspeakLicense": "The downloaded package also contains eSpeak NG language data licensed under GPL-3.0-or-later.",
       "downloadWarning": "You are about to download executable runtime components and model files from {{author}}. Review the exact source, revision, destination, size, and license above.",
       "trustSource": "I trust {{author}} and the linked download source.",
       "understandRisks": "I understand the risks and have the necessary knowledge to reduce them.",

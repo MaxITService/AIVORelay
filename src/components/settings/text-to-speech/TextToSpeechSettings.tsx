@@ -4174,6 +4174,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                         localInstallMetadata.licenseName}
                       <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                     </a>
+                    {activeLocalKind === "kokoro" && (
+                      <p className="mt-1 text-amber-200/90">
+                        {t("textToSpeech.local.kokoroEspeakLicense")}
+                      </p>
+                    )}
                   </dd>
                 </dl>
 
