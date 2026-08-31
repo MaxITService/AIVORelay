@@ -34,7 +34,7 @@ Of course, basic speech-to-text, all that upstream can do. Lots of models: cloud
 If you use local speech-to-text models, then app is local and free. No data goes outside. If you use any cloud models, data goes outside.
 Then after speech-to-text model produced text, it can be processed by LLM model (this is handled via API to the server of your choice).
 And also there are some other processings that can be made, like replacing any text by regular expression or some minor form of post processing.
-Then there are some additonal feautures that you might want to use or not: like relaying your text to the ChatGPT, running commands, making text out of audio files, recording computer audio as text and so on. The app is complex but capable and you can make it simpler by not using some features.
+Then there are some additional features that you might want to use or not: like relaying your text to the ChatGPT, running commands, making text out of audio files, recording computer audio as text and so on. The app is complex but capable and you can make it simpler by not using some features.
 
 
 ### 🎚️ Transcription Profiles
@@ -92,7 +92,7 @@ Assign key combinations to the following actions:
 
 The "Default Profile" uses your global settings (Settings → Speech). It cannot be deleted but can be customized or set as active.
 
-**Setup:** Settings → Speech → Transcription Profiles
+**Setup:** Settings → Transcription Profiles
 
 
 ### 🔊 Text to Speech (App can also do that!)
@@ -137,7 +137,7 @@ Real-time speech-to-text streaming — see your words appear as you speak!
 - **Live streaming** — Words appear instantly during speech
 - **Language hints** — Guide recognition with expected languages  
 
-**Setup:** Settings → Advanced → Transcription Provider → Soniox
+**Setup:** Settings → Models
 
 ### 🌐 Deepgram Support for live transcription
 
@@ -147,7 +147,7 @@ Use Deepgram for fast cloud transcription, including live speech-to-text.
 - **Flexible tuning** — Adjust settings for speed and accuracy
 - **Speaker diarization** — Can label different speakers in audio file transcription
 
-**Setup:** Settings → Advanced → Transcription Provider → Deepgram
+**Setup:** Settings → Models
 
 
 ### 🤖 AI Replace Selection
@@ -163,7 +163,7 @@ Voice-controlled text editing — select text, speak instruction, get AI-transfo
 
 In the demonstration above, first I ask to solve the mathematical task, and then to translate text to Finnish.
 
-**Setup:** Settings → Advanced → AI Replace Settings
+**Setup:** Settings → AI Replace
 
 ### 🎙️ Automatic Preferred Microphone Selection
 
@@ -175,7 +175,7 @@ Set a case-insensitive microphone name mask such as `Remote Audio` (wildcards `*
 
 ![Automatic Microphone Selection](Promo/aivorelay_AutoMicSelection.png)
 
-**Setup:** Settings → General → Sound → Automatic Microphone Selection
+**Setup:** Settings → Audio Processing → Automatic Microphone Selection
 
 ### 📤 Send to ChatGPT/Claude
 
@@ -201,21 +201,24 @@ Voice-to-AI bridge via [AivoRelay Connector](https://github.com/MaxITService/Aiv
 
 > ⚠️ **Requires:** [AivoRelay Connector](https://github.com/MaxITService/AivoRelay-relay) Chrome extension
 
-### Live transcription of sound from your speakers and microphone with diarization!
+### 📺 Live Monitor
 
-![Live transcription of sound from your speakers and microphone with diarization!](Promo/live-sound-transcription.png)
-Needs supporting API provider with diarization support connected
+Capture live audio from your computer speakers (loopback), microphone, or both to stream a real-time transcript right inside AivoRelay without typing into other apps. Supports speaker diarization with compatible cloud providers (Gemini Live, Soniox, Deepgram).
+
+![Live Monitor](Promo/live-sound-transcription.png)
+
+**Setup:** Settings → Live Monitor
 
 ### 📁 Transcribe Audio Files (with diarization for supporting API providers)
 
 Drag and drop audio files to get a transcript.
 
-- Supports WAV, MP3, OGG, M4A, FLAC
+- Supports WAV, MP3, OGG, M4A, FLAC, WebM
 - Outputs Text, SRT (Subtitles), or VTT
-- Uses your local or cloud models
+- Uses your local or cloud models (including Gemini, Soniox, Deepgram)
 - Deepgram can label different speakers in multi-speaker recordings
 
-**Usage:** Settings → Transcribe Audio File
+**Setup:** Settings → Transcribe File
 
 ### ✏️ Text Replacement
 
@@ -235,13 +238,13 @@ Automatically fix transcription errors and apply formatting rules.
 
 Applied after LLM post-processing, so you get the final word on the output!
 
-**Setup:** Settings → Text Replace
+**Setup:** Settings → Text Replacement
 
 ### 🔠 Custom Words (Fuzzy Matching)
 
 Automatically recombine and fix complex terms split by speech-to-text (e.g., "Chat G P T" → "ChatGPT") using fuzzy n-gram matching.
 
-**Setup:** Settings → Text Replace → Custom Words
+**Setup:** Settings → Text Replacement → Custom Words
 
 ### 🧹 Audio Clean-Up & Smart Prompts
 
@@ -260,17 +263,18 @@ AivoRelay passively monitors your "edit" key (default: **Backspace**). If you pr
 - **Configurable Timeout** — Set how long the "resume" window remains active after your edit.
 - **Real-time Support** — Works seamlessly with Soniox Live transcription and standard modes.
 
-**Setup:** Settings → Text Replace → Decapitalize After Manual Edit
+**Setup:** Settings → Text Replacement → Decapitalize After Manual Edit
 
 ### ☁️ Cloud STT Option
 
-Use Groq, Deepgram, or other OpenAI-compatible APIs — or keep using local Whisper. Your choice!
+Use Gemini 3.5 Transcribe, Gemini Live (via Google Direct or Vercel), Soniox, Deepgram, Groq, or other OpenAI-compatible APIs — or keep using local Whisper. Your choice!
 
+- Fast cloud streaming with Gemini Live, Soniox, and Deepgram
 - No GPU? Use fast cloud APIs
 - Have a powerful GPU? Run locally for privacy
 - Switch between providers anytime
 
-**Setup:** Settings → Advanced → Transcription Provider
+**Setup:** Settings → Models
 
 ---
 ### 🗣️ Voice Command Center (Dangerous! Do not use)
@@ -282,7 +286,7 @@ Execute PowerShell scripts with your voice. Pre-write scripts... or make LLM wri
 - **Somewhat safe:** Always shows confirmation before running
 - **Smart:** If no command matches, use AI to generate a script on the fly (e.g., "open Chrome and go to YouTube")
 
-**Setup:** Settings → Voice Command Center
+**Setup:** Settings → Voice Commands
 
 ## 🚀 Quick Start
 
