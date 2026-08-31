@@ -379,9 +379,22 @@ fn should_eagerly_initialize_local_backends(settings: &settings::AppSettings) ->
     settings.transcription_provider == settings::TranscriptionProvider::Local
 }
 
+fn timed_startup<T>(label: &str, operation: impl FnOnce() -> T) -> T {
+    let started = std::time::Instant::now();
+    let result = operation();
+    let elapsed = started.elapsed();
+    if elapsed >= std::time::Duration::from_millis(100) {
+        log::info!("Startup step '{label}' completed in {elapsed:?}");
+    } else {
+        log::debug!("Startup step '{label}' completed in {elapsed:?}");
+    }
+    result
+}
+
 fn initialize_core_logic(app_handle: &AppHandle) {
     // Initialize the input state (Enigo singleton for keyboard/mouse simulation)
-    let enigo_state = input::EnigoState::new().expect("Failed to initialize input state (Enigo)");
+    let enigo_state = timed_startup("input state", input::EnigoState::new)
+        .expect("Failed to initialize input state (Enigo)");
     app_handle.manage(enigo_state);
     app_handle.manage(tray::TrayState::new());
 
@@ -413,16 +426,23 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 
     // Initialize the managers
     let recording_manager = Arc::new(
-        AudioRecordingManager::new(app_handle).expect("Failed to initialize recording manager"),
+        timed_startup("recording manager", || AudioRecordingManager::new(app_handle))
+            .expect("Failed to initialize recording manager"),
     );
-    let model_manager =
-        Arc::new(ModelManager::new(app_handle).expect("Failed to initialize model manager"));
+    let model_manager = Arc::new(
+        timed_startup("model manager", || ModelManager::new(app_handle))
+            .expect("Failed to initialize model manager"),
+    );
     let transcription_manager = Arc::new(
-        TranscriptionManager::new(app_handle, model_manager.clone())
+        timed_startup("transcription manager", || {
+            TranscriptionManager::new(app_handle, model_manager.clone())
+        })
             .expect("Failed to initialize transcription manager"),
     );
-    let remote_stt_manager =
-        Arc::new(RemoteSttManager::new(app_handle).expect("Failed to initialize remote STT"));
+    let remote_stt_manager = Arc::new(
+        timed_startup("remote STT manager", || RemoteSttManager::new(app_handle))
+            .expect("Failed to initialize remote STT"),
+    );
     let openai_realtime_whisper_manager = Arc::new(
         OpenAiRealtimeWhisperManager::new(app_handle)
             .expect("Failed to initialize OpenAI realtime Whisper STT"),
@@ -442,21 +462,27 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     );
     let deepgram_stt_manager =
         Arc::new(DeepgramSttManager::new(app_handle).expect("Failed to initialize Deepgram STT"));
-    let history_manager =
-        Arc::new(HistoryManager::new(app_handle).expect("Failed to initialize history manager"));
+    let history_manager = Arc::new(
+        timed_startup("history manager", || HistoryManager::new(app_handle))
+            .expect("Failed to initialize history manager"),
+    );
     let tts_history_manager = Arc::new(
-        TtsHistoryManager::new(app_handle).expect("Failed to initialize TTS history manager"),
+        timed_startup("TTS history manager", || TtsHistoryManager::new(app_handle))
+            .expect("Failed to initialize TTS history manager"),
     );
     let send_selected_text_history_manager = Arc::new(
-        SendSelectedTextHistoryManager::new(app_handle)
+        timed_startup("Send Selected Text history manager", || {
+            SendSelectedTextHistoryManager::new(app_handle)
+        })
             .expect("Failed to initialize Send Selected Text history manager"),
     );
     let connector_manager = Arc::new(
-        ConnectorManager::new(app_handle).expect("Failed to initialize connector manager"),
+        timed_startup("connector manager", || ConnectorManager::new(app_handle))
+            .expect("Failed to initialize connector manager"),
     );
     let llm_operation_tracker = Arc::new(LlmOperationTracker::new());
-    let tts_manager =
-        TtsManager::new(app_handle).expect("Failed to initialize Text-to-Speech manager");
+    let tts_manager = timed_startup("Text-to-Speech manager", || TtsManager::new(app_handle))
+        .expect("Failed to initialize Text-to-Speech manager");
 
     // Initialize key listener
     let key_listener_state = KeyListenerState::new(app_handle.clone());
@@ -479,17 +505,19 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(connector_manager.clone());
     app_handle.manage(tts_manager.clone());
     app_handle.manage(commands::tts::TtsOverlayRuntime::default());
-    commands::tts::initialize_tts_overlay_runtime(app_handle);
+    timed_startup("TTS overlay runtime", || {
+        commands::tts::initialize_tts_overlay_runtime(app_handle)
+    });
     app_handle.manage(key_listener_state);
     app_handle.manage(settings::DictationStatsEditState::default());
     commands::tts::install_tts_event_bridge(app_handle);
-    if let Err(error) = tts_manager.sync_folder_watcher() {
+    if let Err(error) = timed_startup("TTS folder watcher", || tts_manager.sync_folder_watcher()) {
         log::error!("Failed to initialize the TTS folder watcher: {error}");
     }
 
     // Open the feedback output once at startup rather than racing a fresh
     // WASAPI stream against microphone shutdown for every cue.
-    audio_feedback::init(app_handle);
+    timed_startup("audio feedback", || audio_feedback::init(app_handle));
 
     // Initialize region capture state (Windows only)
     #[cfg(target_os = "windows")]
@@ -505,7 +533,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     }
 
     // Initialize the shortcuts
-    shortcut::init_shortcuts(app_handle);
+    timed_startup("shortcuts", || shortcut::init_shortcuts(app_handle));
 
     #[cfg(unix)]
     let signals = Signals::new(&[SIGUSR2]).unwrap();
@@ -762,7 +790,9 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(tray);
 
     // Initialize tray menu with idle state
-    utils::update_tray_menu(app_handle, &utils::TrayIconState::Idle, None);
+    timed_startup("initial tray snapshot", || {
+        utils::update_tray_menu(app_handle, &utils::TrayIconState::Idle, None)
+    });
 
     // Apply tray visibility setting on startup
     let settings = settings::get_settings(app_handle);
@@ -1833,7 +1863,7 @@ pub fn run(cli_args: CliArgs) {
                     }));
             }
 
-            initialize_core_logic(&app_handle);
+            timed_startup("core logic", || initialize_core_logic(&app_handle));
 
             if should_eagerly_initialize_local_backends(&settings) {
                 // The first call into transcribe.cpp's device registry loads the
@@ -1846,7 +1876,9 @@ pub fn run(cli_args: CliArgs) {
                 log::info!("Skipping local GPU accelerator pre-warm for remote transcription");
             }
 
-            let should_force_show_permissions = should_force_show_permissions_window(&app_handle);
+            let should_force_show_permissions = timed_startup("permission check", || {
+                should_force_show_permissions_window(&app_handle)
+            });
 
             // Show main window only if not starting hidden, unless permission onboarding must be shown
             if !settings.start_hidden || should_force_show_permissions {
