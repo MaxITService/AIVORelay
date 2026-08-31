@@ -3,6 +3,8 @@ const ANCHOR_HIGHLIGHT_DURATION_MS = 1800;
 
 let activeAnchor: HTMLElement | null = null;
 let highlightTimer: number | null = null;
+let navigationGeneration = 0;
+let pendingRevealTimer: number | null = null;
 
 const prefersReducedMotion = (): boolean =>
   typeof window !== "undefined" &&
@@ -34,14 +36,17 @@ const highlightAnchor = (anchor: HTMLElement): void => {
 export const scrollAndFocusAnchor = (
   anchor: HTMLElement,
   block: ScrollLogicalPosition = "start",
+  isCurrent: () => boolean = () => true,
 ): void => {
+  if (!isCurrent()) return;
+
   anchor.scrollIntoView({
     behavior: prefersReducedMotion() ? "auto" : "smooth",
     block,
   });
 
   window.requestAnimationFrame(() => {
-    if (document.contains(anchor)) {
+    if (isCurrent() && document.contains(anchor)) {
       highlightAnchor(anchor);
       anchor.focus({ preventScroll: true });
     }
@@ -67,6 +72,15 @@ export const navigateToSettingsAnchor = ({
   block = "start",
   updateHash = true,
 }: NavigateToSettingsAnchorOptions): void => {
+  navigationGeneration += 1;
+  const currentGeneration = navigationGeneration;
+  const isCurrent = () => currentGeneration === navigationGeneration;
+
+  if (pendingRevealTimer !== null) {
+    window.clearTimeout(pendingRevealTimer);
+    pendingRevealTimer = null;
+  }
+
   activateSection();
 
   if (updateHash) {
@@ -75,9 +89,14 @@ export const navigateToSettingsAnchor = ({
 
   let attempts = 0;
   const revealAnchor = () => {
+    pendingRevealTimer = null;
+    if (!isCurrent()) return;
+
     if (!document.getElementById(readyId)) {
       attempts += 1;
-      if (attempts <= 20) window.setTimeout(revealAnchor, 50);
+      if (attempts <= 20) {
+        pendingRevealTimer = window.setTimeout(revealAnchor, 50);
+      }
       return;
     }
 
@@ -90,15 +109,17 @@ export const navigateToSettingsAnchor = ({
     collapsedToggle?.click();
 
     window.requestAnimationFrame(() => {
+      if (!isCurrent()) return;
       window.requestAnimationFrame(() => {
+        if (!isCurrent()) return;
         const target =
           document.getElementById(targetId) ??
           expansionTarget ??
           (fallbackId ? document.getElementById(fallbackId) : null);
-        if (target) scrollAndFocusAnchor(target, block);
+        if (target) scrollAndFocusAnchor(target, block, isCurrent);
       });
     });
   };
 
-  window.setTimeout(revealAnchor, 0);
+  pendingRevealTimer = window.setTimeout(revealAnchor, 0);
 };
