@@ -3,7 +3,7 @@
 //! Commands to control and query the connector server status.
 
 use crate::managers::connector::{active_pending_password, ConnectorManager, ConnectorStatus};
-use crate::settings::{get_settings, write_settings};
+use crate::settings::{get_settings, write_settings_checked};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rsa::pkcs8::EncodePublicKey;
 use rsa::rand_core::OsRng;
@@ -322,7 +322,7 @@ fn apply_exported_extension_pairing(
     settings.connector_last_export_dir = export_dir.to_string_lossy().to_string();
     settings.connector_last_export_extension_id = extension_id.to_string();
     settings.connector_last_export_manifest_key = manifest_key.to_string();
-    write_settings(app, settings.clone());
+    write_settings_checked(app, settings.clone())?;
 
     if let Some(connector_manager) = app.try_state::<Arc<ConnectorManager>>() {
         connector_manager.reload_runtime_config_async();

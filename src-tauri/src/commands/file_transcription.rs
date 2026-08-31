@@ -365,8 +365,7 @@ fn initialize_file_transcription_model_state(settings: &mut AppSettings) -> Resu
 pub fn initialize_file_transcription_model_settings(app: AppHandle) -> Result<(), String> {
     let mut settings = get_settings(&app);
     initialize_file_transcription_model_state(&mut settings)?;
-    write_settings(&app, settings);
-    Ok(())
+    write_settings_checked(&app, settings)
 }
 
 #[tauri::command]
@@ -401,8 +400,7 @@ pub fn change_file_soniox_speaker_diarization_setting(
     let mut settings = get_settings(&app);
     settings.file_soniox_enable_speaker_diarization = Some(enabled);
     sync_active_file_model_config(&mut settings);
-    write_settings(&app, settings);
-    Ok(())
+    write_settings_checked(&app, settings)
 }
 
 #[tauri::command]
@@ -423,8 +421,7 @@ pub fn change_file_soniox_language_hints_setting(
     let mut settings = get_settings(&app);
     settings.file_soniox_language_hints = Some(language_hints);
     sync_active_file_model_config(&mut settings);
-    write_settings(&app, settings);
-    Ok(())
+    write_settings_checked(&app, settings)
 }
 
 #[tauri::command]
@@ -436,8 +433,7 @@ pub fn change_file_soniox_language_identification_setting(
     let mut settings = get_settings(&app);
     settings.file_soniox_enable_language_identification = Some(enabled);
     sync_active_file_model_config(&mut settings);
-    write_settings(&app, settings);
-    Ok(())
+    write_settings_checked(&app, settings)
 }
 
 #[tauri::command]
@@ -449,8 +445,7 @@ pub fn change_file_deepgram_diarization_setting(
     let mut settings = get_settings(&app);
     settings.file_deepgram_diarize = Some(enabled);
     sync_active_file_model_config(&mut settings);
-    write_settings(&app, settings);
-    Ok(())
+    write_settings_checked(&app, settings)
 }
 
 #[tauri::command]
@@ -462,8 +457,7 @@ pub fn change_file_deepgram_multichannel_setting(
     let mut settings = get_settings(&app);
     settings.file_deepgram_multichannel = Some(enabled);
     sync_active_file_model_config(&mut settings);
-    write_settings(&app, settings);
-    Ok(())
+    write_settings_checked(&app, settings)
 }
 
 #[tauri::command]
@@ -515,8 +509,7 @@ pub fn change_file_gemini_vocabulary_setting(
         .get_or_insert_with(|| initial_file_profile_snapshot(&settings, &selection));
     profile.gemini_custom_vocabulary_override = Some(terms);
     settings.file_transcription_model_configs.insert(key, config);
-    write_settings(&app, settings);
-    Ok(())
+    write_settings_checked(&app, settings)
 }
 
 #[tauri::command]
@@ -528,8 +521,7 @@ pub fn change_file_transcription_chunking_mode_setting(
     let mut settings = get_settings(&app);
     settings.file_transcription_chunking_mode = mode;
     sync_active_file_model_config(&mut settings);
-    write_settings(&app, settings);
-    Ok(())
+    write_settings_checked(&app, settings)
 }
 
 #[tauri::command]
@@ -541,8 +533,7 @@ pub fn change_file_transcription_chunking_max_minutes_setting(
     let mut settings = get_settings(&app);
     settings.file_transcription_chunking_max_minutes = minutes.clamp(0.25, 10.0);
     sync_active_file_model_config(&mut settings);
-    write_settings(&app, settings);
-    Ok(())
+    write_settings_checked(&app, settings)
 }
 
 #[tauri::command]
