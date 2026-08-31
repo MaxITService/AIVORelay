@@ -19,28 +19,57 @@ interface SettingsSearchProps {
 
 const MAX_SETTINGS_SEARCH_RESULTS = 20;
 
-const normalizeSearchText = (value: string): string =>
+const normalizeSearchFragment = (value: string): string =>
   value
     .toLocaleLowerCase()
     .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
+    .replace(/[\u0300-\u036f]/g, "");
+
+const normalizeSearchText = (value: string): string =>
+  normalizeSearchFragment(value).trim();
+
+const findNormalizedMatchRange = (
+  text: string,
+  query: string,
+): [number, number] | null => {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return null;
+
+  const sourceRanges: Array<[number, number]> = [];
+  let normalizedText = "";
+  let sourceOffset = 0;
+
+  for (const character of text) {
+    const characterEnd = sourceOffset + character.length;
+    const normalizedCharacter = normalizeSearchFragment(character);
+    normalizedText += normalizedCharacter;
+    for (let index = 0; index < normalizedCharacter.length; index += 1) {
+      sourceRanges.push([sourceOffset, characterEnd]);
+    }
+    sourceOffset = characterEnd;
+  }
+
+  const normalizedStart = normalizedText.indexOf(normalizedQuery);
+  if (normalizedStart < 0) return null;
+
+  const firstRange = sourceRanges[normalizedStart];
+  const lastRange = sourceRanges[normalizedStart + normalizedQuery.length - 1];
+  return firstRange && lastRange ? [firstRange[0], lastRange[1]] : null;
+};
 
 const HighlightMatch: React.FC<{ text: string; query: string }> = ({
   text,
   query,
 }) => {
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const matchIndex = text.toLocaleLowerCase().indexOf(normalizedQuery);
+  const matchRange = findNormalizedMatchRange(text, query);
+  if (!matchRange) return <>{text}</>;
 
-  if (!normalizedQuery || matchIndex < 0) return <>{text}</>;
-
-  const matchEnd = matchIndex + normalizedQuery.length;
+  const [matchStart, matchEnd] = matchRange;
   return (
     <>
-      {text.slice(0, matchIndex)}
+      {text.slice(0, matchStart)}
       <mark className="rounded-sm bg-[#ff4d8d]/25 px-0.5 text-inherit">
-        {text.slice(matchIndex, matchEnd)}
+        {text.slice(matchStart, matchEnd)}
       </mark>
       {text.slice(matchEnd)}
     </>
