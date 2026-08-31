@@ -769,14 +769,18 @@ export const TranscribeFileSettings: React.FC = () => {
 
   const persistFileGeminiVocabulary = useCallback(async () => {
     if (!parsedGeminiVocabulary.safeToPersist) return;
-    await invoke("change_file_gemini_vocabulary_setting", {
-      terms: parsedGeminiVocabulary.normalizedTerms,
-    });
-    setGeminiVocabularyDraft(
-      parsedGeminiVocabulary.normalizedTerms.join("\n"),
-    );
-    await refreshSettings();
-  }, [parsedGeminiVocabulary, refreshSettings]);
+    try {
+      await invoke("change_file_gemini_vocabulary_setting", {
+        terms: parsedGeminiVocabulary.normalizedTerms,
+      });
+      setGeminiVocabularyDraft(
+        parsedGeminiVocabulary.normalizedTerms.join("\n"),
+      );
+      await refreshSettings();
+    } catch (error) {
+      setError(String(error));
+    }
+  }, [parsedGeminiVocabulary, refreshSettings, setError]);
 
   const persistFileSonioxLanguageHints = useCallback(async () => {
     const parsed = parsedSonioxLanguageHintsInput;
