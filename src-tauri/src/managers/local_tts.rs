@@ -258,12 +258,12 @@ impl LocalTtsRuntime {
             worker: tokio::sync::Mutex::new(None),
             request_id: AtomicU64::new(1),
         };
-        runtime.refresh_status();
+        runtime.refresh_status(false);
         Ok(runtime)
     }
 
     pub fn status(&self) -> LocalTtsStatus {
-        self.refresh_status();
+        self.refresh_status(true);
         self.status.read().clone()
     }
 
@@ -297,7 +297,7 @@ impl LocalTtsRuntime {
         self.install_cancel.lock().take();
         match result {
             Ok(()) => {
-                self.refresh_status();
+                self.refresh_status(true);
                 let status = self.status.read().clone();
                 self.emit_status(&status);
                 Ok(status)
@@ -1108,7 +1108,7 @@ impl LocalTtsRuntime {
         Ok(root)
     }
 
-    fn refresh_status(&self) {
+    fn refresh_status(&self, include_installed_size: bool) {
         if self.install_cancel.lock().is_some() {
             return;
         }
@@ -1122,7 +1122,7 @@ impl LocalTtsRuntime {
                 status.total_bytes = LOCAL_TTS_MODEL_BYTES;
                 status.percentage = 100.0;
                 status.runtime_profile = manifest.runtime_profile;
-                if status.installed_size_bytes == 0 {
+                if include_installed_size && status.installed_size_bytes == 0 {
                     status.installed_size_bytes = directory_size_bytes(&self.root);
                 }
                 status.model_license_available = self.model_license_path().is_file()
@@ -1150,7 +1150,9 @@ impl LocalTtsRuntime {
                 status.total_bytes = LOCAL_TTS_MODEL_BYTES;
                 status.percentage =
                     (partial as f64 / LOCAL_TTS_MODEL_BYTES as f64 * 100.0).clamp(0.0, 100.0);
-                status.installed_size_bytes = directory_size_bytes(&self.root);
+                if include_installed_size {
+                    status.installed_size_bytes = directory_size_bytes(&self.root);
+                }
                 status.model_license_available = self.model_license_path().is_file()
                     && self.model_license_declaration_path().is_file();
             }
