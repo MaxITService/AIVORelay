@@ -52,7 +52,8 @@
     "unavailable": {
       "default": "This section is currently unavailable.",
       "windowsOnly": "Available on Windows only.",
-      "voiceCommands": "Enable Beta Voice Commands on Windows to open this section."
+      "voiceCommands": "Enable Beta Voice Commands on Windows to open this section.",
+      "diarization": "Select a model or provider that supports speaker diarization."
     },
     "items": {
       "microphone": "Microphone and dictation shortcut",
