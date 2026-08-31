@@ -1,0 +1,9 @@
+import type { SettingsSearchEntry } from "../settingsSearchTypes";
+
+export const textToSpeechSearchEntries = [
+  { id: "tts", section: "textToSpeech", anchor: "tts-api-settings", labelKey: "settingsSearch.items.tts", fallbackLabel: "Text-to-speech provider and voice", groupLabelKey: "settingsSearch.groups.providerAndVoice", groupFallbackLabel: "Provider & voice", keywords: ["tts", "voice", "speak", "api", "голос", "озвучка"] },
+  { id: "tts-read-clipboard", section: "textToSpeech", anchor: "shortcut-read_clipboard", labelKey: "textToSpeech.actions.readClipboardTitle", fallbackLabel: "Read clipboard", groupLabelKey: "settingsSearch.groups.shortcuts", groupFallbackLabel: "Shortcuts", keywords: ["clipboard tts", "read clipboard shortcut", "speak clipboard", "озвучить буфер обмена", "прочитать буфер", "горячая клавиша"] },
+  { id: "tts-read-selection", section: "textToSpeech", anchor: "shortcut-read_selection_tts", labelKey: "textToSpeech.actions.readSelectionTitle", fallbackLabel: "Copy selected text, then read clipboard", groupLabelKey: "settingsSearch.groups.shortcuts", groupFallbackLabel: "Shortcuts", keywords: ["selected text tts", "read selection shortcut", "copy and speak", "озвучить выделенный текст", "прочитать выделение"] },
+  { id: "tts-read-selection-direct", section: "textToSpeech", anchor: "shortcut-read_selection_direct_tts", labelKey: "textToSpeech.actions.readSelectionDirectTitle", fallbackLabel: "Read selected text without copying", groupLabelKey: "settingsSearch.groups.shortcuts", groupFallbackLabel: "Shortcuts", keywords: ["direct selection tts", "speak selected text", "read without clipboard", "озвучить выделение", "без буфера обмена"] },
+  { id: "tts-files", section: "ttsFiles", labelKey: "settingsSearch.items.ttsFiles", fallbackLabel: "Text file to MP3", keywords: ["tts file", "mp3", "wav", "markdown", "текст в mp3"] },
+] as const satisfies readonly SettingsSearchEntry[];

@@ -36,6 +36,24 @@
     "clear": "Clear search",
     "results": "Settings search results",
     "noResults": "No matching settings",
+    "matched": "Matched",
+    "searchHelp": "Search Help for “{{query}}”",
+    "groups": {
+      "audioAndShortcuts": "Audio & shortcuts",
+      "profiles": "Profiles",
+      "shortcuts": "Shortcuts",
+      "models": "Models",
+      "providers": "Providers",
+      "vocabulary": "Vocabulary",
+      "session": "Session",
+      "modelAndLanguage": "Model & language",
+      "providerAndVoice": "Provider & voice"
+    },
+    "unavailable": {
+      "default": "This section is currently unavailable.",
+      "windowsOnly": "Available on Windows only.",
+      "voiceCommands": "Enable Beta Voice Commands on Windows to open this section."
+    },
     "items": {
       "microphone": "Microphone and dictation shortcut",
       "profiles": "Transcription profiles",
