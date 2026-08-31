@@ -9,7 +9,7 @@ import {
   getShortcutAnchorId,
   getShortcutSettingsSection,
 } from "@/lib/shortcutAnchors";
-import { scrollAndFocusAnchor } from "@/lib/anchorNavigation";
+import { navigateToSettingsAnchor } from "@/lib/anchorNavigation";
 import { useNavigationStore } from "@/stores/navigationStore";
 
 const DEFAULT_WIDTH = 350;
@@ -80,26 +80,12 @@ export const HotkeySidebar: React.FC = () => {
   const handleHotkeyClick = useCallback(
     (shortcutId: string) => {
       const anchorId = getShortcutAnchorId(shortcutId);
-      setSection(getShortcutSettingsSection(shortcutId));
-
-      window.history.replaceState(null, "", `#${anchorId}`);
-
-      let attempts = 0;
-      const scrollToAnchor = () => {
-        const anchor = document.getElementById(anchorId);
-
-        if (anchor) {
-          scrollAndFocusAnchor(anchor, "center");
-          return;
-        }
-
-        attempts += 1;
-        if (attempts <= 20) {
-          window.setTimeout(scrollToAnchor, 50);
-        }
-      };
-
-      window.setTimeout(scrollToAnchor, 0);
+      navigateToSettingsAnchor({
+        activateSection: () =>
+          setSection(getShortcutSettingsSection(shortcutId)),
+        targetId: anchorId,
+        block: "center",
+      });
     },
     [setSection],
   );

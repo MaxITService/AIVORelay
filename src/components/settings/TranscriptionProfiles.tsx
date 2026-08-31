@@ -53,16 +53,17 @@ import {
   globalSttSelection,
   type SttModelSelection,
 } from "../../lib/sttModelSelection";
+import { navigateToSettingsAnchor } from "../../lib/anchorNavigation";
 import { getTranscriptionProfileAnchorId } from "../../lib/transcriptionProfileNavigation";
 
 /** Navigate to the User Interface section and scroll to the Live Preview settings anchor. */
 const openLivePreviewSettings = () => {
-  useNavigationStore.getState().setSection("userInterface");
-  setTimeout(() => {
-    document
-      .getElementById("live-preview-settings")
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, 120);
+  navigateToSettingsAnchor({
+    activateSection: () =>
+      useNavigationStore.getState().setSection("userInterface"),
+    targetId: "live-preview-settings",
+    updateHash: false,
+  });
 };
 
 /** Open the shared provider, model, key, and prompt configuration. */
@@ -226,7 +227,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     }
 
     void commands
-      .remoteSttModelSupportsTranslation(effectiveSttSelection.model_id)
+      .remoteSttModelSupportsTranslation(effectiveSttSelection.model_id ?? "")
       .then((supported) => {
         if (!cancelled) setRemoteSupportsTranslation(supported);
       })
