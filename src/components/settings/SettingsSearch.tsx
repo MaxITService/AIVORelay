@@ -206,6 +206,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
       const key = event.key.toLocaleLowerCase();
       const isModifiedShortcut =
         !event.altKey &&
+        !event.shiftKey &&
         (event.ctrlKey || event.metaKey) &&
         (key === "k" || key === "f");
       const target = event.target;
@@ -222,6 +223,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
       if (
         event.defaultPrevented ||
         event.isComposing ||
+        document.querySelector('[role="dialog"][aria-modal="true"]') ||
         (!isModifiedShortcut && !isSlashShortcut)
       ) {
         return;
