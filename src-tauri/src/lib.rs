@@ -1391,6 +1391,7 @@ pub fn run(cli_args: CliArgs) {
         commands::remote_stt::remote_stt_clear_debug,
         commands::remote_stt::remote_stt_test_connection,
         commands::remote_stt::remote_stt_supports_translation,
+        commands::remote_stt::remote_stt_model_supports_translation,
         commands::send_selected_text::get_send_selected_text_settings,
         commands::send_selected_text::create_send_selected_text_preset,
         commands::send_selected_text::update_send_selected_text_preset,

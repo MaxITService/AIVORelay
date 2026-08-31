@@ -2676,6 +2676,13 @@ async remoteSttTestConnection(baseUrl: string) : Promise<Result<null, string>> {
 async remoteSttSupportsTranslation() : Promise<boolean> {
     return await TAURI_INVOKE("remote_stt_supports_translation");
 },
+/**
+ * Returns whether the specified OpenAI-compatible STT model supports
+ * translation to English. Model capability rules remain backend-owned.
+ */
+async remoteSttModelSupportsTranslation(modelId: string) : Promise<boolean> {
+    return await TAURI_INVOKE("remote_stt_model_supports_translation", { modelId });
+},
 async getSendSelectedTextSettings() : Promise<SendSelectedTextSettings> {
     return await TAURI_INVOKE("get_send_selected_text_settings");
 },
