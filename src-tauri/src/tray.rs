@@ -478,17 +478,22 @@ fn apply_tray_on_main(app: &AppHandle) {
         }
     }
 
-    debug!(
-        "Tray apply: icon={}, menu={}, busy={}, took={:?}",
+    let elapsed = started.elapsed();
+    let message = format!(
+        "Tray apply: icon={}, menu={}, busy={}, took={elapsed:?}",
         if icon_changed {
             desired.icon_path
         } else {
             "unchanged"
         },
         if menu_changed { "rebuilt" } else { "unchanged" },
-        desired.menu.busy,
-        started.elapsed()
+        desired.menu.busy
     );
+    if elapsed >= std::time::Duration::from_millis(100) {
+        info!("{message}");
+    } else {
+        debug!("{message}");
+    }
 }
 
 fn load_tray_icon(resolved_icon_path: tauri::Result<PathBuf>) -> tauri::Result<Image<'static>> {
