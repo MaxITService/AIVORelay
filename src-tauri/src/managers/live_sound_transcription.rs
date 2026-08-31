@@ -42,6 +42,7 @@ struct LiveSoundTranscriptionRuntime {
     binding_id: Option<String>,
     error_message: Option<String>,
     final_text: String,
+    processed_final_text: Option<String>,
     interim_text: String,
     final_raw_blocks: Vec<RawSpeakerBlock>,
     interim_raw_blocks: Vec<RawSpeakerBlock>,
@@ -111,6 +112,21 @@ impl LiveSoundTranscriptionRuntime {
                 is_interim: false,
                 timestamp_ms: 0,
             });
+        } else if let Some(processed_text) = self
+            .processed_final_text
+            .as_ref()
+            .filter(|text| !text.trim().is_empty())
+        {
+            final_segments.insert(
+                0,
+                LiveSoundTranscriptSegmentPayload {
+                    speaker_id: None,
+                    speaker_label: None,
+                    text: processed_text.clone(),
+                    is_interim: false,
+                    timestamp_ms: 0,
+                },
+            );
         }
 
         let mut interim_segments: Vec<LiveSoundTranscriptSegmentPayload> =
@@ -402,6 +418,7 @@ pub fn set_error_if_session_matches(
 pub fn clear_transcript(app: &AppHandle) {
     update_state(app, |state| {
         state.final_text.clear();
+        state.processed_final_text = None;
         state.interim_text.clear();
         state.final_raw_blocks.clear();
         state.interim_raw_blocks.clear();
@@ -422,7 +439,9 @@ pub fn current_final_text() -> String {
 
 pub fn replace_final_text(app: &AppHandle, final_text: String) {
     update_state(app, move |state| {
-        state.final_text = final_text.trim().to_string();
+        let final_text = final_text.trim().to_string();
+        state.processed_final_text = (!final_text.is_empty()).then(|| final_text.clone());
+        state.final_text = final_text;
         state.interim_text.clear();
         state.final_raw_blocks.clear();
         state.interim_raw_blocks.clear();
