@@ -2035,7 +2035,7 @@
       },
       "session": {
         "title": "Session",
-        "description": "Start and stop a dedicated live transcription workflow without auto-pasting into another app.",
+        "description": "Start a live transcript. Text stays in AivoRelay and is not pasted into other apps.",
         "settingsTitle": "Session settings",
         "settingsDescription": "Choose the model, transcription behavior, speaker handling, and automatic stop timing.",
         "showSettings": "Show settings",
@@ -4045,7 +4045,7 @@
   },
   "transcribeFile": {
     "title": "Transcribe Audio File",
-    "description": "Upload an audio file and transcribe it to text. Supports WAV, MP3, M4A, OGG, FLAC, and WebM formats.",
+    "description": "Choose an audio file to create a transcript. Supported formats: WAV, MP3, M4A, OGG, FLAC, and WebM.",
     "cliHelp": {
       "title": "CLI help — audio file to text or Markdown",
       "settingsSource": "Uses the provider and file-transcription settings configured in this section.",
@@ -4142,7 +4142,7 @@
       }
     },
     "modelOverride": {
-      "label": "Override Model",
+      "label": "Model for This File",
       "placeholder": "Select a model...",
       "hint": "Select a specific local model for this transcription. Local models support accurate timestamping for SRT/VTT."
     },
