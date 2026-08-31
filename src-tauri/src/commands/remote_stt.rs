@@ -165,3 +165,11 @@ pub fn remote_stt_supports_translation(app: AppHandle) -> bool {
     let settings = get_settings(&app);
     supports_translation(&settings.remote_stt.model_id)
 }
+
+/// Returns whether the specified OpenAI-compatible STT model supports
+/// translation to English. Model capability rules remain backend-owned.
+#[tauri::command]
+#[specta::specta]
+pub fn remote_stt_model_supports_translation(model_id: String) -> bool {
+    supports_translation(&model_id)
+}

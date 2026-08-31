@@ -70,26 +70,6 @@ const openPostProcessingSettings = () => {
   useNavigationStore.getState().setSection("postprocessing");
 };
 
-const remoteModelSupportsTranslation = (modelId: string): boolean => {
-  const lower = modelId.toLowerCase();
-  if (
-    lower === "gpt-transcribe" ||
-    lower === "gpt-live-transcribe" ||
-    lower === "gpt-realtime-whisper" ||
-    (lower.includes("whisper") && lower.includes("turbo"))
-  ) {
-    return false;
-  }
-  return (
-    lower.includes("whisper-large-v3") ||
-    lower === "whisper-1" ||
-    lower === "gpt-realtime-2.1" ||
-    lower === "gpt-realtime-2" ||
-    lower === "gpt-realtime-translate" ||
-    (lower.includes("whisper") && !lower.includes("turbo"))
-  );
-};
-
 const profileSttPresentation = (
   selection: SttModelSelection,
   localModels: ModelInfo[],
@@ -110,12 +90,6 @@ const profileSttPresentation = (
       : provider === "remote_openai_compatible"
         ? getModelPromptInfo(modelId, undefined, false)
         : getModelPromptInfo(modelId, localModel?.engine_type);
-  const supportsTranslation =
-    provider === "local"
-      ? (localModel?.supports_translation ?? true)
-      : provider === "remote_openai_compatible"
-        ? remoteModelSupportsTranslation(modelId)
-        : false;
   const languageOptions = isSonioxProvider
     ? LANGUAGES.filter((language) =>
         isLanguageSupportedBySoniox(language.value),
@@ -135,7 +109,6 @@ const profileSttPresentation = (
     languageOptions,
     promptLimit: promptInfo.supportsPrompt ? promptInfo.charLimit : 0,
     supportsSttPrompt: promptInfo.supportsPrompt,
-    supportsTranslation,
   };
 };
 
@@ -191,7 +164,6 @@ interface ProfileCardProps {
   onUpdate: (profile: ExtendedTranscriptionProfile) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   canDelete: boolean;
-  supportsTranslation: boolean;
   supportsSttPrompt: boolean;
   promptLimit: number;
   isActive: boolean;
@@ -221,7 +193,6 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   onUpdate,
   onDelete,
   canDelete,
-  supportsTranslation,
   supportsSttPrompt,
   promptLimit,
   isActive,
@@ -243,6 +214,38 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const [isUpdating, setIsUpdating] = useState(false);
+  const effectiveSttSelection =
+    profile.stt_model_selection_override ?? globalSttModelSelection;
+  const [remoteSupportsTranslation, setRemoteSupportsTranslation] =
+    useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setRemoteSupportsTranslation(false);
+    if (effectiveSttSelection.provider !== "remote_openai_compatible") {
+      return;
+    }
+
+    void commands
+      .remoteSttModelSupportsTranslation(effectiveSttSelection.model_id)
+      .then((supported) => {
+        if (!cancelled) setRemoteSupportsTranslation(supported);
+      })
+      .catch(() => {
+        if (!cancelled) setRemoteSupportsTranslation(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveSttSelection.model_id, effectiveSttSelection.provider]);
+  const supportsTranslation =
+    effectiveSttSelection.provider === "local"
+      ? (localSttModels.find(
+          (model) => model.id === effectiveSttSelection.model_id,
+        )?.supports_translation ?? true)
+      : effectiveSttSelection.provider === "remote_openai_compatible"
+        ? remoteSupportsTranslation
+        : false;
   const effectiveLlmEnabled =
     postProcessingAvailable && (profile.llm_post_process_enabled ?? false);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -2635,7 +2638,6 @@ export const TranscriptionProfiles: React.FC = () => {
                 onUpdate={handleUpdate}
                 onDelete={handleDelete}
                 canDelete={true}
-                supportsTranslation={presentation.supportsTranslation}
                 supportsSttPrompt={presentation.supportsSttPrompt}
                 promptLimit={presentation.promptLimit}
                 isActive={activeProfileId === profile.id}
