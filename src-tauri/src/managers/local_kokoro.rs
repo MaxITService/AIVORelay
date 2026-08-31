@@ -248,12 +248,12 @@ impl KokoroTtsRuntime {
             worker: tokio::sync::Mutex::new(None),
             request_id: AtomicU64::new(1),
         };
-        runtime.refresh_status();
+        runtime.refresh_status(false);
         Ok(runtime)
     }
 
     pub fn status(&self) -> LocalTtsStatus {
-        self.refresh_status();
+        self.refresh_status(true);
         self.status.read().clone()
     }
 
@@ -279,7 +279,7 @@ impl KokoroTtsRuntime {
         self.install_cancel.lock().take();
         match result {
             Ok(()) => {
-                self.refresh_status();
+                self.refresh_status(true);
                 let status = self.status.read().clone();
                 self.emit_status(&status);
                 Ok(status)
@@ -899,7 +899,7 @@ impl KokoroTtsRuntime {
         Ok(())
     }
 
-    fn refresh_status(&self) {
+    fn refresh_status(&self, include_installed_size: bool) {
         if self.install_cancel.lock().is_some() {
             return;
         }
@@ -913,7 +913,7 @@ impl KokoroTtsRuntime {
                 status.total_bytes = KOKORO_MODEL_DOWNLOAD_BYTES;
                 status.percentage = 100.0;
                 status.runtime_profile = "cpu".to_string();
-                if status.installed_size_bytes == 0 {
+                if include_installed_size && status.installed_size_bytes == 0 {
                     status.installed_size_bytes = directory_size_bytes(&self.root);
                 }
                 status.model_license_available = self.model_license_path().is_file();
@@ -936,7 +936,9 @@ impl KokoroTtsRuntime {
                 status.total_bytes = KOKORO_MODEL_DOWNLOAD_BYTES;
                 status.percentage = partial as f64 / KOKORO_MODEL_DOWNLOAD_BYTES as f64 * 100.0;
                 status.runtime_profile.clear();
-                status.installed_size_bytes = directory_size_bytes(&self.root);
+                if include_installed_size {
+                    status.installed_size_bytes = directory_size_bytes(&self.root);
+                }
                 status.model_license_available = self.model_license_path().is_file();
             }
         }
