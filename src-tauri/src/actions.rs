@@ -176,6 +176,14 @@ static DEEPGRAM_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static OPENAI_REALTIME_WHISPER_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+#[derive(Clone, Copy, Debug)]
+struct PendingGeminiFinalizingOverlayHide {
+    operation_id: u64,
+    overlay_generation: u64,
+}
+static PENDING_GEMINI_FINALIZING_OVERLAY_HIDES: Lazy<
+    Mutex<HashMap<String, PendingGeminiFinalizingOverlayHide>>,
+> = Lazy::new(|| Mutex::new(HashMap::new()));
 static FORCE_POST_PROCESS_BINDINGS: Lazy<Mutex<HashSet<String>>> =
     Lazy::new(|| Mutex::new(HashSet::new()));
 const RECORDING_SAMPLE_RATE_HZ: f32 = 16_000.0;
@@ -594,6 +602,83 @@ fn take_openai_realtime_whisper_stream_emitted(binding_id: &str) -> bool {
         .ok()
         .and_then(|mut map| map.remove(binding_id))
         .unwrap_or(false)
+}
+
+fn set_pending_gemini_finalizing_overlay_hide(
+    binding_id: &str,
+    operation_id: u64,
+    overlay_generation: u64,
+) {
+    if let Ok(mut map) = PENDING_GEMINI_FINALIZING_OVERLAY_HIDES.lock() {
+        map.insert(
+            binding_id.to_string(),
+            PendingGeminiFinalizingOverlayHide {
+                operation_id,
+                overlay_generation,
+            },
+        );
+    }
+}
+
+fn take_pending_gemini_finalizing_overlay_hide(
+    binding_id: &str,
+    operation_id: u64,
+) -> Option<u64> {
+    let mut map = PENDING_GEMINI_FINALIZING_OVERLAY_HIDES.lock().ok()?;
+    let belongs_to_operation = matches!(
+        map.get(binding_id),
+        Some(pending) if pending.operation_id == operation_id
+    );
+    if !belongs_to_operation {
+        return None;
+    }
+
+    map.remove(binding_id)
+        .map(|pending| pending.overlay_generation)
+}
+
+fn clear_pending_gemini_finalizing_overlay_hide(binding_id: &str) {
+    if let Ok(mut map) = PENDING_GEMINI_FINALIZING_OVERLAY_HIDES.lock() {
+        map.remove(binding_id);
+    }
+}
+
+fn hide_pending_gemini_finalizing_overlay_after_delivery(
+    app: &AppHandle,
+    binding_id: &str,
+    operation_id: u64,
+) -> bool {
+    let Some(overlay_generation) =
+        take_pending_gemini_finalizing_overlay_hide(binding_id, operation_id)
+    else {
+        return false;
+    };
+
+    let hidden = crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
+        app,
+        overlay_generation,
+    );
+    if hidden {
+        debug!(
+            "Hid Vercel Gemini finalizing overlay after delivered output for operation {}",
+            operation_id
+        );
+    }
+    hidden
+}
+
+struct PendingGeminiFinalizingOverlayHideGuard {
+    binding_id: String,
+    operation_id: u64,
+}
+
+impl Drop for PendingGeminiFinalizingOverlayHideGuard {
+    fn drop(&mut self) {
+        let _ = take_pending_gemini_finalizing_overlay_hide(
+            &self.binding_id,
+            self.operation_id,
+        );
+    }
 }
 
 fn clamp_prev_transcript_words(settings: &AppSettings) -> usize {
@@ -3164,12 +3249,27 @@ fn should_hide_vercel_gemini_finalizing_after_streamed_output(
     invoked_from_gemini_time_limit: bool,
     had_stream_output: bool,
 ) -> bool {
+    can_hide_vercel_gemini_finalizing_after_delivery(
+        is_gemini_live_provider,
+        provider_preset,
+        preview_output_only_enabled,
+        invoked_from_realtime_error,
+        invoked_from_gemini_time_limit,
+    ) && had_stream_output
+}
+
+fn can_hide_vercel_gemini_finalizing_after_delivery(
+    is_gemini_live_provider: bool,
+    provider_preset: &str,
+    preview_output_only_enabled: bool,
+    invoked_from_realtime_error: bool,
+    invoked_from_gemini_time_limit: bool,
+) -> bool {
     is_gemini_live_provider
         && provider_preset == REMOTE_STT_PRESET_VERCEL
         && !preview_output_only_enabled
         && !invoked_from_realtime_error
         && !invoked_from_gemini_time_limit
-        && had_stream_output
 }
 
 #[cfg(test)]
@@ -6921,6 +7021,7 @@ impl ShortcutAction for TranscribeAction {
                 TranscriptionProvider::RemoteOpenAiCompatible
                     if should_use_gemini_realtime_live(&settings) =>
                 {
+                    clear_pending_gemini_finalizing_overlay_hide(&binding_id);
                     let gemini_realtime_manager =
                         Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
                     let api_key = match crate::managers::remote_stt::get_remote_stt_api_key(
@@ -7001,9 +7102,16 @@ impl ShortcutAction for TranscribeAction {
                                             delta,
                                             ah_for_clip.clone(),
                                         ) {
-                                            Ok(()) => mark_openai_realtime_whisper_stream_emitted(
-                                                &binding_id_for_paste,
-                                            ),
+                                            Ok(()) => {
+                                                mark_openai_realtime_whisper_stream_emitted(
+                                                    &binding_id_for_paste,
+                                                );
+                                                hide_pending_gemini_finalizing_overlay_after_delivery(
+                                                    &ah_for_clip,
+                                                    &binding_id_for_paste,
+                                                    operation_stamp.operation_id,
+                                                );
+                                            }
                                             Err(error) => {
                                                 let message = format!(
                                                     "Failed to insert Gemini 3.5 Transcribe Live stream chunk: {}",
@@ -7135,6 +7243,8 @@ impl ShortcutAction for TranscribeAction {
             } else {
                 recording_settings.soniox_live_finalize_timeout_ms
             };
+            let operation_stamp = stop_context.operation_stamp();
+            let recording_operation_id = stop_context.operation_id;
             // Live mode already streamed text while recording.
             // On stop, show explicit finalizing state unless instant-stop is enabled.
             if live_instant_stop && !preview_output_only_enabled {
@@ -7142,10 +7252,21 @@ impl ShortcutAction for TranscribeAction {
             } else {
                 show_finalizing_overlay(app);
             }
+            if can_hide_vercel_gemini_finalizing_after_delivery(
+                is_gemini_live_provider,
+                &recording_settings.remote_stt.provider_preset,
+                preview_output_only_enabled,
+                invoked_from_realtime_error,
+                invoked_from_gemini_time_limit,
+            ) {
+                set_pending_gemini_finalizing_overlay_hide(
+                    binding_id,
+                    recording_operation_id,
+                    crate::plus_overlay_state::current_recording_overlay_generation(),
+                );
+            }
             let profile_id_for_postprocess = stop_context.captured_profile_id.clone();
             let current_app = stop_context.current_app.clone();
-            let operation_stamp = stop_context.operation_stamp();
-            let recording_operation_id = stop_context.operation_id;
 
             let ah = app.clone();
             let binding_id = binding_id.to_string();
@@ -7154,6 +7275,11 @@ impl ShortcutAction for TranscribeAction {
             let invoked_from_preview_action = invoked_from_preview_action;
             let invoked_from_gemini_time_limit = invoked_from_gemini_time_limit;
             tauri::async_runtime::spawn(async move {
+                let _gemini_finalizing_overlay_hide_guard =
+                    is_gemini_live_provider.then(|| PendingGeminiFinalizingOverlayHideGuard {
+                        binding_id: binding_id.clone(),
+                        operation_id: recording_operation_id,
+                    });
                 let mut finish_guard =
                     FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
                 let mut stream_processor = take_soniox_stream_processor(&binding_id);
@@ -7294,26 +7420,22 @@ impl ShortcutAction for TranscribeAction {
                 }
 
                 if hide_vercel_gemini_finalizing_after_streamed_output {
-                    let overlay_generation =
-                        crate::plus_overlay_state::current_recording_overlay_generation();
                     let ah_for_overlay = ah.clone();
+                    let binding_id_for_overlay = binding_id.clone();
                     if let Err(error) = run_on_main_thread_sync(
                         &ah,
                         recording_settings.paste_delay_ms.saturating_add(1500),
                         move || {
-                            crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
+                            hide_pending_gemini_finalizing_overlay_after_delivery(
                                 &ah_for_overlay,
-                                overlay_generation,
+                                &binding_id_for_overlay,
+                                recording_operation_id,
                             );
                         },
                     ) {
                         warn!(
                             "Failed to hide Vercel Gemini finalizing overlay after streamed output: {}",
                             error
-                        );
-                    } else {
-                        debug!(
-                            "Hid Vercel Gemini finalizing overlay while provider completion continues"
                         );
                     }
                 }
@@ -7567,9 +7689,16 @@ impl ShortcutAction for TranscribeAction {
                                         tail_delta,
                                         ah_for_clip.clone(),
                                     ) {
-                                        Ok(()) => mark_openai_realtime_whisper_stream_emitted(
-                                            &binding_id_for_tail,
-                                        ),
+                                        Ok(()) => {
+                                            mark_openai_realtime_whisper_stream_emitted(
+                                                &binding_id_for_tail,
+                                            );
+                                            hide_pending_gemini_finalizing_overlay_after_delivery(
+                                                &ah_for_clip,
+                                                &binding_id_for_tail,
+                                                operation_stamp.operation_id,
+                                            );
+                                        }
                                         Err(error) => {
                                             let message = format!(
                                                 "Failed to insert Gemini 3.5 Transcribe Live stream tail: {}",
