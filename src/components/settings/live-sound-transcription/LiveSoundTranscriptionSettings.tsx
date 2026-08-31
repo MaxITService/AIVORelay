@@ -224,6 +224,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [speakerNames, setSpeakerNames] = useState<Map<number, string>>(new Map());
+  const [speakerFilter, setSpeakerFilter] = useState("all");
   const [editingSpeakerId, setEditingSpeakerId] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
   const [selectedSpeakerNameProfileId, setSelectedSpeakerNameProfileId] = useState<string | null>(null);
@@ -342,6 +343,19 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     }
     return [...seen.entries()].map(([id, defaultName]) => ({ speakerId: id, defaultName }));
   }, [segments]);
+  const speakerFilterOptions = useMemo(
+    () => [
+      {
+        value: "all",
+        label: t("settings.liveSoundTranscription.transcript.allSpeakers"),
+      },
+      ...discoveredSpeakers.map(({ speakerId, defaultName }) => ({
+        value: String(speakerId),
+        label: speakerNames.get(speakerId)?.trim() || defaultName,
+      })),
+    ],
+    [discoveredSpeakers, speakerNames, t],
+  );
 
   const savedSpeakerNameProfiles = useMemo<SpeakerNameSetProfile[]>(
     () =>
@@ -379,6 +393,26 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const interimSegments = segments.filter(
     (segment) => isInterimSegment(segment) && getSegmentText(segment).trim().length > 0,
   );
+  const selectedSpeakerId =
+    speakerFilter === "all" ? null : Number(speakerFilter);
+  const matchesSpeakerFilter = (segment: LiveSoundSegment) =>
+    selectedSpeakerId === null ||
+    (segment.speaker_id ?? segment.speakerId ?? null) === selectedSpeakerId;
+  const visibleFinalizedSegments = finalizedSegments.filter(matchesSpeakerFilter);
+  const visibleInterimSegments = interimSegments.filter(matchesSpeakerFilter);
+  const hasVisibleSpeakerSegments =
+    visibleFinalizedSegments.length > 0 || visibleInterimSegments.length > 0;
+
+  useEffect(() => {
+    if (
+      speakerFilter !== "all" &&
+      !discoveredSpeakers.some(
+        ({ speakerId }) => String(speakerId) === speakerFilter,
+      )
+    ) {
+      setSpeakerFilter("all");
+    }
+  }, [discoveredSpeakers, speakerFilter]);
 
   useEffect(() => {
     let active = true;
@@ -1102,13 +1136,34 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
           layout="stacked"
         >
           <div className="space-y-3">
+            {discoveredSpeakers.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-[#8a8a8a]">
+                  {t("settings.liveSoundTranscription.transcript.filterSpeaker")}
+                </span>
+                <Dropdown
+                  className="w-full sm:w-56"
+                  selectedValue={speakerFilter}
+                  options={speakerFilterOptions}
+                  onSelect={setSpeakerFilter}
+                  ariaLabel={t(
+                    "settings.liveSoundTranscription.transcript.filterSpeaker",
+                  )}
+                  dropUp={false}
+                />
+              </div>
+            )}
             {segments.length === 0 ? (
               <div className="rounded-lg border border-dashed border-[#333333] bg-[#111111]/60 px-4 py-6 text-sm text-[#8a8a8a]">
                 {t("settings.liveSoundTranscription.transcript.empty")}
               </div>
+            ) : !hasVisibleSpeakerSegments ? (
+              <div className="rounded-lg border border-dashed border-[#333333] bg-[#111111]/60 px-4 py-6 text-sm text-[#8a8a8a]">
+                {t("settings.liveSoundTranscription.transcript.noSpeakerResults")}
+              </div>
             ) : (
               <div className="space-y-3">
-                {finalizedSegments.map((segment, index) => {
+                {visibleFinalizedSegments.map((segment, index) => {
                   const speakerId = segment.speaker_id ?? segment.speakerId ?? null;
                   const displayName = getDisplayName(segment);
                   const isEditing = speakerId != null && editingSpeakerId === speakerId;
@@ -1147,7 +1202,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                     </div>
                   );
                 })}
-                {interimSegments.map((segment, index) => (
+                {visibleInterimSegments.map((segment, index) => (
                   <div
                     key={`interim-${index}`}
                     className="rounded-lg border border-dashed border-[#3a3a3a] bg-[#111111]/60 px-4 py-3"
