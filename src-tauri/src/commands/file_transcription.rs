@@ -389,8 +389,7 @@ pub fn change_file_transcription_model_selection(
     apply_file_model_config(&mut settings, &config);
     settings.file_transcription_model_selection = Some(selection);
     settings.file_transcription_model_configs.insert(key, config);
-    write_settings(&app, settings);
-    Ok(())
+    write_settings_checked(&app, settings)
 }
 
 #[tauri::command]

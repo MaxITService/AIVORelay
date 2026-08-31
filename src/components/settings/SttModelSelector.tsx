@@ -60,6 +60,7 @@ export const SttModelSelector: React.FC<Props> = ({
   const [readinessRefreshToken, setReadinessRefreshToken] = useState(0);
   const [readinessCheckFailed, setReadinessCheckFailed] = useState(false);
   const [downloadStarting, setDownloadStarting] = useState(false);
+  const [selectionChanging, setSelectionChanging] = useState(false);
   const [downloadedModelIds, setDownloadedModelIds] = useState<Set<string>>(
     new Set(),
   );
@@ -196,9 +197,22 @@ export const SttModelSelector: React.FC<Props> = ({
     }
   };
 
+  const selectModel = async (nextSelection: SttModelSelection) => {
+    if (selectionChanging) return;
+    setSelectionChanging(true);
+    setActionError(null);
+    try {
+      await onChange(nextSelection);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSelectionChanging(false);
+    }
+  };
+
   const selectProvider = (providerId: string) => {
     const first = options.find((option) => option.providerId === providerId);
-    if (first) void onChange(first.selection);
+    if (first) void selectModel(first.selection);
   };
 
   return (
@@ -233,7 +247,7 @@ export const SttModelSelector: React.FC<Props> = ({
           selectedValue={currentProviderId}
           options={providerOptions}
           onSelect={selectProvider}
-          disabled={disabled}
+          disabled={disabled || selectionChanging}
           dropUp={false}
         />
       </div>
@@ -254,9 +268,9 @@ export const SttModelSelector: React.FC<Props> = ({
             const option = modelOptions.find(
               (item) => sttSelectionKey(item.selection) === value,
             );
-            if (option) void onChange(option.selection);
+            if (option) void selectModel(option.selection);
           }}
-          disabled={disabled}
+          disabled={disabled || selectionChanging}
           dropUp={false}
         />
         {currentProblem && (
@@ -277,7 +291,7 @@ export const SttModelSelector: React.FC<Props> = ({
                   disabled={disabled || catalog.length === 0}
                   onClick={() => {
                     const compatible = catalog[0];
-                    if (compatible) void onChange(compatible.selection);
+                    if (compatible) void selectModel(compatible.selection);
                   }}
                 >
                   {t("settings.sttModelSelector.selectCompatibleModel")}
@@ -320,10 +334,12 @@ export const SttModelSelector: React.FC<Props> = ({
                 </Button>
               )}
             </div>
-            {actionError && (
-              <p className="pl-5 text-xs text-red-300">{actionError}</p>
-            )}
           </div>
+        )}
+        {actionError && (
+          <p role="alert" className="text-xs text-red-300">
+            {actionError}
+          </p>
         )}
       </div>
     </div>
