@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
-import { Copy, Check, FileText, ChevronDown } from "lucide-react";
+import { Copy, Check, FileCode2, FileText, ChevronDown } from "lucide-react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { commands } from "@/bindings";
@@ -30,6 +30,8 @@ type LiveSoundSegment = {
   text?: string;
   is_interim?: boolean;
   isInterim?: boolean;
+  timestamp_ms?: number;
+  timestampMs?: number;
 };
 
 type LiveSoundState = {
@@ -111,6 +113,20 @@ const getSegmentText = (segment: LiveSoundSegment) => String(segment.text ?? "")
 
 const isInterimSegment = (segment: LiveSoundSegment) =>
   Boolean(segment.is_interim ?? segment.isInterim);
+
+const getSegmentTimestampMs = (segment: LiveSoundSegment) =>
+  segment.timestamp_ms ?? segment.timestampMs ?? null;
+
+const formatTranscriptTimestamp = (timestampMs: number | null) => {
+  if (timestampMs === null) return null;
+  const totalSeconds = Math.max(0, Math.floor(timestampMs / 1_000));
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds]
+    .map((value) => String(value).padStart(2, "0"))
+    .join(":");
+};
 
 interface NumericOverrideInputProps {
   value: number;
@@ -676,6 +692,31 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     return lines.join("\n");
   };
 
+  const buildExportText = (format: "txt" | "md") => {
+    const finalSegs = segments.filter(
+      (segment) =>
+        !isInterimSegment(segment) && getSegmentText(segment).trim().length > 0,
+    );
+    if (finalSegs.length === 0) return finalText.trim();
+
+    const blocks = finalSegs.map((segment) => {
+      const timestamp = formatTranscriptTimestamp(
+        getSegmentTimestampMs(segment),
+      );
+      const displayName = getDisplayName(segment)?.replace(/[\r\n]+/g, " ");
+      const heading = [timestamp ? `[${timestamp}]` : null, displayName]
+        .filter(Boolean)
+        .join(" ");
+      const text = getSegmentText(segment).trim();
+      return format === "md"
+        ? `${heading ? `## ${heading}\n\n` : ""}${text}`
+        : `${heading ? `${heading}\n` : ""}${text}`;
+    });
+    return format === "md"
+      ? `# ${t("settings.liveSoundTranscription.transcript.exportTitle")}\n\n${blocks.join("\n\n")}`
+      : blocks.join("\n\n");
+  };
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(buildPlainText());
@@ -686,15 +727,27 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     }
   };
 
-  const handleSaveFile = async () => {
+  const handleSaveFile = async (format: "txt" | "md") => {
+    const isMarkdown = format === "md";
     const path = await save({
-      filters: [{ name: "Text", extensions: ["txt"] }],
-      defaultPath: `live-transcript-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-")}.txt`,
+      filters: [
+        {
+          name: isMarkdown ? "Markdown" : "Text",
+          extensions: [format],
+        },
+      ],
+      defaultPath: `live-transcript-${new Date()
+        .toISOString()
+        .slice(0, 19)
+        .replace(/[T:]/g, "-")}.${format}`,
     });
     if (!path) return;
     setIsSaving(true);
     try {
-      await invoke("save_live_sound_transcript", { path, content: buildPlainText() });
+      await invoke("save_live_sound_transcript", {
+        path,
+        content: buildExportText(format),
+      });
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -1139,13 +1192,27 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                   variant="ghost"
                   size="sm"
                   disabled={isSaving}
-                  onClick={() => void handleSaveFile()}
+                  onClick={() => void handleSaveFile("txt")}
                   className="flex items-center gap-1"
                 >
                   <FileText className="w-3 h-3" />
                   {isSaving
                     ? t("settings.liveSoundTranscription.transcript.saving")
-                    : t("settings.liveSoundTranscription.transcript.saveFile")}
+                    : t("settings.liveSoundTranscription.transcript.saveTxt")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={isSaving}
+                  onClick={() => void handleSaveFile("md")}
+                  className="flex items-center gap-1"
+                >
+                  <FileCode2 className="w-3 h-3" />
+                  {isSaving
+                    ? t("settings.liveSoundTranscription.transcript.saving")
+                    : t(
+                        "settings.liveSoundTranscription.transcript.saveMarkdown",
+                      )}
                 </Button>
                 <Button
                   variant="ghost"

@@ -2093,6 +2093,9 @@
         "copy": "Copy",
         "copied": "Copied",
         "saveFile": "Save File",
+        "saveTxt": "Save TXT",
+        "saveMarkdown": "Save Markdown",
+        "exportTitle": "Live transcript",
         "saving": "Saving...",
         "speakerNamePlaceholder": "Enter name…",
         "speakerNameHint": "Click speaker label to rename"

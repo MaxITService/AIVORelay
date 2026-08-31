@@ -16,6 +16,7 @@ pub struct LiveSoundTranscriptSegmentPayload {
     pub speaker_label: Option<String>,
     pub text: String,
     pub is_interim: bool,
+    pub timestamp_ms: u64,
 }
 
 #[derive(Serialize, Clone, Debug, Default, Type)]
@@ -42,6 +43,8 @@ struct LiveSoundTranscriptionRuntime {
     interim_text: String,
     final_raw_blocks: Vec<RawSpeakerBlock>,
     interim_raw_blocks: Vec<RawSpeakerBlock>,
+    segment_timestamps_ms: Vec<u64>,
+    transcript_started_at: Option<Instant>,
     session_id: u64,
     auto_stop_deadline: Option<Instant>,
 }
@@ -75,7 +78,7 @@ impl LiveSoundTranscriptionRuntime {
         self.final_text.push_str(trimmed);
     }
 
-    fn to_payload(&self) -> LiveSoundTranscriptionStatePayload {
+    fn to_payload(&mut self) -> LiveSoundTranscriptionStatePayload {
         let auto_stop_remaining_seconds = self
             .auto_stop_deadline
             .filter(|_| self.recording)
@@ -89,6 +92,7 @@ impl LiveSoundTranscriptionRuntime {
                     speaker_label: Some(block.default_name),
                     text: block.text,
                     is_interim: false,
+                    timestamp_ms: 0,
                 })
                 .collect();
 
@@ -98,6 +102,7 @@ impl LiveSoundTranscriptionRuntime {
                 speaker_label: None,
                 text: self.final_text.clone(),
                 is_interim: false,
+                timestamp_ms: 0,
             });
         }
 
@@ -109,6 +114,7 @@ impl LiveSoundTranscriptionRuntime {
                     speaker_label: Some(block.default_name),
                     text: block.text,
                     is_interim: true,
+                    timestamp_ms: 0,
                 }),
         );
 
@@ -118,7 +124,26 @@ impl LiveSoundTranscriptionRuntime {
                 speaker_label: None,
                 text: self.interim_text.clone(),
                 is_interim: true,
+                timestamp_ms: 0,
             });
+        }
+
+        let current_timestamp_ms = if segments.is_empty() {
+            0
+        } else {
+            self.transcript_started_at
+                .get_or_insert_with(Instant::now)
+                .elapsed()
+                .as_millis() as u64
+        };
+        self.segment_timestamps_ms.truncate(segments.len());
+        self.segment_timestamps_ms
+            .resize(segments.len(), current_timestamp_ms);
+        for (segment, timestamp_ms) in segments
+            .iter_mut()
+            .zip(self.segment_timestamps_ms.iter().copied())
+        {
+            segment.timestamp_ms = timestamp_ms;
         }
 
         LiveSoundTranscriptionStatePayload {
@@ -243,7 +268,7 @@ where
 pub fn get_state_payload() -> LiveSoundTranscriptionStatePayload {
     LIVE_SOUND_TRANSCRIPTION_STATE
         .lock()
-        .map(|state| state.to_payload())
+        .map(|mut state| state.to_payload())
         .unwrap_or_default()
 }
 
@@ -356,6 +381,8 @@ pub fn clear_transcript(app: &AppHandle) {
         state.interim_text.clear();
         state.final_raw_blocks.clear();
         state.interim_raw_blocks.clear();
+        state.segment_timestamps_ms.clear();
+        state.transcript_started_at = None;
         state.error_message = None;
     });
 }
