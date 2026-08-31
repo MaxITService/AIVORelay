@@ -203,10 +203,26 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
 
   useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
+      const key = event.key.toLocaleLowerCase();
+      const isModifiedShortcut =
+        !event.altKey &&
+        (event.ctrlKey || event.metaKey) &&
+        (key === "k" || key === "f");
+      const target = event.target;
+      const isEditableTarget =
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+      const isSlashShortcut =
+        event.key === "/" &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !isEditableTarget;
       if (
-        event.key.toLocaleLowerCase() !== "k" ||
-        (!event.ctrlKey && !event.metaKey) ||
-        event.altKey
+        event.defaultPrevented ||
+        event.isComposing ||
+        (!isModifiedShortcut && !isSlashShortcut)
       ) {
         return;
       }
@@ -288,7 +304,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
           aria-haspopup="listbox"
           aria-expanded={showResults}
           aria-controls="global-settings-search-results"
-          aria-keyshortcuts="Control+K Meta+K"
+          aria-keyshortcuts="Control+F Meta+F Control+K Meta+K /"
           aria-activedescendant={
             showResults && results[activeIndex]
               ? `global-settings-search-result-${results[activeIndex].entry.id}`
@@ -297,7 +313,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
         />
         {!query && (
           <kbd className="hidden rounded border border-[#3a3a3a] px-1 text-[9px] text-[#777777] sm:inline">
-            Ctrl K
+            Ctrl F
           </kbd>
         )}
         {query && (
