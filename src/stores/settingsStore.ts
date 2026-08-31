@@ -1225,7 +1225,11 @@ export const useSettingsStore = create<SettingsStore>()(
             throw new Error(String((result as any).error));
           }
         } else if (key !== "bindings" && key !== "selected_model") {
-          console.warn(`No handler for setting: ${String(key)}`);
+          const error = new Error(
+            `No persistence handler for setting: ${String(key)}`,
+          );
+          toast.error(error.message);
+          throw error;
         }
       } catch (error) {
         console.error(`Failed to update setting ${String(key)}:`, error);
