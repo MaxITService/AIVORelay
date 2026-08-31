@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -25,15 +26,16 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
   title,
   description,
   children,
-  descriptionMode = "tooltip",
+  descriptionMode = "inline",
   grouped = false,
   layout = "horizontal",
   disabled = false,
   tooltipPosition = "top",
   compact = false,
 }) => {
+  const tooltipId = useId();
   const [showTooltip, setShowTooltip] = useState(false);
-  const tooltipRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLButtonElement>(null);
   const tooltipContentRef = useRef<HTMLDivElement>(null);
   const [tooltipLayout, setTooltipLayout] = useState<TooltipLayout | null>(
     null
@@ -93,9 +95,9 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
     }
   }, [showTooltip, updateTooltipLayout, description]);
 
-  const toggleTooltip = (e: React.MouseEvent) => {
+  const showTooltipFromClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    setShowTooltip(!showTooltip);
+    setShowTooltip(true);
   };
 
   const basePadding = compact ? "px-6 py-2.5" : "px-6 py-4";
@@ -120,6 +122,8 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
 
     return createPortal(
       <div
+        id={tooltipId}
+        role="tooltip"
         className="fixed z-[9999] pointer-events-none"
         style={wrapperStyle}
       >
@@ -149,27 +153,32 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
   };
 
   const tooltipIcon = (
-    <div
+    <button
+      type="button"
       ref={tooltipRef}
-      className="relative flex items-center justify-center p-1"
+      className="relative flex items-center justify-center rounded p-1 text-[#707070] transition-colors duration-200 hover:text-[#ff4d8d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/60"
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
-      onClick={toggleTooltip}
+      onFocus={() => setShowTooltip(true)}
+      onBlur={() => setShowTooltip(false)}
+      onClick={showTooltipFromClick}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setShowTooltip(false);
+        }
+      }}
+      aria-label="More information"
+      aria-expanded={showTooltip}
+      aria-controls={showTooltip ? tooltipId : undefined}
+      aria-describedby={showTooltip ? tooltipId : undefined}
     >
       <svg
-        className="w-4 h-4 text-[#707070] cursor-help hover:text-[#ff4d8d] transition-colors duration-200 select-none"
+        className="h-4 w-4 cursor-help select-none"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
-        aria-label="More information"
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            toggleTooltip(e as any);
-          }
-        }}
+        aria-hidden="true"
       >
         <path
           strokeLinecap="round"
@@ -179,7 +188,7 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
         />
       </svg>
       {renderTooltipPortal()}
-    </div>
+    </button>
   );
 
   if (layout === "stacked") {
