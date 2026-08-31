@@ -93,6 +93,12 @@ type BatchProgress = Omit<BatchSummary, "files"> & {
   file?: BatchFileResult | null;
 };
 
+type ActiveBatchSnapshot = {
+  progress: BatchProgress;
+  scan: BatchScanResult;
+  files: BatchFileResult[];
+};
+
 type TtsChunkProgress = {
   completed_chunks?: number;
   completedChunks?: number;
@@ -124,6 +130,16 @@ const queuedRow = (file: BatchFilePlan, index: number): BatchFileResult => ({
   operationId: null,
   resumedChunks: 0,
 });
+
+const rowsFromSnapshot = (snapshot: ActiveBatchSnapshot) => {
+  const rows = snapshot.scan.files.map(queuedRow);
+  for (const file of [...snapshot.files, snapshot.progress.file].filter(
+    (item): item is BatchFileResult => !!item,
+  )) {
+    if (file.index >= 0 && file.index < rows.length) rows[file.index] = file;
+  }
+  return rows;
+};
 
 const statusAppearance: Record<
   BatchFileStatus,
@@ -230,19 +246,22 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
         }
         unlistenBatch = disposeBatch;
         unlistenChunks = disposeChunks;
-        const active = await invoke<BatchProgress | null>(
+        const activeSnapshot = await invoke<ActiveBatchSnapshot | null>(
           "get_active_tts_batch_progress",
         );
+        const active = activeSnapshot?.progress;
         if (disposed || !active || active.done) return;
         activeClientIdRef.current = active.clientId;
         batchIdRef.current = active.batchId;
         batchBusyRef.current = true;
-        const latest = await invoke<BatchProgress | null>(
+        const latestSnapshot = await invoke<ActiveBatchSnapshot | null>(
           "get_active_tts_batch_progress",
         );
+        const latest = latestSnapshot?.progress;
         if (
           disposed ||
           !latest ||
+          !latestSnapshot ||
           latest.done ||
           latest.clientId !== active.clientId
         ) {
@@ -252,6 +271,19 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
         }
         processingFileRef.current =
           latest.file?.status === "processing" ? latest.file : null;
+        setScanResult(latestSnapshot.scan);
+        setOutputDirectory(latestSnapshot.scan.outputDirectory);
+        setRecursive(latestSnapshot.scan.recursive);
+        if (latestSnapshot.scan.inputDirectory) {
+          setSourceMode("folder");
+          setInputDirectory(latestSnapshot.scan.inputDirectory);
+        } else {
+          setSourceMode("files");
+          setInputPaths(
+            latestSnapshot.scan.files.map((file) => file.inputPath),
+          );
+        }
+        setRows(rowsFromSnapshot(latestSnapshot));
         setBatchBusy(true);
         setProgress(latest);
         setCurrentFile(processingFileRef.current);
