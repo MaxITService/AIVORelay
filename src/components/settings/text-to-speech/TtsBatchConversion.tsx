@@ -47,6 +47,7 @@ type BatchFilePlan = {
   inputPath: string;
   relativePath: string;
   outputPath: string;
+  sourceCharacters: number;
   scanError?: string | null;
 };
 
@@ -87,6 +88,7 @@ type BatchSummary = {
 type BatchProgress = Omit<BatchSummary, "files"> & {
   done: boolean;
   startedAtMs: number;
+  workStartedAtMs?: number | null;
   message?: string | null;
   file?: BatchFileResult | null;
 };
@@ -159,7 +161,6 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
   const activeClientIdRef = useRef<string | null>(null);
   const batchBusyRef = useRef(false);
   const batchIdRef = useRef<string | null>(null);
-  const batchStartedAtRef = useRef<number | null>(null);
   const processingFileRef = useRef<BatchFileResult | null>(null);
 
   const clearPreview = () => {
@@ -170,7 +171,6 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
     setCurrentFile(null);
     setChunkProgress(null);
     batchIdRef.current = null;
-    batchStartedAtRef.current = null;
     processingFileRef.current = null;
     setError(null);
     activeClientIdRef.current = null;
@@ -250,7 +250,6 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
           activeClientIdRef.current = null;
           return;
         }
-        batchStartedAtRef.current = latest.startedAtMs;
         processingFileRef.current =
           latest.file?.status === "processing" ? latest.file : null;
         setBatchBusy(true);
@@ -360,7 +359,6 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
     setProgress(null);
     setCurrentFile(null);
     setChunkProgress(null);
-    batchStartedAtRef.current = Date.now();
     processingFileRef.current = null;
     setClockMs(Date.now());
     setRows(scanResult.files.map(queuedRow));
@@ -387,6 +385,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
         cancelled: result.cancelled,
         done: true,
         startedAtMs: current?.startedAtMs ?? Date.now(),
+        workStartedAtMs: current?.workStartedAtMs ?? null,
         message: current?.message ?? null,
         file: null,
       }));
@@ -437,15 +436,55 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
     currentFile && totalChunks > 0
       ? Math.min(1, completedChunks / totalChunks)
       : 0;
-  const completedUnits = Math.min(total, finished + currentFileFraction);
+  const plannedWeights = scanResult?.files.map((file) =>
+    Math.max(1, file.sourceCharacters),
+  );
+  const totalWeight = plannedWeights?.reduce((sum, weight) => sum + weight, 0);
+  const displayedWeight = plannedWeights
+    ? rows.reduce((sum, row) => {
+        const weight = plannedWeights[row.index] ?? 1;
+        if (row.status === "processing") {
+          return sum + weight * currentFileFraction;
+        }
+        return row.status === "queued" ? sum : sum + weight;
+      }, 0)
+    : null;
+  const completedUnits =
+    displayedWeight ?? Math.min(total, finished + currentFileFraction);
+  const progressUnits = totalWeight ?? total;
   const progressPercent =
-    total > 0 ? Math.round((completedUnits / total) * 100) : 0;
-  const elapsedMs = batchStartedAtRef.current
-    ? Math.max(0, clockMs - batchStartedAtRef.current)
+    progressUnits > 0
+      ? Math.round((completedUnits / progressUnits) * 100)
+      : 0;
+  const estimatedProcessedWeight = plannedWeights
+    ? rows.reduce((sum, row) => {
+        const weight = plannedWeights[row.index] ?? 1;
+        if (row.status === "completed") return sum + weight;
+        if (row.status === "processing") {
+          return sum + weight * currentFileFraction;
+        }
+        return sum;
+      }, 0)
+    : 0;
+  const estimatedRemainingWeight = plannedWeights
+    ? rows.reduce((sum, row) => {
+        const weight = plannedWeights[row.index] ?? 1;
+        if (row.status === "queued") return sum + weight;
+        if (row.status === "processing") {
+          return sum + weight * (1 - currentFileFraction);
+        }
+        return sum;
+      }, 0)
+    : 0;
+  const elapsedMs = progress?.workStartedAtMs
+    ? Math.max(0, clockMs - progress.workStartedAtMs)
     : 0;
   const etaMs =
-    batchBusy && completedUnits > 0 && completedUnits < total
-      ? (elapsedMs / completedUnits) * (total - completedUnits)
+    batchBusy &&
+    elapsedMs > 0 &&
+    estimatedProcessedWeight > 0 &&
+    estimatedRemainingWeight > 0
+      ? (elapsedMs / estimatedProcessedWeight) * estimatedRemainingWeight
       : null;
   const formatDuration = (durationMs: number) => {
     const seconds = Math.max(1, Math.ceil(durationMs / 1_000));

@@ -320,6 +320,7 @@ pub struct TtsBatchFilePlan {
     pub input_path: PathBuf,
     pub relative_path: PathBuf,
     pub output_path: PathBuf,
+    pub source_characters: usize,
     pub scan_error: Option<String>,
 }
 
@@ -1510,9 +1511,13 @@ impl TtsManager {
                 input_directory.as_deref(),
                 request.recursive,
             );
-            let (input_path, scan_error) = match checked {
-                Ok((canonical_path, _source)) => (canonical_path, None),
-                Err(error) => (candidate.clone(), Some(safe_text(&error.to_string()))),
+            let (input_path, source_characters, scan_error) = match checked {
+                Ok((canonical_path, source)) => (canonical_path, source.chars().count(), None),
+                Err(error) => (
+                    candidate.clone(),
+                    0,
+                    Some(safe_text(&error.to_string())),
+                ),
             };
             let input_key = normalized_batch_path_key(&input_path);
             if !seen_inputs.insert(input_key) {
@@ -1561,6 +1566,7 @@ impl TtsManager {
                 input_path,
                 relative_path,
                 output_path,
+                source_characters,
                 scan_error,
             });
         }
