@@ -90,6 +90,13 @@ type BatchProgress = Omit<BatchSummary, "files"> & {
   file?: BatchFileResult | null;
 };
 
+type TtsChunkProgress = {
+  completed_chunks?: number;
+  completedChunks?: number;
+  total_chunks?: number;
+  totalChunks?: number;
+};
+
 type TtsBatchConversionProps = {
   outputFormat: TtsOutputFormat;
   mp3Bitrate: number;
@@ -144,17 +151,26 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
   const [batchStopping, setBatchStopping] = useState(false);
   const [progress, setProgress] = useState<BatchProgress | null>(null);
   const [summary, setSummary] = useState<BatchSummary | null>(null);
+  const [currentFile, setCurrentFile] = useState<BatchFileResult | null>(null);
+  const [chunkProgress, setChunkProgress] = useState<TtsChunkProgress | null>(null);
+  const [clockMs, setClockMs] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
   const activeClientIdRef = useRef<string | null>(null);
   const batchBusyRef = useRef(false);
   const batchIdRef = useRef<string | null>(null);
+  const batchStartedAtRef = useRef<number | null>(null);
+  const processingFileRef = useRef<BatchFileResult | null>(null);
 
   const clearPreview = () => {
     setScanResult(null);
     setRows([]);
     setProgress(null);
     setSummary(null);
+    setCurrentFile(null);
+    setChunkProgress(null);
     batchIdRef.current = null;
+    batchStartedAtRef.current = null;
+    processingFileRef.current = null;
     setError(null);
     activeClientIdRef.current = null;
   };
@@ -166,7 +182,8 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
 
   useEffect(() => {
     let disposed = false;
-    let unlisten: (() => void) | undefined;
+    let unlistenBatch: (() => void) | undefined;
+    let unlistenChunks: (() => void) | undefined;
     void listen<BatchProgress>("tts://batch-progress", (event) => {
       if (disposed || !batchBusyRef.current) return;
       const next = event.payload;
@@ -175,19 +192,48 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
       setProgress(next);
       const file = next.file;
       if (file) {
+        const processingFile = file.status === "processing" ? file : null;
+        processingFileRef.current = processingFile;
+        setCurrentFile(processingFile);
+        setChunkProgress(null);
         setRows((current) =>
           current.map((row) => (row.index === file.index ? file : row)),
         );
       }
+      if (next.done) {
+        processingFileRef.current = null;
+        setCurrentFile(null);
+        setChunkProgress(null);
+      }
     }).then((dispose) => {
       if (disposed) dispose();
-      else unlisten = dispose;
+      else unlistenBatch = dispose;
+    });
+    void listen<TtsChunkProgress>("tts://progress", (event) => {
+      if (
+        disposed ||
+        !batchBusyRef.current ||
+        !processingFileRef.current
+      ) {
+        return;
+      }
+      setChunkProgress(event.payload);
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else unlistenChunks = dispose;
     });
     return () => {
       disposed = true;
-      unlisten?.();
+      unlistenBatch?.();
+      unlistenChunks?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!batchBusy) return;
+    const interval = window.setInterval(() => setClockMs(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, [batchBusy]);
 
   const chooseFiles = async () => {
     const selected = await open({
@@ -275,6 +321,11 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
     setError(null);
     setSummary(null);
     setProgress(null);
+    setCurrentFile(null);
+    setChunkProgress(null);
+    batchStartedAtRef.current = Date.now();
+    processingFileRef.current = null;
+    setClockMs(Date.now());
     setRows(scanResult.files.map(queuedRow));
     try {
       await flushPendingSettingsWrites();
@@ -340,7 +391,38 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
 
   const finished = progress?.finished ?? 0;
   const total = progress?.total ?? scanResult?.files.length ?? 0;
-  const progressPercent = total > 0 ? Math.round((finished / total) * 100) : 0;
+  const completedChunks =
+    chunkProgress?.completed_chunks ?? chunkProgress?.completedChunks ?? 0;
+  const totalChunks =
+    chunkProgress?.total_chunks ?? chunkProgress?.totalChunks ?? 0;
+  const currentFileFraction =
+    currentFile && totalChunks > 0
+      ? Math.min(1, completedChunks / totalChunks)
+      : 0;
+  const completedUnits = Math.min(total, finished + currentFileFraction);
+  const progressPercent =
+    total > 0 ? Math.round((completedUnits / total) * 100) : 0;
+  const elapsedMs = batchStartedAtRef.current
+    ? Math.max(0, clockMs - batchStartedAtRef.current)
+    : 0;
+  const etaMs =
+    batchBusy && completedUnits > 0 && completedUnits < total
+      ? (elapsedMs / completedUnits) * (total - completedUnits)
+      : null;
+  const formatDuration = (durationMs: number) => {
+    const seconds = Math.max(1, Math.ceil(durationMs / 1_000));
+    if (seconds < 60) {
+      return t("textToSpeech.batch.durationSeconds", { count: seconds });
+    }
+    const minutes = Math.ceil(seconds / 60);
+    if (minutes < 60) {
+      return t("textToSpeech.batch.durationMinutes", { count: minutes });
+    }
+    return t("textToSpeech.batch.durationHoursMinutes", {
+      hours: Math.floor(minutes / 60),
+      minutes: minutes % 60,
+    });
+  };
   const selectedSource =
     sourceMode === "folder"
       ? inputDirectory
@@ -583,6 +665,27 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
             </span>
             <span>{progressPercent}%</span>
           </div>
+          {batchBusy && (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#8f8f8f]">
+              <span className="min-w-0 truncate" title={currentFile?.inputPath}>
+                {currentFile
+                  ? t("textToSpeech.batch.currentFile", {
+                      file: currentFile.relativePath,
+                    })
+                  : t("textToSpeech.batch.waitingForCurrentFile")}
+                {currentFile && totalChunks > 0
+                  ? ` · ${completedChunks} / ${totalChunks}`
+                  : ""}
+              </span>
+              <span className="shrink-0">
+                {etaMs === null
+                  ? t("textToSpeech.batch.etaCalculating")
+                  : t("textToSpeech.batch.eta", {
+                      time: formatDuration(etaMs),
+                    })}
+              </span>
+            </div>
+          )}
           <div className="h-2 overflow-hidden rounded-full bg-[#252525]">
             <div
               className="h-full rounded-full bg-[#9b5de5] transition-[width]"
