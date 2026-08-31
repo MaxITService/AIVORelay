@@ -86,6 +86,7 @@ type BatchSummary = {
 
 type BatchProgress = Omit<BatchSummary, "files"> & {
   done: boolean;
+  startedAtMs: number;
   message?: string | null;
   file?: BatchFileResult | null;
 };
@@ -184,7 +185,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
     let disposed = false;
     let unlistenBatch: (() => void) | undefined;
     let unlistenChunks: (() => void) | undefined;
-    void listen<BatchProgress>("tts://batch-progress", (event) => {
+    const listenForBatch = listen<BatchProgress>("tts://batch-progress", (event) => {
       if (disposed || !batchBusyRef.current) return;
       const next = event.payload;
       if (next.clientId !== activeClientIdRef.current) return;
@@ -201,15 +202,16 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
         );
       }
       if (next.done) {
+        batchBusyRef.current = false;
         processingFileRef.current = null;
+        activeClientIdRef.current = null;
+        setBatchBusy(false);
+        setBatchStopping(false);
         setCurrentFile(null);
         setChunkProgress(null);
       }
-    }).then((dispose) => {
-      if (disposed) dispose();
-      else unlistenBatch = dispose;
     });
-    void listen<TtsChunkProgress>("tts://progress", (event) => {
+    const listenForChunks = listen<TtsChunkProgress>("tts://progress", (event) => {
       if (
         disposed ||
         !batchBusyRef.current ||
@@ -218,10 +220,45 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
         return;
       }
       setChunkProgress(event.payload);
-    }).then((dispose) => {
-      if (disposed) dispose();
-      else unlistenChunks = dispose;
     });
+    void Promise.all([listenForBatch, listenForChunks]).then(
+      async ([disposeBatch, disposeChunks]) => {
+        if (disposed) {
+          disposeBatch();
+          disposeChunks();
+          return;
+        }
+        unlistenBatch = disposeBatch;
+        unlistenChunks = disposeChunks;
+        const active = await invoke<BatchProgress | null>(
+          "get_active_tts_batch_progress",
+        );
+        if (disposed || !active || active.done) return;
+        activeClientIdRef.current = active.clientId;
+        batchIdRef.current = active.batchId;
+        batchBusyRef.current = true;
+        const latest = await invoke<BatchProgress | null>(
+          "get_active_tts_batch_progress",
+        );
+        if (
+          disposed ||
+          !latest ||
+          latest.done ||
+          latest.clientId !== active.clientId
+        ) {
+          batchBusyRef.current = false;
+          activeClientIdRef.current = null;
+          return;
+        }
+        batchStartedAtRef.current = latest.startedAtMs;
+        processingFileRef.current =
+          latest.file?.status === "processing" ? latest.file : null;
+        setBatchBusy(true);
+        setProgress(latest);
+        setCurrentFile(processingFileRef.current);
+        setClockMs(Date.now());
+      },
+    );
     return () => {
       disposed = true;
       unlistenBatch?.();
@@ -349,6 +386,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
         failed: result.failed,
         cancelled: result.cancelled,
         done: true,
+        startedAtMs: current?.startedAtMs ?? Date.now(),
         message: current?.message ?? null,
         file: null,
       }));

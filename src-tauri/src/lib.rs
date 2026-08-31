@@ -1457,6 +1457,7 @@ pub fn run(cli_args: CliArgs) {
         commands::tts::export_tts_file_job_partial,
         commands::tts::scan_tts_batch_files,
         commands::tts::convert_tts_batch,
+        commands::tts::get_active_tts_batch_progress,
         commands::tts::cancel_tts_batch,
         commands::tts::get_tts_overlay_state,
         commands::tts::reorder_tts_listen_queue,
