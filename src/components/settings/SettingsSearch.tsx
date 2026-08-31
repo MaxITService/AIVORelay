@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { AppSettings } from "@/bindings";
 import type { SettingsSearchEntry } from "./settingsSearchTypes";
 
 interface SettingsSearchProps {
   entries: readonly SettingsSearchEntry[];
+  settings: AppSettings | null;
   availableSections: readonly string[];
   sectionLabelKey: (section: string) => string | null;
   onNavigate: (
@@ -47,6 +49,7 @@ const HighlightMatch: React.FC<{ text: string; query: string }> = ({
 
 export const SettingsSearch: React.FC<SettingsSearchProps> = ({
   entries,
+  settings,
   availableSections,
   sectionLabelKey,
   onNavigate,
@@ -88,7 +91,9 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
               : matchedKeyword
                 ? 3
                 : Number.POSITIVE_INFINITY;
-        const isAvailable = available.has(entry.section);
+        const isAvailable =
+          available.has(entry.section) &&
+          (entry.isAvailable?.(settings) ?? true);
         const unavailableReason = isAvailable
           ? null
           : entry.unavailableReasonKey
@@ -142,7 +147,14 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
         return left.label.localeCompare(right.label);
       })
       .slice(0, MAX_SETTINGS_SEARCH_RESULTS);
-  }, [availableSections, entries, normalizedQuery, sectionLabelKey, t]);
+  }, [
+    availableSections,
+    entries,
+    normalizedQuery,
+    sectionLabelKey,
+    settings,
+    t,
+  ]);
 
   const showResults = isFocused && normalizedQuery.length > 0;
 
@@ -180,7 +192,12 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
   }, []);
 
   const selectEntry = (entry: SettingsSearchEntry) => {
-    if (!availableSections.includes(entry.section)) return;
+    if (
+      !availableSections.includes(entry.section) ||
+      entry.isAvailable?.(settings) === false
+    ) {
+      return;
+    }
     onNavigate(entry.section, entry.anchor, entry.expandAnchor);
     setQuery("");
     setIsFocused(false);

@@ -1,3 +1,5 @@
+import type { AppSettings } from "@/bindings";
+
 export type SettingsSearchEntry = {
   id: string;
   section: string;
@@ -9,5 +11,6 @@ export type SettingsSearchEntry = {
   groupFallbackLabel?: string;
   unavailableReasonKey?: string;
   unavailableReasonFallback?: string;
+  isAvailable?: (settings: AppSettings | null) => boolean;
   keywords: readonly string[];
 };

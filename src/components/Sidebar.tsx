@@ -441,6 +441,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <SettingsSearch
         entries={SETTINGS_SEARCH_ENTRIES}
+        settings={settings}
         availableSections={availableSections}
         sectionLabelKey={(section) =>
           SECTIONS_CONFIG[section as SidebarSection]?.labelKey ?? null
