@@ -58,6 +58,7 @@ import {
   sttSelectionKey,
   type SttModelSelection,
 } from "@/lib/sttModelSelection";
+import { navigateToSettingsAnchor } from "@/lib/anchorNavigation";
 
 const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 const DEEPGRAM_MAX_FILE_DURATION_SECONDS = 10 * 60;
@@ -363,12 +364,12 @@ const buildSelectedFile = async (path: string): Promise<SelectedFile> => {
 };
 
 const openCustomWordsSettings = () => {
-  useNavigationStore.getState().setSection("textReplacement");
-  setTimeout(() => {
-    document
-      .getElementById("custom-words-settings")
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, 120);
+  navigateToSettingsAnchor({
+    activateSection: () =>
+      useNavigationStore.getState().setSection("textReplacement"),
+    targetId: "custom-words-settings",
+    updateHash: false,
+  });
 };
 
 export const TranscribeFileSettings: React.FC = () => {

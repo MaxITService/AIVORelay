@@ -35,7 +35,6 @@ export const scrollAndFocusAnchor = (
   anchor: HTMLElement,
   block: ScrollLogicalPosition = "start",
 ): void => {
-  highlightAnchor(anchor);
   anchor.scrollIntoView({
     behavior: prefersReducedMotion() ? "auto" : "smooth",
     block,
@@ -43,7 +42,63 @@ export const scrollAndFocusAnchor = (
 
   window.requestAnimationFrame(() => {
     if (document.contains(anchor)) {
+      highlightAnchor(anchor);
       anchor.focus({ preventScroll: true });
     }
   });
+};
+
+interface NavigateToSettingsAnchorOptions {
+  activateSection: () => void;
+  targetId: string;
+  readyId?: string;
+  fallbackId?: string;
+  expandId?: string;
+  block?: ScrollLogicalPosition;
+  updateHash?: boolean;
+}
+
+export const navigateToSettingsAnchor = ({
+  activateSection,
+  targetId,
+  readyId = targetId,
+  fallbackId,
+  expandId,
+  block = "start",
+  updateHash = true,
+}: NavigateToSettingsAnchorOptions): void => {
+  activateSection();
+
+  if (updateHash) {
+    window.history.replaceState(null, "", `#${targetId}`);
+  }
+
+  let attempts = 0;
+  const revealAnchor = () => {
+    if (!document.getElementById(readyId)) {
+      attempts += 1;
+      if (attempts <= 20) window.setTimeout(revealAnchor, 50);
+      return;
+    }
+
+    const expansionTarget = expandId
+      ? document.getElementById(expandId)
+      : null;
+    const collapsedToggle = expansionTarget?.querySelector<HTMLButtonElement>(
+      'button[aria-expanded="false"]',
+    );
+    collapsedToggle?.click();
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const target =
+          document.getElementById(targetId) ??
+          expansionTarget ??
+          (fallbackId ? document.getElementById(fallbackId) : null);
+        if (target) scrollAndFocusAnchor(target, block);
+      });
+    });
+  };
+
+  window.setTimeout(revealAnchor, 0);
 };

@@ -12,7 +12,7 @@ import { type } from "@tauri-apps/plugin-os";
 import HandyTextLogo from "./icons/HandyTextLogo";
 import HandyHand from "./icons/HandyHand";
 import { useSettings } from "../hooks/useSettings";
-import { scrollAndFocusAnchor } from "../lib/anchorNavigation";
+import { navigateToSettingsAnchor } from "../lib/anchorNavigation";
 import {
   SettingsSearch,
   type SettingsSearchEntry,
@@ -181,11 +181,15 @@ const DRAG_THRESHOLD_PX = 5;
 const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
   { id: "microphone", section: "general", labelKey: "settingsSearch.items.microphone", fallbackLabel: "Microphone and dictation shortcut", keywords: ["mic", "input device", "shortcut", "hotkey", "microphone", "микрофон", "шорткат"] },
   { id: "profiles", section: "general", labelKey: "settingsSearch.items.profiles", fallbackLabel: "Transcription profiles", keywords: ["profile", "model override", "dictation", "профиль", "диктовка"] },
+  { id: "active-profile-shortcut", section: "general", anchor: "shortcut-transcribe", labelKey: "settings.transcriptionProfiles.transcribeActiveProfile", fallbackLabel: "Transcribe with Active Profile", keywords: ["dictation shortcut", "active profile hotkey", "transcribe", "диктовка", "активный профиль", "горячая клавиша"] },
+  { id: "cycle-profile-shortcut", section: "general", anchor: "shortcut-cycle_profile", labelKey: "settings.transcriptionProfiles.cycleActiveProfilesShort", fallbackLabel: "Global shortcut to cycle through active profiles", keywords: ["cycle profile", "switch profile", "profile shortcut", "переключить профиль", "цикл профилей", "горячая клавиша"] },
+  { id: "default-profile", section: "general", anchor: "transcription-profile-default", labelKey: "settings.transcriptionProfiles.defaultProfile", fallbackLabel: "Default (Global)", keywords: ["default profile", "global profile", "language", "model", "профиль по умолчанию", "глобальный профиль"] },
   { id: "models", section: "models", anchor: "settings-models", labelKey: "settingsSearch.items.models", fallbackLabel: "Transcription models", keywords: ["stt", "local", "cloud", "provider", "model", "модель", "провайдер"] },
   { id: "api-keys", section: "models", anchor: "settings-api-keys", labelKey: "settingsSearch.items.apiKeys", fallbackLabel: "API keys and remote providers", keywords: ["api key", "credential", "endpoint", "openai", "gemini", "soniox", "deepgram", "vercel", "ключ", "эндпоинт"] },
   { id: "advanced", section: "advanced", labelKey: "settingsSearch.items.advanced", fallbackLabel: "Advanced application settings", keywords: ["advanced", "behavior", "startup", "расширенные", "запуск"] },
   { id: "postprocessing", section: "postprocessing", labelKey: "settingsSearch.items.postProcessing", fallbackLabel: "LLM post-processing", keywords: ["llm", "cleanup", "prompt", "post processing", "ai", "постобработка"] },
   { id: "ai-replace", section: "aiReplace", labelKey: "settingsSearch.items.aiReplace", fallbackLabel: "AI Replace", keywords: ["replace selection", "instruction", "prompt", "замена"] },
+  { id: "ai-replace-shortcut", section: "aiReplace", anchor: "shortcut-ai_replace_selection", labelKey: "settings.general.shortcut.bindings.ai_replace_selection.name", fallbackLabel: "AI Replace Selection", keywords: ["ai replace hotkey", "selected text shortcut", "replace selection", "замена выделения", "горячая клавиша"] },
   { id: "send-selected", section: "sendSelectedText", labelKey: "settingsSearch.items.sendSelectedText", fallbackLabel: "Send selected text", keywords: ["selected text", "markdown", "json", "command", "выделенный текст"] },
   { id: "voice-commands", section: "voiceCommands", labelKey: "settingsSearch.items.voiceCommands", fallbackLabel: "Voice commands", keywords: ["voice command", "action", "голосовые команды"] },
   { id: "connector", section: "browserConnector", labelKey: "settingsSearch.items.connector", fallbackLabel: "Browser connector", keywords: ["chrome", "browser", "extension", "chatgpt", "claude", "браузер", "коннектор"] },
@@ -195,6 +199,7 @@ const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
   { id: "live-preview", section: "userInterface", anchor: "live-preview-settings", labelKey: "settingsSearch.items.livePreview", fallbackLabel: "Live Preview", keywords: ["preview", "staging", "window", "превью"] },
   { id: "interface", section: "userInterface", labelKey: "settingsSearch.items.interface", fallbackLabel: "Interface appearance and behaviour", keywords: ["interface", "appearance", "window", "tray", "sidebar", "theme", "ui", "интерфейс", "вид", "трей"] },
   { id: "history", section: "history", labelKey: "settingsSearch.items.history", fallbackLabel: "History and recordings", keywords: ["history", "recording", "audio", "folder", "история", "записи"] },
+  { id: "repaste-shortcut", section: "history", anchor: "shortcut-repaste_last", labelKey: "settings.general.shortcut.bindings.repaste_last.name", fallbackLabel: "Repaste Last", keywords: ["repaste", "retry transcription", "last result", "paste again", "повторить вставку", "последний текст", "повтор транскрибации"] },
   { id: "audio-processing", section: "audioProcessing", labelKey: "settingsSearch.items.audioProcessing", fallbackLabel: "Speech and audio processing", keywords: ["noise", "gain", "vad", "audio", "processing", "шум", "обработка аудио"] },
   { id: "debug", section: "debug", labelKey: "settingsSearch.items.debug", fallbackLabel: "Debug and logs", keywords: ["debug", "logs", "diagnostics", "troubleshoot", "логи", "диагностика"] },
   { id: "live-model", section: "liveSoundTranscription", anchor: "live-monitor-session-settings", expandAnchor: "live-monitor-session-settings", labelKey: "settingsSearch.items.liveModel", fallbackLabel: "Live Monitor model and session settings", keywords: ["live monitor", "computer audio", "model", "session", "живой монитор"] },
@@ -202,7 +207,13 @@ const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
   { id: "file-model", section: "transcribeFile", anchor: "transcribe-file-model-settings", labelKey: "settingsSearch.items.fileModel", fallbackLabel: "File transcription model and settings", keywords: ["transcribe file", "audio file", "video file", "model", "chunking", "language hints", "транскрибация файла"] },
   { id: "file-diarization", section: "transcribeFile", anchor: "transcribe-file-diarization", expandAnchor: "transcribe-file-model-settings", labelKey: "settingsSearch.items.fileDiarization", fallbackLabel: "File transcription speaker diarization", keywords: ["diarization", "speaker", "file", "диаризация", "спикер", "файл"] },
   { id: "tts", section: "textToSpeech", anchor: "tts-api-settings", labelKey: "settingsSearch.items.tts", fallbackLabel: "Text-to-speech provider and voice", keywords: ["tts", "voice", "speak", "api", "голос", "озвучка"] },
+  { id: "tts-read-clipboard", section: "textToSpeech", anchor: "shortcut-read_clipboard", labelKey: "textToSpeech.actions.readClipboardTitle", fallbackLabel: "Read clipboard", keywords: ["clipboard tts", "read clipboard shortcut", "speak clipboard", "озвучить буфер обмена", "прочитать буфер", "горячая клавиша"] },
+  { id: "tts-read-selection", section: "textToSpeech", anchor: "shortcut-read_selection_tts", labelKey: "textToSpeech.actions.readSelectionTitle", fallbackLabel: "Copy selected text, then read clipboard", keywords: ["selected text tts", "read selection shortcut", "copy and speak", "озвучить выделенный текст", "прочитать выделение"] },
+  { id: "tts-read-selection-direct", section: "textToSpeech", anchor: "shortcut-read_selection_direct_tts", labelKey: "textToSpeech.actions.readSelectionDirectTitle", fallbackLabel: "Read selected text without copying", keywords: ["direct selection tts", "speak selected text", "read without clipboard", "озвучить выделение", "без буфера обмена"] },
   { id: "tts-files", section: "ttsFiles", labelKey: "settingsSearch.items.ttsFiles", fallbackLabel: "Text file to MP3", keywords: ["tts file", "mp3", "wav", "markdown", "текст в mp3"] },
+  { id: "help", section: "help", labelKey: "sidebar.help", fallbackLabel: "Help", keywords: ["help", "documentation", "guide", "how to", "справка", "документация", "помощь"] },
+  { id: "whats-new", section: "help", anchor: "help-whats-new-title", labelKey: "help.whatsNew.title", fallbackLabel: "What's New", keywords: ["new features", "release highlights", "changes", "новые функции", "что нового", "изменения"] },
+  { id: "about", section: "about", labelKey: "sidebar.about", fallbackLabel: "About", keywords: ["about", "version", "update", "license", "credits", "о программе", "версия", "обновление", "лицензия"] },
 ];
 
 function loadSavedOrder(available: string[]): string[] {
@@ -258,44 +269,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navigateFromSearch = useCallback(
     (sectionId: string, anchorId?: string, expandAnchorId?: string) => {
       const section = sectionId as SidebarSection;
-      onSectionChange(section);
-
       const sectionAnchorId = `settings-section-${section}`;
-      window.history.replaceState(
-        null,
-        "",
-        `#${anchorId ?? sectionAnchorId}`,
-      );
-
-      let attempts = 0;
-      const revealAnchor = () => {
-        const sectionAnchor = document.getElementById(sectionAnchorId);
-        if (!sectionAnchor) {
-          attempts += 1;
-          if (attempts <= 20) window.setTimeout(revealAnchor, 50);
-          return;
-        }
-
-        const expansionTarget = expandAnchorId
-          ? document.getElementById(expandAnchorId)
-          : null;
-        const collapsedToggle = expansionTarget?.querySelector<HTMLButtonElement>(
-          'button[aria-expanded="false"]',
-        );
-        collapsedToggle?.click();
-
-        window.requestAnimationFrame(() => {
-          window.requestAnimationFrame(() => {
-            const target =
-              (anchorId ? document.getElementById(anchorId) : null) ??
-              expansionTarget ??
-              sectionAnchor;
-            scrollAndFocusAnchor(target, "center");
-          });
-        });
-      };
-
-      window.setTimeout(revealAnchor, 0);
+      navigateToSettingsAnchor({
+        activateSection: () => onSectionChange(section),
+        targetId: anchorId ?? sectionAnchorId,
+        readyId: sectionAnchorId,
+        fallbackId: sectionAnchorId,
+        expandId: expandAnchorId,
+        block: "center",
+      });
     },
     [onSectionChange],
   );
