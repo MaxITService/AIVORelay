@@ -17,7 +17,7 @@ export const TextDisplay: React.FC<TextDisplayProps> = ({
   label,
   description,
   value,
-  descriptionMode = "tooltip",
+  descriptionMode = "inline",
   grouped = false,
   placeholder = "Not available",
   copyable = false,
