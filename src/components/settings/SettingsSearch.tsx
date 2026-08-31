@@ -151,6 +151,16 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
   }, [normalizedQuery]);
 
   useEffect(() => {
+    if (!showResults || !results[activeIndex]) return;
+
+    document
+      .getElementById(
+        `global-settings-search-result-${results[activeIndex].entry.id}`,
+      )
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, results, showResults]);
+
+  useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
       if (
         event.key.toLocaleLowerCase() !== "k" ||
