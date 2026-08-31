@@ -425,6 +425,7 @@ pub struct TtsBatchProgress {
     pub cancelled: bool,
     pub done: bool,
     pub started_at_ms: i64,
+    pub work_started_at_ms: Option<i64>,
     pub message: Option<String>,
     pub file: Option<TtsBatchFileResult>,
 }
@@ -2850,6 +2851,15 @@ fn emit_batch_progress(
         .filter(|progress| progress.batch_id == batch_id)
         .map(|progress| progress.started_at_ms)
         .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+    let work_started_at_ms = active_progress
+        .as_ref()
+        .filter(|progress| progress.batch_id == batch_id)
+        .and_then(|progress| progress.work_started_at_ms)
+        .or_else(|| {
+            file.as_ref()
+                .filter(|file| file.status == TtsBatchFileStatus::Processing)
+                .map(|_| chrono::Utc::now().timestamp_millis())
+        });
     let progress = TtsBatchProgress {
         client_id: client_id.to_string(),
         batch_id: batch_id.to_string(),
@@ -2870,6 +2880,7 @@ fn emit_batch_progress(
         cancelled,
         done,
         started_at_ms,
+        work_started_at_ms,
         message,
         file,
     };
