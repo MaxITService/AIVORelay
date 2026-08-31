@@ -43,7 +43,8 @@ struct LiveSoundTranscriptionRuntime {
     interim_text: String,
     final_raw_blocks: Vec<RawSpeakerBlock>,
     interim_raw_blocks: Vec<RawSpeakerBlock>,
-    segment_timestamps_ms: Vec<u64>,
+    final_segment_timestamps_ms: Vec<u64>,
+    interim_segment_timestamps_ms: Vec<u64>,
     transcript_started_at: Option<Instant>,
     session_id: u64,
     auto_stop_deadline: Option<Instant>,
@@ -84,7 +85,7 @@ impl LiveSoundTranscriptionRuntime {
             .filter(|_| self.recording)
             .map(|deadline| remaining_seconds(deadline.saturating_duration_since(Instant::now())));
 
-        let mut segments: Vec<LiveSoundTranscriptSegmentPayload> =
+        let mut final_segments: Vec<LiveSoundTranscriptSegmentPayload> =
             normalize_raw_speaker_blocks(self.final_raw_blocks.clone())
                 .into_iter()
                 .map(|block| LiveSoundTranscriptSegmentPayload {
@@ -96,8 +97,8 @@ impl LiveSoundTranscriptionRuntime {
                 })
                 .collect();
 
-        if segments.is_empty() && !self.final_text.trim().is_empty() {
-            segments.push(LiveSoundTranscriptSegmentPayload {
+        if final_segments.is_empty() && !self.final_text.trim().is_empty() {
+            final_segments.push(LiveSoundTranscriptSegmentPayload {
                 speaker_id: None,
                 speaker_label: None,
                 text: self.final_text.clone(),
@@ -106,7 +107,7 @@ impl LiveSoundTranscriptionRuntime {
             });
         }
 
-        segments.extend(
+        let mut interim_segments: Vec<LiveSoundTranscriptSegmentPayload> =
             normalize_raw_speaker_blocks(self.interim_raw_blocks.clone())
                 .into_iter()
                 .map(|block| LiveSoundTranscriptSegmentPayload {
@@ -115,11 +116,11 @@ impl LiveSoundTranscriptionRuntime {
                     text: block.text,
                     is_interim: true,
                     timestamp_ms: 0,
-                }),
-        );
+                })
+                .collect();
 
         if self.interim_text.trim().len() > 0 && self.interim_raw_blocks.is_empty() {
-            segments.push(LiveSoundTranscriptSegmentPayload {
+            interim_segments.push(LiveSoundTranscriptSegmentPayload {
                 speaker_id: None,
                 speaker_label: None,
                 text: self.interim_text.clone(),
@@ -128,7 +129,7 @@ impl LiveSoundTranscriptionRuntime {
             });
         }
 
-        let current_timestamp_ms = if segments.is_empty() {
+        let current_timestamp_ms = if final_segments.is_empty() && interim_segments.is_empty() {
             0
         } else {
             self.transcript_started_at
@@ -136,15 +137,27 @@ impl LiveSoundTranscriptionRuntime {
                 .elapsed()
                 .as_millis() as u64
         };
-        self.segment_timestamps_ms.truncate(segments.len());
-        self.segment_timestamps_ms
-            .resize(segments.len(), current_timestamp_ms);
-        for (segment, timestamp_ms) in segments
+        self.final_segment_timestamps_ms
+            .truncate(final_segments.len());
+        self.final_segment_timestamps_ms
+            .resize(final_segments.len(), current_timestamp_ms);
+        for (segment, timestamp_ms) in final_segments
             .iter_mut()
-            .zip(self.segment_timestamps_ms.iter().copied())
+            .zip(self.final_segment_timestamps_ms.iter().copied())
         {
             segment.timestamp_ms = timestamp_ms;
         }
+        self.interim_segment_timestamps_ms
+            .truncate(interim_segments.len());
+        self.interim_segment_timestamps_ms
+            .resize(interim_segments.len(), current_timestamp_ms);
+        for (segment, timestamp_ms) in interim_segments
+            .iter_mut()
+            .zip(self.interim_segment_timestamps_ms.iter().copied())
+        {
+            segment.timestamp_ms = timestamp_ms;
+        }
+        final_segments.extend(interim_segments);
 
         LiveSoundTranscriptionStatePayload {
             active: self.active,
@@ -154,7 +167,7 @@ impl LiveSoundTranscriptionRuntime {
             error_message: self.error_message.clone(),
             final_text: self.final_text.clone(),
             interim_text: self.interim_text.clone(),
-            segments,
+            segments: final_segments,
             auto_stop_remaining_seconds,
         }
     }
@@ -313,6 +326,7 @@ pub fn activate_session(app: &AppHandle, binding_id: String, auto_stop_minutes: 
         state.error_message = None;
         state.interim_text.clear();
         state.interim_raw_blocks.clear();
+        state.interim_segment_timestamps_ms.clear();
         state.session_id = session_id;
         state.auto_stop_deadline = auto_stop_deadline;
     });
@@ -333,6 +347,7 @@ pub fn finish_session(app: &AppHandle) {
         state.binding_id = None;
         state.interim_text.clear();
         state.interim_raw_blocks.clear();
+        state.interim_segment_timestamps_ms.clear();
         state.session_id = 0;
         state.auto_stop_deadline = None;
     });
@@ -381,7 +396,8 @@ pub fn clear_transcript(app: &AppHandle) {
         state.interim_text.clear();
         state.final_raw_blocks.clear();
         state.interim_raw_blocks.clear();
-        state.segment_timestamps_ms.clear();
+        state.final_segment_timestamps_ms.clear();
+        state.interim_segment_timestamps_ms.clear();
         state.transcript_started_at = None;
         state.error_message = None;
     });
@@ -400,6 +416,8 @@ pub fn replace_final_text(app: &AppHandle, final_text: String) {
         state.interim_text.clear();
         state.final_raw_blocks.clear();
         state.interim_raw_blocks.clear();
+        state.final_segment_timestamps_ms.truncate(1);
+        state.interim_segment_timestamps_ms.clear();
         state.error_message = None;
     });
 }
@@ -428,5 +446,6 @@ pub fn set_interim_result_if_session_matches(
     update_state_if_session_matches(app, session_id, move |state| {
         state.interim_text = interim_text.trim().to_string();
         state.interim_raw_blocks = raw_blocks;
+        state.interim_segment_timestamps_ms.clear();
     });
 }
