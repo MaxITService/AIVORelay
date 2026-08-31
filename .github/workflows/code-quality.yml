@@ -1,20 +1,9 @@
 name: "code quality"
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - "src/**"
-      - "package.json"
-      - "bun.lock"
-      - ".eslintrc*"
-      - "eslint.config.*"
-      - ".prettierrc*"
-      - "tsconfig*"
-      - "tailwind.config.*"
-      - ".github/workflows/**"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -32,6 +21,9 @@ jobs:
 
       - name: Check translation consistency
         run: bun run check:translations
+
+      - name: Check model language coverage
+        run: bun run check:model-languages
 
       - name: Run ESLint
         run: bun run lint
