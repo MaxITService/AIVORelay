@@ -50,6 +50,15 @@ pub fn is_supported_exact_locale(value: &str) -> bool {
     GEMINI_SUPPORTED_LOCALES.iter().any(|locale| *locale == value)
 }
 
+pub fn validate_language_selection(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value == "auto" || value == "os_input" || is_supported_exact_locale(value) {
+        return Ok(value.to_string());
+    }
+
+    Err(format!("Unsupported Gemini language locale: '{}'", value))
+}
+
 pub fn validate_vocabulary(terms: &[String]) -> Result<Vec<String>, String> {
     if terms.len() > GEMINI_VOCABULARY_HARD_MAX {
         return Err(format!(
@@ -274,6 +283,15 @@ mod tests {
         assert_eq!(map_os_locale("ru"), Some("ru-RU"));
         assert_eq!(map_os_locale("en"), None);
         assert_eq!(map_os_locale("en-GB"), Some("en-GB"));
+    }
+
+    #[test]
+    fn persisted_language_selection_accepts_only_supported_values() {
+        assert_eq!(validate_language_selection(" auto ").unwrap(), "auto");
+        assert_eq!(validate_language_selection("os_input").unwrap(), "os_input");
+        assert_eq!(validate_language_selection("ru-RU").unwrap(), "ru-RU");
+        assert!(validate_language_selection("ru").is_err());
+        assert!(validate_language_selection("not-a-locale").is_err());
     }
 
     #[test]

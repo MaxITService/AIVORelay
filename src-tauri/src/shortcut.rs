@@ -3092,15 +3092,9 @@ pub fn change_soniox_language_hints_strict_setting(
 #[tauri::command]
 #[specta::specta]
 pub fn change_gemini_language_code_setting(app: AppHandle, language: String) -> Result<(), String> {
-    let language = language.trim();
-    if language != "auto"
-        && language != "os_input"
-        && !crate::gemini_config::is_supported_exact_locale(language)
-    {
-        return Err(format!("Unsupported Gemini language locale: '{}'", language));
-    }
+    let language = crate::gemini_config::validate_language_selection(&language)?;
     let mut settings = settings::get_settings(&app);
-    settings.gemini_language_code = language.to_string();
+    settings.gemini_language_code = language;
     settings::write_settings(&app, settings);
     Ok(())
 }

@@ -757,10 +757,14 @@ export const TranscribeFileSettings: React.FC = () => {
 
   const changeFileGeminiLanguage = useCallback(
     async (languageCode: string) => {
-      await invoke("change_file_gemini_language_setting", { languageCode });
-      await refreshSettings();
+      try {
+        await invoke("change_file_gemini_language_setting", { languageCode });
+        await refreshSettings();
+      } catch (error) {
+        setError(String(error));
+      }
     },
-    [refreshSettings],
+    [refreshSettings, setError],
   );
 
   const persistFileGeminiVocabulary = useCallback(async () => {

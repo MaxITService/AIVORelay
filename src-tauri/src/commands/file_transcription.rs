@@ -24,7 +24,7 @@ use crate::session_manager::{ManagedSessionState, SessionState};
 use crate::settings::{
     apply_output_whitespace_policy_for_settings, apply_stt_model_selection, get_settings,
     resolve_live_sound_provider, stt_model_selection_key, stt_model_selection_supports_file,
-    write_settings, AppSettings, FileTranscriptionChunkingMode,
+    write_settings_checked, AppSettings, FileTranscriptionChunkingMode,
     FileTranscriptionModelConfig, SttModelSelection, TranscriptionProfile,
     TranscriptionProvider,
 };
@@ -473,6 +473,7 @@ pub fn change_file_gemini_language_setting(
     app: AppHandle,
     language_code: String,
 ) -> Result<(), String> {
+    let language_code = crate::gemini_config::validate_language_selection(&language_code)?;
     let mut settings = get_settings(&app);
     let selection = settings
         .file_transcription_model_selection
@@ -489,8 +490,7 @@ pub fn change_file_gemini_language_setting(
         .get_or_insert_with(|| initial_file_profile_snapshot(&settings, &selection));
     profile.gemini_language_code_override = Some(language_code);
     settings.file_transcription_model_configs.insert(key, config);
-    write_settings(&app, settings);
-    Ok(())
+    write_settings_checked(&app, settings)
 }
 
 #[tauri::command]
