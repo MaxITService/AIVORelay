@@ -90,9 +90,9 @@ Assign key combinations to the following actions:
 
 #### Default Profile
 
-The "Default Profile" uses your global settings (Settings → Speech). It cannot be deleted but can be customized or set as active.
+The "Default Profile" uses your global settings (Speech / Mic). It cannot be deleted but can be customized or set as active.
 
-**Setup:** Settings → Transcription Profiles
+**Setup:** Transcription Profiles
 
 
 ### 🔊 Text to Speech (App can also do that!)
@@ -103,7 +103,7 @@ You do not need to understand every setting to begin. AivoRelay includes ready-m
 
 #### Speak selected text
 
-1. Open **Settings → Speak selected text**.
+1. Open **Speak selected text** in the sidebar.
 2. Choose a provider. Its recommended preset is loaded automatically the first time; you can select a different preset later.
 3. Add an API key if the selected cloud provider requires one. Windows voices and the unofficial Microsoft Read Aloud integration do not require a key; local models keep synthesis on the device after installation.
 4. Assign a keyboard shortcut under **Actions**. Other settings can stay at their defaults.
@@ -111,7 +111,7 @@ You do not need to understand every setting to begin. AivoRelay includes ready-m
 
 #### Text file to MP3 or WAV
 
-Open **Settings → Text file to mp3** to convert one or more `.txt` or `.md` documents, scan folders with optional subfolders, or automate a watched folder. Long documents are split at natural boundaries, and interrupted jobs can resume from saved progress. Optional AI cleanup may send text to the configured LLM and incur provider costs. Existing outputs are never overwritten. The workflow is also available from the [TTS file-conversion CLI](CLI-TEXT-TO-SPEECH.md).
+Open **Text file to mp3** in the sidebar to convert one or more `.txt` or `.md` documents, scan folders with optional subfolders, or automate a watched folder. Long documents are split at natural boundaries, and interrupted jobs can resume from saved progress. Optional AI cleanup may send text to the configured LLM and incur provider costs. Existing outputs are never overwritten. The workflow is also available from the [TTS file-conversion CLI](CLI-TEXT-TO-SPEECH.md).
 
 Available choices include Soniox, Deepgram, OpenAI, OpenAI-compatible custom servers, Murf AI (Falcon 2 and Gen2), ElevenLabs (Eleven v3 and Multilingual v2), Cartesia Sonic 3.5, Windows installed voices, the unofficial Microsoft Read Aloud integration, and optional local Qwen or Kokoro models. File conversion and interactive speech keep separate active settings while sharing saved presets.
 
@@ -125,7 +125,7 @@ See your transcription in real-time in a separate, customizable, always-on-top w
 - **Smart Positioning** — Can follow your mouse cursor or stay in a fixed corner.
 - **Hotkey Controls** — Assign shortcuts to toggle visibility or trigger actions.
 
-**Setup:** Settings → User Interface → Live Preview
+**Setup:** User Interface → Live Preview
 ![Live Preview](Promo/preview_window.png)
 
 ### 🔴 Soniox Live Transcription
@@ -137,7 +137,7 @@ Real-time speech-to-text streaming — see your words appear as you speak!
 - **Live streaming** — Words appear instantly during speech
 - **Language hints** — Guide recognition with expected languages  
 
-**Setup:** Settings → Models
+**Setup:** Models
 
 ### 🌐 Deepgram Support for live transcription
 
@@ -147,7 +147,7 @@ Use Deepgram for fast cloud transcription, including live speech-to-text.
 - **Flexible tuning** — Adjust settings for speed and accuracy
 - **Speaker diarization** — Can label different speakers in audio file transcription
 
-**Setup:** Settings → Models
+**Setup:** Models
 
 
 ### 🤖 AI Replace Selection
@@ -163,7 +163,7 @@ Voice-controlled text editing — select text, speak instruction, get AI-transfo
 
 In the demonstration above, first I ask to solve the mathematical task, and then to translate text to Finnish.
 
-**Setup:** Settings → AI Replace
+**Setup:** AI Replace
 
 ### 🎙️ Automatic Preferred Microphone Selection
 
@@ -175,7 +175,7 @@ Set a case-insensitive microphone name mask such as `Remote Audio` (wildcards `*
 
 ![Automatic Microphone Selection](Promo/aivorelay_AutoMicSelection.png)
 
-**Setup:** Settings → Audio Processing → Automatic Microphone Selection
+**Setup:** Audio Processing → Automatic Microphone Selection
 
 ### 📤 Send to ChatGPT/Claude
 
@@ -207,7 +207,7 @@ Capture live audio from your computer speakers (loopback), microphone, or both t
 
 ![Live Monitor](Promo/live-sound-transcription.png)
 
-**Setup:** Settings → Live Monitor
+**Setup:** Live Monitor
 
 ### 📁 Transcribe Audio Files (with diarization for supporting API providers)
 
@@ -218,7 +218,7 @@ Drag and drop audio files to get a transcript.
 - Uses your local or cloud models (including Gemini, Soniox, Deepgram)
 - Deepgram can label different speakers in multi-speaker recordings
 
-**Setup:** Settings → Transcribe File
+**Setup:** Transcribe File
 
 ### ✏️ Text Replacement
 
@@ -238,13 +238,13 @@ Automatically fix transcription errors and apply formatting rules.
 
 Applied after LLM post-processing, so you get the final word on the output!
 
-**Setup:** Settings → Text Replacement
+**Setup:** Text Replacement
 
 ### 🔠 Custom Words (Fuzzy Matching)
 
 Automatically recombine and fix complex terms split by speech-to-text (e.g., "Chat G P T" → "ChatGPT") using fuzzy n-gram matching.
 
-**Setup:** Settings → Text Replacement → Custom Words
+**Setup:** Text Replacement → Custom Words
 
 ### 🧹 Audio Clean-Up & Smart Prompts
 
@@ -263,7 +263,7 @@ AivoRelay passively monitors your "edit" key (default: **Backspace**). If you pr
 - **Configurable Timeout** — Set how long the "resume" window remains active after your edit.
 - **Real-time Support** — Works seamlessly with Soniox Live transcription and standard modes.
 
-**Setup:** Settings → Text Replacement → Decapitalize After Manual Edit
+**Setup:** Text Replacement → Decapitalize After Manual Edit
 
 ### ☁️ Cloud STT Option
 
@@ -274,7 +274,7 @@ Use Gemini 3.5 Transcribe, Gemini Live (via Google Direct or Vercel), Soniox, De
 - Have a powerful GPU? Run locally for privacy
 - Switch between providers anytime
 
-**Setup:** Settings → Models
+**Setup:** Models
 
 ---
 ### 🗣️ Voice Command Center (Dangerous! Do not use)
@@ -286,7 +286,7 @@ Execute PowerShell scripts with your voice. Pre-write scripts... or make LLM wri
 - **Somewhat safe:** Always shows confirmation before running
 - **Smart:** If no command matches, use AI to generate a script on the fly (e.g., "open Chrome and go to YouTube")
 
-**Setup:** Settings → Voice Commands
+**Setup:** Voice Commands
 
 ## 🚀 Quick Start
 
