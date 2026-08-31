@@ -22,8 +22,8 @@ text before TTS-only preprocessing, semantic chunking, retry, and synthesis.
 The output extension selects MP3 or WAV. If `--output` is omitted, the saved
 TTS output format is used beside the input file.
 
-The CLI starts from the active provider/model profile in **Settings → TTS File
-Operations**, then applies any command-line overrides to an in-memory copy.
+The CLI starts from the active provider/model profile in **Text file to mp3**
+in the sidebar, then applies any command-line overrides to an in-memory copy.
 Interactive hotkey settings are independent. Each page automatically remembers
 its synthesis settings per provider/model, while named synthesis presets can be
 loaded on either page. LLM cleanup prompts and presets remain separate. CLI

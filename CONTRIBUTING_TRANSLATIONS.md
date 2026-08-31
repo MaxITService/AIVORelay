@@ -90,7 +90,7 @@ export const LANGUAGE_METADATA: Record<
 ### Step 5: Test Your Translation
 
 1. Run the app: `bun run tauri dev`
-2. Go to Settings → General → App Language
+2. Go to **General → App Language** in the sidebar
 3. Select your language
 4. Verify all text displays correctly
 

@@ -1,6 +1,6 @@
 # CLI Speech-to-Text File Conversion
 
-Use AivoRelay's saved **Transcribe Audio File** configuration to create a
+Use AivoRelay's saved **Transcribe File** configuration to create a
 plain-text or Markdown transcript from an audio file.
 
 ## Basic commands
@@ -16,7 +16,7 @@ Markdown beside the input file.
 
 The command uses the provider, credentials, model, language, diarization,
 chunking, and other file-transcription options saved in the app. Configure
-file-specific behavior under **Settings → Transcribe File**.
+file-specific behavior under **Transcribe File** in the sidebar.
 
 ### Gemini 3.5 Transcribe
 
