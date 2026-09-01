@@ -51,6 +51,7 @@ use once_cell::sync::Lazy;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use strsim::normalized_levenshtein;
@@ -176,13 +177,17 @@ static DEEPGRAM_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static OPENAI_REALTIME_WHISPER_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
-#[derive(Clone, Copy, Debug)]
-struct PendingGeminiFinalizingOverlayHide {
+#[derive(Debug)]
+struct PendingGeminiBackgroundFinalization {
+    binding_id: String,
     operation_id: u64,
     overlay_generation: u64,
+    delivery_confirmed: AtomicBool,
+    session_detached: AtomicBool,
+    foreground_released: AtomicBool,
 }
-static PENDING_GEMINI_FINALIZING_OVERLAY_HIDES: Lazy<
-    Mutex<HashMap<String, PendingGeminiFinalizingOverlayHide>>,
+static PENDING_GEMINI_BACKGROUND_FINALIZATIONS: Lazy<
+    Mutex<HashMap<u64, Arc<PendingGeminiBackgroundFinalization>>>,
 > = Lazy::new(|| Mutex::new(HashMap::new()));
 static FORCE_POST_PROCESS_BINDINGS: Lazy<Mutex<HashSet<String>>> =
     Lazy::new(|| Mutex::new(HashSet::new()));
@@ -604,80 +609,132 @@ fn take_openai_realtime_whisper_stream_emitted(binding_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn set_pending_gemini_finalizing_overlay_hide(
+fn register_gemini_background_finalization(
     binding_id: &str,
     operation_id: u64,
     overlay_generation: u64,
-) {
-    if let Ok(mut map) = PENDING_GEMINI_FINALIZING_OVERLAY_HIDES.lock() {
-        map.insert(
-            binding_id.to_string(),
-            PendingGeminiFinalizingOverlayHide {
-                operation_id,
-                overlay_generation,
-            },
-        );
+) -> Arc<PendingGeminiBackgroundFinalization> {
+    let pending = Arc::new(PendingGeminiBackgroundFinalization {
+        binding_id: binding_id.to_string(),
+        operation_id,
+        overlay_generation,
+        delivery_confirmed: AtomicBool::new(false),
+        session_detached: AtomicBool::new(false),
+        foreground_released: AtomicBool::new(false),
+    });
+    if let Ok(mut map) = PENDING_GEMINI_BACKGROUND_FINALIZATIONS.lock() {
+        map.insert(operation_id, Arc::clone(&pending));
     }
+    pending
 }
 
-fn take_pending_gemini_finalizing_overlay_hide(
-    binding_id: &str,
+fn take_gemini_background_finalization(
     operation_id: u64,
-) -> Option<u64> {
-    let mut map = PENDING_GEMINI_FINALIZING_OVERLAY_HIDES.lock().ok()?;
-    let belongs_to_operation = matches!(
-        map.get(binding_id),
-        Some(pending) if pending.operation_id == operation_id
-    );
-    if !belongs_to_operation {
-        return None;
-    }
-
-    map.remove(binding_id)
-        .map(|pending| pending.overlay_generation)
+) -> Option<Arc<PendingGeminiBackgroundFinalization>> {
+    let mut map = PENDING_GEMINI_BACKGROUND_FINALIZATIONS.lock().ok()?;
+    map.remove(&operation_id)
 }
 
-fn clear_pending_gemini_finalizing_overlay_hide(binding_id: &str) {
-    if let Ok(mut map) = PENDING_GEMINI_FINALIZING_OVERLAY_HIDES.lock() {
-        map.remove(binding_id);
-    }
+fn gemini_background_finalization_can_deliver(operation_id: u64) -> bool {
+    PENDING_GEMINI_BACKGROUND_FINALIZATIONS
+        .lock()
+        .ok()
+        .and_then(|map| map.get(&operation_id).cloned())
+        .is_some_and(|pending| pending.session_detached.load(Ordering::Acquire))
 }
 
-fn hide_pending_gemini_finalizing_overlay_after_delivery(
+fn confirm_gemini_background_delivery(
     app: &AppHandle,
-    binding_id: &str,
     operation_id: u64,
 ) -> bool {
-    let Some(overlay_generation) =
-        take_pending_gemini_finalizing_overlay_hide(binding_id, operation_id)
-    else {
+    let pending = PENDING_GEMINI_BACKGROUND_FINALIZATIONS
+        .lock()
+        .ok()
+        .and_then(|map| map.get(&operation_id).cloned());
+    let Some(pending) = pending else {
         return false;
     };
 
-    let hidden = crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
-        app,
-        overlay_generation,
-    );
-    if hidden {
-        debug!(
-            "Hid Vercel Gemini finalizing overlay after delivered output for operation {}",
-            operation_id
-        );
-    }
-    hidden
+    pending.delivery_confirmed.store(true, Ordering::Release);
+    release_gemini_finalization_foreground_on_main_thread(app, &pending)
 }
 
-struct PendingGeminiFinalizingOverlayHideGuard {
-    binding_id: String,
+fn release_gemini_finalization_foreground_on_main_thread(
+    app: &AppHandle,
+    pending: &PendingGeminiBackgroundFinalization,
+) -> bool {
+    if !pending.delivery_confirmed.load(Ordering::Acquire)
+        || !pending.session_detached.load(Ordering::Acquire)
+        || pending.foreground_released.swap(true, Ordering::AcqRel)
+    {
+        return false;
+    }
+
+    if let Err(error) = crate::clipboard::end_streaming_paste_session_if_matches(
+        app,
+        pending.operation_id,
+    ) {
+        warn!(
+            "Failed to restore clipboard while detaching Gemini finalization: {}",
+            error
+        );
+    }
+
+    let released = session_manager::exit_processing_if_matches(app, pending.operation_id);
+    if released {
+        reset_toggle_state(app, &pending.binding_id);
+        change_tray_icon(app, TrayIconState::Idle);
+        debug!(
+            "Detached delivered Vercel Gemini operation {} for background finalization",
+            pending.operation_id
+        );
+    } else {
+        debug!(
+            "Vercel Gemini operation {} no longer owns the foreground session",
+            pending.operation_id
+        );
+    }
+    released
+}
+
+fn mark_gemini_finalizing_session_detached(
+    app: &AppHandle,
+    pending: Arc<PendingGeminiBackgroundFinalization>,
+    timeout_ms: u64,
+) {
+    pending.session_detached.store(true, Ordering::Release);
+    if !pending.delivery_confirmed.load(Ordering::Acquire) {
+        return;
+    }
+
+    let app_for_release = app.clone();
+    if let Err(error) = run_on_main_thread_sync(app, timeout_ms, move || {
+        release_gemini_finalization_foreground_on_main_thread(&app_for_release, &pending);
+    }) {
+        warn!(
+            "Failed to release delivered Gemini finalization from the foreground: {}",
+            error
+        );
+    }
+}
+
+struct GeminiBackgroundFinalizationGuard {
+    app: AppHandle,
     operation_id: u64,
 }
 
-impl Drop for PendingGeminiFinalizingOverlayHideGuard {
+impl Drop for GeminiBackgroundFinalizationGuard {
     fn drop(&mut self) {
-        let _ = take_pending_gemini_finalizing_overlay_hide(
-            &self.binding_id,
-            self.operation_id,
-        );
+        let operation_id = self.operation_id;
+        if self
+            .app
+            .run_on_main_thread(move || {
+                let _ = take_gemini_background_finalization(operation_id);
+            })
+            .is_err()
+        {
+            let _ = take_gemini_background_finalization(operation_id);
+        }
     }
 }
 
@@ -3241,7 +3298,7 @@ fn settings_for_binding(app: &AppHandle, binding_id: &str) -> AppSettings {
     settings_with_model_override_for_binding(get_settings(app), binding_id)
 }
 
-fn should_hide_vercel_gemini_finalizing_after_streamed_output(
+fn should_release_vercel_gemini_after_streamed_output(
     is_gemini_live_provider: bool,
     provider_preset: &str,
     preview_output_only_enabled: bool,
@@ -3249,7 +3306,7 @@ fn should_hide_vercel_gemini_finalizing_after_streamed_output(
     invoked_from_gemini_time_limit: bool,
     had_stream_output: bool,
 ) -> bool {
-    can_hide_vercel_gemini_finalizing_after_delivery(
+    can_background_vercel_gemini_finalization(
         is_gemini_live_provider,
         provider_preset,
         preview_output_only_enabled,
@@ -3258,7 +3315,7 @@ fn should_hide_vercel_gemini_finalizing_after_streamed_output(
     ) && had_stream_output
 }
 
-fn can_hide_vercel_gemini_finalizing_after_delivery(
+fn can_background_vercel_gemini_finalization(
     is_gemini_live_provider: bool,
     provider_preset: &str,
     preview_output_only_enabled: bool,
@@ -3276,7 +3333,7 @@ fn can_hide_vercel_gemini_finalizing_after_delivery(
 mod stt_workflow_tests {
     use super::{
         settings_with_model_override_for_binding,
-        should_hide_vercel_gemini_finalizing_after_streamed_output,
+        should_release_vercel_gemini_after_streamed_output,
         LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
     };
     use crate::settings::{
@@ -3324,9 +3381,9 @@ mod stt_workflow_tests {
     }
 
     #[test]
-    fn early_vercel_gemini_overlay_hide_requires_the_safe_streaming_case() {
+    fn early_vercel_gemini_release_requires_the_safe_streaming_case() {
         let safe = (true, "vercel", false, false, false, true);
-        assert!(should_hide_vercel_gemini_finalizing_after_streamed_output(
+        assert!(should_release_vercel_gemini_after_streamed_output(
             safe.0, safe.1, safe.2, safe.3, safe.4, safe.5
         ));
 
@@ -3338,7 +3395,7 @@ mod stt_workflow_tests {
             (true, "vercel", false, false, true, true),
             (true, "vercel", false, false, false, false),
         ] {
-            assert!(!should_hide_vercel_gemini_finalizing_after_streamed_output(
+            assert!(!should_release_vercel_gemini_after_streamed_output(
                 unsafe_case.0,
                 unsafe_case.1,
                 unsafe_case.2,
@@ -5747,7 +5804,7 @@ fn setup_and_start_live(
             let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
                 .map_err(|e| format!("{}", e))?;
             gemini_realtime_manager
-                .start_session(binding_id, &api_key, options, None)
+                .start_session(binding_id, None, &api_key, options, None)
                 .map_err(|e| {
                     app.state::<Arc<AudioRecordingManager>>()
                         .clear_stream_frame_callback();
@@ -7021,7 +7078,6 @@ impl ShortcutAction for TranscribeAction {
                 TranscriptionProvider::RemoteOpenAiCompatible
                     if should_use_gemini_realtime_live(&settings) =>
                 {
-                    clear_pending_gemini_finalizing_overlay_hide(&binding_id);
                     let gemini_realtime_manager =
                         Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
                     let api_key = match crate::managers::remote_stt::get_remote_stt_api_key(
@@ -7089,8 +7145,13 @@ impl ShortcutAction for TranscribeAction {
                                     &ah_for_call,
                                     gemini_stream_insert_timeout_ms,
                                     move || {
-                                        if !operation_stamp.is_current(&ah_for_clip)
-                                            || operation_stamp.was_cancelled(&ah_for_clip)
+                                        let background_finalization =
+                                            gemini_background_finalization_can_deliver(
+                                                operation_stamp.operation_id,
+                                            );
+                                        if !background_finalization
+                                            && (!operation_stamp.is_current(&ah_for_clip)
+                                                || operation_stamp.was_cancelled(&ah_for_clip))
                                         {
                                             debug!(
                                                 "Skipping queued Gemini 3.5 Transcribe Live chunk for stale or cancelled operation {}",
@@ -7103,12 +7164,13 @@ impl ShortcutAction for TranscribeAction {
                                             ah_for_clip.clone(),
                                         ) {
                                             Ok(()) => {
-                                                mark_openai_realtime_whisper_stream_emitted(
-                                                    &binding_id_for_paste,
-                                                );
-                                                hide_pending_gemini_finalizing_overlay_after_delivery(
+                                                if !background_finalization {
+                                                    mark_openai_realtime_whisper_stream_emitted(
+                                                        &binding_id_for_paste,
+                                                    );
+                                                }
+                                                confirm_gemini_background_delivery(
                                                     &ah_for_clip,
-                                                    &binding_id_for_paste,
                                                     operation_stamp.operation_id,
                                                 );
                                             }
@@ -7118,11 +7180,13 @@ impl ShortcutAction for TranscribeAction {
                                                     error
                                                 );
                                                 warn!("{}", message);
-                                                handle_remote_transcription_error(
-                                                    &ah_for_clip,
-                                                    &message,
-                                                    false,
-                                                );
+                                                if !background_finalization {
+                                                    handle_remote_transcription_error(
+                                                        &ah_for_clip,
+                                                        &message,
+                                                        false,
+                                                    );
+                                                }
                                             }
                                         }
                                     },
@@ -7140,6 +7204,7 @@ impl ShortcutAction for TranscribeAction {
 
                     let start_result = gemini_realtime_manager.start_session(
                         &binding_id,
+                        Some(recording_operation_id),
                         &api_key,
                         build_gemini_realtime_options(&settings, profile),
                         chunk_callback,
@@ -7252,19 +7317,22 @@ impl ShortcutAction for TranscribeAction {
             } else {
                 show_finalizing_overlay(app);
             }
-            if can_hide_vercel_gemini_finalizing_after_delivery(
-                is_gemini_live_provider,
-                &recording_settings.remote_stt.provider_preset,
-                preview_output_only_enabled,
-                invoked_from_realtime_error,
-                invoked_from_gemini_time_limit,
-            ) {
-                set_pending_gemini_finalizing_overlay_hide(
-                    binding_id,
-                    recording_operation_id,
-                    crate::plus_overlay_state::current_recording_overlay_generation(),
-                );
-            }
+            let pending_gemini_background_finalization =
+                if can_background_vercel_gemini_finalization(
+                    is_gemini_live_provider,
+                    &recording_settings.remote_stt.provider_preset,
+                    preview_output_only_enabled,
+                    invoked_from_realtime_error,
+                    invoked_from_gemini_time_limit,
+                ) {
+                    Some(register_gemini_background_finalization(
+                        binding_id,
+                        recording_operation_id,
+                        crate::plus_overlay_state::current_recording_overlay_generation(),
+                    ))
+                } else {
+                    None
+                };
             let profile_id_for_postprocess = stop_context.captured_profile_id.clone();
             let current_app = stop_context.current_app.clone();
 
@@ -7275,9 +7343,9 @@ impl ShortcutAction for TranscribeAction {
             let invoked_from_preview_action = invoked_from_preview_action;
             let invoked_from_gemini_time_limit = invoked_from_gemini_time_limit;
             tauri::async_runtime::spawn(async move {
-                let _gemini_finalizing_overlay_hide_guard =
-                    is_gemini_live_provider.then(|| PendingGeminiFinalizingOverlayHideGuard {
-                        binding_id: binding_id.clone(),
+                let _gemini_background_finalization_guard =
+                    is_gemini_live_provider.then(|| GeminiBackgroundFinalizationGuard {
+                        app: ah.clone(),
                         operation_id: recording_operation_id,
                     });
                 let mut finish_guard =
@@ -7361,8 +7429,8 @@ impl ShortcutAction for TranscribeAction {
                 } else {
                     had_soniox_stream_output
                 };
-                let hide_vercel_gemini_finalizing_after_streamed_output =
-                    should_hide_vercel_gemini_finalizing_after_streamed_output(
+                let release_vercel_gemini_after_streamed_output =
+                    should_release_vercel_gemini_after_streamed_output(
                         is_gemini_live_provider,
                         &recording_settings.remote_stt.provider_preset,
                         preview_output_only_enabled,
@@ -7419,22 +7487,35 @@ impl ShortcutAction for TranscribeAction {
                     return;
                 }
 
-                if hide_vercel_gemini_finalizing_after_streamed_output {
+                // Vercel has already delivered the user-visible transcript. Detach
+                // the transport before releasing Processing so a new start cannot
+                // cancel the old socket while it closes in the background.
+                let mut detached_gemini_finalization =
+                    pending_gemini_background_finalization
+                        .as_ref()
+                        .map(|_| gemini_realtime_manager.begin_finish_session());
+                if let Some(pending) = pending_gemini_background_finalization.as_ref() {
+                    mark_gemini_finalizing_session_detached(
+                        &ah,
+                        Arc::clone(pending),
+                        streaming_clipboard_timeout_ms,
+                    );
+                }
+
+                if release_vercel_gemini_after_streamed_output {
                     let ah_for_overlay = ah.clone();
-                    let binding_id_for_overlay = binding_id.clone();
                     if let Err(error) = run_on_main_thread_sync(
                         &ah,
                         recording_settings.paste_delay_ms.saturating_add(1500),
                         move || {
-                            hide_pending_gemini_finalizing_overlay_after_delivery(
+                            confirm_gemini_background_delivery(
                                 &ah_for_overlay,
-                                &binding_id_for_overlay,
                                 recording_operation_id,
                             );
                         },
                     ) {
                         warn!(
-                            "Failed to hide Vercel Gemini finalizing overlay after streamed output: {}",
+                            "Failed to release delivered Vercel Gemini finalization from the foreground: {}",
                             error
                         );
                     }
@@ -7485,9 +7566,13 @@ impl ShortcutAction for TranscribeAction {
                         .finish_session(live_finalize_timeout_ms)
                         .await
                 } else if is_gemini_live_provider {
-                    gemini_realtime_manager
-                        .finish_session(live_finalize_timeout_ms)
-                        .await
+                    if let Some(finalization) = detached_gemini_finalization.take() {
+                        finalization.finish(live_finalize_timeout_ms).await
+                    } else {
+                        gemini_realtime_manager
+                            .finish_session(live_finalize_timeout_ms)
+                            .await
+                    }
                 } else if preview_output_only_enabled {
                     // Preview output is still reversible, so surface a partial
                     // Soniox timeout and let the complete-recording replay repair it.
@@ -7499,6 +7584,103 @@ impl ShortcutAction for TranscribeAction {
                         .finish_session(live_finalize_timeout_ms)
                         .await
                 };
+                let gemini_finalization_is_background = pending_gemini_background_finalization
+                    .as_ref()
+                    .is_some_and(|pending| {
+                        pending.foreground_released.load(Ordering::Acquire)
+                    });
+                if gemini_finalization_is_background {
+                    if let Some(processor) = stream_processor.as_ref() {
+                        let tail_delta = match processor.lock() {
+                            Ok(mut processor) => processor.flush(),
+                            Err(_) => {
+                                warn!("Failed to lock Gemini live stream processor");
+                                String::new()
+                            }
+                        };
+                        if !tail_delta.is_empty() {
+                            let ah_for_tail = ah.clone();
+                            if let Err(error) = run_on_main_thread_sync(
+                                &ah,
+                                recording_settings.paste_delay_ms.saturating_add(1500),
+                                move || {
+                                    if !gemini_background_finalization_can_deliver(
+                                        recording_operation_id,
+                                    ) {
+                                        debug!(
+                                            "Skipping Gemini background stream tail for completed operation {}",
+                                            recording_operation_id
+                                        );
+                                        return;
+                                    }
+                                    if let Err(error) = crate::clipboard::paste_stream_chunk(
+                                        tail_delta,
+                                        ah_for_tail,
+                                    ) {
+                                        warn!(
+                                            "Failed to insert Gemini background stream tail: {}",
+                                            error
+                                        );
+                                    }
+                                },
+                            ) {
+                                warn!(
+                                    "Failed to queue Gemini background stream tail: {}",
+                                    error
+                                );
+                            }
+                        }
+                    }
+
+                    if let Some(pending) = pending_gemini_background_finalization.as_ref() {
+                        let ah_for_overlay = ah.clone();
+                        let overlay_generation = pending.overlay_generation;
+                        if let Err(error) = ah.run_on_main_thread(move || {
+                            crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
+                                &ah_for_overlay,
+                                overlay_generation,
+                            );
+                        }) {
+                            warn!(
+                                "Failed to hide completed Gemini finalization overlay: {}",
+                                error
+                            );
+                        }
+                    }
+
+                    match transcription_result {
+                        Ok(text) => {
+                            let text = apply_profile_output_filters(
+                                &recording_settings,
+                                text,
+                                profile_id_for_postprocess.as_deref(),
+                            );
+                            if !text.is_empty() {
+                                let _ = apply_post_processing_and_history(
+                                    &ah,
+                                    &recording_settings,
+                                    text,
+                                    samples,
+                                    profile_id_for_postprocess,
+                                    &current_app,
+                                    None,
+                                    None,
+                                    force_post_process,
+                                    None,
+                                )
+                                .await;
+                            }
+                        }
+                        Err(error) => {
+                            warn!(
+                                "Background Gemini finalization ended after delivered output: {}",
+                                error
+                            );
+                        }
+                    }
+                    finish_guard.finish();
+                    return;
+                }
                 if !finish_guard.is_current() {
                     debug!(
                         "Discarding finalized live output for stale operation {}",
@@ -7693,9 +7875,8 @@ impl ShortcutAction for TranscribeAction {
                                             mark_openai_realtime_whisper_stream_emitted(
                                                 &binding_id_for_tail,
                                             );
-                                            hide_pending_gemini_finalizing_overlay_after_delivery(
+                                            confirm_gemini_background_delivery(
                                                 &ah_for_clip,
-                                                &binding_id_for_tail,
                                                 operation_stamp.operation_id,
                                             );
                                         }
