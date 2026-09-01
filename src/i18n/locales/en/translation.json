@@ -1847,7 +1847,10 @@
       },
       "pushToTalk": {
         "label": "Push To Talk",
-        "description": "When ON: hold key to record. When OFF: tap once to start, tap again to stop."
+        "description": "When ON: hold key to record. When OFF: tap once to start, tap again to stop.",
+        "moreOptions": "More options",
+        "autoLabel": "Automatic tap / hold",
+        "autoDescription": "Recording starts immediately. Release within 300 ms to keep recording until the next press, or keep holding and release to stop."
       },
       "transcriptionSystemPrompt": {
         "title": "Voice Model Prompt (optional, will only work if STT model supports it)",

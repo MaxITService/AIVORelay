@@ -48,8 +48,31 @@ pub fn voice_activation_button_press(app: AppHandle) -> Result<(), String> {
         .get("transcribe")
         .ok_or_else(|| "Transcribe action is not available".to_string())?;
 
-    let use_push_to_talk = active_profile_push_to_talk(&app);
     let shortcut_str = "voice_activation_button";
+
+    // Auto marks its recording active on physical keydown. If the Voice
+    // Activation Button is pressed during that interval, it is an independent
+    // control and must stop the recording instead of attempting a second start.
+    {
+        let toggle_state_manager = app.state::<ManagedToggleState>();
+        let mut states = toggle_state_manager
+            .lock()
+            .map_err(|_| "Failed to lock toggle state manager".to_string())?;
+        if states
+            .active_toggles
+            .get("transcribe")
+            .copied()
+            .unwrap_or(false)
+        {
+            states.active_toggles.insert("transcribe".to_string(), false);
+            states.active_presses.remove("transcribe");
+            drop(states);
+            action.stop(&app, "transcribe", shortcut_str);
+            return Ok(());
+        }
+    }
+
+    let use_push_to_talk = active_profile_push_to_talk(&app);
 
     if use_push_to_talk {
         action.start(&app, "transcribe", shortcut_str);
@@ -68,6 +91,9 @@ pub fn voice_activation_button_press(app: AppHandle) -> Result<(), String> {
             .or_insert(false);
         should_start = !*is_currently_active;
         *is_currently_active = should_start;
+        if !should_start {
+            states.active_presses.remove("transcribe");
+        }
     }
 
     if should_start {

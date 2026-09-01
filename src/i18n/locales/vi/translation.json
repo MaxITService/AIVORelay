@@ -139,7 +139,10 @@
       },
       "pushToTalk": {
         "label": "Nhấn để nói",
-        "description": "Giữ để ghi âm, thả để dừng"
+        "description": "Giữ để ghi âm, thả để dừng",
+        "moreOptions": "Tùy chọn khác",
+        "autoLabel": "Tự động: chạm / giữ",
+        "autoDescription": "Ghi âm bắt đầu ngay. Thả trong vòng 300 ms để tiếp tục ghi đến lần nhấn tiếp theo, hoặc giữ rồi thả để dừng."
       }
     },
     "sound": {

@@ -138,7 +138,10 @@
       },
       "pushToTalk": {
         "label": "按住说话",
-        "description": "按住录制，松开停止"
+        "description": "按住录制，松开停止",
+        "moreOptions": "更多选项",
+        "autoLabel": "自动：轻按 / 按住",
+        "autoDescription": "录音会立即开始。请在 300 毫秒内松开以保持录音，直到下次按下；或者持续按住并在松开时停止。"
       }
     },
     "sound": {

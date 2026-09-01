@@ -138,7 +138,10 @@
       },
       "pushToTalk": {
         "label": "Push To Talk",
-        "description": "Przytrzymaj, aby nagrywać, puść, aby zatrzymać"
+        "description": "Przytrzymaj, aby nagrywać, puść, aby zatrzymać",
+        "moreOptions": "Więcej opcji",
+        "autoLabel": "Automatycznie: stuknięcie / przytrzymanie",
+        "autoDescription": "Nagrywanie rozpoczyna się od razu. Puść w ciągu 300 ms, aby trwało do następnego naciśnięcia, albo przytrzymaj i puść, aby je zatrzymać."
       }
     },
     "sound": {

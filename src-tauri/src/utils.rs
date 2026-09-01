@@ -125,6 +125,7 @@ pub fn cancel_current_operation(app: &AppHandle) {
         }
     };
     states.active_toggles.values_mut().for_each(|v| *v = false);
+    states.active_presses.clear();
 
     // Cancel any ongoing recording (belt-and-suspenders, session should have done this)
     let audio_manager = app.state::<Arc<AudioRecordingManager>>();

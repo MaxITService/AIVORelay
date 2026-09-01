@@ -189,6 +189,8 @@ const settingUpdaters: {
   update_checks_enabled: (value) =>
     commands.changeUpdateChecksSetting(value as boolean),
   push_to_talk: (value) => commands.changePttSetting(value as boolean),
+  auto_shortcut_activation: (value) =>
+    commands.changeAutoShortcutActivationSetting(value as boolean),
   selected_microphone: (value) =>
     commands.setSelectedMicrophone(
       (value as string) === "Default" || value === null

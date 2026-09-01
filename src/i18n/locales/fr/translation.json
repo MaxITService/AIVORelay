@@ -139,7 +139,10 @@
       },
       "pushToTalk": {
         "label": "Appuyer pour parler",
-        "description": "Maintenez pour enregistrer, relâchez pour arrêter"
+        "description": "Maintenez pour enregistrer, relâchez pour arrêter",
+        "moreOptions": "Plus d’options",
+        "autoLabel": "Automatique : appui bref / maintien",
+        "autoDescription": "L’enregistrement démarre immédiatement. Relâchez avant 300 ms pour qu’il continue jusqu’au prochain appui, ou maintenez puis relâchez pour l’arrêter."
       }
     },
     "sound": {
