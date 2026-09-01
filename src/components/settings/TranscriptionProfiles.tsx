@@ -768,7 +768,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowShortcutMoreOptions((shown) => !shown)}
-                  className="text-[11px] text-[#ff4d8d] underline underline-offset-2 hover:opacity-75 transition-opacity"
+                  className="text-[11px] text-[#8b8490] underline underline-offset-2 hover:text-[#aaa3ae] transition-colors"
                 >
                   {t("settings.general.pushToTalk.moreOptions", "More options")}
                 </button>
@@ -819,7 +819,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                 <button
                   type="button"
                   onClick={openLivePreviewSettings}
-                  className="text-[#ff4d8d] underline underline-offset-2 font-normal hover:opacity-75 transition-opacity"
+                  className="text-[#8b8490] underline underline-offset-2 font-normal hover:text-[#aaa3ae] transition-colors"
                 >
                   (open settings)
                 </button>
@@ -2260,7 +2260,7 @@ export const TranscriptionProfiles: React.FC = () => {
                         onClick={() =>
                           setShowDefaultShortcutMoreOptions((shown) => !shown)
                         }
-                        className="text-[11px] text-[#ff4d8d] underline underline-offset-2 hover:opacity-75 transition-opacity"
+                        className="text-[11px] text-[#8b8490] underline underline-offset-2 hover:text-[#aaa3ae] transition-colors"
                       >
                         {t(
                           "settings.general.pushToTalk.moreOptions",
@@ -2328,7 +2328,7 @@ export const TranscriptionProfiles: React.FC = () => {
                       <button
                         type="button"
                         onClick={openLivePreviewSettings}
-                        className="text-[#ff4d8d] underline underline-offset-2 font-normal hover:opacity-75 transition-opacity"
+                        className="text-[#8b8490] underline underline-offset-2 font-normal hover:text-[#aaa3ae] transition-colors"
                       >
                         (open settings)
                       </button>
@@ -2836,7 +2836,7 @@ export const TranscriptionProfiles: React.FC = () => {
                 <button
                   type="button"
                   onClick={openLivePreviewSettings}
-                  className="text-[#ff4d8d] underline underline-offset-2 font-normal hover:opacity-75 transition-opacity"
+                  className="text-[#8b8490] underline underline-offset-2 font-normal hover:text-[#aaa3ae] transition-colors"
                 >
                   (open settings)
                 </button>
