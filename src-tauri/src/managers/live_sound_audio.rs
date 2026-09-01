@@ -256,6 +256,7 @@ fn start_live_session(
                 manager
                     .start_session(
                         crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
+                        None,
                         &api_key,
                         options,
                         None,

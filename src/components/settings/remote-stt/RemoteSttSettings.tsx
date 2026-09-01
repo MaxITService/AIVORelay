@@ -1718,7 +1718,14 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                         Google's documented locale codes; unsupported or
                         ambiguous choices fall back to automatic detection. The
                         model does not accept AivoRelay's free-form STT prompt, so
-                        that prompt is not uploaded.
+                        that prompt is not uploaded. {remotePreset === "vercel" && (
+                          <>
+                            After you stop, finalization may keep appending the
+                            last words in the background. You can start the next
+                            recording immediately; its recording overlay replaces
+                            Finalizing while the previous session finishes.
+                          </>
+                        )}
                       </>
                     ) : (
                       <>

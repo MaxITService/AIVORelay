@@ -208,9 +208,16 @@ struct ActiveSession {
     join_handle: JoinHandle<Result<()>>,
 }
 
+pub(crate) struct GeminiFinalizingSession {
+    app_handle: AppHandle,
+    active_session: Arc<Mutex<Option<ActiveSession>>>,
+    session: Option<ActiveSession>,
+}
+
 #[derive(Clone)]
 struct SessionParams {
     binding_id: String,
+    operation_id: Option<u64>,
     api_key: String,
     options: GeminiRealtimeOptions,
     on_final_chunk: Option<FinalChunkCallback>,
@@ -218,22 +225,22 @@ struct SessionParams {
 
 pub struct GeminiRealtimeManager {
     app_handle: AppHandle,
-    active_session: Mutex<Option<ActiveSession>>,
+    active_session: Arc<Mutex<Option<ActiveSession>>>,
     session_params: Mutex<Option<SessionParams>>,
     pending_audio: Mutex<Vec<Vec<u8>>>,
-    time_limit_completion: Arc<Mutex<Option<GeminiTimeLimitCompletion>>>,
-    reported_runtime_error: Arc<Mutex<Option<String>>>,
+    time_limit_completion: Mutex<Arc<Mutex<Option<GeminiTimeLimitCompletion>>>>,
+    reported_runtime_error: Mutex<Arc<Mutex<Option<String>>>>,
 }
 
 impl GeminiRealtimeManager {
     pub fn new(app_handle: &AppHandle) -> Result<Self> {
         Ok(Self {
             app_handle: app_handle.clone(),
-            active_session: Mutex::new(None),
+            active_session: Arc::new(Mutex::new(None)),
             session_params: Mutex::new(None),
             pending_audio: Mutex::new(Vec::new()),
-            time_limit_completion: Arc::new(Mutex::new(None)),
-            reported_runtime_error: Arc::new(Mutex::new(None)),
+            time_limit_completion: Mutex::new(Arc::new(Mutex::new(None))),
+            reported_runtime_error: Mutex::new(Arc::new(Mutex::new(None))),
         })
     }
 
@@ -251,7 +258,13 @@ impl GeminiRealtimeManager {
         let params = self.session_params.lock().clone();
         if let Some(p) = params {
             self.cancel();
-            self.start_session(&p.binding_id, &p.api_key, p.options, p.on_final_chunk)?;
+            self.start_session(
+                &p.binding_id,
+                p.operation_id,
+                &p.api_key,
+                p.options,
+                p.on_final_chunk,
+            )?;
         }
         Ok(())
     }
@@ -259,6 +272,7 @@ impl GeminiRealtimeManager {
     pub fn start_session(
         &self,
         binding_id: &str,
+        operation_id: Option<u64>,
         api_key: &str,
         options: GeminiRealtimeOptions,
         on_final_chunk: Option<FinalChunkCallback>,
@@ -312,6 +326,7 @@ impl GeminiRealtimeManager {
             let mut params_guard = self.session_params.lock();
             *params_guard = Some(SessionParams {
                 binding_id: binding_id.to_string(),
+                operation_id,
                 api_key: api_key.to_string(),
                 options: options.clone(),
                 on_final_chunk: on_final_chunk.clone(),
@@ -329,10 +344,10 @@ impl GeminiRealtimeManager {
             .then(crate::managers::live_sound_transcription::current_session_id);
         let api_key_for_task = api_key.trim().to_string();
         let session_audio_tx = audio_tx.clone();
-        let time_limit_completion = Arc::clone(&self.time_limit_completion);
-        *time_limit_completion.lock() = None;
-        let reported_runtime_error = Arc::clone(&self.reported_runtime_error);
-        *reported_runtime_error.lock() = None;
+        let time_limit_completion = Arc::new(Mutex::new(None));
+        *self.time_limit_completion.lock() = Arc::clone(&time_limit_completion);
+        let reported_runtime_error = Arc::new(Mutex::new(None));
+        *self.reported_runtime_error.lock() = Arc::clone(&reported_runtime_error);
 
         let join_handle = tauri::async_runtime::spawn(async move {
             let session_result: Result<()> = async {
@@ -393,11 +408,19 @@ impl GeminiRealtimeManager {
                 );
                 let callback_is_current = live_sound_session_id
                     .map(crate::managers::live_sound_transcription::is_session_current)
+                    .or_else(|| {
+                        operation_id.map(|operation_id| {
+                            crate::session_manager::is_operation_current(
+                                &app_handle_for_task,
+                                operation_id,
+                            )
+                        })
+                    })
                     .unwrap_or(true);
                 if callback_is_current {
                     *reported_runtime_error.lock() = Some(err_str.clone());
                 }
-                if live_sound_session_id.is_none() {
+                if callback_is_current && live_sound_session_id.is_none() {
                     crate::actions::stop_transcription_after_realtime_error(
                         &app_handle_for_task,
                         &binding_id_for_task,
@@ -483,7 +506,8 @@ impl GeminiRealtimeManager {
     }
 
     pub fn take_reported_runtime_error(&self, error: &str) -> bool {
-        let mut reported = self.reported_runtime_error.lock();
+        let reported = Arc::clone(&self.reported_runtime_error.lock());
+        let mut reported = reported.lock();
         if reported.as_deref() != Some(error) {
             return false;
         }
@@ -492,7 +516,8 @@ impl GeminiRealtimeManager {
     }
 
     pub fn clear_reported_runtime_error(&self) {
-        *self.reported_runtime_error.lock() = None;
+        let reported = Arc::clone(&self.reported_runtime_error.lock());
+        *reported.lock() = None;
     }
 
     fn normalize_gemini_model(model: &str) -> String {
@@ -1093,7 +1118,9 @@ impl GeminiRealtimeManager {
     }
 
     pub(crate) fn take_time_limit_completion(&self) -> Option<GeminiTimeLimitCompletion> {
-        self.time_limit_completion.lock().take()
+        let completion = Arc::clone(&self.time_limit_completion.lock());
+        let result = completion.lock().take();
+        result
     }
 
     pub fn push_audio_frame(&self, frame_16khz_mono: Vec<f32>) {
@@ -1125,7 +1152,44 @@ impl GeminiRealtimeManager {
         }
     }
 
+    /// Detaches the active transport synchronously so a new recording can open
+    /// its own Gemini session while this one finishes in the background.
+    pub(crate) fn begin_finish_session(&self) -> GeminiFinalizingSession {
+        GeminiFinalizingSession {
+            app_handle: self.app_handle.clone(),
+            active_session: Arc::clone(&self.active_session),
+            session: self.active_session.lock().take(),
+        }
+    }
+
     pub async fn finish_session(&self, timeout_ms: u32) -> Result<String> {
+        self.begin_finish_session().finish(timeout_ms).await
+    }
+
+    pub fn cancel(&self) {
+        let session = self.active_session.lock().take();
+        if let Some(session) = session {
+            let _ = session.control_tx.send(ControlMessage::Cancel);
+            session.join_handle.abort();
+        }
+
+        self.pending_audio.lock().clear();
+
+        if crate::managers::preview_output_mode::is_active() {
+            return;
+        }
+        crate::overlay::end_soniox_live_preview_session();
+        crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
+    }
+}
+
+impl GeminiFinalizingSession {
+    pub(crate) async fn finish(self, timeout_ms: u32) -> Result<String> {
+        let GeminiFinalizingSession {
+            app_handle,
+            active_session,
+            session,
+        } = self;
         let hide_preview = |binding_id: Option<&str>| {
             if binding_id == Some(crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID) {
                 return;
@@ -1133,11 +1197,12 @@ impl GeminiRealtimeManager {
             if crate::managers::preview_output_mode::is_active() {
                 return;
             }
+            if active_session.lock().is_some() {
+                return;
+            }
             crate::overlay::end_soniox_live_preview_session();
-            crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
+            crate::overlay::hide_soniox_live_preview_window(&app_handle);
         };
-
-        let session = self.active_session.lock().take();
 
         let Some(session) = session else {
             hide_preview(None);
@@ -1209,22 +1274,6 @@ impl GeminiRealtimeManager {
 
         hide_preview(Some(&binding_id));
         Ok(read_final_text())
-    }
-
-    pub fn cancel(&self) {
-        let session = self.active_session.lock().take();
-        if let Some(session) = session {
-            let _ = session.control_tx.send(ControlMessage::Cancel);
-            session.join_handle.abort();
-        }
-
-        self.pending_audio.lock().clear();
-
-        if crate::managers::preview_output_mode::is_active() {
-            return;
-        }
-        crate::overlay::end_soniox_live_preview_session();
-        crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
     }
 }
 
