@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import type { SttModelSelection } from "./sttModelSelection";
 import {
+  globalSttSelection,
+  legacyLiveSttSelection,
   sttCatalog,
   sttModelDropdownOptions,
   sttModelCapabilities,
@@ -79,5 +81,99 @@ describe("workflow-specific STT model menus", () => {
         .find(option => option.value !== sttSelectionKey(unprepared.selection))
         ?.label.startsWith("⚠ "),
     ).toBe(false);
+  });
+});
+
+describe("STT selection compatibility", () => {
+  it("builds Dictation from the live and file catalogs without duplicate selections", () => {
+    const localModel = {
+      id: "local-test-model",
+      name: "Local Test Model",
+    } as Parameters<typeof sttCatalog>[1][number];
+    const catalog = sttCatalog("dictation", [localModel]);
+    const selectionKeys = catalog.map(option =>
+      sttSelectionKey(option.selection),
+    );
+
+    expect(catalog[0].id).toBe("local:local-test-model");
+    expect(catalog.map(option => option.id)).toContain("soniox:stt-rt-v5");
+    expect(catalog.map(option => option.id)).toContain("soniox:stt-async-v5");
+    expect(catalog.map(option => option.id)).toContain("deepgram:nova-3");
+    expect(new Set(selectionKeys).size).toBe(selectionKeys.length);
+  });
+
+  it("restores the saved global provider and applies safe defaults for incomplete settings", () => {
+    expect(globalSttSelection(undefined)).toEqual({
+      provider: "local",
+      model_id: "",
+      provider_preset: "",
+    });
+    expect(
+      globalSttSelection({
+        transcription_provider: "remote_soniox",
+        soniox_model: "stt-async-v5",
+      } as Parameters<typeof globalSttSelection>[0]),
+    ).toEqual({
+      provider: "remote_soniox",
+      model_id: "stt-async-v5",
+      provider_preset: "",
+    });
+    expect(
+      globalSttSelection({
+        transcription_provider: "remote_openai_compatible",
+        remote_stt: {},
+      } as Parameters<typeof globalSttSelection>[0]),
+    ).toEqual({
+      provider: "remote_openai_compatible",
+      model_id: "whisper-large-v3-turbo",
+      provider_preset: "groq",
+    });
+  });
+
+  it("keeps a compatible legacy Gemini live selection and rejects a file-only one", () => {
+    const liveSettings = {
+      live_sound_transcription_provider: "remote_openai_compatible",
+      remote_stt: {
+        provider_preset: "google",
+        model_id: "gemini-3.5-transcribe-live",
+      },
+    } as Parameters<typeof legacyLiveSttSelection>[0];
+    const fileSettings = {
+      live_sound_transcription_provider: "remote_openai_compatible",
+      remote_stt: {
+        provider_preset: "google",
+        model_id: "gemini-3.5-transcribe",
+      },
+    } as Parameters<typeof legacyLiveSttSelection>[0];
+
+    expect(legacyLiveSttSelection(liveSettings)).toEqual({
+      provider: "remote_openai_compatible",
+      model_id: "gemini-3.5-transcribe-live",
+      provider_preset: "google",
+    });
+    expect(legacyLiveSttSelection(fileSettings)).toEqual({
+      provider: "remote_soniox",
+      model_id: "stt-rt-v5",
+      provider_preset: "",
+    });
+  });
+
+  it("matches Gemini capabilities case-insensitively without granting them to custom presets", () => {
+    const googleGemini: SttModelSelection = {
+      provider: "remote_openai_compatible",
+      provider_preset: "GOOGLE",
+      model_id: "GEMINI-3.5-TRANSCRIBE",
+    };
+    const customGemini: SttModelSelection = {
+      provider: "remote_openai_compatible",
+      provider_preset: "custom",
+      model_id: "gemini-3.5-transcribe",
+    };
+
+    expect(sttSupports(googleGemini, "diarization", "file")).toBe(true);
+    expect(sttSupports(googleGemini, "vocabulary", "dictation")).toBe(true);
+    expect(sttSupports(customGemini, "diarization", "file")).toBe(false);
+    expect(sttSupports(customGemini, "vocabulary", "dictation")).toBe(false);
+    expect(sttSupports(customGemini, "languageHints", "file")).toBe(true);
   });
 });
