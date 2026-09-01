@@ -29,6 +29,7 @@ When asked to bump the app version:
 5. Refresh the in-app **Help -> What's New** section for the target release:
    - set `help.whatsNew.since` in `src/i18n/locales/en/translation.json` and `src/i18n/locales/ru/translation.json` to the previous released version;
    - replace `help.whatsNew.items` in both locale files with short, user-facing highlights added since that version;
+   - write **What's New** in easy, non-technical language for ordinary users: explain what they can do or what became better, and avoid acronyms or internal implementation terms unless they are visible product labels;
    - keep `WHATS_NEW_ITEMS` in `src/components/settings/help/HelpSettings.tsx` aligned with the new translation keys and their intended display order;
    - remove stale item keys instead of accumulating an indefinite release history in this section.
 6. At the same time, prepare a short release body draft from the same commit review:
