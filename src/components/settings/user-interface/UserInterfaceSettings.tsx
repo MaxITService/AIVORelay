@@ -473,6 +473,8 @@ export const UserInterfaceSettings: React.FC = () => {
                         sttPromptOverrideEnabled: activeProfile.stt_prompt_override_enabled ?? false,
                         includeInCycle: activeProfile.include_in_cycle,
                         pushToTalk: activeProfile.push_to_talk,
+                        autoShortcutActivation:
+                          activeProfile.auto_shortcut_activation ?? false,
                         previewOutputOnlyEnabled: enabled,
                         llmSettings: {
                           enabled: activeProfile.llm_post_process_enabled ?? false,

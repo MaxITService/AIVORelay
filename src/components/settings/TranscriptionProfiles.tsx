@@ -41,7 +41,11 @@ import { SonioxContextEditor } from "./SonioxContextEditor";
 import type { ModelOption } from "./PostProcessingSettingsApi/types";
 import { useSettings } from "../../hooks/useSettings";
 import { useModels } from "../../hooks/useModels";
-import { LANGUAGES, type Language } from "../../lib/constants/languages";
+import {
+  LANGUAGES,
+  supportsLanguageCode,
+  type Language,
+} from "../../lib/constants/languages";
 import { isLanguageSupportedBySoniox } from "../../lib/constants/sonioxLanguages";
 import { getModelPromptInfo } from "./TranscriptionSystemPrompt";
 import { useNavigationStore } from "../../stores/navigationStore";
@@ -100,7 +104,10 @@ const profileSttPresentation = (
           (language) =>
             language.value === "auto" ||
             language.value === "os_input" ||
-            localModel.supported_languages.includes(language.value),
+            supportsLanguageCode(
+              localModel.supported_languages,
+              language.value,
+            ),
         )
       : LANGUAGES;
 
@@ -1682,7 +1689,7 @@ export const TranscriptionProfiles: React.FC = () => {
           (language) =>
             language.value === "auto" ||
             language.value === "os_input" ||
-            supported.includes(language.value),
+            supportsLanguageCode(supported, language.value),
         );
       }
     }

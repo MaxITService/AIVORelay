@@ -4,6 +4,11 @@ export interface Language {
   className?: string;
 }
 
+const LANGUAGE_ALIASES = new Map([
+  ["nb", "no"],
+  ["fil", "tl"],
+]);
+
 export const LANGUAGES: Language[] = [
   { value: "auto", label: "Auto Detect" },
   { value: "os_input", label: "Follow OS Input Language", className: "text-amber-400" },
@@ -112,3 +117,33 @@ export const LANGUAGES: Language[] = [
   { value: "yi", label: "Yiddish" },
   { value: "yo", label: "Yoruba" },
 ];
+
+/**
+ * Collapse a concrete model code to the stable recognition intent used by the
+ * picker. Region/script suffixes are ignored for capability matching, and
+ * equivalent model-family codes share one intent.
+ */
+export const recognitionLanguage = (languageCode: string): string => {
+  const separatorIndex = languageCode.search(/[-_]/);
+  const baseCode =
+    separatorIndex === -1
+      ? languageCode
+      : languageCode.slice(0, separatorIndex);
+
+  return LANGUAGE_ALIASES.get(baseCode) ?? baseCode;
+};
+
+export const supportsLanguageCode = (
+  supportedLanguages: string[],
+  languageCode: string,
+): boolean => {
+  const recognitionCode = recognitionLanguage(languageCode);
+  return supportedLanguages.some(
+    (supportedLanguage) =>
+      recognitionLanguage(supportedLanguage) === recognitionCode,
+  );
+};
+
+export const MODEL_CAPABILITY_LANGUAGES = LANGUAGES.filter(
+  (language) => language.value !== "auto" && language.value !== "os_input",
+);

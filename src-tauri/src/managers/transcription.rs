@@ -379,10 +379,6 @@ fn effective_language_for_model(
     }
 }
 
-fn base_language_code(language: &str) -> &str {
-    language.split(&['-', '_'][..]).next().unwrap_or(language)
-}
-
 fn resolve_output_language_evidence(
     requested_language: &str,
     applied_language_hint: Option<&str>,
@@ -400,7 +396,8 @@ fn resolve_output_language_evidence(
     }) {
         if !requested_language.eq_ignore_ascii_case("auto")
             && !requested_language.eq_ignore_ascii_case("os_input")
-            && base_language_code(requested_language) == base_language_code(language)
+            && crate::managers::model::canonical_language_code(requested_language)
+                == crate::managers::model::canonical_language_code(language)
         {
             return OutputLanguageEvidence::UserSelected(language.to_string());
         }
@@ -3777,6 +3774,14 @@ mod tests {
         assert_eq!(
             resolve_output_language_evidence("pt-BR", Some("pt"), &languages(&["en", "pt"]), false,),
             OutputLanguageEvidence::UserSelected("pt".to_string())
+        );
+    }
+
+    #[test]
+    fn norwegian_alias_is_recorded_as_user_selected_evidence() {
+        assert_eq!(
+            resolve_output_language_evidence("no", Some("nb"), &languages(&["nb"]), false),
+            OutputLanguageEvidence::UserSelected("nb".to_string())
         );
     }
 

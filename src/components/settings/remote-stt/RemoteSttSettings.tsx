@@ -129,6 +129,7 @@ const buildProfileUpdatePayload = (
     false,
   includeInCycle: profile.include_in_cycle ?? true,
   pushToTalk: profile.push_to_talk ?? true,
+  autoShortcutActivation: profile.auto_shortcut_activation ?? false,
   previewOutputOnlyEnabled: profile.preview_output_only_enabled ?? false,
   sonioxLanguageHintsStrict: profile.soniox_language_hints_strict ?? null,
   geminiLanguageCodeOverride: (profile as any).gemini_language_code_override ?? null,
