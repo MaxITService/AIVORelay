@@ -153,6 +153,7 @@ Transcript:
 interface ExtendedTranscriptionProfile extends TranscriptionProfile {
   include_in_cycle: boolean;
   push_to_talk: boolean;
+  auto_shortcut_activation?: boolean;
   preview_output_only_enabled: boolean;
   soniox_language_hints_strict?: boolean | null;
   stt_prompt_override_enabled: boolean;
@@ -222,6 +223,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const [isUpdating, setIsUpdating] = useState(false);
+  const [showShortcutMoreOptions, setShowShortcutMoreOptions] = useState(false);
   const effectiveSttSelection =
     profile.stt_model_selection_override ?? globalSttModelSelection;
   const [remoteSupportsTranslation, setRemoteSupportsTranslation] =
@@ -416,6 +418,15 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     setIsUpdating(true);
     try {
       await onUpdate({ ...profile, push_to_talk: newValue });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleAutoShortcutActivationChange = async (newValue: boolean) => {
+    setIsUpdating(true);
+    try {
+      await onUpdate({ ...profile, auto_shortcut_activation: newValue });
     } finally {
       setIsUpdating(false);
     }
@@ -750,19 +761,53 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
             </div>
 
             <div className="min-w-0">
-              <label className="text-xs font-semibold text-text/70 block mb-2">
-                {t("settings.general.pushToTalk.label")}
-              </label>
+              <div className="flex items-center gap-2 mb-2">
+                <label className="text-xs font-semibold text-text/70">
+                  {t("settings.general.pushToTalk.label")}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowShortcutMoreOptions((shown) => !shown)}
+                  className="text-[11px] text-[#ff4d8d] underline underline-offset-2 hover:opacity-75 transition-opacity"
+                >
+                  {t("settings.general.pushToTalk.moreOptions", "More options")}
+                </button>
+              </div>
               <div className="flex items-center gap-2">
                 <ToggleSwitch
                   checked={profile.push_to_talk ?? true}
                   onChange={handlePushToTalkChange}
-                  disabled={isUpdating}
+                  disabled={isUpdating || profile.auto_shortcut_activation === true}
                 />
                 <span className="text-xs text-mid-gray leading-snug">
                   {t("settings.general.pushToTalk.description")}
                 </span>
               </div>
+              {showShortcutMoreOptions && (
+                <div className="mt-3 pt-3 border-t border-mid-gray/15">
+                  <div className="flex items-start gap-2">
+                    <ToggleSwitch
+                      checked={profile.auto_shortcut_activation ?? false}
+                      onChange={handleAutoShortcutActivationChange}
+                      disabled={isUpdating}
+                    />
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-text/80">
+                        {t(
+                          "settings.general.pushToTalk.autoLabel",
+                          "Automatic tap / hold",
+                        )}
+                      </div>
+                      <div className="mt-1 text-[11px] text-mid-gray leading-snug">
+                        {t(
+                          "settings.general.pushToTalk.autoDescription",
+                          "Recording starts immediately. Release within 300 ms to keep recording until the next press, or keep holding and release to stop.",
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="min-w-0">
@@ -1479,6 +1524,8 @@ export const TranscriptionProfiles: React.FC = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [isUpdatingDefaultLlm, setIsUpdatingDefaultLlm] = useState(false);
+  const [showDefaultShortcutMoreOptions, setShowDefaultShortcutMoreOptions] =
+    useState(false);
   const [newName, setNewName] = useState("");
   const [newLanguage, setNewLanguage] = useState("auto");
   const [newTranslate, setNewTranslate] = useState(false);
@@ -1788,6 +1835,7 @@ export const TranscriptionProfiles: React.FC = () => {
             sttPromptOverrideEnabled: newSttPromptOverrideEnabled,
             sttModelSelectionOverride: null,
             pushToTalk: newPushToTalk,
+            autoShortcutActivation: false,
             previewOutputOnlyEnabled: newPreviewOutputOnly,
             includeInCycle: newIncludeInCycle,
             llmSettings:
@@ -1884,6 +1932,7 @@ export const TranscriptionProfiles: React.FC = () => {
             profile.stt_model_selection_override ?? null,
           includeInCycle: profile.include_in_cycle,
           pushToTalk: profile.push_to_talk,
+          autoShortcutActivation: profile.auto_shortcut_activation ?? false,
           previewOutputOnlyEnabled:
             profile.preview_output_only_enabled ?? false,
           llmSettings: {
@@ -2202,9 +2251,23 @@ export const TranscriptionProfiles: React.FC = () => {
                 {/* Push-to-Talk + Output to Preview — matches ProfileCard box style */}
                 <div className="grid gap-3 lg:grid-cols-2 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
                   <div className="min-w-0">
-                    <label className="text-xs font-semibold text-text/70 block mb-2">
-                      {t("settings.general.pushToTalk.label")}
-                    </label>
+                    <div className="flex items-center gap-2 mb-2">
+                      <label className="text-xs font-semibold text-text/70">
+                        {t("settings.general.pushToTalk.label")}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setShowDefaultShortcutMoreOptions((shown) => !shown)
+                        }
+                        className="text-[11px] text-[#ff4d8d] underline underline-offset-2 hover:opacity-75 transition-opacity"
+                      >
+                        {t(
+                          "settings.general.pushToTalk.moreOptions",
+                          "More options",
+                        )}
+                      </button>
+                    </div>
                     <div className="flex items-center gap-2">
                       <ToggleSwitch
                         checked={settings?.push_to_talk ?? true}
@@ -2212,11 +2275,48 @@ export const TranscriptionProfiles: React.FC = () => {
                           updateSetting &&
                           updateSetting("push_to_talk" as any, checked)
                         }
+                        disabled={
+                          ((settings as any)
+                            ?.auto_shortcut_activation as boolean) ?? false
+                        }
                       />
                       <span className="text-xs text-mid-gray leading-snug">
                         {t("settings.general.pushToTalk.description")}
                       </span>
                     </div>
+                    {showDefaultShortcutMoreOptions && (
+                      <div className="mt-3 pt-3 border-t border-mid-gray/15">
+                        <div className="flex items-start gap-2">
+                          <ToggleSwitch
+                            checked={
+                              ((settings as any)
+                                ?.auto_shortcut_activation as boolean) ?? false
+                            }
+                            onChange={(checked) =>
+                              updateSetting &&
+                              updateSetting(
+                                "auto_shortcut_activation" as any,
+                                checked,
+                              )
+                            }
+                          />
+                          <div className="min-w-0">
+                            <div className="text-xs font-medium text-text/80">
+                              {t(
+                                "settings.general.pushToTalk.autoLabel",
+                                "Automatic tap / hold",
+                              )}
+                            </div>
+                            <div className="mt-1 text-[11px] text-mid-gray leading-snug">
+                              {t(
+                                "settings.general.pushToTalk.autoDescription",
+                                "Recording starts immediately. Release within 300 ms to keep recording until the next press, or keep holding and release to stop.",
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="min-w-0">

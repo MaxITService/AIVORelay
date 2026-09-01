@@ -185,21 +185,26 @@ fn build_console_filter() -> env_filter::Filter {
     builder.build()
 }
 
+#[derive(Debug, Clone, Copy)]
+enum ShortcutPressState {
+    AutoRecording {
+        recording_started_at: Option<std::time::Instant>,
+    },
+    PushToTalk,
+    Toggle,
+    Stopping,
+}
+
 #[derive(Default)]
 struct ShortcutToggleStates {
     // Map: shortcut_binding_id -> is_active
     active_toggles: HashMap<String, bool>,
+    // Physical press ownership captured on keydown. The matching keyup must
+    // use this state even if settings or the active profile change meanwhile.
+    active_presses: HashMap<String, ShortcutPressState>,
 }
 
 type ManagedToggleState = Mutex<ShortcutToggleStates>;
-
-#[derive(Default)]
-pub struct PressTimestamps {
-    // Map: shortcut_binding_id -> press start time
-    pub timestamps: HashMap<String, std::time::Instant>,
-}
-
-pub type ManagedPressTimestamps = Mutex<PressTimestamps>;
 
 fn show_main_window(app: &AppHandle) {
     if let Some(main_window) = app.get_webview_window("main") {
@@ -255,8 +260,9 @@ fn send_transcription_input(app: &AppHandle, binding_id: &str, shortcut_string: 
             .entry(binding_id.to_string())
             .or_insert(false);
         let should_start = !*is_currently_active;
-        if should_start {
-            *is_currently_active = true;
+        *is_currently_active = should_start;
+        if !should_start {
+            states.active_presses.remove(binding_id);
         }
         should_start
     };
@@ -1093,6 +1099,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_binding,
         shortcut::reset_binding,
         shortcut::change_ptt_setting,
+        shortcut::change_auto_shortcut_activation_setting,
         shortcut::change_preview_output_only_enabled_setting,
         shortcut::change_audio_feedback_setting,
         shortcut::change_result_ready_audio_feedback_setting,
@@ -1715,7 +1722,6 @@ pub fn run(cli_args: CliArgs) {
             Some(vec![]),
         ))
         .manage(Mutex::new(ShortcutToggleStates::default()))
-        .manage(Mutex::new(PressTimestamps::default()))
         .manage(Mutex::new(session_manager::SessionState::default()))
         .manage(recording_auto_stop::new_managed_state())
         .manage(

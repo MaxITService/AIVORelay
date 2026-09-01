@@ -138,7 +138,10 @@
       },
       "pushToTalk": {
         "label": "Stisk a mluv",
-        "description": "Podržte pro nahrávání, uvolněte pro zastavení"
+        "description": "Podržte pro nahrávání, uvolněte pro zastavení",
+        "moreOptions": "Další možnosti",
+        "autoLabel": "Automaticky: klepnutí / podržení",
+        "autoDescription": "Nahrávání začne okamžitě. Uvolněte do 300 ms, aby pokračovalo do dalšího stisku, nebo klávesu držte a uvolněním nahrávání zastavte."
       }
     },
     "sound": {

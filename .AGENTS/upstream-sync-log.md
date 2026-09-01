@@ -6,6 +6,20 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-08-31):
+- Reviewed the complete linear corridor after `c6fa60da` through upstream HEAD
+  `00d25549`; the safe review cursor is now `00d25549`. There are no merge
+  commits in this corridor.
+- Manually adapted `6fa85061` so Norwegian (`no`/`nb`) and Filipino/Tagalog
+  (`fil`/`tl`) intent survives model-family switches, OS-language resolution,
+  output-language evidence, and profile filtering. Added a fork-aware catalog
+  coverage check that retains AivoRelay's explicit model codes and Chinese
+  script choices.
+- Skipped Nix-only `b0266607` and macOS-only `00d25549`. Manually adapted Auto
+  push-to-talk from `c62a5fcd` as an opt-in, fixed-threshold option hidden per
+  profile; it applies only to keyboard shortcuts and leaves external profile
+  calls and the Voice Activation Button unchanged.
+
 Audit note (2026-08-27):
 - Reviewed the complete linear corridor after `af48dd68` through upstream HEAD
   `c6fa60da`; the safe review cursor is now `c6fa60da`. There are no merge
@@ -158,6 +172,8 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-09-01 | 2026-08-30 | `c62a5fcd` | auto push to talk mode (#1971) | feat(shortcuts): add per-profile automatic tap or hold | manual fixed-300ms adaptation; hidden and off by default; external invocation unchanged |
+| 2026-08-31 | 2026-08-30 | `6fa85061` | fix 'no' not showing up + add ci so shouldnt happen again (#2001) | fix(language): preserve intent across model code aliases | manual runtime/UI adaptation; fork-aware catalog coverage guard added |
 | 2026-08-27 | 2026-08-25 | `df216832` | stop losing tail audio when a recording ends (#1958) | feat(audio): add Earshot and preserve recording output | manual boundary/resampler adaptation; bounded drain and fork framing retained |
 | 2026-08-27 | 2026-08-25 | `20ada47` | experimental earshot vad implementation (#1967) | feat(audio): add Earshot and preserve recording output | manual selectable backend; separate 256-sample VAD stage and transactional runtime swap |
 | 2026-08-27 | 2026-08-25 | `258899a` | redact transcriptions from log in production build | feat(audio): add Earshot and preserve recording output | release redaction retained; explicit independent text-log toggle added |
@@ -166,8 +182,6 @@ Rules:
 | 2026-08-21 | 2026-08-19 | `afbf44cd`, `d55ea7ef`, `0e503672` | transcribe.cpp 0.2.0 (#1924); drop 'gpu' accelerator selector; Merge branch 'main' of github.com:cjpais/Handy | feat(transcription): migrate to transcribe.cpp 0.2 | manual final-tree adaptation; merge resolution reviewed; Windows runtime packaging completed; Multitalker bundle deferred |
 | 2026-08-18 | 2026-08-17 | `c89b7bf` | fix: fall back to default microphone after disconnect (#1874) | fix(audio): recover after microphone disconnects | manual health/fallback port; retained fork capture routing and audio processing |
 | 2026-08-18 | 2026-08-17 | `5c77861` | bump handy-keys to 0.3.4 | fix(deps): update handy-keys to 0.3.4 | manifest update; lock refreshed locally without taking upstream lock |
-| 2026-08-18 | 2026-08-17 | `2cf157d` | fix(custom-words): allow multi-word phrases (#1406) | fix(custom-words): allow multi-word phrases | manual UI/test port; retained fork n-gram toggle and ampersand handling |
-| 2026-08-18 | 2026-08-14 | `9e534a3` | fix(portable): keep Hugging Face models in Data (#1908) | fix(portable): keep Hugging Face models in Data | manual portable-init port; retained fork-managed cache paths |
 
 Entry template:
 

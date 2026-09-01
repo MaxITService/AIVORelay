@@ -138,7 +138,10 @@
       },
       "pushToTalk": {
         "label": "Premi per Parlare",
-        "description": "Tieni premuto per parlare, rilascia per interrompere"
+        "description": "Tieni premuto per parlare, rilascia per interrompere",
+        "moreOptions": "Altre opzioni",
+        "autoLabel": "Automatico: tocco / pressione",
+        "autoDescription": "La registrazione inizia subito. Rilascia entro 300 ms per mantenerla attiva fino alla pressione successiva, oppure tieni premuto e rilascia per interromperla."
       }
     },
     "sound": {

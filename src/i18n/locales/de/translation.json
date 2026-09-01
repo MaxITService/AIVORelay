@@ -138,7 +138,10 @@
       },
       "pushToTalk": {
         "label": "Push-to-Talk",
-        "description": "Gedrückt halten zum Aufnehmen, loslassen zum Stoppen"
+        "description": "Gedrückt halten zum Aufnehmen, loslassen zum Stoppen",
+        "moreOptions": "Weitere Optionen",
+        "autoLabel": "Automatisch: Tippen / Halten",
+        "autoDescription": "Die Aufnahme startet sofort. Innerhalb von 300 ms loslassen, damit sie bis zum nächsten Drücken weiterläuft, oder gedrückt halten und zum Stoppen loslassen."
       }
     },
     "sound": {

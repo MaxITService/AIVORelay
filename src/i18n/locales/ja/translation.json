@@ -138,7 +138,10 @@
       },
       "pushToTalk": {
         "label": "プッシュトゥトーク",
-        "description": "押し続けて録音、離して停止"
+        "description": "押し続けて録音、離して停止",
+        "moreOptions": "その他のオプション",
+        "autoLabel": "自動：タップ / 長押し",
+        "autoDescription": "録音はすぐに開始します。300ミリ秒以内に離すと次に押すまで録音を継続し、押し続けてから離すと停止します。"
       }
     },
     "sound": {

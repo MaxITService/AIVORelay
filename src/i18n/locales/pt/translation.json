@@ -138,7 +138,10 @@
       },
       "pushToTalk": {
         "label": "Pressionar para Falar",
-        "description": "Segure para gravar, solte para parar"
+        "description": "Segure para gravar, solte para parar",
+        "moreOptions": "Mais opções",
+        "autoLabel": "Automático: toque / segurar",
+        "autoDescription": "A gravação começa imediatamente. Solte em até 300 ms para continuar até o próximo toque, ou mantenha pressionado e solte para parar."
       }
     },
     "sound": {

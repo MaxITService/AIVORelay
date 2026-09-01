@@ -251,6 +251,9 @@ pub struct TranscriptionProfile {
     /// Push-to-talk mode for this profile (hold key to record vs toggle)
     #[serde(default = "default_true")]
     pub push_to_talk: bool,
+    /// Start immediately, then treat a quick release as toggle and a held shortcut as push-to-talk.
+    #[serde(default)]
+    pub auto_shortcut_activation: bool,
     /// Route transcription output to the preview window instead of auto-inserting.
     /// The user explicitly controls when text is inserted via preview actions.
     #[serde(default)]
@@ -3392,6 +3395,8 @@ pub struct AppSettings {
     pub bindings: HashMap<String, ShortcutBinding>,
     pub push_to_talk: bool,
     #[serde(default)]
+    pub auto_shortcut_activation: bool,
+    #[serde(default)]
     pub preview_output_only_enabled: bool,
     pub audio_feedback: bool,
     #[serde(default)]
@@ -5685,6 +5690,7 @@ pub fn get_default_settings() -> AppSettings {
     AppSettings {
         bindings,
         push_to_talk: true,
+        auto_shortcut_activation: false,
         preview_output_only_enabled: false,
         audio_feedback: false,
         result_ready_audio_feedback: false,

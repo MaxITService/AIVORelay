@@ -1476,6 +1476,7 @@ pub(crate) fn reset_toggle_state(app: &AppHandle, binding_id: &str) {
     if let Some(state) = states.active_toggles.get_mut(binding_id) {
         *state = false;
     }
+    states.active_presses.remove(binding_id);
 }
 
 /// Drop guard that releases Processing state and toggle ownership on every exit

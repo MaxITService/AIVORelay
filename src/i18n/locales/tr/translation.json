@@ -158,7 +158,10 @@
       },
       "pushToTalk": {
         "label": "Bas Konuş",
-        "description": "Kaydetmek için basılı tutun, durdurmak için bırakın"
+        "description": "Kaydetmek için basılı tutun, durdurmak için bırakın",
+        "moreOptions": "Daha fazla seçenek",
+        "autoLabel": "Otomatik: dokunma / basılı tutma",
+        "autoDescription": "Kayıt hemen başlar. Bir sonraki basışa kadar sürmesi için 300 ms içinde bırakın ya da basılı tutup durdurmak için bırakın."
       }
     },
     "sound": {

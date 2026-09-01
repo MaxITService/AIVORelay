@@ -52,8 +52,9 @@ pub fn setup_signal_handler(app_handle: AppHandle, mut signals: Signals) {
                                 .or_insert(false);
 
                             should_start = !*is_currently_active;
-                            if should_start {
-                                *is_currently_active = true;
+                            *is_currently_active = should_start;
+                            if !should_start {
+                                states.active_presses.remove(binding_id);
                             }
                         } // Lock released here
 

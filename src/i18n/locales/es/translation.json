@@ -138,7 +138,10 @@
       },
       "pushToTalk": {
         "label": "Presionar para Hablar",
-        "description": "Mantén presionado para grabar, suelta para detener"
+        "description": "Mantén presionado para grabar, suelta para detener",
+        "moreOptions": "Más opciones",
+        "autoLabel": "Automático: pulsar / mantener",
+        "autoDescription": "La grabación comienza de inmediato. Suelta antes de 300 ms para que continúe hasta la siguiente pulsación, o mantén presionado y suelta para detenerla."
       }
     },
     "sound": {

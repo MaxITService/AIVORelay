@@ -35,7 +35,7 @@ use crate::url_security::{
     REMOTE_STT_CUSTOM_DEFAULT_BASE_URL, REMOTE_STT_CUSTOM_DEFAULT_MODEL, REMOTE_STT_PRESET_CUSTOM,
     REMOTE_STT_PRESET_GOOGLE, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_VERCEL,
 };
-use crate::ManagedToggleState;
+use crate::{ManagedToggleState, ShortcutPressState};
 
 /// Track which shortcuts are registered via rdev (not tauri-plugin-global-shortcut)
 pub type RdevShortcutsSet = std::sync::Mutex<HashSet<String>>;
@@ -50,6 +50,7 @@ const MIN_DECAPITALIZE_TIMEOUT_MS: u32 = 100;
 const MAX_DECAPITALIZE_TIMEOUT_MS: u32 = 60_000;
 const MIN_DECAPITALIZE_STANDARD_POST_MONITOR_MS: u32 = 0;
 const MAX_DECAPITALIZE_STANDARD_POST_MONITOR_MS: u32 = 60_000;
+const AUTO_SHORTCUT_HOLD_THRESHOLD: std::time::Duration = std::time::Duration::from_millis(300);
 const SONIOX_LIVE_PREVIEW_MIN_OPACITY_PERCENT: u8 = 35;
 const SONIOX_LIVE_PREVIEW_MAX_OPACITY_PERCENT: u8 = 100;
 const SONIOX_LIVE_PREVIEW_MIN_INTERIM_OPACITY_PERCENT: u8 = 20;
@@ -853,6 +854,24 @@ pub(crate) fn handle_shortcut_event(
         _ => settings.push_to_talk,
     };
 
+    let use_auto_shortcut_activation = match binding_id {
+        "transcribe" => {
+            if settings.active_profile_id == "default" {
+                settings.auto_shortcut_activation
+            } else {
+                settings
+                    .transcription_profile(&settings.active_profile_id)
+                    .map(|p| p.auto_shortcut_activation)
+                    .unwrap_or(false)
+            }
+        }
+        id if id.starts_with("transcribe_") => settings
+            .transcription_profile_by_binding(id)
+            .map(|p| p.auto_shortcut_activation)
+            .unwrap_or(false),
+        _ => false,
+    };
+
     if action.is_instant() {
         let should_fire = if action.instant_fire_on_release() {
             !pressed
@@ -866,41 +885,122 @@ pub(crate) fn handle_shortcut_event(
         return;
     }
 
-    if use_push_to_talk {
+    enum Dispatch {
+        Ignore,
+        Start,
+        Stop,
+    }
+
+    let dispatch = {
+        let toggle_state_manager = app.state::<ManagedToggleState>();
+        let mut states = match toggle_state_manager.lock() {
+            Ok(states) => states,
+            Err(poisoned) => {
+                warn!(
+                    "Toggle state lock poisoned during shortcut '{}'; recovering",
+                    binding_id
+                );
+                poisoned.into_inner()
+            }
+        };
+
         if pressed {
-            action.start(app, binding_id, shortcut_string);
+            if states.active_presses.contains_key(binding_id) {
+                Dispatch::Ignore
+            } else if states
+                .active_toggles
+                .get(binding_id)
+                .copied()
+                .unwrap_or(false)
+            {
+                // A recording that outlives its key (ordinary Toggle or an
+                // Auto tap) always stops on the next press, even if settings
+                // or the active profile changed after it started.
+                states.active_toggles.insert(binding_id.to_string(), false);
+                states
+                    .active_presses
+                    .insert(binding_id.to_string(), ShortcutPressState::Stopping);
+                Dispatch::Stop
+            } else if use_auto_shortcut_activation {
+                // Mark the recording active immediately so external toggle
+                // controls can stop it during the keydown-to-keyup interval.
+                states.active_toggles.insert(binding_id.to_string(), true);
+                states.active_presses.insert(
+                    binding_id.to_string(),
+                    ShortcutPressState::AutoRecording {
+                        recording_started_at: None,
+                    },
+                );
+                Dispatch::Start
+            } else if use_push_to_talk {
+                states
+                    .active_presses
+                    .insert(binding_id.to_string(), ShortcutPressState::PushToTalk);
+                Dispatch::Start
+            } else {
+                states.active_toggles.insert(binding_id.to_string(), true);
+                states
+                    .active_presses
+                    .insert(binding_id.to_string(), ShortcutPressState::Toggle);
+                Dispatch::Start
+            }
         } else {
-            action.stop(app, binding_id, shortcut_string);
+            match states.active_presses.remove(binding_id) {
+                Some(ShortcutPressState::AutoRecording {
+                    recording_started_at,
+                }) => {
+                    // Cold model/audio initialization can block this shortcut
+                    // engine from receiving keyup. Do not count that delay as
+                    // physical hold time or a quick tap can stop immediately.
+                    let held = recording_started_at.is_some_and(|started_at| {
+                        started_at.elapsed() >= AUTO_SHORTCUT_HOLD_THRESHOLD
+                    });
+                    states
+                        .active_toggles
+                        .insert(binding_id.to_string(), !held);
+                    if held {
+                        Dispatch::Stop
+                    } else {
+                        Dispatch::Ignore
+                    }
+                }
+                Some(ShortcutPressState::PushToTalk) => Dispatch::Stop,
+                Some(ShortcutPressState::Toggle | ShortcutPressState::Stopping) | None => {
+                    Dispatch::Ignore
+                }
+            }
         }
-    } else if pressed {
-        let should_start: bool;
-        {
+    };
+
+    match dispatch {
+        Dispatch::Start => {
+            action.start(app, binding_id, shortcut_string);
+
+            // Start the Auto hold timer only once recording startup has
+            // returned. If keyup was handled concurrently during startup, its
+            // state is already gone and the gesture remains a tap.
             let toggle_state_manager = app.state::<ManagedToggleState>();
             let mut states = match toggle_state_manager.lock() {
                 Ok(states) => states,
                 Err(poisoned) => {
                     warn!(
-                        "Toggle state lock poisoned during shortcut '{}'; recovering",
+                        "Toggle state lock poisoned after starting shortcut '{}'; recovering",
                         binding_id
                     );
                     poisoned.into_inner()
                 }
             };
-
-            let is_currently_active = states
-                .active_toggles
-                .entry(binding_id.to_string())
-                .or_insert(false);
-
-            should_start = !*is_currently_active;
-            *is_currently_active = should_start;
+            if let Some(ShortcutPressState::AutoRecording {
+                recording_started_at,
+            }) = states.active_presses.get_mut(binding_id)
+            {
+                if recording_started_at.is_none() {
+                    *recording_started_at = Some(std::time::Instant::now());
+                }
+            }
         }
-
-        if should_start {
-            action.start(app, binding_id, shortcut_string);
-        } else {
-            action.stop(app, binding_id, shortcut_string);
-        }
+        Dispatch::Stop => action.stop(app, binding_id, shortcut_string),
+        Dispatch::Ignore => {}
     }
 }
 
@@ -1038,6 +1138,18 @@ pub fn change_ptt_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
 
     settings::write_settings(&app, settings);
 
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_auto_shortcut_activation_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.auto_shortcut_activation = enabled;
+    settings::write_settings(&app, settings);
     Ok(())
 }
 
@@ -4258,6 +4370,8 @@ pub struct AddTranscriptionProfilePayload {
     pub stt_model_selection_override: Option<settings::SttModelSelection>,
     pub push_to_talk: bool,
     #[serde(default)]
+    pub auto_shortcut_activation: bool,
+    #[serde(default)]
     pub preview_output_only_enabled: bool,
     #[serde(default)]
     pub soniox_language_hints_strict: Option<bool>,
@@ -4285,6 +4399,8 @@ pub struct UpdateTranscriptionProfilePayload {
     pub stt_model_selection_override: Option<settings::SttModelSelection>,
     pub include_in_cycle: bool,
     pub push_to_talk: bool,
+    #[serde(default)]
+    pub auto_shortcut_activation: bool,
     pub preview_output_only_enabled: bool,
     #[serde(default)]
     pub soniox_language_hints_strict: Option<bool>,
@@ -4314,6 +4430,7 @@ pub fn add_transcription_profile(
         stt_prompt_override_enabled,
         stt_model_selection_override,
         push_to_talk,
+        auto_shortcut_activation,
         preview_output_only_enabled,
         soniox_language_hints_strict,
         gemini_language_code_override,
@@ -4381,6 +4498,7 @@ pub fn add_transcription_profile(
         stt_model_selection_override,
         include_in_cycle: include_in_cycle.unwrap_or(true), // Include in cycle by default
         push_to_talk,
+        auto_shortcut_activation,
         preview_output_only_enabled,
         soniox_language_hints_strict,
         gemini_language_code_override,
@@ -4427,6 +4545,7 @@ pub fn update_transcription_profile(
         stt_model_selection_override,
         include_in_cycle,
         push_to_talk,
+        auto_shortcut_activation,
         preview_output_only_enabled,
         soniox_language_hints_strict,
         gemini_language_code_override,
@@ -4466,6 +4585,7 @@ pub fn update_transcription_profile(
     profile.stt_model_selection_override = stt_model_selection_override;
     profile.include_in_cycle = include_in_cycle;
     profile.push_to_talk = push_to_talk;
+    profile.auto_shortcut_activation = auto_shortcut_activation;
     profile.preview_output_only_enabled = preview_output_only_enabled;
     profile.soniox_language_hints_strict = soniox_language_hints_strict;
     let gemini_language_code_override = gemini_language_code_override
@@ -6160,133 +6280,12 @@ fn register_shortcut_tauri(app: &AppHandle, binding: ShortcutBinding) -> Result<
         .on_shortcut(shortcut, move |ah, scut, event| {
             if scut == &shortcut {
                 let shortcut_string = scut.into_string();
-                let settings = get_settings(ah);
-
-                // Look up action - for profile-based bindings (transcribe_profile_xxx),
-                // fall back to the "transcribe" action
-                let action = ACTION_MAP.get(&binding_id_for_closure).or_else(|| {
-                    if binding_id_for_closure.starts_with("transcribe_") {
-                        ACTION_MAP.get("transcribe")
-                    } else if binding_id_for_closure
-                        .starts_with(settings::SEND_SELECTED_TEXT_BINDING_PREFIX)
-                    {
-                        ACTION_MAP.get("send_selected_text")
-                    } else {
-                        None
-                    }
-                });
-
-                if let Some(action) = action {
-                    if binding_id_for_closure == "cancel" {
-                        let audio_manager = ah.state::<Arc<AudioRecordingManager>>();
-                        if audio_manager.is_recording() && event.state == ShortcutState::Pressed {
-                            action.start(ah, &binding_id_for_closure, &shortcut_string);
-                        }
-                        return;
-                    }
-
-                    // Skip actions that are feature-disabled.
-                    if !is_binding_enabled_for_settings(&settings, &binding_id_for_closure) {
-                        log::debug!(
-                            "Action '{}' is disabled, ignoring shortcut press",
-                            binding_id_for_closure
-                        );
-                        return;
-                    }
-
-                    // Determine push-to-talk setting based on binding
-                    let use_push_to_talk = match binding_id_for_closure.as_str() {
-                        "send_to_extension" => settings.send_to_extension_push_to_talk,
-                        "send_to_extension_with_selection" => settings.send_to_extension_with_selection_push_to_talk,
-                        "ai_replace_selection" => settings.ai_replace_selection_push_to_talk,
-                        "send_screenshot_to_extension" => settings.send_screenshot_to_extension_push_to_talk,
-                        "voice_command" => settings.voice_command_push_to_talk,
-                        "transcribe" => {
-                            // Use active profile's PTT setting, or global if "default"
-                            if settings.active_profile_id == "default" {
-                                settings.push_to_talk
-                            } else {
-                                settings
-                                    .transcription_profile(&settings.active_profile_id)
-                                    .map(|p| p.push_to_talk)
-                                    .unwrap_or(settings.push_to_talk)
-                            }
-                        }
-                        id if id.starts_with("transcribe_") => {
-                            // Profile-specific shortcut: use that profile's PTT
-                            settings
-                                .transcription_profile_by_binding(id)
-                                .map(|p| p.push_to_talk)
-                                .unwrap_or(settings.push_to_talk)
-                        }
-                        _ => settings.push_to_talk,
-                    };
-
-                    // Handle instant actions first - they fire on every press
-                    // without any toggle state management
-                    if action.is_instant() {
-                        let should_fire = if action.instant_fire_on_release() {
-                            event.state == ShortcutState::Released
-                        } else {
-                            event.state == ShortcutState::Pressed
-                        };
-
-                        if should_fire {
-                            action.start(ah, &binding_id_for_closure, &shortcut_string);
-                        }
-                        // Instant actions don't need stop() on release
-                        return;
-                    }
-
-                    if use_push_to_talk {
-                        if event.state == ShortcutState::Pressed {
-                            action.start(ah, &binding_id_for_closure, &shortcut_string);
-                        } else if event.state == ShortcutState::Released {
-                            action.stop(ah, &binding_id_for_closure, &shortcut_string);
-                        }
-                    } else {
-                        // Toggle mode: toggle on press only
-                        if event.state == ShortcutState::Pressed {
-                            // Determine action and update state while holding the lock,
-                            // but RELEASE the lock before calling the action to avoid deadlocks.
-                            // (Actions may need to acquire the lock themselves, e.g., cancel_current_operation)
-                            let should_start: bool;
-                            {
-                                let toggle_state_manager = ah.state::<ManagedToggleState>();
-                                let mut states = match toggle_state_manager.lock() {
-                                    Ok(states) => states,
-                                    Err(poisoned) => {
-                                        warn!(
-                                            "Toggle state lock poisoned during shortcut '{}'; recovering",
-                                            binding_id_for_closure
-                                        );
-                                        poisoned.into_inner()
-                                    }
-                                };
-
-                                let is_currently_active = states
-                                    .active_toggles
-                                    .entry(binding_id_for_closure.clone())
-                                    .or_insert(false);
-
-                                should_start = !*is_currently_active;
-                                *is_currently_active = should_start;
-                            } // Lock released here
-
-                            // Now call the action without holding the lock
-                            if should_start {
-                                action.start(ah, &binding_id_for_closure, &shortcut_string);
-                            } else {
-                                action.stop(ah, &binding_id_for_closure, &shortcut_string);
-                            }
-                        }
-                    }
-                } else {
-                    warn!(
-                        "No action defined in ACTION_MAP for shortcut ID '{}'. Shortcut: '{}', State: {:?}",
-                        binding_id_for_closure, shortcut_string, event.state
-                    );
-                }
+                handle_shortcut_event(
+                    ah,
+                    &binding_id_for_closure,
+                    &shortcut_string,
+                    event.state == ShortcutState::Pressed,
+                );
             }
         })
         .map_err(|e| {
