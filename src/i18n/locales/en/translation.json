@@ -217,15 +217,17 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.33",
+      "since": "Since version 1.0.34",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "geminiTranscription": "Added Gemini 3.5 transcription for recordings, audio files, and live audio.",
-        "sendSelectedText": "Added file and command presets for Send Selected Text, with history and safer concurrent workflows.",
-        "vadSelection": "Added selectable voice-activity detection and improved captured-audio diagnostics.",
-        "replacementSorting": "Added column sorting for Text Replacement rules.",
-        "reliability": "Improved tray reliability and application updates.",
+        "profileModels": "Each transcription profile can now use its own speech recognition model. Profiles without a separate choice continue using the main model.",
+        "workflowModels": "Audio file transcription and Live Monitor can also use their own models independently from regular dictation. Local models download when first used.",
+        "transcriptionWorkflows": "Working with audio files and live audio is easier: important actions stay visible, you can focus on one speaker, and results can be saved with timestamps.",
+        "settingsSearch": "A new settings search takes you directly to the option you need.",
+        "ttsBatchProgress": "When turning several text files into speech, you can now see which files are ready, what is being processed, and approximately how much time remains.",
+        "shortcutActivation": "Profiles can use a flexible recording shortcut: tap briefly to keep recording, or hold the key to record only until you release it.",
+        "reliability": "Fixed problems that could delay Gemini and improved the reliability of model and language choices, history, startup, and the interface.",
         "upstreamImprovements": "Included the latest upstream Handy improvements and fixes."
       }
     },
