@@ -146,9 +146,16 @@ fn recognition_language(language: &str) -> &str {
 }
 
 fn base_language(language: &str) -> &str {
-    match language.split_once('-') {
-        Some((base, _)) => base,
-        None => language,
+    language.split(&['-', '_'][..]).next().unwrap_or(language)
+}
+
+/// Stable recognition intent used to compare equivalent language codes across
+/// model families. Matching must not rewrite the concrete code sent to a model.
+pub(crate) fn canonical_language_code(language: &str) -> &str {
+    match base_language(language) {
+        "nb" => "no",
+        "fil" => "tl",
+        base => base,
     }
 }
 
@@ -188,10 +195,19 @@ pub fn effective_language(
     }
 
     if intent != "auto" && intent != "os_input" {
-        if let Some(code) = supported_languages
+        // Prefer the exact base code before considering an equivalence alias.
+        // If a model advertises both `no` and `nb`, an explicit selection must
+        // retain the user's concrete choice regardless of catalog order.
+        let exact_base_match = supported_languages
             .iter()
-            .find(|language| base_language(language) == base_language(intent))
-        {
+            .find(|language| base_language(language) == base_language(intent));
+        let equivalent_match = || {
+            supported_languages.iter().find(|language| {
+                canonical_language_code(language) == canonical_language_code(intent)
+            })
+        };
+
+        if let Some(code) = exact_base_match.or_else(equivalent_match) {
             if matches!(intent, "zh-Hans" | "zh-Hant") && base_language(code) == "zh" {
                 return intent.to_string();
             }
@@ -2509,6 +2525,22 @@ mod tests {
 
         assert_eq!(effective_language("zh-Hans", &languages, false), "zh-Hans");
         assert_eq!(effective_language("zh-Hant", &languages, false), "zh-Hant");
+    }
+
+    #[test]
+    fn effective_language_preserves_intent_across_model_code_variants() {
+        assert_eq!(effective_language("no", &["nb".to_string()], true), "nb");
+        assert_eq!(effective_language("nb", &["no".to_string()], true), "no");
+        assert_eq!(effective_language("tl", &["fil".to_string()], true), "fil");
+        assert_eq!(effective_language("fil", &["tl".to_string()], true), "tl");
+    }
+
+    #[test]
+    fn effective_language_prefers_exact_norwegian_code() {
+        let languages = vec!["no".to_string(), "nb".to_string()];
+
+        assert_eq!(effective_language("nb", &languages, true), "nb");
+        assert_eq!(effective_language("no", &languages, true), "no");
     }
 
     #[test]

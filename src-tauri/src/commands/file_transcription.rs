@@ -129,6 +129,7 @@ fn default_file_profile_snapshot(
         stt_model_selection_override: Some(selection.clone()),
         include_in_cycle: false,
         push_to_talk: false,
+        auto_shortcut_activation: false,
         preview_output_only_enabled: false,
         soniox_language_hints_strict: Some(settings.soniox_language_hints_strict),
         gemini_language_code_override: Some(settings.gemini_language_code.clone()),

@@ -20,7 +20,8 @@
     "format:frontend": "prettier --write .",
     "format:backend": "cd src-tauri && cargo fmt",
     "build:unsigned": "bun run build-unsigned.js",
-    "check:translations": "bun scripts/check-translations.ts"
+    "check:translations": "bun scripts/check-translations.ts",
+    "check:model-languages": "bun scripts/check-model-language-coverage.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.16",
