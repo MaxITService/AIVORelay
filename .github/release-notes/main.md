@@ -5,11 +5,13 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Added Gemini 3.5 transcription for recordings, audio files, and live audio.
-- Added file and command presets for Send Selected Text, with paginated history and more reliable concurrent workflows.
-- Added selectable voice-activity detection and improved captured-audio diagnostics.
-- Added column sorting for Text Replacement rules.
-- Improved tray reliability and application updates.
+- Each transcription profile can now use its own speech recognition model. Profiles without a separate choice continue using the main model.
+- Audio file transcription and Live Monitor can also use their own models independently from regular dictation. Local models download when first used.
+- Working with audio files and live audio is easier: important actions stay visible, transcripts can be filtered by speaker, and results can be saved with timestamps.
+- A new settings search takes you directly to the option you need.
+- When turning several text files into speech, you can now see which files are ready, what is being processed, and approximately how much time remains.
+- Profiles can use a flexible recording shortcut: tap briefly to keep recording, or hold the key to record only until you release it.
+- Fixed problems that could delay Gemini and improved the reliability of model and language choices, history, startup, and the interface.
 - Included the latest upstream Handy transcription improvements and fixes.
 
 ---

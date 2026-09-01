@@ -63,10 +63,12 @@ const SMART_HELP_ACTIONS = [
 ] as const;
 
 const WHATS_NEW_ITEMS = [
-  "help.whatsNew.items.geminiTranscription",
-  "help.whatsNew.items.sendSelectedText",
-  "help.whatsNew.items.vadSelection",
-  "help.whatsNew.items.replacementSorting",
+  "help.whatsNew.items.profileModels",
+  "help.whatsNew.items.workflowModels",
+  "help.whatsNew.items.transcriptionWorkflows",
+  "help.whatsNew.items.settingsSearch",
+  "help.whatsNew.items.ttsBatchProgress",
+  "help.whatsNew.items.shortcutActivation",
   "help.whatsNew.items.reliability",
   "help.whatsNew.items.upstreamImprovements",
 ] as const;
