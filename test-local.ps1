@@ -4,7 +4,7 @@ param(
     [switch]$List,
     [switch]$NoRun,
     [switch]$Exact,
-    [string]$Filter,
+    [string[]]$Filter,
     [string]$CargoTargetDir
 )
 
@@ -88,16 +88,15 @@ try {
     if ($LibOnly) {
         $cargoArgs += "--lib"
     }
-    if ($Filter) {
-        $cargoArgs += $Filter
-    }
-
     $testArgs = @()
     if ($List) {
         $testArgs += "--list"
     }
     if ($Exact) {
         $testArgs += "--exact"
+    }
+    if ($Filter) {
+        $testArgs += $Filter
     }
     if ($testArgs.Count -gt 0) {
         $cargoArgs += "--"
