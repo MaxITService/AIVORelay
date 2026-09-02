@@ -4,6 +4,8 @@ Branch tags: #branch/release-microsoft-store
 
 Read this file only when the task needs build, toolchain, bindings, or verification rules for the Microsoft Store Edition.
 
+Ask the user before running any build or test. Read-only inspection and `cargo metadata` lockfile validation are not full builds.
+
 ## Environment
 
 - Windows 11
@@ -37,34 +39,38 @@ Rules:
 
 - `bun x tsc --noEmit`
 - `bun run lint`
-- `bun run format:frontend`
 - `bun run check:translations`
 
-## Rust Verification
+Do not run formatters in write mode.
+
+## Rust Verification And Tests
 
 Rust verification is allowed only when no conflicting `cargo|tauri|rustc|bun` process is already running.
 
 Typical commands:
 
-- `cargo check`
-- `cargo clippy`
-- `cargo fmt`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo clippy --manifest-path src-tauri/Cargo.toml`
+- `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
+- `pwsh -NoProfile -File .\test-local.ps1`
 
-## Output Markers
-
-Wrap long-running commands with clear markers:
-
-```powershell
-Write-Host "--- START TASK ---"
-<command>
-Write-Host "--- END TASK ---"
-```
+Use the checked-in test harness for backend tests rather than plain `cargo test`.
 
 ## Store-Specific Build Notes
 
-- Keep the Store branch on AVX2-only distribution settings.
+- Store releases currently target Windows x64 only.
+- Keep the Store branch on its AVX2 distribution baseline and keep AVX512/AMX disabled.
 - Do not reintroduce self-updater build assumptions into Store packaging.
+- The Store workflow must audit x64 ZIP/MSI contents for transcribe.cpp, ggml, VC++ runtime, and OpenMP DLLs.
+- ARM64 blocks in shared build/test workflows are not evidence of ARM64 Store release support.
 - If a task is not branch-specific program behavior, read `AGENTS.md` on `main` first.
+
+## Cargo.lock
+
+- Do not copy `src-tauri/Cargo.lock` from `main`.
+- After manifest changes, regenerate with `cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1`.
+- Verify the result with `cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 --locked`.
+- Keep reviewed Store-only dependency drift, especially updater changes, unless the user asks to change it.
 
 ## TypeScript Bindings
 

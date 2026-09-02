@@ -4,6 +4,15 @@ Branch tags: #branch/release-microsoft-store
 
 Branch-specific release rules for the Microsoft Store Edition.
 
+## Release Contract
+
+- The Store workflow currently builds only `x86_64-pc-windows-msvc`.
+- Create tag `vX.Y.Z-store` at the exact Store workflow commit.
+- Create the GitHub release as a draft pre-release.
+- Keep normal GitHub Actions binary signing disabled; Microsoft Store ingestion performs final signing.
+- Keep in-app updater artifacts disabled and updater endpoints empty.
+- Upload Store assets to the Store tag, never the plain `vX.Y.Z` tag.
+
 ## Workflow YAML
 
 Do not modify `.github/workflows/*.yml` unless the user explicitly asks.
@@ -26,13 +35,12 @@ When asked to bump the app version:
 2. Update `"version": "x.y.z"` in `src-tauri/tauri.conf.json`.
 3. Update `version = "x.y.z"` in `src-tauri/Cargo.toml`.
 4. Stop before commit and ask the user to run the build/check flow on their side unless they explicitly asked for local verification.
-5. If `src-tauri/Cargo.lock` changed because of the version bump, include it in the same commit.
+5. Regenerate the Store `src-tauri/Cargo.lock`; never copy the lockfile from `main`. Include the resulting version change in the same commit.
 6. Before final commit, ask whether a new Store release body draft is needed.
 7. If yes, prepare a short user-facing draft for `.github/release-notes/microsoft-store.md`.
 8. Commit with `chore: bump version to x.y.z`.
 9. Create tag or push only when the user explicitly asks.
-10. When a GitHub release is created for `release/microsoft-store`, mark it as a pre-release.
-11. Use the Store-specific workflow and ensure every uploaded release asset targets the Store tag `vx.y.z-store`, not the plain `vx.y.z` tag.
+10. Use the Store-specific workflow and verify its draft pre-release targets `vx.y.z-store` and the exact Store commit.
 
 ## Tags And Pushes
 

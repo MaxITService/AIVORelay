@@ -1,36 +1,30 @@
 # Fork Agents Guide
-
 Branch tags: #branch/release-microsoft-store
 
 ## Always-On Rules
 
 - Do not push unless the user explicitly asks.
-- If you are not confident a change will fix the issue, stop and confirm before making a risky fix.
+- Do not run a build or tests unless the user explicitly asks.
+- Do not run formatters in write mode or add formatting-only churn.
+- If a request is unclear or a proposed fix is risky, stop and confirm first.
 - Use proper commit messages.
-- something isane in user's request? Ask user first!
-- For this branch, use `main` as the only sync source.
-- Keep documentation short, dense, and in English.
-- Use Obsidian-style links.
-- When committing, if encountered surprising behavior, like "made change and it does not build until we completely overhaul build scripts", propose edits to docs in chat. Dense, short, and to the point.
+- Use `main` as the only propagation source for this branch.
+- Preserve Store-specific files instead of blindly overwriting them from `main`.
+- Keep documentation short, dense, in English, and linked with Obsidian-style links.
 
-## Branch Scope
+## Branch Contract
 
-- This branch is the Microsoft Store Edition.
-- Keep Store-specific behavior compliant with Microsoft Store policies.
-- For non-branch-specific program changes, read `AGENTS.md` on `main` first.
-- If `AGENTS.md` on `main` is not available, ask the user.
+- This branch produces the Microsoft Store Edition.
+- [[.AGENTS/store-branch-notes|store-branch-notes.md]] is the canonical inventory of intentional differences from `main`.
+- For shared program behavior, read the current `AGENTS.md` on `main` before editing.
+- Never infer Store ARM64 support from ARM64 paths in the reusable build workflow; the Store release workflow currently publishes Windows x64 only.
+- Never advertise this build as a fallback for CPUs without AVX2.
 
-## Local Docs
+## Task Routing
 
-- [[.AGENTS/MOC|MOC.md]]
-- [[.AGENTS/build-store|build-store.md]]
-- [[.AGENTS/Release-store|Release-store.md]]
-- [[.AGENTS/store-branch-notes|store-branch-notes.md]]
-- [[.AGENTS/branch-propagation-log|branch-propagation-log.md]]
-- [[.AGENTS/branching-status|branching-status.md]]
-- [[.AGENTS/store-sync-maintenance|store-sync-maintenance.md]]
-- [[.AGENTS/.UNTRACKED/MOC|.UNTRACKED/MOC.md]]
+- Build, toolchain, lockfile, bindings, or verification: [[.AGENTS/build-store|build-store.md]]
+- Store release or version preparation: [[.AGENTS/Release-store|Release-store.md]]
+- `main` propagation: [[.AGENTS/store-sync-maintenance|store-sync-maintenance.md]]
+- Navigation: [[.AGENTS/MOC|MOC.md]]
 
-At the start of a new session, include `AGENTS.md received.` once in your first normal reply.
-
-Do not send it as a standalone placeholder message, and do this only once per session.
+At the start of a new session, include `AGENTS.md received.` once in the first normal reply, never as a standalone message.

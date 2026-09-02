@@ -10,7 +10,7 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ---
 
-This is a specialized build for the Microsoft Store Edition. It has auto-updates disabled and includes Store-specific branding.
+This is the Microsoft Store Edition. Installation and update delivery are handled through Microsoft Store, so AivoRelay's GitHub self-update endpoints and updater artifacts are disabled in this build.
 
 **Notice:**
-This branch remains the recommended fallback if the standard Windows build crashes on an older CPU during transcription.
+The current Store package targets Windows x64 and requires an AVX2-capable processor. It is not a compatibility fallback for processors without AVX2.
