@@ -194,6 +194,33 @@ mod tests {
     }
 
     #[test]
+    fn frontend_soniox_language_catalog_matches_backend_exactly() {
+        let frontend_source =
+            include_str!("../../src/lib/constants/sonioxLanguages.ts");
+        let catalog_source = frontend_source
+            .split_once("export const SONIOX_SUPPORTED_LANGUAGE_CODES = new Set<string>([")
+            .expect("frontend Soniox language catalog declaration must exist")
+            .1
+            .split_once("]);")
+            .expect("frontend Soniox language catalog must have a closing delimiter")
+            .0;
+        let frontend_codes = catalog_source
+            .lines()
+            .filter_map(|line| {
+                let entry = line.trim().strip_suffix(',')?;
+                entry.strip_prefix('"')?.strip_suffix('"')
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        let backend_codes = SONIOX_SUPPORTED_LANGUAGE_CODES
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert!(!frontend_codes.is_empty());
+        assert_eq!(frontend_codes, backend_codes);
+    }
+
+    #[test]
     fn normalize_soniox_hint_list_deduplicates_supported_codes_in_first_seen_order() {
         let result = normalize_soniox_hint_list(["EN-us", " fr ", "en", "FR-ca", "zh-Hant"]);
 

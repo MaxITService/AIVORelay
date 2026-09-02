@@ -541,3 +541,83 @@ pub fn base64_encode(data: &[u8]) -> String {
 
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base64_encoder_matches_rfc_4648_padding_vectors() {
+        let cases: &[(&[u8], &str)] = &[
+            (b"", ""),
+            (b"f", "Zg=="),
+            (b"fo", "Zm8="),
+            (b"foo", "Zm9v"),
+            (b"foob", "Zm9vYg=="),
+            (b"fooba", "Zm9vYmE="),
+            (b"foobar", "Zm9vYmFy"),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(base64_encode(input), *expected);
+        }
+    }
+
+    #[test]
+    fn base64_encoder_round_trips_arbitrary_binary_screenshot_bytes() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        let input: Vec<u8> = (0..=255).collect();
+        let encoded = base64_encode(&input);
+
+        assert_eq!(STANDARD.decode(encoded).unwrap(), input);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn in_memory_crop_returns_the_selected_pixels_as_a_png() {
+        use screenshots::image::{self, Rgba, RgbaImage};
+
+        let canvas = RgbaImage::from_fn(4, 3, |x, y| Rgba([x as u8, y as u8, (x + y) as u8, 255]));
+        let region = SelectedRegion {
+            x: 1,
+            y: 1,
+            width: 2,
+            height: 2,
+        };
+
+        let png = crop_region_to_png(&canvas, &region).unwrap();
+        let decoded = image::load_from_memory(&png).unwrap().to_rgba8();
+
+        assert_eq!(decoded.dimensions(), (2, 2));
+        assert_eq!(decoded.get_pixel(0, 0), canvas.get_pixel(1, 1));
+        assert_eq!(decoded.get_pixel(1, 1), canvas.get_pixel(2, 2));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn in_memory_crop_rejects_negative_and_out_of_bounds_regions() {
+        use screenshots::image::RgbaImage;
+
+        let canvas = RgbaImage::new(10, 10);
+        let negative = SelectedRegion {
+            x: -1,
+            y: 0,
+            width: 1,
+            height: 1,
+        };
+        let outside = SelectedRegion {
+            x: 9,
+            y: 9,
+            width: 2,
+            height: 2,
+        };
+
+        assert!(crop_region_to_png(&canvas, &negative)
+            .unwrap_err()
+            .contains("negative coordinates"));
+        assert!(crop_region_to_png(&canvas, &outside)
+            .unwrap_err()
+            .contains("out of bounds"));
+    }
+}

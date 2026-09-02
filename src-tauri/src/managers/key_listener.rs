@@ -573,3 +573,111 @@ impl KeyListenerState {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn modifiers(ctrl: bool, shift: bool, alt: bool, win: bool) -> ModifierState {
+        ModifierState {
+            ctrl,
+            shift,
+            alt,
+            win,
+        }
+    }
+
+    #[test]
+    fn modifier_state_tracks_both_sides_and_ignores_regular_keys() {
+        let mut state = ModifierState::default();
+        state.update(Key::ControlRight, true);
+        state.update(Key::ShiftLeft, true);
+        state.update(Key::AltGr, true);
+        state.update(Key::MetaRight, true);
+        state.update(Key::KeyA, false);
+        assert!(state.matches(&modifiers(true, true, true, true)));
+
+        state.update(Key::ControlLeft, false);
+        state.update(Key::ShiftRight, false);
+        state.update(Key::Alt, false);
+        state.update(Key::MetaLeft, false);
+        assert!(state.matches(&ModifierState::default()));
+    }
+
+    #[test]
+    fn exact_and_subset_modifier_matching_have_distinct_semantics() {
+        let pressed = modifiers(true, true, true, false);
+        let required = modifiers(true, false, true, false);
+
+        assert!(!pressed.matches(&required));
+        assert!(pressed.contains_required(&required));
+        assert!(!required.contains_required(&pressed));
+    }
+
+    #[test]
+    fn shortcut_parser_normalizes_case_whitespace_and_modifier_aliases() {
+        let (key, state) = parse_shortcut_string("  Control + SHIFT + Command + A ").unwrap();
+
+        assert_eq!(key, Some(Key::KeyA));
+        assert!(state.matches(&modifiers(true, true, false, true)));
+    }
+
+    #[test]
+    fn shortcut_parser_accepts_modifier_only_bindings() {
+        let (key, state) = parse_shortcut_string("ctrl+alt").unwrap();
+
+        assert_eq!(key, None);
+        assert!(state.matches(&modifiers(true, false, true, false)));
+    }
+
+    #[test]
+    fn shortcut_parser_preserves_legacy_numpad_plus_bindings() {
+        for binding in ["numpad +", "numpad+", "ctrl+numpad +", "ctrl+numpad+"] {
+            let (key, state) = parse_shortcut_string(binding).unwrap();
+            assert_eq!(key, Some(Key::KpPlus), "{binding}");
+            assert_eq!(state.ctrl, binding.starts_with("ctrl"), "{binding}");
+        }
+    }
+
+    #[test]
+    fn shortcut_parser_covers_extended_keys_and_rejects_unknown_ones() {
+        let cases = [
+            ("caps", Key::CapsLock),
+            ("f24", Key::F24),
+            ("page down", Key::PageDown),
+            ("oem102", Key::IntlBackslash),
+            ("numdel", Key::Delete),
+        ];
+        for (binding, expected) in cases {
+            assert_eq!(parse_shortcut_string(binding).unwrap().0, Some(expected));
+        }
+
+        assert!(parse_shortcut_string("").is_err());
+        assert!(parse_shortcut_string("hyper").is_err());
+    }
+
+    #[test]
+    fn shortcut_parser_rejects_multiple_main_keys_with_context() {
+        let error = parse_shortcut_string("ctrl+a+b").unwrap_err();
+        assert!(error.contains("Multiple main keys"));
+        assert!(error.contains("'b'"));
+    }
+
+    #[test]
+    fn physical_shortcut_identity_ignores_display_metadata_only() {
+        let first = RegisteredShortcut {
+            key: Some(Key::KeyK),
+            modifiers: modifiers(true, true, false, false),
+            original_binding: "ctrl+shift+k".to_string(),
+            match_main_key_in_any_combo: false,
+        };
+        let mut same = first.clone();
+        same.original_binding = "CONTROL + SHIFT + K".to_string();
+        same.match_main_key_in_any_combo = true;
+        assert!(same_physical_shortcut(&first, &same));
+
+        let mut different = same;
+        different.modifiers.shift = false;
+        assert!(!same_physical_shortcut(&first, &different));
+    }
+}

@@ -223,3 +223,58 @@ pub fn get_language_from_input_source() -> Option<String> {
     let source = get_current_input_source()?;
     input_source_to_language(&source).map(|s| s.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn representative_platform_identifiers_resolve_to_iso_languages() {
+        let cases = [
+            ("com.apple.keylayout.Russian", "ru"),
+            ("com.apple.inputmethod.Kotoeri.Japanese", "ja"),
+            ("0000040c", "fr"),
+            ("00000804", "zh"),
+            ("br", "pt"),
+            ("ua", "uk"),
+        ];
+
+        for (source, expected) in cases {
+            assert_eq!(input_source_to_language(source), Some(expected), "{source}");
+        }
+    }
+
+    #[test]
+    fn platform_aliases_for_the_same_language_remain_equivalent() {
+        for sources in [
+            ["com.apple.keylayout.US", "00000409", "us"],
+            ["com.apple.keylayout.Brazilian", "00000416", "br"],
+            ["com.apple.keylayout.Korean", "00000412", "kr"],
+        ] {
+            let languages: Vec<_> = sources.into_iter().map(input_source_to_language).collect();
+            assert!(languages.iter().all(|language| *language == languages[0]));
+            assert!(languages[0].is_some());
+        }
+    }
+
+    #[test]
+    fn macos_variant_suffix_falls_back_to_the_known_base_layout() {
+        assert_eq!(
+            input_source_to_language("com.apple.keylayout.Russian-Custom"),
+            Some("ru")
+        );
+    }
+
+    #[test]
+    fn unknown_or_malformed_identifiers_do_not_guess_a_language() {
+        for source in [
+            "",
+            "US",
+            "000004FF",
+            "com.example.Unknown",
+            "unknown-layout",
+        ] {
+            assert_eq!(input_source_to_language(source), None, "{source}");
+        }
+    }
+}

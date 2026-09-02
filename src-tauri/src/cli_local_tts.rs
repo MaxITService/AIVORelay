@@ -343,3 +343,137 @@ fn validate_root_scope(args: &CliArgs) -> Result<(), (i32, String)> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::{TtsLocalArgs, TtsLocalConfirmationArgs};
+    use std::path::Path;
+
+    fn local_args(engine: CliLocalTtsEngine, command: TtsLocalCommand) -> CliArgs {
+        CliArgs {
+            command: Some(CliCommand::TtsLocal(TtsLocalArgs { engine, command })),
+            ..CliArgs::default()
+        }
+    }
+
+    #[test]
+    fn local_tts_request_detection_distinguishes_subcommand_from_absence() {
+        assert!(!is_local_tts_requested(&CliArgs::default()));
+
+        let local = local_args(CliLocalTtsEngine::Qwen, TtsLocalCommand::Status);
+        assert!(is_local_tts_requested(&local));
+    }
+
+    #[test]
+    fn human_bytes_uses_mib_below_gib_and_gib_at_the_boundary() {
+        assert_eq!(human_bytes(0), "0.0 MiB");
+        assert_eq!(human_bytes(3 * 1024 * 1024 / 2), "1.5 MiB");
+        assert_eq!(human_bytes(1024 * 1024 * 1024 - 1), "1024.0 MiB");
+        assert_eq!(human_bytes(1024 * 1024 * 1024), "1.00 GiB");
+        assert_eq!(human_bytes(5 * 1024 * 1024 * 1024 / 2), "2.50 GiB");
+    }
+
+    #[test]
+    fn local_engine_identifiers_stay_consistent_across_internal_and_cli_views() {
+        let cases = [
+            (
+                CliLocalTtsEngine::Qwen,
+                LocalTtsKind::Qwen,
+                "Local Qwen3-TTS",
+                "qwen",
+            ),
+            (
+                CliLocalTtsEngine::Kokoro,
+                LocalTtsKind::Kokoro,
+                "Local Kokoro-82M",
+                "kokoro",
+            ),
+        ];
+
+        for (engine, expected_kind, expected_name, expected_cli_name) in cases {
+            assert_eq!(local_kind(engine), expected_kind);
+            assert_eq!(local_engine_name(engine), expected_name);
+            assert_eq!(local_engine_cli_name(engine), expected_cli_name);
+        }
+    }
+
+    #[test]
+    fn absolute_path_preserves_absolute_paths_and_resolves_relative_paths() {
+        let absolute = std::env::current_dir()
+            .expect("current directory should be available")
+            .join("already-absolute.wav");
+        assert_eq!(absolute_path(&absolute).unwrap(), absolute);
+
+        let relative = Path::new("nested").join("voice.mp3");
+        assert_eq!(
+            absolute_path(&relative).unwrap(),
+            std::env::current_dir().unwrap().join(relative)
+        );
+    }
+
+    #[test]
+    fn local_tts_root_scope_accepts_its_own_options() {
+        let mut args = local_args(
+            CliLocalTtsEngine::Kokoro,
+            TtsLocalCommand::Install(TtsLocalConfirmationArgs { yes: true }),
+        );
+        args.debug = true;
+        args.json = true;
+
+        assert_eq!(validate_root_scope(&args), Ok(()));
+    }
+
+    #[test]
+    fn local_tts_root_scope_rejects_every_other_operation_family() {
+        let assert_conflict = |args: CliArgs| {
+            let error = validate_root_scope(&args).expect_err("operation should conflict");
+            assert_eq!(error.0, EXIT_USAGE);
+            assert!(error.1.contains("cannot be combined"));
+        };
+
+        let mut toggle = CliArgs::default();
+        toggle.toggle_transcription = true;
+        assert_conflict(toggle);
+
+        let mut post_process = CliArgs::default();
+        post_process.toggle_post_process = true;
+        assert_conflict(post_process);
+
+        let mut cancel = CliArgs::default();
+        cancel.cancel = true;
+        assert_conflict(cancel);
+
+        let mut conversion = CliArgs::default();
+        conversion.convert_file.push(PathBuf::from("input.txt"));
+        assert_conflict(conversion);
+
+        let mut tts_override = CliArgs::default();
+        tts_override.tts_voice = Some("voice-id".to_string());
+        assert_conflict(tts_override);
+
+        let mut output = CliArgs::default();
+        output.output = Some(PathBuf::from("output.wav"));
+        assert_conflict(output);
+
+        let mut benchmark = CliArgs::default();
+        benchmark.transcribe_file = Some(PathBuf::from("input.wav"));
+        assert_conflict(benchmark);
+
+        let mut device_query = CliArgs::default();
+        device_query.list_devices = true;
+        assert_conflict(device_query);
+
+        let mut model = CliArgs::default();
+        model.model = Some("model.bin".to_string());
+        assert_conflict(model);
+
+        let mut device = CliArgs::default();
+        device.device_index = Some(2);
+        assert_conflict(device);
+
+        let mut repeat = CliArgs::default();
+        repeat.repeat = Some(3);
+        assert_conflict(repeat);
+    }
+}

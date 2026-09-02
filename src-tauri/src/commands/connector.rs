@@ -565,3 +565,267 @@ pub fn connector_export_bundled_extension(
         replaced_existing_export,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Cursor, Write};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use zip::write::FileOptions;
+    use zip::ZipWriter;
+
+    static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(1);
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new(label: &str) -> Self {
+            let sequence = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "aivorelay-connector-{label}-{}-{sequence}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn archive_with_files(files: &[(&str, &[u8])]) -> ZipArchive<Cursor<Vec<u8>>> {
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, contents) in files {
+            writer.start_file(*name, FileOptions::default()).unwrap();
+            writer.write_all(contents).unwrap();
+        }
+        ZipArchive::new(writer.finish().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn export_directory_resolution_is_idempotent_for_the_named_folder() {
+        let root = Path::new("Q:/Exports");
+        let expected = root.join(EXPORTED_EXTENSION_FOLDER_NAME);
+
+        assert_eq!(resolve_export_dir(root), expected);
+        assert_eq!(resolve_export_dir(&expected), expected);
+    }
+
+    #[test]
+    fn stored_path_normalization_handles_whitespace_separators_and_trailing_slashes() {
+        let actual = normalize_metadata_path_string("  Q:/Exports/AivoRelay Connector///  ");
+        let expected = if cfg!(target_os = "windows") {
+            r"q:\exports\aivorelay connector"
+        } else {
+            r"Q:\Exports\AivoRelay Connector"
+        };
+
+        assert_eq!(actual, expected);
+        assert_eq!(
+            normalize_metadata_path_string(r"Q:\Exports"),
+            normalize_metadata_path_string("Q:/Exports/")
+        );
+    }
+
+    #[test]
+    fn stored_export_match_requires_a_nonempty_equivalent_path() {
+        let directory = TestDirectory::new("stored-export");
+        let export = directory.path().join(EXPORTED_EXTENSION_FOLDER_NAME);
+        let mut settings = crate::settings::get_default_settings();
+
+        settings.connector_last_export_dir = String::new();
+        assert!(!stored_export_matches(&settings, &export));
+
+        settings.connector_last_export_dir =
+            format!("{}/", export.to_string_lossy().replace('\\', "/"));
+        assert!(stored_export_matches(&settings, &export));
+
+        settings.connector_last_export_dir = directory
+            .path()
+            .join("another")
+            .to_string_lossy()
+            .to_string();
+        assert!(!stored_export_matches(&settings, &export));
+    }
+
+    #[test]
+    fn manifest_patch_preserves_existing_fields_and_writes_a_stable_key() {
+        let directory = TestDirectory::new("manifest");
+        let manifest_path = directory.path().join("manifest.json");
+        fs::write(
+            &manifest_path,
+            r#"{"manifest_version":3,"name":"AivoRelay","permissions":["storage"]}"#,
+        )
+        .unwrap();
+
+        patch_exported_manifest(directory.path(), "public-key-base64").unwrap();
+
+        let updated = fs::read_to_string(manifest_path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&updated).unwrap();
+        assert_eq!(parsed["manifest_version"], 3);
+        assert_eq!(parsed["name"], "AivoRelay");
+        assert_eq!(parsed["permissions"], serde_json::json!(["storage"]));
+        assert_eq!(parsed["key"], "public-key-base64");
+        assert!(updated.ends_with('\n'));
+    }
+
+    #[test]
+    fn manifest_patch_rejects_non_object_json_without_rewriting_it() {
+        let directory = TestDirectory::new("manifest-array");
+        let manifest_path = directory.path().join("manifest.json");
+        fs::write(&manifest_path, "[1,2,3]\n").unwrap();
+
+        let error = patch_exported_manifest(directory.path(), "key").unwrap_err();
+
+        assert!(error.contains("does not contain a JSON object"));
+        assert_eq!(fs::read_to_string(manifest_path).unwrap(), "[1,2,3]\n");
+    }
+
+    #[test]
+    fn provisioned_password_is_json_escaped_in_every_extension_entrypoint() {
+        let directory = TestDirectory::new("password");
+        let marker = "const PROVISIONED_CONNECTOR_PASSWORD = \"\";";
+        for filename in EXTENSION_PASSWORD_FILES {
+            fs::write(
+                directory.path().join(filename),
+                format!("before\n{marker}\nafter\n"),
+            )
+            .unwrap();
+        }
+        let password = "quote\" backslash\\ newline\nvalue";
+
+        patch_exported_provisioned_password(directory.path(), password).unwrap();
+
+        let expected = format!(
+            "const PROVISIONED_CONNECTOR_PASSWORD = {};",
+            serde_json::to_string(password).unwrap()
+        );
+        for filename in EXTENSION_PASSWORD_FILES {
+            let updated = fs::read_to_string(directory.path().join(filename)).unwrap();
+            assert!(updated.contains(&expected), "{filename}");
+            assert!(!updated.contains(marker), "{filename}");
+        }
+    }
+
+    #[test]
+    fn password_provisioning_fails_when_the_expected_marker_is_absent() {
+        let directory = TestDirectory::new("password-marker");
+        for filename in EXTENSION_PASSWORD_FILES {
+            fs::write(directory.path().join(filename), "const unrelated = true;\n").unwrap();
+        }
+
+        let error = patch_exported_provisioned_password(directory.path(), "password").unwrap_err();
+
+        assert!(error.contains("Failed to provision password"));
+        for filename in EXTENSION_PASSWORD_FILES {
+            assert_eq!(
+                fs::read_to_string(directory.path().join(filename)).unwrap(),
+                "const unrelated = true;\n"
+            );
+        }
+    }
+
+    #[test]
+    fn default_port_patch_updates_every_entrypoint_and_is_idempotent() {
+        let directory = TestDirectory::new("port");
+        for filename in EXTENSION_SETTINGS_FILES {
+            fs::write(
+                directory.path().join(filename),
+                "const settings = { host: '127.0.0.1', port: 38243 };\n",
+            )
+            .unwrap();
+        }
+
+        patch_exported_default_port(directory.path(), 45678).unwrap();
+        patch_exported_default_port(directory.path(), 45678).unwrap();
+
+        for filename in EXTENSION_SETTINGS_FILES {
+            let updated = fs::read_to_string(directory.path().join(filename)).unwrap();
+            assert!(updated.contains("port: 45678"), "{filename}");
+            assert!(!updated.contains("port: 38243"), "{filename}");
+        }
+    }
+
+    #[test]
+    fn default_port_patch_fails_closed_when_the_expected_setting_is_absent() {
+        let directory = TestDirectory::new("port-marker");
+        for filename in EXTENSION_SETTINGS_FILES {
+            fs::write(directory.path().join(filename), "const settings = {};\n").unwrap();
+        }
+
+        let error = patch_exported_default_port(directory.path(), 45678).unwrap_err();
+
+        assert!(error.contains("Failed to update default port"));
+        for filename in EXTENSION_SETTINGS_FILES {
+            assert_eq!(
+                fs::read_to_string(directory.path().join(filename)).unwrap(),
+                "const settings = {};\n"
+            );
+        }
+    }
+
+    #[test]
+    fn recursive_copy_preserves_nested_files_and_contents() {
+        let directory = TestDirectory::new("copy");
+        let source = directory.path().join("source");
+        let destination = directory.path().join("destination");
+        fs::create_dir_all(source.join("nested/deeper")).unwrap();
+        fs::write(source.join("root.txt"), b"root").unwrap();
+        fs::write(source.join("nested/deeper/file.bin"), [0, 1, 2, 255]).unwrap();
+
+        copy_directory_recursive(&source, &destination).unwrap();
+
+        assert_eq!(
+            fs::read(destination.join("root.txt")).unwrap().as_slice(),
+            &b"root"[..]
+        );
+        assert_eq!(
+            fs::read(destination.join("nested/deeper/file.bin"))
+                .unwrap()
+                .as_slice(),
+            &[0, 1, 2, 255]
+        );
+    }
+
+    #[test]
+    fn zip_extraction_preserves_nested_files_inside_the_destination() {
+        let directory = TestDirectory::new("unzip");
+        let destination = directory.path().join("destination");
+        let mut archive = archive_with_files(&[
+            ("manifest.json", br#"{"manifest_version":3}"#),
+            ("assets/icon.txt", b"icon"),
+        ]);
+
+        unzip_to_directory(&mut archive, &destination).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(destination.join("manifest.json")).unwrap(),
+            r#"{"manifest_version":3}"#
+        );
+        assert_eq!(
+            fs::read(destination.join("assets/icon.txt"))
+                .unwrap()
+                .as_slice(),
+            &b"icon"[..]
+        );
+    }
+
+    #[test]
+    fn zip_extraction_rejects_parent_directory_traversal() {
+        let directory = TestDirectory::new("zip-slip");
+        let destination = directory.path().join("destination");
+        let mut archive = archive_with_files(&[("../outside.txt", b"escape")]);
+
+        let error = unzip_to_directory(&mut archive, &destination).unwrap_err();
+
+        assert!(error.contains("Unsafe bundled extension entry path"));
+        assert!(!directory.path().join("outside.txt").exists());
+    }
+}

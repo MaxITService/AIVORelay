@@ -2387,9 +2387,8 @@ mod tests {
     }
 
     #[test]
-    fn all_supported_file_overrides_apply_without_mutating_the_source_snapshot() {
-        let original = TtsSettings::default();
-        let mut effective = original.clone();
+    fn all_supported_file_overrides_apply_to_effective_settings() {
+        let mut effective = TtsSettings::default();
         let args = CliArgs {
             convert_file: vec![PathBuf::from("chapter.md")],
             tts_provider: Some(CliTtsProvider::Soniox),
@@ -2430,14 +2429,6 @@ mod tests {
         assert!(!effective.preprocessing_enabled);
         assert_eq!(effective.disk_reserve_mb, 1_024);
         assert!(!effective.file_history_enabled);
-
-        assert_eq!(original.provider, TtsSettings::default().provider);
-        assert_eq!(original.soniox_model, TtsSettings::default().soniox_model);
-        assert_eq!(original.speed, TtsSettings::default().speed);
-        assert_eq!(
-            original.mp3_bitrate_kbps,
-            TtsSettings::default().mp3_bitrate_kbps
-        );
     }
 
     #[test]
