@@ -778,7 +778,7 @@ pub(crate) fn handle_shortcut_event(
         pressed
     );
 
-    let settings = get_settings(app);
+    let mut settings = get_settings(app);
 
     if is_decapitalize_monitor_shortcut_id(binding_id) {
         if pressed && settings.text_replacement_decapitalize_after_edit_key_enabled {
@@ -827,6 +827,37 @@ pub(crate) fn handle_shortcut_event(
             binding_id
         );
         return;
+    }
+
+    // Resolve an application-aware profile only for a fresh recording start.
+    // Repeated key-down events and a key-down that stops an existing toggle do
+    // not need foreground inspection or a pending settings snapshot.
+    let should_prepare_transcribe_start = if pressed
+        && (binding_id == "transcribe" || binding_id.starts_with("transcribe_"))
+    {
+        let toggle_state_manager = app.state::<ManagedToggleState>();
+        let states = match toggle_state_manager.lock() {
+            Ok(states) => states,
+            Err(poisoned) => {
+                warn!(
+                    "Toggle state lock poisoned while preparing shortcut '{}'; recovering",
+                    binding_id
+                );
+                poisoned.into_inner()
+            }
+        };
+        !states.active_presses.contains_key(binding_id)
+            && !states
+                .active_toggles
+                .get(binding_id)
+                .copied()
+                .unwrap_or(false)
+    } else {
+        false
+    };
+
+    if should_prepare_transcribe_start {
+        settings = crate::actions::prepare_transcribe_settings(app, binding_id);
     }
 
     let use_push_to_talk = match binding_id {
@@ -999,8 +1030,17 @@ pub(crate) fn handle_shortcut_event(
                 }
             }
         }
-        Dispatch::Stop => action.stop(app, binding_id, shortcut_string),
-        Dispatch::Ignore => {}
+        Dispatch::Stop => {
+            if should_prepare_transcribe_start {
+                let _ = crate::actions::take_pending_transcribe_settings(binding_id);
+            }
+            action.stop(app, binding_id, shortcut_string);
+        }
+        Dispatch::Ignore => {
+            if should_prepare_transcribe_start {
+                let _ = crate::actions::take_pending_transcribe_settings(binding_id);
+            }
+        }
     }
 }
 
@@ -1136,7 +1176,7 @@ pub fn change_ptt_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     // Update the setting
     settings.push_to_talk = enabled;
 
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
 
     Ok(())
 }
@@ -2652,6 +2692,121 @@ pub fn change_start_hidden_setting(app: AppHandle, enabled: bool) -> Result<(), 
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+const ADMIN_AUTOSTART_TASK_NAME: &str = "AIVORelayAutostartAdmin";
+
+#[cfg(target_os = "windows")]
+fn admin_autostart_task_exists() -> Result<bool, String> {
+    use std::process::Command;
+    Command::new("schtasks")
+        .args(["/query", "/tn", ADMIN_AUTOSTART_TASK_NAME])
+        .output()
+        .map(|output| output.status.success())
+        .map_err(|error| format!("Failed to query administrator scheduled task: {error}"))
+}
+
+#[cfg(target_os = "windows")]
+fn create_admin_autostart_task(exe_str: &str) -> Result<(), String> {
+    use std::process::Command;
+
+    // First attempt direct execution (succeeds if already running elevated).
+    let direct_status = Command::new("schtasks")
+        .args([
+            "/create",
+            "/tn",
+            ADMIN_AUTOSTART_TASK_NAME,
+            "/tr",
+            &format!("\"{}\"", exe_str),
+            "/sc",
+            "onlogon",
+            "/rl",
+            "highest",
+            "/it",
+            "/f",
+        ])
+        .status();
+
+    let success = match direct_status {
+        Ok(status) if status.success() => true,
+        _ => {
+            // Non-elevated: request the standard one-time Windows UAC prompt.
+            let safe_task = ADMIN_AUTOSTART_TASK_NAME.replace('\'', "''");
+            let safe_exe = exe_str.replace('\'', "''");
+            let ps_command = format!(
+                "Start-Process -FilePath 'schtasks' -ArgumentList @('/create', '/tn', '{safe_task}', '/tr', '\"{safe_exe}\"', '/sc', 'onlogon', '/rl', 'highest', '/it', '/f') -Verb RunAs -Wait"
+            );
+            let ps_status = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-WindowStyle",
+                    "Hidden",
+                    "-Command",
+                    &ps_command,
+                ])
+                .status();
+            matches!(ps_status, Ok(status) if status.success())
+        }
+    };
+
+    if !success || !admin_autostart_task_exists()? {
+        return Err(
+            "Failed to register Windows scheduled task with administrator privileges.".to_string(),
+        );
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn delete_admin_autostart_task() -> Result<(), String> {
+    use std::process::Command;
+
+    if !admin_autostart_task_exists()? {
+        return Ok(());
+    }
+
+    // First attempt direct deletion (works if elevated)
+    let direct_status = Command::new("schtasks")
+        .args(["/delete", "/tn", ADMIN_AUTOSTART_TASK_NAME, "/f"])
+        .status();
+
+    if let Ok(status) = direct_status {
+        if status.success() {
+            return if admin_autostart_task_exists()? {
+                Err("Administrator scheduled task still exists after deletion.".to_string())
+            } else {
+                Ok(())
+            };
+        }
+    }
+
+    // Fall back to elevated PowerShell to request UAC once
+    let safe_task = ADMIN_AUTOSTART_TASK_NAME.replace('\'', "''");
+    let ps_command = format!(
+        "Start-Process -FilePath 'schtasks' -ArgumentList @('/delete', '/tn', '{safe_task}', '/f') -Verb RunAs -Wait"
+    );
+    let ps_status = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            &ps_command,
+        ])
+        .status();
+
+    match ps_status {
+        Ok(status) if status.success() => {
+            if admin_autostart_task_exists()? {
+                Err("Administrator scheduled task was not removed by Windows.".to_string())
+            } else {
+                Ok(())
+            }
+        }
+        _ => Err("Failed to delete scheduled task with administrator privileges.".to_string()),
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
@@ -2661,6 +2816,11 @@ pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), Str
             "Autostart cannot be enabled from a development build. Use an installed release build."
                 .to_string(),
         );
+    }
+
+    let previous_settings = settings::get_settings(&app);
+    if previous_settings.autostart_enabled == enabled {
+        return Ok(());
     }
 
     // Apply OS-level autostart first so UI/store can roll back on failure.
@@ -2673,11 +2833,74 @@ pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), Str
         autostart_manager
             .disable()
             .map_err(|e| format!("Failed to disable autostart: {e}"))?;
+
+        #[cfg(target_os = "windows")]
+        if let Err(error) = delete_admin_autostart_task() {
+            // Restore the previous ordinary-autostart state. In administrator
+            // mode the registry entry was intentionally disabled, so there is
+            // nothing to restore and the still-existing task remains active.
+            if previous_settings.autostart_enabled
+                && !previous_settings.autostart_as_admin_enabled
+            {
+                if let Err(rollback_error) = autostart_manager.enable() {
+                    return Err(format!(
+                        "Failed to delete administrator scheduled task: {error}; also failed to restore standard autostart: {rollback_error}"
+                    ));
+                }
+            }
+            return Err(format!(
+                "Failed to delete administrator scheduled task: {error}"
+            ));
+        }
     }
 
-    let mut settings = settings::get_settings(&app);
-    settings.autostart_enabled = enabled;
-    settings::write_settings(&app, settings);
+    let mut next_settings = previous_settings.clone();
+    next_settings.autostart_enabled = enabled;
+    if !enabled {
+        next_settings.autostart_as_admin_enabled = false;
+    }
+    if let Err(save_error) = settings::write_settings_checked(&app, next_settings) {
+        let rollback_result: Result<(), String> = if enabled {
+            autostart_manager
+                .disable()
+                .map_err(|error| format!("Failed to restore disabled autostart: {error}"))
+        } else {
+            #[cfg(target_os = "windows")]
+            {
+                if previous_settings.autostart_as_admin_enabled {
+                    match std::env::current_exe() {
+                        Ok(exe_path) => {
+                            create_admin_autostart_task(&exe_path.to_string_lossy())
+                        }
+                        Err(error) => Err(format!(
+                            "Failed to resolve executable for autostart rollback: {error}"
+                        )),
+                    }
+                } else if previous_settings.autostart_enabled {
+                    autostart_manager.enable().map_err(|error| {
+                        format!("Failed to restore standard autostart: {error}")
+                    })
+                } else {
+                    Ok(())
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                if previous_settings.autostart_enabled {
+                    autostart_manager.enable().map_err(|error| {
+                        format!("Failed to restore standard autostart: {error}")
+                    })
+                } else {
+                    Ok(())
+                }
+            }
+        };
+
+        return match rollback_result {
+            Ok(()) => Err(save_error),
+            Err(rollback_error) => Err(format!("{save_error}; {rollback_error}")),
+        };
+    }
 
     // Notify frontend
     let _ = app.emit(
@@ -2687,8 +2910,154 @@ pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), Str
             "value": enabled
         }),
     );
+    if !enabled {
+        let _ = app.emit(
+            "settings-changed",
+            serde_json::json!({
+                "setting": "autostart_as_admin_enabled",
+                "value": false
+            }),
+        );
+    }
 
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_autostart_as_admin_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    #[cfg(debug_assertions)]
+    if enabled {
+        return Err(
+            "Autostart as administrator cannot be enabled from a development build. Use an installed release build."
+                .to_string(),
+        );
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, enabled);
+        return Err(
+            "Autostart with administrator privileges is only supported on Windows.".to_string(),
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let exe_path = std::env::current_exe()
+            .map_err(|e| format!("Failed to resolve current executable path: {e}"))?;
+        let exe_str = exe_path.to_string_lossy().to_string();
+        let previous_settings = settings::get_settings(&app);
+
+        if previous_settings.autostart_as_admin_enabled == enabled {
+            return Ok(());
+        }
+
+        if enabled {
+            create_admin_autostart_task(&exe_str)?;
+
+            // Disable standard registry autostart so the application does not start twice
+            let autostart_manager = app.autolaunch();
+            if let Err(e) = autostart_manager.disable() {
+                if let Err(rollback_error) = delete_admin_autostart_task() {
+                    return Err(format!(
+                        "Failed to disable standard registry autostart: {e}; also failed to remove the administrator task during rollback: {rollback_error}"
+                    ));
+                }
+                return Err(format!("Failed to disable standard registry autostart: {e}"));
+            }
+
+            let mut next_settings = previous_settings.clone();
+            next_settings.autostart_as_admin_enabled = true;
+            next_settings.autostart_enabled = true;
+            if let Err(save_error) = settings::write_settings_checked(&app, next_settings) {
+                let registry_rollback = if previous_settings.autostart_enabled {
+                    autostart_manager.enable().map_err(|error| error.to_string())
+                } else {
+                    Ok(())
+                };
+                let task_rollback = delete_admin_autostart_task();
+                return match (registry_rollback, task_rollback) {
+                    (Ok(()), Ok(())) => Err(save_error),
+                    (registry_result, task_result) => Err(format!(
+                        "{save_error}; autostart rollback was incomplete (registry: {}; task: {})",
+                        registry_result
+                            .err()
+                            .unwrap_or_else(|| "restored".to_string()),
+                        task_result.err().unwrap_or_else(|| "removed".to_string())
+                    )),
+                };
+            }
+        } else {
+            let autostart_manager = app.autolaunch();
+
+            // Transactional rollback sequence:
+            // 1. If regular autostart remains enabled, restore registry autostart first
+            let restored_registry = if previous_settings.autostart_enabled {
+                autostart_manager
+                    .enable()
+                    .map_err(|e| format!("Failed to restore standard registry autostart: {e}"))?;
+                true
+            } else {
+                false
+            };
+
+            // 2. Remove the scheduled task
+            if let Err(e) = delete_admin_autostart_task() {
+                // If scheduled task deletion fails and we re-enabled registry autostart, roll it back
+                if restored_registry {
+                    if let Err(rollback_error) = autostart_manager.disable() {
+                        return Err(format!(
+                            "Failed to delete administrator scheduled task: {e}; also failed to roll back standard autostart: {rollback_error}"
+                        ));
+                    }
+                }
+                return Err(format!("Failed to delete administrator scheduled task: {e}"));
+            }
+
+            let mut next_settings = previous_settings.clone();
+            next_settings.autostart_as_admin_enabled = false;
+            if let Err(save_error) = settings::write_settings_checked(&app, next_settings) {
+                let task_rollback = create_admin_autostart_task(&exe_str);
+                let registry_rollback = if task_rollback.is_ok() && restored_registry {
+                    autostart_manager.disable().map_err(|error| error.to_string())
+                } else {
+                    Ok(())
+                };
+                return match (task_rollback, registry_rollback) {
+                    (Ok(()), Ok(())) => Err(save_error),
+                    (task_result, registry_result) => Err(format!(
+                        "{save_error}; administrator-autostart rollback was incomplete (task: {}; registry: {})",
+                        task_result
+                            .err()
+                            .unwrap_or_else(|| "restored".to_string()),
+                        registry_result
+                            .err()
+                            .unwrap_or_else(|| "restored".to_string())
+                    )),
+                };
+            }
+        }
+
+        let _ = app.emit(
+            "settings-changed",
+            serde_json::json!({
+                "setting": "autostart_as_admin_enabled",
+                "value": enabled
+            }),
+        );
+        if enabled {
+            let _ = app.emit(
+                "settings-changed",
+                serde_json::json!({
+                    "setting": "autostart_enabled",
+                    "value": true
+                }),
+            );
+        }
+
+        return Ok(());
+    }
 }
 
 #[tauri::command]
@@ -4032,6 +4401,50 @@ pub fn change_profile_switch_overlay_enabled_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_automatic_app_profiles_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.automatic_app_profiles_enabled = enabled;
+    // Toggling the master switch establishes the documented dependent
+    // default atomically. The dependent command can still turn the overlay
+    // indicator off later while automatic profiles remain enabled.
+    settings.recording_overlay_show_app = enabled;
+    settings::write_settings_checked(&app, settings)?;
+
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "setting": "automatic_app_profiles_enabled",
+            "value": enabled
+        }),
+    );
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "setting": "recording_overlay_show_app",
+            "value": enabled
+        }),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_show_app_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_show_app =
+        enabled && settings.automatic_app_profiles_enabled;
+    settings::write_settings_checked(&app, settings)?;
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_post_process_base_url_setting(
     app: AppHandle,
     provider_id: String,
@@ -4363,6 +4776,8 @@ pub struct AddTranscriptionProfilePayload {
     pub name: String,
     pub language: String,
     pub translate_to_english: bool,
+    #[serde(default)]
+    pub automatic_app_rules: Option<Vec<String>>,
     pub system_prompt: String,
     #[serde(default)]
     pub stt_prompt_override_enabled: bool,
@@ -4393,6 +4808,9 @@ pub struct UpdateTranscriptionProfilePayload {
     pub name: String,
     pub language: String,
     pub translate_to_english: bool,
+    /// `None` preserves rules for callers built before automatic profiles.
+    #[serde(default)]
+    pub automatic_app_rules: Option<Vec<String>>,
     pub system_prompt: String,
     pub stt_prompt_override_enabled: bool,
     #[serde(default)]
@@ -4426,6 +4844,7 @@ pub fn add_transcription_profile(
         name,
         language,
         translate_to_english,
+        automatic_app_rules,
         system_prompt,
         stt_prompt_override_enabled,
         stt_model_selection_override,
@@ -4487,12 +4906,16 @@ pub fn add_transcription_profile(
         .map(|terms| crate::gemini_config::validate_vocabulary(&terms))
         .transpose()?;
 
+    let automatic_app_rules =
+        settings::normalize_automatic_app_rules(&automatic_app_rules.unwrap_or_default())?;
+
     let new_profile = settings::TranscriptionProfile {
         id: profile_id.clone(),
         name: name.clone(),
         language,
         translate_to_english,
         description: description.clone(),
+        automatic_app_rules,
         system_prompt,
         stt_prompt_override_enabled,
         stt_model_selection_override,
@@ -4523,7 +4946,7 @@ pub fn add_transcription_profile(
     // Add to settings
     settings.transcription_profiles.push(new_profile.clone());
     settings.bindings.insert(binding_id, binding);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
 
     Ok(new_profile)
 }
@@ -4540,6 +4963,7 @@ pub fn update_transcription_profile(
         name,
         language,
         translate_to_english,
+        automatic_app_rules,
         system_prompt,
         stt_prompt_override_enabled,
         stt_model_selection_override,
@@ -4557,6 +4981,11 @@ pub fn update_transcription_profile(
     } = payload;
 
     let mut settings = settings::get_settings(&app);
+
+    let automatic_app_rules = automatic_app_rules
+        .as_deref()
+        .map(settings::normalize_automatic_app_rules)
+        .transpose()?;
 
     if let Some(selection) = stt_model_selection_override.as_ref() {
         let mut candidate = settings.clone();
@@ -4580,6 +5009,9 @@ pub fn update_transcription_profile(
     profile.language = language;
     profile.translate_to_english = translate_to_english;
     profile.description = description.clone();
+    if let Some(automatic_app_rules) = automatic_app_rules {
+        profile.automatic_app_rules = automatic_app_rules;
+    }
     profile.system_prompt = system_prompt;
     profile.stt_prompt_override_enabled = stt_prompt_override_enabled;
     profile.stt_model_selection_override = stt_model_selection_override;
@@ -4622,7 +5054,7 @@ pub fn update_transcription_profile(
     }
 
     synchronize_active_profile_preview(&mut settings);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_soniox_live_preview_window(&app);
     Ok(())
 }
@@ -5836,9 +6268,12 @@ pub fn change_app_language_setting(app: AppHandle, language: String) -> Result<(
 pub fn change_show_tray_icon_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.show_tray_icon = enabled;
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
 
     tray::set_tray_visibility(&app, enabled);
+    // Hiding the tray must cancel any active blink loop. Showing it while the
+    // app is busy should resume blinking according to the current settings.
+    tray::refresh_tray_icon(&app);
 
     Ok(())
 }
@@ -5854,6 +6289,66 @@ pub fn change_show_tray_shortcut_guide_setting(
     settings::write_settings(&app, settings);
 
     tray::refresh_tray_menu(&app, None);
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_tray_icon_blinking_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.tray_icon_blinking_enabled = enabled;
+    settings::write_settings_checked(&app, settings)?;
+
+    tray::refresh_tray_icon(&app);
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_tray_icon_blink_on_recording_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.tray_icon_blink_on_recording = enabled;
+    settings::write_settings_checked(&app, settings)?;
+
+    tray::refresh_tray_icon(&app);
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_tray_icon_blink_on_processing_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.tray_icon_blink_on_processing = enabled;
+    settings::write_settings_checked(&app, settings)?;
+
+    tray::refresh_tray_icon(&app);
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_tray_icon_blink_frequency_hz_setting(
+    app: AppHandle,
+    frequency_hz: u32,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.tray_icon_blink_frequency_hz = frequency_hz.clamp(1, 10);
+    settings::write_settings_checked(&app, settings)?;
+
+    tray::refresh_tray_icon(&app);
 
     Ok(())
 }

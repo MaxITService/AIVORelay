@@ -75,6 +75,11 @@ const openPostProcessingSettings = () => {
   useNavigationStore.getState().setSection("postprocessing");
 };
 
+/** Open Advanced settings section. */
+const openAdvancedSettings = () => {
+  useNavigationStore.getState().setSection("advanced");
+};
+
 const profileSttPresentation = (
   selection: SttModelSelection,
   localModels: ModelInfo[],
@@ -151,6 +156,7 @@ Transcript:
 \${output}`;
 
 interface ExtendedTranscriptionProfile extends TranscriptionProfile {
+  automatic_app_rules: string[];
   include_in_cycle: boolean;
   push_to_talk: boolean;
   auto_shortcut_activation?: boolean;
@@ -191,6 +197,7 @@ interface ProfileCardProps {
   globalGeminiVocabulary: string[];
   localSttModels: ModelInfo[];
   globalSttModelSelection: SttModelSelection;
+  automaticAppProfilesEnabled: boolean;
   // Note: resolvedOsLanguage removed - language is detected at transcription time, not in UI
 }
 
@@ -220,6 +227,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   globalGeminiVocabulary,
   localSttModels,
   globalSttModelSelection,
+  automaticAppProfilesEnabled,
 }) => {
   const { t } = useTranslation();
   const [isUpdating, setIsUpdating] = useState(false);
@@ -260,6 +268,17 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     postProcessingAvailable && (profile.llm_post_process_enabled ?? false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(profile.name);
+  const persistedAutomaticAppRules = (profile.automatic_app_rules ?? []).join(
+    "\n",
+  );
+  const [automaticAppRulesDraft, setAutomaticAppRulesDraft] = useState(
+    persistedAutomaticAppRules,
+  );
+  const automaticAppRulesDirtyRef = useRef(false);
+  const automaticAppRulesSyncRef = useRef({
+    profileId: profile.id,
+    persisted: persistedAutomaticAppRules,
+  });
   // Track whether user has a custom override (non-null) or uses global (null)
   const [isCustomOverride, setIsCustomOverride] = useState(
     profile.llm_prompt_override != null,
@@ -288,6 +307,23 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     () => parseGeminiVocabulary(geminiVocabularyDraft),
     [geminiVocabularyDraft],
   );
+
+  useEffect(() => {
+    const previous = automaticAppRulesSyncRef.current;
+    const profileChanged = previous.profileId !== profile.id;
+    const persistedChanged = previous.persisted !== persistedAutomaticAppRules;
+    if (
+      profileChanged ||
+      (!automaticAppRulesDirtyRef.current && persistedChanged)
+    ) {
+      setAutomaticAppRulesDraft(persistedAutomaticAppRules);
+      automaticAppRulesDirtyRef.current = false;
+    }
+    automaticAppRulesSyncRef.current = {
+      profileId: profile.id,
+      persisted: persistedAutomaticAppRules,
+    };
+  }, [profile.id, persistedAutomaticAppRules]);
 
   useEffect(() => {
     const previous = geminiVocabularySyncRef.current;
@@ -409,6 +445,36 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     setIsUpdating(true);
     try {
       await onUpdate({ ...profile, include_in_cycle: newValue });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleAutomaticAppRulesCommit = async () => {
+    const rules = automaticAppRulesDraft
+      .split(/\r?\n/)
+      .map((rule) => rule.trim())
+      .filter(Boolean);
+    const normalizedDraft = rules.join("\n");
+    if (normalizedDraft === persistedAutomaticAppRules) {
+      setAutomaticAppRulesDraft(normalizedDraft);
+      automaticAppRulesDirtyRef.current = false;
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      await onUpdate({ ...profile, automatic_app_rules: rules });
+      setAutomaticAppRulesDraft(normalizedDraft);
+      automaticAppRulesDirtyRef.current = false;
+    } catch (error) {
+      console.error("Failed to save automatic application rules:", error);
+      toast.error(
+        t(
+          "settings.transcriptionProfiles.automaticApps.saveFailed",
+          "Failed to save automatic application rules.",
+        ),
+      );
     } finally {
       setIsUpdating(false);
     }
@@ -672,6 +738,18 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   {t("settings.transcriptionProfiles.active")}
                 </Badge>
               )}
+              {automaticAppProfilesEnabled &&
+                (profile.automatic_app_rules?.length ?? 0) > 0 && (
+                  <Badge
+                    variant="secondary"
+                    className="bg-sky-500/15 text-sky-300 border-sky-500/30 text-[10px] px-1.5 py-0 max-w-full truncate"
+                  >
+                    {t("settings.transcriptionProfiles.badges.automaticApps", {
+                      count: profile.automatic_app_rules?.length ?? 0,
+                      defaultValue: "Auto: {{count}} app rules",
+                    })}
+                  </Badge>
+                )}
             </div>
             <span className="text-xs text-mid-gray break-words">
               {languageLabel}
@@ -839,6 +917,52 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
               </div>
             </div>
           </div>
+
+          {automaticAppProfilesEnabled && (
+            <div className="space-y-2 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-text/80">
+                  {t(
+                    "settings.transcriptionProfiles.automaticApps.title",
+                    "Automatically use this profile in applications",
+                  )}
+                </p>
+                <p className="text-xs text-mid-gray leading-relaxed">
+                  {t(
+                    "settings.transcriptionProfiles.automaticApps.description",
+                    "When the main Transcribe shortcut starts in a matching foreground application, this profile overrides the manually active profile for that recording only.",
+                  )}
+                </p>
+              </div>
+              <Textarea
+                value={automaticAppRulesDraft}
+                rows={4}
+                className="w-full font-mono text-xs"
+                aria-label={t(
+                  "settings.transcriptionProfiles.automaticApps.title",
+                  "Automatically use this profile in applications",
+                )}
+                placeholder={t(
+                  "settings.transcriptionProfiles.automaticApps.placeholder",
+                  "code.exe\nchrome.exe\ntitle:Microsoft Teams\npath:*\\Microsoft Office\\*",
+                )}
+                onChange={(event) => {
+                  const nextDraft = event.target.value;
+                  automaticAppRulesDirtyRef.current =
+                    nextDraft !== persistedAutomaticAppRules;
+                  setAutomaticAppRulesDraft(nextDraft);
+                }}
+                onBlur={() => void handleAutomaticAppRulesCommit()}
+                disabled={isUpdating}
+              />
+              <p className="text-[11px] text-mid-gray leading-relaxed">
+                {t(
+                  "settings.transcriptionProfiles.automaticApps.help",
+                  "One rule per line. Use an executable name such as code.exe, or the prefixes exe:, title:, and path:. Matching ignores case; * and ? are wildcards. The most specific rule wins. Profile-specific shortcuts always keep their explicit profile.",
+                )}
+              </p>
+            </div>
+          )}
 
           <div className="space-y-3 rounded-lg border border-mid-gray/10 bg-mid-gray/5 p-3">
             <div className="flex items-start justify-between gap-3">
@@ -1514,6 +1638,7 @@ export const TranscriptionProfiles: React.FC = () => {
     settings,
     refreshSettings,
     updateSetting,
+    isUpdating: isSettingUpdating,
     postProcessModelOptions,
     fetchPostProcessModels,
   } = useSettings();
@@ -1521,6 +1646,8 @@ export const TranscriptionProfiles: React.FC = () => {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(
     () => new Set(["default"]),
   );
+  const [automaticAppsExpanded, setAutomaticAppsExpanded] = useState(false);
+  const automaticAppsManuallyCollapsedRef = useRef(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [isUpdatingDefaultLlm, setIsUpdatingDefaultLlm] = useState(false);
@@ -1831,6 +1958,7 @@ export const TranscriptionProfiles: React.FC = () => {
             name: newName.trim(),
             language: newLanguage,
             translateToEnglish: newTranslate,
+            automaticAppRules: [],
             systemPrompt: newSystemPrompt,
             sttPromptOverrideEnabled: newSttPromptOverrideEnabled,
             sttModelSelectionOverride: null,
@@ -1925,6 +2053,7 @@ export const TranscriptionProfiles: React.FC = () => {
           name: profile.name,
           language: profile.language,
           translateToEnglish: profile.translate_to_english,
+          automaticAppRules: profile.automatic_app_rules ?? [],
           systemPrompt: profile.system_prompt || "",
           sttPromptOverrideEnabled:
             profile.stt_prompt_override_enabled ?? false,
@@ -2007,6 +2136,61 @@ export const TranscriptionProfiles: React.FC = () => {
     }
   };
 
+  const automaticAppProfilesEnabled = Boolean(
+    settings?.automatic_app_profiles_enabled,
+  );
+  const recordingOverlayShowApp = Boolean(
+    settings?.recording_overlay_show_app,
+  );
+
+  useEffect(() => {
+    if (automaticAppProfilesEnabled) {
+      if (!automaticAppsManuallyCollapsedRef.current) {
+        setAutomaticAppsExpanded(true);
+      }
+    } else {
+      automaticAppsManuallyCollapsedRef.current = false;
+      setAutomaticAppsExpanded(false);
+    }
+  }, [automaticAppProfilesEnabled]);
+
+  const handleAutomaticAppsDisclosureToggle = (
+    event: React.SyntheticEvent<HTMLDetailsElement>,
+  ) => {
+    const expanded = event.currentTarget.open;
+    automaticAppsManuallyCollapsedRef.current =
+      automaticAppProfilesEnabled && !expanded;
+    setAutomaticAppsExpanded(expanded);
+  };
+
+  const handleAutomaticAppProfilesToggle = async (enabled: boolean) => {
+    if (updateSetting) {
+      try {
+        await updateSetting("automatic_app_profiles_enabled", enabled, {
+          throwOnError: true,
+        });
+      } catch (error) {
+        toast.error(String(error));
+      } finally {
+        // The backend changes the dependent overlay setting in the same write.
+        // Refresh the complete snapshot so the optimistic store reflects it too.
+        await refreshSettings();
+      }
+    }
+  };
+
+  const handleRecordingOverlayShowAppToggle = async (enabled: boolean) => {
+    if (updateSetting) {
+      try {
+        await updateSetting("recording_overlay_show_app", enabled, {
+          throwOnError: true,
+        });
+      } catch (error) {
+        toast.error(String(error));
+      }
+    }
+  };
+
   const handleDefaultLlmEnabledChange = async (enabled: boolean) => {
     setIsUpdatingDefaultLlm(true);
     try {
@@ -2032,7 +2216,8 @@ export const TranscriptionProfiles: React.FC = () => {
   };
 
   return (
-    <SettingsGroup title={t("settings.transcriptionProfiles.title")}>
+    <div className="space-y-4">
+      <SettingsGroup title={t("settings.transcriptionProfiles.title")}>
       {/* Help text */}
       <SettingContainer
         title=""
@@ -2769,6 +2954,7 @@ export const TranscriptionProfiles: React.FC = () => {
                 globalGeminiVocabulary={globalGeminiVocabulary}
                 localSttModels={localSttModels}
                 globalSttModelSelection={globalSttModelSelection}
+                automaticAppProfilesEnabled={automaticAppProfilesEnabled}
                 showSonioxLanguageFallbackWarning={
                   !presentation.languageOptions.some(
                     (language) => language.value === profile.language,
@@ -2779,9 +2965,159 @@ export const TranscriptionProfiles: React.FC = () => {
           })}
         </div>
       </SettingContainer>
+      </SettingsGroup>
 
-      {/* Create new profile */}
-      <SettingContainer
+      {/* Application-Aware Profiles Settings */}
+      <details
+        open={automaticAppsExpanded}
+        onToggle={handleAutomaticAppsDisclosureToggle}
+        className="group glass-panel-subtle rounded-xl overflow-visible border border-white/[0.08] transition-colors open:border-purple-500/30"
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-5 py-4 text-left transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/35 [&::-webkit-details-marker]:hidden">
+          <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-sm font-semibold text-text">
+            {automaticAppProfilesEnabled && !automaticAppsExpanded && (
+              <span
+                className="h-2 w-2 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_7px_rgba(52,211,153,0.8)]"
+                aria-hidden="true"
+              />
+            )}
+            <span>
+              {t(
+                "settings.transcriptionProfiles.automaticApps.sectionTitle",
+                "I want to have a different profile for different applications.",
+              )}
+            </span>
+            {!automaticAppProfilesEnabled && (
+              <span className="text-mid-gray">
+                ({t(
+                  "settings.transcriptionProfiles.automaticApps.clickIfYes",
+                  "click if yes",
+                )})
+              </span>
+            )}
+            {automaticAppProfilesEnabled && !automaticAppsExpanded && (
+              <span className="text-emerald-400">
+                ({t(
+                  "settings.transcriptionProfiles.automaticApps.enabledStatus",
+                  "enabled",
+                )})
+              </span>
+            )}
+          </span>
+          <ChevronDown
+            className="h-4 w-4 shrink-0 text-mid-gray transition-transform group-open:rotate-180"
+            aria-hidden="true"
+          />
+        </summary>
+        <div className="space-y-4 border-t border-white/[0.05] px-5 py-4">
+          <div className="p-3 bg-sky-500/10 border border-sky-500/30 rounded-lg">
+            <p className="text-xs text-text/80 leading-relaxed">
+              {t(
+                "settings.transcriptionProfiles.automaticApps.sectionHelp",
+                "Automatically activate profiles for specific foreground applications or windows. When disabled, application detection performs no foreground-window or process checks. Unmatched applications use your manually active profile.",
+              )}
+            </p>
+          </div>
+
+          {/* Master Toggle */}
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-medium">
+                {t(
+                  "settings.transcriptionProfiles.automaticApps.masterToggle",
+                  "Different applications to use different profiles",
+                )}
+              </span>
+              <span className="text-xs text-mid-gray leading-snug">
+                {t(
+                  "settings.transcriptionProfiles.automaticApps.masterToggleDescription",
+                  "Enable application detection for the main Transcribe hotkey. The floating Voice Activation Button continues to use the profile selected manually.",
+                )}
+              </span>
+            </div>
+            <div className="shrink-0">
+              <ToggleSwitch
+                checked={automaticAppProfilesEnabled}
+                onChange={handleAutomaticAppProfilesToggle}
+                isUpdating={isSettingUpdating(
+                  "automatic_app_profiles_enabled",
+                )}
+                ariaLabel={t(
+                  "settings.transcriptionProfiles.automaticApps.masterToggle",
+                  "Different applications to use different profiles",
+                )}
+              />
+            </div>
+          </div>
+
+          {/* Show App in Overlay Toggle (dependent) */}
+          {automaticAppProfilesEnabled && (
+            <>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center pt-2 border-t border-mid-gray/10">
+                <div className="flex flex-col min-w-0">
+                  <span className="text-sm font-medium">
+                    {t(
+                      "settings.transcriptionProfiles.automaticApps.showAppInOverlay",
+                      "Show active application in recording overlay",
+                    )}
+                  </span>
+                  <span className="text-xs text-mid-gray leading-snug">
+                    {t(
+                      "settings.transcriptionProfiles.automaticApps.showAppInOverlayDescription",
+                      "Show the active program name in a compact pill above the recording visualization.",
+                    )}
+                  </span>
+                </div>
+                <div className="shrink-0">
+                  <ToggleSwitch
+                    checked={recordingOverlayShowApp}
+                    onChange={handleRecordingOverlayShowAppToggle}
+                    disabled={isSettingUpdating(
+                      "automatic_app_profiles_enabled",
+                    )}
+                    isUpdating={isSettingUpdating(
+                      "recording_overlay_show_app",
+                    )}
+                    ariaLabel={t(
+                      "settings.transcriptionProfiles.automaticApps.showAppInOverlay",
+                      "Show active application in recording overlay",
+                    )}
+                  />
+                </div>
+              </div>
+
+              {/* Admin UIPI Notice */}
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-200/90 leading-relaxed">
+                <span className="font-semibold text-amber-300">
+                  {t(
+                    "settings.transcriptionProfiles.automaticApps.adminNoticeTitle",
+                    "Administrator windows:",
+                  )}{" "}
+                </span>
+                {t(
+                  "settings.transcriptionProfiles.automaticApps.adminNoticePrefix",
+                  "Windows User Interface Privilege Isolation (UIPI) prevents dictation from typing into administrator/elevated windows unless AivoRelay is also running as administrator. You can configure ",
+                )}
+                <button
+                  type="button"
+                  onClick={openAdvancedSettings}
+                  className="underline hover:text-amber-100 font-medium cursor-pointer transition-colors"
+                >
+                  {t(
+                    "settings.transcriptionProfiles.automaticApps.adminNoticeLink",
+                    "Autostart with administrator privileges in Advanced settings",
+                  )}
+                </button>
+                .
+              </div>
+            </>
+          )}
+        </div>
+      </details>
+
+      <SettingsGroup>
+        {/* Create new profile */}
+        <SettingContainer
         title={t("settings.transcriptionProfiles.createNew")}
         description={t("settings.transcriptionProfiles.createNewDescription")}
         descriptionMode="inline"
@@ -3368,7 +3704,8 @@ export const TranscriptionProfiles: React.FC = () => {
             </Button>
           </div>
         </div>
-      </SettingContainer>
-    </SettingsGroup>
+        </SettingContainer>
+      </SettingsGroup>
+    </div>
   );
 };

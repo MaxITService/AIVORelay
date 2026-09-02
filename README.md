@@ -47,12 +47,23 @@ Profiles let you create different transcription configurations and switch betwee
 
 - **Multilingual users** — Switch between English, Russian, Finnish, etc.
 - **Different use cases** — One profile for dictation, another for code comments
+- **Application-aware workflows** — Automatically use a profile when the main Transcribe shortcut is pressed in a matching executable, window title, or install path
 - **Translation workflows** — Speak in one language, output in another + auto switch language with Windows language!
 - **Everything you can imagine!** — Seriously, you can invent so many uses!
 
 #### Profile Settings
 
 ![Profile Settings](Promo/profiles.png)
+
+Enable **Different applications to use different profiles** under your profiles list
+to attach automatic application rules (such as `code.exe`, `title:Microsoft Teams`,
+or `path:*\Microsoft Office\*`) to each custom profile. When disabled, this feature
+runs with zero background overhead (lazy loading). When enabled, you can also display
+a sleek chip with the detected application directly in the recording overlay. Rules
+are evaluated only when the main Transcribe shortcut starts; an explicit per-profile
+shortcut always keeps its assigned profile, and an unmatched application keeps your
+manually active profile.
+
 #### LLM Post-Processing Override
 
 Each profile can override the global LLM post-processing settings:
@@ -83,7 +94,7 @@ Assign key combinations to the following actions:
 
 | Shortcut                        | Action                                           |
 | ------------------------------- | ------------------------------------------------ |
-| **Main Transcribe**   | Transcribe using the active profile              |
+| **Main Transcribe**   | Use an automatic application match, or fall back to the active profile |
 | **Cycle Profile**               | Switch to the next active profile in cycle              |
 | **Per-Profile Shortcuts**       | Each profile can have its own dedicated shortcut if you don't want to cycle profiles but use all at once |
 

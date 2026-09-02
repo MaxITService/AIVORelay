@@ -430,6 +430,7 @@ const RecordingOverlay: React.FC = () => {
   const [transientMessage, setTransientMessage] = useState<string>("");
   const [decapIndicatorEligible, setDecapIndicatorEligible] = useState(false);
   const [decapIndicatorArmed, setDecapIndicatorArmed] = useState(false);
+  const [activeApp, setActiveApp] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorHint, setErrorHint] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -752,6 +753,7 @@ const RecordingOverlay: React.FC = () => {
           setState(payload.state);
           setDecapIndicatorEligible(payload.decapitalize_eligible ?? false);
           setDecapIndicatorArmed(payload.decapitalize_armed ?? false);
+          setActiveApp(payload.active_app ?? null);
           if (payload.state === "error") {
             const envelope = payload.error_envelope;
             const copy = getOverlayErrorCopy(
@@ -1215,25 +1217,42 @@ const RecordingOverlay: React.FC = () => {
           </button>
         </div>
       )}
-      {decapIndicatorEligible &&
-        decapIndicatorArmed &&
-        appearance.decapitalize_indicator_mode !== "hidden" &&
-        state !== "profile_switch" &&
-        state !== "microphone_switch" &&
-        state !== "gemini_live_completion" &&
-        state !== "error" && (
-          <div
-            className="overlay-decapitalize-indicator"
-            style={{
-              color: appearance.decapitalize_indicator_color,
-              fontFamily: `${appearance.decapitalize_indicator_font_family}, "Segoe UI Emoji", sans-serif`,
-              fontSize: `${appearance.decapitalize_indicator_font_size_px}px`,
-              textAlign: "center",
-            }}
-          >
-            {decapIndicatorText}
+      {(() => {
+        const hasDecap =
+          decapIndicatorEligible &&
+          decapIndicatorArmed &&
+          appearance.decapitalize_indicator_mode !== "hidden";
+        const hasApp = Boolean(activeApp);
+        const showChip =
+          (hasDecap || hasApp) &&
+          state !== "profile_switch" &&
+          state !== "microphone_switch" &&
+          state !== "gemini_live_completion" &&
+          state !== "error";
+
+        if (!showChip) return null;
+
+        return (
+          <div className="overlay-meta-chip">
+            {hasApp && <span className="overlay-chip-app">{activeApp}</span>}
+            {hasApp && hasDecap && (
+              <span className="overlay-chip-separator">•</span>
+            )}
+            {hasDecap && (
+              <span
+                className="overlay-chip-decap"
+                style={{
+                  color: appearance.decapitalize_indicator_color,
+                  fontFamily: `${appearance.decapitalize_indicator_font_family}, "Segoe UI Emoji", sans-serif`,
+                  fontSize: `${appearance.decapitalize_indicator_font_size_px}px`,
+                }}
+              >
+                {decapIndicatorText}
+              </span>
+            )}
           </div>
-        )}
+        );
+      })()}
 
       <div className="overlay-left">
         {showStatusIcon ? (

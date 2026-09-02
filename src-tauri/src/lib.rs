@@ -268,6 +268,11 @@ fn send_transcription_input(app: &AppHandle, binding_id: &str, shortcut_string: 
     };
 
     if should_start {
+        if binding_id == "transcribe" {
+            // A second-instance CLI invocation has no reliable target-window
+            // ownership. Keep it on the profile selected manually.
+            actions::prepare_manual_transcribe_settings(app, binding_id);
+        }
         action.start(app, binding_id, shortcut_string);
     } else {
         action.stop(app, binding_id, shortcut_string);
@@ -818,11 +823,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         let autostart_manager = app_handle.autolaunch();
         let settings = settings::get_settings(&app_handle);
 
-        if settings.autostart_enabled {
-            // Enable autostart if user has opted in
+        if settings.autostart_enabled && !settings.autostart_as_admin_enabled {
+            // Enable normal registry autostart only if not running elevated via Task Scheduler
             let _ = autostart_manager.enable();
         } else {
-            // Disable autostart if user has opted out
+            // Disable registry autostart if user opted out or if elevated autostart handles it
             let _ = autostart_manager.disable();
         }
     }
@@ -1107,6 +1112,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_sound_theme_setting,
         shortcut::change_start_hidden_setting,
         shortcut::change_autostart_setting,
+        shortcut::change_autostart_as_admin_setting,
         shortcut::change_show_tray_shortcut_guide_setting,
         shortcut::change_translate_to_english_setting,
         shortcut::change_selected_language_setting,
@@ -1298,6 +1304,8 @@ pub fn run(cli_args: CliArgs) {
         shortcut::set_active_profile,
         shortcut::cycle_to_next_profile,
         shortcut::change_profile_switch_overlay_enabled_setting,
+        shortcut::change_automatic_app_profiles_enabled_setting,
+        shortcut::change_recording_overlay_show_app_setting,
         shortcut::update_custom_words,
         shortcut::change_custom_words_enabled_setting,
         shortcut::change_custom_words_ngram_enabled_setting,
@@ -1366,6 +1374,10 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_send_screenshot_to_extension_push_to_talk_setting,
         shortcut::change_app_language_setting,
         shortcut::change_show_tray_icon_setting,
+        shortcut::change_tray_icon_blinking_enabled_setting,
+        shortcut::change_tray_icon_blink_on_recording_setting,
+        shortcut::change_tray_icon_blink_on_processing_setting,
+        shortcut::change_tray_icon_blink_frequency_hz_setting,
         shortcut::change_update_checks_setting,
         shortcut::change_beta_voice_commands_enabled_setting,
         shortcut::change_voice_button_show_aot_toggle_setting,

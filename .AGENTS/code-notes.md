@@ -30,7 +30,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/subtitle.rs` | Subtitle formatting (SRT/VTT). |
 | `src-tauri/src/audio_toolkit/text.rs` | Text Post-Processing (stutter/filler removal). |
 | `src-tauri/src/input_source.rs` | OS Language Detection. |
-| `src-tauri/src/active_app.rs` | Active App Context. |
+| `src-tauri/src/active_app.rs` | Active App Context plus case-insensitive executable/title/path matching for automatic transcription profiles. |
 | `src-tauri/src/transcript_context.rs` | Prompt Context Cache. |
 | `src-tauri/src/url_security.rs` | Canonical provider URLs and HTTPS/HTTP override validation for Remote STT and LLM endpoints. |
 | `src-tauri/src/managers/key_listener.rs` | rdev Key Listener (Windows). |
@@ -114,15 +114,15 @@ Files that are added by this fork rather than upstream files that were modified.
 
 | File | Current State |
 | --- | --- |
-| `src-tauri/src/actions.rs` | Shortcut actions, variable resolution, preview delete actions, and global clipboard/selection TTS actions. Recording startup shows an arming overlay immediately, but waits for first-sample readiness before the start cue and recording mute. Soniox live-finalization timeouts get one automatic full-recording replay only when output is still reversible (preview workflow or no stable chunk was inserted); never replay over already-inserted live text. |
-| `src-tauri/src/overlay.rs` | Overlay states, lazy TTS/preview window helpers, live preview geometry constraints, and preview action appearance payload. |
-| `src-tauri/src/settings.rs` | Fork-specific settings & features, including isolated TTS configuration/prompt presets, watcher recursion, TTS History retention, live preview actions, preview bindings, and local-only recording tail buffer controls. |
+| `src-tauri/src/actions.rs` | Shortcut actions, variable resolution, preview delete actions, and global clipboard/selection TTS actions. Main Transcribe hotkeys lazily capture one immutable foreground-application context on initial key-down and reuse it for profile matching, `${current_app}`, the overlay chip, and Output to Preview restarts, falling back to the manually active profile without mutating disk settings. AivoRelay-hosted Voice Activation Button presses and second-instance CLI toggles explicitly capture the manually active profile because neither owns a reliable target foreground window. Internal Output to Preview recording restarts retain the profile selected by the workflow's initial hotkey. Recording startup shows an arming overlay immediately, but waits for first-sample readiness before the start cue and recording mute. Soniox live-finalization timeouts get one automatic full-recording replay only when output is still reversible (preview workflow or no stable chunk was inserted); never replay over already-inserted live text. |
+| `src-tauri/src/overlay.rs` | Overlay states, lazy TTS/preview window helpers, live preview geometry constraints, preview action appearance payload, and an active app indicator that consumes the recording's captured foreground snapshot for the styled overlay chip. |
+| `src-tauri/src/settings.rs` | Fork-specific settings & features, including master application-aware profile toggles (`automatic_app_profiles_enabled`, `recording_overlay_show_app`), autostart with administrator privileges (`autostart_as_admin_enabled`), tray icon blinking controls (`tray_icon_blinking_enabled`, `tray_icon_blink_on_recording`, `tray_icon_blink_on_processing`, `tray_icon_blink_frequency_hz`), validated per-profile automatic application rules, isolated TTS configuration/prompt presets, watcher recursion, TTS History retention, live preview actions, preview bindings, and local-only recording tail buffer controls. |
 | `src-tauri/src/lib.rs` | Registers managers, commands, tray, and headless file conversion. Remote transcription providers defer the local transcribe.cpp/Vulkan stack; Local keeps eager startup pre-warm. Debug binding export removes generator-produced trailing spaces without changing line endings. |
 | `src-tauri/src/cli.rs` | CLI flags for legacy transcription benchmarking, symmetric app-managed file conversion with comprehensive one-off TTS settings overrides and provider-aware validation, TTS History operations, and local TTS lifecycle management. |
-| `src-tauri/src/shortcut.rs` | Multi-engine shortcut bindings (Tauri/rdev/HandyKeys), live preview geometry persistence commands, preview action settings commands, preview delete-last-word global hotkey sync. |
+| `src-tauri/src/shortcut.rs` | Multi-engine shortcut bindings (Tauri/rdev/HandyKeys), lazy foreground-app profile resolution for main-Transcribe push/toggle semantics when enabled, Task Scheduler autostart with administrator privileges command, tray icon blinking configuration commands, live preview geometry persistence commands, preview action settings commands, preview delete-last-word global hotkey sync. |
 | `src-tauri/src/clipboard.rs` | Clipboard behavior. Streaming clipboard sessions are operation-scoped and serialized through the actual restore. Clipboard-backed paste keeps each transcription value available for a 200 ms post-shortcut consumer grace before another chunk or the user's original multi-format clipboard may replace it. Selection-copy capture reuses the same Windows multi-format backup/restore with text fallback. |
 | `src-tauri/src/input.rs` | Selection capture utilities. |
-| `src-tauri/src/tray.rs` | Custom tray menu. |
+| `src-tauri/src/tray.rs` | Custom tray menu and high-frequency tray icon blinking animation (1–10 Hz) alternating between Idle and Recording states during processing and recording with queue-overload protection. |
 
 ### Backend Support
 
@@ -161,7 +161,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/Sidebar.tsx` | Navigation for fork settings. |
 | `src/hooks/useSettings.ts` | Fork settings hooks. |
 | `src/components/settings/remote-stt/RemoteSttSettings.tsx` | Soniox + Deepgram provider settings. |
-| `src/components/settings/TranscriptionProfiles.tsx` | Provider-aware languages plus consistent Default/custom profile LLM post-processing controls and route-aware availability guidance. |
+| `src/components/settings/TranscriptionProfiles.tsx` | Provider-aware languages, a standalone application-aware settings disclosure that starts collapsed while disabled, stays expanded while enabled unless manually closed, and exposes a collapsed enabled-status indicator; a lazy-loading master toggle; per-profile automatic executable/title/path rules; consistent Default/custom profile LLM post-processing controls; and route-aware availability guidance. |
 | `src/components/settings/transcribe-file/TranscribeFileSettings.tsx` | File transcription UI, including diarization speaker-name set profiles. |
 | `src/components/settings/TranscriptionSystemPrompt.tsx` | Prompt limits handling. |
 | `src/components/settings/TranslateToEnglish.tsx` | Soniox/Deepgram-aware UI state. |

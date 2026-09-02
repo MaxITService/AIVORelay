@@ -118,6 +118,8 @@ export const Slider: React.FC<SliderProps> = ({
               }
             }}
             disabled={disabled}
+            aria-label={label}
+            aria-valuetext={formatValue(internalValue)}
             className="flex-grow h-2 rounded-full appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff4d8d]/40 disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
               background: `linear-gradient(to right, #ff4d8d ${

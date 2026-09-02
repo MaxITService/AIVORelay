@@ -90,6 +90,8 @@ struct OverlayStatePayload {
     decapitalize_armed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     recording_session_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    active_app: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -238,15 +240,31 @@ struct RecordingOverlayWindowGeometry {
 fn build_overlay_state_payload(
     state: &str,
     settings: &settings::AppSettings,
+    captured_active_app: Option<&crate::active_app::ActiveAppContext>,
+    allow_active_app_lookup: bool,
 ) -> OverlayStatePayload {
     let indicator = crate::text_replacement_decapitalize::indicator_state(
         settings.text_replacement_decapitalize_after_edit_key_enabled,
     );
+    let active_app = if settings.automatic_app_profiles_enabled
+        && settings.recording_overlay_show_app
+        && state == "recording"
+    {
+        let context = match captured_active_app {
+            Some(context) => context.clone(),
+            None if allow_active_app_lookup => crate::active_app::get_frontmost_app_context(),
+            None => crate::active_app::ActiveAppContext::default(),
+        };
+        context.display_name().map(str::to_owned)
+    } else {
+        None
+    };
     OverlayStatePayload {
         state: state.to_string(),
         decapitalize_eligible: indicator.eligible,
         decapitalize_armed: indicator.armed,
         recording_session_id: None,
+        active_app,
     }
 }
 
@@ -1956,7 +1974,12 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
 }
 
 /// Shows the recording overlay window after applying the latest layout/state.
-pub fn show_recording_overlay(app_handle: &AppHandle, recording_session_id: u64) {
+pub fn show_recording_overlay(
+    app_handle: &AppHandle,
+    recording_session_id: u64,
+    captured_active_app: Option<&crate::active_app::ActiveAppContext>,
+    allow_active_app_lookup: bool,
+) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
     let overlay_generation = plus_overlay_state::invalidate_error_overlay_auto_hide();
 
@@ -1969,7 +1992,12 @@ pub fn show_recording_overlay(app_handle: &AppHandle, recording_session_id: u64)
     plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
         set_recording_overlay_default_layout(app_handle);
         if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-            let mut payload = build_overlay_state_payload("recording", &settings);
+            let mut payload = build_overlay_state_payload(
+                "recording",
+                &settings,
+                captured_active_app,
+                allow_active_app_lookup,
+            );
             payload.recording_session_id = Some(recording_session_id);
             let _ = overlay_window.emit("show-overlay", payload);
             show_positioned_recording_overlay_window(app_handle);
@@ -1990,7 +2018,7 @@ pub fn show_transcribing_overlay(app_handle: &AppHandle) {
     plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
         set_recording_overlay_default_layout(app_handle);
         if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-            let payload = build_overlay_state_payload("transcribing", &settings);
+            let payload = build_overlay_state_payload("transcribing", &settings, None, false);
             let _ = overlay_window.emit("show-overlay", payload);
             show_positioned_recording_overlay_window(app_handle);
         }
@@ -2010,7 +2038,7 @@ pub fn show_sending_overlay(app_handle: &AppHandle) {
     plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
         set_recording_overlay_default_layout(app_handle);
         if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-            let payload = build_overlay_state_payload("sending", &settings);
+            let payload = build_overlay_state_payload("sending", &settings, None, false);
             let _ = overlay_window.emit("show-overlay", payload);
             show_positioned_recording_overlay_window(app_handle);
         }
@@ -2030,7 +2058,7 @@ pub fn show_thinking_overlay(app_handle: &AppHandle) {
     plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
         set_recording_overlay_default_layout(app_handle);
         if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-            let payload = build_overlay_state_payload("thinking", &settings);
+            let payload = build_overlay_state_payload("thinking", &settings, None, false);
             let _ = overlay_window.emit("show-overlay", payload);
             show_positioned_recording_overlay_window(app_handle);
         }
@@ -2050,7 +2078,7 @@ pub fn show_finalizing_overlay(app_handle: &AppHandle) {
     plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
         set_recording_overlay_default_layout(app_handle);
         if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-            let payload = build_overlay_state_payload("finalizing", &settings);
+            let payload = build_overlay_state_payload("finalizing", &settings, None, false);
             let _ = overlay_window.emit("show-overlay", payload);
             show_positioned_recording_overlay_window(app_handle);
         }

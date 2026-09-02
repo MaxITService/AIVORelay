@@ -124,6 +124,7 @@ fn default_file_profile_snapshot(
         language: settings.selected_language.clone(),
         translate_to_english: settings.translate_to_english,
         description: String::new(),
+        automatic_app_rules: Vec::new(),
         system_prompt: prompt.clone(),
         stt_prompt_override_enabled: !prompt.trim().is_empty(),
         stt_model_selection_override: Some(selection.clone()),
@@ -152,6 +153,7 @@ fn initial_file_profile_snapshot(
             let mut snapshot = profile.clone();
             snapshot.id = "file_transcription".to_string();
             snapshot.name = "Transcribe File".to_string();
+            snapshot.automatic_app_rules.clear();
             snapshot.stt_model_selection_override = Some(selection.clone());
             return snapshot;
         }

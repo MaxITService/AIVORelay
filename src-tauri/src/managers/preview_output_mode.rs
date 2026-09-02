@@ -1,3 +1,4 @@
+use crate::active_app::ActiveAppContext;
 use serde::Serialize;
 use specta::Type;
 use std::sync::{LazyLock, Mutex};
@@ -27,6 +28,7 @@ struct PreviewOutputModeRuntime {
     is_realtime: bool,
     binding_id: Option<String>,
     profile_id: Option<String>,
+    active_app_context: Option<ActiveAppContext>,
     recording_prefix_text: String,
     error_message: Option<String>,
 }
@@ -77,6 +79,7 @@ pub fn activate_session(
     app: &AppHandle,
     binding_id: String,
     profile_id: Option<String>,
+    active_app_context: Option<ActiveAppContext>,
     is_realtime: bool,
     recording_prefix_text: String,
 ) {
@@ -87,6 +90,7 @@ pub fn activate_session(
         state.is_realtime = is_realtime;
         state.binding_id = Some(binding_id);
         state.profile_id = profile_id;
+        state.active_app_context = active_app_context;
         state.recording_prefix_text = recording_prefix_text;
         state.error_message = None;
     });
@@ -163,6 +167,13 @@ pub fn current_profile_id() -> Option<String> {
         .lock()
         .ok()
         .and_then(|state| state.profile_id.clone())
+}
+
+pub fn current_profile_and_active_app_context() -> (Option<String>, Option<ActiveAppContext>) {
+    PREVIEW_OUTPUT_MODE_STATE
+        .lock()
+        .map(|state| (state.profile_id.clone(), state.active_app_context.clone()))
+        .unwrap_or_default()
 }
 
 pub fn recording_prefix_text() -> String {

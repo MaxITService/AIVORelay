@@ -1,11 +1,13 @@
 use crate::actions::ACTION_MAP;
-use crate::settings::get_settings;
+use crate::settings::{get_settings, AppSettings};
 use crate::ManagedToggleState;
 use log::info;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Manager};
 
-fn active_profile_push_to_talk(app: &AppHandle) -> bool {
-    let settings = get_settings(app);
+static PUSH_TO_TALK_PRESS_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+fn active_profile_push_to_talk(settings: &AppSettings) -> bool {
     if settings.active_profile_id == "default" {
         settings.push_to_talk
     } else {
@@ -26,7 +28,7 @@ pub async fn spawn_voice_activation_button_window(app: AppHandle) -> Result<(), 
 #[tauri::command]
 #[specta::specta]
 pub fn voice_activation_button_get_push_to_talk(app: AppHandle) -> Result<bool, String> {
-    Ok(active_profile_push_to_talk(&app))
+    Ok(active_profile_push_to_talk(&get_settings(&app)))
 }
 
 #[tauri::command]
@@ -67,17 +69,26 @@ pub fn voice_activation_button_press(app: AppHandle) -> Result<(), String> {
             states.active_toggles.insert("transcribe".to_string(), false);
             states.active_presses.remove("transcribe");
             drop(states);
+            PUSH_TO_TALK_PRESS_ACTIVE.store(false, Ordering::Release);
             action.stop(&app, "transcribe", shortcut_str);
             return Ok(());
         }
     }
 
-    let use_push_to_talk = active_profile_push_to_talk(&app);
+    // Clicking this AivoRelay-owned window makes it the foreground window, so
+    // application-aware matching cannot reliably identify the user's target.
+    // Use one manually selected profile snapshot for both interaction mode and
+    // the recording session; TranscribeAction consumes this pending snapshot.
+    let settings = crate::actions::prepare_manual_transcribe_settings(&app, "transcribe");
+    let use_push_to_talk = active_profile_push_to_talk(&settings);
 
     if use_push_to_talk {
+        PUSH_TO_TALK_PRESS_ACTIVE.store(true, Ordering::Release);
         action.start(&app, "transcribe", shortcut_str);
         return Ok(());
     }
+
+    PUSH_TO_TALK_PRESS_ACTIVE.store(false, Ordering::Release);
 
     let should_start: bool;
     {
@@ -99,6 +110,7 @@ pub fn voice_activation_button_press(app: AppHandle) -> Result<(), String> {
     if should_start {
         action.start(&app, "transcribe", shortcut_str);
     } else {
+        let _ = crate::actions::take_pending_transcribe_settings("transcribe");
         action.stop(&app, "transcribe", shortcut_str);
     }
 
@@ -108,8 +120,9 @@ pub fn voice_activation_button_press(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub fn voice_activation_button_release(app: AppHandle) -> Result<(), String> {
-    let use_push_to_talk = active_profile_push_to_talk(&app);
-    if !use_push_to_talk {
+    // Release must follow the mode captured on press even if the user changes
+    // the active profile or its Push-to-Talk setting while recording.
+    if !PUSH_TO_TALK_PRESS_ACTIVE.swap(false, Ordering::AcqRel) {
         return Ok(());
     }
 
