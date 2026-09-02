@@ -105,6 +105,15 @@ Update this section every time new tests are added.
   request receiving HTTP 400 is not retried without `reasoning_effort: "none"`.
   This follow-up test has not yet been run pending the required user authorization.
 
+### transcribe.cpp 0.2 Windows x64 packaging (2026-08-21)
+
+- Windows x64 builds stage the transcribe.cpp core DLL and every loadable ggml
+  backend module from `DEP_TRANSCRIBE_CPP_RUNTIME_DIR` and
+  `DEP_TRANSCRIBE_CPP_MODULE_DIR`. Portable and MSI packaging checks require
+  those DLLs plus `msvcp140.dll`, `vcruntime140.dll`, and `vcomp140.dll`.
+- CI administratively extracts the finished x64 MSI, verifies every staged DLL
+  is present beside the packaged app, and runs `AivoRelay.exe --list-devices`.
+
 ### Soniox async failure details (2026-08-03)
 
 - `managers::soniox_stt::tests::async_failure_preserves_provider_error_details`

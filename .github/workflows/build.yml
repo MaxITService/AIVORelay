@@ -613,6 +613,20 @@ jobs:
               exit 1
             }
           }
+          if ($arch -eq "x64") {
+            if (-not (Test-Path (Join-Path $stagingDir "vcomp140.dll"))) {
+              Write-Error "Portable package is missing required OpenMP runtime DLL vcomp140.dll"
+              exit 1
+            }
+            if (-not (Get-ChildItem $stagingDir -Filter "*transcribe*.dll" -ErrorAction SilentlyContinue)) {
+              Write-Error "Portable package is missing the transcribe.cpp runtime DLL"
+              exit 1
+            }
+            if (-not (Get-ChildItem $stagingDir -Filter "*ggml*.dll" -ErrorAction SilentlyContinue)) {
+              Write-Error "Portable package is missing dynamic ggml backend modules"
+              exit 1
+            }
+          }
 
           # Copy the resources directory
           $resourcesPath = "$targetDir/resources"
@@ -668,6 +682,56 @@ jobs:
 
           foreach ($msi in $msiFiles) {
             Copy-Item $msi.FullName "$artifactDir/" -Force
+          }
+
+      - name: Audit Windows x64 MSI runtime contents
+        if: contains(inputs.platform, 'windows') && !contains(inputs.target, 'aarch64')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $profile = "${{ steps.build-profile.outputs.profile }}"
+          $cargoTargetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { "src-tauri/target" }
+          $bundleDir = "$cargoTargetDir/$profile/bundle/msi"
+          $msi = Get-ChildItem $bundleDir -Filter "*.msi" | Select-Object -First 1
+          if (-not $msi) { throw "No x64 MSI package found in $bundleDir for runtime audit" }
+
+          $stagedDlls = Get-ChildItem "src-tauri/transcribe-libs" -Filter "*.dll"
+          foreach ($required in @("msvcp140.dll", "vcruntime140.dll", "vcomp140.dll")) {
+            if (-not ($stagedDlls | Where-Object { $_.Name -ieq $required })) {
+              throw "Runtime staging is missing $required"
+            }
+          }
+          if (-not ($stagedDlls | Where-Object { $_.Name -like "*transcribe*" })) {
+            throw "Runtime staging is missing the transcribe.cpp core DLL"
+          }
+          if (-not ($stagedDlls | Where-Object { $_.Name -like "*ggml*" })) {
+            throw "Runtime staging is missing dynamic ggml backend modules"
+          }
+
+          $installDir = Join-Path $env:RUNNER_TEMP "aivorelay-msi-runtime-audit"
+          Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $installDir | Out-Null
+          $logFile = Join-Path $installDir "msi-admin-install.log"
+          $msiArgs = "/a `"$($msi.FullName)`" /qn /L*v `"$logFile`" TARGETDIR=`"$installDir`""
+          $process = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path $logFile) { Get-Content $logFile | Out-Host }
+            throw "Administrative MSI extraction failed with exit code $($process.ExitCode)"
+          }
+
+          $exe = Get-ChildItem $installDir -Filter "AivoRelay.exe" -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "MSI package is missing AivoRelay.exe" }
+          foreach ($dll in $stagedDlls) {
+            if (-not (Get-ChildItem $installDir -Filter $dll.Name -Recurse)) {
+              throw "MSI package is missing staged runtime DLL $($dll.Name)"
+            }
+          }
+
+          $deviceOutput = (& $exe.FullName --list-devices | Out-String)
+          $deviceOutput | Write-Host
+          if ($LASTEXITCODE -ne 0) { throw "Packaged AivoRelay --list-devices failed" }
+          if ($deviceOutput -notmatch "kind=cpu") {
+            throw "Packaged AivoRelay did not expose its required CPU compute device"
           }
 
       - name: Upload portable ZIP to release (Windows)
