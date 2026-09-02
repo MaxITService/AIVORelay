@@ -179,19 +179,35 @@ function Initialize-RustBuildEnvironment {
         throw "Visual Studio with VC Tools was not found."
     }
 
-    $vsDevCmd = Join-Path $vsPath "Common7\Tools\VsDevCmd.bat"
-    if (-not (Test-Path $vsDevCmd)) {
-        throw "VsDevCmd.bat not found at $vsDevCmd"
-    }
+    $hasX64DevEnvironment =
+        -not [string]::IsNullOrWhiteSpace($env:VSCMD_VER) -and
+        $env:VSCMD_ARG_TGT_ARCH -eq "x64" -and
+        $env:VSCMD_ARG_HOST_ARCH -eq "x64" -and
+        -not [string]::IsNullOrWhiteSpace($env:VCToolsInstallDir)
 
-    $vars = cmd /c "`"$vsDevCmd`" -arch=x64 -host_arch=x64 && set"
-    if ($LASTEXITCODE -ne 0) {
-        throw "VsDevCmd.bat failed with exit code $LASTEXITCODE"
-    }
+    if (-not $hasX64DevEnvironment) {
+        $devShellCandidates = @(
+            (Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll"),
+            (Join-Path $vsPath "Common7\Tools\vsdevshell\Microsoft.VisualStudio.DevShell.dll")
+        )
+        $devShellModule = $devShellCandidates |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            Select-Object -First 1
+        if (-not $devShellModule) {
+            throw "Visual Studio Developer PowerShell module was not found under '$vsPath\Common7\Tools'."
+        }
 
-    foreach ($line in $vars) {
-        if ($line -match '^(.+?)=(.*)$') {
-            Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2]
+        try {
+            Import-Module -Name $devShellModule -ErrorAction Stop
+            Enter-VsDevShell `
+                -VsInstallPath $vsPath `
+                -SkipAutomaticLocation `
+                -Arch amd64 `
+                -HostArch amd64 `
+                -DevCmdArguments "-no_logo" `
+                -ErrorAction Stop
+        } catch {
+            throw "Failed to initialize the Visual Studio x64 build environment: $($_.Exception.Message)"
         }
     }
 
