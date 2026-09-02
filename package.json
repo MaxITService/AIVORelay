@@ -8,6 +8,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test:frontend": "bun test",
+    "test:frontend:coverage": "bun test --coverage",
     "tauri": "tauri",
     "test:backend": "pwsh -NoProfile -File ./test-local.ps1",
     "test:backend:lib": "pwsh -NoProfile -File ./test-local.ps1 -LibOnly",

@@ -28,6 +28,33 @@ Do not run bare `cargo check` from a fresh no-profile shell. In Codex/tool shell
 
 Use the user's interactive dev functions for full dev builds instead of reproducing them manually. See [[.AGENTS/USERs_BUILD_FUNCTIONS|USERs_BUILD_FUNCTIONS.md]] for `Dev-AivoRelay` and `Fast-Dev-AivoRelay`.
 
+## Build and Test Workflows Are Separate
+
+- `Dev-AivoRelay` and `Fast-Dev-AivoRelay` run the interactive dev build with `CARGO_TARGET_DIR=Q:\t\d`.
+- `build-local.ps1` creates an unsigned local app build and normally uses `Q:\b`.
+- `test-local.ps1` runs `cargo test` in an isolated test cache and normally uses `Q:\t\c`.
+- The GitHub `Build Test` and release workflows create Tauri application packages; they do not run the Rust test suite.
+
+A native dependency failure while preparing `cargo test` in `Q:\t\c` does not by itself show that the dev build, release build, or a GitHub package build is broken. Identify which workflow and target directory failed before changing build scripts or dependencies.
+
+Use `test-local.ps1` for backend tests. If AivoRelay is running, leave its process guard enabled: close the app before runtime tests, or use `-NoRun` when compile-only verification is sufficient. Do not use `-SkipChecks` merely to work around a running production instance.
+
+`-Filter` accepts one or more Rust test-name filters. Pass an array with `-Exact` to compile once and run several exact tests through one test-runner process:
+
+```powershell
+$tests = @(
+  "module::tests::first_test"
+  "module::tests::second_test"
+)
+.\test-local.ps1 -LibOnly -Exact -Filter $tests
+```
+
+### Agent-shell junction caveat
+
+`transcribe-cpp-sys` uses a short junction under `%LOCALAPPDATA%\tcs` while compiling on Windows. An agent-hosted/tool shell may be unable to create files through that junction even when the same checkout and command work in the user's interactive PowerShell. A characteristic false failure is `transcribe-cpp-sys` stopping before the test binaries run with `The directory name is invalid. (os error 267)`.
+
+If this exact failure occurs, ask the user to run `pwsh -NoProfile -File .\test-local.ps1` from the repository root in their ordinary interactive PowerShell before diagnosing the source tree or toolchain. If that run compiles and starts the Rust tests, treat the earlier result as an agent-shell limitation. Do not change Windows policy, ACLs, security software, Cargo dependencies, the junction implementation, or production code to work around it.
+
 ## Concurrent Build Process Rules
 
 Before any build-related Rust tooling, check for active processes:
@@ -53,6 +80,8 @@ Rules:
 
 These are normally safe when only frontend verification is needed:
 
+- `bun run test:frontend`
+- `bun run test:frontend:coverage`
 - `bun x tsc --noEmit`
 - `bun run lint`
 - `bun run format:frontend`
