@@ -184,8 +184,18 @@ const settingUpdaters: {
   start_hidden: (value) => commands.changeStartHiddenSetting(value as boolean),
   autostart_enabled: (value) =>
     commands.changeAutostartSetting(value as boolean),
+  autostart_as_admin_enabled: (value) =>
+    commands.changeAutostartAsAdminSetting(value as boolean),
   show_tray_icon: (value) =>
     commands.changeShowTrayIconSetting(value as boolean),
+  tray_icon_blinking_enabled: (value) =>
+    commands.changeTrayIconBlinkingEnabledSetting(value as boolean),
+  tray_icon_blink_on_recording: (value) =>
+    commands.changeTrayIconBlinkOnRecordingSetting(value as boolean),
+  tray_icon_blink_on_processing: (value) =>
+    commands.changeTrayIconBlinkOnProcessingSetting(value as boolean),
+  tray_icon_blink_frequency_hz: (value) =>
+    commands.changeTrayIconBlinkFrequencyHzSetting(value as number),
   update_checks_enabled: (value) =>
     commands.changeUpdateChecksSetting(value as boolean),
   push_to_talk: (value) => commands.changePttSetting(value as boolean),
@@ -908,6 +918,10 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("set_active_profile", { id: value });
 (settingUpdaters as any).profile_switch_overlay_enabled = (value: any) =>
   invoke("change_profile_switch_overlay_enabled_setting", { enabled: value });
+(settingUpdaters as any).automatic_app_profiles_enabled = (value: any) =>
+  commands.changeAutomaticAppProfilesEnabledSetting(Boolean(value));
+(settingUpdaters as any).recording_overlay_show_app = (value: any) =>
+  commands.changeRecordingOverlayShowAppSetting(Boolean(value));
 (settingUpdaters as any).diarization_speaker_name_profiles = (value: any) =>
   commands.changeDiarizationSpeakerNameProfilesSetting(value);
 (settingUpdaters as any).preview_output_only_enabled = (value: any) =>

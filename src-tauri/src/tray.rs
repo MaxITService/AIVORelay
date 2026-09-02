@@ -16,6 +16,7 @@ use crate::{commands::audio, settings};
 use log::{debug, error, info, trace, warn};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 use tauri::image::Image;
@@ -34,6 +35,116 @@ pub enum TrayIconState {
 impl TrayIconState {
     fn is_busy(self) -> bool {
         self != TrayIconState::Idle
+    }
+}
+
+static BLINK_GENERATION: AtomicU64 = AtomicU64::new(0);
+static MAIN_THREAD_POST_PENDING: AtomicBool = AtomicBool::new(false);
+
+fn handle_tray_blinking_transition(app: &AppHandle, state: TrayIconState) {
+    let settings = settings::get_settings(app);
+    let should_blink = settings.show_tray_icon
+        && settings.tray_icon_blinking_enabled
+        && match state {
+            TrayIconState::Recording => settings.tray_icon_blink_on_recording,
+            TrayIconState::Transcribing => settings.tray_icon_blink_on_processing,
+            TrayIconState::Idle => false,
+        };
+
+    if !should_blink {
+        BLINK_GENERATION.fetch_add(1, Ordering::SeqCst);
+        return;
+    }
+
+    let generation = BLINK_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let hz = settings.tray_icon_blink_frequency_hz.clamp(1, 10);
+    let half_period = std::time::Duration::from_secs_f64(0.5 / (hz as f64));
+    let app_handle = app.clone();
+
+    std::thread::spawn(move || {
+        let mut toggle = false;
+        while BLINK_GENERATION.load(Ordering::SeqCst) == generation {
+            std::thread::sleep(half_period);
+            if BLINK_GENERATION.load(Ordering::SeqCst) != generation {
+                break;
+            }
+
+            toggle = !toggle;
+            // Alternates between standard app logo and recording "ear" icon
+            let blink_state = if toggle {
+                TrayIconState::Recording
+            } else {
+                TrayIconState::Idle
+            };
+
+            if MAIN_THREAD_POST_PENDING
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                let h = app_handle.clone();
+                let gen = generation;
+                if app_handle
+                    .run_on_main_thread(move || {
+                        MAIN_THREAD_POST_PENDING.store(false, Ordering::SeqCst);
+                        if BLINK_GENERATION.load(Ordering::SeqCst) == gen {
+                            apply_blink_icon_on_main(&h, blink_state);
+                        }
+                    })
+                    .is_err()
+                {
+                    MAIN_THREAD_POST_PENDING.store(false, Ordering::SeqCst);
+                }
+            }
+        }
+    });
+}
+
+fn apply_blink_icon_on_main(app: &AppHandle, state: TrayIconState) {
+    let Some(tray_state) = app.try_state::<TrayState>() else {
+        return;
+    };
+    let Some(tray) = app.try_state::<TrayIcon>() else {
+        return;
+    };
+
+    let theme = get_current_theme(app);
+    let icon_path = get_icon_path(theme, state);
+
+    let image = {
+        let mut inner = tray_state.lock();
+        inner.applied_icon = None;
+        if let Some(img) = inner.icons.get(icon_path).cloned() {
+            img
+        } else if let Ok(img) = load_tray_icon(
+            app.path()
+                .resolve(icon_path, tauri::path::BaseDirectory::Resource),
+        ) {
+            inner.icons.insert(icon_path, img.clone());
+            img
+        } else {
+            return;
+        }
+    };
+
+    let _ = tray.set_icon_with_as_template(Some(image), true);
+}
+
+pub fn set_tray_state(app: &AppHandle, state: TrayIconState) {
+    sync_tray_with(app, |inner| inner.icon_state = state, None);
+    handle_tray_blinking_transition(app, state);
+}
+
+pub fn change_tray_icon(app: &AppHandle, state: TrayIconState) {
+    set_tray_state(app, state);
+}
+
+/// Re-applies the current state when the appearance changed without changing
+/// whether the app is idle, recording, or transcribing.
+pub fn refresh_tray_icon(app: &AppHandle) {
+    sync_tray(app, None);
+    if let Some(state) = app.try_state::<TrayState>() {
+        let icon_state = state.lock().icon_state;
+        handle_tray_blinking_transition(app, icon_state);
     }
 }
 
@@ -228,19 +339,7 @@ pub fn get_icon_path(theme: AppTheme, state: TrayIconState) -> &'static str {
     }
 }
 
-pub fn set_tray_state(app: &AppHandle, state: TrayIconState) {
-    sync_tray_with(app, |inner| inner.icon_state = state, None);
-}
 
-pub fn change_tray_icon(app: &AppHandle, state: TrayIconState) {
-    set_tray_state(app, state);
-}
-
-/// Re-applies the current state when the appearance changed without changing
-/// whether the app is idle, recording, or transcribing.
-pub fn refresh_tray_icon(app: &AppHandle) {
-    sync_tray(app, None);
-}
 
 pub fn tray_tooltip() -> String {
     version_label()

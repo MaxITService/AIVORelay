@@ -1675,10 +1675,21 @@ export const UserInterfaceSettings: React.FC = () => {
       )}
 
       {isWindows && (
-        <SettingsGroup title="Voice Activation Button">
+        <SettingsGroup
+          title={t(
+            "settings.userInterface.voiceActivationButton.title",
+            "Voice Activation Button",
+          )}
+        >
           <SettingContainer
-            title="Spawn Voice Activation Button"
-            description="Open a floating on-screen voice activation button window."
+            title={t(
+              "settings.userInterface.voiceActivationButton.spawnTitle",
+              "Spawn Voice Activation Button",
+            )}
+            description={t(
+              "settings.userInterface.voiceActivationButton.spawnDescription",
+              "Open a floating on-screen voice activation button window.",
+            )}
             descriptionMode="inline"
             grouped={true}
           >
@@ -1687,9 +1698,18 @@ export const UserInterfaceSettings: React.FC = () => {
               onClick={handleSpawnVoiceButton}
               className="px-3 py-1.5 bg-[#2b2b2b] hover:bg-[#3c3c3c] border border-[#3c3c3c] rounded-lg text-xs text-gray-200 font-medium transition-colors"
             >
-              Spawn button
+              {t(
+                "settings.userInterface.voiceActivationButton.spawnAction",
+                "Spawn button",
+              )}
             </button>
           </SettingContainer>
+          <div className="mx-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-200/90">
+            {t(
+              "settings.userInterface.voiceActivationButton.manualProfileNotice",
+              "This button always uses the profile selected manually, and its recording overlay omits the active-application indicator. Automatic application profiles apply only to the main Transcribe hotkey because clicking this window changes the active Windows application.",
+            )}
+          </div>
           <SettingContainer
             title="Show AOT Toggle in Button Window"
             description="Show the bottom always-on-top control inside the floating voice button window."

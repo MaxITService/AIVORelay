@@ -103,6 +103,7 @@ export interface OverlayPayload {
   decapitalize_eligible?: boolean;
   decapitalize_armed?: boolean;
   recording_session_id?: number;
+  active_app?: string | null;
 }
 
 /**

@@ -232,6 +232,11 @@ pub struct TranscriptionProfile {
     /// Optional description shown in UI
     #[serde(default)]
     pub description: String,
+    /// Foreground application rules that automatically select this profile for
+    /// the main Transcribe shortcut. Rules may target an executable, window
+    /// title, or executable path; see `active_app::automatic_profile_id_for_context`.
+    #[serde(default)]
+    pub automatic_app_rules: Vec<String>,
     /// Optional system prompt for STT models (context hints, terminology, etc.)
     /// Character limits are enforced based on the active model (e.g., Whisper: 896 chars)
     #[serde(default)]
@@ -289,6 +294,74 @@ pub struct TranscriptionProfile {
     /// Soniox context.terms list.
     #[serde(default)]
     pub soniox_context_terms: Vec<String>,
+}
+
+pub const AUTOMATIC_APP_RULES_MAX_COUNT: usize = 64;
+pub const AUTOMATIC_APP_RULE_MAX_CHARS: usize = 512;
+
+pub fn normalize_automatic_app_rules(rules: &[String]) -> Result<Vec<String>, String> {
+    let mut normalized = Vec::new();
+    for rule in rules {
+        let trimmed = rule.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.chars().count() > AUTOMATIC_APP_RULE_MAX_CHARS {
+            return Err(format!(
+                "Automatic application rules must be at most {} characters each",
+                AUTOMATIC_APP_RULE_MAX_CHARS
+            ));
+        }
+        let lowercase = trimmed.to_lowercase();
+        let has_supported_prefix = ["exe:", "title:", "path:"]
+            .iter()
+            .any(|prefix| lowercase.starts_with(prefix));
+        if has_supported_prefix
+            && trimmed
+                .split_once(':')
+                .is_some_and(|(_, value)| value.trim().is_empty())
+        {
+            return Err("Automatic application rule prefix must be followed by a value".into());
+        }
+        if !normalized
+            .iter()
+            .any(|existing: &String| existing.to_lowercase() == lowercase)
+        {
+            normalized.push(trimmed.to_string());
+        }
+    }
+
+    if normalized.len() > AUTOMATIC_APP_RULES_MAX_COUNT {
+        return Err(format!(
+            "A profile can contain at most {} automatic application rules",
+            AUTOMATIC_APP_RULES_MAX_COUNT
+        ));
+    }
+    Ok(normalized)
+}
+
+#[cfg(test)]
+mod automatic_app_rule_tests {
+    use super::normalize_automatic_app_rules;
+
+    #[test]
+    fn normalization_trims_deduplicates_and_ignores_blank_lines() {
+        let rules = vec![
+            " code.exe ".to_string(),
+            String::new(),
+            "CODE.EXE".to_string(),
+            "title:Microsoft Teams".to_string(),
+        ];
+        assert_eq!(
+            normalize_automatic_app_rules(&rules).unwrap(),
+            vec!["code.exe", "title:Microsoft Teams"]
+        );
+    }
+
+    #[test]
+    fn normalization_rejects_empty_prefixed_rules() {
+        assert!(normalize_automatic_app_rules(&["title:  ".to_string()]).is_err());
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
@@ -3409,12 +3482,22 @@ pub struct AppSettings {
     pub start_hidden: bool,
     #[serde(default = "default_autostart_enabled")]
     pub autostart_enabled: bool,
+    #[serde(default)]
+    pub autostart_as_admin_enabled: bool,
     #[serde(default = "default_show_tray_icon")]
     pub show_tray_icon: bool,
     #[serde(default = "default_true")]
     pub show_tray_shortcut_guide: bool,
     #[serde(default)]
     pub show_tray_shortcut_guide_in_main_menu: bool,
+    #[serde(default)]
+    pub tray_icon_blinking_enabled: bool,
+    #[serde(default)]
+    pub tray_icon_blink_on_recording: bool,
+    #[serde(default = "default_true")]
+    pub tray_icon_blink_on_processing: bool,
+    #[serde(default = "default_tray_icon_blink_frequency_hz")]
+    pub tray_icon_blink_frequency_hz: u32,
     #[serde(default = "default_update_checks_enabled")]
     pub update_checks_enabled: bool,
     #[serde(default = "default_model")]
@@ -3990,6 +4073,12 @@ pub struct AppSettings {
     /// Whether to show an overlay notification when switching profiles
     #[serde(default = "default_true")]
     pub profile_switch_overlay_enabled: bool,
+    /// Whether to automatically select transcription profiles based on foreground application rules
+    #[serde(default)]
+    pub automatic_app_profiles_enabled: bool,
+    /// Whether to display the active foreground application in the recording overlay
+    #[serde(default)]
+    pub recording_overlay_show_app: bool,
     // ==================== Send Selected Text ====================
     #[serde(default)]
     pub send_selected_text: SendSelectedTextSettings,
@@ -4974,6 +5063,10 @@ fn default_show_tray_icon() -> bool {
     true
 }
 
+fn default_tray_icon_blink_frequency_hz() -> u32 {
+    4
+}
+
 fn default_filter_silence() -> bool {
     true
 }
@@ -5698,9 +5791,14 @@ pub fn get_default_settings() -> AppSettings {
         sound_theme: default_sound_theme(),
         start_hidden: default_start_hidden(),
         autostart_enabled: default_autostart_enabled(),
+        autostart_as_admin_enabled: false,
         show_tray_icon: default_show_tray_icon(),
         show_tray_shortcut_guide: default_true(),
         show_tray_shortcut_guide_in_main_menu: false,
+        tray_icon_blinking_enabled: false,
+        tray_icon_blink_on_recording: false,
+        tray_icon_blink_on_processing: true,
+        tray_icon_blink_frequency_hz: default_tray_icon_blink_frequency_hz(),
         update_checks_enabled: default_update_checks_enabled(),
         selected_model: "".to_string(),
         transcription_provider: default_transcription_provider(),
@@ -5972,6 +6070,8 @@ pub fn get_default_settings() -> AppSettings {
         diarization_speaker_name_profiles: Vec::new(),
         active_profile_id: default_active_profile_id(),
         profile_switch_overlay_enabled: true,
+        automatic_app_profiles_enabled: false,
+        recording_overlay_show_app: false,
         send_selected_text: SendSelectedTextSettings::default(),
         // Voice Command Center
         voice_command_enabled: false,
@@ -6790,6 +6890,18 @@ fn ensure_soniox_v5_model_defaults(settings: &mut AppSettings) -> bool {
 
 fn repair_runtime_settings(settings: &mut AppSettings) -> bool {
     let mut changed = false;
+
+    let tray_icon_blink_frequency_hz = settings.tray_icon_blink_frequency_hz.clamp(1, 10);
+    if settings.tray_icon_blink_frequency_hz != tray_icon_blink_frequency_hz {
+        settings.tray_icon_blink_frequency_hz = tray_icon_blink_frequency_hz;
+        changed = true;
+    }
+
+    if !settings.automatic_app_profiles_enabled && settings.recording_overlay_show_app {
+        settings.recording_overlay_show_app = false;
+        changed = true;
+    }
+
     changed |= ensure_default_bindings(settings);
     changed |= ensure_send_selected_text_bindings(settings);
     changed |= ensure_default_tts_synthesis_presets(settings);

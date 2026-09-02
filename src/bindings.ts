@@ -93,6 +93,14 @@ async changeAutostartSetting(enabled: boolean) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async changeAutostartAsAdminSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_autostart_as_admin_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeShowTrayShortcutGuideSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_show_tray_shortcut_guide_setting", { enabled }) };
@@ -1655,6 +1663,22 @@ async changeProfileSwitchOverlayEnabledSetting(enabled: boolean) : Promise<Resul
     else return { status: "error", error: e  as any };
 }
 },
+async changeAutomaticAppProfilesEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_automatic_app_profiles_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayShowAppSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_show_app_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async updateCustomWords(words: string[]) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_custom_words", { words }) };
@@ -2202,6 +2226,38 @@ async changeAppLanguageSetting(language: string) : Promise<Result<null, string>>
 async changeShowTrayIconSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_show_tray_icon_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeTrayIconBlinkingEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_tray_icon_blinking_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeTrayIconBlinkOnRecordingSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_tray_icon_blink_on_recording_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeTrayIconBlinkOnProcessingSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_tray_icon_blink_on_processing_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeTrayIconBlinkFrequencyHzSetting(frequencyHz: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_tray_icon_blink_frequency_hz_setting", { frequencyHz }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -4071,8 +4127,8 @@ async isLaptop() : Promise<Result<boolean, string>> {
 /** user-defined types **/
 
 export type ActiveTtsBatchSnapshot = { progress: TtsBatchProgress; scan: TtsBatchScanResult; files: TtsBatchFileResult[] }
-export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; sttModelSelectionOverride?: SttModelSelection | null; pushToTalk: boolean; autoShortcutActivation?: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; auto_shortcut_activation?: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings;
+export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; automaticAppRules?: string[] | null; systemPrompt: string; sttPromptOverrideEnabled?: boolean; sttModelSelectionOverride?: SttModelSelection | null; pushToTalk: boolean; autoShortcutActivation?: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; auto_shortcut_activation?: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; autostart_as_admin_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; tray_icon_blinking_enabled?: boolean; tray_icon_blink_on_recording?: boolean; tray_icon_blink_on_processing?: boolean; tray_icon_blink_frequency_hz?: number; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings;
 /**
  * Independent model choice for Transcribe File. None inherits the current
  * Speech / Mic selection until the user chooses a file-specific model.
@@ -4250,7 +4306,15 @@ active_profile_id?: string;
 /**
  * Whether to show an overlay notification when switching profiles
  */
-profile_switch_overlay_enabled?: boolean; send_selected_text?: SendSelectedTextSettings;
+profile_switch_overlay_enabled?: boolean;
+/**
+ * Whether to automatically select transcription profiles based on foreground application rules
+ */
+automatic_app_profiles_enabled?: boolean;
+/**
+ * Whether to display the active foreground application in the recording overlay
+ */
+recording_overlay_show_app?: boolean; send_selected_text?: SendSelectedTextSettings;
 /**
  * Whether the Voice Command feature is enabled
  */
@@ -4903,6 +4967,12 @@ translate_to_english: boolean;
  */
 description?: string;
 /**
+ * Foreground application rules that automatically select this profile for
+ * the main Transcribe shortcut. Rules may target an executable, window
+ * title, or executable path; see `active_app::automatic_profile_id_for_context`.
+ */
+automatic_app_rules?: string[];
+/**
  * Optional system prompt for STT models (context hints, terminology, etc.)
  * Character limits are enforced based on the active model (e.g., Whisper: 896 chars)
  */
@@ -5065,7 +5135,11 @@ export type TtsVoiceCatalogLocale = { locale: string; label: string; styles: str
 export type UiFileJobProgressStage = "ai_cleanup" | "speech"
 export type UiFileJobStatus = "planned" | "preparing" | "running" | "retrying" | "paused" | "interrupted" | "failed" | "completed"
 export type UiFileJobSummary = { jobId: string; sourcePath: string; outputPath: string; provider: TtsProvider; outputFormat: TtsOutputFormat; status: UiFileJobStatus; completedChunks: number; totalChunks: number; progressStage: UiFileJobProgressStage; partialAvailable: boolean; lastError: string | null; createdAtMs: number; updatedAtMs: number }
-export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled: boolean; sttModelSelectionOverride?: SttModelSelection | null; includeInCycle: boolean; pushToTalk: boolean; autoShortcutActivation?: boolean; previewOutputOnlyEnabled: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; llmSettings: ProfileLlmSettings; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
+export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean;
+/**
+ * `None` preserves rules for callers built before automatic profiles.
+ */
+automaticAppRules?: string[] | null; systemPrompt: string; sttPromptOverrideEnabled: boolean; sttModelSelectionOverride?: SttModelSelection | null; includeInCycle: boolean; pushToTalk: boolean; autoShortcutActivation?: boolean; previewOutputOnlyEnabled: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; llmSettings: ProfileLlmSettings; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
 /**
  * Recording-side voice activity detector. This does not affect file
  * transcription chunking, which has its own VAD configuration.

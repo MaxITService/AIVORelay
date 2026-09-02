@@ -37,7 +37,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
         checked={checked}
         disabled={disabled || isUpdating}
         onChange={(e) => onChange(e.target.checked)}
-        aria-label={ariaLabel}
+        aria-label={ariaLabel || label}
       />
       <div className={`relative w-11 h-6 ${checked ? 'bg-[#9b5de5]' : 'bg-[#333333]'} peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[#9b5de5]/40 rounded-full peer transition-all duration-200 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all after:shadow-[0_2px_4px_rgba(0,0,0,0.4)] peer-disabled:opacity-40`}></div>
       {isUpdating && (

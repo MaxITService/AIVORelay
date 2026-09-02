@@ -1495,6 +1495,13 @@
     },
     "userInterface": {
       "title": "User Interface",
+      "voiceActivationButton": {
+        "title": "Voice Activation Button",
+        "spawnTitle": "Spawn Voice Activation Button",
+        "spawnDescription": "Open a floating on-screen voice activation button window.",
+        "spawnAction": "Spawn button",
+        "manualProfileNotice": "This button always uses the profile selected manually, and its recording overlay omits the active-application indicator. Automatic application profiles apply only to the main Transcribe hotkey because clicking this window changes the active Windows application."
+      },
       "sidebarReorder": {
         "title": "Sidebar Customization",
         "description": "You can customize your navigation! Reorder the sections in the sidebar on the left by clicking and dragging them to your preferred position. Your custom layout is automatically saved and persists between app restarts."
@@ -1502,6 +1509,22 @@
       "showTrayIcon": {
         "label": "Show Tray Icon",
         "description": "Show the AivoRelay icon in the system tray."
+      },
+      "trayIconBlinking": {
+        "label": "Blink Tray Icon",
+        "description": "Flashes the tray icon between the idle state and the active ear icon during processing and recording."
+      },
+      "trayIconBlinkOnProcessing": {
+        "label": "Blink during processing & finalization",
+        "description": "Flash between the idle logo and the ear icon during transcription, post-processing, and finalization."
+      },
+      "trayIconBlinkOnRecording": {
+        "label": "Blink during recording",
+        "description": "Flash between the idle logo and the ear icon while audio recording is in progress."
+      },
+      "trayIconBlinkFrequency": {
+        "label": "Blinking Frequency (Hz)",
+        "description": "Sets how rapidly the tray icon alternates in Hertz (1 to 10 Hz)."
       },
       "showTrayShortcutGuide": {
         "label": "Show Shortcut Guide in Tray",
@@ -1891,7 +1914,7 @@
       "setActive": "Set Active",
       "defaultProfile": "Default (Global)",
       "transcribeActiveProfile": "Transcribe with Active Profile",
-      "transcribeActiveProfileDescription": "This shortcut always uses the currently active profile. Switch profiles above or use the cycle shortcut.",
+      "transcribeActiveProfileDescription": "This shortcut uses a matching automatic application profile when available; otherwise it uses the currently active profile.",
       "toEnglish": "→ EN",
       "cycleActiveProfilesShort": "Global shortcut to cycle through active profiles",
       "existingProfiles": "Manage Profiles",
@@ -1909,6 +1932,24 @@
       "shortcut": "Toggle shortcut",
       "includeInCycle": "Include in Cycle",
       "includeInCycleDescription": "Allow switching to this profile via the 'Cycle Profile' shortcut.",
+      "automaticApps": {
+        "sectionTitle": "I want to have a different profile for different applications.",
+        "clickIfYes": "click if yes",
+        "enabledStatus": "enabled",
+        "sectionHelp": "Automatically activate profiles for specific foreground applications or windows. When disabled, application detection performs no foreground-window or process checks. Unmatched applications use your manually active profile.",
+        "masterToggle": "Different applications to use different profiles",
+        "masterToggleDescription": "Enable application detection for the main Transcribe hotkey. The floating Voice Activation Button continues to use the profile selected manually.",
+        "showAppInOverlay": "Show active application in recording overlay",
+        "showAppInOverlayDescription": "Show the active program name in a compact pill above the recording visualization.",
+        "title": "Automatically use this profile in applications",
+        "description": "When the main Transcribe shortcut starts in a matching foreground application, this profile overrides the manually active profile for that recording only.",
+        "placeholder": "code.exe\nchrome.exe\ntitle:Microsoft Teams\npath:*\\Microsoft Office\\*",
+        "help": "One rule per line. Use an executable name such as code.exe, or the prefixes exe:, title:, and path:. Matching ignores case; * and ? are wildcards. The most specific rule wins. Profile-specific shortcuts always keep their explicit profile.",
+        "saveFailed": "Failed to save automatic application rules.",
+        "adminNoticeTitle": "Administrator windows:",
+        "adminNoticePrefix": "Windows User Interface Privilege Isolation (UIPI) prevents dictation from typing into administrator/elevated windows unless AivoRelay is also running as administrator. You can configure ",
+        "adminNoticeLink": "Autostart with administrator privileges in Advanced settings"
+      },
       "showOverlayOnSwitch": "Show Overlay on Switch",
       "showOverlayOnSwitchDescription": "Show a visual indicator when switching profiles via keyboard.",
       "overrideSystemPrompt": "Override Voice Model Prompt",
@@ -1959,6 +2000,7 @@
         "terms": "terms"
       },
       "badges": {
+        "automaticApps": "Auto: {{count}} app rules",
         "sttPromptOverridden": "System prompt overridden",
         "sttPromptEmpty": "System prompt is empty",
         "llmActive": "LLM active",
@@ -2306,6 +2348,12 @@
       "autostart": {
         "label": "Launch on Startup",
         "description": "Automatically start AivoRelay when you log in to your computer."
+      },
+      "autostartAsAdmin": {
+        "label": "Autostart with Administrator Privileges",
+        "description": "Launch AivoRelay with elevated permissions when you sign in to Windows, enabling dictation into administrator windows.",
+        "securityTitle": "Security Notice:",
+        "securityNotice": "Running AivoRelay permanently with administrator privileges grants all application components, plugins, and network integrations elevated system access. Enable this only if you need to dictate into elevated/admin programs."
       },
       "overlay": {
         "title": "Overlay Position",

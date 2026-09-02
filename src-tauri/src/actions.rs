@@ -1,5 +1,6 @@
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::apple_intelligence;
+use crate::active_app::ActiveAppContext;
 use crate::audio_feedback::{
     play_feedback_sound, play_feedback_sound_blocking, play_result_ready_sound, SoundType,
 };
@@ -251,12 +252,205 @@ struct SlidingLmRequest {
     current_app: String,
 }
 
-fn capture_recording_app_context(binding_id: &str) {
-    #[cfg(target_os = "windows")]
-    let app_name = crate::active_app::get_frontmost_app_name().unwrap_or_default();
+fn prompt_needs_app_context(settings: &AppSettings, text: &str) -> bool {
+    text.contains("${current_app}")
+        || (settings.llm_context_prev_transcript_enabled
+            && text.contains("${short_prev_transcript}"))
+}
 
-    #[cfg(not(target_os = "windows"))]
-    let app_name = String::new();
+fn active_post_process_prompt<'a>(
+    settings: &'a AppSettings,
+    profile_id: Option<&str>,
+) -> Option<&'a str> {
+    let profile_override = profile_id
+        .and_then(|id| settings.transcription_profiles.iter().find(|p| p.id == id))
+        .and_then(|profile| profile.llm_prompt_override.as_deref())
+        .filter(|prompt| !prompt.trim().is_empty());
+
+    profile_override.or_else(|| {
+        settings
+            .post_process_selected_prompt_id
+            .as_deref()
+            .and_then(|id| settings.post_process_prompts.iter().find(|p| p.id == id))
+            .map(|prompt| prompt.prompt.as_str())
+    })
+}
+
+fn post_process_provider_and_model_are_configured(
+    settings: &AppSettings,
+    profile_id: Option<&str>,
+) -> bool {
+    let Some(provider) = settings.active_post_process_provider() else {
+        return false;
+    };
+    let profile_model = profile_id
+        .and_then(|id| settings.transcription_profiles.iter().find(|p| p.id == id))
+        .and_then(|profile| profile.llm_model_override.as_deref())
+        .filter(|model| !model.trim().is_empty());
+    let global_model = settings
+        .post_process_models
+        .get(&provider.id)
+        .map(String::as_str)
+        .unwrap_or_default();
+
+    !profile_model.unwrap_or(global_model).trim().is_empty()
+}
+
+fn resolve_active_app_window_title(
+    captured_active_app: Option<&ActiveAppContext>,
+    allow_active_app_lookup: bool,
+    lookup: impl FnOnce() -> Option<String>,
+) -> String {
+    match captured_active_app {
+        Some(context) => context.window_title.clone(),
+        None if allow_active_app_lookup => lookup().unwrap_or_default(),
+        None => String::new(),
+    }
+}
+
+fn current_app_for_post_process_prompt(
+    settings: &AppSettings,
+    profile_id: Option<&str>,
+    captured_active_app: Option<&ActiveAppContext>,
+    allow_active_app_lookup: bool,
+) -> String {
+    let needs_app_context = post_process_provider_and_model_are_configured(settings, profile_id)
+        && active_post_process_prompt(settings, profile_id)
+            .is_some_and(|prompt| prompt_needs_app_context(settings, prompt));
+
+    if needs_app_context {
+        return resolve_active_app_window_title(
+            captured_active_app,
+            allow_active_app_lookup,
+            crate::active_app::get_frontmost_app_name,
+        );
+    }
+
+    String::new()
+}
+
+fn prompt_templates_require_current_app(
+    app: &AppHandle,
+    settings: &AppSettings,
+    binding_id: &str,
+    profile_id: Option<&str>,
+) -> bool {
+    const VAR_APP: &str = "${current_app}";
+    let profile =
+        profile_id.and_then(|id| settings.transcription_profiles.iter().find(|p| p.id == id));
+
+    // 1. Sliding LM window prompt (only if sliding LM is actually enabled).
+    // Sliding-LM templates expose `${current_app}`, but not the transcript
+    // context variable used by ordinary LLM prompt templates.
+    if should_use_local_preview_auto_flush(app, settings, profile, binding_id)
+        && settings.soniox_live_preview_sliding_lm_window_enabled
+        && settings
+            .soniox_live_preview_sliding_lm_window_prompt
+            .contains(VAR_APP)
+    {
+        return true;
+    }
+
+    // 2. AI Replace action. Selection and quick-tap state are known only
+    // after recording, so include every prompt variant that can be selected
+    // for this configured action.
+    if binding_id == "ai_replace_selection" {
+        if prompt_needs_app_context(settings, &settings.ai_replace_system_prompt)
+            || prompt_needs_app_context(settings, &settings.ai_replace_user_prompt)
+        {
+            return true;
+        }
+        if settings.ai_replace_allow_quick_tap
+            && (prompt_needs_app_context(settings, &settings.ai_replace_quick_tap_system_prompt)
+                || prompt_needs_app_context(settings, &settings.ai_replace_quick_tap_user_prompt))
+        {
+            return true;
+        }
+        if settings.ai_replace_allow_no_selection
+            && (prompt_needs_app_context(settings, &settings.ai_replace_no_selection_system_prompt)
+                || prompt_needs_app_context(
+                    settings,
+                    &settings.ai_replace_no_selection_user_prompt,
+                ))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    // 3. Voice Commands (only if voice commands are enabled and action is voice command)
+    if binding_id == "voice_command" {
+        return settings.voice_command_enabled
+            && prompt_needs_app_context(settings, &settings.voice_command_system_prompt);
+    }
+
+    // 4. The selection-aware extension action applies its own user template
+    // after ordinary transcription post-processing.
+    if binding_id == "send_to_extension_with_selection"
+        && prompt_needs_app_context(
+            settings,
+            &settings.send_to_extension_with_selection_user_prompt,
+        )
+    {
+        return true;
+    }
+
+    // Only transcription actions execute the ordinary post-processing prompt.
+    // Other recording actions (AI Replace, Voice Command, Screenshot) have
+    // their own prompt paths covered above and must not inherit this check.
+    if !is_transcribe_binding_id(binding_id)
+        && binding_id != "send_to_extension"
+        && binding_id != "send_to_extension_with_selection"
+    {
+        return false;
+    }
+
+    // 5. LLM Post-Processing (only if LLM post-processing is actually enabled for this session)
+    let force_post_process = FORCE_POST_PROCESS_BINDINGS
+        .lock()
+        .map(|bindings| bindings.contains(binding_id))
+        .unwrap_or(false);
+    let llm_enabled = profile
+        .map(|profile| profile.llm_post_process_enabled)
+        .unwrap_or(settings.post_process_enabled);
+    let output_route_allows_post_process = post_process_allowed_for_output_route(settings, profile);
+    let post_process_can_run = (force_post_process && output_route_allows_post_process)
+        || (llm_enabled
+            && output_route_allows_post_process
+            && settings.transcription_provider != TranscriptionProvider::RemoteSoniox
+            && !(settings.transcription_provider == TranscriptionProvider::RemoteDeepgram
+                && settings.deepgram_live_enabled));
+
+    if post_process_can_run && post_process_provider_and_model_are_configured(settings, profile_id)
+    {
+        if let Some(prompt) = active_post_process_prompt(settings, profile_id) {
+            if prompt_needs_app_context(settings, prompt) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn capture_recording_app_context(
+    app: &AppHandle,
+    binding_id: &str,
+    settings: &AppSettings,
+    profile_id: Option<&str>,
+    captured_active_app: Option<&ActiveAppContext>,
+    allow_active_app_lookup: bool,
+) {
+    let app_name = if prompt_templates_require_current_app(app, settings, binding_id, profile_id) {
+        resolve_active_app_window_title(
+            captured_active_app,
+            allow_active_app_lookup,
+            crate::active_app::get_frontmost_app_name,
+        )
+    } else {
+        String::new()
+    };
 
     if let Ok(mut context) = RECORDING_APP_CONTEXT.lock() {
         context.insert(binding_id.to_string(), app_name);
@@ -1607,7 +1801,16 @@ fn maybe_restore_ai_replace_selection(
 /// race conditions when the user rapidly presses the shortcut key.
 fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     let settings = settings_for_binding(app, binding_id);
+    start_recording_with_feedback_with_settings(app, binding_id, settings, None, true)
+}
 
+fn start_recording_with_feedback_with_settings(
+    app: &AppHandle,
+    binding_id: &str,
+    settings: AppSettings,
+    captured_active_app: Option<&ActiveAppContext>,
+    allow_active_app_lookup: bool,
+) -> bool {
     // Load model in the background if using local transcription
     let tm = app.state::<Arc<TranscriptionManager>>();
     if settings.transcription_provider == TranscriptionProvider::Local {
@@ -1707,6 +1910,17 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
         .map(|profile| profile.translate_to_english)
         .unwrap_or(settings.translate_to_english);
 
+    // Reuse the foreground snapshot captured on initial key-down. Other
+    // recording actions retain the legacy lazy title-only fallback.
+    capture_recording_app_context(
+        app,
+        binding_id,
+        &settings,
+        captured_profile_id.as_deref(),
+        captured_active_app,
+        allow_active_app_lookup,
+    );
+
     let operation_id = session_manager::next_operation_id();
     *state_guard = session_manager::SessionState::Recording {
         session: Arc::clone(&session),
@@ -1716,9 +1930,6 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
         captured_profile_id,
         captured_settings: settings.clone(),
     };
-
-    // Capture the active app context at recording start for prompt variables.
-    capture_recording_app_context(binding_id);
 
     // Now release the lock before doing I/O operations
     drop(state_guard);
@@ -1807,7 +2018,12 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
 
     // Show the waiting state before opening/arming the capture stream. The
     // overlay switches to reactive levels only after the first real sample.
-    show_recording_overlay(app, operation_id);
+    show_recording_overlay(
+        app,
+        operation_id,
+        captured_active_app,
+        allow_active_app_lookup,
+    );
 
     let mut recording_error: Option<StartRecordingError> = None;
     let mut recording_started_at: Option<Instant> = None;
@@ -3295,8 +3511,149 @@ fn settings_with_model_override_for_binding(
     settings
 }
 
+#[derive(Clone)]
+struct PreparedTranscribeStart {
+    settings: AppSettings,
+    active_app_context: Option<ActiveAppContext>,
+}
+
+fn preview_transcribe_start_from_snapshot(
+    mut settings: AppSettings,
+    binding_id: &str,
+    profile_id: Option<String>,
+    active_app_context: Option<ActiveAppContext>,
+) -> PreparedTranscribeStart {
+    if binding_id == "transcribe" {
+        settings.active_profile_id = profile_id.as_deref().unwrap_or("default").to_string();
+    }
+    let settings = settings_with_model_override_for_binding(settings, binding_id);
+    PreparedTranscribeStart {
+        settings,
+        active_app_context,
+    }
+}
+
+static PENDING_TRANSCRIBE_STARTS: Lazy<Mutex<HashMap<String, PreparedTranscribeStart>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn store_pending_transcribe_start(
+    binding_id: &str,
+    prepared: PreparedTranscribeStart,
+) -> AppSettings {
+    let settings = prepared.settings.clone();
+    let mut pending = PENDING_TRANSCRIBE_STARTS.lock().unwrap_or_else(|poisoned| {
+        warn!(
+            "Pending transcription-start lock was poisoned while preparing '{}'; recovering",
+            binding_id
+        );
+        poisoned.into_inner()
+    });
+    pending.insert(binding_id.to_string(), prepared);
+    settings
+}
+
+pub(crate) fn prepare_transcribe_settings(app: &AppHandle, binding_id: &str) -> AppSettings {
+    store_pending_transcribe_start(
+        binding_id,
+        prepared_transcribe_start_for_binding(app, binding_id),
+    )
+}
+
+/// Prepares a main-transcribe snapshot without inspecting or later falling
+/// back to the foreground app. AivoRelay-hosted controls cannot reliably
+/// identify the previously focused target after being clicked.
+pub(crate) fn prepare_manual_transcribe_settings(
+    app: &AppHandle,
+    binding_id: &str,
+) -> AppSettings {
+    let settings = settings_with_model_override_for_binding(get_settings(app), binding_id);
+    store_pending_transcribe_start(
+        binding_id,
+        PreparedTranscribeStart {
+            settings,
+            active_app_context: None,
+        },
+    )
+}
+
+/// Restarts an existing Preview workflow with the profile selected when that
+/// workflow began. `None` represents the Default profile.
+fn prepare_preview_transcribe_settings(
+    app: &AppHandle,
+    binding_id: &str,
+) -> AppSettings {
+    let (profile_id, active_app_context) =
+        crate::managers::preview_output_mode::current_profile_and_active_app_context();
+    let prepared = preview_transcribe_start_from_snapshot(
+        get_settings(app),
+        binding_id,
+        profile_id,
+        active_app_context,
+    );
+    store_pending_transcribe_start(binding_id, prepared)
+}
+
+pub(crate) fn take_pending_transcribe_settings(binding_id: &str) -> Option<AppSettings> {
+    take_pending_transcribe_start(binding_id).map(|prepared| prepared.settings)
+}
+
+fn take_pending_transcribe_start(binding_id: &str) -> Option<PreparedTranscribeStart> {
+    let mut pending = PENDING_TRANSCRIBE_STARTS.lock().unwrap_or_else(|poisoned| {
+        warn!(
+            "Pending transcription-start lock was poisoned while consuming '{}'; recovering",
+            binding_id
+        );
+        poisoned.into_inner()
+    });
+    pending.remove(binding_id)
+}
+
 fn settings_for_binding(app: &AppHandle, binding_id: &str) -> AppSettings {
     settings_with_model_override_for_binding(get_settings(app), binding_id)
+}
+
+fn prepared_transcribe_start_for_binding(
+    app: &AppHandle,
+    binding_id: &str,
+) -> PreparedTranscribeStart {
+    let mut settings = get_settings(app);
+    let should_capture_process_context = settings.automatic_app_profiles_enabled
+        && (binding_id == "transcribe" || settings.recording_overlay_show_app);
+    let mut active_app_context = should_capture_process_context
+        .then(crate::active_app::get_frontmost_app_context);
+
+    if binding_id == "transcribe" && settings.automatic_app_profiles_enabled {
+        if let Some(profile_id) = active_app_context
+            .as_ref()
+            .and_then(|context| crate::active_app::apply_automatic_profile(&mut settings, context))
+        {
+            debug!(
+                "Automatically selected transcription profile '{}' for the foreground app",
+                profile_id
+            );
+        }
+    }
+
+    settings = settings_with_model_override_for_binding(settings, binding_id);
+
+    if active_app_context.is_none()
+        && prompt_templates_require_current_app(
+            app,
+            &settings,
+            binding_id,
+            resolve_profile_for_binding(&settings, binding_id).map(|profile| profile.id.as_str()),
+        )
+    {
+        active_app_context = Some(ActiveAppContext {
+            window_title: crate::active_app::get_frontmost_app_name().unwrap_or_default(),
+            ..ActiveAppContext::default()
+        });
+    }
+
+    PreparedTranscribeStart {
+        settings,
+        active_app_context,
+    }
 }
 
 fn should_release_vercel_gemini_after_streamed_output(
@@ -5097,12 +5454,13 @@ async fn preview_delete_action(app: AppHandle, mode: PreviewDeleteMode) -> Resul
     crate::managers::preview_output_mode::set_error(&app, None);
 
     if was_recording && crate::managers::preview_output_mode::is_active_for_binding(&binding_id) {
-        let settings = get_settings(&app);
-        let use_push_to_talk = use_push_to_talk_for_transcribe_binding(&settings, &binding_id);
-        if let Err(err) = start_transcribe_binding_from_preview(&app, &binding_id) {
-            crate::managers::preview_output_mode::set_error(&app, Some(err.clone()));
-            return Err(err);
-        }
+        let use_push_to_talk = match start_transcribe_binding_from_preview(&app, &binding_id) {
+            Ok(use_push_to_talk) => use_push_to_talk,
+            Err(err) => {
+                crate::managers::preview_output_mode::set_error(&app, Some(err.clone()));
+                return Err(err);
+            }
+        };
         if !use_push_to_talk {
             let toggle_state_manager = app.state::<ManagedToggleState>();
             let mut states = match toggle_state_manager.lock() {
@@ -5436,15 +5794,17 @@ fn stop_transcribe_binding_from_preview(app: &AppHandle, binding_id: &str) -> Re
     Ok(())
 }
 
-fn start_transcribe_binding_from_preview(app: &AppHandle, binding_id: &str) -> Result<(), String> {
+fn start_transcribe_binding_from_preview(app: &AppHandle, binding_id: &str) -> Result<bool, String> {
     let action = transcribe_action_for_binding(binding_id).ok_or_else(|| {
         format!(
             "No transcription action is registered for binding '{}'",
             binding_id
         )
     })?;
+    let settings = prepare_preview_transcribe_settings(app, binding_id);
+    let use_push_to_talk = use_push_to_talk_for_transcribe_binding(&settings, binding_id);
     action.start(app, binding_id, "preview_output_mode");
-    Ok(())
+    Ok(use_push_to_talk)
 }
 
 fn is_recording_for_binding(app: &AppHandle, binding_id: &str) -> bool {
@@ -6644,7 +7004,10 @@ impl ShortcutAction for TranscribeAction {
         let start_time = Instant::now();
         debug!("TranscribeAction::start called for binding: {}", binding_id);
 
-        let settings = settings_for_binding(app, binding_id);
+        let prepared = take_pending_transcribe_start(binding_id)
+            .unwrap_or_else(|| prepared_transcribe_start_for_binding(app, binding_id));
+        let settings = prepared.settings;
+        let active_app_context = prepared.active_app_context;
         let use_live_streaming = should_use_live_streaming(&settings);
         let profile = resolve_profile_for_binding(&settings, binding_id);
         let optimized_delivery_profile_id = profile.map(|p| p.id.clone());
@@ -6663,7 +7026,13 @@ impl ShortcutAction for TranscribeAction {
         let use_local_preview_streaming =
             should_use_local_preview_auto_flush(app, &settings, profile, binding_id);
 
-        if !start_recording_with_feedback(app, binding_id) {
+        if !start_recording_with_feedback_with_settings(
+            app,
+            binding_id,
+            settings.clone(),
+            active_app_context.as_ref(),
+            false,
+        ) {
             // Recording failed to start (e.g., system busy) - reset toggle state
             // so next press will try to start again instead of calling stop
             let _ = take_force_post_process_for_binding(binding_id);
@@ -6710,6 +7079,7 @@ impl ShortcutAction for TranscribeAction {
                 app,
                 binding_id.to_string(),
                 profile.map(|p| p.id.clone()),
+                active_app_context.clone(),
                 use_live_streaming || use_native_local_streaming || use_local_preview_streaming,
                 recording_prefix,
             );
@@ -10795,10 +11165,8 @@ pub async fn preview_llm_process_action(app: AppHandle) -> Result<(), String> {
     let mut resumed_recording = false;
 
     if should_resume_recording {
-        let settings = get_settings(&app);
-        let use_push_to_talk = use_push_to_talk_for_transcribe_binding(&settings, &binding_id);
         match start_transcribe_binding_from_preview(&app, &binding_id) {
-            Ok(()) => {
+            Ok(use_push_to_talk) => {
                 resumed_recording = true;
                 if !use_push_to_talk {
                     let toggle_state_manager = app.state::<ManagedToggleState>();
@@ -10886,9 +11254,7 @@ pub async fn preview_flush_action(app: AppHandle) -> Result<(), String> {
         }
 
         // Resume recording for the next chunk
-        let settings = get_settings(&app);
-        let use_push_to_talk = use_push_to_talk_for_transcribe_binding(&settings, &binding_id);
-        start_transcribe_binding_from_preview(&app, &binding_id)?;
+        let use_push_to_talk = start_transcribe_binding_from_preview(&app, &binding_id)?;
         if !use_push_to_talk {
             let toggle_state_manager = app.state::<ManagedToggleState>();
             let mut states = match toggle_state_manager.lock() {

@@ -819,20 +819,52 @@ body,
   transform: scale(0.96);
 }
 
-.recording-overlay.recording-overlay-custom .overlay-decapitalize-indicator,
-.recording-overlay.recording-overlay-legacy .overlay-decapitalize-indicator {
+.recording-overlay .overlay-meta-chip {
   position: absolute;
   top: 2px;
   left: 50%;
   transform: translateX(-50%);
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  background: rgba(15, 12, 22, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  line-height: 1.2;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  text-shadow: 0 0 12px rgba(114, 242, 154, 0.3);
   pointer-events: none;
   user-select: none;
   max-width: calc(100% - 20px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  z-index: 10;
+}
+
+.recording-overlay .overlay-chip-app {
+  color: rgba(224, 231, 255, 0.92);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9.5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recording-overlay .overlay-chip-separator {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 8px;
+}
+
+.recording-overlay .overlay-chip-decap {
+  flex-shrink: 0;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 10px rgba(114, 242, 154, 0.35);
 }
