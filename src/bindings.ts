@@ -2961,7 +2961,7 @@ async convertTtsBatch(request: ConvertTtsBatchRequest) : Promise<Result<TtsBatch
     else return { status: "error", error: e  as any };
 }
 },
-async getActiveTtsBatchProgress() : Promise<TtsBatchProgress | null> {
+async getActiveTtsBatchProgress() : Promise<ActiveTtsBatchSnapshot | null> {
     return await TAURI_INVOKE("get_active_tts_batch_progress");
 },
 async cancelTtsBatch(batchId: string) : Promise<Result<boolean, string>> {
@@ -4073,6 +4073,7 @@ async isLaptop() : Promise<Result<boolean, string>> {
 
 /** user-defined types **/
 
+export type ActiveTtsBatchSnapshot = { progress: TtsBatchProgress; scan: TtsBatchScanResult; files: TtsBatchFileResult[] }
 export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; sttModelSelectionOverride?: SttModelSelection | null; pushToTalk: boolean; autoShortcutActivation?: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
 export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; auto_shortcut_activation?: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings;
 /**
