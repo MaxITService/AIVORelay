@@ -33,13 +33,147 @@ Windows backend tests in this fork must be runnable through the checked-in harne
 ## Harness Notes
 
 - `test-local.ps1` imports the same MSVC environment setup used for local builds.
-- The harness configures `BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc` and `LIBCLANG_PATH` so `whisper-rs-sys` can build under `cargo test`.
+- The harness configures `BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc` and `LIBCLANG_PATH` for native Cargo dependencies under `cargo test`.
 - The harness uses a short `CARGO_TARGET_DIR` to reduce Windows path-length pain.
 - By policy, every new test batch must be documented in this file immediately after it is added.
+
+## Windows TTS Focused Tests
+
+The `managers::windows_tts::tests` library subset covers installed-voice
+catalog normalization and stable-ID selection, permanent/transient error
+classification, WinRT cancellation signaling, strict WAV validation,
+mono/stereo downmixing, normalized-duration bounds, common/coprime sample-rate
+conversion at exact ratio-chunk boundaries, bounded resampler draining, and
+pre-decode cancellation. A Windows-only regression test also queries the
+installed-voice catalog twice on one reused thread so WinRT apartment teardown
+cannot invalidate the second `SpeechSynthesizer::DefaultVoice()` call.
+
+Run it with:
+
+`pwsh -NoProfile -File .\test-local.ps1 -LibOnly -Filter 'managers::windows_tts::tests'`
 
 ## Documented Backend Test Areas
 
 Update this section every time new tests are added.
+
+### Text replacement JSON transfer and escape handling (2026-08-21)
+
+- `src/components/settings/text-replacement/textReplacementRuleTransfer.test.ts`
+  covers deterministic v1 envelope/bare-array import, BOM, strict
+  validation/defaults, replace and merge strategies, exact duplicate and
+  conflict handling, ID remapping, ordering/non-mutation, and exact
+  Unicode/control/backslash/regex replacement-string round trips. Run it with:
+  `bun src/components/settings/text-replacement/textReplacementRuleTransfer.test.ts`
+- The manual UI flow should cover importing with no existing rules (direct
+  replace), importing with existing rules (merge dialog default, conflict
+  overwrite OFF and ON, and replace mode), cancel/Escape/backdrop dismissal,
+  and preserving persisted rule order during export.
+- The Rust focused tests
+  `settings::tests::text_replacement_escape_helper_handles_valid_sequences`,
+  `settings::tests::text_replacement_malformed_unicode_escapes_remain_literal`,
+  `settings::tests::text_replacement_literal_mode_handles_escapes_and_order`,
+  and `settings::tests::text_replacement_regex_mode_preserves_patterns_and_expands_captures`
+  cover shared full-text/stream escape processing, valid controls/Unicode,
+  malformed Unicode preservation, literal replacement semantics/order, and
+  Rust-regex captures/literal dollars. Run them with:
+  `pwsh -NoProfile -File .\test-local.ps1 -LibOnly -Filter 'settings::tests::text_replacement_'`
+- These tests have been added but have not yet been run pending the required
+  user authorization. They are local deterministic tests with no credentials,
+  paid APIs, or external network.
+
+### Groq Qwen reasoning request mock (2026-08-21)
+
+- Provider behavior follows the official [Groq reasoning guide](https://console.groq.com/docs/reasoning),
+  [Chat Completions API reference](https://console.groq.com/docs/api-reference),
+  and [Qwen 3.6 27B model guide](https://console.groq.com/docs/model/qwen/qwen3.6-27b):
+  Qwen supports `none`/`default`, while GPT-OSS supports only
+  `low`/`medium`/`high`.
+- `llm_client::tests::groq_qwen_off_request_reaches_mock_api_without_reasoning`
+  sends the production Groq/Qwen request shape to a local `127.0.0.1` mock,
+  verifies the `/chat/completions` path and top-level
+  `reasoning_effort: "none"`, checks that incompatible reasoning fields are
+  omitted, and parses the mock completion response.
+- The adjacent `llm_client::tests::groq_*` serialization tests cover Qwen
+  reasoning ON/OFF, GPT-OSS reasoning ON, and unsupported Groq model
+  omission. They use no credentials and make no external or paid API calls.
+- The focused `llm_client::tests::` harness batch passed 12/12 tests. The mock
+  round trip bound only to `127.0.0.1` and used a deliberately fake API key.
+- Run the focused batch with:
+  `pwsh -NoProfile -File .\test-local.ps1 -LibOnly -Filter 'llm_client::tests::'`
+- Follow-up code routes every user-facing reasoning toggle through the same
+  provider-disable policy. A new local mock case verifies that a Groq/Qwen OFF
+  request receiving HTTP 400 is not retried without `reasoning_effort: "none"`.
+  This follow-up test has not yet been run pending the required user authorization.
+
+### Soniox async failure details (2026-08-03)
+
+- `managers::soniox_stt::tests::async_failure_preserves_provider_error_details`
+  covers the documented Soniox `error` status payload and verifies that both
+  `error_type` and `error_message` remain available in the user-facing error.
+- The focused harness filter passed 5/5 tests. The unit tests do not make
+  network requests.
+- A CLI smoke converted a short existing WAV with the saved Soniox credential
+  in 4.38 seconds; it produced 12 words and 76 characters. The CLI correctly
+  selected `stt-async-v5` for file transcription when the saved live model was
+  `stt-rt-v5`.
+
+### OpenAI realtime transcription payloads (2026-08-03)
+
+- `managers::openai_realtime_whisper::tests::live_transcribe_session_uses_plural_languages_and_prompt`
+  also verifies the documented model split: `delay` is emitted for
+  `gpt-realtime-whisper` but omitted for `gpt-live-transcribe`, which does not
+  support that field.
+- The focused harness filter passed 5/5 tests and only inspects generated JSON;
+  it does not contact OpenAI.
+
+The existing provider filters were rerun in the same pass:
+`managers::remote_stt::tests` (13) and `managers::deepgram_stt::tests` (1),
+for 24/24 focused STT tests passing in total.
+
+### TTS settings transparency pass (2026-07-31)
+
+- The active `bun tauri dev` watcher rebuilt and relaunched the debug app after
+  the local-install consent command and status-schema changes.
+- `bun x tsc --noEmit`, a scoped ESLint run over the changed TTS/settings
+  frontend, and `bun src/lib/tts/ttsProviderMetadata.test.ts` passed.
+- The metadata test proves every supported provider has complete HTTPS
+  human-facing documentation links (never `llms.txt`), a non-empty model
+  default, an in-range speed default, unique provider/language values, and
+  source/license/size metadata for both downloadable local engines.
+- A real debug-CLI status smoke passed for Qwen and Kokoro without synthesis or
+  network requests. It exposed the exact managed paths and conservative current
+  disk-use estimates: Qwen reported 9,056,372,390 bytes in 7.4 seconds for an
+  older installation needing notice repair; Kokoro reported 398,674,114 bytes
+  in 2.7 seconds and was ready with its original local `model/LICENSE` present.
+  The estimator deduplicates hard-linked files of at least 1 MiB by Windows file
+  identity and logically counts smaller files, so it cannot understate use due
+  to an unverified small hard link. The older tree's 12,062,403,280-byte logical
+  total raised Qwen's conservative install and disk-preflight allowance from
+  8 GiB to 16 GiB.
+- A live UI smoke confirmed the grouped searchable provider picker, collapsible
+  provider help with human documentation links, exact Qwen source/revision/path,
+  pre-install size/license disclosure, two separate unchecked consent boxes,
+  and a disabled install button. No model download or paid provider request was
+  started, and the original Soniox selection was restored.
+- The documented Rust build environment passed `cargo check`. The focused `tts`
+  filter passed 114 tests and the `local_kokoro` filter passed 8 tests, for
+  122/122 passing checks. Coverage includes documented provider defaults, both
+  consent flags, source/license/path metadata, settings migration, recursive
+  footprint counting, and large-hard-link deduplication.
+- The debug binding exporter now removes generator-produced trailing spaces
+  while preserving LF/CRLF endings. Its regression test passed, the real hidden
+  debug app regenerated `src/bindings.ts`, `bun x tsc --noEmit` passed against
+  that output, and the full `git diff --check` passed.
+
+The TTS entries below document source-level unit coverage that was added on
+2026-07-31. On the same date, the following focused library subsets passed:
+`managers::tts::tests` (26), `managers::local_tts::tests` (7),
+`managers::local_kokoro::tests` (6), `managers::tts_llm::tests` (5),
+`commands::tts::tests` (11), and `cli_file_conversion::tests` (14), for 69
+passing tests in total. `cargo fmt --manifest-path src-tauri/Cargo.toml --all
+-- --check`, `bun x tsc --noEmit`, and the documented wrapped `cargo check`
+also passed. This is not evidence that mocked HTTP, real watcher events,
+cancellation publication, or end-to-end CLI/GUI workflows have passed.
 
 - `src-tauri/src/language_resolver.rs`
   Soniox language code normalization, support checks, hint-list cleanup, and requested-language resolution.
@@ -49,10 +183,39 @@ Update this section every time new tests are added.
   Error categorization, status extraction, display code generation, and envelope defaults.
 - `src-tauri/src/clipboard.rs`
   Auto-submit gating and clipboard text normalization helpers.
+- `src-tauri/src/cli.rs` and `src-tauri/src/cli_file_conversion.rs`
+  First-class TTS file-conversion parsing, comprehensive temporary overrides,
+  provider/argument compatibility errors, strict scalar ranges, one-off
+  replacement-rule files, Windows default-voice selection, and proof that the
+  saved settings snapshot is not mutated. Black-box coverage also verifies that
+  `--tts-history true` bypasses only the saved passive-capture toggle.
 - `src-tauri/src/managers/history.rs`
   Latest-entry selection rules for mixed transcribe and AI Replace history rows.
 - `src-tauri/src/managers/model.rs`
   SHA256 computation and download-verification cleanup/error behavior.
+- `src-tauri/src/managers/tts.rs`
+  Unit seams for shared cloud PCM response decoding, provider dispatch labels,
+  local/system instruction inactivity, operation-ID cancellation/busy-lock
+  primitives, Unicode-safe/lossless semantic chunking, in-memory watcher-path
+  deduplication, filesystem containment, and disk-capacity thresholds, plus the
+  regression that a leading paragraph newline cannot become a whitespace-only
+  provider request.
+- `src-tauri/src/managers/local_tts.rs` and
+  `src-tauri/src/managers/local_kokoro.rs`
+  Unit seams for pinned install-manifest validation, disk-reserve preflight
+  arithmetic, shared worker WAV validation, local-runtime retry
+  classification, and Kokoro voice/language and archive-safety checks. These
+  tests do not install models or launch inference workers.
+- `src-tauri/src/managers/provider_error.rs`
+  Bounded provider error extraction and secret-safe message shaping.
+- `src-tauri/src/managers/tts_llm.rs`
+  TTS AI-cleanup chunk ordering, retry classification/backoff bounds, and
+  resolved-key redaction for provider errors.
+- `src-tauri/src/cli_file_conversion.rs`
+  Unit-level UTF-8/Cyrillic inline-instruction preservation, BOM-aware large
+  instruction-file loading, and proof that the file contents are not copied
+  into the parsed CLI argument object. This is not a spawned-process command
+  line or full CLI conversion test.
 - `src-tauri/src/tray.rs`
   Tray helper selection parsing, icon-path mapping, tooltip labeling, and transcript text fallback rules.
 - `src-tauri/src/subtitle.rs`

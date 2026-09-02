@@ -1,6 +1,6 @@
-# Contributing Translations to Handy
+# Contributing Translations to AIVORelay
 
-Thank you for helping translate Handy! This guide explains how to add or improve translations.
+Thank you for helping translate AIVORelay! This guide explains how to add or improve translations.
 
 ## Quick Start
 
@@ -90,7 +90,7 @@ export const LANGUAGE_METADATA: Record<
 ### Step 5: Test Your Translation
 
 1. Run the app: `bun run tauri dev`
-2. Go to Settings → General → App Language
+2. Go to **General → App Language** in the sidebar
 3. Select your language
 4. Verify all text displays correctly
 
@@ -120,7 +120,7 @@ Found a typo or better translation?
 
 ### Don't:
 
-- Translate brand names (Handy, Whisper.cpp, OpenAI)
+- Translate brand names (AIVORelay, Whisper.cpp, OpenAI)
 - Change or remove `{{variables}}`
 - Modify JSON keys
 - Add extra spaces or formatting
@@ -171,4 +171,4 @@ We'd love help with:
 
 ---
 
-Thank you for making Handy accessible to more people around the world!
+Thank you for making AIVORelay accessible to more people around the world!
