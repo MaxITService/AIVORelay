@@ -2432,3 +2432,510 @@ fn json_session_response<T: Serialize>(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderMap;
+
+    fn header_map(values: &[(&'static str, &str)]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (name, value) in values {
+            headers.insert(
+                header::HeaderName::from_static(name),
+                HeaderValue::from_str(value).unwrap(),
+            );
+        }
+        headers
+    }
+
+    fn signed_client_request(password: &str) -> SessionCreateRequest {
+        let mut request = SessionCreateRequest {
+            client_public_key: "  client-public-key  ".to_string(),
+            client_nonce: "  client-nonce  ".to_string(),
+            timestamp: 1_725_000_000_123,
+            client_proof: String::new(),
+        };
+        let key = derive_password_auth_key(password);
+        let payload = build_handshake_client_proof_payload(&request);
+        request.client_proof = STANDARD.encode(compute_hmac_bytes(&key, &payload).unwrap());
+        request
+    }
+
+    #[test]
+    fn constant_time_comparison_requires_equal_contents_and_length() {
+        assert!(constant_time_eq(b"same bytes", b"same bytes"));
+        assert!(!constant_time_eq(b"same bytes", b"same byteS"));
+        assert!(!constant_time_eq(b"same bytes", b"same bytes!"));
+        assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn password_auth_key_matches_the_protocol_golden_vector() {
+        let key = derive_password_auth_key("correct horse battery staple");
+        let actual = key
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+
+        assert_eq!(
+            actual,
+            "a73166657cfb74d5a8d6937a2262ddec08d47fd7a8499bc35d9e81825840fa9d"
+        );
+        assert_ne!(
+            key,
+            derive_password_auth_key("Correct horse battery staple")
+        );
+    }
+
+    #[test]
+    fn client_handshake_proof_authenticates_all_signed_fields() {
+        let password = "test-password";
+        let request = signed_client_request(password);
+        assert!(verify_handshake_client_proof(password, &request));
+        assert!(!verify_handshake_client_proof("wrong-password", &request));
+
+        let mut tampered = request.clone();
+        tampered.client_nonce.push('x');
+        assert!(!verify_handshake_client_proof(password, &tampered));
+
+        let mut malformed = request;
+        malformed.client_proof = "not base64!".to_string();
+        assert!(!verify_handshake_client_proof(password, &malformed));
+    }
+
+    #[test]
+    fn server_handshake_proof_binds_session_and_encryption_state() {
+        let key = derive_password_auth_key("test-password");
+        let signed = sign_handshake_server_proof(
+            &key,
+            "session-a",
+            1234,
+            true,
+            "client-key",
+            "server-key",
+            "client-nonce",
+            "server-nonce",
+        )
+        .unwrap();
+        let unsigned = sign_handshake_server_proof(
+            &key,
+            "session-a",
+            1234,
+            false,
+            "client-key",
+            "server-key",
+            "client-nonce",
+            "server-nonce",
+        )
+        .unwrap();
+        let other_session = sign_handshake_server_proof(
+            &key,
+            "session-b",
+            1234,
+            true,
+            "client-key",
+            "server-key",
+            "client-nonce",
+            "server-nonce",
+        )
+        .unwrap();
+
+        assert_ne!(signed, unsigned);
+        assert_ne!(signed, other_session);
+        assert_eq!(STANDARD.decode(signed).unwrap().len(), 32);
+    }
+
+    #[test]
+    fn session_key_derivation_separates_encryption_mac_and_transcripts() {
+        let auth_key = derive_password_auth_key("password");
+        let transcript_a = build_handshake_transcript_hash(
+            "session-a",
+            b"client-key",
+            b"server-key",
+            b"client-nonce",
+            b"server-nonce",
+        );
+        let transcript_b = build_handshake_transcript_hash(
+            "session-b",
+            b"client-key",
+            b"server-key",
+            b"client-nonce",
+            b"server-nonce",
+        );
+        let enc = derive_session_key(
+            b"shared-secret",
+            &auth_key,
+            CONNECTOR_SESSION_ENC_CONTEXT,
+            &transcript_a,
+        )
+        .unwrap();
+        let mac = derive_session_key(
+            b"shared-secret",
+            &auth_key,
+            CONNECTOR_SESSION_MAC_CONTEXT,
+            &transcript_a,
+        )
+        .unwrap();
+        let other_transcript = derive_session_key(
+            b"shared-secret",
+            &auth_key,
+            CONNECTOR_SESSION_ENC_CONTEXT,
+            &transcript_b,
+        )
+        .unwrap();
+
+        assert_ne!(enc, mac);
+        assert_ne!(enc, other_transcript);
+    }
+
+    #[test]
+    fn encrypted_payload_prefixes_the_nonce_and_round_trips_with_the_session_key() {
+        let enc_key = [0x31; 32];
+        let crypto = SessionCrypto::new(enc_key, [0x72; 32]);
+        let plaintext = b"private connector payload";
+
+        let encrypted = crypto.encrypt_payload(plaintext).unwrap();
+        assert_eq!(encrypted.len(), 12 + plaintext.len() + 16);
+        assert_ne!(&encrypted[12..], &plaintext[..]);
+
+        let cipher = Aes256Gcm::new(aes_gcm::Key::<Aes256Gcm>::from_slice(&enc_key));
+        let decrypted = cipher
+            .decrypt(Nonce::from_slice(&encrypted[..12]), &encrypted[12..])
+            .unwrap();
+        assert_eq!(decrypted.as_slice(), &plaintext[..]);
+    }
+
+    #[test]
+    fn request_mac_verification_rejects_tampered_metadata_and_body() {
+        let key = [0x5a; 32];
+        let route = "/messages?since=42";
+        let body = br#"{"type":"ack"}"#;
+        let payload = build_request_mac_payload(route, 7, 1_725_000_000_123, body);
+        let signature = STANDARD.encode(compute_hmac_bytes(&key, &payload).unwrap());
+
+        assert!(verify_request_mac(
+            &key,
+            route,
+            7,
+            1_725_000_000_123,
+            body,
+            &signature,
+        ));
+        assert!(!verify_request_mac(
+            &key,
+            route,
+            8,
+            1_725_000_000_123,
+            body,
+            &signature,
+        ));
+        assert!(!verify_request_mac(
+            &key,
+            route,
+            7,
+            1_725_000_000_123,
+            br#"{"type":"cancel"}"#,
+            &signature,
+        ));
+        assert!(!verify_request_mac(
+            &key,
+            route,
+            7,
+            1_725_000_000_123,
+            body,
+            "malformed",
+        ));
+    }
+
+    #[test]
+    fn response_mac_payload_binds_status_sequence_expiry_encryption_and_body() {
+        let base = build_response_mac_payload("/messages", StatusCode::OK, 3, 9000, true, b"body");
+        let variants = [
+            build_response_mac_payload("/blob/id", StatusCode::OK, 3, 9000, true, b"body"),
+            build_response_mac_payload("/messages", StatusCode::CREATED, 3, 9000, true, b"body"),
+            build_response_mac_payload("/messages", StatusCode::OK, 4, 9000, true, b"body"),
+            build_response_mac_payload("/messages", StatusCode::OK, 3, 9001, true, b"body"),
+            build_response_mac_payload("/messages", StatusCode::OK, 3, 9000, false, b"body"),
+            build_response_mac_payload("/messages", StatusCode::OK, 3, 9000, true, b"changed"),
+        ];
+
+        assert!(variants.iter().all(|variant| *variant != base));
+    }
+
+    #[test]
+    fn base64_fields_trim_transport_whitespace_and_report_bad_input() {
+        assert_eq!(
+            decode_base64_field("  AQID  ", "public key").unwrap(),
+            vec![1, 2, 3]
+        );
+        assert_eq!(
+            decode_base64_field("   ", "public key")
+                .unwrap_err()
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            decode_base64_field("%%%", "public key")
+                .unwrap_err()
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+
+    #[test]
+    fn protocol_header_distinguishes_missing_malformed_wrong_and_current_versions() {
+        assert_eq!(
+            validate_protocol_header(&HeaderMap::new())
+                .unwrap_err()
+                .status(),
+            StatusCode::PRECONDITION_REQUIRED
+        );
+        assert_eq!(
+            validate_protocol_header(&header_map(&[(HEADER_PROTOCOL_VERSION, "three")]))
+                .unwrap_err()
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            validate_protocol_header(&header_map(&[(HEADER_PROTOCOL_VERSION, "2")]))
+                .unwrap_err()
+                .status(),
+            StatusCode::PRECONDITION_FAILED
+        );
+        assert!(validate_protocol_header(&header_map(&[(HEADER_PROTOCOL_VERSION, "3")])).is_ok());
+    }
+
+    #[test]
+    fn required_headers_trim_strings_and_require_positive_numbers() {
+        let string_headers = header_map(&[(HEADER_SESSION_ID, "  session-1  ")]);
+        assert_eq!(
+            required_string_header(&string_headers, HEADER_SESSION_ID, "session id").unwrap(),
+            "session-1"
+        );
+        assert_eq!(
+            required_string_header(&HeaderMap::new(), HEADER_SESSION_ID, "session id")
+                .unwrap_err()
+                .status(),
+            StatusCode::PRECONDITION_REQUIRED
+        );
+
+        for invalid in ["0", "000", "-1", "not-a-number"] {
+            let headers = header_map(&[(HEADER_CLIENT_SEQUENCE, invalid)]);
+            assert_eq!(
+                required_u64_header(&headers, HEADER_CLIENT_SEQUENCE, "sequence")
+                    .unwrap_err()
+                    .status(),
+                StatusCode::BAD_REQUEST,
+                "{invalid}"
+            );
+        }
+        assert_eq!(
+            required_u64_header(
+                &header_map(&[(HEADER_CLIENT_SEQUENCE, "42")]),
+                HEADER_CLIENT_SEQUENCE,
+                "sequence"
+            )
+            .unwrap(),
+            42
+        );
+        assert_eq!(
+            required_i64_header(
+                &header_map(&[(HEADER_CLIENT_TIMESTAMP, "1725000000123")]),
+                HEADER_CLIENT_TIMESTAMP,
+                "timestamp"
+            )
+            .unwrap(),
+            1_725_000_000_123
+        );
+    }
+
+    #[test]
+    fn cors_normalization_accepts_exact_origins_and_rejects_broader_urls() {
+        let accepted = [
+            (" https://chatgpt.com/ ", "https://chatgpt.com"),
+            ("http://127.0.0.1:3000", "http://127.0.0.1:3000"),
+            (
+                "chrome-extension://AbC123-Def",
+                "chrome-extension://abc123-def",
+            ),
+        ];
+        for (raw, expected) in accepted {
+            assert_eq!(normalize_connector_cors_setting(raw).unwrap(), expected);
+        }
+
+        for rejected in [
+            "",
+            "*",
+            "<ANY>",
+            "https://chatgpt.com/path",
+            "https://chatgpt.com?query=1",
+            "file://local",
+            "chrome-extension://",
+            "chrome-extension://abc/path",
+            "chrome-extension://abc_def",
+        ] {
+            assert!(
+                normalize_connector_cors_setting(rejected).is_err(),
+                "{rejected}"
+            );
+        }
+    }
+
+    #[test]
+    fn cors_policy_allows_explicit_any_without_weakening_exact_mode() {
+        assert!(matches!(parse_cors_policy("*", true), Ok(CorsPolicy::Any)));
+        assert!(parse_cors_policy("*", false).is_err());
+        assert!(matches!(
+            parse_cors_policy("https://chatgpt.com", false),
+            Ok(CorsPolicy::Exact(origin)) if origin == "https://chatgpt.com"
+        ));
+    }
+
+    #[test]
+    fn origin_validation_supports_browser_origin_and_extension_id_fallback() {
+        let web_policy = CorsPolicy::Exact("https://chatgpt.com".to_string());
+        let web_headers = header_map(&[("origin", "https://chatgpt.com")]);
+        assert_eq!(
+            validate_origin_header(&web_headers, &web_policy).unwrap(),
+            "https://chatgpt.com"
+        );
+        assert_eq!(
+            validate_origin_header(&HeaderMap::new(), &web_policy)
+                .unwrap_err()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+
+        let extension_policy = CorsPolicy::Exact("chrome-extension://abc123".to_string());
+        let extension_headers = header_map(&[(HEADER_EXTENSION_ID, "abc123")]);
+        assert_eq!(
+            validate_origin_header(&extension_headers, &extension_policy).unwrap(),
+            "chrome-extension://abc123"
+        );
+        let wrong_extension = header_map(&[(HEADER_EXTENSION_ID, "other")]);
+        assert_eq!(
+            validate_origin_header(&wrong_extension, &extension_policy)
+                .unwrap_err()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[test]
+    fn route_label_keeps_the_query_string_covered_by_request_authentication() {
+        let with_query: Uri = "/messages?since=42&wait=30".parse().unwrap();
+        let without_query: Uri = "/messages".parse().unwrap();
+
+        assert_eq!(
+            request_route_label(&with_query),
+            "/messages?since=42&wait=30"
+        );
+        assert_eq!(request_route_label(&without_query), "/messages");
+    }
+
+    #[test]
+    fn expired_session_cleanup_uses_a_strict_future_expiry_boundary() {
+        let crypto = SessionCrypto::new([1; 32], [2; 32]);
+        let mut sessions = HashMap::from([
+            (
+                "expired".to_string(),
+                ConnectorSession {
+                    origin: "https://example.com".to_string(),
+                    crypto: crypto.clone(),
+                    next_client_sequence: 1,
+                    next_server_sequence: 1,
+                    expires_at: 99,
+                },
+            ),
+            (
+                "boundary".to_string(),
+                ConnectorSession {
+                    origin: "https://example.com".to_string(),
+                    crypto: crypto.clone(),
+                    next_client_sequence: 1,
+                    next_server_sequence: 1,
+                    expires_at: 100,
+                },
+            ),
+            (
+                "fresh".to_string(),
+                ConnectorSession {
+                    origin: "https://example.com".to_string(),
+                    crypto,
+                    next_client_sequence: 1,
+                    next_server_sequence: 1,
+                    expires_at: 101,
+                },
+            ),
+        ]);
+
+        clear_expired_sessions(&mut sessions, 100);
+
+        assert_eq!(sessions.len(), 1);
+        assert!(sessions.contains_key("fresh"));
+    }
+
+    #[test]
+    fn security_headers_are_applied_without_changing_response_status() {
+        let response = apply_security_headers(
+            Response::builder()
+                .status(StatusCode::CREATED)
+                .body(Body::empty())
+                .unwrap(),
+        );
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert_eq!(response.headers()[header::PRAGMA], "no-cache");
+        assert_eq!(response.headers()[header::VARY], "Origin");
+        assert_eq!(response.headers()[HEADER_PROTOCOL_VERSION], "3");
+        assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+    }
+
+    #[test]
+    fn session_response_headers_are_self_consistent_and_mac_authenticated() {
+        let mac_key = [0x44; 32];
+        let session = ValidatedSession {
+            id: "session-123".to_string(),
+            crypto: SessionCrypto::new([0x33; 32], mac_key),
+            server_sequence: 9,
+            expires_at: 1_725_000_120_000,
+        };
+        let route = "/messages?since=7";
+        let body = b"response body".to_vec();
+
+        let response = session_bytes_response(
+            StatusCode::OK,
+            "application/octet-stream",
+            body.clone(),
+            &session,
+            route,
+            true,
+        );
+        let headers = response.headers();
+        assert_eq!(headers[HEADER_SESSION_ID], "session-123");
+        assert_eq!(headers[HEADER_SERVER_SEQUENCE], "9");
+        assert_eq!(headers[HEADER_SESSION_EXPIRES_AT], "1725000120000");
+        assert_eq!(headers[HEADER_PAYLOAD_ENCRYPTED], "1");
+
+        let expected = compute_hmac_bytes(
+            &mac_key,
+            &build_response_mac_payload(
+                route,
+                StatusCode::OK,
+                session.server_sequence,
+                session.expires_at,
+                true,
+                &body,
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            STANDARD
+                .decode(headers[HEADER_RESPONSE_MAC].as_bytes())
+                .unwrap(),
+            expected
+        );
+    }
+}

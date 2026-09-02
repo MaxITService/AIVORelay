@@ -228,8 +228,20 @@ mod tests {
 
         state.arm_after_edit(250, true, now);
 
-        assert!(state.realtime_trigger_until.is_some());
+        assert_eq!(
+            state.realtime_trigger_until,
+            Some(now + Duration::from_millis(250))
+        );
         assert!(state.standard_output_armed);
+
+        let mut unarmed_state = DecapitalizeState::default();
+        unarmed_state.arm_after_edit(250, false, now);
+
+        assert_eq!(
+            unarmed_state.realtime_trigger_until,
+            Some(now + Duration::from_millis(250))
+        );
+        assert!(!unarmed_state.standard_output_armed);
     }
 
     #[test]

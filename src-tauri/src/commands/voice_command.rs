@@ -484,3 +484,26 @@ pub async fn test_voice_command_mock(
 ) -> Result<String, String> {
     Err("Voice commands are only supported on Windows".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn execution_policy_wire_values_match_frontend_contract() {
+        assert_eq!(format_execution_policy(ExecutionPolicy::Default), None);
+        assert_eq!(
+            format_execution_policy(ExecutionPolicy::Bypass).as_deref(),
+            Some("bypass")
+        );
+        assert_eq!(
+            format_execution_policy(ExecutionPolicy::Unrestricted).as_deref(),
+            Some("unrestricted")
+        );
+        assert_eq!(
+            format_execution_policy(ExecutionPolicy::RemoteSigned).as_deref(),
+            Some("remote_signed")
+        );
+    }
+}

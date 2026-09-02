@@ -7934,15 +7934,18 @@ mod tests {
         assert_eq!(settings.soniox_model, "tts-rt-v1");
         assert_eq!(settings.soniox_language, "en");
         assert_eq!(settings.soniox_voice, "Maya");
-        assert_eq!(settings.deepgram_model, DEFAULT_TTS_DEEPGRAM_MODEL);
+        assert_eq!(settings.deepgram_model, "flux-kit-en");
         assert_eq!(settings.openai_model, "gpt-4o-mini-tts");
         assert_eq!(settings.openai_voice, "marin");
         assert_eq!(settings.murf_model, "falcon-2");
-        assert_eq!(settings.murf_voice, DEFAULT_TTS_MURF_VOICE);
+        assert_eq!(settings.murf_voice, "Gordon");
         assert_eq!(settings.elevenlabs_model, "eleven_flash_v2_5");
-        assert_eq!(settings.elevenlabs_voice, DEFAULT_TTS_ELEVENLABS_VOICE);
+        assert_eq!(settings.elevenlabs_voice, "JBFqnCBsd6RMkjVDRZzb");
         assert_eq!(settings.cartesia_model, "sonic-3.5");
-        assert_eq!(settings.cartesia_voice, DEFAULT_TTS_CARTESIA_VOICE);
+        assert_eq!(
+            settings.cartesia_voice,
+            "f786b574-daa5-4673-aa0c-cbe3e8534c02"
+        );
         assert_eq!(settings.cartesia_volume, 1.0);
         assert_eq!(settings.edge_voice, "en-US-AriaNeural");
         assert_eq!(settings.edge_voice_language, "en-US");
@@ -8035,6 +8038,44 @@ mod tests {
     }
 
     #[test]
+    fn built_in_tts_synthesis_preset_catalog_is_complete_and_unique() {
+        let presets = default_tts_synthesis_presets();
+        let ids = presets
+            .iter()
+            .map(|preset| preset.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        let names = presets
+            .iter()
+            .map(|preset| preset.name.trim().to_lowercase())
+            .collect::<std::collections::HashSet<_>>();
+
+        assert_eq!(ids.len(), presets.len());
+        assert_eq!(names.len(), presets.len());
+
+        for provider in [
+            TtsProvider::Soniox,
+            TtsProvider::Deepgram,
+            TtsProvider::OpenAi,
+            TtsProvider::Murf,
+            TtsProvider::ElevenLabs,
+            TtsProvider::Cartesia,
+            TtsProvider::OpenAiCompatible,
+            TtsProvider::Edge,
+            TtsProvider::LocalQwen,
+            TtsProvider::LocalKokoro,
+            TtsProvider::Windows,
+        ] {
+            assert!(
+                presets
+                    .iter()
+                    .any(|preset| preset.config.provider == provider),
+                "missing built-in TTS preset for {}",
+                provider.as_str()
+            );
+        }
+    }
+
+    #[test]
     fn built_in_tts_synthesis_presets_seed_once_and_stay_deleted() {
         let mut settings = get_default_settings();
         assert!(settings.tts.synthesis_presets.is_empty());
@@ -8049,32 +8090,6 @@ mod tests {
             settings.tts.synthesis_presets_seed_version,
             DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION
         );
-
-        let mut provider_counts = HashMap::new();
-        for preset in &settings.tts.synthesis_presets {
-            *provider_counts
-                .entry(preset.config.provider.as_str())
-                .or_insert(0usize) += 1;
-        }
-        for provider in [
-            TtsProvider::Soniox,
-            TtsProvider::Deepgram,
-            TtsProvider::OpenAi,
-            TtsProvider::Murf,
-            TtsProvider::Edge,
-            TtsProvider::LocalQwen,
-            TtsProvider::LocalKokoro,
-            TtsProvider::Windows,
-        ] {
-            let expected = if provider == TtsProvider::Deepgram { 3 } else { 2 };
-            assert_eq!(provider_counts.get(provider.as_str()), Some(&expected));
-        }
-        assert_eq!(
-            provider_counts.get(TtsProvider::OpenAiCompatible.as_str()),
-            Some(&1)
-        );
-        assert_eq!(provider_counts.get(TtsProvider::ElevenLabs.as_str()), Some(&3));
-        assert_eq!(provider_counts.get(TtsProvider::Cartesia.as_str()), Some(&1));
 
         let edge_aria = settings
             .tts

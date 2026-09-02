@@ -323,3 +323,47 @@ pub fn migrate_keys_from_settings(
     // No migration on non-Windows platforms
     (false, Vec::new(), Vec::new(), Vec::new())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_secret_family_has_a_stable_distinct_credential_namespace() {
+        let cases = [
+            (KeyType::PostProcess, "post_process_api_key"),
+            (KeyType::AiReplace, "ai_replace_api_key"),
+            (KeyType::VoiceCommand, "voice_command_api_key"),
+            (KeyType::SonioxStt, "soniox_api_key"),
+            (KeyType::DeepgramStt, "deepgram_api_key"),
+            (KeyType::Tts, "tts_api_key"),
+            (KeyType::TtsLlm, "tts_llm_api_key"),
+        ];
+
+        let mut prefixes = std::collections::HashSet::new();
+        for (key_type, expected) in cases {
+            assert_eq!(key_type.prefix(), expected);
+            assert!(
+                prefixes.insert(key_type.prefix()),
+                "duplicate namespace {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn provider_scoped_credentials_cannot_collide_with_global_credentials() {
+        assert_eq!(KeyType::SonioxStt.credential_name(None), "soniox_api_key");
+        assert_eq!(
+            KeyType::Tts.credential_name(Some("openai")),
+            "tts_api_key_openai"
+        );
+        assert_eq!(
+            KeyType::TtsLlm.credential_name(Some("openai")),
+            "tts_llm_api_key_openai"
+        );
+        assert_ne!(
+            KeyType::Tts.credential_name(Some("openai")),
+            KeyType::TtsLlm.credential_name(Some("openai"))
+        );
+    }
+}
