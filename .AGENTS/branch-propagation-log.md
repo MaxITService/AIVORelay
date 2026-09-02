@@ -13,6 +13,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-09-02 | `release/microsoft-store` | `27844cac` | feat(tts): add Kokoro runtime and AI cleanup | `197d4e65` | feat(tts): add Kokoro runtime and AI cleanup | 4 runtime commits propagated; sync/shared docs and Cargo.lock excluded; required license notices included |
 | 2026-07-24 | `release/microsoft-store` | `3d772235` | chore: bump version to 1.0.26 | `777eedd2` | chore: bump version to 1.0.26 | 2 runtime fixes propagated; main-only docs and updater binding excluded; Store notes updated; lock version updated locally |
 | 2026-07-22 | `release/microsoft-store` | `5b22f470` | chore: bump version to 1.0.25 | `c2d7c994` | chore: bump version to 1.0.25 | 15 runtime updates propagated; main-only docs and updater excluded; Store notes updated; lock regenerated locally |
 | 2026-07-15 | `release/microsoft-store` | `86242355` | chore: bump version to 1.0.24 | `482f6bcc` | chore: bump version to 1.0.24 | 11 runtime commits propagated; main-only docs excluded; Store notes updated; lock resolved locally |
@@ -22,7 +23,6 @@ Rules:
 | 2026-06-24 | `release/microsoft-store` | `3b37e049` | chore: bump version to 1.0.22 | `a0121372` | chore: bump version to 1.0.22 | runtime clean; Store notes updated; lock patched |
 | 2026-06-22 | `integration/combined` | `00b053b9` | ci: pin Vulkan action to Node 24 cache fix | `645d8ac0` | ci: pin Vulkan action to Node 24 cache fix | clean propagation |
 | 2026-06-22 | `integration/cuda` | `00b053b9` | ci: pin Vulkan action to Node 24 cache fix | `0f538b69` | ci: pin Vulkan action to Node 24 cache fix | clean propagation |
-| 2026-06-22 | `release/microsoft-store` | `00b053b9` | ci: pin Vulkan action to Node 24 cache fix | `a18d5198` | ci: pin Vulkan action to Node 24 cache fix | clean propagation |
 
 Entry template:
 
