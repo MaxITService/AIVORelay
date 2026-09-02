@@ -7905,7 +7905,8 @@ mod tests {
         assert!(TtsProvider::Windows.is_local_or_system());
         assert!(!TtsProvider::Windows.supports_downloadable_local_runtime());
         assert!(!TtsProvider::Windows.supports_instructions(""));
-        assert!(TtsProvider::OpenAiCompatible.requires_paid_confirmation());
+        assert!(TtsProvider::OpenAiCompatible.requires_api_key());
+        assert!(!TtsProvider::OpenAiCompatible.requires_paid_confirmation());
         assert!(TtsProvider::OpenAi.supports_instructions("gpt-4o-mini-tts"));
         assert!(!TtsProvider::OpenAi.supports_instructions("tts-1"));
         assert!(TtsProvider::LocalKokoro.supports_downloadable_local_runtime());
@@ -8040,7 +8041,10 @@ mod tests {
         assert_eq!(settings.tts.synthesis_presets_seed_version, 0);
 
         assert!(ensure_default_tts_synthesis_presets(&mut settings));
-        assert_eq!(settings.tts.synthesis_presets.len(), 21);
+        assert_eq!(
+            settings.tts.synthesis_presets.len(),
+            default_tts_synthesis_presets().len()
+        );
         assert_eq!(
             settings.tts.synthesis_presets_seed_version,
             DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION
@@ -8065,6 +8069,10 @@ mod tests {
             let expected = if provider == TtsProvider::Deepgram { 3 } else { 2 };
             assert_eq!(provider_counts.get(provider.as_str()), Some(&expected));
         }
+        assert_eq!(
+            provider_counts.get(TtsProvider::OpenAiCompatible.as_str()),
+            Some(&1)
+        );
         assert_eq!(provider_counts.get(TtsProvider::ElevenLabs.as_str()), Some(&3));
         assert_eq!(provider_counts.get(TtsProvider::Cartesia.as_str()), Some(&1));
 
@@ -8111,20 +8119,35 @@ mod tests {
             .tts
             .synthesis_presets
             .retain(|preset| preset.id != "builtin_tts_deepgram_flux_kit");
+        let presets_before_upgrade = settings.tts.synthesis_presets.len();
         settings.tts.synthesis_presets_seed_version = 1;
+        let later_preset_ids = [
+            "builtin_tts_murf_falcon2",
+            "builtin_tts_murf_gen2_natural",
+            "builtin_tts_elevenlabs_multilingual_v2",
+            "builtin_tts_elevenlabs_v3_expressive",
+            "builtin_tts_cartesia_sonic_3_5",
+            "builtin_tts_elevenlabs_flash_v2_5",
+            "builtin_tts_deepgram_flux_kit",
+        ];
 
         assert!(ensure_default_tts_synthesis_presets(&mut settings));
-        assert_eq!(settings.tts.synthesis_presets.len(), 20);
+        assert_eq!(
+            settings.tts.synthesis_presets.len(),
+            presets_before_upgrade + later_preset_ids.len()
+        );
         assert!(!settings
             .tts
             .synthesis_presets
             .iter()
             .any(|preset| preset.id == "builtin_tts_edge_aria"));
-        assert!(settings
-            .tts
-            .synthesis_presets
-            .iter()
-            .any(|preset| preset.id == "builtin_tts_deepgram_flux_kit"));
+        for preset_id in later_preset_ids {
+            assert!(settings
+                .tts
+                .synthesis_presets
+                .iter()
+                .any(|preset| preset.id == preset_id));
+        }
         assert_eq!(
             settings
                 .tts

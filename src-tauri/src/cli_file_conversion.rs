@@ -2382,8 +2382,8 @@ mod tests {
         };
         let controls = effective_provider_controls(&cartesia);
         assert_eq!(effective_tts_speed(&cartesia), 1.4);
-        assert_eq!(controls["speed"], 1.4);
-        assert_eq!(controls["volume"], 1.5);
+        assert_eq!(controls["speed"], json!(1.4_f32));
+        assert_eq!(controls["volume"], json!(1.5_f32));
     }
 
     #[test]
