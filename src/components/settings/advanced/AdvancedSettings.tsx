@@ -13,6 +13,7 @@ import { RecordingAutoStop } from "../RecordingAutoStop";
 import { AccelerationSelector } from "../AccelerationSelector";
 import { MuteWhileRecording } from "../MuteWhileRecording";
 import { PauseMediaWhileRecording } from "../PauseMediaWhileRecording";
+import { NeverLaunchWebView } from "../NeverLaunchWebView";
 
 export const AdvancedSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -110,6 +111,12 @@ export const AdvancedSettings: React.FC = () => {
           </TellMeMore>
         </div>
         <AccelerationSelector descriptionMode="tooltip" grouped={true} />
+      </SettingsGroup>
+
+      <SettingsGroup
+        title={t("settings.advanced.neverLaunchWebview.groupTitle")}
+      >
+        <NeverLaunchWebView />
       </SettingsGroup>
 
       <SettingsGroup title={t("settings.advanced.pasteMethod.title")}>

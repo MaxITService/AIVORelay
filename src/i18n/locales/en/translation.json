@@ -1,6 +1,7 @@
 {
   "tray": {
     "settings": "Settings...",
+    "settingsRequiresWebview": "Switch to full interface and restart",
     "checkUpdates": "Check for Updates...",
     "copyLastTranscript": "Copy Last Transcript",
     "model": "Model",
@@ -2246,6 +2247,15 @@
     },
     "advanced": {
       "title": "Advanced",
+      "neverLaunchWebview": {
+        "groupTitle": "Speech-only low-memory mode",
+        "label": "Start without WebView (speech only)",
+        "description": "Run only dictation, speech profiles, audio input, and the native tray. No settings window, overlay, or browser-based feature is created.",
+        "warningTitle": "A restart is required",
+        "warning": "Only Transcribe and profile-specific transcription shortcuts remain active. Automatic application-aware profiles continue to work. TTS, Voice Commands, Live Monitor, Connector workflows, UI overlays, and all other complex features are disabled.",
+        "recovery": "To restore everything, choose Switch to full interface and restart from the native tray.",
+        "restart": "Restart in speech-only mode"
+      },
       "muteWhileRecording": {
         "label": "Mute While Recording",
         "description": "Mute system audio while recording."

@@ -171,6 +171,7 @@ struct TrayShortcutItem {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct MenuInputs {
     busy: bool,
+    webviews_disabled: bool,
     locale: String,
     update_checks_enabled: bool,
     transcription_provider: TranscriptionProvider,
@@ -470,6 +471,10 @@ fn compute_desired(
         crate::hotkey_guide::build_hotkey_guide_sections(&settings)
             .into_iter()
             .flat_map(|section| section.bindings)
+            .filter(|binding| {
+                !crate::webview_mode::webviews_disabled()
+                    || crate::webview_mode::speech_only_shortcut_allowed(&binding.id)
+            })
             .map(|binding| TrayShortcutItem {
                 id: binding.id,
                 label: shortcut_guide_item_label(&binding.name, &binding.current_binding),
@@ -483,6 +488,7 @@ fn compute_desired(
         icon_path: get_icon_path(get_current_theme(app), icon_state),
         menu: MenuInputs {
             busy: icon_state.is_busy(),
+            webviews_disabled: crate::webview_mode::webviews_disabled(),
             locale: locale_override
                 .map(str::to_string)
                 .unwrap_or_else(|| settings.app_language.clone()),
@@ -664,10 +670,19 @@ fn build_tray_menu(
     // Create common menu items
     let version_label = version_label();
     let version_i = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
+    let settings_label = if inputs.webviews_disabled {
+        if strings.settings_requires_webview.is_empty() {
+            "Switch to full interface and restart"
+        } else {
+            &strings.settings_requires_webview
+        }
+    } else {
+        &strings.settings
+    };
     let settings_i = MenuItem::with_id(
         app,
         "settings",
-        &strings.settings,
+        settings_label,
         true,
         settings_accelerator,
     )?;
@@ -675,7 +690,7 @@ fn build_tray_menu(
         app,
         "check_updates",
         &strings.check_updates,
-        inputs.update_checks_enabled,
+        inputs.update_checks_enabled && !inputs.webviews_disabled,
         None::<&str>,
     )?;
     #[cfg(not(debug_assertions))]

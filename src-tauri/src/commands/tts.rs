@@ -676,7 +676,7 @@ async fn reserve_queue_foreground_operation(
 }
 
 pub(crate) fn listen_queue_request_epoch(app: &AppHandle) -> Option<u64> {
-    let runtime = app.state::<TtsOverlayRuntime>();
+    let runtime = app.try_state::<TtsOverlayRuntime>()?;
     let runtime = runtime.inner.lock();
     runtime
         .queue_enabled
@@ -684,6 +684,8 @@ pub(crate) fn listen_queue_request_epoch(app: &AppHandle) -> Option<u64> {
 }
 
 pub fn play_pause_or_replay_latest_history(app: &AppHandle) -> Result<(), String> {
+    crate::webview_mode::ensure_webviews_enabled("Interactive Text-to-Speech")?;
+
     let settings = get_settings(app).tts;
     if !settings.enabled {
         return Err("Text to Speech is disabled".to_string());
@@ -1226,6 +1228,8 @@ pub(crate) async fn start_tts_text_at(
     text: String,
     activation_started_at: Instant,
 ) -> Result<(), String> {
+    crate::webview_mode::ensure_webviews_enabled("Interactive Text-to-Speech")?;
+
     start_tts_text_with_options(
         app,
         text,
@@ -1247,6 +1251,8 @@ pub(crate) async fn start_or_enqueue_tts_text_at(
     activation_started_at: Instant,
     queue_epoch: Option<u64>,
 ) -> Result<(), String> {
+    crate::webview_mode::ensure_webviews_enabled("Interactive Text-to-Speech")?;
+
     let Some(queue_epoch) = queue_epoch else {
         return start_tts_text_at(app, text, activation_started_at).await;
     };

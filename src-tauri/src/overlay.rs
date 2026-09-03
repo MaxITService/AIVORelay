@@ -1647,6 +1647,11 @@ fn resolve_soniox_live_preview_geometry(app_handle: &AppHandle) -> Option<(f64, 
 /// Creates the recording overlay window and keeps it hidden by default
 #[cfg(not(target_os = "macos"))]
 pub fn create_recording_overlay(app_handle: &AppHandle) {
+    if crate::webview_mode::webviews_disabled() {
+        debug!("Skipping recording overlay creation in no-WebView mode");
+        return;
+    }
+
     let metrics = recording_overlay_window_metrics(app_handle, current_recording_overlay_layout());
     let position = calculate_overlay_position_for_window(app_handle, metrics);
 
@@ -1709,6 +1714,11 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
 
 #[cfg(target_os = "windows")]
 pub fn create_soniox_live_preview_window(app_handle: &AppHandle) {
+    if crate::webview_mode::webviews_disabled() {
+        debug!("Skipping live preview creation in no-WebView mode");
+        return;
+    }
+
     if app_handle
         .get_webview_window(SONIOX_LIVE_PREVIEW_WINDOW_LABEL)
         .is_some()
@@ -1772,6 +1782,11 @@ pub fn create_soniox_live_preview_window(_app_handle: &AppHandle) {}
 
 /// Lazily creates the focused Text-to-Speech playback overlay.
 pub fn create_tts_overlay_window(app_handle: &AppHandle) {
+    if crate::webview_mode::webviews_disabled() {
+        debug!("Skipping Text-to-Speech overlay creation in no-WebView mode");
+        return;
+    }
+
     if app_handle
         .get_webview_window(TTS_OVERLAY_WINDOW_LABEL)
         .is_some()
@@ -1938,6 +1953,11 @@ pub fn set_tts_overlay_queue_expanded(
 /// Creates the recording overlay panel and keeps it hidden by default (macOS)
 #[cfg(target_os = "macos")]
 pub fn create_recording_overlay(app_handle: &AppHandle) {
+    if crate::webview_mode::webviews_disabled() {
+        debug!("Skipping recording overlay creation in no-WebView mode");
+        return;
+    }
+
     let metrics = recording_overlay_window_metrics(app_handle, current_recording_overlay_layout());
     if let Some((x, y)) = calculate_overlay_position_for_window(app_handle, metrics) {
         // PanelBuilder creates a Tauri window then converts it to NSPanel.
@@ -2645,6 +2665,8 @@ pub fn update_voice_activation_button_position(_app_handle: &AppHandle) {}
 /// Creates the window if it doesn't exist yet.
 #[cfg(target_os = "windows")]
 pub fn show_voice_activation_button_window(app_handle: &AppHandle) -> Result<(), String> {
+    crate::webview_mode::ensure_webviews_enabled("Voice Activation Button")?;
+
     let window_label = "voice_activation_button";
     info!("show_voice_activation_button_window called");
     let initial_position = calculate_voice_button_position(app_handle);
@@ -2782,6 +2804,11 @@ pub fn show_command_confirm_overlay(
     payload: crate::actions::CommandConfirmPayload,
 ) {
     use log::debug;
+
+    if let Err(error) = crate::webview_mode::ensure_webviews_enabled("Command Confirmation") {
+        log::warn!("{error}");
+        return;
+    }
 
     let window_label = "command_confirm";
 

@@ -598,6 +598,12 @@ pub fn prepare_tts_play_history_fallback_binding(
 pub fn init_shortcuts(app: &AppHandle) {
     let default_bindings = settings::get_default_settings().bindings;
     let user_settings = settings::load_or_create_app_settings(app);
+    let speech_only = crate::webview_mode::webviews_disabled();
+    if speech_only {
+        info!(
+            "Speech-only runtime: registering only Transcribe, profile transcription, and dynamic Cancel shortcuts"
+        );
+    }
 
     // On Windows, only start rdev listener if rdev engine is selected
     // This avoids the overhead of processing every keystroke when using Tauri engine
@@ -638,7 +644,9 @@ pub fn init_shortcuts(app: &AppHandle) {
                     }
                 }
 
-                if user_settings.text_replacement_decapitalize_after_edit_key_enabled {
+                if !speech_only
+                    && user_settings.text_replacement_decapitalize_after_edit_key_enabled
+                {
                     start_rdev_listener(app);
                     info!(
                         "Using HandyKeys shortcut engine with rdev monitor key for text replacement decapitalize trigger"
@@ -650,7 +658,9 @@ pub fn init_shortcuts(app: &AppHandle) {
                 }
             }
             ShortcutEngine::Tauri => {
-                if user_settings.text_replacement_decapitalize_after_edit_key_enabled {
+                if !speech_only
+                    && user_settings.text_replacement_decapitalize_after_edit_key_enabled
+                {
                     start_rdev_listener(app);
                     info!(
                         "Using Tauri shortcut engine with rdev monitor key for text replacement decapitalize trigger"
@@ -673,6 +683,9 @@ pub fn init_shortcuts(app: &AppHandle) {
     for (id, default_binding) in default_bindings {
         if id == "cancel" {
             continue; // Skip cancel shortcut, it will be registered dynamically
+        }
+        if speech_only && !crate::webview_mode::speech_only_shortcut_allowed(&id) {
+            continue;
         }
         let binding = user_settings
             .bindings
@@ -709,28 +722,32 @@ pub fn init_shortcuts(app: &AppHandle) {
         }
     }
 
-    for preset in &user_settings.send_selected_text.presets {
-        if !preset.enabled {
-            continue;
-        }
-        let binding_id = settings::send_selected_text_binding_id(&preset.id);
-        if let Some(binding) = user_settings.bindings.get(&binding_id) {
-            if !binding.current_binding.is_empty() {
-                if let Err(error) = register_shortcut(app, binding.clone()) {
-                    error!(
-                        "Failed to register Send Selected Text shortcut {} during init: {}",
-                        binding_id, error
-                    );
+    if !speech_only {
+        for preset in &user_settings.send_selected_text.presets {
+            if !preset.enabled {
+                continue;
+            }
+            let binding_id = settings::send_selected_text_binding_id(&preset.id);
+            if let Some(binding) = user_settings.bindings.get(&binding_id) {
+                if !binding.current_binding.is_empty() {
+                    if let Err(error) = register_shortcut(app, binding.clone()) {
+                        error!(
+                            "Failed to register Send Selected Text shortcut {} during init: {}",
+                            binding_id, error
+                        );
+                    }
                 }
             }
         }
     }
 
-    if let Err(err) = sync_decapitalize_monitor_shortcut(app, &user_settings) {
-        warn!(
-            "Failed to sync text replacement decapitalize monitor shortcut during init: {}",
-            err
-        );
+    if !speech_only {
+        if let Err(err) = sync_decapitalize_monitor_shortcut(app, &user_settings) {
+            warn!(
+                "Failed to sync text replacement decapitalize monitor shortcut during init: {}",
+                err
+            );
+        }
     }
 }
 
@@ -777,6 +794,13 @@ pub(crate) fn handle_shortcut_event(
         shortcut_string,
         pressed
     );
+
+    if crate::webview_mode::webviews_disabled()
+        && !crate::webview_mode::speech_only_shortcut_allowed(binding_id)
+    {
+        log::debug!("Shortcut '{}' ignored in speech-only mode", binding_id);
+        return;
+    }
 
     let mut settings = get_settings(app);
 
@@ -2685,6 +2709,27 @@ pub fn change_start_hidden_setting(app: AppHandle, enabled: bool) -> Result<(), 
         "settings-changed",
         serde_json::json!({
             "setting": "start_hidden",
+            "value": enabled
+        }),
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_never_launch_webview_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.never_launch_webview = enabled;
+    settings::write_settings_checked(&app, settings)?;
+
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "setting": "never_launch_webview",
             "value": enabled
         }),
     );
