@@ -162,13 +162,6 @@ pub fn is_active_for_binding(binding_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-pub fn current_profile_id() -> Option<String> {
-    PREVIEW_OUTPUT_MODE_STATE
-        .lock()
-        .ok()
-        .and_then(|state| state.profile_id.clone())
-}
-
 pub fn current_profile_and_active_app_context() -> (Option<String>, Option<ActiveAppContext>) {
     PREVIEW_OUTPUT_MODE_STATE
         .lock()
