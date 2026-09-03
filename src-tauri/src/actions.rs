@@ -3618,7 +3618,9 @@ fn prepared_transcribe_start_for_binding(
 ) -> PreparedTranscribeStart {
     let mut settings = get_settings(app);
     let should_capture_process_context = settings.automatic_app_profiles_enabled
-        && (binding_id == "transcribe" || settings.recording_overlay_show_app);
+        && (binding_id == "transcribe"
+            || (!crate::webview_mode::webviews_disabled()
+                && settings.recording_overlay_show_app));
     let mut active_app_context = should_capture_process_context
         .then(crate::active_app::get_frontmost_app_context);
 
@@ -3905,6 +3907,10 @@ fn should_route_output_to_preview(
     settings: &AppSettings,
     profile: Option<&TranscriptionProfile>,
 ) -> bool {
+    if crate::webview_mode::webviews_disabled() {
+        return false;
+    }
+
     let explicit_preview_workflow = profile
         .map(|p| p.preview_output_only_enabled)
         .unwrap_or(settings.preview_output_only_enabled);
@@ -3922,6 +3928,10 @@ fn should_route_output_to_preview_for_captured_profile(
     settings: &AppSettings,
     captured_profile_id: Option<&String>,
 ) -> bool {
+    if crate::webview_mode::webviews_disabled() {
+        return false;
+    }
+
     let explicit_preview_workflow = captured_profile_id
         .and_then(|profile_id| settings.transcription_profile(profile_id))
         .map(|profile| profile.preview_output_only_enabled)
@@ -5769,6 +5779,8 @@ pub(crate) fn transcribe_action_for_binding(binding_id: &str) -> Option<Arc<dyn 
 }
 
 pub(crate) fn start_live_sound_transcription_session(app: &AppHandle) -> Result<(), String> {
+    crate::webview_mode::ensure_webviews_enabled("Live Monitor")?;
+
     if crate::managers::live_sound_transcription::is_recording() {
         return Err("Live sound audio session is already active".to_string());
     }
@@ -7078,6 +7090,14 @@ async fn ai_replace_with_llm(
 
 impl ShortcutAction for TranscribeAction {
     fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
+        if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+            && crate::webview_mode::webviews_disabled()
+        {
+            warn!("Live Monitor is unavailable in no-WebView mode");
+            reset_toggle_state(app, binding_id);
+            return;
+        }
+
         let start_time = Instant::now();
         debug!("TranscribeAction::start called for binding: {}", binding_id);
 
@@ -9568,6 +9588,18 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
             return;
         }
 
+        let settings = get_settings(app);
+        if settings.screenshot_capture_method == crate::settings::ScreenshotCaptureMethod::Native
+            && crate::webview_mode::webviews_disabled()
+        {
+            emit_screenshot_error(
+                app,
+                "Native Region Capture is unavailable in no-WebView mode.",
+            );
+            reset_toggle_state(app, binding_id);
+            return;
+        }
+
         // Check if extension is online before starting
         let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
         if !cm.is_online() {
@@ -9580,7 +9612,6 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
             return;
         }
 
-        let settings = get_settings(app);
         let use_soniox_live = should_use_live_streaming(&settings);
 
         if !start_recording_with_feedback(app, binding_id) {
@@ -10451,6 +10482,11 @@ impl ShortcutAction for CycleProfileAction {
 
 impl ShortcutAction for PreviewDeleteLastWordShortcutAction {
     fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
+        if crate::webview_mode::webviews_disabled() {
+            warn!("Preview editing shortcuts are unavailable in no-WebView mode");
+            return;
+        }
+
         let ah = app.clone();
         tauri::async_runtime::spawn(async move {
             if let Err(err) = preview_delete_last_word_action(ah).await {
@@ -10866,6 +10902,12 @@ fn emit_voice_command_error(app: &AppHandle, message: impl Into<String>) {
 #[cfg(target_os = "windows")]
 impl ShortcutAction for VoiceCommandAction {
     fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
+        if let Err(error) = crate::webview_mode::ensure_webviews_enabled("Voice Commands") {
+            emit_voice_command_error(app, error);
+            reset_toggle_state(app, binding_id);
+            return;
+        }
+
         let start_time = Instant::now();
         debug!(
             "VoiceCommandAction::start called for binding: {}",

@@ -3480,6 +3480,8 @@ pub struct AppSettings {
     pub sound_theme: SoundTheme,
     #[serde(default = "default_start_hidden")]
     pub start_hidden: bool,
+    #[serde(default)]
+    pub never_launch_webview: bool,
     #[serde(default = "default_autostart_enabled")]
     pub autostart_enabled: bool,
     #[serde(default)]
@@ -5790,6 +5792,7 @@ pub fn get_default_settings() -> AppSettings {
         audio_feedback_volume: default_audio_feedback_volume(),
         sound_theme: default_sound_theme(),
         start_hidden: default_start_hidden(),
+        never_launch_webview: false,
         autostart_enabled: default_autostart_enabled(),
         autostart_as_admin_enabled: false,
         show_tray_icon: default_show_tray_icon(),
@@ -7560,6 +7563,18 @@ mod tests {
         })
         .unwrap();
         assert_eq!(earshot.vad_backend, VadBackend::Earshot);
+    }
+
+    #[test]
+    fn never_launch_webview_is_opt_in_for_existing_settings() {
+        let mut value = serde_json::to_value(get_default_settings()).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("never_launch_webview");
+
+        let settings: AppSettings = serde_json::from_value(value).unwrap();
+        assert!(!settings.never_launch_webview);
     }
 
     #[test]

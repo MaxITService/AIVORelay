@@ -47,6 +47,7 @@ mod tray_i18n;
 mod url_security;
 mod utils;
 mod webview_hardening;
+mod webview_mode;
 #[cfg(target_os = "windows")]
 mod webview_runtime;
 #[cfg(debug_assertions)]
@@ -206,7 +207,36 @@ struct ShortcutToggleStates {
 
 type ManagedToggleState = Mutex<ShortcutToggleStates>;
 
+fn restart_with_webview_ui(app: &AppHandle) {
+    if !webview_mode::webviews_disabled() {
+        show_main_window(app);
+        return;
+    }
+
+    let mut settings = settings::get_settings(app);
+    settings.never_launch_webview = false;
+    // The recovery action explicitly asks to open Settings. Ensure the
+    // restarted process does not immediately hide the restored window.
+    settings.start_hidden = false;
+    match settings::write_settings_checked(app, settings) {
+        Ok(()) => {
+            log::info!("Disabling no-WebView mode and restarting with the Settings UI");
+            app.request_restart();
+        }
+        Err(error) => {
+            log::error!("Could not disable no-WebView mode before restarting: {error}");
+        }
+    }
+}
+
 fn show_main_window(app: &AppHandle) {
+    if webview_mode::webviews_disabled() {
+        log::info!(
+            "Ignoring UI request in no-WebView mode; use the native tray to restart with UI"
+        );
+        return;
+    }
+
     if let Some(main_window) = app.get_webview_window("main") {
         if let Err(e) = main_window.unminimize() {
             log::error!("Failed to unminimize window: {}", e);
@@ -403,6 +433,8 @@ fn timed_startup<T>(label: &str, operation: impl FnOnce() -> T) -> T {
 }
 
 fn initialize_core_logic(app_handle: &AppHandle) {
+    let speech_only = webview_mode::webviews_disabled();
+
     // Initialize the input state (Enigo singleton for keyboard/mouse simulation)
     let enigo_state = timed_startup("input state", input::EnigoState::new)
         .expect("Failed to initialize input state (Enigo)");
@@ -410,7 +442,9 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(tray::TrayState::new());
 
     let current_settings = settings::get_settings(app_handle);
-    overlay::update_recording_overlay_enabled_cache(current_settings.recording_overlay_enabled);
+    overlay::update_recording_overlay_enabled_cache(
+        current_settings.recording_overlay_enabled && !speech_only,
+    );
     managers::transcription::apply_accelerator_settings(app_handle);
     app_handle.manage(
         managers::microphone_auto_switch::ManagedManualMicrophoneSelection::new(
@@ -477,23 +511,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         timed_startup("history manager", || HistoryManager::new(app_handle))
             .expect("Failed to initialize history manager"),
     );
-    let tts_history_manager = Arc::new(
-        timed_startup("TTS history manager", || TtsHistoryManager::new(app_handle))
-            .expect("Failed to initialize TTS history manager"),
-    );
-    let send_selected_text_history_manager = Arc::new(
-        timed_startup("Send Selected Text history manager", || {
-            SendSelectedTextHistoryManager::new(app_handle)
-        })
-            .expect("Failed to initialize Send Selected Text history manager"),
-    );
-    let connector_manager = Arc::new(
-        timed_startup("connector manager", || ConnectorManager::new(app_handle))
-            .expect("Failed to initialize connector manager"),
-    );
     let llm_operation_tracker = Arc::new(LlmOperationTracker::new());
-    let tts_manager = timed_startup("Text-to-Speech manager", || TtsManager::new(app_handle))
-        .expect("Failed to initialize Text-to-Speech manager");
 
     // Initialize key listener
     let key_listener_state = KeyListenerState::new(app_handle.clone());
@@ -511,37 +529,63 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(deepgram_stt_manager.clone());
     app_handle.manage(llm_operation_tracker.clone());
     app_handle.manage(history_manager.clone());
-    app_handle.manage(tts_history_manager);
-    app_handle.manage(send_selected_text_history_manager);
-    app_handle.manage(connector_manager.clone());
-    app_handle.manage(tts_manager.clone());
-    app_handle.manage(commands::tts::TtsOverlayRuntime::default());
-    timed_startup("TTS overlay runtime", || {
-        commands::tts::initialize_tts_overlay_runtime(app_handle)
-    });
     app_handle.manage(key_listener_state);
     app_handle.manage(settings::DictationStatsEditState::default());
-    commands::tts::install_tts_event_bridge(app_handle);
-    if let Err(error) = timed_startup("TTS folder watcher", || tts_manager.sync_folder_watcher()) {
-        log::error!("Failed to initialize the TTS folder watcher: {error}");
+
+    if !speech_only {
+        let tts_history_manager = Arc::new(
+            timed_startup("TTS history manager", || TtsHistoryManager::new(app_handle))
+                .expect("Failed to initialize TTS history manager"),
+        );
+        let send_selected_text_history_manager = Arc::new(
+            timed_startup("Send Selected Text history manager", || {
+                SendSelectedTextHistoryManager::new(app_handle)
+            })
+                .expect("Failed to initialize Send Selected Text history manager"),
+        );
+        let connector_manager = Arc::new(
+            timed_startup("connector manager", || ConnectorManager::new(app_handle))
+                .expect("Failed to initialize connector manager"),
+        );
+        let tts_manager = timed_startup("Text-to-Speech manager", || TtsManager::new(app_handle))
+            .expect("Failed to initialize Text-to-Speech manager");
+
+        app_handle.manage(tts_history_manager);
+        app_handle.manage(send_selected_text_history_manager);
+        app_handle.manage(connector_manager.clone());
+        app_handle.manage(tts_manager.clone());
+        app_handle.manage(commands::tts::TtsOverlayRuntime::default());
+        timed_startup("TTS overlay runtime", || {
+            commands::tts::initialize_tts_overlay_runtime(app_handle)
+        });
+        commands::tts::install_tts_event_bridge(app_handle);
+        if let Err(error) =
+            timed_startup("TTS folder watcher", || tts_manager.sync_folder_watcher())
+        {
+            log::error!("Failed to initialize the TTS folder watcher: {error}");
+        }
+
+        // Initialize region capture state (Windows only)
+        #[cfg(target_os = "windows")]
+        app_handle.manage(std::sync::Mutex::new(
+            region_capture::RegionCaptureState::default(),
+        ));
+
+        // Start the connector server for extension communication (if enabled)
+        if current_settings.connector_enabled {
+            if let Err(e) = connector_manager.start_server() {
+                log::error!("Failed to start connector server: {}", e);
+            }
+        }
+    } else {
+        log::info!(
+            "Speech-only runtime: skipped TTS, Connector, Send Selected Text, and Region Capture"
+        );
     }
 
     // Open the feedback output once at startup rather than racing a fresh
     // WASAPI stream against microphone shutdown for every cue.
     timed_startup("audio feedback", || audio_feedback::init(app_handle));
-
-    // Initialize region capture state (Windows only)
-    #[cfg(target_os = "windows")]
-    app_handle.manage(std::sync::Mutex::new(
-        region_capture::RegionCaptureState::default(),
-    ));
-
-    // Start the connector server for extension communication (if enabled)
-    if current_settings.connector_enabled {
-        if let Err(e) = connector_manager.start_server() {
-            log::error!("Failed to start connector server: {}", e);
-        }
-    }
 
     // Initialize the shortcuts
     timed_startup("shortcuts", || shortcut::init_shortcuts(app_handle));
@@ -556,7 +600,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     #[cfg(target_os = "macos")]
     {
         let settings = settings::get_settings(app_handle);
-        if settings.start_hidden {
+        if settings.start_hidden || speech_only {
             let _ = app_handle.set_activation_policy(tauri::ActivationPolicy::Accessory);
         }
     }
@@ -587,8 +631,12 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 button: tauri::tray::MouseButton::Left,
                 ..
             } => {
-                tray::refresh_tray_menu(tray.app_handle(), None);
-                show_main_window(tray.app_handle());
+                if webview_mode::webviews_disabled() {
+                    log::info!("Ignoring tray double-click in no-WebView mode");
+                } else {
+                    tray::refresh_tray_menu(tray.app_handle(), None);
+                    show_main_window(tray.app_handle());
+                }
             }
             _ => {}
         })
@@ -734,7 +782,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 
             match event.id.as_ref() {
                 "settings" => {
-                    show_main_window(app);
+                    restart_with_webview_ui(app);
                 }
                 tray::TRAY_SHORTCUT_GUIDE_SHOW_IN_MAIN_ID => {
                     let mut settings = settings::get_settings(app);
@@ -807,8 +855,12 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 
     // Apply tray visibility setting on startup
     let settings = settings::get_settings(app_handle);
-    if !settings.show_tray_icon {
+    if !settings.show_tray_icon && !webview_mode::webviews_disabled() {
         tray::set_tray_visibility(app_handle, false);
+    } else if webview_mode::webviews_disabled() && !settings.show_tray_icon {
+        log::warn!(
+            "Keeping the tray icon visible in no-WebView mode so the UI can be restored safely"
+        );
     }
 
     let tray_refresh_handle = app_handle.clone();
@@ -1111,6 +1163,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_audio_feedback_volume_setting,
         shortcut::change_sound_theme_setting,
         shortcut::change_start_hidden_setting,
+        shortcut::change_never_launch_webview_setting,
         shortcut::change_autostart_setting,
         shortcut::is_current_user_administrator_account,
         shortcut::change_autostart_as_admin_setting,
@@ -1826,6 +1879,24 @@ pub fn run(cli_args: CliArgs) {
                 return Ok(());
             }
 
+            let settings = get_settings(app.handle());
+            webview_mode::initialize(settings.never_launch_webview);
+
+            let tauri_log_level: tauri_plugin_log::LogLevel = settings.log_level.into();
+            let file_log_level: log::Level = tauri_log_level.into();
+            // Store the file log level in the atomic for the filter to use.
+            FILE_LOG_LEVEL.store(file_log_level.to_level_filter() as u8, Ordering::Relaxed);
+            let app_handle = app.handle().clone();
+
+            if webview_mode::webviews_disabled() {
+                log::info!(
+                    "Starting in 'Never launch WebView' mode; WebView interfaces are disabled"
+                );
+                timed_startup("core logic", || initialize_core_logic(&app_handle));
+                log::info!("Speech-only runtime: skipped accelerator pre-warm");
+                return Ok(());
+            }
+
             let mut window_builder =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
                     .title("AivoRelay")
@@ -1851,12 +1922,6 @@ pub fn run(cli_args: CliArgs) {
 
             let main_window = window_builder.build()?;
             webview_hardening::disable_browser_accelerator_keys(&main_window);
-            let settings = get_settings(&app.handle());
-            let tauri_log_level: tauri_plugin_log::LogLevel = settings.log_level.into();
-            let file_log_level: log::Level = tauri_log_level.into();
-            // Store the file log level in the atomic for the filter to use
-            FILE_LOG_LEVEL.store(file_log_level.to_level_filter() as u8, Ordering::Relaxed);
-            let app_handle = app.handle().clone();
 
             // Restore main window geometry before showing
             if settings.remember_window_size

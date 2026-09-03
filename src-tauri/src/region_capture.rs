@@ -303,6 +303,10 @@ pub async fn open_region_picker(
     app: &AppHandle,
     mode: NativeRegionCaptureMode,
 ) -> RegionCaptureResult {
+    if let Err(error) = crate::webview_mode::ensure_webviews_enabled("Region Capture") {
+        return RegionCaptureResult::Error(error);
+    }
+
     // Close any existing region capture window first and wait for it to be destroyed
     if let Some(existing_window) = app.get_webview_window("region_capture") {
         debug!("Closing existing region capture window");
