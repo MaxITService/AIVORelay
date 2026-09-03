@@ -3690,13 +3690,15 @@ fn can_background_vercel_gemini_finalization(
 #[cfg(test)]
 mod stt_workflow_tests {
     use super::{
+        preview_transcribe_start_from_snapshot, resolve_active_app_window_title,
         settings_with_model_override_for_binding,
-        should_release_vercel_gemini_after_streamed_output,
-        LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
+        should_release_vercel_gemini_after_streamed_output, LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
     };
+    use crate::active_app::ActiveAppContext;
     use crate::settings::{
         get_default_settings, SttModelSelection, TranscriptionProfile, TranscriptionProvider,
     };
+    use std::cell::Cell;
 
     fn profile_with_selection(selection: SttModelSelection) -> TranscriptionProfile {
         let mut profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
@@ -3762,6 +3764,83 @@ mod stt_workflow_tests {
                 unsafe_case.5,
             ));
         }
+    }
+
+    #[test]
+    fn captured_app_title_wins_without_running_fallback_lookup() {
+        let lookup_calls = Cell::new(0);
+        let context = ActiveAppContext {
+            window_title: "Initial editor window".to_string(),
+            process_name: "Editor.exe".to_string(),
+            executable_path: r"C:\Editor\Editor.exe".to_string(),
+        };
+
+        let title = resolve_active_app_window_title(Some(&context), true, || {
+            lookup_calls.set(lookup_calls.get() + 1);
+            Some("Later window".to_string())
+        });
+
+        assert_eq!(title, "Initial editor window");
+        assert_eq!(lookup_calls.get(), 0);
+    }
+
+    #[test]
+    fn disabled_app_lookup_returns_empty_without_touching_foreground_window() {
+        let lookup_calls = Cell::new(0);
+
+        let title = resolve_active_app_window_title(None, false, || {
+            lookup_calls.set(lookup_calls.get() + 1);
+            Some("AivoRelay".to_string())
+        });
+
+        assert!(title.is_empty());
+        assert_eq!(lookup_calls.get(), 0);
+    }
+
+    #[test]
+    fn legacy_lazy_app_lookup_runs_once_when_explicitly_allowed() {
+        let lookup_calls = Cell::new(0);
+
+        let title = resolve_active_app_window_title(None, true, || {
+            lookup_calls.set(lookup_calls.get() + 1);
+            Some("Foreground editor".to_string())
+        });
+
+        assert_eq!(title, "Foreground editor");
+        assert_eq!(lookup_calls.get(), 1);
+    }
+
+    #[test]
+    fn preview_restart_keeps_initial_profile_and_app_snapshot() {
+        let mut settings = get_default_settings();
+        settings.active_profile_id = "profile_selected_later".to_string();
+        let context = ActiveAppContext {
+            window_title: "Original document".to_string(),
+            process_name: "Editor.exe".to_string(),
+            executable_path: r"C:\Editor\Editor.exe".to_string(),
+        };
+
+        let prepared = preview_transcribe_start_from_snapshot(
+            settings,
+            "transcribe",
+            Some("profile_initial".to_string()),
+            Some(context.clone()),
+        );
+
+        assert_eq!(prepared.settings.active_profile_id, "profile_initial");
+        assert_eq!(prepared.active_app_context, Some(context));
+    }
+
+    #[test]
+    fn preview_restart_preserves_default_profile_snapshot() {
+        let mut settings = get_default_settings();
+        settings.active_profile_id = "profile_selected_later".to_string();
+
+        let prepared =
+            preview_transcribe_start_from_snapshot(settings, "transcribe", None, None);
+
+        assert_eq!(prepared.settings.active_profile_id, "default");
+        assert_eq!(prepared.active_app_context, None);
     }
 }
 
@@ -4706,14 +4785,7 @@ fn build_sliding_lm_request_from_state(
     new_chunk: String,
     deterministic_notes: String,
 ) -> SlidingLmRequest {
-    let current_app = {
-        let captured = peek_recording_app_context(&binding_id);
-        if captured.trim().is_empty() {
-            resolve_preview_current_app_name()
-        } else {
-            captured
-        }
-    };
+    let current_app = peek_recording_app_context(&binding_id);
 
     SlidingLmRequest {
         binding_id,
@@ -5743,7 +5815,12 @@ pub(crate) async fn process_live_sound_transcription_text(app: AppHandle) -> Res
 
     let settings = get_settings(&app);
     let profile = resolve_profile_for_binding(&settings, LIVE_SOUND_TRANSCRIPTION_BINDING_ID);
-    let current_app = crate::active_app::get_frontmost_app_name().unwrap_or_default();
+    let current_app = current_app_for_post_process_prompt(
+        &settings,
+        profile.map(|profile| profile.id.as_str()),
+        None,
+        true,
+    );
     let template_context = build_llm_template_context(
         &app,
         &settings,
@@ -10669,6 +10746,7 @@ async fn generate_command_with_llm_with_settings(
     app: &AppHandle,
     settings: &AppSettings,
     spoken_text: &str,
+    current_app: &str,
 ) -> Result<String, String> {
     // Use Voice Command specific provider (falls back to post-processing if not set)
     let provider = settings
@@ -10691,12 +10769,11 @@ async fn generate_command_with_llm_with_settings(
         ));
     }
 
-    let current_app = crate::active_app::get_frontmost_app_name().unwrap_or_default();
     let template_context = build_llm_template_context(
         app,
         settings,
         None,
-        &current_app,
+        current_app,
         spoken_text,
         spoken_text,
         "",
@@ -10767,7 +10844,17 @@ pub async fn generate_command_with_llm(
     spoken_text: &str,
 ) -> Result<String, String> {
     let settings = get_settings(app);
-    generate_command_with_llm_with_settings(app, &settings, spoken_text).await
+    let current_app = if settings.voice_command_system_prompt.contains("${current_app}")
+        || (settings.llm_context_prev_transcript_enabled
+            && settings
+                .voice_command_system_prompt
+                .contains("${short_prev_transcript}"))
+    {
+        crate::active_app::get_frontmost_app_name().unwrap_or_default()
+    } else {
+        String::new()
+    };
+    generate_command_with_llm_with_settings(app, &settings, spoken_text, &current_app).await
 }
 
 fn emit_voice_command_error(app: &AppHandle, message: impl Into<String>) {
@@ -10814,6 +10901,7 @@ impl ShortcutAction for VoiceCommandAction {
             None => return,
         };
         let recording_operation_id = stop_context.operation_id;
+        let current_app = stop_context.current_app;
         let recording_settings = stop_context.recording_settings;
 
         let ah = app.clone();
@@ -10905,6 +10993,7 @@ impl ShortcutAction for VoiceCommandAction {
                     &ah,
                     &recording_settings,
                     &transcription,
+                    &current_app,
                 )
                 .await;
                 if !finish_guard.is_current() {
@@ -10957,18 +11046,6 @@ impl ShortcutAction for VoiceCommandAction {
             change_tray_icon(&ah, TrayIconState::Idle);
             finish_guard.finish();
         });
-    }
-}
-
-fn resolve_preview_current_app_name() -> String {
-    #[cfg(target_os = "windows")]
-    {
-        crate::active_app::get_frontmost_app_name().unwrap_or_default()
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        String::new()
     }
 }
 
@@ -11121,11 +11198,17 @@ pub async fn preview_llm_process_action(app: AppHandle) -> Result<(), String> {
 
     if final_result.is_ok() {
         let settings = get_settings(&app);
-        let profile_id = crate::managers::preview_output_mode::current_profile_id();
+        let (profile_id, active_app_context) =
+            crate::managers::preview_output_mode::current_profile_and_active_app_context();
         let profile = profile_id
             .as_ref()
             .and_then(|profile_id| settings.transcription_profile(profile_id));
-        let current_app = resolve_preview_current_app_name();
+        let current_app = current_app_for_post_process_prompt(
+            &settings,
+            profile.map(|profile| profile.id.as_str()),
+            active_app_context.as_ref(),
+            false,
+        );
         let template_context = build_llm_template_context(
             &app,
             &settings,
