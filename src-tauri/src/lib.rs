@@ -45,6 +45,7 @@ mod transcript_context;
 mod tray;
 mod tray_i18n;
 mod url_security;
+mod tls;
 mod utils;
 mod webview_hardening;
 mod webview_mode;
@@ -225,6 +226,12 @@ fn restart_with_webview_ui(app: &AppHandle) {
         }
         Err(error) => {
             log::error!("Could not disable no-WebView mode before restarting: {error}");
+            use tauri_plugin_dialog::DialogExt;
+            app.dialog()
+                .message(error)
+                .title("AivoRelay")
+                .kind(tauri_plugin_dialog::MessageDialogKind::Error)
+                .show(|_| {});
         }
     }
 }
@@ -631,12 +638,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 button: tauri::tray::MouseButton::Left,
                 ..
             } => {
-                if webview_mode::webviews_disabled() {
-                    log::info!("Ignoring tray double-click in no-WebView mode");
-                } else {
-                    tray::refresh_tray_menu(tray.app_handle(), None);
-                    show_main_window(tray.app_handle());
-                }
+                tray::refresh_tray_menu(tray.app_handle(), None);
+                restart_with_webview_ui(tray.app_handle());
             }
             _ => {}
         })
@@ -1126,6 +1129,7 @@ fn run_headless_transcription(app: &AppHandle, args: &CliArgs) -> i32 {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run(cli_args: CliArgs) {
+    tls::initialize();
     portable::init();
 
     if cli_args.cancel && cli_file_conversion::request_headless_conversion_cancel() {
@@ -1892,6 +1896,8 @@ pub fn run(cli_args: CliArgs) {
                 log::info!(
                     "Starting in 'Never launch WebView' mode; WebView interfaces are disabled"
                 );
+                #[cfg(target_os = "windows")]
+                webview_mode::create_clipboard_owner_window(&app_handle)?;
                 timed_startup("core logic", || initialize_core_logic(&app_handle));
                 log::info!("Speech-only runtime: skipped accelerator pre-warm");
                 return Ok(());

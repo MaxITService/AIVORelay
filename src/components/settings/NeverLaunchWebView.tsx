@@ -12,6 +12,17 @@ export const NeverLaunchWebView: React.FC = React.memo(() => {
   const [restartError, setRestartError] = useState<string | null>(null);
   const enabled = getSetting("never_launch_webview") ?? false;
 
+  const changeMode = async (nextEnabled: boolean) => {
+    setRestartError(null);
+    try {
+      await updateSetting("never_launch_webview", nextEnabled, {
+        throwOnError: true,
+      });
+    } catch (error) {
+      setRestartError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const restartWithoutWebView = async () => {
     setIsRestarting(true);
     setRestartError(null);
@@ -27,15 +38,20 @@ export const NeverLaunchWebView: React.FC = React.memo(() => {
     <div>
       <ToggleSwitch
         checked={enabled}
-        onChange={(nextEnabled) =>
-          updateSetting("never_launch_webview", nextEnabled)
-        }
+        onChange={(nextEnabled) => void changeMode(nextEnabled)}
+        disabled={isRestarting}
         isUpdating={isUpdating("never_launch_webview")}
         label={t("settings.advanced.neverLaunchWebview.label")}
         description={t("settings.advanced.neverLaunchWebview.description")}
         descriptionMode="inline"
         grouped={true}
       />
+
+      {restartError && (
+        <p className="mx-6 mb-3 text-xs text-red-300" role="alert">
+          {restartError}
+        </p>
+      )}
 
       {enabled && (
         <div className="mx-4 mb-4 rounded-lg border border-orange-500/30 bg-orange-500/10 p-3">
@@ -53,11 +69,6 @@ export const NeverLaunchWebView: React.FC = React.memo(() => {
               <p className="text-text/70">
                 {t("settings.advanced.neverLaunchWebview.recovery")}
               </p>
-              {restartError && (
-                <p className="text-red-300" role="alert">
-                  {restartError}
-                </p>
-              )}
               <button
                 type="button"
                 onClick={restartWithoutWebView}

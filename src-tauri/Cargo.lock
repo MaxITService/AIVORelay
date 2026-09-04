@@ -130,6 +130,7 @@ dependencies = [
  "rusqlite",
  "rusqlite_migration",
  "rustfft",
+ "rustls",
  "screenshots",
  "serde",
  "serde_json",
