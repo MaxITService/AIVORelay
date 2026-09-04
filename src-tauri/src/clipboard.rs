@@ -567,6 +567,11 @@ fn clipboard_owner_hwnd(
         }
     }
 
+    // Speech-only mode has a native clipboard-owner window, but no WebViews.
+    if let Some(owner) = app_handle.try_state::<crate::webview_mode::ClipboardOwnerWindow>() {
+        return Ok(owner.hwnd());
+    }
+
     for window in app_handle.webview_windows().into_values() {
         if let Ok(hwnd) = window.hwnd() {
             return Ok(hwnd);
