@@ -2696,6 +2696,109 @@ pub fn change_start_hidden_setting(app: AppHandle, enabled: bool) -> Result<(), 
 const ADMIN_AUTOSTART_TASK_NAME: &str = "AIVORelayAutostartAdmin";
 
 #[cfg(target_os = "windows")]
+fn current_user_is_administrator_account() -> Result<bool, String> {
+    use std::mem::size_of;
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Security::{
+        CreateWellKnownSid, EqualSid, GetTokenInformation, TokenGroups, PSID,
+        SECURITY_MAX_SID_SIZE, SID_AND_ATTRIBUTES, TOKEN_GROUPS, TOKEN_QUERY,
+        WinBuiltinAdministratorsSid,
+    };
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    let mut token = HANDLE::default();
+    unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) }
+        .map_err(|error| format!("Failed to inspect the current Windows account: {error}"))?;
+
+    let result = (|| -> Result<bool, String> {
+        let mut required_length = 0u32;
+        let size_result = unsafe {
+            GetTokenInformation(token, TokenGroups, None, 0, &mut required_length)
+        };
+        if required_length == 0 {
+            let detail = size_result
+                .err()
+                .map(|error| error.to_string())
+                .unwrap_or_else(|| "Windows returned an empty token-group buffer".to_string());
+            return Err(format!(
+                "Failed to inspect the current Windows account groups: {detail}"
+            ));
+        }
+
+        let word_size = size_of::<usize>();
+        let token_word_count = (required_length as usize + word_size - 1) / word_size;
+        let mut token_storage = vec![0usize; token_word_count];
+        let token_storage_bytes = token_storage.len() * word_size;
+        let mut returned_length = required_length;
+        unsafe {
+            GetTokenInformation(
+                token,
+                TokenGroups,
+                Some(token_storage.as_mut_ptr().cast()),
+                token_storage_bytes as u32,
+                &mut returned_length,
+            )
+        }
+        .map_err(|error| {
+            format!("Failed to read the current Windows account groups: {error}")
+        })?;
+
+        let sid_word_count = (SECURITY_MAX_SID_SIZE as usize + word_size - 1) / word_size;
+        let mut administrator_sid_storage = vec![0usize; sid_word_count];
+        let mut administrator_sid_length = (administrator_sid_storage.len() * word_size) as u32;
+        let administrator_sid = PSID(administrator_sid_storage.as_mut_ptr().cast());
+        unsafe {
+            CreateWellKnownSid(
+                WinBuiltinAdministratorsSid,
+                None,
+                Some(administrator_sid),
+                &mut administrator_sid_length,
+            )
+        }
+        .map_err(|error| format!("Failed to create the Windows Administrators SID: {error}"))?;
+
+        let token_groups = unsafe { &*token_storage.as_ptr().cast::<TOKEN_GROUPS>() };
+        let groups_start = token_groups.Groups.as_ptr();
+        let groups_offset = groups_start as usize - token_storage.as_ptr() as usize;
+        let groups_bytes = (token_groups.GroupCount as usize)
+            .checked_mul(size_of::<SID_AND_ATTRIBUTES>())
+            .and_then(|length| groups_offset.checked_add(length))
+            .ok_or_else(|| "Windows returned an invalid token-group count".to_string())?;
+        if groups_bytes > returned_length as usize || returned_length as usize > token_storage_bytes {
+            return Err("Windows returned malformed token-group data".to_string());
+        }
+
+        for index in 0..token_groups.GroupCount as usize {
+            let group = unsafe { &*groups_start.add(index) };
+            if unsafe { EqualSid(group.Sid, administrator_sid) }.is_ok() {
+                // UAC-filtered administrator tokens retain this SID as deny-only,
+                // so presence identifies the account without requiring elevation.
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    })();
+
+    let _ = unsafe { CloseHandle(token) };
+    result
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn is_current_user_administrator_account() -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        current_user_is_administrator_account()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(false)
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn admin_autostart_task_exists() -> Result<bool, String> {
     use std::process::Command;
     Command::new("schtasks")
@@ -2944,6 +3047,13 @@ pub fn change_autostart_as_admin_setting(app: AppHandle, enabled: bool) -> Resul
 
     #[cfg(target_os = "windows")]
     {
+        if enabled && !current_user_is_administrator_account()? {
+            return Err(
+                "Autostart with administrator privileges is only available when the current Windows account belongs to the Administrators group."
+                    .to_string(),
+            );
+        }
+
         let exe_path = std::env::current_exe()
             .map_err(|e| format!("Failed to resolve current executable path: {e}"))?;
         let exe_str = exe_path.to_string_lossy().to_string();

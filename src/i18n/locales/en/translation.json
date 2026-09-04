@@ -2352,6 +2352,8 @@
       "autostartAsAdmin": {
         "label": "Autostart with Administrator Privileges",
         "description": "Launch AivoRelay with elevated permissions when you sign in to Windows, enabling dictation into administrator windows.",
+        "requiresAdministratorAccount": "This option is available only when the current Windows account belongs to the Administrators group.",
+        "administratorCheckFailed": "Windows administrator account membership could not be verified, so this option is unavailable.",
         "securityTitle": "Security Notice:",
         "securityNotice": "Running AivoRelay permanently with administrator privileges grants all application components, plugins, and network integrations elevated system access. Enable this only if you need to dictate into elevated/admin programs."
       },
