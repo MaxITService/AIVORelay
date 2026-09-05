@@ -120,7 +120,10 @@ export const AdvancedSettings: React.FC = () => {
         <NeverLaunchWebView />
       </SettingsGroup>
 
-      <SettingsGroup title={t("settings.advanced.pasteMethod.title")}>
+      <SettingsGroup
+        id="advanced-paste-settings"
+        title={t("settings.advanced.pasteMethod.title")}
+      >
         <div className="px-6 pt-4">
           <TellMeMore
             title={t("settings.advanced.pasteMethod.tellMeMore.title")}

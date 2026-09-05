@@ -3,6 +3,10 @@ import { Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AppSettings } from "@/bindings";
 import type { SettingsSearchEntry } from "./settingsSearchTypes";
+import {
+  findNormalizedMatchRange,
+  normalizeSearchText,
+} from "./settingsSearchText";
 
 interface SettingsSearchProps {
   entries: readonly SettingsSearchEntry[];
@@ -18,44 +22,6 @@ interface SettingsSearchProps {
 }
 
 const MAX_SETTINGS_SEARCH_RESULTS = 20;
-
-const normalizeSearchFragment = (value: string): string =>
-  value
-    .toLocaleLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "");
-
-const normalizeSearchText = (value: string): string =>
-  normalizeSearchFragment(value).trim();
-
-const findNormalizedMatchRange = (
-  text: string,
-  query: string,
-): [number, number] | null => {
-  const normalizedQuery = normalizeSearchText(query);
-  if (!normalizedQuery) return null;
-
-  const sourceRanges: Array<[number, number]> = [];
-  let normalizedText = "";
-  let sourceOffset = 0;
-
-  for (const character of text) {
-    const characterEnd = sourceOffset + character.length;
-    const normalizedCharacter = normalizeSearchFragment(character);
-    normalizedText += normalizedCharacter;
-    for (let index = 0; index < normalizedCharacter.length; index += 1) {
-      sourceRanges.push([sourceOffset, characterEnd]);
-    }
-    sourceOffset = characterEnd;
-  }
-
-  const normalizedStart = normalizedText.indexOf(normalizedQuery);
-  if (normalizedStart < 0) return null;
-
-  const firstRange = sourceRanges[normalizedStart];
-  const lastRange = sourceRanges[normalizedStart + normalizedQuery.length - 1];
-  return firstRange && lastRange ? [firstRange[0], lastRange[1]] : null;
-};
 
 const HighlightMatch: React.FC<{ text: string; query: string }> = ({
   text,
@@ -105,17 +71,32 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
           ? t(entry.groupLabelKey, entry.groupFallbackLabel ?? "")
           : (entry.groupFallbackLabel ?? "");
         const normalizedLabel = normalizeSearchText(label);
+        const normalizedFallbackLabel = normalizeSearchText(
+          entry.fallbackLabel,
+        );
         const normalizedSection = normalizeSearchText(sectionLabel);
         const normalizedGroup = normalizeSearchText(groupLabel);
+        const normalizedFallbackGroup = normalizeSearchText(
+          entry.groupFallbackLabel ?? "",
+        );
         const matchedKeyword = entry.keywords.find((keyword) =>
           normalizeSearchText(keyword).includes(normalizedQuery),
         );
-        const score = normalizedLabel.startsWith(normalizedQuery)
+        const labelStartsWithQuery =
+          normalizedLabel.startsWith(normalizedQuery) ||
+          normalizedFallbackLabel.startsWith(normalizedQuery);
+        const labelIncludesQuery =
+          normalizedLabel.includes(normalizedQuery) ||
+          normalizedFallbackLabel.includes(normalizedQuery);
+        const sectionIncludesQuery =
+          normalizedSection.includes(normalizedQuery) ||
+          normalizedGroup.includes(normalizedQuery) ||
+          normalizedFallbackGroup.includes(normalizedQuery);
+        const score = labelStartsWithQuery
           ? 0
-          : normalizedLabel.includes(normalizedQuery)
+          : labelIncludesQuery
             ? 1
-            : normalizedSection.includes(normalizedQuery) ||
-                normalizedGroup.includes(normalizedQuery)
+            : sectionIncludesQuery
               ? 2
               : matchedKeyword
                 ? 3
@@ -141,7 +122,16 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
           label,
           sectionLabel,
           groupLabel,
-          matchedKeyword,
+          matchedTerm:
+            !normalizedLabel.includes(normalizedQuery) &&
+            !normalizedSection.includes(normalizedQuery) &&
+            !normalizedGroup.includes(normalizedQuery)
+              ? normalizedFallbackLabel.includes(normalizedQuery)
+                ? entry.fallbackLabel
+                : normalizedFallbackGroup.includes(normalizedQuery)
+                  ? entry.groupFallbackLabel
+                  : matchedKeyword
+              : undefined,
           score,
           isAvailable,
           unavailableReason,
@@ -345,7 +335,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
                 label,
                 sectionLabel,
                 groupLabel,
-                matchedKeyword,
+                matchedTerm,
                 isAvailable,
                 unavailableReason,
               } = result;
@@ -392,7 +382,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
                       </span>
                       <HighlightMatch text={label} query={query} />
                     </span>
-                    {matchedKeyword &&
+                    {matchedTerm &&
                       !normalizeSearchText(label).includes(normalizedQuery) &&
                       !normalizeSearchText(sectionLabel).includes(
                         normalizedQuery,
@@ -402,7 +392,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
                       ) && (
                         <span className="mt-1 block text-[11px] text-[#858585]">
                           {t("settingsSearch.matched", "Matched")}: {" "}
-                          <HighlightMatch text={matchedKeyword} query={query} />
+                          <HighlightMatch text={matchedTerm} query={query} />
                         </span>
                       )}
                     {!isAvailable && unavailableReason && (
