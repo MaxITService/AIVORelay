@@ -1,6 +1,7 @@
 import type { SettingsSearchEntry } from "../settingsSearchTypes";
 
 export const userInterfaceSearchEntries = [
+  { id: "tray-icon", section: "userInterface", anchor: "tray-icon-settings", labelKey: "settings.userInterface.showTrayIcon.label", fallbackLabel: "Show Tray Icon", keywords: ["tray", "tray icon", "system tray", "notification area", "blink", "blinking", "трей", "иконка в трее", "мигание"] },
   { id: "overlay", section: "userInterface", anchor: "recording-overlay-settings", labelKey: "settingsSearch.items.overlay", fallbackLabel: "Recording overlay", keywords: ["overlay", "finalizing", "recording indicator", "appearance", "оверлей", "финализация"] },
   { id: "decapitalize-indicator", section: "userInterface", anchor: "recording-overlay-decapitalize-indicator", expandAnchor: "recording-overlay-settings", labelKey: "settingsSearch.items.decapitalizeIndicator", fallbackLabel: "Decapitalize indicator appearance", keywords: ["de", "dec", "decap", "decapitalize", "decapitalization", "lowercase indicator", "capitalization", "case", "декапитализация", "индикатор регистра", "нижний регистр"] },
   { id: "live-preview", section: "userInterface", anchor: "live-preview-settings", labelKey: "settingsSearch.items.livePreview", fallbackLabel: "Live Preview", keywords: ["preview", "staging", "window", "превью"] },
