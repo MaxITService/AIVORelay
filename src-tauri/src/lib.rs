@@ -221,6 +221,9 @@ fn restart_with_webview_ui(app: &AppHandle) {
     settings.start_hidden = false;
     match settings::write_settings_checked(app, settings) {
         Ok(()) => {
+            if let Err(error) = webview_mode::mark_recovery_notice(app) {
+                log::warn!("Could not save speech-only recovery notice: {error}");
+            }
             log::info!("Disabling no-WebView mode and restarting with the Settings UI");
             app.request_restart();
         }
@@ -1467,6 +1470,7 @@ pub fn run(cli_args: CliArgs) {
         commands::is_portable,
         commands::get_app_settings,
         commands::take_settings_store_reset_notice,
+        commands::consume_speech_only_recovery_notice,
         commands::get_default_settings,
         commands::get_log_dir_path,
         commands::asset_preview::prepare_transcribe_file_asset,

@@ -43,7 +43,7 @@ export const NeverLaunchWebView: React.FC = React.memo(() => {
         isUpdating={isUpdating("never_launch_webview")}
         label={t("settings.advanced.neverLaunchWebview.label")}
         description={t("settings.advanced.neverLaunchWebview.description")}
-        descriptionMode="inline"
+        descriptionMode="tooltip"
         grouped={true}
       />
 

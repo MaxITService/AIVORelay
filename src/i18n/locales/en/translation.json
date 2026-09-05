@@ -2250,11 +2250,16 @@
       "neverLaunchWebview": {
         "groupTitle": "Speech-only low-memory mode",
         "label": "Start without WebView (speech only)",
-        "description": "Run only dictation, speech profiles, audio input, and the native tray. No settings window, overlay, or browser-based feature is created.",
+        "description": "Only normal and profile-specific dictation shortcuts, audio input, automatic application-aware profiles, Cancel, and the native tray remain available. The Settings window, recording overlay and Live Preview, Voice Activation Button, TTS and Speak Selected Text, Voice Commands, AI Replace, Browser Connector actions, Live Monitor and Live Sound, file transcription, Quick Replacement, History, update checks, and every other WebView-based feature or non-transcription shortcut will not work until you restore the full interface and restart.",
         "warningTitle": "A restart is required",
         "warning": "Only Transcribe and profile-specific transcription shortcuts remain active. Automatic application-aware profiles continue to work. TTS, Voice Commands, Live Monitor, Connector workflows, UI overlays, and all other complex features are disabled.",
         "recovery": "To restore the full interface, double-click the tray icon or choose Switch to full interface and restart from its menu. The app will restart.",
-        "restart": "Restart in speech-only mode"
+        "restart": "Restart in speech-only mode",
+        "footerReturn": "Return to low-memory mode",
+        "footerReturnDescription": "Restart without WebView and keep only speech transcription features active.",
+        "restoredToastTitle": "Full interface restored",
+        "restoredToastDescription": "Opening the full interface from the tray exits speech-only mode. During this recovery session, use Return to low-memory mode in the footer to switch back.",
+        "restartError": "Could not restart in low-memory mode"
       },
       "muteWhileRecording": {
         "label": "Mute While Recording",
