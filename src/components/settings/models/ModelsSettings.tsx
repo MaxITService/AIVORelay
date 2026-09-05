@@ -900,7 +900,10 @@ export const ModelsSettings: React.FC = () => {
                       {formatModelSize(Number(model.size_mb))}
                     </span>
                   </p>
-                  <ModelMetadataPanel model={model} />
+                  <ModelMetadataPanel
+                    model={model}
+                    showProfileScopedSettings={isActive}
+                  />
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -978,7 +981,10 @@ export const ModelsSettings: React.FC = () => {
                 <p className="text-xs text-[#a0a0a0] mt-1">
                   {getTranslatedModelDescription(model, t)}
                 </p>
-                <ModelMetadataPanel model={model} />
+                <ModelMetadataPanel
+                  model={model}
+                  showProfileScopedSettings={isActive}
+                />
                 <p className="text-xs text-[#8a8a8a] mt-1">
                   {t("modelSelector.downloadSize")} ·{" "}
                   {formatModelSize(Number(model.size_mb))}

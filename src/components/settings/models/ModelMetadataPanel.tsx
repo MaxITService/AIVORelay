@@ -362,9 +362,10 @@ function buildMetadataView(model: ModelInfo, locale: string): MetadataView {
   };
 }
 
-export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
-  model,
-}) => {
+export const ModelMetadataPanel: React.FC<{
+  model: ModelInfo;
+  showProfileScopedSettings: boolean;
+}> = ({ model, showProfileScopedSettings }) => {
   const { i18n, t } = useTranslation();
   const { getSetting, refreshSettings } = useSettings();
   const [isUpdatingLiveOutput, setIsUpdatingLiveOutput] = useState(false);
@@ -501,9 +502,11 @@ export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
         ))}
       </div>
 
-      <ProfileScopedSttSettingsNotice
-        features={[...profileScopedFeatures]}
-      />
+      {showProfileScopedSettings && (
+        <ProfileScopedSttSettingsNotice
+          features={[...profileScopedFeatures]}
+        />
+      )}
 
       {supportsNativeLiveOutput && (
         <div className="rounded-lg border border-yellow-400/25 bg-yellow-400/[0.06] px-3 py-2.5">
