@@ -222,17 +222,17 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.34",
+      "since": "Since version 1.0.35",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "profileModels": "Each transcription profile can now use its own speech recognition model. Profiles without a separate choice continue using the main model.",
-        "workflowModels": "Audio file transcription and Live Monitor can also use their own models independently from regular dictation. Local models download when first used.",
-        "transcriptionWorkflows": "Working with audio files and live audio is easier: important actions stay visible, you can focus on one speaker, and results can be saved with timestamps.",
-        "settingsSearch": "A new settings search takes you directly to the option you need.",
-        "ttsBatchProgress": "When turning several text files into speech, you can now see which files are ready, what is being processed, and approximately how much time remains.",
-        "shortcutActivation": "Profiles can use a flexible recording shortcut: tap briefly to keep recording, or hold the key to record only until you release it.",
-        "reliability": "Fixed problems that could delay Gemini and improved the reliability of model and language choices, history, startup, and the interface.",
+        "lowMemoryMode": "A new beta speech-only mode runs dictation without opening the full interface, reducing memory use. The tray menu makes returning to the full interface straightforward.",
+        "automaticProfiles": "Transcription profiles can now activate automatically for matching applications, window titles, or paths.",
+        "promptReuse": "Profile LLM post-processing can now copy any saved prompt into a profile-specific override.",
+        "quickReplacement": "A new Quick Replacement shortcut lets you create a literal text replacement from selected or entered text without opening the full settings page.",
+        "settingsDiscovery": "Settings search now understands English names in every interface language, treats common separators alike, and links directly to more options.",
+        "pasteDelay": "Paste Delay can now be set as high as five seconds for applications that need more time before accepting dictated text.",
+        "reliability": "Improved Gemini session finalization, recording stop behavior, transcription profile prompts, model controls, and dropdown placement.",
         "upstreamImprovements": "Included the latest upstream Handy improvements and fixes."
       }
     },

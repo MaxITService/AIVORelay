@@ -5,13 +5,13 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Each transcription profile can now use its own speech recognition model. Profiles without a separate choice continue using the main model.
-- Audio file transcription and Live Monitor can also use their own models independently from regular dictation. Local models download when first used.
-- Working with audio files and live audio is easier: important actions stay visible, transcripts can be filtered by speaker, and results can be saved with timestamps.
-- A new settings search takes you directly to the option you need.
-- When turning several text files into speech, you can now see which files are ready, what is being processed, and approximately how much time remains.
-- Profiles can use a flexible recording shortcut: tap briefly to keep recording, or hold the key to record only until you release it.
-- Fixed problems that could delay Gemini and improved the reliability of model and language choices, history, startup, and the interface.
+- Added a beta speech-only mode that runs dictation without the full interface to reduce memory use, with clear recovery through the tray.
+- Transcription profiles can now activate automatically for matching applications, window titles, or paths.
+- Profile LLM post-processing can now copy any saved prompt into a profile-specific override.
+- Added a Quick Replacement shortcut for creating literal text replacements from selected or entered text.
+- Settings search now works better across interface languages and common separators, with direct links to more options.
+- Paste Delay can now be set as high as five seconds for slower target applications.
+- Improved Gemini session finalization, recording stop behavior, profile prompts, model controls, and dropdown placement.
 - Included the latest upstream Handy transcription improvements and fixes.
 
 ---
