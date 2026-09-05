@@ -113,6 +113,12 @@ pub fn take_settings_store_reset_notice() -> bool {
 
 #[tauri::command]
 #[specta::specta]
+pub fn consume_speech_only_recovery_notice(app: AppHandle) -> Result<bool, String> {
+    crate::webview_mode::consume_recovery_notice(&app)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn get_default_settings() -> Result<AppSettings, String> {
     Ok(crate::settings::get_default_settings())
 }

@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static WEBVIEWS_DISABLED_FOR_SESSION: AtomicBool = AtomicBool::new(false);
+const RECOVERY_NOTICE_MARKER: &str = "speech-only-ui-restored.notice";
 
 /// Clipboard restoration on Windows requires an HWND owned by this process.
 /// A hidden native window supplies it without starting a browser or renderer.
@@ -61,6 +62,25 @@ pub fn ensure_webviews_enabled(feature: &str) -> Result<(), String> {
         ))
     } else {
         Ok(())
+    }
+}
+
+pub fn mark_recovery_notice(app: &tauri::AppHandle) -> Result<(), String> {
+    let path = crate::portable::resolve_app_data(app, RECOVERY_NOTICE_MARKER)
+        .map_err(|error| format!("Failed to resolve speech-only recovery marker: {error}"))?;
+    std::fs::write(path, b"tray-recovery")
+        .map_err(|error| format!("Failed to save speech-only recovery marker: {error}"))
+}
+
+pub fn consume_recovery_notice(app: &tauri::AppHandle) -> Result<bool, String> {
+    let path = crate::portable::resolve_app_data(app, RECOVERY_NOTICE_MARKER)
+        .map_err(|error| format!("Failed to resolve speech-only recovery marker: {error}"))?;
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!(
+            "Failed to consume speech-only recovery marker: {error}"
+        )),
     }
 }
 

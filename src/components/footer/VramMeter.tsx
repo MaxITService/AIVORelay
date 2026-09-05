@@ -173,11 +173,11 @@ const VramMeter: React.FC<VramMeterProps> = ({ refreshNonce = 0 }) => {
       />
       <span className="tabular-nums">{displayText}</span>
       {freeTextCompact && (
-        <span className="text-[10px] text-text/60 tabular-nums">
+        <span className="hidden text-[10px] text-text/60 tabular-nums min-[1100px]:inline">
           {freeTextCompact}
         </span>
       )}
-      <span className="text-[10px] text-text/50 tabular-nums">
+      <span className="hidden text-[10px] text-text/50 tabular-nums min-[1280px]:inline">
         {t("footer.vramLastUpdated", { time: lastUpdatedText })}
       </span>
     </button>
