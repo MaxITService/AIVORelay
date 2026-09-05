@@ -79,11 +79,36 @@ function App() {
   const {
     currentSection,
     setSection: setCurrentSection,
+    goBack,
+    goForward,
     openHelpSearch,
   } = useNavigationStore();
   const { refreshSettings, refreshAudioDevices } = useSettings();
   const notifiedModelDownloadStarts = useRef(new Set<string>());
   const onDemandModelDownloads = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (showOnboarding !== false) return;
+
+    const isNavigationButton = (event: MouseEvent) =>
+      event.button === 3 || event.button === 4;
+    const preventBrowserNavigation = (event: MouseEvent) => {
+      if (isNavigationButton(event)) event.preventDefault();
+    };
+    const navigateSectionHistory = (event: MouseEvent) => {
+      if (!isNavigationButton(event)) return;
+      event.preventDefault();
+      if (event.button === 3) goBack();
+      else goForward();
+    };
+
+    window.addEventListener("mousedown", preventBrowserNavigation, true);
+    window.addEventListener("mouseup", navigateSectionHistory, true);
+    return () => {
+      window.removeEventListener("mousedown", preventBrowserNavigation, true);
+      window.removeEventListener("mouseup", navigateSectionHistory, true);
+    };
+  }, [goBack, goForward, showOnboarding]);
 
   useEffect(() => {
     let disposed = false;

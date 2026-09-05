@@ -124,7 +124,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/shortcut.rs` | Multi-engine shortcut bindings (Tauri/rdev/HandyKeys), lazy foreground-app profile resolution for main-Transcribe push/toggle semantics when enabled, Task Scheduler autostart with administrator privileges command, tray icon blinking configuration commands, live preview geometry persistence commands, preview action settings commands, preview delete-last-word global hotkey sync. |
 | `src-tauri/src/clipboard.rs` | Clipboard behavior. Streaming clipboard sessions are operation-scoped and serialized through the actual restore. Clipboard-backed paste keeps each transcription value available for a 200 ms post-shortcut consumer grace before another chunk or the user's original multi-format clipboard may replace it. Selection-copy capture reuses the same Windows multi-format backup/restore with text fallback. |
 | `src-tauri/src/input.rs` | Selection capture utilities. |
-| `src-tauri/src/tray.rs` | Custom tray menu and high-frequency tray icon blinking animation (1–10 Hz) alternating between Idle and Recording states during processing and recording with queue-overload protection. |
+| `src-tauri/src/tray.rs` | Custom tray menu and tray icon blinking animation (0.5–10 Hz) alternating between Idle and Recording states during processing and recording with queue-overload protection. |
 
 ### Backend Support
 

@@ -13,7 +13,8 @@ interface ShowTrayIconProps {
 export const ShowTrayIcon: React.FC<ShowTrayIconProps> = React.memo(
   ({ descriptionMode = "tooltip", grouped = false, id }) => {
     const { t } = useTranslation();
-    const { getSetting, updateSetting, isUpdating } = useSettings();
+    const { getSetting, updateSetting, isUpdating, refreshSettings } =
+      useSettings();
 
     const showTrayIcon = getSetting("show_tray_icon") ?? true;
     const trayIconBlinkingEnabled =
@@ -23,7 +24,18 @@ export const ShowTrayIcon: React.FC<ShowTrayIconProps> = React.memo(
     const trayIconBlinkOnProcessing =
       getSetting("tray_icon_blink_on_processing") ?? true;
     const trayIconBlinkFrequencyHz =
-      getSetting("tray_icon_blink_frequency_hz") ?? 4;
+      getSetting("tray_icon_blink_frequency_hz") ?? 1;
+
+    const changeTrayIconBlinking = async (enabled: boolean) => {
+      try {
+        await updateSetting("tray_icon_blinking_enabled", enabled, {
+          throwOnError: true,
+        });
+        if (enabled) await refreshSettings();
+      } catch {
+        // updateSetting already reports the failure and restores the prior value.
+      }
+    };
 
     return (
       <div
@@ -46,9 +58,7 @@ export const ShowTrayIcon: React.FC<ShowTrayIconProps> = React.memo(
           <>
             <ToggleSwitch
               checked={trayIconBlinkingEnabled}
-              onChange={(enabled) =>
-                updateSetting("tray_icon_blinking_enabled", enabled)
-              }
+              onChange={(enabled) => void changeTrayIconBlinking(enabled)}
               isUpdating={isUpdating("tray_icon_blinking_enabled")}
               label={t(
                 "settings.userInterface.trayIconBlinking.label",
@@ -106,23 +116,22 @@ export const ShowTrayIcon: React.FC<ShowTrayIconProps> = React.memo(
                 <Slider
                   value={trayIconBlinkFrequencyHz}
                   onChange={(val) =>
-                    updateSetting(
-                      "tray_icon_blink_frequency_hz",
-                      Math.round(val),
-                    )
+                    updateSetting("tray_icon_blink_frequency_hz", val)
                   }
-                  min={1}
+                  min={0.5}
                   max={10}
-                  step={1}
+                  step={0.5}
                   label={t(
                     "settings.userInterface.trayIconBlinkFrequency.label",
                     "Blinking Frequency (Hz)",
                   )}
                   description={t(
                     "settings.userInterface.trayIconBlinkFrequency.description",
-                    "Sets how rapidly the tray icon alternates in Hertz (1 to 10 Hz).",
+                    "Sets the blink rate from 0.5 to 10 Hz. At 1 Hz, the icon changes every 0.5 seconds.",
                   )}
-                  formatValue={(v) => `${Math.round(v)} Hz`}
+                  formatValue={(v) =>
+                    `${Number.isInteger(v) ? v.toFixed(0) : v.toFixed(1)} Hz`
+                  }
                   descriptionMode={descriptionMode}
                   grouped={grouped}
                 />
