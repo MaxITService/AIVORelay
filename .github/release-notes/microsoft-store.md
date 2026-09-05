@@ -5,8 +5,15 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Fixed a rare live transcription issue that could paste previous clipboard contents instead of the latest transcribed text.
-- Reduced memory use with remote transcription by loading local transcription components only when they are needed.
+- Added a beta speech-only mode that runs dictation without the full interface to reduce memory use, with clear recovery through the tray.
+- Transcription profiles can use their own models and activate automatically for matching applications, window titles, or paths.
+- Profile LLM post-processing can now copy any saved prompt into a profile-specific override.
+- Regular dictation, audio files, and Live Monitor can use independent models, with improved speaker handling and timed transcript export.
+- Added comprehensive Text to Speech workflows for selected text and file conversion, including resumable work and optional history.
+- Expanded Help and settings search, including direct navigation and better discovery across interface languages.
+- Added Quick Replacement for creating literal text replacements from selected or entered text.
+- Improved security and reliability across audio capture, Gemini sessions, model downloads, clipboard handling, startup, history, and the interface.
+- Included the latest upstream Handy improvements and fixes.
 
 ---
 
