@@ -4173,8 +4173,7 @@ pub fn change_transcription_prompt_setting(
     } else {
         settings.transcription_prompts.insert(model_id, prompt);
     }
-    settings::write_settings(&app, settings);
-    Ok(())
+    settings::write_settings_checked(&app, settings)
 }
 
 #[tauri::command]
@@ -5346,14 +5345,17 @@ pub fn delete_transcription_profile(app: AppHandle, id: String) -> Result<(), St
 
     // Unregister and remove the shortcut binding
     let binding_id = format!("transcribe_{}", id);
-    if let Some(binding) = settings.bindings.remove(&binding_id) {
-        // Only try to unregister if there was an actual shortcut set
+    let removed_binding = settings.bindings.remove(&binding_id);
+
+    // Persist first so a disk error cannot leave an existing profile with its
+    // shortcut unregistered for the rest of the session.
+    settings::write_settings_checked(&app, settings)?;
+    if let Some(binding) = removed_binding {
         if !binding.current_binding.is_empty() {
             let _ = unregister_shortcut(&app, binding);
         }
     }
 
-    settings::write_settings(&app, settings);
     refresh_soniox_live_preview_window(&app);
     Ok(())
 }

@@ -80,6 +80,113 @@ const openAdvancedSettings = () => {
   useNavigationStore.getState().setSection("advanced");
 };
 
+interface DefaultModelPromptEditorProps {
+  modelId: string;
+  persistedValue: string;
+  promptLimit: number;
+  disabled: boolean;
+  onSaved: () => Promise<unknown>;
+}
+
+const DefaultModelPromptEditor: React.FC<DefaultModelPromptEditorProps> = ({
+  modelId,
+  persistedValue,
+  promptLimit,
+  disabled,
+  onSaved,
+}) => {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState(persistedValue);
+  const [isSaving, setIsSaving] = useState(false);
+  const dirtyRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!dirtyRef.current) {
+      setDraft(persistedValue);
+    }
+  }, [persistedValue]);
+
+  const isOverLimit = promptLimit > 0 && draft.length > promptLimit;
+
+  const save = async () => {
+    if (disabled || isSaving || isOverLimit) return;
+    if (draft === persistedValue) {
+      dirtyRef.current = false;
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const result = await commands.changeTranscriptionPromptSetting(
+        modelId,
+        draft,
+      );
+      if (result.status === "error") throw new Error(String(result.error));
+      dirtyRef.current = false;
+      await onSaved();
+    } catch (error) {
+      console.error("Failed to save global voice model prompt:", error);
+      toast.error(
+        t(
+          "settings.transcriptionProfiles.systemPromptSaveFailed",
+          "Could not save voice model prompt.",
+        ),
+        {
+          description: error instanceof Error ? error.message : String(error),
+        },
+      );
+    } finally {
+      if (mountedRef.current) setIsSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <span
+        className={`text-xs ${isOverLimit ? "text-red-400" : "text-mid-gray"}`}
+      >
+        {draft.length}
+        {promptLimit > 0 && `/${promptLimit}`}
+      </span>
+      <textarea
+        value={draft}
+        onChange={(event) => {
+          const nextDraft = event.target.value;
+          dirtyRef.current = nextDraft !== persistedValue;
+          setDraft(nextDraft);
+        }}
+        onBlur={() => void save()}
+        disabled={disabled || isSaving}
+        aria-invalid={isOverLimit}
+        placeholder={t(
+          "settings.general.transcriptionSystemPrompt.placeholder",
+        )}
+        rows={3}
+        className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors ${
+          isOverLimit
+            ? "border-red-400 focus:border-red-400"
+            : "border-[#3c3c3c] focus:border-[#4a4a4a]"
+        } text-[#e8e8e8] placeholder-[#6b6b6b] ${disabled || isSaving ? "opacity-50 cursor-not-allowed" : ""}`}
+      />
+      {isOverLimit && (
+        <p className="text-xs text-red-400">
+          {t("settings.transcriptionProfiles.systemPromptTooLong", {
+            limit: promptLimit,
+          })}
+        </p>
+      )}
+    </>
+  );
+};
+
 const profileSttPresentation = (
   selection: SttModelSelection,
   localModels: ModelInfo[],
@@ -268,6 +375,15 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     postProcessingAvailable && (profile.llm_post_process_enabled ?? false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(profile.name);
+  const persistedSystemPrompt = profile.system_prompt || "";
+  const [systemPromptDraft, setSystemPromptDraft] = useState(
+    persistedSystemPrompt,
+  );
+  const systemPromptDirtyRef = useRef(false);
+  const systemPromptSyncRef = useRef({
+    profileId: profile.id,
+    persisted: persistedSystemPrompt,
+  });
   const persistedAutomaticAppRules = (profile.automatic_app_rules ?? []).join(
     "\n",
   );
@@ -307,6 +423,23 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     () => parseGeminiVocabulary(geminiVocabularyDraft),
     [geminiVocabularyDraft],
   );
+
+  useEffect(() => {
+    const previous = systemPromptSyncRef.current;
+    const profileChanged = previous.profileId !== profile.id;
+    const persistedChanged = previous.persisted !== persistedSystemPrompt;
+    if (
+      profileChanged ||
+      (!systemPromptDirtyRef.current && persistedChanged)
+    ) {
+      setSystemPromptDraft(persistedSystemPrompt);
+      systemPromptDirtyRef.current = false;
+    }
+    systemPromptSyncRef.current = {
+      profileId: profile.id,
+      persisted: persistedSystemPrompt,
+    };
+  }, [profile.id, persistedSystemPrompt]);
 
   useEffect(() => {
     const previous = automaticAppRulesSyncRef.current;
@@ -396,7 +529,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     ];
   }, [languageLabel, languageOptions, profile.language, isSonioxProvider]);
 
-  const promptLength = (profile.system_prompt || "").length;
+  const promptLength = systemPromptDraft.length;
   const isOverLimit = promptLimit > 0 && promptLength > promptLimit;
 
   // Instant update handlers
@@ -430,12 +563,26 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     }
   };
 
-  const handleSystemPromptChange = async (newPrompt: string) => {
-    if (newPrompt === (profile.system_prompt || "")) return;
-    if (promptLimit > 0 && newPrompt.length > promptLimit) return;
+  const handleSystemPromptChange = async () => {
+    if (isOverLimit) return;
+    if (systemPromptDraft === persistedSystemPrompt) {
+      systemPromptDirtyRef.current = false;
+      return;
+    }
     setIsUpdating(true);
     try {
-      await onUpdate({ ...profile, system_prompt: newPrompt });
+      await onUpdate({ ...profile, system_prompt: systemPromptDraft });
+      systemPromptDirtyRef.current = false;
+    } catch (error) {
+      toast.error(
+        t(
+          "settings.transcriptionProfiles.systemPromptSaveFailed",
+          "Could not save voice model prompt.",
+        ),
+        {
+          description: error instanceof Error ? error.message : String(error),
+        },
+      );
     } finally {
       setIsUpdating(false);
     }
@@ -1322,12 +1469,19 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                       </span>
                     </div>
                     <textarea
-                      defaultValue={profile.system_prompt || ""}
-                      onBlur={(e) => handleSystemPromptChange(e.target.value)}
+                      value={systemPromptDraft}
+                      onChange={(event) => {
+                        const nextDraft = event.target.value;
+                        systemPromptDirtyRef.current =
+                          nextDraft !== persistedSystemPrompt;
+                        setSystemPromptDraft(nextDraft);
+                      }}
+                      onBlur={() => void handleSystemPromptChange()}
                       placeholder={t(
                         "settings.transcriptionProfiles.systemPromptPlaceholder",
                       )}
                       disabled={isUpdating}
+                      aria-invalid={isOverLimit}
                       rows={3}
                       className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors ${
                         isOverLimit
@@ -2086,7 +2240,8 @@ export const TranscriptionProfiles: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     try {
-      await commands.deleteTranscriptionProfile(id);
+      const result = await commands.deleteTranscriptionProfile(id);
+      if (result.status === "error") throw new Error(String(result.error));
       await refreshSettings();
       setExpandedIds((prev) => {
         if (!prev.has(id)) return prev;
@@ -2096,6 +2251,15 @@ export const TranscriptionProfiles: React.FC = () => {
       });
     } catch (error) {
       console.error("Failed to delete profile:", error);
+      toast.error(
+        t(
+          "settings.transcriptionProfiles.deleteFailed",
+          "Could not delete profile.",
+        ),
+        {
+          description: error instanceof Error ? error.message : String(error),
+        },
+      );
     }
   };
 
@@ -2792,31 +2956,15 @@ export const TranscriptionProfiles: React.FC = () => {
                           )}
                         />
                       </div>
-                      {promptLimit > 0 && (
-                        <span
-                          className={`text-xs ${activePromptValue.length > promptLimit ? "text-red-400" : "text-mid-gray"}`}
-                        >
-                          {activePromptValue.length}/{promptLimit}
-                        </span>
-                      )}
                     </summary>
                     <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
-                      <textarea
-                        defaultValue={activePromptValue}
-                        onBlur={async (e) => {
-                          if (!hasActivePromptModel) return;
-                          await commands.changeTranscriptionPromptSetting(
-                            activeModelId,
-                            e.target.value,
-                          );
-                          refreshSettings();
-                        }}
+                      <DefaultModelPromptEditor
+                        key={activeModelId || "no-active-model"}
+                        modelId={activeModelId}
+                        persistedValue={activePromptValue}
+                        promptLimit={promptLimit}
                         disabled={!hasActivePromptModel}
-                        placeholder={t(
-                          "settings.general.transcriptionSystemPrompt.placeholder",
-                        )}
-                        rows={3}
-                        className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors border-[#3c3c3c] focus:border-[#4a4a4a] text-[#e8e8e8] placeholder-[#6b6b6b] ${!hasActivePromptModel ? "opacity-50 cursor-not-allowed" : ""}`}
+                        onSaved={refreshSettings}
                       />
                       {!hasActivePromptModel && (
                         <p className="text-xs text-amber-400/90">
