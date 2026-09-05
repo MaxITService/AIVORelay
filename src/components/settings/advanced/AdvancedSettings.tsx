@@ -114,6 +114,7 @@ export const AdvancedSettings: React.FC = () => {
       </SettingsGroup>
 
       <SettingsGroup
+        id="speech-only-low-memory-settings"
         title={t("settings.advanced.neverLaunchWebview.groupTitle")}
       >
         <NeverLaunchWebView />
