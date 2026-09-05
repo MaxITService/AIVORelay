@@ -13,6 +13,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-09-06 | `release/microsoft-store` | `f07fe24d` | fix(audio): prevent recording stop races and hangs | `0315472e` | fix(audio): prevent recording stop races and hangs | 16 runtime/UI commits propagated manually; main-only docs and Cargo.lock excluded; one startup conflict resolved for Store |
 | 2026-09-02 | `release/microsoft-store` | `aaedfecd` | test: use Developer PowerShell for local Rust setup | `ba6021ad` | ci(store): audit x64 transcribe runtime packaging | remaining main runtime propagated; updater and AVX512 excluded; lock regenerated; applicable docs and x64 packaging checks updated |
 | 2026-09-02 | `release/microsoft-store` | `45cfb4a6` | fix(models): restore settings after load failure | `5b8911e6` | fix(models): restore settings after load failure | 14 runtime commits propagated; main-only docs and Cargo.lock excluded; required Edge TTS license notice included |
 | 2026-09-02 | `release/microsoft-store` | `27844cac` | feat(tts): add Kokoro runtime and AI cleanup | `197d4e65` | feat(tts): add Kokoro runtime and AI cleanup | 4 runtime commits propagated; sync/shared docs and Cargo.lock excluded; required license notices included |
@@ -22,7 +23,6 @@ Rules:
 | 2026-07-12 | `release/microsoft-store` | `318a74dd` | chore: bump version to 1.0.23 | `7657ed89` | chore: bump version to 1.0.23 | runtime propagated; Store notes updated; lock resolved locally |
 | 2026-06-24 | `integration/combined` | `3b37e049` | chore: bump version to 1.0.22 | `a34f02af` | chore: bump version to 1.0.22 | runtime clean; lock patched |
 | 2026-06-24 | `integration/cuda` | `3b37e049` | chore: bump version to 1.0.22 | `4c8f9174` | chore: bump version to 1.0.22 | runtime clean; CUDA notes updated; lock patched |
-| 2026-06-24 | `release/microsoft-store` | `3b37e049` | chore: bump version to 1.0.22 | `a0121372` | chore: bump version to 1.0.22 | runtime clean; Store notes updated; lock patched |
 
 Entry template:
 
