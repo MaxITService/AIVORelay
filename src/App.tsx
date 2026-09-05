@@ -14,7 +14,8 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { type } from "@tauri-apps/plugin-os";
 import { useNavigationStore } from "./stores/navigationStore";
-import { OPEN_FIRST_START_WIZARD_EVENT } from "./constants/appEvents";
+import { OPEN_FIRST_START_WIZARD_EVENT, OPEN_QUICK_TEXT_REPLACEMENT_EVENT } from "./constants/appEvents";
+import { QuickReplacementDialog } from "./components/text-replacement/QuickReplacementDialog";
 import type { ModelStateEvent } from "./lib/types/events";
 import type { WindowsMicrophonePermissionStatus } from "./lib/types/windowsPermissions";
 
@@ -65,6 +66,10 @@ const renderSettingsContent = (section: SidebarSection) => {
 
 function App() {
   const { t } = useTranslation();
+  const [quickReplacement, setQuickReplacement] = useState<{
+    initialFrom: string;
+    selectionTooLong: boolean;
+  } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const [onboardingFromDebug, setOnboardingFromDebug] = useState(false);
   const [onboardingStartsWithPermissions, setOnboardingStartsWithPermissions] =
@@ -79,6 +84,30 @@ function App() {
   const { refreshSettings, refreshAudioDevices } = useSettings();
   const notifiedModelDownloadStarts = useRef(new Set<string>());
   const onDemandModelDownloads = useRef(new Set<string>());
+
+  useEffect(() => {
+    let disposed = false;
+    const openQuickReplacement = (initialFrom = "", selectionTooLong = false) => {
+      if (!disposed) {
+        // Repeated activation must not erase an unfinished correction.
+        setQuickReplacement((current) => current ?? { initialFrom, selectionTooLong });
+      }
+    };
+    const handleOpen = () => openQuickReplacement();
+    window.addEventListener(OPEN_QUICK_TEXT_REPLACEMENT_EVENT, handleOpen);
+    const unlisten = listen<{ initialFrom?: string; selectionTooLong?: boolean }>(
+      OPEN_QUICK_TEXT_REPLACEMENT_EVENT,
+      (event) => openQuickReplacement(
+        event.payload.initialFrom,
+        event.payload.selectionTooLong ?? false,
+      ),
+    );
+    return () => {
+      disposed = true;
+      window.removeEventListener(OPEN_QUICK_TEXT_REPLACEMENT_EVENT, handleOpen);
+      void unlisten.then((stop) => stop());
+    };
+  }, []);
 
   useEffect(() => {
     checkOnboardingStatus();
@@ -496,6 +525,12 @@ function App() {
       <Footer />
       {/* Hotkey sidebar on the right edge */}
       <HotkeySidebar />
+      <QuickReplacementDialog
+        open={quickReplacement !== null}
+        initialFrom={quickReplacement?.initialFrom}
+        selectionTooLong={quickReplacement?.selectionTooLong}
+        onClose={() => setQuickReplacement(null)}
+      />
     </div>
   );
 }

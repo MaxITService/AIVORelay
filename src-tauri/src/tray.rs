@@ -693,6 +693,17 @@ fn build_tray_menu(
         inputs.update_checks_enabled && !inputs.webviews_disabled,
         None::<&str>,
     )?;
+    let quick_replacement_i = MenuItem::with_id(
+        app,
+        crate::quick_replacement::BINDING_ID,
+        if strings.quick_text_replacement.is_empty() {
+            "Quick add text replacement"
+        } else {
+            &strings.quick_text_replacement
+        },
+        !inputs.webviews_disabled,
+        None::<&str>,
+    )?;
     #[cfg(not(debug_assertions))]
     let restart_troubleshoot_i = MenuItem::with_id(
         app,
@@ -762,6 +773,7 @@ fn build_tray_menu(
 
     menu.append(&separator()?)?;
     menu.append(&settings_i)?;
+    menu.append(&quick_replacement_i)?;
     menu.append(&check_updates_i)?;
     #[cfg(not(debug_assertions))]
     menu.append(&restart_troubleshoot_i)?;
