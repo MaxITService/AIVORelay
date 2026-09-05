@@ -59,13 +59,24 @@ export const Dropdown: React.FC<DropdownProps> = ({
     const rect = dropdownRef.current.getBoundingClientRect();
     const edgeGap = 8;
     const anchorGap = 4;
-    const horizontalRight = Math.max(edgeGap, window.innerWidth - rect.right);
+    const menuWidth = Math.min(rect.width, window.innerWidth - edgeGap * 2);
+    const left = Math.min(
+      Math.max(edgeGap, rect.left),
+      window.innerWidth - menuWidth - edgeGap,
+    );
+    const availableAbove = rect.top - anchorGap - edgeGap;
+    const availableBelow =
+      window.innerHeight - rect.bottom - anchorGap - edgeGap;
+    const openUp = dropUp
+      ? availableAbove >= 120 || availableAbove >= availableBelow
+      : !(availableBelow >= 120 || availableBelow >= availableAbove);
+    const availableHeight = openUp ? availableAbove : availableBelow;
 
     setMenuStyle({
-      minWidth: rect.width,
-      maxWidth: `calc(100vw - ${edgeGap * 2}px)`,
-      right: horizontalRight,
-      ...(dropUp
+      left,
+      width: menuWidth,
+      maxHeight: Math.max(0, Math.min(240, availableHeight)),
+      ...(openUp
         ? { bottom: window.innerHeight - rect.top + anchorGap }
         : { top: rect.bottom + anchorGap }),
     });
@@ -262,7 +273,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
             ref={listRef}
             role="listbox"
             aria-labelledby={triggerId}
-            className="fixed z-[9998] w-max max-w-sm max-h-60 overflow-y-auto rounded-lg border border-[#3c3c3c] bg-[#252525]/98 p-1 shadow-[0_12px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+            className="fixed z-[9998] overflow-y-auto rounded-lg border border-[#3c3c3c] bg-[#252525]/98 p-1 shadow-[0_12px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl"
             style={
               menuStyle ?? {
                 top: 0,
