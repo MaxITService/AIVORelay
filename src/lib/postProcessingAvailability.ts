@@ -1,4 +1,5 @@
 import type { AppSettings, SttModelSelection } from "@/bindings";
+import { STT_MODEL_IDS } from "@/lib/sttModelSelection";
 
 export type PostProcessingUnavailableReason = "direct_realtime_output";
 
@@ -108,11 +109,15 @@ export const getPostProcessingAvailability = (
     const model = String(
       options.sttSelection?.model_id ?? settings.remote_stt?.model_id ?? "",
     ).toLowerCase();
-    insertsRealtimeTextDirectly =
+    const isOpenAiRealtime =
       preset === "openai" &&
       REALTIME_OPENAI_MODELS.has(model) &&
-      !Boolean(settings.openai_realtime_whisper_flatten_enabled) &&
-      !outputIsHeldInPreview;
+      !Boolean(settings.openai_realtime_whisper_flatten_enabled);
+    const isGeminiRealtime =
+      (preset === "vercel" && model === STT_MODEL_IDS.vercelGeminiLive) ||
+      (preset === "google" && model === STT_MODEL_IDS.googleGeminiLive);
+    insertsRealtimeTextDirectly =
+      (isOpenAiRealtime || isGeminiRealtime) && !outputIsHeldInPreview;
   }
 
   return insertsRealtimeTextDirectly

@@ -19,6 +19,53 @@ assert.equal(
   true,
 );
 
+for (const [providerPreset, modelId] of [
+  ["vercel", "google/gemini-3.5-transcribe-live"],
+  ["google", "gemini-3.5-transcribe-live"],
+] as const) {
+  assert.equal(
+    getPostProcessingAvailability(
+      settings({
+        transcription_provider: "remote_openai_compatible",
+        remote_stt: {
+          provider_preset: providerPreset,
+          model_id: modelId,
+        } as any,
+        preview_output_only_enabled: false,
+        soniox_live_preview_enabled: false,
+      }),
+    ).available,
+    false,
+  );
+
+  assert.equal(
+    getPostProcessingAvailability(
+      settings({
+        transcription_provider: "remote_openai_compatible",
+        remote_stt: {
+          provider_preset: providerPreset,
+          model_id: modelId,
+        } as any,
+        preview_output_only_enabled: true,
+      }),
+    ).available,
+    true,
+  );
+}
+
+assert.equal(
+  getPostProcessingAvailability(
+    settings({
+      transcription_provider: "remote_openai_compatible",
+      remote_stt: {
+        provider_preset: "vercel",
+        model_id: "google/gemini-3.5-transcribe-live-custom",
+      } as any,
+    }),
+  ).available,
+  true,
+);
+
 assert.equal(
   getActiveProfilePostProcessingEnabled(
     settings({

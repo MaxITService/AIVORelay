@@ -278,6 +278,12 @@ interface ExtendedTranscriptionProfile extends TranscriptionProfile {
   gemini_custom_vocabulary_override?: string[] | null;
 }
 
+interface LlmPromptSourceOption {
+  value: string;
+  label: string;
+  prompt: string;
+}
+
 interface ProfileCardProps {
   profile: ExtendedTranscriptionProfile;
   languageOptions: Language[];
@@ -295,6 +301,7 @@ interface ProfileCardProps {
   onRefreshModels: () => void;
   isFetchingModels: boolean;
   defaultLlmPrompt: string;
+  llmPromptSourceOptions: LlmPromptSourceOption[];
   showSonioxLanguageFallbackWarning: boolean;
   isSonioxProvider: boolean;
   postProcessingAvailable: boolean;
@@ -325,6 +332,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   onRefreshModels,
   isFetchingModels,
   defaultLlmPrompt,
+  llmPromptSourceOptions,
   showSonioxLanguageFallbackWarning,
   isSonioxProvider,
   postProcessingAvailable,
@@ -403,8 +411,14 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   const [localLlmPrompt, setLocalLlmPrompt] = useState(
     profile.llm_prompt_override ?? defaultLlmPrompt,
   );
+  const lastSavedLlmPromptRef = useRef({
+    prompt: profile.llm_prompt_override ?? defaultLlmPrompt,
+    isCustom: profile.llm_prompt_override != null,
+  });
   // Track whether user is actively editing to prevent useEffect from clobbering
   const isEditingRef = useRef(false);
+  const llmPromptSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const llmPromptPendingCountRef = useRef(0);
   const [geminiVocabularyDraft, setGeminiVocabularyDraft] = useState(
     (profile.gemini_custom_vocabulary_override ?? []).join("\n"),
   );
@@ -481,10 +495,18 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
       // Using global prompt — auto-track global changes
       setLocalLlmPrompt(defaultLlmPrompt);
       setIsCustomOverride(false);
+      lastSavedLlmPromptRef.current = {
+        prompt: defaultLlmPrompt,
+        isCustom: false,
+      };
     } else {
       // Custom override — show saved value
       setLocalLlmPrompt(profile.llm_prompt_override);
       setIsCustomOverride(true);
+      lastSavedLlmPromptRef.current = {
+        prompt: profile.llm_prompt_override,
+        isCustom: true,
+      };
     }
   }, [profile.llm_prompt_override, defaultLlmPrompt]);
 
@@ -741,18 +763,65 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     }
   };
 
-  const handleLlmPromptChange = async (newPrompt: string) => {
-    if (newPrompt === (profile.llm_prompt_override ?? "")) return;
-    setIsUpdating(true);
-    try {
-      await onUpdate({
-        ...profile,
-        llm_prompt_override: newPrompt,
-      });
-    } finally {
-      setIsUpdating(false);
-      isEditingRef.current = false;
+  const handleLlmPromptChange = (newPrompt: string): Promise<void> => {
+    if (
+      llmPromptPendingCountRef.current === 0 &&
+      newPrompt === (profile.llm_prompt_override ?? "")
+    ) {
+      return Promise.resolve();
     }
+
+    isEditingRef.current = true;
+    llmPromptPendingCountRef.current += 1;
+    const queuedSave = llmPromptSaveQueueRef.current.then(async () => {
+      let saveFailed = false;
+      setIsUpdating(true);
+      try {
+        await onUpdate({
+          ...profile,
+          llm_prompt_override: newPrompt,
+        });
+        lastSavedLlmPromptRef.current = {
+          prompt: newPrompt,
+          isCustom: true,
+        };
+      } catch (error) {
+        saveFailed = true;
+        console.error("Failed to save profile LLM prompt:", error);
+        toast.error(
+          t(
+            "settings.transcriptionProfiles.llmPostProcessing.promptSaveFailed",
+            "Could not save the profile LLM prompt.",
+          ),
+          {
+            description: error instanceof Error ? error.message : String(error),
+          },
+        );
+      } finally {
+        llmPromptPendingCountRef.current -= 1;
+        if (llmPromptPendingCountRef.current === 0) {
+          if (saveFailed) {
+            setLocalLlmPrompt(lastSavedLlmPromptRef.current.prompt);
+            setIsCustomOverride(lastSavedLlmPromptRef.current.isCustom);
+          }
+          setIsUpdating(false);
+          isEditingRef.current = false;
+        }
+      }
+    });
+    llmPromptSaveQueueRef.current = queuedSave;
+    return queuedSave;
+  };
+
+  const handleLlmPromptSourceSelect = (promptId: string) => {
+    const source = llmPromptSourceOptions.find(
+      (option) => option.value === promptId,
+    );
+    if (!source) return;
+
+    setLocalLlmPrompt(source.prompt);
+    setIsCustomOverride(true);
+    void handleLlmPromptChange(source.prompt);
   };
 
   const handleResetToGlobal = async () => {
@@ -1678,6 +1747,44 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                         </details>
                       </div>
 
+                      <div className="mt-2 space-y-1">
+                        <label className="text-xs text-text/60">
+                          {t(
+                            "settings.transcriptionProfiles.llmPostProcessing.useExistingPrompt",
+                            "Use an existing prompt",
+                          )}
+                        </label>
+                        <p className="text-xs text-mid-gray">
+                          {t(
+                            "settings.transcriptionProfiles.llmPostProcessing.useExistingPromptHint",
+                            "Copy a saved LLM Post-Processing prompt into this profile. Later edits affect only this profile.",
+                          )}
+                        </p>
+                        <Dropdown
+                          options={llmPromptSourceOptions}
+                          selectedValue={null}
+                          onSelect={handleLlmPromptSourceSelect}
+                          placeholder={t(
+                            llmPromptSourceOptions.length > 0
+                              ? "settings.transcriptionProfiles.llmPostProcessing.selectExistingPrompt"
+                              : "settings.transcriptionProfiles.llmPostProcessing.noExistingPrompts",
+                            llmPromptSourceOptions.length > 0
+                              ? "Select a saved prompt..."
+                              : "No saved prompts available",
+                          )}
+                          disabled={
+                            llmPromptSourceOptions.length === 0 ||
+                            (isUpdating &&
+                              llmPromptPendingCountRef.current === 0)
+                          }
+                          ariaLabel={t(
+                            "settings.transcriptionProfiles.llmPostProcessing.useExistingPrompt",
+                            "Use an existing prompt",
+                          )}
+                          dropUp={false}
+                        />
+                      </div>
+
                       <div className="flex items-center justify-between mt-2">
                         <div className="flex flex-col">
                           {!isCustomOverride ? (
@@ -1719,7 +1826,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                         onBlur={(e) => {
                           isEditingRef.current = false;
                           if (isCustomOverride) {
-                            handleLlmPromptChange(e.target.value);
+                            void handleLlmPromptChange(e.target.value);
                           }
                         }}
                         placeholder={t(
@@ -2085,6 +2192,23 @@ export const TranscriptionProfiles: React.FC = () => {
     settings?.post_process_prompts,
     settings?.post_process_selected_prompt_id,
   ]);
+
+  const llmPromptSourceOptions = useMemo<LlmPromptSourceOption[]>(
+    () =>
+      (settings?.post_process_prompts ?? [])
+        .filter((prompt) => prompt.prompt.trim().length > 0)
+        .map((prompt) => ({
+          value: prompt.id,
+          label:
+            prompt.name.trim() ||
+            t(
+              "settings.transcriptionProfiles.llmPostProcessing.untitledPrompt",
+              "Untitled prompt",
+            ),
+          prompt: prompt.prompt,
+        })),
+    [settings?.post_process_prompts, t],
+  );
 
   const handleRefreshModels = useCallback(async () => {
     if (!currentLlmProviderId || currentLlmProviderId === APPLE_PROVIDER_ID)
@@ -3088,6 +3212,7 @@ export const TranscriptionProfiles: React.FC = () => {
                 onRefreshModels={handleRefreshModels}
                 isFetchingModels={isFetchingModels}
                 defaultLlmPrompt={globalPromptText}
+                llmPromptSourceOptions={llmPromptSourceOptions}
                 isSonioxProvider={presentation.isSonioxProvider}
                 postProcessingAvailable={
                   getPostProcessingAvailability(settings, {
