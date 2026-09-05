@@ -6,7 +6,7 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## release/microsoft-store
 
-Last synced commit from `main`: `2a23c076` — feat(settings): allow longer paste delays.
+Last synced commit from `main`: `8271ee6e` — fix(settings): improve search across localized menus.
 Maintenance rule: after a successful `main` -> `release/microsoft-store` propagation, update this main-copy cursor and the `release/microsoft-store` worktree copy together.
 Note: the cursor always points to the last propagated `main` state reflected in branch content, not to a docs-only cursor-update commit itself.
 Alignment note: `release/microsoft-store` has been reviewed through the cursor above. Shared runtime and applicable user/CLI documentation are aligned; intentional differences remain for Microsoft Store-specific docs, config, workflow, updater, and AVX2 files. `Cargo.lock` is regenerated locally.
