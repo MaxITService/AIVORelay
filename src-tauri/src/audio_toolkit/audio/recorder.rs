@@ -20,6 +20,9 @@ use crate::audio_toolkit::{
     VoiceActivityDetector,
 };
 
+const CONTROL_REPLY_TIMEOUT: Duration = Duration::from_secs(5);
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+
 enum Cmd {
     /// Begin capturing and acknowledge only after the first real audio chunk
     /// has passed through the active capture pipeline.
@@ -131,7 +134,7 @@ impl AudioRecorder {
                 return Ok(()); // already open
             }
             log::warn!("Capture stream failed; rebuilding audio stream");
-            let _ = self.close();
+            self.close()?;
         }
 
         self.stream_error.store(false, Ordering::Relaxed);
@@ -345,11 +348,13 @@ impl AudioRecorder {
     }
 
     pub fn stop(&self) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+        let tx = self
+            .cmd_tx
+            .as_ref()
+            .ok_or_else(|| Error::other("Recorder is not open"))?;
         let (resp_tx, resp_rx) = mpsc::channel();
-        if let Some(tx) = &self.cmd_tx {
-            tx.send(Cmd::Stop(resp_tx))?;
-        }
-        Ok(resp_rx.recv()?)
+        tx.send(Cmd::Stop(resp_tx))?;
+        self.receive_audio_reply(resp_rx, "stop")
     }
 
     pub fn flush(
@@ -357,15 +362,34 @@ impl AudioRecorder {
         keep_samples: usize,
         min_samples: usize,
     ) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+        let tx = self
+            .cmd_tx
+            .as_ref()
+            .ok_or_else(|| Error::other("Recorder is not open"))?;
         let (resp_tx, resp_rx) = mpsc::channel();
-        if let Some(tx) = &self.cmd_tx {
-            tx.send(Cmd::Flush {
-                keep_samples,
-                min_samples,
-                reply_tx: resp_tx,
-            })?;
-        }
-        Ok(resp_rx.recv()?)
+        tx.send(Cmd::Flush {
+            keep_samples,
+            min_samples,
+            reply_tx: resp_tx,
+        })?;
+        self.receive_audio_reply(resp_rx, "flush")
+    }
+
+    fn receive_audio_reply(
+        &self,
+        receiver: mpsc::Receiver<Vec<f32>>,
+        operation: &str,
+    ) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+        receiver.recv_timeout(CONTROL_REPLY_TIMEOUT).map_err(|error| {
+            self.stream_error.store(true, Ordering::Relaxed);
+            let message = format!("Audio recorder {} did not complete: {}", operation, error);
+            log::error!("{}", message);
+            let kind = match error {
+                mpsc::RecvTimeoutError::Timeout => ErrorKind::TimedOut,
+                mpsc::RecvTimeoutError::Disconnected => ErrorKind::BrokenPipe,
+            };
+            Box::new(Error::new(kind, message)) as Box<dyn std::error::Error>
+        })
     }
 
     /// True when the active capture stream must be rebuilt.
@@ -383,6 +407,24 @@ impl AudioRecorder {
     pub fn close(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(tx) = self.cmd_tx.take() {
             let _ = tx.send(Cmd::Shutdown);
+        }
+        let deadline = Instant::now() + SHUTDOWN_TIMEOUT;
+        while self
+            .worker_handle
+            .as_ref()
+            .is_some_and(|handle| !handle.is_finished())
+        {
+            if Instant::now() >= deadline {
+                self.stream_error.store(true, Ordering::Relaxed);
+                log::error!("Audio worker did not shut down within {:?}", SHUTDOWN_TIMEOUT);
+                // Keep ownership of this worker. Reopening must not create a
+                // second device worker while the previous one is still alive.
+                return Err(Box::new(Error::new(
+                    ErrorKind::TimedOut,
+                    "Audio worker is still shutting down",
+                )));
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
         if let Some(h) = self.worker_handle.take() {
             let _ = h.join();
@@ -1031,8 +1073,14 @@ fn process_consumer_cmd(
                 });
             }
 
+            let drain_deadline = Instant::now() + Duration::from_secs(2);
             loop {
-                match sample_rx.recv_timeout(Duration::from_secs(2)) {
+                let remaining = drain_deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    log::warn!("Audio stop drain reached its deadline");
+                    break;
+                }
+                match sample_rx.recv_timeout(remaining) {
                     Ok(AudioChunk::Samples(remaining)) => {
                         frame_resampler.push(&remaining, &mut |frame: &[f32]| {
                             process_enhanced_capture_frame(
