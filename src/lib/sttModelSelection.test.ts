@@ -130,7 +130,7 @@ describe("STT selection compatibility", () => {
     });
   });
 
-  it("keeps a compatible legacy Gemini live selection and rejects a file-only one", () => {
+  it("keeps a compatible legacy Gemini live selection without silently switching batch models to Soniox", () => {
     const liveSettings = {
       live_sound_transcription_provider: "remote_openai_compatible",
       remote_stt: {
@@ -151,23 +151,24 @@ describe("STT selection compatibility", () => {
       model_id: "gemini-3.5-transcribe-live",
       provider_preset: "google",
     });
-    expect(legacyLiveSttSelection(fileSettings)).toEqual({
-      provider: "remote_soniox",
-      model_id: "stt-rt-v5",
-      provider_preset: "",
-    });
+    expect(legacyLiveSttSelection(fileSettings)).toBeNull();
   });
 
-  it("matches Gemini capabilities case-insensitively without granting them to custom presets", () => {
+  it("grants Gemini capabilities only to exact backend-supported preset and model pairs", () => {
     const googleGemini: SttModelSelection = {
       provider: "remote_openai_compatible",
-      provider_preset: "GOOGLE",
-      model_id: "GEMINI-3.5-TRANSCRIBE",
+      provider_preset: "google",
+      model_id: "gemini-3.5-transcribe",
     };
     const customGemini: SttModelSelection = {
       provider: "remote_openai_compatible",
       provider_preset: "custom",
       model_id: "gemini-3.5-transcribe",
+    };
+    const suffixedLiveGemini: SttModelSelection = {
+      provider: "remote_openai_compatible",
+      provider_preset: "google",
+      model_id: "gemini-3.5-transcribe-live-custom",
     };
 
     expect(sttSupports(googleGemini, "diarization", "file")).toBe(true);
@@ -175,5 +176,6 @@ describe("STT selection compatibility", () => {
     expect(sttSupports(customGemini, "diarization", "file")).toBe(false);
     expect(sttSupports(customGemini, "vocabulary", "dictation")).toBe(false);
     expect(sttSupports(customGemini, "languageHints", "file")).toBe(true);
+    expect(sttModelCapabilities(suffixedLiveGemini).workflows).not.toContain("live");
   });
 });

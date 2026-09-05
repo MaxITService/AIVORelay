@@ -803,6 +803,7 @@ export const TextReplacementSettings: React.FC = () => {
       </SettingsGroup>
 
       <SettingsGroup
+        id="decapitalize-after-edit-settings"
         title={t(
           "textReplacement.decapitalizeAfterEditTitle",
           "Decapitalize After Manual Edit"

@@ -1,4 +1,5 @@
 use crate::actions;
+use crate::managers::remote_stt::has_remote_stt_api_key;
 use crate::managers::live_sound_transcription::LiveSoundTranscriptionStatePayload;
 use crate::settings::{
     apply_stt_model_selection, get_settings, write_settings, LiveSoundTranscriptionProvider,
@@ -6,6 +7,8 @@ use crate::settings::{
 };
 use tauri::AppHandle;
 
+const GOOGLE_GEMINI_LIVE_MODEL: &str = "gemini-3.5-transcribe-live";
+const VERCEL_GEMINI_LIVE_MODEL: &str = "google/gemini-3.5-transcribe-live";
 const SONIOX_ENDPOINT_DELAY_MIN_MS: u32 = 500;
 const SONIOX_ENDPOINT_DELAY_MAX_MS: u32 = 3000;
 const DEEPGRAM_ENDPOINTING_MIN_MS: u32 = 10;
@@ -15,13 +18,18 @@ pub(crate) fn validate_live_sound_model_selection(
     selection: &SttModelSelection,
 ) -> Result<(), String> {
     let supported = match selection.provider {
-        TranscriptionProvider::RemoteSoniox => selection.model_id == "stt-rt-v5",
-        TranscriptionProvider::RemoteDeepgram => selection.model_id == "nova-3",
-        TranscriptionProvider::RemoteOpenAiCompatible => matches!(
-            (selection.provider_preset.as_str(), selection.model_id.as_str()),
-            ("vercel", "google/gemini-3.5-transcribe-live")
-                | ("google", "gemini-3.5-transcribe-live")
-        ),
+        TranscriptionProvider::RemoteSoniox => {
+            selection.model_id == crate::settings::SONIOX_DEFAULT_MODEL
+        }
+        TranscriptionProvider::RemoteDeepgram => {
+            selection.model_id == crate::settings::DEEPGRAM_DEFAULT_MODEL
+        }
+        TranscriptionProvider::RemoteOpenAiCompatible => {
+            (selection.provider_preset == "vercel"
+                && selection.model_id == VERCEL_GEMINI_LIVE_MODEL)
+                || (selection.provider_preset == "google"
+                    && selection.model_id == GOOGLE_GEMINI_LIVE_MODEL)
+        }
         TranscriptionProvider::Local => false,
     };
 
@@ -30,31 +38,69 @@ pub(crate) fn validate_live_sound_model_selection(
         .ok_or_else(|| "This STT model is not supported by Live Monitor.".to_string())
 }
 
-fn legacy_live_sound_selection(settings: &crate::settings::AppSettings) -> SttModelSelection {
-    if settings.live_sound_transcription_provider
-        == LiveSoundTranscriptionProvider::RemoteDeepgram
-    {
-        return SttModelSelection {
+fn legacy_live_sound_selection(
+    settings: &crate::settings::AppSettings,
+) -> Option<SttModelSelection> {
+    match settings.live_sound_transcription_provider {
+        LiveSoundTranscriptionProvider::RemoteDeepgram => Some(SttModelSelection {
             provider: TranscriptionProvider::RemoteDeepgram,
-            model_id: "nova-3".to_string(),
+            model_id: crate::settings::DEEPGRAM_DEFAULT_MODEL.to_string(),
             provider_preset: String::new(),
-        };
+        }),
+        LiveSoundTranscriptionProvider::RemoteOpenAiCompatible => {
+            let remote = SttModelSelection {
+                provider: TranscriptionProvider::RemoteOpenAiCompatible,
+                model_id: settings.remote_stt.model_id.clone(),
+                provider_preset: settings.remote_stt.provider_preset.clone(),
+            };
+            validate_live_sound_model_selection(&remote)
+                .is_ok()
+                .then_some(remote)
+        }
+        LiveSoundTranscriptionProvider::RemoteSoniox | LiveSoundTranscriptionProvider::System => {
+            Some(SttModelSelection {
+                provider: TranscriptionProvider::RemoteSoniox,
+                model_id: crate::settings::SONIOX_DEFAULT_MODEL.to_string(),
+                provider_preset: String::new(),
+            })
+        }
     }
+}
 
-    let remote = SttModelSelection {
-        provider: TranscriptionProvider::RemoteOpenAiCompatible,
-        model_id: settings.remote_stt.model_id.clone(),
-        provider_preset: settings.remote_stt.provider_preset.clone(),
+fn validate_live_sound_model_readiness(
+    settings: &crate::settings::AppSettings,
+    selection: &SttModelSelection,
+) -> Result<(), String> {
+    validate_live_sound_model_selection(selection)?;
+
+    let mut candidate = settings.clone();
+    apply_stt_model_selection(&mut candidate, selection)?;
+    let ready = match selection.provider {
+        TranscriptionProvider::RemoteSoniox => crate::secure_keys::has_soniox_api_key(),
+        TranscriptionProvider::RemoteDeepgram => crate::secure_keys::has_deepgram_api_key(),
+        TranscriptionProvider::RemoteOpenAiCompatible => {
+            has_remote_stt_api_key(&candidate.remote_stt)
+        }
+        TranscriptionProvider::Local => false,
     };
-    if validate_live_sound_model_selection(&remote).is_ok() {
-        return remote;
+
+    if ready {
+        return Ok(());
     }
 
-    SttModelSelection {
-        provider: TranscriptionProvider::RemoteSoniox,
-        model_id: "stt-rt-v5".to_string(),
-        provider_preset: String::new(),
-    }
+    let provider_name = match selection.provider {
+        TranscriptionProvider::RemoteSoniox => "Soniox",
+        TranscriptionProvider::RemoteDeepgram => "Deepgram",
+        TranscriptionProvider::RemoteOpenAiCompatible => match selection.provider_preset.as_str() {
+            "google" => "Google",
+            "vercel" => "Vercel",
+            _ => "Remote STT",
+        },
+        TranscriptionProvider::Local => "Local STT",
+    };
+    Err(format!(
+        "{provider_name} API key is not configured. Open Models to configure it."
+    ))
 }
 
 #[tauri::command]
@@ -67,11 +113,12 @@ pub fn initialize_live_sound_model_settings(app: AppHandle) -> Result<(), String
         .map(|selection| validate_live_sound_model_selection(selection).is_err())
         .unwrap_or(true)
     {
-        let selection = legacy_live_sound_selection(&settings);
-        settings.live_sound_transcription_provider =
-            LiveSoundTranscriptionProvider::from_transcription_provider(selection.provider)
-                .unwrap_or(LiveSoundTranscriptionProvider::RemoteSoniox);
-        settings.live_sound_model_selection = Some(selection);
+        settings.live_sound_model_selection = legacy_live_sound_selection(&settings);
+        if let Some(selection) = settings.live_sound_model_selection.as_ref() {
+            settings.live_sound_transcription_provider =
+                LiveSoundTranscriptionProvider::from_transcription_provider(selection.provider)
+                    .unwrap_or(LiveSoundTranscriptionProvider::RemoteSoniox);
+        }
     }
     if settings.live_sound_gemini_mode.is_none() {
         settings.live_sound_gemini_mode = Some(settings.gemini_live_mode);
@@ -128,6 +175,12 @@ fn apply_live_sound_model_selection(
 #[tauri::command]
 #[specta::specta]
 pub fn live_sound_transcription_start(app: AppHandle) -> Result<(), String> {
+    let settings = get_settings(&app);
+    let selection = settings
+        .live_sound_model_selection
+        .as_ref()
+        .ok_or_else(|| "Select a Live Monitor model before starting.".to_string())?;
+    validate_live_sound_model_readiness(&settings, selection)?;
     actions::start_live_sound_transcription_session(&app)
 }
 
@@ -373,6 +426,11 @@ mod tests {
                 model_id: "gemini-3.5-transcribe".to_string(),
                 provider_preset: "google".to_string(),
             },
+            SttModelSelection {
+                provider: TranscriptionProvider::RemoteOpenAiCompatible,
+                model_id: "gemini-3.5-transcribe-live-custom".to_string(),
+                provider_preset: "google".to_string(),
+            },
         ];
         for selection in unsupported {
             assert!(validate_live_sound_model_selection(&selection).is_err());
@@ -380,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_live_selection_preserves_valid_gemini_and_falls_back_from_batch_models() {
+    fn legacy_live_selection_preserves_valid_gemini_without_falling_back_from_batch_models() {
         let mut settings = get_default_settings();
         settings.live_sound_transcription_provider =
             LiveSoundTranscriptionProvider::RemoteOpenAiCompatible;
@@ -389,21 +447,25 @@ mod tests {
 
         assert_eq!(
             legacy_live_sound_selection(&settings),
-            SttModelSelection {
+            Some(SttModelSelection {
                 provider: TranscriptionProvider::RemoteOpenAiCompatible,
                 model_id: "gemini-3.5-transcribe-live".to_string(),
                 provider_preset: "google".to_string(),
-            }
+            })
         );
 
         settings.remote_stt.model_id = "gemini-3.5-transcribe".to_string();
+        assert_eq!(legacy_live_sound_selection(&settings), None);
+
+        settings.live_sound_transcription_provider =
+            LiveSoundTranscriptionProvider::RemoteSoniox;
         assert_eq!(
             legacy_live_sound_selection(&settings),
-            SttModelSelection {
+            Some(SttModelSelection {
                 provider: TranscriptionProvider::RemoteSoniox,
-                model_id: "stt-rt-v5".to_string(),
+                model_id: crate::settings::SONIOX_DEFAULT_MODEL.to_string(),
                 provider_preset: String::new(),
-            }
+            })
         );
     }
 }

@@ -1697,24 +1697,30 @@ export const RecordingOverlaySettings: React.FC = () => {
         </div>
       </SettingContainer>
 
-      <SettingContainer
-        title="Decapitalize Indicator Mode"
-        description="Show the standard label, a custom emoji/text badge, or hide the decapitalize indicator completely."
-        descriptionMode="tooltip"
-        grouped={true}
+      <div
+        id="recording-overlay-decapitalize-indicator"
+        tabIndex={-1}
+        className="outline-none"
       >
-        <Dropdown
-          options={decapIndicatorModeOptions}
-          selectedValue={decapIndicatorMode}
-          onSelect={(value) =>
-            void updateSetting(
-              "recording_overlay_decapitalize_indicator_mode" as any,
-              value as any,
-            )
-          }
-          disabled={isUpdating("recording_overlay_decapitalize_indicator_mode")}
-        />
-      </SettingContainer>
+        <SettingContainer
+          title="Decapitalize Indicator Mode"
+          description="Show the standard label, a custom emoji/text badge, or hide the decapitalize indicator completely."
+          descriptionMode="tooltip"
+          grouped={true}
+        >
+          <Dropdown
+            options={decapIndicatorModeOptions}
+            selectedValue={decapIndicatorMode}
+            onSelect={(value) =>
+              void updateSetting(
+                "recording_overlay_decapitalize_indicator_mode" as any,
+                value as any,
+              )
+            }
+            disabled={isUpdating("recording_overlay_decapitalize_indicator_mode")}
+          />
+        </SettingContainer>
+      </div>
 
       <SettingContainer
         title="Decapitalize Indicator Font"

@@ -7,10 +7,11 @@ import { useSettings } from "../../hooks/useSettings";
 interface ShowTrayIconProps {
   descriptionMode?: "inline" | "tooltip";
   grouped?: boolean;
+  id?: string;
 }
 
 export const ShowTrayIcon: React.FC<ShowTrayIconProps> = React.memo(
-  ({ descriptionMode = "tooltip", grouped = false }) => {
+  ({ descriptionMode = "tooltip", grouped = false, id }) => {
     const { t } = useTranslation();
     const { getSetting, updateSetting, isUpdating } = useSettings();
 
@@ -25,7 +26,11 @@ export const ShowTrayIcon: React.FC<ShowTrayIconProps> = React.memo(
       getSetting("tray_icon_blink_frequency_hz") ?? 4;
 
     return (
-      <div className="space-y-3">
+      <div
+        id={id}
+        tabIndex={id ? -1 : undefined}
+        className="space-y-3 outline-none"
+      >
         <ToggleSwitch
           checked={showTrayIcon}
           onChange={(enabled) => updateSetting("show_tray_icon", enabled)}

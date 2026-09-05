@@ -4,6 +4,17 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { useSettings } from "../../hooks/useSettings";
+import { navigateToSettingsAnchor } from "../../lib/anchorNavigation";
+import { useNavigationStore } from "../../stores/navigationStore";
+
+const openTrayIconSettings = () => {
+  navigateToSettingsAnchor({
+    activateSection: () =>
+      useNavigationStore.getState().setSection("userInterface"),
+    targetId: "tray-icon-settings",
+    updateHash: false,
+  });
+};
 
 export const NeverLaunchWebView: React.FC = React.memo(() => {
   const { t } = useTranslation();
@@ -46,6 +57,17 @@ export const NeverLaunchWebView: React.FC = React.memo(() => {
         descriptionMode="tooltip"
         grouped={true}
       />
+
+      <p className="mx-6 mb-3 text-xs text-text/70">
+        {t("settings.advanced.neverLaunchWebview.trayIndicatorHint")} {" "}
+        <button
+          type="button"
+          onClick={openTrayIconSettings}
+          className="font-medium text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
+        >
+          {t("settings.advanced.neverLaunchWebview.trayIndicatorLink")}
+        </button>
+      </p>
 
       {restartError && (
         <p className="mx-6 mb-3 text-xs text-red-300" role="alert">

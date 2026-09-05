@@ -8,6 +8,32 @@ export type SttWorkflow = "dictation" | "file" | "live";
 
 export type SttModelSelection = BindingSttModelSelection;
 
+export const STT_MODEL_IDS = {
+  sonioxLive: "stt-rt-v5",
+  deepgramLive: "nova-3",
+  googleGeminiLive: "gemini-3.5-transcribe-live",
+  vercelGeminiLive: "google/gemini-3.5-transcribe-live",
+  googleGeminiBatch: "gemini-3.5-transcribe",
+  vercelGeminiBatch: "google/gemini-3.5-transcribe",
+  whisperLargeV3Turbo: "whisper-large-v3-turbo",
+} as const;
+
+export const isGeminiLiveSelection = (
+  selection: SttModelSelection,
+): boolean =>
+  selection.provider === "remote_openai_compatible" &&
+  ((selection.provider_preset === "vercel" &&
+    selection.model_id === STT_MODEL_IDS.vercelGeminiLive) ||
+    (selection.provider_preset === "google" &&
+      selection.model_id === STT_MODEL_IDS.googleGeminiLive));
+
+const isGeminiBatchSelection = (selection: SttModelSelection): boolean =>
+  selection.provider === "remote_openai_compatible" &&
+  ((selection.provider_preset === "vercel" &&
+    selection.model_id === STT_MODEL_IDS.vercelGeminiBatch) ||
+    (selection.provider_preset === "google" &&
+      selection.model_id === STT_MODEL_IDS.googleGeminiBatch));
+
 export type SttCatalogOption = {
   id: string;
   providerId: string;
@@ -130,19 +156,11 @@ export const sttModelCapabilities = (
   if (selection.provider === "remote_soniox") return SONIOX_CAPABILITIES;
   if (selection.provider === "remote_deepgram") return DEEPGRAM_CAPABILITIES;
 
-  const modelId = (selection.model_id ?? "").toLowerCase();
-  const preset = (selection.provider_preset ?? "").toLowerCase();
-  if (
-    (preset === "vercel" || preset === "google") &&
-    modelId.includes("gemini-3.5-transcribe-live")
-  ) {
+  if (isGeminiLiveSelection(selection)) {
     return GEMINI_LIVE_CAPABILITIES;
   }
-  if (
-    (preset === "vercel" || preset === "google") &&
-    modelId.includes("gemini-3.5-transcribe")
-  ) {
-    return preset === "google"
+  if (isGeminiBatchSelection(selection)) {
+    return selection.provider_preset === "google"
       ? GEMINI_CAPABILITIES
       : GEMINI_GATEWAY_CAPABILITIES;
   }
@@ -162,21 +180,22 @@ export const globalSttSelection = (
   if (provider === "remote_soniox") {
     return {
       provider,
-      model_id: settings?.soniox_model || "stt-rt-v5",
+      model_id: settings?.soniox_model || STT_MODEL_IDS.sonioxLive,
       provider_preset: "",
     };
   }
   if (provider === "remote_deepgram") {
     return {
       provider,
-      model_id: settings?.deepgram_model || "nova-3",
+      model_id: settings?.deepgram_model || STT_MODEL_IDS.deepgramLive,
       provider_preset: "",
     };
   }
   if (provider === "remote_openai_compatible") {
     return {
       provider,
-      model_id: settings?.remote_stt?.model_id || "whisper-large-v3-turbo",
+      model_id:
+        settings?.remote_stt?.model_id || STT_MODEL_IDS.whisperLargeV3Turbo,
       provider_preset: settings?.remote_stt?.provider_preset || "groq",
     };
   }
@@ -189,42 +208,35 @@ export const globalSttSelection = (
 
 export const legacyLiveSttSelection = (
   settings: AppSettings | null | undefined,
-): SttModelSelection => {
-  const liveProvider = String(
-    (settings as any)?.live_sound_transcription_provider ?? "remote_soniox",
-  );
+): SttModelSelection | null => {
+  if (!settings) return null;
+  const liveProvider =
+    settings.live_sound_transcription_provider ?? "remote_soniox";
   if (liveProvider === "remote_deepgram") {
     return {
       provider: "remote_deepgram",
-      model_id: settings?.deepgram_model || "nova-3",
+      model_id: settings?.deepgram_model || STT_MODEL_IDS.deepgramLive,
       provider_preset: "",
     };
   }
   if (liveProvider === "remote_openai_compatible") {
     const preset = settings?.remote_stt?.provider_preset || "";
     const modelId = settings?.remote_stt?.model_id || "";
-    if (
-      (preset === "vercel" &&
-        modelId === "google/gemini-3.5-transcribe-live") ||
-      (preset === "google" && modelId === "gemini-3.5-transcribe-live")
-    ) {
-      return {
-        provider: "remote_openai_compatible",
-        model_id: modelId,
-        provider_preset: preset,
-      };
-    }
+    const selection: SttModelSelection = {
+      provider: "remote_openai_compatible",
+      model_id: modelId,
+      provider_preset: preset,
+    };
+    return isGeminiLiveSelection(selection) ? selection : null;
+  }
+  if (liveProvider === "remote_soniox" || liveProvider === "system") {
     return {
       provider: "remote_soniox",
-      model_id: "stt-rt-v5",
+      model_id: settings?.soniox_model || STT_MODEL_IDS.sonioxLive,
       provider_preset: "",
     };
   }
-  return {
-    provider: "remote_soniox",
-    model_id: settings?.soniox_model || "stt-rt-v5",
-    provider_preset: "",
-  };
+  return null;
 };
 
 export const sttCatalog = (
@@ -250,25 +262,25 @@ export const sttCatalog = (
 
   const liveOptions: SttCatalogOption[] = [
       {
-        id: "soniox:stt-rt-v5",
+        id: `soniox:${STT_MODEL_IDS.sonioxLive}`,
         providerId: "soniox",
         providerLabel: "Soniox",
         modelLabel: "STT RT v5",
         selection: {
           provider: "remote_soniox",
-          model_id: "stt-rt-v5",
+          model_id: STT_MODEL_IDS.sonioxLive,
           provider_preset: "",
         },
         capabilities: SONIOX_CAPABILITIES,
       },
       {
-        id: "deepgram:nova-3",
+        id: `deepgram:${STT_MODEL_IDS.deepgramLive}`,
         providerId: "deepgram",
         providerLabel: "Deepgram",
         modelLabel: "Nova 3",
         selection: {
           provider: "remote_deepgram",
-          model_id: "nova-3",
+          model_id: STT_MODEL_IDS.deepgramLive,
           provider_preset: "",
         },
         capabilities: DEEPGRAM_CAPABILITIES,
@@ -276,14 +288,14 @@ export const sttCatalog = (
       remoteSelection(
         "vercel",
         "Vercel",
-        "google/gemini-3.5-transcribe-live",
+        STT_MODEL_IDS.vercelGeminiLive,
         "Gemini 3.5 Transcribe Live",
         GEMINI_LIVE_CAPABILITIES,
       ),
       remoteSelection(
         "google",
         "Google",
-        "gemini-3.5-transcribe-live",
+        STT_MODEL_IDS.googleGeminiLive,
         "Gemini 3.5 Transcribe Live",
         GEMINI_LIVE_CAPABILITIES,
       ),
@@ -307,13 +319,13 @@ export const sttCatalog = (
       capabilities: SONIOX_CAPABILITIES,
     },
     {
-      id: "deepgram:nova-3",
+      id: `deepgram:${STT_MODEL_IDS.deepgramLive}`,
       providerId: "deepgram",
       providerLabel: "Deepgram",
       modelLabel: "Nova 3",
       selection: {
         provider: "remote_deepgram",
-        model_id: "nova-3",
+        model_id: STT_MODEL_IDS.deepgramLive,
         provider_preset: "",
       },
       capabilities: DEEPGRAM_CAPABILITIES,
@@ -321,14 +333,14 @@ export const sttCatalog = (
     remoteSelection(
       "vercel",
       "Vercel",
-      "google/gemini-3.5-transcribe",
+      STT_MODEL_IDS.vercelGeminiBatch,
       "Gemini 3.5 Transcribe",
       GEMINI_GATEWAY_CAPABILITIES,
     ),
     remoteSelection(
       "google",
       "Google",
-      "gemini-3.5-transcribe",
+      STT_MODEL_IDS.googleGeminiBatch,
       "Gemini 3.5 Transcribe",
       GEMINI_CAPABILITIES,
     ),
@@ -336,7 +348,7 @@ export const sttCatalog = (
     remoteSelection(
       "groq",
       "Groq",
-      "whisper-large-v3-turbo",
+      STT_MODEL_IDS.whisperLargeV3Turbo,
       "Whisper Large v3 Turbo",
     ),
   ];
