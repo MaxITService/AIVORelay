@@ -1940,6 +1940,7 @@ fn start_recording_with_feedback_with_settings(
         audio_cancel_generation: rm.cancel_generation(),
     };
     let use_live_streaming = should_use_live_streaming(&settings);
+    let mut gemini_stream_callback: Option<crate::audio_toolkit::StreamFrameCallback> = None;
     if use_live_streaming {
         match settings.transcription_provider {
             TranscriptionProvider::RemoteSoniox => {
@@ -1973,7 +1974,7 @@ fn start_recording_with_feedback_with_settings(
                 let gemini_realtime_manager =
                     Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
                 gemini_realtime_manager.prepare_session(Some(operation_id));
-                rm.set_stream_frame_callback(Arc::new(move |frame| {
+                gemini_stream_callback = Some(Arc::new(move |frame| {
                     gemini_realtime_manager.push_audio_frame_for_operation(Some(operation_id), frame);
                 }));
             }
@@ -2028,7 +2029,7 @@ fn start_recording_with_feedback_with_settings(
     let mut recording_error: Option<StartRecordingError> = None;
     let mut recording_started_at: Option<Instant> = None;
     let recording_start_time = Instant::now();
-    match rm.try_start_recording_detailed(binding_id) {
+    match rm.try_start_recording_detailed(binding_id, operation_id, gemini_stream_callback) {
         Ok(readiness) => {
             recording_started_at = Some(Instant::now());
             rm.apply_media_pause();
@@ -2973,11 +2974,21 @@ async fn get_transcription_or_cleanup_detailed(
         || has_openai_realtime_whisper_session
         || has_gemini_realtime_session;
 
-    if let Some(samples) = rm.stop_recording(binding_id) {
-        if has_live_session {
-            rm.clear_stream_frame_callback();
+    let rm_for_stop = Arc::clone(&rm);
+    let binding_for_stop = binding_id.to_string();
+    let samples = match tauri::async_runtime::spawn_blocking(move || {
+        rm_for_stop.stop_recording_if_matches(&binding_for_stop, recording_operation_id)
+    }).await {
+        Ok(samples) => samples,
+        Err(error) => {
+            error!("Audio stop task failed for operation {}: {}", recording_operation_id, error);
+            None
         }
-
+    };
+    if !session_manager::is_operation_current(app, recording_operation_id) {
+        return TranscriptionFetchOutcome::Cancelled;
+    }
+    if let Some(samples) = samples {
         if should_skip_transcription_for_quick_tap(binding_id, &recording_settings, samples.len()) {
             debug!(
                 "Quick tap detected for {} ({} samples), skipping transcription/finalization",
@@ -3132,7 +3143,6 @@ async fn get_transcription_or_cleanup_detailed(
         }
     } else {
         if has_live_session {
-            rm.clear_stream_frame_callback();
             soniox_live_manager.cancel();
             deepgram_live_manager.cancel();
             openai_realtime_whisper_manager.cancel();
@@ -7834,23 +7844,18 @@ impl ShortcutAction for TranscribeAction {
                 let mut finish_guard =
                     FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
                 let rm = Arc::clone(&ah.state::<Arc<AudioRecordingManager>>());
-                let (samples, mut stream_processor, had_soniox_stream_output,
+                let (mut stream_processor, had_soniox_stream_output,
                     mut had_deepgram_stream_output, mut had_openai_realtime_whisper_stream_output) = {
-                    // Cancel must not release this operation and start another
-                    // recorder while we stop capture or remove its callback.
-                    // Release the guard before any asynchronous finalization.
+                    // Claim only in-memory bookkeeping under this lock. Audio
+                    // I/O and callback cleanup use capture ownership below.
                     let state = ah.state::<ManagedSessionState>();
-                    let capture_guard = is_gemini_live_provider.then(|| {
-                        session_manager::lock_session_state(&state, "stop Gemini capture")
-                    });
-                    if let Some(guard) = capture_guard.as_ref() {
-                        if !matches!(&**guard,
-                            session_manager::SessionState::Processing { operation_id, .. }
-                                if *operation_id == recording_operation_id)
-                            || operation_stamp.was_cancelled(&ah)
-                        {
-                            return;
-                        }
+                    let guard = session_manager::lock_session_state(&state, "claim live stop output");
+                    if !matches!(&*guard,
+                        session_manager::SessionState::Processing { operation_id, .. }
+                            if *operation_id == recording_operation_id)
+                        || operation_stamp.was_cancelled(&ah)
+                    {
+                        return;
                     }
                     let stream_processor = take_soniox_stream_processor(&binding_id);
                     let had_soniox_stream_output =
@@ -7864,12 +7869,21 @@ impl ShortcutAction for TranscribeAction {
                     let had_openai_realtime_whisper_stream_output =
                         (is_openai_realtime_whisper_live_provider || is_gemini_live_provider)
                             && take_openai_realtime_whisper_stream_emitted(&binding_id);
-                    let samples = rm.stop_recording(&binding_id);
-                    if is_gemini_live_provider {
-                        rm.clear_stream_frame_callback();
-                    }
-                    (samples, stream_processor, had_soniox_stream_output,
+                    (stream_processor, had_soniox_stream_output,
                         had_deepgram_stream_output, had_openai_realtime_whisper_stream_output)
+                };
+                // No global lock crosses the device wait. The audio manager
+                // atomically claims the capture by operation ID before stopping.
+                let rm_for_stop = Arc::clone(&rm);
+                let binding_for_stop = binding_id.clone();
+                let samples = match tauri::async_runtime::spawn_blocking(move || {
+                    rm_for_stop.stop_recording_if_matches(&binding_for_stop, recording_operation_id)
+                }).await {
+                    Ok(samples) => samples,
+                    Err(error) => {
+                        error!("Audio stop task failed for operation {}: {}", recording_operation_id, error);
+                        None
+                    }
                 };
                 let samples = match samples {
                     Some(samples) => samples,
@@ -7914,9 +7928,6 @@ impl ShortcutAction for TranscribeAction {
                         {
                             return;
                         }
-                        if !is_gemini_live_provider {
-                            rm.clear_stream_frame_callback();
-                        }
                         if !preview_output_only_enabled {
                             end_streaming_paste_session_after_main_thread_queue(
                                 &ah,
@@ -7940,9 +7951,6 @@ impl ShortcutAction for TranscribeAction {
                 {
                     gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
                     return;
-                }
-                if !is_gemini_live_provider {
-                    rm.clear_stream_frame_callback();
                 }
 
                 let had_stream_output = if is_deepgram_live_provider {

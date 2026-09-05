@@ -458,7 +458,10 @@ const WHISPER_SAMPLE_RATE: usize = 16000;
 #[derive(Clone, Debug)]
 pub enum RecordingState {
     Idle,
-    Recording { binding_id: String },
+    Recording {
+        binding_id: String,
+        operation_id: u64,
+    },
     Stopping,
 }
 
@@ -1256,6 +1259,8 @@ impl AudioRecordingManager {
     pub fn try_start_recording_detailed(
         &self,
         binding_id: &str,
+        operation_id: u64,
+        stream_callback: Option<StreamFrameCallback>,
     ) -> Result<RecordingReadiness, StartRecordingError> {
         let settings = get_settings(&self.app_handle);
         let selection = self.resolve_selection_for_binding(&settings, Some(binding_id));
@@ -1275,6 +1280,9 @@ impl AudioRecordingManager {
         let mut state = self.state.lock().unwrap();
 
         if let RecordingState::Idle = *state {
+            if let Some(callback) = stream_callback {
+                self.set_stream_frame_callback(callback);
+            }
             // Ensure the correct capture source is open for this binding.
             if let Err(e) = self.start_stream_for_selection(selection.clone(), &settings) {
                 let message = e.to_string();
@@ -1304,6 +1312,7 @@ impl AudioRecordingManager {
                     &mut state,
                     RecordingState::Recording {
                         binding_id: binding_id.to_string(),
+                        operation_id,
                     },
                 );
                 debug!("Recording requested for binding {binding_id}");
@@ -1441,14 +1450,35 @@ impl AudioRecordingManager {
     }
 
     pub fn stop_recording(&self, binding_id: &str) -> Option<Vec<f32>> {
-        self.invalidate_recording_readiness();
+        self.stop_recording_owned(binding_id, None)
+    }
+
+    /// Claim only this operation's capture. The Stopping state prevents reuse
+    /// until its worker and callback cleanup complete, without a session/UI lock.
+    pub fn stop_recording_if_matches(
+        &self,
+        binding_id: &str,
+        operation_id: u64,
+    ) -> Option<Vec<f32>> {
+        self.stop_recording_owned(binding_id, Some(operation_id))
+    }
+
+    fn stop_recording_owned(
+        &self,
+        binding_id: &str,
+        operation_id: Option<u64>,
+    ) -> Option<Vec<f32>> {
         let cancel_generation = self.cancel_generation();
         let mut state = self.state.lock().unwrap();
 
         match *state {
             RecordingState::Recording {
                 binding_id: ref active,
-            } if active == binding_id => {
+                operation_id: active_operation_id,
+            } if active == binding_id
+                && operation_id.is_none_or(|expected| expected == active_operation_id) =>
+            {
+                self.invalidate_recording_readiness();
                 self.set_state(&mut state, RecordingState::Stopping);
                 drop(state);
 
@@ -1483,17 +1513,7 @@ impl AudioRecordingManager {
                     Vec::new()
                 };
 
-                *self.is_recording.lock().unwrap() = false;
-                self.set_state(&mut self.state.lock().unwrap(), RecordingState::Idle);
-
-                // In on-demand mode, close the microphone lazily only for real mic capture.
-                if matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand) {
-                    if self.should_use_lazy_stream_close() {
-                        self.schedule_lazy_close();
-                    } else {
-                        self.stop_microphone_stream();
-                    }
-                }
+                self.finish_capture_stop();
 
                 if self.was_cancelled_since(cancel_generation) {
                     debug!("Recording stop cancelled; discarding captured samples");
@@ -1525,7 +1545,7 @@ impl AudioRecordingManager {
             let state = self.state.lock().unwrap();
             matches!(
                 &*state,
-                RecordingState::Recording { binding_id: active } if active == binding_id
+                RecordingState::Recording { binding_id: active, .. } if active == binding_id
             )
         };
 
@@ -1566,29 +1586,36 @@ impl AudioRecordingManager {
 
         match *state {
             RecordingState::Recording { .. } => {
-                self.set_state(&mut state, RecordingState::Idle);
+                self.set_state(&mut state, RecordingState::Stopping);
                 drop(state);
 
                 if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
                     let _ = rec.stop(); // Discard the result
                 }
 
-                *self.is_recording.lock().unwrap() = false;
-
-                // In on-demand mode, close the microphone lazily only for real mic capture.
-                if matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand) {
-                    if self.should_use_lazy_stream_close() {
-                        self.schedule_lazy_close();
-                    } else {
-                        self.stop_microphone_stream();
-                    }
-                }
+                self.finish_capture_stop();
             }
             RecordingState::Stopping => {
                 debug!("Cancellation requested while recording is stopping");
             }
             RecordingState::Idle => {}
         }
+    }
+
+    fn finish_capture_stop(&self) {
+        // Still Stopping: a new capture cannot install its callback or be
+        // closed by this operation's cleanup.
+        self.clear_stream_frame_callback();
+        *self.is_recording.lock().unwrap() = false;
+        let on_demand = matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand);
+        if on_demand {
+            if self.should_use_lazy_stream_close() {
+                self.schedule_lazy_close();
+            } else {
+                self.stop_microphone_stream();
+            }
+        }
+        self.set_state(&mut self.state.lock().unwrap(), RecordingState::Idle);
     }
     pub fn update_vad_threshold(&self, threshold: f32) {
         if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
