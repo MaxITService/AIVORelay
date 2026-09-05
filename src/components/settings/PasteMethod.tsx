@@ -98,7 +98,7 @@ export const PasteMethodSetting: React.FC<PasteMethodProps> = React.memo(
             value={pasteDelayMs}
             onChange={(value) => updateSetting("paste_delay_ms", Math.round(value))}
             min={10}
-            max={200}
+            max={5000}
             step={10}
             disabled={isUpdating("paste_delay_ms")}
             label={t("settings.advanced.pasteMethod.pasteDelay.title")}
