@@ -1,5 +1,5 @@
 import { exit } from "@tauri-apps/plugin-process";
-import largeLogoUrl from "../../assets/large_logo.jpg";
+import largeLogoUrl from "../../assets/large_logo.jpg?inline";
 
 const HandyTextLogo = ({
   width,

@@ -1972,9 +1972,9 @@ fn start_recording_with_feedback_with_settings(
             {
                 let gemini_realtime_manager =
                     Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
-                gemini_realtime_manager.cancel();
+                gemini_realtime_manager.prepare_session(Some(operation_id));
                 rm.set_stream_frame_callback(Arc::new(move |frame| {
-                    gemini_realtime_manager.push_audio_frame(frame);
+                    gemini_realtime_manager.push_audio_frame_for_operation(Some(operation_id), frame);
                 }));
             }
             _ => {}
@@ -2101,7 +2101,7 @@ fn start_recording_with_feedback_with_settings(
                 app.state::<Arc<SonioxRealtimeManager>>().cancel();
                 app.state::<Arc<DeepgramRealtimeManager>>().cancel();
                 app.state::<Arc<OpenAiRealtimeWhisperManager>>().cancel();
-                app.state::<Arc<GeminiRealtimeManager>>().cancel();
+                app.state::<Arc<GeminiRealtimeManager>>().cancel_if_matches(Some(operation_id));
                 if use_native_local_streaming {
                     tm.cancel_stream();
                 }
@@ -2128,7 +2128,7 @@ fn start_recording_with_feedback_with_settings(
             app.state::<Arc<SonioxRealtimeManager>>().cancel();
             app.state::<Arc<DeepgramRealtimeManager>>().cancel();
             app.state::<Arc<OpenAiRealtimeWhisperManager>>().cancel();
-            app.state::<Arc<GeminiRealtimeManager>>().cancel();
+            app.state::<Arc<GeminiRealtimeManager>>().cancel_if_matches(Some(operation_id));
             if use_native_local_streaming {
                 tm.cancel_stream();
             }
@@ -2931,12 +2931,14 @@ fn prepare_stop_recording(app: &AppHandle, binding_id: &str) -> Option<StopRecor
 async fn get_transcription_or_cleanup(
     app: &AppHandle,
     binding_id: &str,
+    recording_operation_id: u64,
     captured_profile_id: Option<String>,
     recording_settings: AppSettings,
 ) -> Option<(String, Vec<f32>)> {
     match get_transcription_or_cleanup_detailed(
         app,
         binding_id,
+        recording_operation_id,
         captured_profile_id,
         recording_settings,
     )
@@ -2952,6 +2954,7 @@ async fn get_transcription_or_cleanup(
 async fn get_transcription_or_cleanup_detailed(
     app: &AppHandle,
     binding_id: &str,
+    recording_operation_id: u64,
     captured_profile_id: Option<String>,
     recording_settings: AppSettings,
 ) -> TranscriptionFetchOutcome {
@@ -2991,7 +2994,7 @@ async fn get_transcription_or_cleanup_detailed(
                 openai_realtime_whisper_manager.cancel();
             }
             if has_gemini_realtime_session {
-                gemini_realtime_manager.cancel();
+                gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
             }
             return TranscriptionFetchOutcome::Success((String::new(), samples));
         }
@@ -3075,7 +3078,7 @@ async fn get_transcription_or_cleanup_detailed(
             && should_use_gemini_realtime_live(&recording_settings)
         {
             match gemini_realtime_manager
-                .finish_session(GEMINI_LIVE_FINALIZE_TIMEOUT_MS)
+                .finish_session_if_matches(Some(recording_operation_id), GEMINI_LIVE_FINALIZE_TIMEOUT_MS)
                 .await
             {
                 Ok(text) => {
@@ -3133,7 +3136,7 @@ async fn get_transcription_or_cleanup_detailed(
             soniox_live_manager.cancel();
             deepgram_live_manager.cancel();
             openai_realtime_whisper_manager.cancel();
-            gemini_realtime_manager.cancel();
+            gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
         }
         debug!("No samples retrieved from recording stop");
         utils::hide_recording_overlay(app);
@@ -6254,7 +6257,13 @@ fn setup_and_start_live(
             let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
                 .map_err(|e| format!("{}", e))?;
             gemini_realtime_manager
-                .start_session(binding_id, None, &api_key, options, None)
+                .start_session(
+                    binding_id,
+                    session_manager::recording_operation_id(app, binding_id),
+                    &api_key,
+                    options,
+                    None,
+                )
                 .map_err(|e| {
                     app.state::<Arc<AudioRecordingManager>>()
                         .clear_stream_frame_callback();
@@ -7679,6 +7688,12 @@ impl ShortcutAction for TranscribeAction {
                     );
 
                     if let Err(err) = start_result {
+                        if !operation_stamp.is_current(&app_handle)
+                            || operation_stamp.was_cancelled(&app_handle)
+                        {
+                            debug!("Ignoring Gemini startup for stale operation {}", recording_operation_id);
+                            return;
+                        }
                         let _ = take_soniox_stream_processor(&binding_id);
                         let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
                         let err_str = format!("{}", err);
@@ -7818,35 +7833,60 @@ impl ShortcutAction for TranscribeAction {
                     });
                 let mut finish_guard =
                     FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
-                let mut stream_processor = take_soniox_stream_processor(&binding_id);
-                let had_soniox_stream_output =
-                    if is_deepgram_live_provider || is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
-                        false
-                    } else {
-                        take_soniox_stream_emitted(&binding_id)
-                    };
-                let mut had_deepgram_stream_output = if is_deepgram_live_provider {
-                    take_deepgram_stream_emitted(&binding_id)
-                } else {
-                    false
-                };
-                let mut had_openai_realtime_whisper_stream_output =
-                    if is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
-                        take_openai_realtime_whisper_stream_emitted(&binding_id)
-                    } else {
-                        false
-                    };
                 let rm = Arc::clone(&ah.state::<Arc<AudioRecordingManager>>());
-                let samples = match rm.stop_recording(&binding_id) {
+                let (samples, mut stream_processor, had_soniox_stream_output,
+                    mut had_deepgram_stream_output, mut had_openai_realtime_whisper_stream_output) = {
+                    // Cancel must not release this operation and start another
+                    // recorder while we stop capture or remove its callback.
+                    // Release the guard before any asynchronous finalization.
+                    let state = ah.state::<ManagedSessionState>();
+                    let capture_guard = is_gemini_live_provider.then(|| {
+                        session_manager::lock_session_state(&state, "stop Gemini capture")
+                    });
+                    if let Some(guard) = capture_guard.as_ref() {
+                        if !matches!(&**guard,
+                            session_manager::SessionState::Processing { operation_id, .. }
+                                if *operation_id == recording_operation_id)
+                            || operation_stamp.was_cancelled(&ah)
+                        {
+                            return;
+                        }
+                    }
+                    let stream_processor = take_soniox_stream_processor(&binding_id);
+                    let had_soniox_stream_output =
+                        if is_deepgram_live_provider || is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
+                            false
+                        } else {
+                            take_soniox_stream_emitted(&binding_id)
+                        };
+                    let had_deepgram_stream_output = is_deepgram_live_provider
+                        && take_deepgram_stream_emitted(&binding_id);
+                    let had_openai_realtime_whisper_stream_output =
+                        (is_openai_realtime_whisper_live_provider || is_gemini_live_provider)
+                            && take_openai_realtime_whisper_stream_emitted(&binding_id);
+                    let samples = rm.stop_recording(&binding_id);
+                    if is_gemini_live_provider {
+                        rm.clear_stream_frame_callback();
+                    }
+                    (samples, stream_processor, had_soniox_stream_output,
+                        had_deepgram_stream_output, had_openai_realtime_whisper_stream_output)
+                };
+                let samples = match samples {
                     Some(samples) => samples,
                     None => {
+                        if is_gemini_live_provider
+                            && (!operation_stamp.is_current(&ah) || operation_stamp.was_cancelled(&ah))
+                        {
+                            gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                            return;
+                        }
                         if live_instant_stop {
                             if is_deepgram_live_provider {
                                 deepgram_live_manager.cancel();
                             } else if is_openai_realtime_whisper_live_provider {
                                 openai_realtime_whisper_manager.cancel();
                             } else if is_gemini_live_provider {
-                                gemini_realtime_manager.cancel();
+                                gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
                             } else {
                                 soniox_live_manager.cancel();
                             }
@@ -7861,7 +7901,7 @@ impl ShortcutAction for TranscribeAction {
                                     .await
                             } else if is_gemini_live_provider {
                                 gemini_realtime_manager
-                                    .finish_session(live_finalize_timeout_ms)
+                                    .finish_session_if_matches(Some(recording_operation_id), live_finalize_timeout_ms)
                                     .await
                             } else {
                                 soniox_live_manager
@@ -7869,7 +7909,14 @@ impl ShortcutAction for TranscribeAction {
                                     .await
                             };
                         }
-                        rm.clear_stream_frame_callback();
+                        if is_gemini_live_provider
+                            && (!operation_stamp.is_current(&ah) || operation_stamp.was_cancelled(&ah))
+                        {
+                            return;
+                        }
+                        if !is_gemini_live_provider {
+                            rm.clear_stream_frame_callback();
+                        }
                         if !preview_output_only_enabled {
                             end_streaming_paste_session_after_main_thread_queue(
                                 &ah,
@@ -7888,7 +7935,15 @@ impl ShortcutAction for TranscribeAction {
                         return;
                     }
                 };
-                rm.clear_stream_frame_callback();
+                if is_gemini_live_provider
+                    && (!operation_stamp.is_current(&ah) || operation_stamp.was_cancelled(&ah))
+                {
+                    gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                    return;
+                }
+                if !is_gemini_live_provider {
+                    rm.clear_stream_frame_callback();
+                }
 
                 let had_stream_output = if is_deepgram_live_provider {
                     had_deepgram_stream_output
@@ -7921,7 +7976,7 @@ impl ShortcutAction for TranscribeAction {
                     } else if is_openai_realtime_whisper_live_provider {
                         openai_realtime_whisper_manager.cancel();
                     } else if is_gemini_live_provider {
-                        gemini_realtime_manager.cancel();
+                        gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
                     } else {
                         soniox_live_manager.cancel();
                     }
@@ -7961,7 +8016,7 @@ impl ShortcutAction for TranscribeAction {
                 let mut detached_gemini_finalization =
                     pending_gemini_background_finalization
                         .as_ref()
-                        .map(|_| gemini_realtime_manager.begin_finish_session());
+                        .map(|_| gemini_realtime_manager.begin_finish_session_if_matches(Some(recording_operation_id)));
                 if let Some(pending) = pending_gemini_background_finalization.as_ref() {
                     mark_gemini_finalizing_session_detached(
                         &ah,
@@ -7995,7 +8050,7 @@ impl ShortcutAction for TranscribeAction {
                     } else if is_openai_realtime_whisper_live_provider {
                         openai_realtime_whisper_manager.cancel();
                     } else if is_gemini_live_provider {
-                        gemini_realtime_manager.cancel();
+                        gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
                     } else {
                         soniox_live_manager.cancel();
                     }
@@ -8038,7 +8093,7 @@ impl ShortcutAction for TranscribeAction {
                         finalization.finish(live_finalize_timeout_ms).await
                     } else {
                         gemini_realtime_manager
-                            .finish_session(live_finalize_timeout_ms)
+                            .finish_session_if_matches(Some(recording_operation_id), live_finalize_timeout_ms)
                             .await
                     }
                 } else if preview_output_only_enabled {
@@ -8057,6 +8112,12 @@ impl ShortcutAction for TranscribeAction {
                     .is_some_and(|pending| {
                         pending.foreground_released.load(Ordering::Acquire)
                     });
+                if is_gemini_live_provider
+                    && (operation_stamp.was_cancelled(&ah)
+                        || (!gemini_finalization_is_background && !operation_stamp.is_current(&ah)))
+                {
+                    return;
+                }
                 if gemini_finalization_is_background {
                     if let Some(processor) = stream_processor.as_ref() {
                         let tail_delta = match processor.lock() {
@@ -9086,6 +9147,7 @@ impl ShortcutAction for SendToExtensionAction {
             let (transcription, samples) = match get_transcription_or_cleanup(
                 &ah,
                 &binding_id,
+                recording_operation_id,
                 None,
                 recording_settings.clone(),
             )
@@ -9228,6 +9290,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
             let (transcription, samples) = match get_transcription_or_cleanup(
                 &ah,
                 &binding_id,
+                recording_operation_id,
                 None,
                 recording_settings.clone(),
             )
@@ -9661,6 +9724,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
             let (voice_text, samples) = match get_transcription_or_cleanup(
                 &ah,
                 &binding_id,
+                recording_operation_id,
                 None,
                 recording_settings.clone(),
             )
@@ -9907,6 +9971,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
             let (transcription, _) = match get_transcription_or_cleanup_detailed(
                 &ah,
                 &binding_id,
+                recording_operation_id,
                 None,
                 recording_settings.clone(),
             )
@@ -10956,6 +11021,7 @@ impl ShortcutAction for VoiceCommandAction {
             let (transcription, _) = match get_transcription_or_cleanup(
                 &ah,
                 &binding_id,
+                recording_operation_id,
                 None,
                 recording_settings.clone(),
             )

@@ -29,7 +29,7 @@ type ReadinessProblemKind =
 
 type Props = {
   workflow: SttWorkflow;
-  selection: SttModelSelection;
+  selection: SttModelSelection | null;
   localModels?: ModelInfo[];
   onChange: (selection: SttModelSelection) => void | Promise<void>;
   disabled?: boolean;
@@ -49,8 +49,8 @@ export const SttModelSelector: React.FC<Props> = ({
     () => sttCatalog(workflow, localModels),
     [localModels, workflow],
   );
-  const currentKey = sttSelectionKey(selection);
-  const currentProviderId = sttProviderId(selection);
+  const currentKey = selection ? sttSelectionKey(selection) : null;
+  const currentProviderId = selection ? sttProviderId(selection) : null;
   const [readiness, setReadiness] = useState<Map<string, string | null>>(
     new Map(),
   );
@@ -67,16 +67,20 @@ export const SttModelSelector: React.FC<Props> = ({
   const [actionError, setActionError] = useState<string | null>(null);
 
   const options = useMemo<SttCatalogOption[]>(() => {
-    if (catalog.some((option) => sttSelectionKey(option.selection) === currentKey)) {
+    if (
+      !selection ||
+      catalog.some((option) => sttSelectionKey(option.selection) === currentKey)
+    ) {
       return catalog;
     }
     return [
       ...catalog,
       {
         id: `current:${currentKey}`,
-        providerId: currentProviderId,
+        providerId: currentProviderId ?? "custom",
         providerLabel:
-          currentProviderId.charAt(0).toUpperCase() + currentProviderId.slice(1),
+          (currentProviderId ?? "custom").charAt(0).toUpperCase() +
+          (currentProviderId ?? "custom").slice(1),
         modelLabel: selection.model_id || "Current model",
         selection,
         capabilities: catalog[0]?.capabilities ?? {
@@ -89,7 +93,7 @@ export const SttModelSelector: React.FC<Props> = ({
         },
       },
     ];
-  }, [catalog, currentKey, currentProviderId]);
+  }, [catalog, currentKey, currentProviderId, selection]);
 
   useEffect(() => {
     let active = true;
@@ -162,15 +166,23 @@ export const SttModelSelector: React.FC<Props> = ({
   const modelOptions = options.filter(
     (option) => option.providerId === currentProviderId,
   );
-  const currentCatalogOption = catalog.find(
-    (option) => sttSelectionKey(option.selection) === currentKey,
-  );
-  const currentProblemKind = problemKinds.get(currentKey) ?? null;
-  const currentProblem = !currentCatalogOption
-    ? t("settings.sttModelSelector.incompatibleModel")
-    : readinessCheckFailed
-      ? t("settings.sttModelSelector.readinessCheckFailed")
-      : readiness.get(currentKey) ?? null;
+  const currentCatalogOption = selection
+    ? catalog.find(
+        (option) => sttSelectionKey(option.selection) === currentKey,
+      )
+    : undefined;
+  const currentProblemKind = currentKey
+    ? (problemKinds.get(currentKey) ?? null)
+    : "notConfigured";
+  const currentProblem = !selection
+    ? t("settings.sttModelSelector.notConfigured")
+    : !currentCatalogOption
+      ? t("settings.sttModelSelector.incompatibleModel")
+      : readinessCheckFailed
+        ? t("settings.sttModelSelector.readinessCheckFailed")
+        : currentKey
+          ? readiness.get(currentKey) ?? null
+          : t("settings.sttModelSelector.notConfigured");
 
   const retryReadiness = () => {
     setActionError(null);
@@ -248,6 +260,7 @@ export const SttModelSelector: React.FC<Props> = ({
           options={providerOptions}
           onSelect={selectProvider}
           disabled={disabled || selectionChanging}
+          placeholder={t("settings.sttModelSelector.selectProvider")}
           dropUp={false}
         />
       </div>
@@ -270,7 +283,8 @@ export const SttModelSelector: React.FC<Props> = ({
             );
             if (option) void selectModel(option.selection);
           }}
-          disabled={disabled || selectionChanging}
+          disabled={disabled || selectionChanging || !currentProviderId}
+          placeholder={t("settings.sttModelSelector.selectModel")}
           dropUp={false}
         />
         {currentProblem && (
@@ -283,7 +297,7 @@ export const SttModelSelector: React.FC<Props> = ({
               <span>{currentProblem}</span>
             </p>
             <div className="flex flex-wrap items-center gap-2 pl-5">
-              {!currentCatalogOption ? (
+              {!selection ? null : !currentCatalogOption ? (
                 <Button
                   type="button"
                   variant="secondary"

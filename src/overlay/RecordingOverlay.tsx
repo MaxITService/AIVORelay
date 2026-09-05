@@ -102,6 +102,10 @@ function compactOverlayErrorCode(rawCode: string): string {
   return lastToken.slice(0, 8);
 }
 
+function compactActiveAppName(rawName: string): string {
+  return rawName.trim().replace(/\.exe$/i, "");
+}
+
 type OverlayErrorCopy = {
   title: string;
   hint: string;
@@ -1222,7 +1226,10 @@ const RecordingOverlay: React.FC = () => {
           decapIndicatorEligible &&
           decapIndicatorArmed &&
           appearance.decapitalize_indicator_mode !== "hidden";
-        const hasApp = Boolean(activeApp);
+        const compactActiveApp = activeApp
+          ? compactActiveAppName(activeApp)
+          : "";
+        const hasApp = Boolean(compactActiveApp);
         const showChip =
           (hasDecap || hasApp) &&
           state !== "profile_switch" &&
@@ -1234,7 +1241,9 @@ const RecordingOverlay: React.FC = () => {
 
         return (
           <div className="overlay-meta-chip">
-            {hasApp && <span className="overlay-chip-app">{activeApp}</span>}
+            {hasApp && (
+              <span className="overlay-chip-app">{compactActiveApp}</span>
+            )}
             {hasApp && hasDecap && (
               <span className="overlay-chip-separator">•</span>
             )}

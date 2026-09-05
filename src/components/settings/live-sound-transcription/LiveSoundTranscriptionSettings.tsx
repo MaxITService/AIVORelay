@@ -14,6 +14,7 @@ import { useSettings } from "../../../hooks/useSettings";
 import { SttModelSelector } from "../SttModelSelector";
 import {
   legacyLiveSttSelection,
+  isGeminiLiveSelection,
   sttModelCapabilities,
   sttSupports,
   type SttModelSelection,
@@ -236,14 +237,15 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const [sessionSettingsCollapsed, setSessionSettingsCollapsed] = useState(true);
   const [geminiCompletionVariant, setGeminiCompletionVariant] =
     useState<GeminiLiveCompletionVariant | null>(null);
+  const [liveSelectionReady, setLiveSelectionReady] = useState(false);
 
-  const storedLiveSelection = (settings as any)
-    ?.live_sound_model_selection as SttModelSelection | null | undefined;
-  const liveSelection =
-    storedLiveSelection &&
-    sttModelCapabilities(storedLiveSelection).workflows.includes("live")
-      ? storedLiveSelection
+  const liveSelection = useMemo(() => {
+    const storedSelection = settings?.live_sound_model_selection;
+    return storedSelection &&
+      sttModelCapabilities(storedSelection).workflows.includes("live")
+      ? storedSelection
       : legacyLiveSttSelection(settings);
+  }, [settings]);
   const liveSettingsInitializedRef = useRef(false);
   useEffect(() => {
     if (!settings || liveSettingsInitializedRef.current) return;
@@ -254,21 +256,50 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
         setErrorMessage(String(initializationError)),
       );
   }, [refreshSettings, settings]);
-  const provider = liveSelection.provider;
-  const remotePreset = (liveSelection.provider_preset ?? "").toLowerCase();
-  const remoteModelId = (liveSelection.model_id ?? "").toLowerCase();
-  const remoteIsGeminiLive =
-    (remotePreset === "vercel" || remotePreset === "google") &&
-    (remoteModelId === "google/gemini-3.5-transcribe-live" ||
-      remoteModelId === "gemini-3.5-transcribe-live");
+  const provider = liveSelection?.provider ?? null;
+  const remoteIsGeminiLive = liveSelection
+    ? isGeminiLiveSelection(liveSelection)
+    : false;
   const remoteLiveReady = remoteIsGeminiLive;
   const liveGeminiMode = String(
-    (settings as any)?.live_sound_gemini_mode ??
-      (settings as any)?.gemini_live_mode ??
+    settings?.live_sound_gemini_mode ??
+      settings?.gemini_live_mode ??
       "smart",
   );
+  useEffect(() => {
+    let active = true;
+    setLiveSelectionReady(false);
+    if (!liveSelection || !supportsRemoteLiveSound) {
+      if (settings && supportsRemoteLiveSound && !liveSelection) {
+        setSessionSettingsCollapsed(false);
+      }
+      return () => {
+        active = false;
+      };
+    }
+
+    void invoke<Array<{ ready: boolean }>>("stt_model_selections_readiness", {
+      selections: [liveSelection],
+    })
+      .then((items) => {
+        if (!active) return;
+        const ready = items[0]?.ready === true;
+        setLiveSelectionReady(ready);
+        if (!ready) setSessionSettingsCollapsed(false);
+      })
+      .catch(() => {
+        if (!active) return;
+        setLiveSelectionReady(false);
+        setSessionSettingsCollapsed(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [liveSelection, settings, supportsRemoteLiveSound]);
   const handleModelSelectionChange = async (selection: SttModelSelection) => {
     setSourceBusy(true);
+    setLiveSelectionReady(false);
     setErrorMessage(null);
     try {
       await invoke("change_live_sound_model_selection", { selection });
@@ -322,14 +353,13 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
 
   const liveProviderReady =
     supportsRemoteLiveSound &&
+    Boolean(liveSelection) &&
     (provider === "remote_soniox" ||
       provider === "remote_deepgram" ||
       (provider === "remote_openai_compatible" && remoteLiveReady));
-  const providerSupportsDiarization = sttSupports(
-    liveSelection,
-    "diarization",
-    "live",
-  );
+  const providerSupportsDiarization = liveSelection
+    ? sttSupports(liveSelection, "diarization", "live")
+    : false;
   const diarizationEnabled = Boolean(
     (settings as any)?.live_sound_enable_speaker_diarization ?? true,
   );
@@ -836,6 +866,10 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                 {t("settings.liveSoundTranscription.session.windowsOnly")}
               </div>
+            ) : !liveSelection ? (
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                {t("settings.liveSoundTranscription.session.selectModel")}
+              </div>
             ) : !liveProviderReady ? (
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                 {t("settings.liveSoundTranscription.session.remoteOnly")}
@@ -898,6 +932,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
             variant="primary"
             disabled={
               !liveProviderReady ||
+              !liveSelectionReady ||
               !liveModeEnabled ||
               isRecording ||
               sourceBusy ||

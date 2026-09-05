@@ -362,7 +362,11 @@ export const UserInterfaceSettings: React.FC = () => {
       </div>
 
       <SettingsGroup title={t("settings.userInterface.title")}>
-        <ShowTrayIcon descriptionMode="tooltip" grouped={true} />
+        <ShowTrayIcon
+          id="tray-icon-settings"
+          descriptionMode="tooltip"
+          grouped={true}
+        />
         <ShowTrayShortcutGuide descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
 

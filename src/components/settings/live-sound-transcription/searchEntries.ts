@@ -3,7 +3,6 @@ import {
   legacyLiveSttSelection,
   sttModelCapabilities,
   sttSupports,
-  type SttModelSelection,
 } from "../../../lib/sttModelSelection";
 
 const liveSelectionSupportsDiarization = (
@@ -11,14 +10,13 @@ const liveSelectionSupportsDiarization = (
 ): boolean => {
   if (!settings) return true;
 
-  const storedSelection = (settings as any)
-    .live_sound_model_selection as SttModelSelection | null | undefined;
+  const storedSelection = settings.live_sound_model_selection;
   const selection =
     storedSelection && sttModelCapabilities(storedSelection).workflows.includes("live")
       ? storedSelection
       : legacyLiveSttSelection(settings);
 
-  return sttSupports(selection, "diarization", "live");
+  return selection ? sttSupports(selection, "diarization", "live") : false;
 };
 
 export const liveSoundSearchEntries = [
