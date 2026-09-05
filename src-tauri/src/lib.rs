@@ -26,6 +26,7 @@ mod no_clobber;
 mod overlay;
 mod plus_overlay_state;
 mod portable;
+mod quick_replacement;
 mod recording_auto_stop;
 #[cfg(target_os = "windows")]
 mod region_capture;
@@ -789,6 +790,9 @@ fn initialize_core_logic(app_handle: &AppHandle) {
             match event.id.as_ref() {
                 "settings" => {
                     restart_with_webview_ui(app);
+                }
+                quick_replacement::BINDING_ID => {
+                    quick_replacement::open(app, String::new(), false);
                 }
                 tray::TRAY_SHORTCUT_GUIDE_SHOW_IN_MAIN_ID => {
                     let mut settings = settings::get_settings(app);

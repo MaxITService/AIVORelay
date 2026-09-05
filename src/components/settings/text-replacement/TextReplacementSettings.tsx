@@ -23,6 +23,7 @@ import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { useSettings } from "@/hooks/useSettings";
 import { useNavigationStore } from "@/stores/navigationStore";
+import { HandyShortcut } from "@/components/settings/HandyShortcut";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -34,6 +35,7 @@ import { TellMeMore } from "@/components/ui/TellMeMore";
 import { HotkeyCapture } from "@/components/ui/HotkeyCapture";
 import { formatKeyCombination, type OSType } from "@/lib/utils/keyboard";
 import { getShortcutAnchorId } from "@/lib/shortcutAnchors";
+import { OPEN_QUICK_TEXT_REPLACEMENT_EVENT } from "@/constants/appEvents";
 import { getActiveProfilePostProcessingEnabled } from "@/lib/postProcessingAvailability";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { TextReplacementImportDialog } from "./TextReplacementImportDialog";
@@ -776,6 +778,30 @@ export const TextReplacementSettings: React.FC = () => {
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6 pb-12">
+      <SettingsGroup
+        title={t("textReplacement.quickAdd.settingsTitle", "Quick replacement")}
+        description={t(
+          "textReplacement.quickAdd.settingsDescription",
+          "Open a focused AivoRelay dialog to add a global, case-sensitive literal replacement."
+        )}
+      >
+        <div className="px-4 py-3">
+          <Button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event(OPEN_QUICK_TEXT_REPLACEMENT_EVENT))}
+          >
+            {t("textReplacement.quickAdd.openButton", "Open quick replacement")}
+          </Button>
+          <p className="mt-2 text-xs text-white/60">
+            {t(
+              "textReplacement.quickAdd.shortcutHint",
+              "Assign a shortcut to open this dialog from any app. Selected text is prefilled when Windows exposes it; otherwise enter the text manually."
+            )}
+          </p>
+        </div>
+        <HandyShortcut shortcutId="quick_text_replacement" grouped={true} />
+      </SettingsGroup>
+
       <SettingsGroup
         title={t(
           "textReplacement.decapitalizeAfterEditTitle",

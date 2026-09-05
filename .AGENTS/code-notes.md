@@ -39,6 +39,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/shortcut_handy_keys.rs` | Ported upstream HandyKeys shortcut backend and backend-side shortcut recording. |
 | `src-tauri/src/language_resolver.rs` | Soniox language resolver. |
 | `src-tauri/src/text_replacement_decapitalize.rs` | Decapitalize trigger. |
+| `src-tauri/src/quick_replacement.rs` | Global shortcut and tray action for opening the focused literal Text Replacement dialog, with bounded optional selection capture. |
 | `src-tauri/src/managers/tts.rs` | Provider-independent Soniox/Deepgram/OpenAI/Murf/ElevenLabs/Cartesia/experimental-Edge/local-Qwen/local-Kokoro/Windows TTS, bounded live cloud voice catalogs, semantic chunking, retry, Markdown rendering, resumable PCM-backed WAV/MP3 assembly, disk protection, cache, and lazy recursive/non-recursive folder watching. Interactive Listen Later workers wait cancellably for the shared foreground synthesis lane and claim their manager operation before its first event; successful watcher conversions are copied into opt-in TTS History without invalidating the external result when History capture fails. |
 | `src-tauri/src/managers/edge_tts.rs` | Experimental no-key native Rust client for Microsoft Edge Read Aloud via the MIT-licensed `kothok-edge-tts` protocol crate, with bounded voice/media handling, timeout/cancellation-safe WebSocket teardown, UTF-8/SSML-aware request splitting, MP3 decoding, and 24 kHz mono PCM normalization. |
 | `src-tauri/src/managers/local_tts.rs` | Explicit app-managed Qwen3-TTS model/runtime lifecycle, pinned resumable downloads, conservative complete-install preflight, isolated uv/Python/PyTorch installation, preserved upstream license declaration, measured managed footprint, persistent offline worker supervision, and validated 24 kHz mono PCM handoff. |
@@ -76,6 +77,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/settings/voice-commands/VoiceCommandSettings.tsx` | Voice Command Center. |
 | `src/components/settings/live-sound-transcription/LiveSoundTranscriptionSettings.tsx` | Live Sound Transcription page with in-page diarized transcript and source/device controls. |
 | `src/components/settings/text-replacement/TextReplacementSettings.tsx` | Text Replacement rules UI. |
+| `src/components/text-replacement/QuickReplacementDialog.tsx` | Focused dialog for adding a global, case-sensitive literal replacement from selected or manually entered text. |
 | `src/components/settings/audio-processing/AudioProcessingSettings.tsx` | Audio processing UI. |
 | `src/components/settings/debug/RecordingBuffer.tsx` | Local-only extra recording buffer UI for trailing speech capture after hotkey release. |
 | `src/components/settings/GlobalShortcutInput.tsx` | Browser-side shortcut capture for Tauri/rdev engines. |

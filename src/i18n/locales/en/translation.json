@@ -8,7 +8,8 @@
     "unloadModel": "Unload Model",
     "restartTroubleshoot": "Restart (troubleshoot)",
     "quit": "Quit",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "quickTextReplacement": "Quick text replacement..."
   },
   "sidebar": {
     "general": "Speech / Mic",
@@ -68,6 +69,7 @@
       "voiceCommands": "Voice commands",
       "connector": "Browser connector",
       "customWords": "Custom Words",
+      "quickTextReplacement": "Quick replacement shortcut",
       "textProcessing": "Text replacement and processing",
       "overlay": "Recording overlay",
       "livePreview": "Live Preview",
@@ -1844,6 +1846,10 @@
           "repaste_last": {
             "name": "Repaste Last",
             "description": "Repastes latest text. Or, in case of network error, resends the recording and tries again."
+          },
+          "quick_text_replacement": {
+            "name": "Quick Replacement",
+            "description": "Open a small dialog to add a global, case-sensitive literal replacement."
           },
           "spawn_button": {
             "name": "Spawn Voice Activation Button",
@@ -4293,6 +4299,27 @@
   "textReplacement": {
     "title": "Text Processing",
     "description": "Automatically replace text patterns in transcriptions. Useful for fixing commonly misheard words or applying consistent formatting.",
+    "quickAdd": {
+      "title": "Quick replacement",
+      "description": "Add a global, case-sensitive literal replacement rule.",
+      "settingsTitle": "Quick replacement",
+      "settingsDescription": "Open a focused AivoRelay dialog to add a global, case-sensitive literal replacement.",
+      "openButton": "Open quick replacement",
+      "shortcutHint": "Assign a shortcut to open this dialog from any app. Selected text is prefilled when Windows exposes it; otherwise enter the text manually.",
+      "from": "Find text",
+      "to": "Replace with",
+      "emptyReplacementHint": "Leave this empty to delete every matching occurrence.",
+      "disabled": "Text Replacement is disabled. This rule will be saved but will not run until you enable it.",
+      "manage": "Manage Text Replacement rules",
+      "emptySource": "Enter the text to find.",
+      "selectionTooLong": "The selected text is longer than 4,096 characters, so it was not inserted. Enter the complete text manually.",
+      "busy": "Text Replacement settings are busy. Try again in a moment.",
+      "duplicate": "A matching literal rule already exists. Manage the existing rule instead.",
+      "saveFailed": "Could not save the rule. {{error}}",
+      "cancel": "Cancel",
+      "save": "Save rule",
+      "saving": "Saving…"
+    },
     "enable": "Enable Text Replacement",
     "enableDescription": "Apply replacement rules to all transcriptions after processing.",
     "outputWhitespaceTitle": "Output Whitespace",
