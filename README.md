@@ -188,17 +188,18 @@ Set a case-insensitive microphone name mask such as `Remote Audio` (wildcards `*
 
 **Setup:** Audio Processing → Automatic Microphone Selection
 
-### 📤 Send to ChatGPT/Claude
+### 📤 Send to ChatGPT / Claude (Browser Connector)
 
-Voice-to-AI bridge via [AivoRelay Connector](https://github.com/MaxITService/AivoRelay-relay) browser extension.
+Voice-to-AI bridge via the [AivoRelay Connector](https://github.com/MaxITService/AivoRelay-relay) browser extension — post your voice transcriptions, selected text, and screenshots directly into web AI chats (ChatGPT, Claude, Perplexity, Gemini, Grok, etc.) without manual copy-pasting.
 
 - **Easy app-driven setup** — AivoRelay can unpack/export the extension right from the app.
-- **Generated password** — The app can create the connector password for you automatically.
-- **CORS-ready local bridge** — The local connector flow is configured for secure browser use without extra manual setup.
+- **Generated password** — The app creates and manages the connector password for you automatically.
+- **CORS-ready local bridge** — Built-in local web server connects securely on `http://127.0.0.1:38243` (configurable port).
+- **Built-in screenshots** — Native screen region capture overlay (no external tools required) or optional tools like ShareX.
 
 ![How it works](Promo/How_it_works.png)
 
-| Mode                   | Input                  | What ChatGPT receives     |
+| Mode                   | Input                  | What AI chat receives     |
 | ---------------------- | ---------------------- | ------------------------- |
 | **Voice only**         | Speak your question    | Your transcribed question |
 | **Voice + Selection**  | Speak + selected text  | Question with context     |
@@ -206,11 +207,19 @@ Voice-to-AI bridge via [AivoRelay Connector](https://github.com/MaxITService/Aiv
 
 **Examples:**
 
-- Say "what is recursion" → ChatGPT gets your question
-- Select error log, say "why is this failing" → ChatGPT gets question + the log
-- Capture chart, say "explain this" → ChatGPT gets question + screenshot
+- Say "what is recursion" → AI chat gets your question
+- Select error log, say "why is this failing" → AI chat gets question + the log
+- Capture chart, say "explain this" → AI chat gets question + screenshot
 
-> ⚠️ **Requires:** [AivoRelay Connector](https://github.com/MaxITService/AivoRelay-relay) Chrome extension
+#### Extension Setup
+
+1. Open **Browser Connector** in settings — enable the connector and export the bundled extension (a secure password is generated automatically).
+2. Install / load the [AivoRelay Connector](https://github.com/MaxITService/AivoRelay-relay) extension in Chrome, Edge, Brave, or other Chromium browsers (via `chrome://extensions` → *Developer mode* → *Load unpacked*).
+3. Open ChatGPT, Claude, Perplexity, or another supported AI chat in a browser tab.
+4. Click the extension icon in your browser toolbar → **"Bind to this tab"** (connects to `http://127.0.0.1:38243`).
+5. Configure your desired shortcut keys under **Actions** to send voice, selections, or screenshots directly into the active tab!
+
+**Setup:** Browser Connector
 
 ### 📺 Live Monitor
 
@@ -304,15 +313,6 @@ Execute PowerShell scripts with your voice. Pre-write scripts... or make LLM wri
 1. Download from [Releases](https://github.com/MaxITService/AIVORelay/releases)
 2. Install and run AivoRelay
 3. Press `Ctrl+F8` — hold to record, release to transcribe!
-
----
-
-### AivoRelay Connector Setup - The thing that posts to ChatGPT or others via browser extension
-
-1. Install [AivoRelay Connector](https://github.com/MaxITService/AivoRelay-relay) Chrome extension
-2. Open ChatGPT or Perplexity in a browser tab
-3. Click extension icon → "Bind to this tab"
-4. Extension connects to `http://127.0.0.1:38243` (configurable)
 
 ---
 
