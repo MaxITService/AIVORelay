@@ -3494,12 +3494,12 @@ pub struct AppSettings {
     pub show_tray_shortcut_guide_in_main_menu: bool,
     #[serde(default)]
     pub tray_icon_blinking_enabled: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub tray_icon_blink_on_recording: bool,
     #[serde(default = "default_true")]
     pub tray_icon_blink_on_processing: bool,
     #[serde(default = "default_tray_icon_blink_frequency_hz")]
-    pub tray_icon_blink_frequency_hz: u32,
+    pub tray_icon_blink_frequency_hz: f64,
     #[serde(default = "default_update_checks_enabled")]
     pub update_checks_enabled: bool,
     #[serde(default = "default_model")]
@@ -5065,8 +5065,16 @@ fn default_show_tray_icon() -> bool {
     true
 }
 
-fn default_tray_icon_blink_frequency_hz() -> u32 {
-    4
+fn default_tray_icon_blink_frequency_hz() -> f64 {
+    1.0
+}
+
+pub(crate) fn normalize_tray_icon_blink_frequency_hz(frequency_hz: f64) -> f64 {
+    if frequency_hz.is_finite() {
+        frequency_hz.clamp(0.5, 10.0)
+    } else {
+        default_tray_icon_blink_frequency_hz()
+    }
 }
 
 fn default_filter_silence() -> bool {
@@ -5809,7 +5817,7 @@ pub fn get_default_settings() -> AppSettings {
         show_tray_shortcut_guide: default_true(),
         show_tray_shortcut_guide_in_main_menu: false,
         tray_icon_blinking_enabled: false,
-        tray_icon_blink_on_recording: false,
+        tray_icon_blink_on_recording: true,
         tray_icon_blink_on_processing: true,
         tray_icon_blink_frequency_hz: default_tray_icon_blink_frequency_hz(),
         update_checks_enabled: default_update_checks_enabled(),
@@ -6904,7 +6912,8 @@ fn ensure_soniox_v5_model_defaults(settings: &mut AppSettings) -> bool {
 fn repair_runtime_settings(settings: &mut AppSettings) -> bool {
     let mut changed = false;
 
-    let tray_icon_blink_frequency_hz = settings.tray_icon_blink_frequency_hz.clamp(1, 10);
+    let tray_icon_blink_frequency_hz =
+        normalize_tray_icon_blink_frequency_hz(settings.tray_icon_blink_frequency_hz);
     if settings.tray_icon_blink_frequency_hz != tray_icon_blink_frequency_hz {
         settings.tray_icon_blink_frequency_hz = tray_icon_blink_frequency_hz;
         changed = true;

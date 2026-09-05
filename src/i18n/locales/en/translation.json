@@ -1531,7 +1531,7 @@
       },
       "trayIconBlinkFrequency": {
         "label": "Blinking Frequency (Hz)",
-        "description": "Sets how rapidly the tray icon alternates in Hertz (1 to 10 Hz)."
+        "description": "Sets the blink rate from 0.5 to 10 Hz. At 1 Hz, the icon changes every 0.5 seconds."
       },
       "showTrayShortcutGuide": {
         "label": "Show Shortcut Guide in Tray",
@@ -2263,11 +2263,11 @@
       "neverLaunchWebview": {
         "groupTitle": "Speech-only low-memory mode",
         "label": "Start without WebView (speech only)",
-        "description": "Beta: Only normal and profile-specific dictation shortcuts, audio input, automatic application-aware profiles, Cancel, and the native tray remain available. The Settings window, recording overlay and Live Preview, Voice Activation Button, TTS and Speak Selected Text, Voice Commands, AI Replace, Browser Connector actions, Live Monitor and Live Sound, file transcription, Quick Replacement, History, update checks, and every other WebView-based feature or non-transcription shortcut will not work until you restore the full interface and restart.",
+        "description": "Beta: Only normal and profile-specific dictation shortcuts, AI Replace Selection, audio input, automatic application-aware profiles, Cancel, and the native tray remain available. The Settings window, recording overlay and Live Preview, Voice Activation Button, TTS and Speak Selected Text, Voice Commands, Browser Connector actions, Live Monitor and Live Sound, file transcription, Quick Replacement, History, update checks, and every other WebView-based feature or unsupported shortcut will not work until you restore the full interface and restart.",
         "trayIndicatorHint": "For a visible recording indicator in this mode, use tray icon blinking.",
         "trayIndicatorLink": "Configure the tray recording indicator",
         "warningTitle": "A restart is required",
-        "warning": "Only Transcribe and profile-specific transcription shortcuts remain active. Automatic application-aware profiles continue to work. TTS, Voice Commands, Live Monitor, Connector workflows, UI overlays, and all other complex features are disabled.",
+        "warning": "Only Transcribe, profile-specific transcription, AI Replace Selection, and Cancel shortcuts remain active. Automatic application-aware profiles continue to work. TTS, Voice Commands, Live Monitor, Connector workflows, UI overlays, and all other complex features are disabled.",
         "recovery": "To restore the full interface, double-click the tray icon or choose Switch to full interface and restart from its menu. The app will restart.",
         "restart": "Restart in speech-only mode",
         "footerReturn": "Return to low-memory mode",

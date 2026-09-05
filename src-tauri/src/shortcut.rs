@@ -6458,6 +6458,10 @@ pub fn change_tray_icon_blinking_enabled_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.tray_icon_blinking_enabled = enabled;
+    if enabled {
+        settings.tray_icon_blink_on_recording = true;
+        settings.tray_icon_blink_on_processing = true;
+    }
     settings::write_settings_checked(&app, settings)?;
 
     tray::refresh_tray_icon(&app);
@@ -6499,10 +6503,11 @@ pub fn change_tray_icon_blink_on_processing_setting(
 #[specta::specta]
 pub fn change_tray_icon_blink_frequency_hz_setting(
     app: AppHandle,
-    frequency_hz: u32,
+    frequency_hz: f64,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    settings.tray_icon_blink_frequency_hz = frequency_hz.clamp(1, 10);
+    settings.tray_icon_blink_frequency_hz =
+        settings::normalize_tray_icon_blink_frequency_hz(frequency_hz);
     settings::write_settings_checked(&app, settings)?;
 
     tray::refresh_tray_icon(&app);

@@ -57,8 +57,10 @@ fn handle_tray_blinking_transition(app: &AppHandle, state: TrayIconState) {
     }
 
     let generation = BLINK_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-    let hz = settings.tray_icon_blink_frequency_hz.clamp(1, 10);
-    let half_period = std::time::Duration::from_secs_f64(0.5 / (hz as f64));
+    let hz = settings::normalize_tray_icon_blink_frequency_hz(
+        settings.tray_icon_blink_frequency_hz,
+    );
+    let half_period = std::time::Duration::from_secs_f64(0.5 / hz);
     let app_handle = app.clone();
 
     std::thread::spawn(move || {
