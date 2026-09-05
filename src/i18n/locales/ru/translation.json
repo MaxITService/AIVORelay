@@ -1671,6 +1671,14 @@
       },
       "badges": {
         "automaticApps": "Авто: правил — {{count}}"
+      },
+      "llmPostProcessing": {
+        "useExistingPrompt": "Использовать существующий промпт",
+        "useExistingPromptHint": "Скопируйте сохранённый промпт LLM-постобработки в этот профиль. Дальнейшие изменения затронут только этот профиль.",
+        "selectExistingPrompt": "Выберите сохранённый промпт...",
+        "noExistingPrompts": "Нет доступных сохранённых промптов",
+        "untitledPrompt": "Промпт без названия",
+        "promptSaveFailed": "Не удалось сохранить LLM-промпт профиля."
       }
     },
     "userInterface": {
