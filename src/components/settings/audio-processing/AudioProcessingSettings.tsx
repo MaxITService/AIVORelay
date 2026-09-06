@@ -23,7 +23,7 @@ export const AudioProcessingSettings: React.FC = () => {
           <p className="text-sm text-red-300/90">
             {t(
               "audioProcessing.sonioxRealtimeBypassWarning",
-              "Soniox realtime mode ignores Filter Silence and Voice Detection Sensitivity."
+              "Realtime dictation modes ignore Filter Silence and Voice Detection Sensitivity."
             )}
           </p>
         </div>

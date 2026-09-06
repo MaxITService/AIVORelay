@@ -1062,7 +1062,7 @@
   "audioProcessing": {
     "title": "Speech Processing",
     "description": "Configure voice activity detection and speech artifact filtering.",
-    "sonioxRealtimeBypassWarning": "Soniox realtime mode ignores Filter Silence and Voice Detection Sensitivity.",
+    "sonioxRealtimeBypassWarning": "Realtime dictation modes ignore Filter Silence and Voice Detection Sensitivity.",
     "fillerFilter": "Remove Filler Words",
     "fillerFilterDescription": "Automatically remove 'uh', 'um', 'hmm' and similar filler words from transcriptions.",
     "fillerHelpTitle": "Tell me more about filler word removal",
