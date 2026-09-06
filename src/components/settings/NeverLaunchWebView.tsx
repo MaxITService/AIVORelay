@@ -22,6 +22,7 @@ export const NeverLaunchWebView: React.FC = React.memo(() => {
   const [isRestarting, setIsRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
   const enabled = getSetting("never_launch_webview") ?? false;
+  const showInTray = getSetting("show_speech_only_mode_in_tray") ?? false;
 
   const changeMode = async (nextEnabled: boolean) => {
     setRestartError(null);
@@ -54,6 +55,21 @@ export const NeverLaunchWebView: React.FC = React.memo(() => {
         isUpdating={isUpdating("never_launch_webview")}
         label={t("settings.advanced.neverLaunchWebview.label")}
         description={t("settings.advanced.neverLaunchWebview.description")}
+        descriptionMode="tooltip"
+        grouped={true}
+      />
+
+      <ToggleSwitch
+        checked={showInTray}
+        onChange={(nextEnabled) =>
+          void updateSetting("show_speech_only_mode_in_tray", nextEnabled)
+        }
+        disabled={isRestarting}
+        isUpdating={isUpdating("show_speech_only_mode_in_tray")}
+        label={t("settings.advanced.neverLaunchWebview.showInTray")}
+        description={t(
+          "settings.advanced.neverLaunchWebview.showInTrayDescription",
+        )}
         descriptionMode="tooltip"
         grouped={true}
       />

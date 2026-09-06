@@ -3482,6 +3482,8 @@ pub struct AppSettings {
     pub start_hidden: bool,
     #[serde(default)]
     pub never_launch_webview: bool,
+    #[serde(default)]
+    pub show_speech_only_mode_in_tray: bool,
     #[serde(default = "default_autostart_enabled")]
     pub autostart_enabled: bool,
     #[serde(default)]
@@ -5811,6 +5813,7 @@ pub fn get_default_settings() -> AppSettings {
         sound_theme: default_sound_theme(),
         start_hidden: default_start_hidden(),
         never_launch_webview: false,
+        show_speech_only_mode_in_tray: false,
         autostart_enabled: default_autostart_enabled(),
         autostart_as_admin_enabled: false,
         show_tray_icon: default_show_tray_icon(),
@@ -7594,6 +7597,18 @@ mod tests {
 
         let settings: AppSettings = serde_json::from_value(value).unwrap();
         assert!(!settings.never_launch_webview);
+    }
+
+    #[test]
+    fn speech_only_tray_action_is_opt_in_for_existing_settings() {
+        let mut value = serde_json::to_value(get_default_settings()).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("show_speech_only_mode_in_tray");
+
+        let settings: AppSettings = serde_json::from_value(value).unwrap();
+        assert!(!settings.show_speech_only_mode_in_tray);
     }
 
     #[test]

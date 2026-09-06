@@ -2737,6 +2737,28 @@ pub fn change_never_launch_webview_setting(
     Ok(())
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn change_show_speech_only_mode_in_tray_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.show_speech_only_mode_in_tray = enabled;
+    settings::write_settings_checked(&app, settings)?;
+    crate::tray::refresh_tray_menu(&app, None);
+
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "setting": "show_speech_only_mode_in_tray",
+            "value": enabled
+        }),
+    );
+
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 const ADMIN_AUTOSTART_TASK_NAME: &str = "AIVORelayAutostartAdmin";
 

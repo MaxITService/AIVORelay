@@ -240,6 +240,30 @@ fn restart_with_webview_ui(app: &AppHandle) {
     }
 }
 
+fn restart_in_speech_only_mode(app: &AppHandle) {
+    if webview_mode::webviews_disabled() {
+        return;
+    }
+
+    let mut settings = settings::get_settings(app);
+    settings.never_launch_webview = true;
+    match settings::write_settings_checked(app, settings) {
+        Ok(()) => {
+            log::info!("Enabling speech-only mode from the tray and restarting");
+            app.request_restart();
+        }
+        Err(error) => {
+            log::error!("Could not enable speech-only mode before restarting: {error}");
+            use tauri_plugin_dialog::DialogExt;
+            app.dialog()
+                .message(error)
+                .title("AivoRelay")
+                .kind(tauri_plugin_dialog::MessageDialogKind::Error)
+                .show(|_| {});
+        }
+    }
+}
+
 fn show_main_window(app: &AppHandle) {
     if webview_mode::webviews_disabled() {
         log::info!(
@@ -791,6 +815,9 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 "settings" => {
                     restart_with_webview_ui(app);
                 }
+                "enter_speech_only_mode" => {
+                    restart_in_speech_only_mode(app);
+                }
                 quick_replacement::BINDING_ID => {
                     quick_replacement::open(app, String::new(), false);
                 }
@@ -1175,6 +1202,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_sound_theme_setting,
         shortcut::change_start_hidden_setting,
         shortcut::change_never_launch_webview_setting,
+        shortcut::change_show_speech_only_mode_in_tray_setting,
         shortcut::change_autostart_setting,
         shortcut::is_current_user_administrator_account,
         shortcut::change_autostart_as_admin_setting,
