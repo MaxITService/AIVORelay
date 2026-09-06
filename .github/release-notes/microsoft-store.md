@@ -11,7 +11,6 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 - Regular dictation, audio files, and Live Monitor can use independent models, with improved speaker handling and timed transcript export.
 - Added comprehensive Text to Speech workflows for selected text and file conversion, including resumable work and optional history.
 - Expanded Help and settings search, including direct navigation and better discovery across interface languages.
-- Added Quick Replacement for creating literal text replacements from selected or entered text.
 - Improved security and reliability across audio capture, Gemini sessions, model downloads, clipboard handling, startup, history, and the interface.
 - Included the latest upstream Handy improvements and fixes.
 

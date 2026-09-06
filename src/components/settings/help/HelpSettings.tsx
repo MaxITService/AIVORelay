@@ -69,7 +69,6 @@ const WHATS_NEW_ITEMS = [
   "help.whatsNew.items.transcriptionWorkflows",
   "help.whatsNew.items.textToSpeech",
   "help.whatsNew.items.searchAndHelp",
-  "help.whatsNew.items.quickReplacement",
   "help.whatsNew.items.reliability",
   "help.whatsNew.items.upstreamImprovements",
 ] as const;

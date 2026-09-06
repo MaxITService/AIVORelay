@@ -26,7 +26,6 @@ mod no_clobber;
 mod overlay;
 mod plus_overlay_state;
 mod portable;
-mod quick_replacement;
 mod recording_auto_stop;
 #[cfg(target_os = "windows")]
 mod region_capture;
@@ -817,9 +816,6 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 }
                 "enter_speech_only_mode" => {
                     restart_in_speech_only_mode(app);
-                }
-                quick_replacement::BINDING_ID => {
-                    quick_replacement::open(app, String::new(), false);
                 }
                 tray::TRAY_SHORTCUT_GUIDE_SHOW_IN_MAIN_ID => {
                     let mut settings = settings::get_settings(app);

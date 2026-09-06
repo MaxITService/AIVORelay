@@ -11504,10 +11504,6 @@ pub async fn preview_delete_last_char_action(app: AppHandle) -> Result<(), Strin
 pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::new(|| {
     let mut map = HashMap::new();
     map.insert(
-        crate::quick_replacement::BINDING_ID.to_string(),
-        Arc::new(crate::quick_replacement::QuickReplacementAction) as Arc<dyn ShortcutAction>,
-    );
-    map.insert(
         "transcribe".to_string(),
         Arc::new(TranscribeAction) as Arc<dyn ShortcutAction>,
     );

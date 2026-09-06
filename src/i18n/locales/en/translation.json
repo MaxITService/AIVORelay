@@ -9,8 +9,7 @@
     "unloadModel": "Unload Model",
     "restartTroubleshoot": "Restart (troubleshoot)",
     "quit": "Quit",
-    "cancel": "Cancel",
-    "quickTextReplacement": "Quick text replacement..."
+    "cancel": "Cancel"
   },
   "sidebar": {
     "general": "Speech / Mic",
@@ -70,7 +69,6 @@
       "voiceCommands": "Voice commands",
       "connector": "Browser connector",
       "customWords": "Custom Words",
-      "quickTextReplacement": "Quick replacement shortcut",
       "decapitalizeAfterEdit": "Decapitalize after manual edit",
       "decapitalizeIndicator": "Decapitalize indicator appearance",
       "textProcessing": "Text replacement and processing",
@@ -233,7 +231,6 @@
         "transcriptionWorkflows": "Regular dictation, audio files, and Live Monitor can use independent models, with improved speaker handling and timed transcript export.",
         "textToSpeech": "Text to Speech can read selected text, convert text or Markdown files to audio, resume interrupted work, and retain optional history.",
         "searchAndHelp": "Expanded Help and settings search make features easier to discover and open directly, including across interface languages.",
-        "quickReplacement": "A new Quick Replacement shortcut lets you create a literal text replacement from selected or entered text without opening the full settings page.",
         "reliability": "Improved security and reliability across audio capture, Gemini sessions, model downloads, clipboard handling, startup, history, and the interface.",
         "upstreamImprovements": "Included the latest upstream Handy improvements and fixes."
       }
@@ -1853,10 +1850,6 @@
             "name": "Repaste Last",
             "description": "Repastes latest text. Or, in case of network error, resends the recording and tries again."
           },
-          "quick_text_replacement": {
-            "name": "Quick Replacement",
-            "description": "Open a small dialog to add a global, case-sensitive literal replacement."
-          },
           "spawn_button": {
             "name": "Spawn Voice Activation Button",
             "description": "Open a floating on-screen voice activation button window."
@@ -2271,7 +2264,7 @@
       "neverLaunchWebview": {
         "groupTitle": "Speech-only low-memory mode",
         "label": "Start without WebView (speech only)",
-        "description": "Beta: Only normal and profile-specific dictation shortcuts, AI Replace Selection, audio input, automatic application-aware profiles, Cancel, and the native tray remain available. The Settings window, recording overlay and Live Preview, Voice Activation Button, TTS and Speak Selected Text, Voice Commands, Browser Connector actions, Live Monitor and Live Sound, file transcription, Quick Replacement, History, update checks, and every other WebView-based feature or unsupported shortcut will not work until you restore the full interface and restart.",
+        "description": "Beta: Only normal and profile-specific dictation shortcuts, AI Replace Selection, audio input, automatic application-aware profiles, Cancel, and the native tray remain available. The Settings window, recording overlay and Live Preview, Voice Activation Button, TTS and Speak Selected Text, Voice Commands, Browser Connector actions, Live Monitor and Live Sound, file transcription, History, update checks, and every other WebView-based feature or unsupported shortcut will not work until you restore the full interface and restart.",
         "trayIndicatorHint": "For a visible recording indicator in this mode, use tray icon blinking.",
         "trayIndicatorLink": "Configure the tray recording indicator",
         "showInTray": "Show speech-only mode in the tray menu",
@@ -4315,27 +4308,6 @@
   "textReplacement": {
     "title": "Text Processing",
     "description": "Automatically replace text patterns in transcriptions. Useful for fixing commonly misheard words or applying consistent formatting.",
-    "quickAdd": {
-      "title": "Quick replacement",
-      "description": "Add a global, case-sensitive literal replacement rule.",
-      "settingsTitle": "Quick replacement",
-      "settingsDescription": "Open a focused AivoRelay dialog to add a global, case-sensitive literal replacement.",
-      "openButton": "Open quick replacement",
-      "shortcutHint": "Assign a shortcut to open this dialog from any app. Selected text is prefilled when Windows exposes it; otherwise enter the text manually.",
-      "from": "Find text",
-      "to": "Replace with",
-      "emptyReplacementHint": "Leave this empty to delete every matching occurrence.",
-      "disabled": "Text Replacement is disabled. This rule will be saved but will not run until you enable it.",
-      "manage": "Manage Text Replacement rules",
-      "emptySource": "Enter the text to find.",
-      "selectionTooLong": "The selected text is longer than 4,096 characters, so it was not inserted. Enter the complete text manually.",
-      "busy": "Text Replacement settings are busy. Try again in a moment.",
-      "duplicate": "A matching literal rule already exists. Manage the existing rule instead.",
-      "saveFailed": "Could not save the rule. {{error}}",
-      "cancel": "Cancel",
-      "save": "Save rule",
-      "saving": "Saving…"
-    },
     "enable": "Enable Text Replacement",
     "enableDescription": "Apply replacement rules to all transcriptions after processing.",
     "outputWhitespaceTitle": "Output Whitespace",

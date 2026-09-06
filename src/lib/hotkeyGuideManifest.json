@@ -38,7 +38,6 @@
       "title": "Text editing",
       "titleKey": "hotkeySidebar.categories.textEditing",
       "bindingIds": [
-        "quick_text_replacement",
         "text_replacement_decapitalize_after_edit_key",
         "text_replacement_decapitalize_after_edit_secondary_key"
       ],
