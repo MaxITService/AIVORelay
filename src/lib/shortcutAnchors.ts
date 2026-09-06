@@ -8,7 +8,6 @@ const SHORTCUT_SECTION_BY_ID: Record<string, SidebarSection> = {
   read_clipboard: "textToSpeech",
   read_selection_tts: "textToSpeech",
   read_selection_direct_tts: "textToSpeech",
-  quick_text_replacement: "textReplacement",
   send_screenshot_to_extension: "browserConnector",
   send_to_extension: "browserConnector",
   send_to_extension_with_selection: "browserConnector",

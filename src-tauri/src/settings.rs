@@ -5619,16 +5619,6 @@ pub fn get_default_settings() -> AppSettings {
 
     let mut bindings = HashMap::new();
     bindings.insert(
-        crate::quick_replacement::BINDING_ID.to_string(),
-        ShortcutBinding {
-            id: crate::quick_replacement::BINDING_ID.to_string(),
-            name: "Quick add text replacement".to_string(),
-            description: "Open a replacement dialog, using selected text when available.".to_string(),
-            default_binding: String::new(),
-            current_binding: String::new(),
-        },
-    );
-    bindings.insert(
         "transcribe".to_string(),
         ShortcutBinding {
             id: "transcribe".to_string(),
