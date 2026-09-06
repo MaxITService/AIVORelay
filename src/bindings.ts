@@ -93,6 +93,14 @@ async changeNeverLaunchWebviewSetting(enabled: boolean) : Promise<Result<null, s
     else return { status: "error", error: e  as any };
 }
 },
+async changeShowSpeechOnlyModeInTraySetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_show_speech_only_mode_in_tray_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeAutostartSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_autostart_setting", { enabled }) };
@@ -4155,7 +4163,7 @@ async isLaptop() : Promise<Result<boolean, string>> {
 
 export type ActiveTtsBatchSnapshot = { progress: TtsBatchProgress; scan: TtsBatchScanResult; files: TtsBatchFileResult[] }
 export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; automaticAppRules?: string[] | null; systemPrompt: string; sttPromptOverrideEnabled?: boolean; sttModelSelectionOverride?: SttModelSelection | null; pushToTalk: boolean; autoShortcutActivation?: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; auto_shortcut_activation?: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; never_launch_webview?: boolean; autostart_enabled?: boolean; autostart_as_admin_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; tray_icon_blinking_enabled?: boolean; tray_icon_blink_on_recording?: boolean; tray_icon_blink_on_processing?: boolean; tray_icon_blink_frequency_hz?: number; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings;
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; auto_shortcut_activation?: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; never_launch_webview?: boolean; show_speech_only_mode_in_tray?: boolean; autostart_enabled?: boolean; autostart_as_admin_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; tray_icon_blinking_enabled?: boolean; tray_icon_blink_on_recording?: boolean; tray_icon_blink_on_processing?: boolean; tray_icon_blink_frequency_hz?: number; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings;
 /**
  * Independent model choice for Transcribe File. None inherits the current
  * Speech / Mic selection until the user chooses a file-specific model.

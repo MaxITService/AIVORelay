@@ -184,6 +184,8 @@ const settingUpdaters: {
   start_hidden: (value) => commands.changeStartHiddenSetting(value as boolean),
   never_launch_webview: (value) =>
     commands.changeNeverLaunchWebviewSetting(value as boolean),
+  show_speech_only_mode_in_tray: (value) =>
+    commands.changeShowSpeechOnlyModeInTraySetting(value as boolean),
   autostart_enabled: (value) =>
     commands.changeAutostartSetting(value as boolean),
   autostart_as_admin_enabled: (value) =>

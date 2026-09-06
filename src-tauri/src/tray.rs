@@ -174,6 +174,7 @@ struct TrayShortcutItem {
 struct MenuInputs {
     busy: bool,
     webviews_disabled: bool,
+    show_speech_only_mode_in_tray: bool,
     locale: String,
     update_checks_enabled: bool,
     transcription_provider: TranscriptionProvider,
@@ -491,6 +492,7 @@ fn compute_desired(
         menu: MenuInputs {
             busy: icon_state.is_busy(),
             webviews_disabled: crate::webview_mode::webviews_disabled(),
+            show_speech_only_mode_in_tray: settings.show_speech_only_mode_in_tray,
             locale: locale_override
                 .map(str::to_string)
                 .unwrap_or_else(|| settings.app_language.clone()),
@@ -688,6 +690,17 @@ fn build_tray_menu(
         true,
         settings_accelerator,
     )?;
+    let enter_speech_only_i = MenuItem::with_id(
+        app,
+        "enter_speech_only_mode",
+        if strings.enter_speech_only_mode.is_empty() {
+            "Restart in speech-only mode"
+        } else {
+            &strings.enter_speech_only_mode
+        },
+        true,
+        None::<&str>,
+    )?;
     let check_updates_i = MenuItem::with_id(
         app,
         "check_updates",
@@ -774,6 +787,12 @@ fn build_tray_menu(
     }
 
     menu.append(&separator()?)?;
+    if should_show_enter_speech_only_mode(
+        inputs.webviews_disabled,
+        inputs.show_speech_only_mode_in_tray,
+    ) {
+        menu.append(&enter_speech_only_i)?;
+    }
     menu.append(&settings_i)?;
     menu.append(&quick_replacement_i)?;
     menu.append(&check_updates_i)?;
@@ -783,6 +802,13 @@ fn build_tray_menu(
     menu.append(&quit_i)?;
 
     Ok((menu, version_label))
+}
+
+fn should_show_enter_speech_only_mode(
+    webviews_disabled: bool,
+    show_speech_only_mode_in_tray: bool,
+) -> bool {
+    !webviews_disabled && show_speech_only_mode_in_tray
 }
 
 fn build_model_menu_label(inputs: &MenuInputs, fallback_label: &str) -> String {
@@ -1329,9 +1355,9 @@ pub fn copy_last_transcript(app: &AppHandle) {
 mod tests {
     use super::{
         get_icon_path, last_transcript_text, parse_microphone_menu_selection,
-        parse_model_menu_selection, tray_tooltip, AppTheme, TrayIconState, TrayModelSelection,
-        TRAY_MICROPHONE_DEFAULT_ID, TRAY_MICROPHONE_MENU_PREFIX, TRAY_MICROPHONE_MISSING_ID,
-        TRAY_MODEL_MENU_PREFIX,
+        parse_model_menu_selection, should_show_enter_speech_only_mode, tray_tooltip, AppTheme,
+        TrayIconState, TrayModelSelection, TRAY_MICROPHONE_DEFAULT_ID,
+        TRAY_MICROPHONE_MENU_PREFIX, TRAY_MICROPHONE_MISSING_ID, TRAY_MODEL_MENU_PREFIX,
     };
     use crate::managers::history::HistoryEntry;
 
@@ -1405,6 +1431,14 @@ mod tests {
         assert!(TrayIconState::Recording.is_busy());
         assert!(TrayIconState::Transcribing.is_busy());
         assert!(!TrayIconState::Idle.is_busy());
+    }
+
+    #[test]
+    fn speech_only_entry_is_opt_in_and_only_shown_in_full_mode() {
+        assert!(!should_show_enter_speech_only_mode(false, false));
+        assert!(should_show_enter_speech_only_mode(false, true));
+        assert!(!should_show_enter_speech_only_mode(true, false));
+        assert!(!should_show_enter_speech_only_mode(true, true));
     }
 
     #[test]

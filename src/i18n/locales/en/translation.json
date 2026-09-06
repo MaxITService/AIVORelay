@@ -2,6 +2,7 @@
   "tray": {
     "settings": "Settings...",
     "settingsRequiresWebview": "Switch to full interface and restart",
+    "enterSpeechOnlyMode": "Restart in speech-only mode",
     "checkUpdates": "Check for Updates...",
     "copyLastTranscript": "Copy Last Transcript",
     "model": "Model",
@@ -2272,6 +2273,8 @@
         "description": "Beta: Only normal and profile-specific dictation shortcuts, AI Replace Selection, audio input, automatic application-aware profiles, Cancel, and the native tray remain available. The Settings window, recording overlay and Live Preview, Voice Activation Button, TTS and Speak Selected Text, Voice Commands, Browser Connector actions, Live Monitor and Live Sound, file transcription, Quick Replacement, History, update checks, and every other WebView-based feature or unsupported shortcut will not work until you restore the full interface and restart.",
         "trayIndicatorHint": "For a visible recording indicator in this mode, use tray icon blinking.",
         "trayIndicatorLink": "Configure the tray recording indicator",
+        "showInTray": "Show speech-only mode in the tray menu",
+        "showInTrayDescription": "Add a tray command for entering speech-only mode. The command for leaving speech-only mode is always available while that mode is active.",
         "warningTitle": "A restart is required",
         "warning": "Only Transcribe, profile-specific transcription, AI Replace Selection, and Cancel shortcuts remain active. Automatic application-aware profiles continue to work. TTS, Voice Commands, Live Monitor, Connector workflows, UI overlays, and all other complex features are disabled.",
         "recovery": "To restore the full interface, double-click the tray icon or choose Switch to full interface and restart from its menu. The app will restart.",
