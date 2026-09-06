@@ -18,3 +18,5 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 **Notice:**
 If the application crashes on an older CPU during transcription, use the Microsoft Store build when a matching Store release is available for this version.
+
+Optional: Windows users can install AivoRelay's self-signed root certificate to trust GitHub builds from Max IT Service. AivoRelay also works without it, but Windows may show publisher or SmartScreen warnings. See the [certificate installation guide](https://github.com/MaxITService/AIVORelay/blob/main/docs/WINDOWS-CERTIFICATE-INSTALLATION.md).
