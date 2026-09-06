@@ -13,6 +13,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-09-06 | `release/microsoft-store` | `d18bfba8` | fix(copy): generalize realtime audio warning | `9da95e55` | fix(copy): generalize realtime audio warning | copy-only change propagated cleanly |
 | 2026-09-06 | `release/microsoft-store` | `0ca930c0` | Revert "feat(text-replacement): add quick literal replacement dialog" | `d47dd52b` | Revert "feat(text-replacement): add quick literal replacement dialog" | Quick Replacement removed from runtime, Help, search, and release notes; later features preserved |
 | 2026-09-06 | `release/microsoft-store` | `7545d18a` | feat(tray): add opt-in speech-only mode command | `dcac80bc` | feat(tray): add opt-in speech-only mode command | optional certificate guide and tray command propagated manually; Store release text adapted |
 | 2026-09-06 | `release/microsoft-store` | `9da54b31` | chore: bump version to 1.0.36 | `6f649239` | chore: bump version to 1.0.36 | prompt reuse and Gemini Live availability fix propagated manually; Store release text adapted; lock version regenerated locally |
@@ -22,7 +23,6 @@ Rules:
 | 2026-09-02 | `release/microsoft-store` | `aaedfecd` | test: use Developer PowerShell for local Rust setup | `ba6021ad` | ci(store): audit x64 transcribe runtime packaging | remaining main runtime propagated; updater and AVX512 excluded; lock regenerated; applicable docs and x64 packaging checks updated |
 | 2026-07-24 | `release/microsoft-store` | `3d772235` | chore: bump version to 1.0.26 | `777eedd2` | chore: bump version to 1.0.26 | 2 runtime fixes propagated; main-only docs and updater binding excluded; Store notes updated; lock version updated locally |
 | 2026-07-22 | `release/microsoft-store` | `5b22f470` | chore: bump version to 1.0.25 | `c2d7c994` | chore: bump version to 1.0.25 | 15 runtime updates propagated; main-only docs excluded; Store notes updated; lock regenerated locally |
-| 2026-07-15 | `release/microsoft-store` | `86242355` | chore: bump version to 1.0.24 | `482f6bcc` | chore: bump version to 1.0.24 | 11 runtime commits propagated; main-only docs excluded; Store notes updated; lock resolved locally |
 
 Entry template:
 
