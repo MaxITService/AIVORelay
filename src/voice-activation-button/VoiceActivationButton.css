@@ -95,7 +95,7 @@ body,
   transform: translateY(1px);
 }
 
-.voice-button:disabled {
+.voice-button[aria-disabled="true"] {
   opacity: 0.8;
   cursor: default;
 }

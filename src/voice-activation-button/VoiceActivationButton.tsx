@@ -31,6 +31,9 @@ export default function VoiceActivationButton() {
   const activeVoicePointerIdRef = useRef<number | null>(null);
   const pendingVoicePressRef = useRef<Promise<boolean> | null>(null);
   const voicePressSucceededRef = useRef(false);
+  const voiceBusyRef = useRef(false);
+  const voiceSuppressClickRef = useRef(false);
+  const pushToTalkRefreshRef = useRef(0);
   const closeButtonSuppressClickRef = useRef(false);
   const closeButtonDragRef = useRef({
     pointerId: -1,
@@ -40,9 +43,12 @@ export default function VoiceActivationButton() {
   });
 
   const refreshPushToTalk = useCallback(async () => {
+    const request = ++pushToTalkRefreshRef.current;
     try {
       const enabled = await invoke<boolean>("voice_activation_button_get_push_to_talk");
-      setIsPushToTalk(enabled);
+      if (request === pushToTalkRefreshRef.current) {
+        setIsPushToTalk(enabled);
+      }
       return enabled;
     } catch (error) {
       console.error("Failed to read push-to-talk mode:", error);
@@ -101,7 +107,6 @@ export default function VoiceActivationButton() {
   }, []);
 
   useEffect(() => {
-    void refreshPushToTalk();
     void refreshRecordingState();
     void refreshShowAotToggle();
     void refreshSingleClickClose();
@@ -113,7 +118,12 @@ export default function VoiceActivationButton() {
     const unlistenSettings = listen<SettingsChangedPayload>(
       "settings-changed",
       (event) => {
-        if (event.payload?.setting === "voice_button_show_aot_toggle") {
+        if (
+          event.payload?.setting === "push_to_talk" ||
+          event.payload?.setting === "transcription_profiles"
+        ) {
+          void refreshPushToTalk();
+        } else if (event.payload?.setting === "voice_button_show_aot_toggle") {
           void refreshShowAotToggle();
         } else if (
           event.payload?.setting === "voice_button_single_click_close"
@@ -121,6 +131,9 @@ export default function VoiceActivationButton() {
           void refreshSingleClickClose();
         }
       },
+    );
+    void Promise.all([unlistenProfile, unlistenSettings]).then(() =>
+      refreshPushToTalk(),
     );
 
     return () => {
@@ -135,8 +148,11 @@ export default function VoiceActivationButton() {
   ]);
 
   const handlePointerDown = async (e: PointerEvent<HTMLButtonElement>) => {
-    if (isBusy || !isPushToTalk) return;
+    if (e.button !== 0 || activeVoicePointerIdRef.current !== null) return;
+    voiceSuppressClickRef.current = voiceBusyRef.current || isPushToTalk;
+    if (voiceBusyRef.current || !isPushToTalk) return;
 
+    voiceBusyRef.current = true;
     activeVoicePointerIdRef.current = e.pointerId;
     voicePressSucceededRef.current = false;
     try {
@@ -164,7 +180,11 @@ export default function VoiceActivationButton() {
     if (pendingVoicePressRef.current === pressOperation) {
       pendingVoicePressRef.current = null;
     }
-    setIsBusy(false);
+    // A release that arrived during the IPC owns the rest of this interaction.
+    if (activeVoicePointerIdRef.current !== null) {
+      voiceBusyRef.current = false;
+      setIsBusy(false);
+    }
   };
 
   const handlePointerRelease = async (e: PointerEvent<HTMLButtonElement>) => {
@@ -173,6 +193,8 @@ export default function VoiceActivationButton() {
     }
     const pendingPress = pendingVoicePressRef.current;
     activeVoicePointerIdRef.current = null;
+    voiceBusyRef.current = true;
+    setIsBusy(true);
 
     try {
       if (e.currentTarget.hasPointerCapture(e.pointerId)) {
@@ -182,35 +204,47 @@ export default function VoiceActivationButton() {
       console.debug("Failed to release pointer capture for voice button:", error);
     }
 
-    if (!isPushToTalk) return;
-
-    if (pendingPress) {
-      await pendingPress;
-    }
-    if (!voicePressSucceededRef.current) return;
-
-    setIsBusy(true);
     try {
+      if (pendingPress) {
+        await pendingPress;
+      }
+      if (!voicePressSucceededRef.current) return;
+
+      // The backend releases according to the mode captured by this press.
       await invoke("voice_activation_button_release");
       voicePressSucceededRef.current = false;
     } catch (error) {
       console.error("Failed to stop recording:", error);
     } finally {
       await refreshRecordingState();
+      voiceBusyRef.current = false;
       setIsBusy(false);
     }
   };
 
   const handleToggleModeClick = async () => {
-    if (isBusy || isPushToTalk) return;
+    if (voiceSuppressClickRef.current) {
+      voiceSuppressClickRef.current = false;
+      return;
+    }
+    if (
+      voiceBusyRef.current ||
+      activeVoicePointerIdRef.current !== null ||
+      isPushToTalk
+    ) return;
 
+    voiceBusyRef.current = true;
     setIsBusy(true);
     try {
       await invoke("voice_activation_button_press");
+      // A settings event may still be in flight. Pair even a toggle click with
+      // release; it is a no-op unless the backend actually began a PTT press.
+      await invoke("voice_activation_button_release");
       await refreshRecordingState();
     } catch (error) {
       console.error("Failed to toggle recording:", error);
     } finally {
+      voiceBusyRef.current = false;
       setIsBusy(false);
     }
   };
@@ -332,7 +366,7 @@ export default function VoiceActivationButton() {
           onPointerUp={handlePointerRelease}
           onPointerCancel={handlePointerRelease}
           onClick={handleToggleModeClick}
-          disabled={isBusy}
+          aria-disabled={isBusy}
         >
           <span className="voice-dot" />
         </button>
