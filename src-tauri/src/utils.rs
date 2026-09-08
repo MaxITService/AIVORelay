@@ -172,6 +172,7 @@ pub fn cancel_current_operation(app: &AppHandle) {
     let tm = app.state::<Arc<TranscriptionManager>>();
     tm.cancel_stream();
     tm.cancel_file_transcription();
+    crate::commands::file_transcription::cancel_file_transcription();
     tm.maybe_unload_immediately("cancellation");
 
     info!("Operation cancellation completed - returned to idle state");

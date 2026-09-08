@@ -18,7 +18,8 @@ use crate::managers::deepgram_stt::{DeepgramSttManager, DeepgramTranscriptionOpt
 use crate::managers::remote_stt::{RemoteFileTranscription, RemoteSttManager};
 use crate::managers::soniox_stt::{SonioxAsyncTranscriptionOptions, SonioxSttManager};
 use crate::managers::transcription::{
-    FileTranscriptionChunkTraceEntry, FileTranscriptionOverrideLoadDecision, TranscriptionManager,
+    FileTranscriptionCancelGuard, FileTranscriptionChunkTraceEntry,
+    FileTranscriptionOverrideLoadDecision, TranscriptionManager,
 };
 use crate::session_manager::{ManagedSessionState, SessionState};
 use crate::settings::{
@@ -38,7 +39,8 @@ use specta::Type;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
@@ -578,6 +580,67 @@ const SONIOX_LATEST_ASYNC_MODEL: &str = "stt-async-v5";
 const FILE_TRANSCRIPTION_CANCELLED_MESSAGE: &str = "File transcription was cancelled";
 const FILE_TRANSCRIPTION_MODEL_LOAD_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
+// File conversion owns its provider clients and cancellation lane. Cancelling
+// it must never mutate the microphone session or its provider operations.
+static ACTIVE_FILE_OPERATION: Mutex<Option<Arc<FileOperation>>> = Mutex::new(None);
+
+struct FileOperation {
+    cancelled: AtomicBool,
+    remote: Option<(RemoteSttManager, u64)>,
+    soniox: Option<(SonioxSttManager, u64)>,
+    deepgram: Option<(DeepgramSttManager, u64)>,
+    local: Option<Arc<TranscriptionManager>>,
+}
+
+impl FileOperation {
+    fn ensure_active(&self) -> Result<(), String> {
+        if self.cancelled.load(Ordering::Acquire) {
+            return Err(FILE_TRANSCRIPTION_CANCELLED_MESSAGE.to_string());
+        }
+        Ok(())
+    }
+
+    fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+        if let Some((manager, _)) = &self.remote {
+            manager.cancel();
+        }
+        if let Some((manager, _)) = &self.soniox {
+            manager.cancel();
+        }
+        if let Some((manager, _)) = &self.deepgram {
+            manager.cancel();
+        }
+        if let Some(manager) = &self.local {
+            manager.cancel_file_transcription();
+        }
+    }
+}
+
+struct FileOperationGuard {
+    operation: Arc<FileOperation>,
+    local_guard: Option<FileTranscriptionCancelGuard>,
+}
+
+impl Drop for FileOperationGuard {
+    fn drop(&mut self) {
+        let mut active = ACTIVE_FILE_OPERATION.lock().unwrap();
+        // Reset the local flag before allowing another file operation to start.
+        drop(self.local_guard.take());
+        if active.as_ref().is_some_and(|current| Arc::ptr_eq(current, &self.operation)) {
+            *active = None;
+        }
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_file_transcription() {
+    if let Some(operation) = ACTIVE_FILE_OPERATION.lock().unwrap().as_ref() {
+        operation.cancel();
+    }
+}
+
 fn file_transcription_uses_local_model(
     settings: &AppSettings,
     model_override: Option<&str>,
@@ -754,6 +817,35 @@ pub async fn transcribe_audio_file(
                 .to_string(),
         );
     }
+    let file_operation_guard = {
+        let mut active = ACTIVE_FILE_OPERATION.lock().unwrap();
+        if active.is_some() {
+            return Err("Another file transcription is still running or stopping.".to_string());
+        }
+        let remote = if use_remote {
+            let manager = RemoteSttManager::new(&app).map_err(|e| e.to_string())?;
+            let id = manager.start_operation();
+            Some((manager, id))
+        } else { None };
+        let soniox = if use_soniox {
+            let manager = SonioxSttManager::new(&app).map_err(|e| e.to_string())?;
+            let id = manager.start_operation();
+            Some((manager, id))
+        } else { None };
+        let deepgram = if use_deepgram {
+            let manager = DeepgramSttManager::new(&app).map_err(|e| e.to_string())?;
+            let id = manager.start_operation();
+            Some((manager, id))
+        } else { None };
+        let local = use_local.then(|| Arc::clone(app.state::<Arc<TranscriptionManager>>().inner()));
+        let local_guard = local.as_ref().map(|manager| manager.begin_file_transcription_operation());
+        let operation = Arc::new(FileOperation {
+            cancelled: AtomicBool::new(false), remote, soniox, deepgram, local,
+        });
+        *active = Some(Arc::clone(&operation));
+        FileOperationGuard { operation, local_guard }
+    };
+    let file_operation = &file_operation_guard.operation;
     if use_local {
         let local_model_id = model_override
             .as_deref()
@@ -783,20 +875,7 @@ pub async fn transcribe_audio_file(
     } else {
         None
     };
-    // Reserve the remote operation before decoding so Cancel can also stop a
-    // file that has not reached network I/O yet.
-    let remote_operation_id = use_remote.then(|| {
-        app.state::<Arc<RemoteSttManager>>()
-            .start_operation()
-    });
-    let _local_transcription_guard = if use_local {
-        Some(
-            app.state::<Arc<TranscriptionManager>>()
-                .begin_file_transcription_operation(),
-        )
-    } else {
-        None
-    };
+    file_operation.ensure_active()?;
     let samples = if use_deepgram {
         Vec::new()
     } else {
@@ -829,10 +908,11 @@ pub async fn transcribe_audio_file(
     };
 
     let mut local_execution_meta = None;
+    file_operation.ensure_active()?;
     let (transcription_text, segments) = if use_remote {
         // Remote STT; timestamp-capable models can also return subtitle segments.
-        let remote_manager = app.state::<Arc<RemoteSttManager>>();
-        let operation_id = remote_operation_id.expect("remote operation ID must be reserved");
+        let (remote_manager, operation_id) = file_operation.remote.as_ref().expect("remote file operation");
+        let operation_id = *operation_id;
 
         let translate_to_english =
             crate::managers::remote_stt::resolve_effective_translate_to_english(
@@ -985,8 +1065,8 @@ pub async fn transcribe_audio_file(
         (corrected, segs)
     } else if use_soniox {
         // Soniox remote STT - currently doesn't support segments
-        let soniox_manager = app.state::<Arc<SonioxSttManager>>();
-        let operation_id = soniox_manager.start_operation();
+        let (soniox_manager, operation_id) = file_operation.soniox.as_ref().expect("Soniox file operation");
+        let operation_id = *operation_id;
         let selected_soniox_model = settings.soniox_model.trim();
         let selected_model_for_message = if selected_soniox_model.is_empty() {
             "(empty)"
@@ -1110,8 +1190,8 @@ pub async fn transcribe_audio_file(
 
         (corrected, segs)
     } else if use_deepgram {
-        let deepgram_manager = app.state::<Arc<DeepgramSttManager>>();
-        let operation_id = deepgram_manager.start_operation();
+        let (deepgram_manager, operation_id) = file_operation.deepgram.as_ref().expect("Deepgram file operation");
+        let operation_id = *operation_id;
 
         let language = profile
             .as_ref()
@@ -1404,6 +1484,7 @@ pub async fn transcribe_audio_file(
     );
 
     // Save to file if requested
+    file_operation.ensure_active()?;
     let saved_file_path = if save_to_file {
         let preferred_output_path = get_output_file_path(&path, format)?;
         let output_path =

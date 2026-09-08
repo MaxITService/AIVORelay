@@ -616,7 +616,7 @@ export const TranscribeFileSettings: React.FC = () => {
     setIsTranscribing(false);
 
     try {
-      await commands.cancelOperation();
+      await invoke("cancel_file_transcription");
     } catch (err) {
       setError(String(err));
     } finally {
@@ -1494,7 +1494,7 @@ export const TranscribeFileSettings: React.FC = () => {
     setIsTranscribing(false);
 
     try {
-      await commands.cancelOperation();
+      await invoke("cancel_file_transcription");
       setInfoMessage(t("transcribeFile.cancelled"));
     } catch (err) {
       setError(String(err));
