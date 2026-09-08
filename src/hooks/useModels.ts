@@ -41,6 +41,9 @@ export const useModels = () => {
       const result = await commands.getAvailableModels();
       if (result.status === "ok") {
         setModels(result.data);
+        setDownloadingModels(new Set(
+          result.data.filter((model) => model.is_downloading).map((model) => model.id),
+        ));
         setError(null);
       } else {
         setError(`Failed to load models: ${result.error}`);
@@ -170,16 +173,7 @@ export const useModels = () => {
       setError(null);
       const result = await commands.cancelDownload(modelId);
       if (result.status === "ok") {
-        setDownloadingModels((prev) => {
-          const next = new Set(prev);
-          next.delete(modelId);
-          return next;
-        });
-        setDownloadProgress((prev) => {
-          const next = new Map(prev);
-          next.delete(modelId);
-          return next;
-        });
+        // Cancellation is a request; the worker retains ownership until it exits.
         await loadModels();
         return true;
       }
@@ -329,6 +323,9 @@ export const useModels = () => {
       await loadModels();
       await loadCurrentModel();
     });
+    const modelsUpdatedUnlisten = listen("models-updated", () => {
+      void loadModels();
+    });
 
     return () => {
       progressUnlisten.then((fn) => fn());
@@ -339,6 +336,7 @@ export const useModels = () => {
       extractionFailedUnlisten.then((fn) => fn());
       downloadFailedUnlisten.then((fn) => fn());
       modelDeletedUnlisten.then((fn) => fn());
+      modelsUpdatedUnlisten.then((fn) => fn());
     };
   }, []);
 
