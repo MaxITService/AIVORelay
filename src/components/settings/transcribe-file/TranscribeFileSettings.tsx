@@ -834,11 +834,11 @@ export const TranscribeFileSettings: React.FC = () => {
   useEffect(() => {
     return () => {
       fileSelectionGenerationRef.current += 1;
-      speakerReapplyGenerationRef.current += 1;
+      invalidateSpeakerNameReapply();
       // The selected file survives navigation in the store. Its preview asset
       // is released by replaceSelectedFile when that selection is replaced.
     };
-  }, []);
+  }, [invalidateSpeakerNameReapply]);
 
   useEffect(() => {
     setSonioxLanguageHintsInput(globalSonioxLanguageHints.join(", "));
