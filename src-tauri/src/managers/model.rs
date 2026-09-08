@@ -389,6 +389,11 @@ impl Drop for ModelDownloadGuard<'_> {
         tokens.remove(self.model_id);
         drop(models);
         drop(tokens);
+        // Cached HF installs are discovered only after this worker releases
+        // its reservation; scans deliberately skip active workers.
+        if let Err(error) = self.manager.update_download_status() {
+            warn!("Failed to refresh completed model download: {}", error);
+        }
         let _ = self.manager.app_handle.emit("models-updated", ());
     }
 }
