@@ -373,6 +373,26 @@ pub struct ModelManager {
     cancellation_tokens: Mutex<HashMap<String, CancellationToken>>,
 }
 
+struct ModelDownloadGuard<'a> {
+    manager: &'a ModelManager,
+    model_id: &'a str,
+}
+
+impl Drop for ModelDownloadGuard<'_> {
+    fn drop(&mut self) {
+        // Keep ownership until the worker and all of its cleanup have returned.
+        let mut tokens = self.manager.cancellation_tokens.lock().unwrap();
+        let mut models = self.manager.available_models.lock().unwrap();
+        if let Some(model) = models.get_mut(self.model_id) {
+            model.is_downloading = false;
+        }
+        tokens.remove(self.model_id);
+        drop(models);
+        drop(tokens);
+        let _ = self.manager.app_handle.emit("models-updated", ());
+    }
+}
+
 impl ModelManager {
     pub fn new(app_handle: &AppHandle) -> Result<Self> {
         // Create models directory in app data
@@ -959,13 +979,21 @@ impl ModelManager {
     }
 
     pub fn get_available_models(&self) -> Vec<ModelInfo> {
+        let tokens = self.cancellation_tokens.lock().unwrap();
         let models = self.available_models.lock().unwrap();
-        models.values().cloned().collect()
+        models.values().cloned().map(|mut model| {
+            model.is_downloading = tokens.contains_key(&model.id);
+            model
+        }).collect()
     }
 
     pub fn get_model_info(&self, model_id: &str) -> Option<ModelInfo> {
+        let tokens = self.cancellation_tokens.lock().unwrap();
         let models = self.available_models.lock().unwrap();
-        models.get(model_id).cloned()
+        models.get(model_id).cloned().map(|mut model| {
+            model.is_downloading = tokens.contains_key(model_id);
+            model
+        })
     }
 
     pub fn set_runtime_capabilities(
@@ -1089,7 +1117,6 @@ impl ModelManager {
             }
         }
 
-        self.cancellation_tokens.lock().unwrap().remove(model_id);
     }
 
     fn finish_cancelled_partial_download(&self, model_id: &str, partial_path: &Path) {
@@ -1827,6 +1854,7 @@ impl ModelManager {
         repo_id: String,
         revision: String,
         filename: String,
+        cancel_token: CancellationToken,
     ) -> Result<()> {
         if hf_cached_path(&repo_id, &revision, &filename).is_some()
             || self.models_dir.join(&filename).exists()
@@ -1845,12 +1873,6 @@ impl ModelManager {
                 model.partial_size = 0;
             }
         }
-
-        let cancel_token = CancellationToken::new();
-        self.cancellation_tokens
-            .lock()
-            .unwrap()
-            .insert(model_info.id.clone(), cancel_token.clone());
 
         // `true` means the download completed; `false` is a user cancellation.
         // Keeping cancellation distinct lets cleanup run without turning it
@@ -2046,11 +2068,6 @@ impl ModelManager {
         let completed = matches!(&result, Ok(true));
         let cancelled = matches!(&result, Ok(false));
 
-        self.cancellation_tokens
-            .lock()
-            .unwrap()
-            .remove(&model_info.id);
-
         if !completed {
             let mut models = self.available_models.lock().unwrap();
             if let Some(model) = models.get_mut(&model_info.id) {
@@ -2073,8 +2090,20 @@ impl ModelManager {
     }
 
     pub async fn download_model(&self, model_id: &str) -> Result<()> {
+        let cancel_token = CancellationToken::new();
+        {
+            let mut tokens = self.cancellation_tokens.lock().unwrap();
+            if tokens.contains_key(model_id) {
+                anyhow::bail!("A download for this model is still running or stopping");
+            }
+            tokens.insert(model_id.to_string(), cancel_token.clone());
+        }
+        let _download_guard = ModelDownloadGuard { manager: self, model_id };
         let model_info = {
-            let models = self.available_models.lock().unwrap();
+            let mut models = self.available_models.lock().unwrap();
+            if let Some(model) = models.get_mut(model_id) {
+                model.is_downloading = true;
+            }
             models.get(model_id).cloned()
         };
 
@@ -2083,7 +2112,7 @@ impl ModelManager {
 
         if let Some((repo_id, revision, filename)) = model_hf_source(&model_info) {
             return self
-                .download_hf_model(&model_info, repo_id, revision, filename)
+                .download_hf_model(&model_info, repo_id, revision, filename, cancel_token)
                 .await;
         }
 
@@ -2103,11 +2132,6 @@ impl ModelManager {
             return Ok(());
         }
 
-        let cancel_token = CancellationToken::new();
-        {
-            let mut tokens = self.cancellation_tokens.lock().unwrap();
-            tokens.insert(model_id.to_string(), cancel_token.clone());
-        }
         {
             let mut models = self.available_models.lock().unwrap();
             if let Some(model) = models.get_mut(model_id) {
@@ -2240,7 +2264,6 @@ impl ModelManager {
                     model.partial_size = 0;
                 }
             }
-            self.cancellation_tokens.lock().unwrap().remove(model_id);
 
             let _ = self.app_handle.emit("model-download-complete", model_id);
 
@@ -2441,8 +2464,8 @@ impl ModelManager {
             model_info.ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
 
         // Cancel the download task via cancellation token.
+        let tokens = self.cancellation_tokens.lock().unwrap();
         let cancellation_sent = {
-            let tokens = self.cancellation_tokens.lock().unwrap();
             if let Some(token) = tokens.get(model_id) {
                 token.cancel();
                 info!("Cancellation signal sent for model: {}", model_id);
@@ -2488,8 +2511,9 @@ impl ModelManager {
             }
         }
 
-        // Update download status to reflect current state
-        self.update_download_status()?;
+        // Keep the token map locked through stale-file cleanup so a new worker
+        // cannot acquire this path while it is being removed.
+        drop(tokens);
 
         info!("Download cancelled for: {}", model_id);
         Ok(())
