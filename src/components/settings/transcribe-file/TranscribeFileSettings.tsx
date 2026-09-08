@@ -835,7 +835,8 @@ export const TranscribeFileSettings: React.FC = () => {
     return () => {
       fileSelectionGenerationRef.current += 1;
       speakerReapplyGenerationRef.current += 1;
-      void cleanupPreparedPreviewAsset(selectedFileRef.current);
+      // The selected file survives navigation in the store. Its preview asset
+      // is released by replaceSelectedFile when that selection is replaced.
     };
   }, []);
 
