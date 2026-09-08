@@ -62,8 +62,7 @@ export default function CommandConfirmOverlay() {
   // Copy button state
   const [copied, setCopied] = useState(false);
   // Double-Enter detection state
-  const [enterPressedOnce, setEnterPressedOnce] = useState(false);
-  const enterTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastEnterAtRef = useRef<number | null>(null);
   const destroyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Whether auto-run is active for current payload
@@ -316,7 +315,7 @@ export default function CommandConfirmOverlay() {
       // Skip if in editing mode (textarea needs Enter)
       if (isEditing) return;
 
-      if (e.key === "Enter" && !isExecuting) {
+      if (e.key === "Enter" && !e.repeat && !isExecuting) {
         e.preventDefault();
 
         // Ctrl/Cmd+Enter - immediate run
@@ -326,21 +325,12 @@ export default function CommandConfirmOverlay() {
         }
 
         // Double Enter detection
-        if (enterPressedOnce) {
-          // Clear timeout and run
-          if (enterTimeoutRef.current) {
-            clearTimeout(enterTimeoutRef.current);
-            enterTimeoutRef.current = null;
-          }
-          setEnterPressedOnce(false);
+        const now = performance.now();
+        if (lastEnterAtRef.current !== null && now - lastEnterAtRef.current <= 800) {
+          lastEnterAtRef.current = null;
           handleRun();
         } else {
-          setEnterPressedOnce(true);
-          // Reset after 800ms
-          enterTimeoutRef.current = setTimeout(() => {
-            setEnterPressedOnce(false);
-            enterTimeoutRef.current = null;
-          }, 800);
+          lastEnterAtRef.current = now;
         }
       }
     };
@@ -348,20 +338,9 @@ export default function CommandConfirmOverlay() {
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      if (enterTimeoutRef.current) {
-        clearTimeout(enterTimeoutRef.current);
-      }
+      lastEnterAtRef.current = null;
     };
-  }, [payload, isEditing, editedCommand, isExecuting, enterPressedOnce]);
-
-  // Reset enterPressedOnce when payload changes (new command shown)
-  useEffect(() => {
-    setEnterPressedOnce(false);
-    if (enterTimeoutRef.current) {
-      clearTimeout(enterTimeoutRef.current);
-      enterTimeoutRef.current = null;
-    }
-  }, [payload]);
+  }, [payload, isEditing, editedCommand, isExecuting]);
 
   if (!payload) {
     return null;
