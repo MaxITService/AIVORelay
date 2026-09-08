@@ -507,7 +507,6 @@ pub struct TtsManager {
     state: RwLock<TtsState>,
     cache_root: PathBuf,
     folder_watcher: parking_lot::Mutex<Option<notify::RecommendedWatcher>>,
-    watched_paths: Arc<parking_lot::Mutex<HashSet<PathBuf>>>,
     watcher_generation: AtomicU64,
     watched_conversion_lock: tokio::sync::Mutex<()>,
     foreground_operation_lock: Arc<tokio::sync::Mutex<()>>,
@@ -544,7 +543,6 @@ impl TtsManager {
             state: RwLock::new(TtsState::default()),
             cache_root,
             folder_watcher: parking_lot::Mutex::new(None),
-            watched_paths: Arc::new(parking_lot::Mutex::new(HashSet::new())),
             watcher_generation: AtomicU64::new(0),
             watched_conversion_lock: tokio::sync::Mutex::new(()),
             foreground_operation_lock: Arc::new(tokio::sync::Mutex::new(())),
@@ -1596,10 +1594,11 @@ impl TtsManager {
             .effective_for_scope(crate::settings::TtsOperationScope::File);
         let generation = self.watcher_generation.fetch_add(1, Ordering::SeqCst) + 1;
         *self.folder_watcher.lock() = None;
-        self.watched_paths.lock().clear();
         if !settings.watch_folder_enabled {
             return Ok(());
         }
+        // Callbacks and workers retain only their own generation's exclusions.
+        let watched_paths = Arc::new(parking_lot::Mutex::new(HashSet::new()));
 
         let input_dir = PathBuf::from(settings.watch_input_directory.trim());
         let output_dir = PathBuf::from(settings.watch_output_directory.trim());
@@ -1633,16 +1632,19 @@ impl TtsManager {
         let recursive = settings.watch_recursive;
 
         // Snapshot before subscribing: these files must never be auto-processed.
-        let mut initial = self.watched_paths.lock();
+        let mut initial = watched_paths.lock();
         for path in collect_supported_text_paths(&input_dir, recursive)? {
             initial.insert(path);
         }
         drop(initial);
 
         let manager = Arc::clone(self);
-        let seen = Arc::clone(&self.watched_paths);
+        let seen = Arc::clone(&watched_paths);
         let mut watcher = RecommendedWatcher::new(
             move |event: notify::Result<notify::Event>| {
+                if manager.watcher_generation.load(Ordering::SeqCst) != generation {
+                    return;
+                }
                 let event = match event {
                     Ok(event) => event,
                     Err(error) => {
@@ -1691,8 +1693,11 @@ impl TtsManager {
                         continue;
                     }
                     let manager = Arc::clone(&manager);
+                    let watched_paths = Arc::clone(&seen);
                     tauri::async_runtime::spawn(async move {
-                        manager.process_watched_file(path, generation).await;
+                        manager
+                            .process_watched_file(path, generation, watched_paths)
+                            .await;
                     });
                 }
             },
@@ -1717,15 +1722,18 @@ impl TtsManager {
         // Reconcile once after subscribing to close the snapshot/watch race.
         for path in collect_supported_text_paths(&input_dir, recursive)? {
             let queued = if is_supported_text_path(&path) {
-                let mut watched = self.watched_paths.lock();
+                let mut watched = watched_paths.lock();
                 queue_watched_path(&mut watched, path.clone())
             } else {
                 false
             };
             if queued {
                 let manager = Arc::clone(self);
+                let watched_paths = Arc::clone(&watched_paths);
                 tauri::async_runtime::spawn(async move {
-                    manager.process_watched_file(path, generation).await;
+                    manager
+                        .process_watched_file(path, generation, watched_paths)
+                        .await;
                 });
             }
         }
@@ -1749,9 +1757,15 @@ impl TtsManager {
                 continue;
             }
             let manager = Arc::clone(self);
+            let watched_paths = Arc::clone(&watched_paths);
             tauri::async_runtime::spawn(async move {
                 manager
-                    .process_watched_file_to(task.source_path, Some(task.output_path), generation)
+                    .process_watched_file_to(
+                        task.source_path,
+                        Some(task.output_path),
+                        generation,
+                        watched_paths,
+                    )
                     .await;
             });
         }
@@ -1765,8 +1779,13 @@ impl TtsManager {
         Ok(())
     }
 
-    async fn process_watched_file(self: Arc<Self>, input_path: PathBuf, generation: u64) {
-        self.process_watched_file_to(input_path, None, generation)
+    async fn process_watched_file(
+        self: Arc<Self>,
+        input_path: PathBuf,
+        generation: u64,
+        watched_paths: Arc<parking_lot::Mutex<HashSet<PathBuf>>>,
+    ) {
+        self.process_watched_file_to(input_path, None, generation, watched_paths)
             .await;
     }
 
@@ -1782,6 +1801,7 @@ impl TtsManager {
         input_path: PathBuf,
         resume_output_path: Option<PathBuf>,
         generation: u64,
+        watched_paths: Arc<parking_lot::Mutex<HashSet<PathBuf>>>,
     ) {
         let result = async {
             let initial_settings = crate::settings::get_settings(&self.app_handle)
@@ -1938,7 +1958,7 @@ impl TtsManager {
         }
         .await;
 
-        self.watched_paths.lock().remove(&input_path);
+        watched_paths.lock().remove(&input_path);
         if let Err(error) = result {
             let message = format!(
                 "TTS folder conversion failed for {}: {}",
