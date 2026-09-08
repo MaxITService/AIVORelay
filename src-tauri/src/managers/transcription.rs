@@ -538,6 +538,11 @@ pub enum FileTranscriptionOverrideLoadDecision {
     Restore,
 }
 
+pub struct FileTranscriptionModelOverride {
+    loading_generation: u64,
+    previous_model_id: Option<String>,
+}
+
 impl Drop for FileTranscriptionCancelGuard {
     fn drop(&mut self) {
         self.cancel_requested.store(false, Ordering::Relaxed);
@@ -737,6 +742,7 @@ pub struct TranscriptionManager {
     watcher_handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
     is_loading: Arc<Mutex<bool>>,
     loading_condvar: Arc<Condvar>,
+    loading_generation: Arc<AtomicU64>,
 }
 
 impl TranscriptionManager {
@@ -757,6 +763,7 @@ impl TranscriptionManager {
             watcher_handle: Arc::new(Mutex::new(None)),
             is_loading: Arc::new(Mutex::new(false)),
             loading_condvar: Arc::new(Condvar::new()),
+            loading_generation: Arc::new(AtomicU64::new(0)),
         };
 
         // Start the idle watcher
@@ -1299,6 +1306,7 @@ impl TranscriptionManager {
             return None;
         }
         *is_loading = true;
+        self.loading_generation.fetch_add(1, Ordering::Relaxed);
         Some(LoadingGuard {
             is_loading: self.is_loading.clone(),
             loading_condvar: self.loading_condvar.clone(),
@@ -1685,9 +1693,8 @@ impl TranscriptionManager {
     pub fn initiate_file_transcription_override_model_load(
         &self,
         model_id: String,
-        previous_model_id: Option<String>,
     ) -> (
-        mpsc::Receiver<std::result::Result<(), String>>,
+        mpsc::Receiver<std::result::Result<FileTranscriptionModelOverride, String>>,
         mpsc::SyncSender<FileTranscriptionOverrideLoadDecision>,
     ) {
         let manager = self.clone();
@@ -1697,7 +1704,6 @@ impl TranscriptionManager {
         thread::spawn(move || {
             manager.run_file_transcription_override_model_load(
                 &model_id,
-                previous_model_id.as_deref(),
                 result_tx,
                 decision_rx,
             );
@@ -1709,8 +1715,7 @@ impl TranscriptionManager {
     fn run_file_transcription_override_model_load(
         &self,
         model_id: &str,
-        previous_model_id: Option<&str>,
-        result_tx: mpsc::SyncSender<std::result::Result<(), String>>,
+        result_tx: mpsc::SyncSender<std::result::Result<FileTranscriptionModelOverride, String>>,
         decision_rx: mpsc::Receiver<FileTranscriptionOverrideLoadDecision>,
     ) {
         let mut keep_requested = false;
@@ -1756,12 +1761,18 @@ impl TranscriptionManager {
             Err(mpsc::TryRecvError::Empty) => {}
         }
 
+        // Capture restoration state only after claiming the loading lane: a
+        // selection may have changed while this loader was waiting for it.
+        let previous_model_id = self.get_current_model();
+        let loading_generation = self.loading_generation.load(Ordering::Relaxed);
         let load_result = self
             .load_model(model_id)
             .map_err(|error| format!("Failed to load override model: {error}"));
 
         if let Err(load_error) = load_result {
-            let error = match self.restore_file_transcription_override_model(previous_model_id) {
+            let error = match self
+                .restore_file_transcription_override_model(previous_model_id.as_deref())
+            {
                 Ok(()) => load_error,
                 Err(restore_error) => format!("{load_error}; {restore_error}"),
             };
@@ -1769,11 +1780,17 @@ impl TranscriptionManager {
             return;
         }
 
-        if result_tx.send(Ok(())).is_err()
+        let model_override = FileTranscriptionModelOverride {
+            loading_generation,
+            previous_model_id: previous_model_id.clone(),
+        };
+        if result_tx.send(Ok(model_override)).is_err()
             || (!keep_requested
                 && decision_rx.recv() != Ok(FileTranscriptionOverrideLoadDecision::Keep))
         {
-            if let Err(error) = self.restore_file_transcription_override_model(previous_model_id) {
+            if let Err(error) =
+                self.restore_file_transcription_override_model(previous_model_id.as_deref())
+            {
                 error!(
                     "Failed to restore local model after cancelling override load: {}",
                     error
@@ -1782,6 +1799,37 @@ impl TranscriptionManager {
         }
 
         drop(loading_guard);
+    }
+
+    pub fn finish_file_transcription_model_override(
+        &self,
+        model_override: FileTranscriptionModelOverride,
+    ) -> std::result::Result<(), String> {
+        {
+            let mut is_loading = self.is_loading.lock().unwrap();
+            loop {
+                // Every newer loading claim (including a model selection that
+                // does not load an engine) supersedes this temporary override.
+                if self.loading_generation.load(Ordering::Relaxed)
+                    != model_override.loading_generation
+                {
+                    return Ok(());
+                }
+                if !*is_loading {
+                    *is_loading = true;
+                    break;
+                }
+                // Keep can be accepted just before the loader drops its guard.
+                is_loading = self.loading_condvar.wait(is_loading).unwrap();
+            }
+        }
+        let _loading_guard = LoadingGuard {
+            is_loading: self.is_loading.clone(),
+            loading_condvar: self.loading_condvar.clone(),
+        };
+        // Ownership was checked and claimed under the same mutex used by model
+        // selection, so a newer selection cannot slip between check and restore.
+        self.restore_file_transcription_override_model(model_override.previous_model_id.as_deref())
     }
 
     fn restore_file_transcription_override_model(
