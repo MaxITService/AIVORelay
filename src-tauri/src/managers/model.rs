@@ -1272,9 +1272,15 @@ impl ModelManager {
     }
 
     fn update_download_status(&self) -> Result<()> {
+        // Reserve the worker registry throughout scanning and stale cleanup.
+        // A live extraction is not an interrupted installation.
+        let tokens = self.cancellation_tokens.lock().unwrap();
         let mut models = self.available_models.lock().unwrap();
 
         for model in models.values_mut() {
+            if tokens.contains_key(&model.id) {
+                continue;
+            }
             if let Some((repo_id, revision, filename)) = model_hf_source(model) {
                 let local_path = self.models_dir.join(&filename);
                 let partial_path = self.models_dir.join(format!("{}.partial", &filename));
