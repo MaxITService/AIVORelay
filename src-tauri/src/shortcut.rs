@@ -1201,6 +1201,10 @@ pub fn change_ptt_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     settings.push_to_talk = enabled;
 
     settings::write_settings_checked(&app, settings)?;
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({ "setting": "push_to_talk", "value": enabled }),
+    );
 
     Ok(())
 }
@@ -5231,6 +5235,10 @@ pub fn update_transcription_profile(
 
     synchronize_active_profile_preview(&mut settings);
     settings::write_settings_checked(&app, settings)?;
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({ "setting": "transcription_profiles" }),
+    );
     refresh_soniox_live_preview_window(&app);
     Ok(())
 }
