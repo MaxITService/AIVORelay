@@ -390,12 +390,6 @@ export const ModelsSettings: React.FC = () => {
     );
   };
 
-  const ensureLocalProvider = async () => {
-    if (isRemoteProvider) {
-      await setTranscriptionProvider("local");
-    }
-  };
-
   const handleSelectModel = async (modelId: string) => {
     setSwitchingModelId(modelId);
     try {
@@ -413,9 +407,9 @@ export const ModelsSettings: React.FC = () => {
         return;
       }
 
-      await ensureLocalProvider();
       const selected = await selectModel(modelId);
       if (!selected) return;
+      await refreshSettings();
       notifyDefaultProfileModelSelection(
         selectedModel ? getTranslatedModelName(selectedModel, t) : modelId,
       );
