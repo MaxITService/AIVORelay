@@ -1298,42 +1298,15 @@ pub async fn transcribe_audio_file(
         let override_changed_loaded_model = model_override
             .as_ref()
             .is_some_and(|model_id| loaded_model_before_override.as_deref() != Some(model_id));
-
-        let restore_loaded_model = || -> Result<(), String> {
-            if !override_changed_loaded_model {
-                return Ok(());
-            }
-
-            match loaded_model_before_override.as_deref() {
-                Some(previous_model_id) => tm.load_model(previous_model_id).map_err(|e| {
-                    format!(
-                        "Failed to restore previously loaded model '{}': {}",
-                        previous_model_id, e
-                    )
-                }),
-                None => tm
-                    .unload_model()
-                    .map_err(|e| format!("Failed to unload temporary override model: {}", e)),
-            }
-        };
+        let mut loaded_override = None;
 
         // If override is provided, load that model first
         if let Some(model_id) = &model_override {
             info!("Using override model: {}", model_id);
-            // We need to ensure this model is loaded.
-            // Note: The TM currently holds one loaded model. Switching it here might affect global state,
-            // but file transcription is a distinct action.
-            // However, load_model is async-ish in the background or blocking?
-            // `load_model` in TM is synchronous (blocking) but `initiate_model_load` is async.
-            // We need it loaded NOW.
-
             // First check if it's already the current one
             if override_changed_loaded_model {
                 let (load_result_rx, load_decision_tx) = tm
-                    .initiate_file_transcription_override_model_load(
-                        model_id.clone(),
-                        loaded_model_before_override.clone(),
-                    );
+                    .initiate_file_transcription_override_model_load(model_id.clone());
                 let load_result = loop {
                     if tm.is_file_transcription_cancel_requested() {
                         let _ =
@@ -1351,7 +1324,7 @@ pub async fn transcribe_audio_file(
                     }
                 };
 
-                load_result?;
+                loaded_override = Some(load_result?);
                 if tm.is_file_transcription_cancel_requested() {
                     let _ = load_decision_tx.send(FileTranscriptionOverrideLoadDecision::Restore);
                     return Err(FILE_TRANSCRIPTION_CANCELLED_MESSAGE.to_string());
@@ -1416,7 +1389,9 @@ pub async fn transcribe_audio_file(
             text_result.map(|(text, meta)| (text, None, meta))
         };
 
-        restore_loaded_model()?;
+        if let Some(loaded_override) = loaded_override {
+            tm.finish_file_transcription_model_override(loaded_override)?;
+        }
 
         let (text, segs, meta) = result?;
         local_execution_meta = Some(meta);
