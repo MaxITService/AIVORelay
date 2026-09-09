@@ -83,6 +83,35 @@ function App() {
   const onDemandModelDownloads = useRef(new Set<string>());
 
   useEffect(() => {
+    // Consume after onboarding; the backend retains startup notices until this point.
+    if (showOnboarding !== false) return;
+    void invoke<[string, string | null] | null>("take_missing_model_selection_notice")
+      .then((notice) => {
+        if (!notice) return;
+        const [model, replacement] = notice;
+        toast.warning(t("models.missingSelection", {
+          defaultValue: "Previously selected model {{model}} is no longer available.",
+          model,
+        }), {
+          duration: 15000,
+          description: replacement
+            ? t("models.replacementSelected", {
+                defaultValue: "Selected {{model}} instead.",
+                model: replacement,
+              })
+            : t("models.chooseReplacement", {
+                defaultValue: "Choose another model to continue.",
+              }),
+          action: {
+            label: t("sidebar.models", "Models"),
+            onClick: () => setCurrentSection("models"),
+          },
+        });
+      })
+      .catch((error) => console.error("Failed to check missing model notice:", error));
+  }, [showOnboarding, setCurrentSection, t]);
+
+  useEffect(() => {
     if (showOnboarding !== false) return;
 
     const isNavigationButton = (event: MouseEvent) =>

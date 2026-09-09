@@ -369,6 +369,7 @@ pub struct ModelManager {
     app_handle: AppHandle,
     models_dir: PathBuf,
     available_models: Mutex<HashMap<String, ModelInfo>>,
+    missing_selection_notice: Mutex<Option<(String, Option<String>)>>,
     /// Cancellation tokens for active downloads, keyed by model_id
     cancellation_tokens: Mutex<HashMap<String, CancellationToken>>,
 }
@@ -965,6 +966,7 @@ impl ModelManager {
             app_handle: app_handle.clone(),
             models_dir,
             available_models: Mutex::new(available_models),
+            missing_selection_notice: Mutex::new(None),
             cancellation_tokens: Mutex::new(HashMap::new()),
         };
 
@@ -1342,8 +1344,14 @@ impl ModelManager {
         Ok(())
     }
 
+    pub fn take_missing_selection_notice(&self) -> Option<(String, Option<String>)> {
+        self.missing_selection_notice.lock().unwrap().take()
+    }
+
     fn auto_select_model_if_needed(&self) -> Result<()> {
         let mut settings = get_settings(&self.app_handle);
+        let mut missing_selection = None;
+        let mut replacement_name = None;
 
         // Clear stale selection when selected model no longer exists in available list.
         if !settings.selected_model.is_empty() {
@@ -1356,6 +1364,7 @@ impl ModelManager {
                     "Selected model '{}' not found in available models, clearing selection",
                     settings.selected_model
                 );
+                missing_selection = Some(settings.selected_model.clone());
                 settings.selected_model = String::new();
                 write_settings(&self.app_handle, settings.clone());
             }
@@ -1383,6 +1392,7 @@ impl ModelManager {
                 // Update settings with the selected model
                 let mut updated_settings = settings;
                 updated_settings.selected_model = available_model.id.clone();
+                replacement_name = Some(available_model.name.clone());
                 write_settings(&self.app_handle, updated_settings);
 
                 info!("Successfully auto-selected model: {}", available_model.id);
@@ -1394,6 +1404,10 @@ impl ModelManager {
             }
         }
 
+        // Startup precedes the WebView listener. Retain the notice until the UI reads it.
+        if let Some(model_id) = missing_selection {
+            *self.missing_selection_notice.lock().unwrap() = Some((model_id, replacement_name));
+        }
         Ok(())
     }
 

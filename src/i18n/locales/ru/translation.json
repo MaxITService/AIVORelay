@@ -1,4 +1,9 @@
 {
+  "models": {
+    "missingSelection": "Ранее выбранная модель {{model}} больше недоступна.",
+    "replacementSelected": "Вместо неё выбрана модель {{model}}.",
+    "chooseReplacement": "Выберите другую модель, чтобы продолжить."
+  },
   "tray": {
     "settings": "Настройки...",
     "settingsRequiresWebview": "Переключиться на полный интерфейс и перезапустить",
