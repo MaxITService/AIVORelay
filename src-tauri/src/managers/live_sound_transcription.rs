@@ -490,13 +490,6 @@ pub fn clear_transcript(app: &AppHandle) -> Result<(), String> {
     })
 }
 
-pub fn current_final_text() -> String {
-    LIVE_SOUND_TRANSCRIPTION_STATE
-        .lock()
-        .map(|state| state.final_text.trim().to_string())
-        .unwrap_or_default()
-}
-
 pub fn replace_final_text(app: &AppHandle, final_text: String) {
     update_state(app, move |state| {
         replace_final_text_in_state(state, final_text);
