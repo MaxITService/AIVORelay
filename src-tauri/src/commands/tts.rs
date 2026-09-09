@@ -1479,7 +1479,7 @@ async fn start_tts_text_with_options(
             Ok(operation_guard) => operation_guard,
             Err(error) => {
                 let error = error.to_string();
-                report_tts_error(&app, &error);
+                report_tts_input_error(&app, &error);
                 return Err(error);
             }
         }
