@@ -935,6 +935,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               !liveSelectionReady ||
               !liveModeEnabled ||
               isRecording ||
+              isProcessing ||
               sourceBusy ||
               actionBusy !== null
             }
@@ -962,6 +963,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
             disabled={
               sourceBusy ||
               actionBusy !== null ||
+              isProcessing ||
               (finalText.trim().length === 0 && interimText.trim().length === 0)
             }
             onClick={() =>

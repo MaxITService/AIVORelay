@@ -5806,7 +5806,7 @@ pub(crate) fn start_live_sound_transcription_session(app: &AppHandle) -> Result<
         app,
         LIVE_SOUND_TRANSCRIPTION_BINDING_ID.to_string(),
         auto_stop_minutes,
-    );
+    )?;
     if let Err(err) = crate::managers::live_sound_audio::start(app, session_id) {
         crate::managers::live_sound_transcription::finish_session(app);
         return Err(err);
@@ -5830,13 +5830,8 @@ pub(crate) async fn process_live_sound_transcription_text(app: AppHandle) -> Res
         return Err("Wait for live transcription finalization before LLM processing.".to_string());
     }
 
-    let original_text = crate::managers::live_sound_transcription::current_final_text();
-    if original_text.trim().is_empty() {
-        return Err("Live sound transcript is empty.".to_string());
-    }
-
-    crate::managers::live_sound_transcription::set_processing_llm(&app, true);
-    crate::managers::live_sound_transcription::set_error(&app, None);
+    let (session_id, original_text) =
+        crate::managers::live_sound_transcription::begin_processing_llm(&app)?;
 
     let settings = get_settings(&app);
     let profile = resolve_profile_for_binding(&settings, LIVE_SOUND_TRANSCRIPTION_BINDING_ID);
@@ -5861,28 +5856,16 @@ pub(crate) async fn process_live_sound_transcription_text(app: AppHandle) -> Res
             .await
         {
             PostProcessTranscriptionOutcome::Processed { text, .. } => {
-                crate::managers::live_sound_transcription::replace_final_text(&app, text);
-                Ok(())
+                Ok(Some(text))
             }
             PostProcessTranscriptionOutcome::Skipped => Err(
                 "LLM processing could not run. Check provider, model, and prompt settings."
                     .to_string(),
             ),
-            PostProcessTranscriptionOutcome::Cancelled => Ok(()),
+            PostProcessTranscriptionOutcome::Cancelled => Ok(None),
         };
 
-    crate::managers::live_sound_transcription::set_processing_llm(&app, false);
-
-    match result {
-        Ok(()) => {
-            crate::managers::live_sound_transcription::set_error(&app, None);
-            Ok(())
-        }
-        Err(err) => {
-            crate::managers::live_sound_transcription::set_error(&app, Some(err.clone()));
-            Err(err)
-        }
-    }
+    crate::managers::live_sound_transcription::finish_processing_llm(&app, session_id, result)
 }
 
 fn stop_transcribe_binding_from_preview(app: &AppHandle, binding_id: &str) -> Result<(), String> {
