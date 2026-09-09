@@ -7588,33 +7588,41 @@ impl ShortcutAction for TranscribeAction {
                     set_openai_realtime_whisper_stream_emitted(&binding_id, false);
                     let gemini_stream_insert_timeout_ms =
                         settings.paste_delay_ms.saturating_add(1500);
+                    let output_window = gemini_realtime_manager.output_window(recording_operation_id);
                     let chunk_callback = stream_processor.map(|stream_processor| {
                         Arc::new({
                             let ah_for_cb = app_handle.clone();
                             let binding_id_for_cb = binding_id.clone();
                             move |chunk: String| {
+                                let chunk = match output_window.as_ref() {
+                                    Some(window) => window.accept_chunk(chunk),
+                                    None => chunk,
+                                };
                                 if chunk.is_empty() {
                                     return;
                                 }
                                 let delta = match stream_processor.lock() {
                                     Ok(mut processor) => processor.push_chunk(&chunk),
                                     Err(_) => {
-                                        warn!(
-                                            "Failed to lock Gemini 3.5 Transcribe Live stream processor"
-                                        );
-                                        String::new()
+                                        warn!("Failed to lock Gemini live stream processor");
+                                        return;
                                     }
                                 };
-                                if delta.is_empty() {
-                                    return;
-                                }
+                                if delta.is_empty() { return; }
+                                let delta_ending = delta.chars().last();
+                                let processor_for_paste = Arc::clone(&stream_processor);
                                 let ah_for_call = ah_for_cb.clone();
                                 let ah_for_clip = ah_for_call.clone();
                                 let binding_id_for_paste = binding_id_for_cb.clone();
+                                let output_window_for_paste = output_window.clone();
                                 if let Err(error) = run_on_main_thread_sync(
                                     &ah_for_call,
                                     gemini_stream_insert_timeout_ms,
                                     move || {
+                                        if output_window_for_paste.as_ref().is_some_and(|window| !window.allows_delivery()) {
+                                            debug!("Skipping Gemini chunk past early-finalization deadline (operation={})", operation_stamp.operation_id);
+                                            return;
+                                        }
                                         let background_finalization =
                                             gemini_background_finalization_can_deliver(
                                                 operation_stamp.operation_id,
@@ -7634,6 +7642,9 @@ impl ShortcutAction for TranscribeAction {
                                             ah_for_clip.clone(),
                                         ) {
                                             Ok(()) => {
+                                                if let Ok(mut processor) = processor_for_paste.lock() {
+                                                    processor.record_output_ending(delta_ending);
+                                                }
                                                 if !background_finalization {
                                                     mark_openai_realtime_whisper_stream_emitted(
                                                         &binding_id_for_paste,
@@ -7786,6 +7797,23 @@ impl ShortcutAction for TranscribeAction {
             };
             let operation_stamp = stop_context.operation_stamp();
             let recording_operation_id = stop_context.operation_id;
+            let early_gemini_deadline = if is_gemini_live_provider
+                && recording_settings.gemini_live_early_finalization_enabled
+                && !preview_output_only_enabled
+                && !invoked_from_realtime_error
+                && !invoked_from_gemini_time_limit
+                && binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+            {
+                gemini_realtime_manager.output_window(recording_operation_id).map(|window| {
+                    let delay = recording_settings.gemini_live_early_finalization_delay_ms.clamp(100, 5000);
+                    let deadline = Instant::now() + Duration::from_millis(u64::from(delay));
+                    window.finish_at(deadline);
+                    info!("Gemini early finalization armed (operation={}, delay_ms={})", recording_operation_id, delay);
+                    deadline
+                })
+            } else {
+                None
+            };
             // Live mode already streamed text while recording.
             // On stop, show explicit finalizing state unless instant-stop is enabled.
             if live_instant_stop && !preview_output_only_enabled {
@@ -7794,7 +7822,7 @@ impl ShortcutAction for TranscribeAction {
                 show_finalizing_overlay(app);
             }
             let pending_gemini_background_finalization =
-                if can_background_vercel_gemini_finalization(
+                if early_gemini_deadline.is_none() && can_background_vercel_gemini_finalization(
                     is_gemini_live_provider,
                     &recording_settings.remote_stt.provider_preset,
                     preview_output_only_enabled,
@@ -8080,7 +8108,11 @@ impl ShortcutAction for TranscribeAction {
                         .finish_session(live_finalize_timeout_ms)
                         .await
                 } else if is_gemini_live_provider {
-                    if let Some(finalization) = detached_gemini_finalization.take() {
+                    if let Some(deadline) = early_gemini_deadline {
+                        gemini_realtime_manager
+                            .begin_finish_session_if_matches(Some(recording_operation_id))
+                            .finish_early(deadline).await
+                    } else if let Some(finalization) = detached_gemini_finalization.take() {
                         finalization.finish(live_finalize_timeout_ms).await
                     } else {
                         gemini_realtime_manager
@@ -8098,6 +8130,72 @@ impl ShortcutAction for TranscribeAction {
                         .finish_session(live_finalize_timeout_ms)
                         .await
                 };
+                if early_gemini_deadline.is_some() {
+                    if !finish_guard.is_current() || operation_stamp.was_cancelled(&ah) {
+                        return;
+                    }
+                    let text = match transcription_result {
+                        Ok(text) => text,
+                        Err(error) => {
+                            handle_remote_transcription_error(&ah, &error.to_string(), false);
+                            end_streaming_paste_session_after_main_thread_queue(&ah, recording_operation_id, streaming_clipboard_timeout_ms);
+                            finish_guard.finish();
+                            return;
+                        }
+                    };
+                    let app_for_output = ah.clone();
+                    let overlay_generation = crate::plus_overlay_state::current_recording_overlay_generation();
+                    let processor_for_output = stream_processor.take();
+                    let binding_for_output = binding_id.clone();
+                    let output_result = run_on_main_thread_sync(
+                        &ah, recording_settings.paste_delay_ms.saturating_add(1500), move || {
+                            if !operation_stamp.is_current(&app_for_output) || operation_stamp.was_cancelled(&app_for_output) {
+                                return;
+                            }
+                            let tail = processor_for_output.and_then(|processor| {
+                                let tail = processor.lock().ok().map(|mut processor| processor.flush_with_trailing_space());
+                                tail
+                            }).unwrap_or_default();
+                            change_tray_icon(&app_for_output, TrayIconState::Idle);
+                            info!("Gemini early final output (operation={}, chars={}, whitespace_only={})", recording_operation_id, tail.chars().count(), !tail.is_empty() && tail.trim().is_empty());
+                            if !tail.is_empty() {
+                                if let Err(error) = crate::clipboard::paste_stream_chunk(tail, app_for_output.clone()) {
+                                    handle_remote_transcription_error(&app_for_output, &error, false);
+                                    return;
+                                }
+                            }
+                            let _ = take_openai_realtime_whisper_stream_emitted(&binding_for_output);
+                            crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(&app_for_output, overlay_generation);
+                        },
+                    );
+                    let output_dispatched = output_result.is_ok();
+                    if let Err(error) = output_result {
+                        warn!("Gemini early final output dispatch failed: {}", error);
+                    }
+                    if text.is_empty() {
+                        end_streaming_paste_session_after_main_thread_queue(
+                            &ah, recording_operation_id, streaming_clipboard_timeout_ms,
+                        );
+                    } else {
+                        let output_finalized = finalize_streaming_paste_session_after_main_thread_queue(
+                            &ah, recording_operation_id, operation_stamp, streaming_clipboard_timeout_ms, text.clone(),
+                        );
+                        if output_dispatched && output_finalized {
+                            play_result_ready_sound(&ah);
+                        }
+                    }
+                    finish_guard.finish();
+                    // History may finish later, but this branch never inserts text again.
+                    if !text.is_empty() {
+                        before_dictation_final_output(&ah, &text);
+                        let text = apply_profile_output_filters(&recording_settings, text, profile_id_for_postprocess.as_deref());
+                        let _ = apply_post_processing_and_history(
+                            &ah, &recording_settings, text, samples, profile_id_for_postprocess,
+                            &current_app, None, None, force_post_process, None,
+                        ).await;
+                    }
+                    return;
+                }
                 let gemini_finalization_is_background = pending_gemini_background_finalization
                     .as_ref()
                     .is_some_and(|pending| {

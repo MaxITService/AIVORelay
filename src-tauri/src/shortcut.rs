@@ -3800,6 +3800,26 @@ pub fn change_gemini_dictation_mode_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_gemini_early_finalization_setting(
+    app: AppHandle,
+    enabled: Option<bool>,
+    delay_ms: Option<u32>,
+) -> Result<(), String> {
+    if delay_ms.is_some_and(|delay| !(100..=5000).contains(&delay)) {
+        return Err("Early finalization delay must be between 100 and 5000 ms.".to_string());
+    }
+    let mut settings = settings::get_settings(&app);
+    if let Some(enabled) = enabled {
+        settings.gemini_live_early_finalization_enabled = enabled;
+    }
+    if let Some(delay) = delay_ms {
+        settings.gemini_live_early_finalization_delay_ms = delay;
+    }
+    settings::write_settings_checked(&app, settings)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_gemini_file_mode_setting(
     app: AppHandle,
     mode: settings::GeminiTranscriptionMode,
