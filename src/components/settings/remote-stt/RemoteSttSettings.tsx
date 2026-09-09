@@ -28,6 +28,7 @@ import { SettingContainer } from "../../ui/SettingContainer";
 import { Textarea } from "../../ui/Textarea";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
+import { GeminiEarlyFinalizationSettings } from "./GeminiEarlyFinalizationSettings";
 import { getModelPromptInfo } from "../TranscriptionSystemPrompt";
 import {
   ProfileScopedSttSettingsNotice,
@@ -1755,6 +1756,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   </div>
                   {currentRemoteInterface === "gemini_live" ? (
                     <>
+                      <GeminiEarlyFinalizationSettings />
                       <SettingContainer
                         title={t("settings.gemini.liveMode.initialTitle", "Initial Live Monitor mode")}
                         description={t("settings.gemini.liveMode.initialDescription", "Used when Live Monitor first creates its independent Gemini settings. Later changes in Live Monitor stay independent.")}

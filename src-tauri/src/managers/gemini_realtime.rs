@@ -6,7 +6,7 @@ use log::{debug, info, warn};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
@@ -16,6 +16,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::url_security::{REMOTE_STT_PRESET_GOOGLE, REMOTE_STT_PRESET_VERCEL};
 use crate::settings::GeminiTranscriptionMode;
+use super::gemini_output_window::GeminiOutputWindow;
 
 pub const GEMINI_LIVE_DEFAULT_MODEL: &str = "google/gemini-3.5-transcribe-live";
 pub const GEMINI_LIVE_GOOGLE_DEFAULT_MODEL: &str = "gemini-3.5-transcribe-live";
@@ -207,11 +208,13 @@ struct ActiveSession {
     control_tx: mpsc::UnboundedSender<ControlMessage>,
     final_text: Arc<Mutex<String>>,
     join_handle: JoinHandle<Result<()>>,
+    output_window: Arc<GeminiOutputWindow>,
 }
 
 struct PendingAudio {
     operation_id: Option<u64>,
     frames: Vec<Vec<u8>>,
+    output_window: Arc<GeminiOutputWindow>,
 }
 
 pub(crate) struct GeminiFinalizingSession {
@@ -249,6 +252,7 @@ impl GeminiRealtimeManager {
             pending_audio: Mutex::new(Some(PendingAudio {
                 operation_id: None,
                 frames: Vec::new(),
+                output_window: Arc::new(GeminiOutputWindow::default()),
             })),
             time_limit_completion: Mutex::new(Arc::new(Mutex::new(None))),
             reported_runtime_error: Mutex::new(Arc::new(Mutex::new(None))),
@@ -352,6 +356,7 @@ impl GeminiRealtimeManager {
         }
 
         let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_QUEUE_CAPACITY);
+        let output_window = Arc::clone(&pending_audio.as_ref().unwrap().output_window);
         let (control_tx, control_rx) = mpsc::unbounded_channel::<ControlMessage>();
         let final_text = Arc::new(Mutex::new(String::new()));
         let final_text_for_task = Arc::clone(&final_text);
@@ -488,6 +493,7 @@ impl GeminiRealtimeManager {
             control_tx,
             final_text,
             join_handle,
+            output_window,
         };
         *active_session_guard = Some(active);
 
@@ -1240,7 +1246,18 @@ impl GeminiRealtimeManager {
         *self.pending_audio.lock() = Some(PendingAudio {
             operation_id,
             frames: Vec::new(),
+            output_window: Arc::new(GeminiOutputWindow::default()),
         });
+    }
+
+    pub(crate) fn output_window(&self, operation_id: u64) -> Option<Arc<GeminiOutputWindow>> {
+        let active = self.active_session.lock();
+        if let Some(session) = active.as_ref().filter(|s| s.operation_id == Some(operation_id)) {
+            return Some(Arc::clone(&session.output_window));
+        }
+        self.pending_audio.lock().as_ref()
+            .filter(|pending| pending.operation_id == Some(operation_id))
+            .map(|pending| Arc::clone(&pending.output_window))
     }
 
     pub fn cancel_if_matches(&self, operation_id: Option<u64>) {
@@ -1279,6 +1296,40 @@ impl GeminiRealtimeManager {
 }
 
 impl GeminiFinalizingSession {
+    pub(crate) async fn finish_early(self, deadline: Instant) -> Result<String> {
+        let Some(session) = self.session else { return Ok(String::new()); };
+        let ActiveSession { audio_tx, control_tx, final_text, mut join_handle, .. } = session;
+        let _ = control_tx.send(ControlMessage::Finish);
+        drop(audio_tx);
+        let result = tokio::time::timeout_at(
+            tokio::time::Instant::from_std(deadline), &mut join_handle,
+        ).await;
+        if result.is_err() {
+            join_handle.abort();
+            // Wait for callbacks already running before scheduling the final UI write.
+            let _ = join_handle.await;
+        } else {
+            // Keep the user-configured insertion time even if the server finishes early.
+            tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await;
+        }
+        let text = final_text.lock().trim().to_string();
+        info!("Gemini early finalization completed (partial_text={})", !text.is_empty());
+        if self.active_session.lock().is_none()
+            && !crate::managers::preview_output_mode::is_active()
+        {
+            crate::overlay::end_soniox_live_preview_session();
+            crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
+        }
+        if text.is_empty() {
+            match result {
+                Ok(Ok(Err(error))) => return Err(error),
+                Ok(Err(error)) => return Err(anyhow!("Gemini early finalization task failed: {}", error)),
+                _ => {}
+            }
+        }
+        Ok(text)
+    }
+
     pub(crate) async fn finish(self, timeout_ms: u32) -> Result<String> {
         let GeminiFinalizingSession {
             app_handle,

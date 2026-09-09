@@ -116,6 +116,7 @@ pub struct SonioxStreamProcessor {
     replacements: Option<StreamChunkReplacementEngine>,
     leading_mode: OutputWhitespaceMode,
     leading_applied: bool,
+    last_output_character: Option<char>,
 }
 
 impl SonioxStreamProcessor {
@@ -140,6 +141,7 @@ impl SonioxStreamProcessor {
             replacements: StreamChunkReplacementEngine::from_settings(settings),
             leading_mode: settings.output_whitespace_leading_mode,
             leading_applied: false,
+            last_output_character: None,
         }
     }
 
@@ -166,6 +168,20 @@ impl SonioxStreamProcessor {
 
         let remaining = std::mem::take(&mut self.pending_raw);
         self.process_pipeline(&remaining)
+    }
+
+    pub fn flush_with_trailing_space(&mut self) -> String {
+        let mut tail = self.flush();
+        if tail.chars().last().or(self.last_output_character).is_some_and(|ch| !ch.is_whitespace()) {
+            tail.push(' ');
+        }
+        tail
+    }
+
+    pub fn record_output_ending(&mut self, character: Option<char>) {
+        if character.is_some() {
+            self.last_output_character = character;
+        }
     }
 
     fn process_pipeline(&mut self, text: &str) -> String {

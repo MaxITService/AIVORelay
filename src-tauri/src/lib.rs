@@ -1315,6 +1315,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_gemini_custom_vocabulary_setting,
         shortcut::change_gemini_live_mode_setting,
         shortcut::change_gemini_dictation_mode_setting,
+        shortcut::change_gemini_early_finalization_setting,
         shortcut::change_gemini_file_mode_setting,
         shortcut::change_gemini_file_diarization_setting,
         shortcut::change_soniox_endpoint_detection_setting,
