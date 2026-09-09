@@ -18,6 +18,14 @@ pub async fn get_available_models(
 
 #[tauri::command]
 #[specta::specta]
+pub fn take_missing_model_selection_notice(
+    model_manager: State<'_, Arc<ModelManager>>,
+) -> Option<(String, Option<String>)> {
+    model_manager.take_missing_selection_notice()
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn rescan_local_models(
     model_manager: State<'_, Arc<ModelManager>>,
 ) -> Result<(), String> {
