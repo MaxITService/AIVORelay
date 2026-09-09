@@ -3235,8 +3235,7 @@ impl Default for AutoSubmitKey {
 
 impl Default for OutputWhitespaceMode {
     fn default() -> Self {
-        // Default to trimmed output boundaries.
-        OutputWhitespaceMode::RemoveIfPresent
+        OutputWhitespaceMode::Preserve
     }
 }
 

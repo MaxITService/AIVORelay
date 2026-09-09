@@ -277,9 +277,9 @@ export const TextReplacementSettings: React.FC = () => {
     settings?.text_replacement_decapitalize_standard_post_recording_monitor_ms ?? 5000;
   const configuredShortcutEngine = (settings as any)?.shortcut_engine ?? "handy_keys";
   const leadingWhitespaceMode =
-    (settings?.output_whitespace_leading_mode ?? "remove_if_present") as OutputWhitespaceMode;
+    (settings?.output_whitespace_leading_mode ?? "preserve") as OutputWhitespaceMode;
   const trailingWhitespaceMode =
-    (settings?.output_whitespace_trailing_mode ?? "remove_if_present") as OutputWhitespaceMode;
+    (settings?.output_whitespace_trailing_mode ?? "preserve") as OutputWhitespaceMode;
 
   const setLeadingWhitespaceMode = (mode: OutputWhitespaceMode) =>
     (updateSetting as any)("output_whitespace_leading_mode", mode);
