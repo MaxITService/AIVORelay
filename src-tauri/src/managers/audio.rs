@@ -1277,6 +1277,10 @@ impl AudioRecordingManager {
             }
         }
 
+        // Automatic selection may have changed the microphone and reopened
+        // capture. Start with that fresh selection, not the pre-reconcile one.
+        let settings = get_settings(&self.app_handle);
+        let selection = self.resolve_selection_for_binding(&settings, Some(binding_id));
         let mut state = self.state.lock().unwrap();
 
         if let RecordingState::Idle = *state {
