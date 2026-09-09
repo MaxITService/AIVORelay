@@ -62,6 +62,7 @@ export default function CommandConfirmOverlay() {
   // Copy button state
   const [copied, setCopied] = useState(false);
   // Double-Enter detection state
+  const [enterPressedOnce, setEnterPressedOnce] = useState(false);
   const lastEnterAtRef = useRef<number | null>(null);
   const destroyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -311,6 +312,16 @@ export default function CommandConfirmOverlay() {
   useEffect(() => {
     if (!payload) return;
 
+    let enterTimeout: ReturnType<typeof setTimeout> | null = null;
+    const resetEnter = () => {
+      if (enterTimeout !== null) {
+        clearTimeout(enterTimeout);
+        enterTimeout = null;
+      }
+      lastEnterAtRef.current = null;
+      setEnterPressedOnce(false);
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       // Skip if in editing mode (textarea needs Enter)
       if (isEditing) return;
@@ -320,6 +331,7 @@ export default function CommandConfirmOverlay() {
 
         // Ctrl/Cmd+Enter - immediate run
         if (e.ctrlKey || e.metaKey) {
+          resetEnter();
           handleRun();
           return;
         }
@@ -327,10 +339,13 @@ export default function CommandConfirmOverlay() {
         // Double Enter detection
         const now = performance.now();
         if (lastEnterAtRef.current !== null && now - lastEnterAtRef.current <= 800) {
-          lastEnterAtRef.current = null;
+          resetEnter();
           handleRun();
         } else {
+          resetEnter();
           lastEnterAtRef.current = now;
+          setEnterPressedOnce(true);
+          enterTimeout = setTimeout(resetEnter, 800);
         }
       }
     };
@@ -338,7 +353,7 @@ export default function CommandConfirmOverlay() {
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      lastEnterAtRef.current = null;
+      resetEnter();
     };
   }, [payload, isEditing, editedCommand, isExecuting]);
 
