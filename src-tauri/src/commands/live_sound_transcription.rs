@@ -193,8 +193,7 @@ pub fn live_sound_transcription_stop(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub fn live_sound_transcription_clear(app: AppHandle) -> Result<(), String> {
-    crate::managers::live_sound_transcription::clear_transcript(&app);
-    Ok(())
+    crate::managers::live_sound_transcription::clear_transcript(&app)
 }
 
 #[tauri::command]

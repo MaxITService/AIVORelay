@@ -284,6 +284,21 @@ where
     emit_state_update(app, &payload);
 }
 
+fn try_update_state<T, F>(app: &AppHandle, updater: F) -> Result<T, String>
+where
+    F: FnOnce(&mut LiveSoundTranscriptionRuntime) -> Result<T, String>,
+{
+    let (result, payload) = {
+        let mut state = LIVE_SOUND_TRANSCRIPTION_STATE
+            .lock()
+            .map_err(|_| "Failed to lock live sound transcript".to_string())?;
+        let result = updater(&mut state)?;
+        (result, state.to_payload())
+    };
+    emit_state_update(app, &payload);
+    Ok(result)
+}
+
 fn update_state_if_session_matches<F>(app: &AppHandle, session_id: u64, updater: F) -> bool
 where
     F: FnOnce(&mut LiveSoundTranscriptionRuntime),
@@ -332,9 +347,11 @@ pub fn is_recording() -> bool {
         .unwrap_or(false)
 }
 
-pub fn activate_session(app: &AppHandle, binding_id: String, auto_stop_minutes: u32) -> u64 {
-    cancel_auto_stop_task();
-
+pub fn activate_session(
+    app: &AppHandle,
+    binding_id: String,
+    auto_stop_minutes: u32,
+) -> Result<u64, String> {
     let session_id = NEXT_LIVE_SOUND_SESSION_ID.fetch_add(1, Ordering::Relaxed);
     let auto_stop_deadline = if auto_stop_minutes > 0 {
         Some(Instant::now() + Duration::from_secs(u64::from(auto_stop_minutes).saturating_mul(60)))
@@ -343,7 +360,15 @@ pub fn activate_session(app: &AppHandle, binding_id: String, auto_stop_minutes: 
     };
     let should_start_auto_stop = auto_stop_deadline.is_some();
 
-    update_state(app, move |state| {
+    try_update_state(app, move |state| {
+        if state.processing_llm {
+            return Err(
+                "Wait for LLM processing before starting a new Live Monitor session.".to_string(),
+            );
+        }
+        if state.recording {
+            return Err("Live sound audio session is already active".to_string());
+        }
         state.active = true;
         state.recording = true;
         state.processing_llm = false;
@@ -354,13 +379,15 @@ pub fn activate_session(app: &AppHandle, binding_id: String, auto_stop_minutes: 
         state.interim_segment_timestamps_ms.clear();
         state.session_id = session_id;
         state.auto_stop_deadline = auto_stop_deadline;
-    });
+        Ok(())
+    })?;
 
+    cancel_auto_stop_task();
     if should_start_auto_stop {
         spawn_auto_stop_task(app, session_id);
     }
 
-    session_id
+    Ok(session_id)
 }
 
 pub fn finish_session(app: &AppHandle) {
@@ -393,10 +420,39 @@ pub fn set_recording_if_session_matches(app: &AppHandle, session_id: u64, record
     });
 }
 
-pub fn set_processing_llm(app: &AppHandle, processing_llm: bool) {
-    update_state(app, move |state| {
-        state.processing_llm = processing_llm;
-    });
+pub fn begin_processing_llm(app: &AppHandle) -> Result<(u64, String), String> {
+    try_update_state(app, |state| {
+        if state.recording || state.processing_llm {
+            return Err("Wait for the current Live Monitor operation to finish.".to_string());
+        }
+        let text = state.final_text.trim().to_string();
+        if text.is_empty() {
+            return Err("Live sound transcript is empty.".to_string());
+        }
+        state.processing_llm = true;
+        state.error_message = None;
+        Ok((state.session_id, text))
+    })
+}
+
+pub fn finish_processing_llm(
+    app: &AppHandle,
+    session_id: u64,
+    result: Result<Option<String>, String>,
+) -> Result<(), String> {
+    try_update_state(app, |state| {
+        if state.session_id != session_id || !state.processing_llm {
+            return Err("The Live Monitor session changed during LLM processing.".to_string());
+        }
+        state.processing_llm = false;
+        match &result {
+            Ok(Some(text)) => replace_final_text_in_state(state, text.clone()),
+            Ok(None) => state.error_message = None,
+            Err(error) => state.error_message = Some(error.clone()),
+        }
+        Ok(())
+    })?;
+    result.map(|_| ())
 }
 
 pub fn set_error(app: &AppHandle, error_message: Option<String>) {
@@ -415,8 +471,11 @@ pub fn set_error_if_session_matches(
     });
 }
 
-pub fn clear_transcript(app: &AppHandle) {
-    update_state(app, |state| {
+pub fn clear_transcript(app: &AppHandle) -> Result<(), String> {
+    try_update_state(app, |state| {
+        if state.processing_llm {
+            return Err("Wait for LLM processing before clearing the transcript.".to_string());
+        }
         state.final_text.clear();
         state.processed_final_text = None;
         state.interim_text.clear();
@@ -427,7 +486,8 @@ pub fn clear_transcript(app: &AppHandle) {
         state.interim_segment_timestamps_ms.clear();
         state.transcript_started_at = None;
         state.error_message = None;
-    });
+        Ok(())
+    })
 }
 
 pub fn current_final_text() -> String {
@@ -439,17 +499,21 @@ pub fn current_final_text() -> String {
 
 pub fn replace_final_text(app: &AppHandle, final_text: String) {
     update_state(app, move |state| {
-        let final_text = final_text.trim().to_string();
-        state.processed_final_text = (!final_text.is_empty()).then(|| final_text.clone());
-        state.final_text = final_text;
-        state.interim_text.clear();
-        state.final_raw_blocks.clear();
-        state.interim_raw_blocks.clear();
-        state.speaker_normalization_state = SpeakerBlockNormalizationState::default();
-        state.final_segment_timestamps_ms.truncate(1);
-        state.interim_segment_timestamps_ms.clear();
-        state.error_message = None;
+        replace_final_text_in_state(state, final_text);
     });
+}
+
+fn replace_final_text_in_state(state: &mut LiveSoundTranscriptionRuntime, final_text: String) {
+    let final_text = final_text.trim().to_string();
+    state.processed_final_text = (!final_text.is_empty()).then(|| final_text.clone());
+    state.final_text = final_text;
+    state.interim_text.clear();
+    state.final_raw_blocks.clear();
+    state.interim_raw_blocks.clear();
+    state.speaker_normalization_state = SpeakerBlockNormalizationState::default();
+    state.final_segment_timestamps_ms.truncate(1);
+    state.interim_segment_timestamps_ms.clear();
+    state.error_message = None;
 }
 
 pub fn append_final_result_if_session_matches(
