@@ -7122,6 +7122,39 @@ pub fn change_text_replacements_setting(
     replacements: Vec<settings::TextReplacement>,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
+    let previous_rules: std::collections::HashMap<_, _> = settings
+        .text_replacements
+        .iter()
+        .map(|rule| (rule.id.as_str(), rule))
+        .collect();
+    for (index, replacement) in replacements.iter().enumerate() {
+        if !replacement.is_regex {
+            continue;
+        }
+        // Existing invalid rules must not prevent deleting/disabling them or
+        // editing an unrelated rule. Validate edited rules and re-enablement.
+        let unchanged = previous_rules.get(replacement.id.as_str()).is_some_and(|previous| {
+            previous.is_regex
+                && previous.from == replacement.from
+                && previous.to == replacement.to
+                && previous.case_sensitive == replacement.case_sensitive
+                && (previous.enabled || !replacement.enabled)
+        });
+        if unchanged {
+            continue;
+        }
+        let pattern = if replacement.case_sensitive {
+            replacement.from.clone()
+        } else {
+            format!("(?i){}", replacement.from)
+        };
+        regex::Regex::new(&pattern).map_err(|error| {
+            format!(
+                "Invalid regular expression in replacement rule {}: {}",
+                index + 1, error,
+            )
+        })?;
+    }
     settings.text_replacements = replacements;
     settings::write_settings(&app, settings);
     Ok(())

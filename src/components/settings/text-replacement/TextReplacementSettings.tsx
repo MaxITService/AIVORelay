@@ -194,6 +194,11 @@ export const TextReplacementSettings: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editFrom, setEditFrom] = useState("");
   const [editTo, setEditTo] = useState("");
+  const ruleSaveBusyRef = useRef(false);
+  const [ruleSaveError, setRuleSaveError] = useState<{
+    ruleId: string | null;
+    message: string;
+  } | null>(null);
   const [capturingDecapTarget, setCapturingDecapTarget] =
     useState<DecapCaptureTarget | null>(null);
   const [decapCaptureError, setDecapCaptureError] = useState<{
@@ -405,8 +410,29 @@ export const TextReplacementSettings: React.FC = () => {
     capturingDecapTarget,
   ]);
 
-  const handleAddRule = () => {
-    if (newFrom.length === 0) return;
+  const saveRules = async (
+    nextRules: TextReplacementRule[],
+    ruleId: string | null,
+  ): Promise<boolean> => {
+    if (ruleSaveBusyRef.current || isUpdating("text_replacements")) return false;
+    ruleSaveBusyRef.current = true;
+    setRuleSaveError(null);
+    try {
+      await updateSetting("text_replacements", nextRules, { throwOnError: true });
+      return true;
+    } catch (error) {
+      setRuleSaveError({
+        ruleId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    } finally {
+      ruleSaveBusyRef.current = false;
+    }
+  };
+
+  const handleAddRule = async () => {
+    if (newFrom.length === 0 || ruleSaveBusyRef.current) return;
 
     const newRule: TextReplacementRule = {
       id: `tr_${Date.now()}`,
@@ -417,66 +443,72 @@ export const TextReplacementSettings: React.FC = () => {
       is_regex: newIsRegex,
     };
 
-    updateSetting("text_replacements", [...replacements, newRule]);
-    setNewFrom("");
-    setNewTo("");
+    if (await saveRules([...replacements, newRule], null)) {
+      setNewFrom("");
+      setNewTo("");
+    }
   };
 
   const handleRemoveRule = (id: string) => {
-    updateSetting(
-      "text_replacements",
-      replacements.filter((r) => r.id !== id)
+    void saveRules(
+      replacements.filter((r) => r.id !== id),
+      id,
     );
   };
 
   const handleToggleRule = (id: string) => {
-    updateSetting(
-      "text_replacements",
+    void saveRules(
       replacements.map((r) =>
         r.id === id ? { ...r, enabled: !r.enabled } : r
-      )
+      ),
+      id,
     );
   };
 
   const handleToggleCaseSensitive = (id: string) => {
-    updateSetting(
-      "text_replacements",
+    void saveRules(
       replacements.map((r) =>
         r.id === id ? { ...r, case_sensitive: !r.case_sensitive } : r
-      )
+      ),
+      id,
     );
   };
 
   const handleToggleIsRegex = (id: string) => {
-    updateSetting(
-      "text_replacements",
+    void saveRules(
       replacements.map((r) =>
         r.id === id ? { ...r, is_regex: !r.is_regex } : r
-      )
+      ),
+      id,
     );
   };
 
   const startEditing = (rule: TextReplacementRule) => {
+    if (ruleSaveBusyRef.current || isUpdating("text_replacements")) return;
+    setRuleSaveError(null);
     setEditingId(rule.id);
     setEditFrom(rule.from);
     setEditTo(rule.to);
   };
 
   const cancelEditing = () => {
+    if (ruleSaveBusyRef.current) return;
+    setRuleSaveError(null);
     setEditingId(null);
     setEditFrom("");
     setEditTo("");
   };
 
-  const saveEditing = () => {
+  const saveEditing = async () => {
     if (!editingId || editFrom.length === 0) return;
     
-    updateSetting(
-      "text_replacements",
+    const saved = await saveRules(
       replacements.map((r) =>
         r.id === editingId ? { ...r, from: editFrom, to: editTo } : r
-      )
+      ),
+      editingId,
     );
+    if (!saved) return;
     setEditingId(null);
     setEditFrom("");
     setEditTo("");
@@ -1416,6 +1448,7 @@ export const TextReplacementSettings: React.FC = () => {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setNewCaseSensitive(!newCaseSensitive)}
+                disabled={isUpdating("text_replacements")}
                 className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
                   newCaseSensitive
                     ? "bg-[#9b5de5]/20 text-[#9b5de5] border border-[#9b5de5]/30"
@@ -1428,6 +1461,7 @@ export const TextReplacementSettings: React.FC = () => {
               </button>
               <button
                 onClick={() => setNewIsRegex(!newIsRegex)}
+                disabled={isUpdating("text_replacements")}
                 className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
                   newIsRegex
                     ? "bg-[#f97316]/20 text-[#f97316] border border-[#f97316]/30"
@@ -1449,6 +1483,11 @@ export const TextReplacementSettings: React.FC = () => {
               <Plus className="w-4 h-4" />
             </Button>
           </div>
+          {ruleSaveError && ruleSaveError.ruleId === null && (
+            <p role="alert" className="mt-2 whitespace-pre-wrap break-words text-xs text-red-300">
+              {ruleSaveError.message}
+            </p>
+          )}
         </div>
 
         {/* Rule search and display order */}
@@ -1613,6 +1652,7 @@ export const TextReplacementSettings: React.FC = () => {
                             type="text"
                             className="w-full"
                             value={editFrom}
+                            disabled={isUpdating("text_replacements")}
                             onChange={(e) => setEditFrom(e.target.value)}
                             onKeyDown={handleEditKeyPress}
                             variant="compact"
@@ -1625,6 +1665,7 @@ export const TextReplacementSettings: React.FC = () => {
                             type="text"
                             className="w-full"
                             value={editTo}
+                            disabled={isUpdating("text_replacements")}
                             onChange={(e) => setEditTo(e.target.value)}
                             onKeyDown={handleEditKeyPress}
                             variant="compact"
@@ -1634,6 +1675,7 @@ export const TextReplacementSettings: React.FC = () => {
                           variant="ghost"
                           size="sm"
                           onClick={saveEditing}
+                          disabled={isUpdating("text_replacements")}
                           className="shrink-0 text-[#4ade80] hover:text-[#22c55e]"
                           title={t("textReplacement.save", "Save")}
                         >
@@ -1643,6 +1685,7 @@ export const TextReplacementSettings: React.FC = () => {
                           variant="ghost"
                           size="sm"
                           onClick={cancelEditing}
+                          disabled={isUpdating("text_replacements")}
                           className="shrink-0 text-[#808080] hover:text-red-400"
                           title={t("textReplacement.cancel", "Cancel")}
                         >
@@ -1708,6 +1751,11 @@ export const TextReplacementSettings: React.FC = () => {
                     )}
                   </div>
 
+                  {ruleSaveError?.ruleId === rule.id && (
+                    <p role="alert" className="mt-2 whitespace-pre-wrap break-words text-xs text-red-300">
+                      {ruleSaveError.message}
+                    </p>
+                  )}
                   {/* Options row - only show when not editing */}
                   {editingId !== rule.id && (
                     <div className="flex items-center gap-2 mt-2 ml-7">
