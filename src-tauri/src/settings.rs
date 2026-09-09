@@ -1,4 +1,4 @@
-use log::{debug, warn};
+use log::{debug, info, warn};
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -5588,8 +5588,8 @@ fn backup_settings_store_before_repair(app: &AppHandle, reason: &str) {
             reason, err
         );
     } else {
-        warn!(
-            "Backed up settings store before {} to {}",
+        info!(
+            "Created settings backup before normalization or repair ({}) at {}",
             reason,
             backup_path.display()
         );
