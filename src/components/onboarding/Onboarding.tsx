@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { type } from "@tauri-apps/plugin-os";
 import { commands, type ModelInfo } from "@/bindings";
@@ -37,6 +37,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
   const isWindows = type() === "windows";
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [downloading, setDownloading] = useState(false);
+  const downloadAttempt = useRef<{ dispatched: boolean } | null>(null);
   const [downloadingModelId, setDownloadingModelId] = useState<string | null>(
     null,
   );
@@ -96,6 +97,8 @@ const Onboarding: React.FC<OnboardingProps> = ({
       return;
     }
 
+    const attempt = { dispatched: false };
+    downloadAttempt.current = attempt;
     setDownloading(true);
     setDownloadingModelId(model.id);
     setError(null);
@@ -106,7 +109,10 @@ const Onboarding: React.FC<OnboardingProps> = ({
 
     try {
       await beginModelDownloadActivationIntent(model.id);
+      if (downloadAttempt.current !== attempt) return;
+      attempt.dispatched = true;
       const result = await commands.downloadModel(model.id);
+      if (downloadAttempt.current !== attempt) return;
       if (result.status === "error") {
         cancelModelDownloadActivationIntent(model.id);
         console.error("Download failed:", result.error);
@@ -115,6 +121,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
         setMode("local");
       }
     } catch (err) {
+      if (downloadAttempt.current !== attempt) return;
       cancelModelDownloadActivationIntent(model.id);
       console.error("Download failed:", err);
       setDownloading(false);
@@ -126,12 +133,22 @@ const Onboarding: React.FC<OnboardingProps> = ({
   const handleCancelDownload = async () => {
     if (!downloadingModelId) return;
 
+    if (!downloadAttempt.current?.dispatched) {
+      downloadAttempt.current = null;
+      invalidateModelDownloadActivationIntent();
+      setDownloading(false);
+      setDownloadingModelId(null);
+      setMode("local");
+      return;
+    }
+
     const result = await commands.cancelDownload(downloadingModelId);
     if (result.status === "error") {
       setError(result.error);
       return;
     }
 
+    downloadAttempt.current = null;
     cancelModelDownloadActivationIntent(downloadingModelId);
     setDownloading(false);
     setDownloadingModelId(null);
