@@ -4293,9 +4293,18 @@ pub fn change_log_transcription_text_setting(app: AppHandle, enabled: bool) -> R
 /// Updates the configured LLM post-processing state for the active profile.
 /// The default profile owns `post_process_enabled`; custom profiles own their
 /// individual `llm_post_process_enabled` value.
-pub fn change_post_process_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+pub fn change_post_process_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+    profile_id: Option<String>,
+) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    let active_profile_id = settings.active_profile_id.clone();
+    if let Some(id) = profile_id.as_deref() {
+        if id != "default" && !settings.transcription_profiles.iter().any(|p| p.id == id) {
+            return Err(format!("Profile '{}' not found", id));
+        }
+    }
+    let active_profile_id = profile_id.unwrap_or_else(|| settings.active_profile_id.clone());
     if active_profile_id == "default" {
         settings.post_process_enabled = enabled;
     } else if let Some(profile) = settings
@@ -4309,7 +4318,7 @@ pub fn change_post_process_enabled_setting(app: AppHandle, enabled: bool) -> Res
         // profile falls back to the default profile's global setting.
         settings.post_process_enabled = enabled;
     }
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     Ok(())
 }
 
