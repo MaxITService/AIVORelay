@@ -179,8 +179,8 @@ const Onboarding: React.FC<OnboardingProps> = ({
   };
 
   const handlePermissionsComplete = () => {
+    onPermissionResolved?.();
     if (permissionOnly) {
-      onPermissionResolved?.();
       return;
     }
 
