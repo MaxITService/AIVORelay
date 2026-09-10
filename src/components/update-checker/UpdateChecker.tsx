@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { check } from "@tauri-apps/plugin-updater";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
@@ -73,9 +73,10 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
   const checkForUpdates = async () => {
     if (!updateChecksEnabled || isChecking) return;
 
+    let update: Update | null = null;
     try {
       setIsChecking(true);
-      const update = await check();
+      update = await check();
 
       if (update) {
         setUpdateAvailable(true);
@@ -96,6 +97,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
     } catch (error) {
       console.error("Failed to check for updates:", error);
     } finally {
+      await update?.close().catch(console.error);
       setIsChecking(false);
       isManualCheckRef.current = false;
     }
@@ -109,12 +111,13 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
 
   const installUpdate = async () => {
     if (!updateChecksEnabled) return;
+    let update: Update | null = null;
     try {
       setIsInstalling(true);
       setDownloadProgress(0);
       downloadedBytesRef.current = 0;
       contentLengthRef.current = 0;
-      const update = await check();
+      update = await check();
 
       if (!update) {
         console.log("No update available during install attempt");
@@ -157,6 +160,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
     } catch (error) {
       console.error("Failed to install update:", error);
     } finally {
+      await update?.close().catch(console.error);
       setIsInstalling(false);
       setDownloadProgress(0);
       downloadedBytesRef.current = 0;
