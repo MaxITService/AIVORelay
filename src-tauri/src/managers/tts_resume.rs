@@ -818,7 +818,7 @@ pub fn list_ui_file_jobs(
             touch_ui_job(&mut manifest);
             persist_ui_file_job(cache_root, &manifest)?;
         }
-        if manifest.status == UiFileJobStatus::Completed || manifest.output_path.exists() {
+        if manifest.status == UiFileJobStatus::Completed {
             completed_jobs.push(manifest);
         } else {
             jobs.push(manifest.summary());
