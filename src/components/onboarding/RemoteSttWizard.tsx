@@ -277,6 +277,7 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
             </label>
             <Select
               value={engine}
+              disabled={isLoading}
               options={engineOptions}
               onChange={(value) => {
                 if (value) {
@@ -379,6 +380,7 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
                 </label>
                 <Select
                   value={remotePreset}
+                  disabled={isLoading}
                   options={[
                     {
                       value: "groq",
