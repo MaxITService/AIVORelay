@@ -322,7 +322,7 @@ export const applyTextReplacementImport = (
 
   for (const rule of importedRules) {
     const signature = behavioralSignature(rule);
-    if (behaviorCounts.has(signature)) {
+    if (options.mode === "merge" && behaviorCounts.has(signature)) {
       skippedDuplicateCount += 1;
       continue;
     }
