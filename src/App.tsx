@@ -1,3 +1,4 @@
+import { listenForVoiceCommandResults } from "./stores/voiceCommandLogStore";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { sessionToast as toast } from "@/lib/sessionToast";
@@ -64,6 +65,10 @@ const renderSettingsContent = (section: SidebarSection) => {
 };
 
 function App() {
+  useEffect(() => {
+    const unlisten = listenForVoiceCommandResults();
+    return () => { void unlisten.then((stop) => stop()).catch(console.error); };
+  }, []);
   const { t } = useTranslation();
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const [onboardingFromDebug, setOnboardingFromDebug] = useState(false);
