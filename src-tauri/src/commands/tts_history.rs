@@ -94,10 +94,13 @@ impl Drop for TemporarySourceFile {
     }
 }
 
-struct TemporaryOutputFile(PathBuf);
+struct TemporaryOutputFile(PathBuf, bool);
 
 impl Drop for TemporaryOutputFile {
     fn drop(&mut self) {
+        if self.1 {
+            return;
+        }
         if let Err(error) = fs::remove_file(&self.0) {
             if error.kind() != std::io::ErrorKind::NotFound {
                 log::warn!(
@@ -244,7 +247,7 @@ pub async fn regenerate_tts_history_entry_core(
                 .to_string(),
         );
     }
-    let (output_path, output_format, temporary_output) = prepare_regeneration_output(
+    let (output_path, output_format, mut temporary_output) = prepare_regeneration_output(
         app,
         request.output_path.as_deref(),
         request.output_format,
@@ -373,6 +376,10 @@ pub async fn regenerate_tts_history_entry_core(
             &output_path,
         )
         .map_err(|error| {
+            // Preserve completed audio when retention fails so the reported path remains usable.
+            if let Some(output) = temporary_output.as_mut() {
+                output.1 = true;
+            }
             format!(
                 "Audio was created at {}, but the new history variant could not be retained: {}",
                 output_path.display(),
@@ -642,7 +649,7 @@ fn prepare_regeneration_output(
     Ok((
         output_path.clone(),
         output_format,
-        Some(TemporaryOutputFile(output_path)),
+        Some(TemporaryOutputFile(output_path, false)),
     ))
 }
 
