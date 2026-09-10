@@ -15,8 +15,8 @@ import { sessionToast as toast } from "@/lib/sessionToast";
 const withActiveProfilePostProcessingEnabled = (
   settings: Settings,
   enabled: boolean,
+  activeProfileId = settings.active_profile_id || "default",
 ): Settings => {
-  const activeProfileId = settings.active_profile_id || "default";
   const profiles = settings.transcription_profiles ?? [];
   const hasActiveCustomProfile =
     activeProfileId !== "default" &&
@@ -261,7 +261,7 @@ const settingUpdaters: {
     commands.changeAutoSubmitKeySetting(value as string),
   history_limit: (value) => commands.updateHistoryLimit(value as number),
   post_process_enabled: (value) =>
-    commands.changePostProcessEnabledSetting(value as boolean),
+    invoke("change_post_process_enabled_setting", { enabled: value, profileId: null }),
   post_process_selected_prompt_id: (value) =>
     commands.setPostProcessSelectedPrompt(value as string),
   post_process_benchmark_collapsed: (value) =>
@@ -1214,6 +1214,7 @@ export const useSettingsStore = create<SettingsStore>()(
       const updateKey = String(key);
       const originalValue = get().settings?.[key];
       const updatesActiveProfilePostProcessing = key === "post_process_enabled";
+      const targetProfileId = get().settings?.active_profile_id || "default";
       const originalActiveProfilePostProcessing =
         updatesActiveProfilePostProcessing
           ? getActiveProfilePostProcessingEnabled(get().settings)
@@ -1228,6 +1229,7 @@ export const useSettingsStore = create<SettingsStore>()(
               ? withActiveProfilePostProcessingEnabled(
                   state.settings,
                   Boolean(value),
+                  targetProfileId,
                 )
               : { ...state.settings, [key]: value }
             : null,
@@ -1235,7 +1237,14 @@ export const useSettingsStore = create<SettingsStore>()(
 
         const updater = settingUpdaters[key];
         if (updater) {
-          const result = await persistSettingInOrder(() => updater(value));
+          const result = await persistSettingInOrder(() =>
+            updatesActiveProfilePostProcessing
+              ? invoke("change_post_process_enabled_setting", {
+                  enabled: Boolean(value),
+                  profileId: targetProfileId,
+                })
+              : updater(value),
+          );
           if (
             result &&
             typeof result === "object" &&
@@ -1260,12 +1269,18 @@ export const useSettingsStore = create<SettingsStore>()(
           if (!state.settings) return state;
 
           if (updatesActiveProfilePostProcessing) {
-            return getActiveProfilePostProcessingEnabled(state.settings) ===
+            if (targetProfileId !== "default" && !state.settings.transcription_profiles?.some(
+              (profile) => profile.id === targetProfileId,
+            )) return state;
+            return getActiveProfilePostProcessingEnabled({
+              ...state.settings, active_profile_id: targetProfileId,
+            }) ===
               Boolean(value)
               ? {
                   settings: withActiveProfilePostProcessingEnabled(
                     state.settings,
                     originalActiveProfilePostProcessing,
+                    targetProfileId,
                   ),
                 }
               : state;
