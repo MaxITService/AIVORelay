@@ -305,6 +305,8 @@ export default function VoiceCommandSettings() {
   const voiceCommandProviderState = useVoiceCommandProviderState();
   const [executionLog, setExecutionLog] = useState<LogEntry[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
+  const mockInFlight = useRef(false);
+  const mockResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [mockInput, setMockInput] = useState("");
   const [mockStatus, setMockStatus] = useState<{
     type: "success" | "error" | "loading";
@@ -408,11 +410,14 @@ export default function VoiceCommandSettings() {
   };
 
   const handleMockTest = async () => {
+    if (mockInFlight.current) return;
     if (!mockInput.trim()) {
       setMockStatus({ type: "error", message: "Please enter mock text" });
       return;
     }
 
+    mockInFlight.current = true;
+    if (mockResetTimer.current) clearTimeout(mockResetTimer.current);
     setMockStatus({ type: "loading", message: "Processing..." });
 
     try {
@@ -420,7 +425,7 @@ export default function VoiceCommandSettings() {
       if (result.status === "ok") {
         setMockStatus({ type: "success", message: result.data });
         // Clear after showing result
-        setTimeout(() => setMockStatus(null), 3000);
+        mockResetTimer.current = setTimeout(() => setMockStatus(null), 3000);
       } else {
         setMockStatus({
           type: "error",
@@ -429,6 +434,8 @@ export default function VoiceCommandSettings() {
       }
     } catch (err) {
       setMockStatus({ type: "error", message: String(err) });
+    } finally {
+      mockInFlight.current = false;
     }
   };
 
