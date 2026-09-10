@@ -1,3 +1,4 @@
+import { useSettingsStore } from "@/stores/settingsStore";
 import React, { useEffect, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { ChevronDown, Loader2, RefreshCcw, Trash2 } from "lucide-react";
@@ -103,7 +104,8 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
         userMessage.draft,
       );
       if (result.status === "ok") {
-        const nextLog = [result.data, ...log].slice(0, 100);
+        const currentLog = useSettingsStore.getState().settings?.post_process_benchmark_log ?? [];
+        const nextLog = [result.data, ...currentLog].slice(0, 100);
         await updateSetting("post_process_benchmark_log", nextLog);
       } else {
         console.error("Failed to run LLM post-processing benchmark:", result.error);
