@@ -34,6 +34,8 @@ struct StreamingPasteSession {
     text_backup: String,
     last_clipboard_paste_sent_at: Option<Instant>,
     #[cfg(target_os = "windows")]
+    last_clipboard_sequence: Option<u32>,
+    #[cfg(target_os = "windows")]
     advanced_backup: Option<win_clipboard::ClipboardBackup>,
 }
 
@@ -57,17 +59,26 @@ mod win_clipboard {
     use log::{debug, warn};
     use std::mem::size_of;
     use std::ptr;
+    use std::sync::atomic::{AtomicU32, Ordering};
     use windows::core::{Free, PCWSTR};
     use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND};
     use windows::Win32::Graphics::Gdi::{
         CopyEnhMetaFileW, CopyMetaFileW, HBITMAP, HENHMETAFILE, HMETAFILE,
     };
     use windows::Win32::System::DataExchange::{
-        CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData, OpenClipboard,
-        RegisterClipboardFormatW, SetClipboardData, METAFILEPICT,
+        CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData,
+        GetClipboardSequenceNumber, OpenClipboard, RegisterClipboardFormatW, SetClipboardData, METAFILEPICT,
     };
     use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GHND};
     use windows::Win32::UI::WindowsAndMessaging::{CopyImage, IMAGE_BITMAP, IMAGE_FLAGS};
+
+    // Captured under the Windows clipboard lock, before paste delays allow external copies.
+    // Callers serialize app transactions with CLIPBOARD_TRANSACTION.
+    static LAST_WRITE_SEQUENCE: AtomicU32 = AtomicU32::new(0);
+
+    pub fn last_write_sequence() -> u32 {
+        LAST_WRITE_SEQUENCE.load(Ordering::Relaxed)
+    }
 
     // Standard clipboard format IDs (Win32 API constants).
     const CF_BITMAP_ID: u32 = 2;
@@ -311,8 +322,20 @@ mod win_clipboard {
         text: &str,
         exclude_from_history: bool,
     ) -> Result<(), String> {
+        write_text_if_unchanged(text, exclude_from_history, None).map(|_| ())
+    }
+
+    pub fn write_text_if_unchanged(
+        text: &str,
+        exclude_from_history: bool,
+        expected_sequence: Option<u32>,
+    ) -> Result<Option<u32>, String> {
         unsafe {
             OpenClipboard(None).map_err(|e| format!("Failed to open clipboard: {}", e))?;
+            if expected_sequence.is_some_and(|expected| expected == 0 || expected != GetClipboardSequenceNumber()) {
+                let _ = CloseClipboard();
+                return Ok(None);
+            }
             let result = (|| {
                 EmptyClipboard().map_err(|e| format!("Failed to empty clipboard: {}", e))?;
                 let mut wide: Vec<u16> = text.encode_utf16().collect();
@@ -324,8 +347,9 @@ mod win_clipboard {
                 } else {
                     write_history_marker("CanIncludeInClipboardHistory", 1);
                 }
-                Ok(())
+                Ok(Some(GetClipboardSequenceNumber()))
             })();
+            LAST_WRITE_SEQUENCE.store(GetClipboardSequenceNumber(), Ordering::Relaxed);
             let _ = CloseClipboard();
             result
         }
@@ -337,13 +361,14 @@ mod win_clipboard {
     pub fn restore_all_formats(
         mut backup: ClipboardBackup,
         owner: Option<HWND>,
-    ) -> Result<RestoreStats, String> {
+        expected_sequence: Option<u32>,
+    ) -> Result<Option<RestoreStats>, String> {
         if backup.entries.is_empty() {
             debug!("No clipboard entries to restore");
-            return Ok(RestoreStats {
+            return Ok(Some(RestoreStats {
                 restored_formats: 0,
                 failed_formats: 0,
-            });
+            }));
         }
 
         // Take ownership away from Drop. Every entry is now either transferred
@@ -354,6 +379,12 @@ mod win_clipboard {
             if OpenClipboard(owner).is_err() {
                 cleanup_entries(entries);
                 return Err("Failed to open clipboard for restore".into());
+            }
+
+            if expected_sequence.is_some_and(|expected| expected == 0 || expected != GetClipboardSequenceNumber()) {
+                cleanup_entries(entries);
+                let _ = CloseClipboard();
+                return Ok(None);
             }
 
             // Clear existing content
@@ -380,12 +411,13 @@ mod win_clipboard {
 
             write_history_exclusion_markers();
 
+            LAST_WRITE_SEQUENCE.store(GetClipboardSequenceNumber(), Ordering::Relaxed);
             let _ = CloseClipboard();
 
-            Ok(RestoreStats {
+            Ok(Some(RestoreStats {
                 restored_formats,
                 failed_formats,
-            })
+            }))
         }
     }
 
@@ -517,22 +549,31 @@ fn restore_advanced_clipboard_with_text_fallback(
     backup: win_clipboard::ClipboardBackup,
     text_backup: &str,
     use_documented_owner: bool,
+    expected_sequence: Option<u32>,
 ) -> Result<(), String> {
     let restore_result = if use_documented_owner {
         clipboard_owner_hwnd(app_handle)
-            .and_then(|owner| win_clipboard::restore_all_formats(backup, Some(owner)))
+            .and_then(|owner| win_clipboard::restore_all_formats(backup, Some(owner), expected_sequence))
     } else {
-        win_clipboard::restore_all_formats(backup, None)
+        win_clipboard::restore_all_formats(backup, None, expected_sequence)
+    };
+    let fallback_sequence = if restore_result.as_ref().is_ok_and(|stats| {
+        stats.as_ref().is_some_and(|stats| stats.restored_formats + stats.failed_formats > 0)
+    }) {
+        expected_sequence.map(|_| win_clipboard::last_write_sequence())
+    } else {
+        expected_sequence
     };
     let needs_text_fallback = match restore_result {
-        Ok(stats) if stats.failed_formats == 0 && stats.restored_formats > 0 => {
+        Ok(None) => return Ok(()),
+        Ok(Some(stats)) if stats.failed_formats == 0 && stats.restored_formats > 0 => {
             info!(
                 "Advanced clipboard restore completed successfully ({} formats)",
                 stats.restored_formats
             );
             false
         }
-        Ok(stats) => {
+        Ok(Some(stats)) => {
             warn!(
                 "Advanced clipboard restore incomplete: restored={}, failed={}. Falling back to text restore.",
                 stats.restored_formats, stats.failed_formats
@@ -549,7 +590,7 @@ fn restore_advanced_clipboard_with_text_fallback(
     };
 
     if needs_text_fallback {
-        restore_plain_text_without_history(app_handle, text_backup)
+        win_clipboard::write_text_if_unchanged(text_backup, true, fallback_sequence)
             .map_err(|e| format!("Fallback text clipboard restore failed: {}", e))?;
         info!("Fallback text clipboard restore completed");
     }
@@ -668,6 +709,7 @@ fn exclude_final_write_from_history(settings: &AppSettings) -> bool {
 /// Final full-text transcription write at the end of an operation. Unless
 /// excluded, the clipboard always ends with the complete final text and the
 /// history can capture it as one complete item.
+#[cfg(not(target_os = "windows"))]
 fn write_final_transcription_text(
     app_handle: &AppHandle,
     text: &str,
@@ -750,6 +792,10 @@ fn restore_streaming_session_backup(
     session: StreamingPasteSession,
     app_handle: &AppHandle,
 ) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    if session.last_clipboard_sequence.is_none() {
+        return Ok(());
+    }
     if restores_all_clipboard_formats(session.clipboard_handling) {
         #[cfg(target_os = "windows")]
         if let Some(backup) = session.advanced_backup {
@@ -758,11 +804,17 @@ fn restore_streaming_session_backup(
                 backup,
                 &session.text_backup,
                 uses_documented_clipboard_owner(session.clipboard_handling),
+                session.last_clipboard_sequence,
             );
         }
     }
 
     if restores_clipboard_contents(session.clipboard_handling) {
+        #[cfg(target_os = "windows")]
+        win_clipboard::write_text_if_unchanged(
+            &session.text_backup, true, session.last_clipboard_sequence,
+        )?;
+        #[cfg(not(target_os = "windows"))]
         restore_plain_text_without_history(app_handle, &session.text_backup)?;
     }
 
@@ -852,6 +904,8 @@ pub fn begin_streaming_paste_session(
         text_backup,
         last_clipboard_paste_sent_at: None,
         #[cfg(target_os = "windows")]
+        last_clipboard_sequence: None,
+        #[cfg(target_os = "windows")]
         advanced_backup,
     };
 
@@ -917,11 +971,33 @@ pub fn finalize_streaming_paste_session_if_matches(
     let Some(session) = guard.take() else {
         return Ok(false);
     };
+    #[cfg(target_os = "windows")]
+    let mut session = session;
     wait_for_clipboard_consumer(session.last_clipboard_paste_sent_at);
 
     let clipboard_handling = session.clipboard_handling;
     let exclude_final_from_history = session.exclude_final_from_history;
     let final_text = convert_text_for_clipboard(final_text, session.convert_lf_to_crlf);
+    #[cfg(target_os = "windows")]
+    let final_write_result = {
+        let expected = if restores_clipboard_contents(clipboard_handling) {
+            let Some(sequence) = session.last_clipboard_sequence else {
+                return Ok(true);
+            };
+            Some(sequence)
+        } else {
+            None
+        };
+        match win_clipboard::write_text_if_unchanged(&final_text, exclude_final_from_history, expected) {
+            Ok(Some(sequence)) => {
+                session.last_clipboard_sequence = Some(sequence);
+                Ok(())
+            }
+            Ok(None) => return Ok(true),
+            Err(error) => Err(error),
+        }
+    };
+    #[cfg(not(target_os = "windows"))]
     let final_write_result =
         write_final_transcription_text(app_handle, &final_text, exclude_final_from_history);
     if final_write_result.is_ok() {
@@ -1011,6 +1087,7 @@ fn paste_via_clipboard(
             backup,
             &text_backup,
             uses_documented_clipboard_owner(clipboard_handling),
+            None,
         );
     }
 
@@ -1500,6 +1577,10 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
                 )?;
                 if let Some(session) = stream_session_guard.as_mut() {
                     session.last_clipboard_paste_sent_at = Some(paste_sent_at);
+                    #[cfg(target_os = "windows")]
+                    {
+                        session.last_clipboard_sequence = Some(win_clipboard::last_write_sequence());
+                    }
                 }
             }
         }
@@ -1681,6 +1762,7 @@ pub fn capture_selection_text_copy(app_handle: &AppHandle) -> Result<String, Str
             backup,
             &clipboard_backup,
             use_documented_owner,
+            None,
         ) {
             warn!(
                 "Failed to restore clipboard after selection copy capture: {}",
