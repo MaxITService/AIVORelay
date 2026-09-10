@@ -5432,7 +5432,7 @@ pub fn set_active_profile(app: AppHandle, id: String) -> Result<(), String> {
 
     settings.active_profile_id = id.clone();
     synchronize_active_profile_preview(&mut settings);
-    settings::write_settings(&app, settings.clone());
+    settings::write_settings_checked(&app, settings.clone())?;
     refresh_soniox_live_preview_window(&app);
 
     // Show overlay notification if enabled
