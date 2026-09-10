@@ -87,6 +87,7 @@ pub fn consume_recovery_notice(app: &tauri::AppHandle) -> Result<bool, String> {
 pub fn speech_only_shortcut_allowed(binding_id: &str) -> bool {
     binding_id == "transcribe"
         || binding_id == "ai_replace_selection"
+        || binding_id == "repaste_last"
         || binding_id == "cancel"
         || binding_id.starts_with("transcribe_")
 }
@@ -109,10 +110,11 @@ mod tests {
     }
 
     #[test]
-    fn speech_only_mode_allows_transcription_ai_replace_and_cancel_bindings() {
+    fn speech_only_mode_allows_transcription_ai_replace_repaste_and_cancel_bindings() {
         assert!(speech_only_shortcut_allowed("transcribe"));
         assert!(speech_only_shortcut_allowed("transcribe_meetings"));
         assert!(speech_only_shortcut_allowed("ai_replace_selection"));
+        assert!(speech_only_shortcut_allowed("repaste_last"));
         assert!(speech_only_shortcut_allowed("cancel"));
 
         for blocked in [
