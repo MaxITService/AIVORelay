@@ -5,8 +5,7 @@ import { RefreshCcw } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { VoiceCommand, commands, ExecutionPolicy } from "@/bindings";
 import { HandyShortcut } from "../HandyShortcut";
-import { listen } from "@tauri-apps/api/event";
-import type { VoiceCommandResultPayload } from "@/command-confirm/CommandConfirmOverlay";
+import { useVoiceCommandLogStore } from "@/stores/voiceCommandLogStore";
 import { ExtendedThinkingSection } from "../ExtendedThinkingSection";
 import { ProviderSelect } from "../PostProcessingSettingsApi/ProviderSelect";
 import { BaseUrlField } from "../PostProcessingSettingsApi/BaseUrlField";
@@ -36,8 +35,6 @@ Example inputs and outputs:
 - "open word and excel" → Start-Process winword; Start-Process excel
 - "show my documents folder" → Start-Process explorer -ArgumentList "$env:USERPROFILE\\Documents"`;
 
-const MAX_LOG_ENTRIES = 100;
-
 // Execution policy options for dropdown
 const EXECUTION_POLICY_OPTIONS = [
   { value: "default", label: "Default (system policy)" },
@@ -45,10 +42,6 @@ const EXECUTION_POLICY_OPTIONS = [
   { value: "unrestricted", label: "Unrestricted" },
   { value: "remote_signed", label: "RemoteSigned" },
 ];
-
-interface LogEntry extends VoiceCommandResultPayload {
-  id: string;
-}
 
 interface VoiceCommandCardProps {
   command: VoiceCommand;
@@ -303,7 +296,8 @@ export default function VoiceCommandSettings() {
   const { t } = useTranslation();
   const { settings, updateSetting, refreshSettings, isUpdating } = useSettings();
   const voiceCommandProviderState = useVoiceCommandProviderState();
-  const [executionLog, setExecutionLog] = useState<LogEntry[]>([]);
+  const executionLog = useVoiceCommandLogStore((state) => state.entries);
+  const clearExecutionLog = useVoiceCommandLogStore((state) => state.clear);
   const logEndRef = useRef<HTMLDivElement>(null);
   const mockInFlight = useRef(false);
   const mockResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -315,42 +309,20 @@ export default function VoiceCommandSettings() {
   const [isLlmSettingsOpen, setIsLlmSettingsOpen] = useState(false);
   const [isFuzzyMatchingOpen, setIsFuzzyMatchingOpen] = useState(false);
 
-  if (!settings) return null;
-
   // Get voice command defaults with fallbacks
-  const defaults = settings.voice_command_defaults ?? {
+  const defaults = settings?.voice_command_defaults ?? {
     silent: true,
     no_profile: false,
     use_pwsh: false,
     execution_policy: "bypass",
   };
 
-  // Listen for execution results
-  useEffect(() => {
-    const unlisten = listen<VoiceCommandResultPayload>(
-      "voice-command-result",
-      (event) => {
-        const entry: LogEntry = {
-          ...event.payload,
-          id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        };
-        setExecutionLog((prev) => {
-          const updated = [...prev, entry];
-          // Keep only last MAX_LOG_ENTRIES
-          return updated.slice(-MAX_LOG_ENTRIES);
-        });
-      },
-    );
-
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, []);
-
   // Auto-scroll to bottom when new entries are added
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [executionLog]);
+
+  if (!settings) return null;
 
   const handleAddCommand = () => {
     // New commands inherit execution options from global defaults
@@ -387,7 +359,7 @@ export default function VoiceCommandSettings() {
   };
 
   const handleClearLog = () => {
-    setExecutionLog([]);
+    clearExecutionLog();
   };
 
   const handleCopyLog = () => {
