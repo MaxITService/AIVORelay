@@ -2324,18 +2324,12 @@ impl ModelManager {
         if let Some((repo_id, revision, filename)) = model_hf_source(&model_info) {
             let mut deleted_something = false;
             if let Some(model_path) = hf_cached_path(&repo_id, &revision, &filename) {
-                if let Some(repo_dir) = model_path.ancestors().nth(3) {
-                    if repo_dir.exists() {
-                        info!("Deleting HF cached model repo at: {:?}", repo_dir);
-                        fs::remove_dir_all(repo_dir)?;
-                        deleted_something = true;
-                    }
-                }
-                if !deleted_something && model_path.exists() {
-                    info!("Deleting HF cached model file at: {:?}", model_path);
-                    fs::remove_file(model_path)?;
-                    deleted_something = true;
-                }
+                // The snapshot entry belongs to this model; the repository and
+                // its blobs may also serve other models, revisions, or apps.
+                // Remove the entry itself without following its symlink.
+                info!("Deleting HF cached model entry at: {:?}", model_path);
+                fs::remove_file(model_path)?;
+                deleted_something = true;
             }
 
             let local_path = self.models_dir.join(&filename);
