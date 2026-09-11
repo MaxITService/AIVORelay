@@ -164,11 +164,6 @@ pub fn open_microphone_privacy_settings() -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn update_microphone_mode(app: AppHandle, always_on: bool) -> Result<(), String> {
-    // Update settings (fast, stays inline)
-    let mut settings = get_settings(&app);
-    settings.always_on_microphone = always_on;
-    write_settings(&app, settings);
-
     // Update the audio manager mode. update_mode can stop/start the cpal stream
     // (blocking CoreAudio) and takes the manager std mutexes — run it on a
     // blocking thread, NOT inline on the webview/main run loop (a slow device
@@ -180,10 +175,24 @@ pub async fn update_microphone_mode(app: AppHandle, always_on: bool) -> Result<(
         MicrophoneMode::OnDemand
     };
 
-    tokio::task::spawn_blocking(move || rm.update_mode(new_mode))
+    tokio::task::spawn_blocking(move || {
+        let _settings_guard = lock_settings_mutation("changing microphone mode")?;
+        let mut settings = get_settings(&app);
+        let previous = settings.always_on_microphone;
+        settings.always_on_microphone = always_on;
+        write_settings_checked(&app, settings)?;
+        if let Err(error) = rm.update_mode(new_mode) {
+            let mut rollback = get_settings(&app);
+            rollback.always_on_microphone = previous;
+            write_settings_checked(&app, rollback).map_err(|rollback_error| {
+                format!("Failed to update microphone mode: {error}; failed to restore setting: {rollback_error}")
+            })?;
+            return Err(format!("Failed to update microphone mode: {error}"));
+        }
+        Ok(())
+    })
         .await
         .map_err(|e| format!("audio task join failed: {}", e))?
-        .map_err(|e| format!("Failed to update microphone mode: {}", e))
 }
 
 #[tauri::command]
@@ -226,7 +235,10 @@ pub(crate) fn set_selected_microphone_blocking(
     app: AppHandle,
     device_name: String,
 ) -> Result<(), String> {
+    let _settings_guard = lock_settings_mutation("changing selected microphone")?;
     let mut settings = get_settings(&app);
+    let previous_selection = settings.selected_microphone.clone();
+    let previous_manual = settings.last_manual_microphone.clone();
     let selected_microphone = if device_name == "default" {
         None
     } else {
@@ -237,13 +249,20 @@ pub(crate) fn set_selected_microphone_blocking(
     if device_name != "default" {
         settings.last_manual_microphone = selected_microphone.clone();
     }
-    write_settings(&app, settings);
-    microphone_auto_switch::remember_manual_microphone_selection(&app, selected_microphone.clone());
+    write_settings_checked(&app, settings)?;
 
     // Update the audio manager to use the new device
     let rm = app.state::<Arc<AudioRecordingManager>>();
-    rm.update_selected_device()
-        .map_err(|e| format!("Failed to update selected device: {}", e))?;
+    if let Err(error) = rm.update_selected_device() {
+        let mut rollback = get_settings(&app);
+        rollback.selected_microphone = previous_selection;
+        rollback.last_manual_microphone = previous_manual;
+        write_settings_checked(&app, rollback).map_err(|rollback_error| {
+            format!("Failed to update selected device: {error}; failed to restore microphone settings: {rollback_error}")
+        })?;
+        return Err(format!("Failed to update selected device: {error}"));
+    }
+    microphone_auto_switch::remember_manual_microphone_selection(&app, selected_microphone.clone());
 
     if changed {
         let display_name = if device_name == "default" {

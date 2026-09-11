@@ -1232,7 +1232,11 @@ impl AudioRecordingManager {
                 }
             }
             (MicrophoneMode::OnDemand, MicrophoneMode::AlwaysOn) => {
-                self.start_microphone_stream()?;
+                // Keep the current capture (including loopback) intact. The
+                // next idle/start transition can apply a pending device change.
+                if matches!(*state, RecordingState::Idle) {
+                    self.start_microphone_stream()?;
+                }
             }
             _ => {}
         }
@@ -1404,14 +1408,14 @@ impl AudioRecordingManager {
 
     /// Recreate the recorder from current settings (for VAD/silence toggle changes).
     /// Restarts the stream if it was already open.
-    /// Returns false if invalidation is unsafe (e.g. while actively recording).
-    pub fn invalidate_recorder(&self) -> bool {
+    /// Returns an error if capture is active or the stream cannot be reopened.
+    pub fn invalidate_recorder(&self) -> Result<(), String> {
         // Keep state locked for the full operation so a new recording cannot begin
         // between our safety check and stream restart.
         let state_guard = self.state.lock().unwrap();
         if !matches!(*state_guard, RecordingState::Idle) {
             warn!("Refusing to invalidate recorder while recording is active");
-            return false;
+            return Err("Cannot change Filter Silence while recording is active".to_string());
         }
 
         let was_open = *self.is_open.lock().unwrap();
@@ -1429,10 +1433,14 @@ impl AudioRecordingManager {
                 .unwrap_or_else(|| self.resolve_selection_for_binding(&settings, None));
             if let Err(e) = self.start_stream_for_selection(selection, &settings) {
                 error!("Failed to restart audio capture stream after recorder invalidation: {e}");
+                // The caller will roll settings back. Do not keep a recorder
+                // configured with the rejected settings for the next start.
+                *self.recorder.lock().unwrap() = None;
+                return Err(format!("Failed to restart audio capture stream: {e}"));
             }
         }
 
-        true
+        Ok(())
     }
 
     pub fn cancel_generation(&self) -> u64 {
