@@ -59,6 +59,66 @@ impl Default for SessionState {
 pub type ManagedSessionState = Mutex<SessionState>;
 
 static NEXT_OPERATION_ID: AtomicU64 = AtomicU64::new(1);
+struct OperationControlState {
+    active: bool,
+    cancel_requested: bool,
+}
+
+static OPERATION_CONTROL: Mutex<OperationControlState> = Mutex::new(OperationControlState {
+    active: false,
+    cancel_requested: false,
+});
+
+/// Keeps a new recording from starting while stop/cancel performs cleanup
+/// outside the session mutex. Acquisition checks ownership under that mutex.
+pub(crate) struct OperationControlGuard {
+    app: AppHandle,
+}
+
+impl Drop for OperationControlGuard {
+    fn drop(&mut self) {
+        loop {
+            let mut control = OPERATION_CONTROL.lock().unwrap_or_else(|error| error.into_inner());
+            if !control.cancel_requested {
+                control.active = false;
+                return;
+            }
+            control.cancel_requested = false;
+            drop(control);
+            // A user may press Cancel while the timer is starting finalization.
+            // Honor that request before allowing any replacement recording.
+            crate::utils::cancel_current_operation_guarded(&self.app, self);
+        }
+    }
+}
+
+pub(crate) fn operation_control_in_progress() -> bool {
+    OPERATION_CONTROL.lock().unwrap_or_else(|error| error.into_inner()).active
+}
+
+pub(crate) fn try_begin_operation_control(
+    app: &AppHandle,
+    expected_recording: Option<(&str, u64)>,
+) -> Option<OperationControlGuard> {
+    let state = app.state::<ManagedSessionState>();
+    let state_guard = lock_session_state(&state, "begin operation control");
+    if let Some((expected_binding, expected_id)) = expected_recording {
+        if !matches!(&*state_guard, SessionState::Recording { binding_id, operation_id, .. }
+            if binding_id == expected_binding && *operation_id == expected_id)
+        {
+            return None;
+        }
+    }
+    let mut control = OPERATION_CONTROL.lock().unwrap_or_else(|error| error.into_inner());
+    if control.active {
+        if expected_recording.is_none() {
+            control.cancel_requested = true;
+        }
+        return None;
+    }
+    control.active = true;
+    Some(OperationControlGuard { app: app.clone() })
+}
 
 /// Returns a process-local generation ID for a recording/processing lifecycle.
 /// The ID is created when recording starts and remains unchanged through Processing.

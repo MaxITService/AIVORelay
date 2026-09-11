@@ -620,6 +620,9 @@ fn begin_last_remote_recording_retry(
     let state = app.state::<ManagedSessionState>();
     let state_guard =
         session_manager::lock_session_state(&state, "begin_last_remote_recording_retry");
+    if session_manager::operation_control_in_progress() {
+        return Err("Wait for recording cleanup to finish before retrying.".to_string());
+    }
     if !matches!(&*state_guard, session_manager::SessionState::Idle) {
         return Err(
             "Wait for the active recording or processing operation to finish before retrying."
@@ -1827,6 +1830,10 @@ fn start_recording_with_feedback_with_settings(
     let state = app.state::<ManagedSessionState>();
     let mut state_guard =
         session_manager::lock_session_state(&state, "start_recording_with_feedback");
+    if session_manager::operation_control_in_progress() {
+        debug!("Recording start deferred while stop/cancel cleanup is active");
+        return false;
+    }
 
     // Check if we're already recording or processing
     // During processing, we block new recordings to prevent overlapping operations
@@ -2118,7 +2125,7 @@ fn start_recording_with_feedback_with_settings(
 
         // Register cancel shortcut now that recording is confirmed
         session.register_cancel_shortcut();
-        crate::recording_auto_stop::start_auto_stop_timer(app, binding_id);
+        crate::recording_auto_stop::start_auto_stop_timer(app, binding_id, operation_id);
         change_tray_icon(app, TrayIconState::Recording);
     } else {
         // Drop captured app context for failed recordings.
