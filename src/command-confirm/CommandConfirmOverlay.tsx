@@ -65,6 +65,8 @@ export default function CommandConfirmOverlay() {
   const [enterPressedOnce, setEnterPressedOnce] = useState(false);
   const lastEnterAtRef = useRef<number | null>(null);
   const destroyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const payloadGenerationRef = useRef(0);
+  const executingGenerationRef = useRef<number | null>(null);
 
   // Whether auto-run is active for current payload
   const isAutoRunActive =
@@ -78,6 +80,8 @@ export default function CommandConfirmOverlay() {
     const unlisten = listen<CommandConfirmPayload>(
       "show-command-confirm",
       (event) => {
+        payloadGenerationRef.current += 1;
+        executingGenerationRef.current = null;
         if (destroyTimeoutRef.current) {
           clearTimeout(destroyTimeoutRef.current);
           destroyTimeoutRef.current = null;
@@ -106,6 +110,7 @@ export default function CommandConfirmOverlay() {
     );
 
     return () => {
+      payloadGenerationRef.current += 1;
       if (destroyTimeoutRef.current) {
         clearTimeout(destroyTimeoutRef.current);
         destroyTimeoutRef.current = null;
@@ -172,7 +177,10 @@ export default function CommandConfirmOverlay() {
   }, [countdownMs]);
 
   const handleRun = async () => {
-    if (!payload || isExecuting) return;
+    const generation = payloadGenerationRef.current;
+    if (!payload || executingGenerationRef.current === generation) return;
+    executingGenerationRef.current = generation;
+    const isCurrent = () => payloadGenerationRef.current === generation;
 
     setIsExecuting(true);
     const commandToRun = isEditing ? editedCommand : payload.command;
@@ -193,11 +201,11 @@ export default function CommandConfirmOverlay() {
 
       if (result.status === "ok") {
         const output = result.data;
-        setStatus({
+        if (isCurrent()) setStatus({
           type: "success",
           message: openedInWindow
             ? "Opened in terminal"
-            : "Command executed successfully",
+            : "Command started in background",
         });
 
         // Emit result for history tracking
@@ -211,16 +219,18 @@ export default function CommandConfirmOverlay() {
         } as VoiceCommandResultPayload);
 
         // Release the renderer after success.
-        if (destroyTimeoutRef.current) {
-          clearTimeout(destroyTimeoutRef.current);
+        if (isCurrent()) {
+          if (destroyTimeoutRef.current) {
+            clearTimeout(destroyTimeoutRef.current);
+          }
+          destroyTimeoutRef.current = setTimeout(() => {
+            destroyTimeoutRef.current = null;
+            if (isCurrent()) destroyWindow();
+          }, 1000);
         }
-        destroyTimeoutRef.current = setTimeout(() => {
-          destroyTimeoutRef.current = null;
-          destroyWindow();
-        }, 1000);
       } else {
         const errorMsg = result.error || "Execution failed";
-        setStatus({ type: "error", message: errorMsg });
+        if (isCurrent()) setStatus({ type: "error", message: errorMsg });
 
         // Emit error for history tracking
         await emit("voice-command-result", {
@@ -234,7 +244,7 @@ export default function CommandConfirmOverlay() {
       }
     } catch (err) {
       const errorMsg = String(err);
-      setStatus({ type: "error", message: errorMsg });
+      if (isCurrent()) setStatus({ type: "error", message: errorMsg });
 
       // Emit error for history tracking
       await emit("voice-command-result", {
@@ -246,7 +256,10 @@ export default function CommandConfirmOverlay() {
         wasOpenedInWindow: false,
       } as VoiceCommandResultPayload);
     } finally {
-      setIsExecuting(false);
+      if (isCurrent()) {
+        executingGenerationRef.current = null;
+        setIsExecuting(false);
+      }
     }
   };
 
