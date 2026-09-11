@@ -370,7 +370,7 @@ export default function VoiceCommandSettings() {
           ? "ERROR"
           : entry.wasOpenedInWindow
             ? "OPENED"
-            : "OK";
+            : "STARTED";
         return `[${time}] [${status}] ${entry.command}\n${entry.output || "(no output)"}`;
       })
       .join("\n\n");
@@ -1334,7 +1334,7 @@ export default function VoiceCommandSettings() {
                             ? "ERROR"
                             : entry.wasOpenedInWindow
                               ? "OPENED"
-                              : "OK"}
+                              : "STARTED"}
                         </span>
                       </div>
                     </div>
