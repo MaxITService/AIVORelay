@@ -5560,6 +5560,7 @@ fn settings_store_file_is_corrupted(app: &AppHandle) -> bool {
                 path.display(),
                 error
             );
+            backup_settings_bytes(&path, &bytes, "malformed");
             true
         }
     }
@@ -5569,20 +5570,37 @@ fn backup_settings_store_before_repair(app: &AppHandle, reason: &str) {
     let Some(path) = settings_store_disk_path(app) else {
         return;
     };
-    if !path.exists() {
-        return;
-    }
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            warn!("Failed to read settings for {reason} backup: {error}");
+            return;
+        }
+    };
+    backup_settings_bytes(&path, &bytes, reason);
+}
+
+fn backup_settings_bytes(path: &std::path::Path, bytes: &[u8], reason: &str) {
+    use std::io::Write;
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
+        .map(|duration| duration.as_nanos())
         .unwrap_or_default();
     let backup_path = path.with_file_name(format!(
         "{}.{}.{}.bak",
         SETTINGS_STORE_PATH, timestamp, reason
     ));
 
-    if let Err(err) = std::fs::copy(&path, &backup_path) {
+    let result = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&backup_path)
+        .and_then(|mut file| {
+            file.write_all(bytes)?;
+            file.sync_all()
+        });
+    if let Err(err) = result {
         warn!(
             "Failed to back up settings store before {}: {}",
             reason, err
