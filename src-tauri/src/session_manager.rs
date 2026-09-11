@@ -59,6 +59,26 @@ impl Default for SessionState {
 pub type ManagedSessionState = Mutex<SessionState>;
 
 static NEXT_OPERATION_ID: AtomicU64 = AtomicU64::new(1);
+static RECORDING_START_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+/// Holds admission closed while recording startup performs I/O and unwinds
+/// its local session resources. Cancellation may still run during this phase.
+pub(crate) struct RecordingStartupGuard;
+
+impl Drop for RecordingStartupGuard {
+    fn drop(&mut self) {
+        RECORDING_START_IN_PROGRESS.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Call while holding the session mutex, before creating the local session.
+pub(crate) fn try_begin_recording_startup() -> Option<RecordingStartupGuard> {
+    RECORDING_START_IN_PROGRESS
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .ok()
+        .map(|_| RecordingStartupGuard)
+}
+
 struct OperationControlState {
     active: bool,
     cancel_requested: bool,
@@ -92,8 +112,9 @@ impl Drop for OperationControlGuard {
     }
 }
 
-pub(crate) fn operation_control_in_progress() -> bool {
-    OPERATION_CONTROL.lock().unwrap_or_else(|error| error.into_inner()).active
+pub(crate) fn recording_start_is_blocked() -> bool {
+    RECORDING_START_IN_PROGRESS.load(Ordering::SeqCst)
+        || OPERATION_CONTROL.lock().unwrap_or_else(|error| error.into_inner()).active
 }
 
 pub(crate) fn try_begin_operation_control(
@@ -428,6 +449,17 @@ fn exit_processing_state_if_matches(state: &mut SessionState, expected_operation
 #[cfg(test)]
 mod tests {
     use super::{exit_processing_state_if_matches, is_operation_current_state, SessionState};
+
+    #[test]
+    fn startup_guard_blocks_replacement_until_local_cleanup_finishes() {
+        let guard = super::try_begin_recording_startup().expect("first startup owns admission");
+        assert!(super::recording_start_is_blocked());
+        assert!(super::try_begin_recording_startup().is_none());
+        drop(guard);
+        let replacement = super::try_begin_recording_startup()
+            .expect("replacement may start after the old startup returns");
+        drop(replacement);
+    }
 
     #[test]
     fn operation_ownership_matches_generation() {

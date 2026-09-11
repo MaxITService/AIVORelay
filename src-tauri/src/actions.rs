@@ -620,7 +620,7 @@ fn begin_last_remote_recording_retry(
     let state = app.state::<ManagedSessionState>();
     let state_guard =
         session_manager::lock_session_state(&state, "begin_last_remote_recording_retry");
-    if session_manager::operation_control_in_progress() {
+    if session_manager::recording_start_is_blocked() {
         return Err("Wait for recording cleanup to finish before retrying.".to_string());
     }
     if !matches!(&*state_guard, session_manager::SessionState::Idle) {
@@ -1830,8 +1830,8 @@ fn start_recording_with_feedback_with_settings(
     let state = app.state::<ManagedSessionState>();
     let mut state_guard =
         session_manager::lock_session_state(&state, "start_recording_with_feedback");
-    if session_manager::operation_control_in_progress() {
-        debug!("Recording start deferred while stop/cancel cleanup is active");
+    if session_manager::recording_start_is_blocked() {
+        debug!("Recording start deferred while startup or stop/cancel cleanup is active");
         return false;
     }
 
@@ -1868,6 +1868,12 @@ fn start_recording_with_feedback_with_settings(
         );
         return false;
     }
+
+    // Declare before the local session so it is released after that session's
+    // cleanup, including when Cancel removes the managed session during I/O.
+    let Some(_startup_guard) = session_manager::try_begin_recording_startup() else {
+        return false;
+    };
 
     // Mark as recording immediately to prevent concurrent starts
     // We'll update with the real session once recording actually starts
@@ -2087,11 +2093,12 @@ fn start_recording_with_feedback_with_settings(
             );
             if let session_manager::SessionState::Recording {
                 binding_id: active_binding_id,
+                operation_id: active_operation_id,
                 started_at: active_started_at,
                 ..
             } = &mut *state_guard
             {
-                if active_binding_id.as_str() == binding_id {
+                if active_binding_id.as_str() == binding_id && *active_operation_id == operation_id {
                     *active_started_at = started_at;
                     session_still_recording = true;
                 }
@@ -2147,7 +2154,11 @@ fn start_recording_with_feedback_with_settings(
         let state = app.state::<ManagedSessionState>();
         let mut state_guard =
             session_manager::lock_session_state(&state, "start_recording_with_feedback cleanup");
-        *state_guard = session_manager::SessionState::Idle;
+        if matches!(&*state_guard, session_manager::SessionState::Recording {
+            operation_id: active_operation_id, ..
+        } if *active_operation_id == operation_id) {
+            *state_guard = session_manager::SessionState::Idle;
+        }
         drop(state_guard);
 
         if let Some(err) = recording_error.as_ref() {
