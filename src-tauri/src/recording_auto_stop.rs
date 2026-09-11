@@ -1,5 +1,4 @@
 use crate::actions::{reset_toggle_state, transcribe_action_for_binding};
-use crate::settings::get_settings;
 use crate::utils::cancel_current_operation_guarded;
 use log::{debug, info};
 use std::sync::{Arc, Mutex};
@@ -17,7 +16,14 @@ pub fn new_managed_state() -> ManagedAutoStopToken {
 }
 
 pub fn start_auto_stop_timer(app: &AppHandle, binding_id: &str, operation_id: u64) {
-    let settings = get_settings(app);
+    let session_state = app.state::<crate::session_manager::ManagedSessionState>();
+    let session_guard = crate::session_manager::lock_session_state(&session_state, "register auto-stop");
+    let settings = match &*session_guard {
+        crate::session_manager::SessionState::Recording {
+            binding_id: active_binding, operation_id: active_id, captured_settings, ..
+        } if active_binding == binding_id && *active_id == operation_id => captured_settings,
+        _ => return,
+    };
     if !settings.recording_auto_stop_enabled {
         return;
     }
@@ -29,13 +35,6 @@ pub fn start_auto_stop_timer(app: &AppHandle, binding_id: &str, operation_id: u6
         notify: tokio::sync::Notify::new(),
     });
 
-    let session_state = app.state::<crate::session_manager::ManagedSessionState>();
-    let session_guard = crate::session_manager::lock_session_state(&session_state, "register auto-stop");
-    if !matches!(&*session_guard, crate::session_manager::SessionState::Recording {
-        binding_id: active_binding, operation_id: active_id, ..
-    } if active_binding == binding_id && *active_id == operation_id) {
-        return;
-    }
     if let Ok(mut state) = app.state::<ManagedAutoStopToken>().lock() {
         *state = Some(Arc::clone(&token));
         debug!("Auto-stop timer registered for binding '{}'", binding_id);
