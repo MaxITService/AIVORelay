@@ -153,6 +153,7 @@ export const ModelsSettings: React.FC = () => {
     useState<RemoteApiRowId | null>(null);
   const {
     filters,
+    resetVersion,
     isAnyFilterActive,
     applyFilters,
     resetFilters,
@@ -796,6 +797,7 @@ export const ModelsSettings: React.FC = () => {
         filterBarRef={filterBarRef}
         allLocalModels={allLocalModels}
         filters={filters}
+        resetVersion={resetVersion}
         isAnyFilterActive={isAnyFilterActive}
         onSearch={setSearch}
         onToggleSet={toggleSetValue}

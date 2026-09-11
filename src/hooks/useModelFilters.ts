@@ -116,6 +116,7 @@ function matchesFilters(model: ModelInfo, filters: ModelFilters, searchLower: st
 
 export function useModelFilters() {
   const [filters, setFilters] = useState<ModelFilters>({ ...DEFAULT_FILTERS });
+  const [resetVersion, setResetVersion] = useState(0);
 
   const isAnyFilterActive = useMemo(() => {
     return (
@@ -140,6 +141,7 @@ export function useModelFilters() {
   );
 
   const resetFilters = useCallback(() => {
+    setResetVersion((version) => version + 1);
     setFilters({ ...DEFAULT_FILTERS });
   }, []);
 
@@ -195,6 +197,7 @@ export function useModelFilters() {
 
   return {
     filters,
+    resetVersion,
     isAnyFilterActive,
     applyFilters,
     resetFilters,
