@@ -5671,13 +5671,13 @@ pub fn change_filter_silence_setting(app: AppHandle, enabled: bool) -> Result<()
     if let Some(audio_mgr) = app.try_state::<Arc<AudioRecordingManager>>() {
         // Recording may start between the pre-check and invalidation; rollback to avoid
         // persisting a setting that could not be safely applied.
-        if !audio_mgr.invalidate_recorder() {
+        if let Err(error) = audio_mgr.invalidate_recorder() {
             let mut rollback = settings::get_settings(&app);
             rollback.filter_silence = previous;
             settings::write_settings_checked(&app, rollback).map_err(|rollback_error| {
-                format!("Cannot change Filter Silence while recording is active; {rollback_error}")
+                format!("{error}; failed to restore Filter Silence setting: {rollback_error}")
             })?;
-            return Err("Cannot change Filter Silence while recording is active".to_string());
+            return Err(error);
         }
     }
 
