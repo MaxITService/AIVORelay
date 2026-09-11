@@ -53,7 +53,16 @@ fn build_preview_file_name(source_path: &Path) -> String {
 
 #[tauri::command]
 #[specta::specta]
-pub fn prepare_transcribe_file_asset(
+pub async fn prepare_transcribe_file_asset(
+    app: AppHandle,
+    source_path: String,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || prepare_transcribe_file_asset_blocking(app, source_path))
+        .await
+        .map_err(|error| format!("Preview staging task failed: {error}"))?
+}
+
+fn prepare_transcribe_file_asset_blocking(
     app: AppHandle,
     source_path: String,
 ) -> Result<String, String> {
@@ -94,7 +103,13 @@ pub fn prepare_transcribe_file_asset(
 
 #[tauri::command]
 #[specta::specta]
-pub fn delete_transcribe_file_asset(app: AppHandle, staged_path: String) -> Result<(), String> {
+pub async fn delete_transcribe_file_asset(app: AppHandle, staged_path: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || delete_transcribe_file_asset_blocking(app, staged_path))
+        .await
+        .map_err(|error| format!("Preview cleanup task failed: {error}"))?
+}
+
+fn delete_transcribe_file_asset_blocking(app: AppHandle, staged_path: String) -> Result<(), String> {
     if staged_path.trim().is_empty() {
         return Ok(());
     }
