@@ -1288,7 +1288,10 @@ async fn handle_get_messages(
                     "Failed to serialize connector response for encryption: {}",
                     e
                 );
-                return json_session_response(response_body, &validated_session, &route_label);
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to prepare encrypted connector response",
+                );
             }
         };
         match validated_session.crypto.encrypt_payload(&plain_json) {
@@ -1303,7 +1306,13 @@ async fn handle_get_messages(
                     true,
                 );
             }
-            Err(e) => error!("Failed to encrypt response: {}", e),
+            Err(e) => {
+                error!("Failed to encrypt response: {}", e);
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to encrypt connector response",
+                );
+            }
         }
     }
 
@@ -1527,13 +1536,9 @@ async fn handle_get_blob(
                 ),
                 Err(err) => {
                     error!("Failed to encrypt connector blob response: {}", err);
-                    session_bytes_response(
-                        StatusCode::OK,
-                        &blob.mime_type,
-                        blob.data,
-                        &validated_session,
-                        &route_label,
-                        false,
+                    error_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Failed to encrypt connector attachment",
                     )
                 }
             }
