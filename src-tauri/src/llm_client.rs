@@ -4,6 +4,7 @@ use log::{debug, error, info, warn};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE, REFERER, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use std::error::Error as StdError;
+use std::time::Duration;
 
 /// Configuration for provider-specific Extended Thinking / Reasoning controls.
 #[derive(Debug, Clone, Default)]
@@ -235,6 +236,8 @@ fn create_client(provider: &PostProcessProvider, api_key: &str) -> Result<reqwes
     let headers = build_headers(provider, api_key)?;
     reqwest::Client::builder()
         .default_headers(headers)
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(600))
         .build()
         .map_err(|e| report_reqwest_error("Failed to build HTTP client", &e))
 }
@@ -580,6 +583,7 @@ pub async fn fetch_models(
 
     let response = client
         .get(&url)
+        .timeout(Duration::from_secs(60))
         .send()
         .await
         .map_err(|e| report_reqwest_error("Failed to fetch models", &e))?;
