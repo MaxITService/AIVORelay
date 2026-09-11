@@ -14,18 +14,33 @@ pub struct ModifierState {
     pub shift: bool,
     pub alt: bool,
     pub win: bool,
+    #[serde(skip)]
+    held_sides: u8,
 }
 
 impl ModifierState {
     /// Update modifier state based on key event
     pub fn update(&mut self, key: Key, pressed: bool) {
-        match key {
-            Key::ControlLeft | Key::ControlRight => self.ctrl = pressed,
-            Key::ShiftLeft | Key::ShiftRight => self.shift = pressed,
-            Key::Alt | Key::AltGr => self.alt = pressed,
-            Key::MetaLeft | Key::MetaRight => self.win = pressed,
-            _ => {}
+        let bit = match key {
+            Key::ControlLeft => 1,
+            Key::ControlRight => 2,
+            Key::ShiftLeft => 4,
+            Key::ShiftRight => 8,
+            Key::Alt => 16,
+            Key::AltGr => 32,
+            Key::MetaLeft => 64,
+            Key::MetaRight => 128,
+            _ => return,
+        };
+        if pressed {
+            self.held_sides |= bit;
+        } else {
+            self.held_sides &= !bit;
         }
+        self.ctrl = self.held_sides & 3 != 0;
+        self.shift = self.held_sides & 12 != 0;
+        self.alt = self.held_sides & 48 != 0;
+        self.win = self.held_sides & 192 != 0;
     }
 
     /// Check if modifiers match the required state
@@ -420,8 +435,8 @@ fn normalize_shortcut_binding(raw: &str) -> String {
 
 /// Convert a string to an rdev::Key
 fn string_to_rdev_key(s: &str) -> Result<Key, String> {
-    let s = s.to_lowercase();
-    let s = s.trim();
+    let s: String = s.chars().filter(|ch| !ch.is_whitespace()).collect::<String>().to_lowercase();
+    let s = s.as_str();
 
     match s {
         // Caps Lock - the main reason for this implementation!
@@ -584,6 +599,7 @@ mod tests {
             shift,
             alt,
             win,
+            ..ModifierState::default()
         }
     }
 
@@ -601,7 +617,45 @@ mod tests {
         state.update(Key::ShiftRight, false);
         state.update(Key::Alt, false);
         state.update(Key::MetaLeft, false);
+        assert!(state.matches(&modifiers(true, true, true, true)));
+        state.update(Key::ControlRight, false);
+        state.update(Key::ShiftLeft, false);
+        state.update(Key::AltGr, false);
+        state.update(Key::MetaRight, false);
         assert!(state.matches(&ModifierState::default()));
+    }
+
+    #[test]
+    fn releasing_one_side_preserves_the_other_and_repeat_is_idempotent() {
+        for (left, right) in [
+            (Key::ControlLeft, Key::ControlRight),
+            (Key::ShiftLeft, Key::ShiftRight),
+            (Key::Alt, Key::AltGr),
+            (Key::MetaLeft, Key::MetaRight),
+        ] {
+            let mut state = ModifierState::default();
+            state.update(left, true);
+            state.update(right, true);
+            state.update(right, true);
+            state.update(left, false);
+            assert!(!state.matches(&ModifierState::default()));
+            state.update(right, false);
+            assert!(state.matches(&ModifierState::default()));
+        }
+    }
+
+    #[test]
+    fn parser_accepts_spaced_frontend_key_names() {
+        for (name, expected) in [
+            ("numpad 1", Key::Kp1),
+            ("print screen", Key::PrintScreen),
+            ("scroll lock", Key::ScrollLock),
+            ("num lock", Key::NumLock),
+            ("numpad /", Key::KpDivide),
+            ("numpad -", Key::KpMinus),
+        ] {
+            assert_eq!(parse_shortcut_string(&format!("ctrl+{name}")).unwrap().0, Some(expected));
+        }
     }
 
     #[test]
