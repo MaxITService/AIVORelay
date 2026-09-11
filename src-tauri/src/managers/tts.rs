@@ -528,9 +528,7 @@ impl TtsManager {
             .timeout(REQUEST_TIMEOUT)
             .build()
             .context("Failed to build TTS HTTP client")?;
-        let cache_root = app_handle
-            .path()
-            .app_cache_dir()
+        let cache_root = crate::portable::app_cache_dir(app_handle)
             .context("Could not resolve the application cache directory")?
             .join("tts");
         let local_tts = LocalTtsRuntime::new(app_handle)?;
