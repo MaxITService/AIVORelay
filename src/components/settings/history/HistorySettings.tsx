@@ -944,9 +944,6 @@ export const HistorySettings: React.FC = () => {
             setHistoryEntries([]);
             setHasMore(false);
           } else if (payload.action === "toggled") {
-            if (pendingToggleIdsRef.current.has(payload.id)) {
-              return;
-            }
             setHistoryEntries((prev) =>
               prev.map((entry) =>
                 entry.id === payload.id
