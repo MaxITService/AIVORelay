@@ -217,6 +217,7 @@ pub(crate) fn lock_session_state<'a>(
 /// wasn't acquired or was already released.
 pub struct RecordingSession {
     app: AppHandle,
+    resource_lock: Mutex<()>,
     cancel_shortcut_registered: AtomicBool,
     mute_applied: AtomicBool,
     /// Track if Drop cleanup has already run (for explicit finish() calls)
@@ -249,6 +250,7 @@ impl RecordingSession {
     ) -> Self {
         Self {
             app: app.clone(),
+            resource_lock: Mutex::new(()),
             cancel_shortcut_registered: AtomicBool::new(false), // Will be set when actually registered
             mute_applied: AtomicBool::new(will_apply_mute),
             cleaned_up: AtomicBool::new(false),
@@ -258,6 +260,10 @@ impl RecordingSession {
     /// Registers the cancel shortcut for this session.
     /// Safe to call multiple times - only registers once.
     pub fn register_cancel_shortcut(&self) {
+        let _resources = self.resource_lock.lock().unwrap_or_else(|error| error.into_inner());
+        if self.cleaned_up.load(Ordering::SeqCst) {
+            return;
+        }
         if !self.cancel_shortcut_registered.swap(true, Ordering::SeqCst) {
             debug!("RecordingSession: Registering cancel shortcut");
             shortcut::register_cancel_shortcut(&self.app);
@@ -268,6 +274,7 @@ impl RecordingSession {
     /// This is called when transitioning from Recording to Processing state.
     /// After this, Drop becomes a no-op.
     pub fn finish(&self) {
+        let _resources = self.resource_lock.lock().unwrap_or_else(|error| error.into_inner());
         if self.cleaned_up.swap(true, Ordering::SeqCst) {
             debug!("RecordingSession::finish called but already cleaned up");
             return;

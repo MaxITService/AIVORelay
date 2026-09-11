@@ -6829,45 +6829,50 @@ pub fn resume_binding(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
-pub fn register_cancel_shortcut(app: &AppHandle) {
-    // Cancel shortcut is disabled on Linux due to instability with dynamic shortcut registration
-    #[cfg(target_os = "linux")]
-    {
-        let _ = app;
-        return;
-    }
+#[cfg(not(target_os = "linux"))]
+static CANCEL_SHORTCUT_REQUEST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(not(target_os = "linux"))]
+static CANCEL_SHORTCUT_MUTATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    #[cfg(not(target_os = "linux"))]
-    {
-        let app_clone = app.clone();
-        tauri::async_runtime::spawn(async move {
-            if let Some(cancel_binding) = get_settings(&app_clone).bindings.get("cancel").cloned() {
-                if shortcut_handy_keys::is_registered(&app_clone, &cancel_binding.id) {
-                    return;
-                }
-                if let Err(e) = register_shortcut(&app_clone, cancel_binding) {
-                    eprintln!("Failed to register cancel shortcut: {}", e);
-                }
-            }
-        });
-    }
+pub fn register_cancel_shortcut(app: &AppHandle) {
+    set_cancel_shortcut_registered(app, true);
 }
 
 pub fn unregister_cancel_shortcut(app: &AppHandle) {
+    set_cancel_shortcut_registered(app, false);
+}
+
+fn set_cancel_shortcut_registered(app: &AppHandle, registered: bool) {
     // Cancel shortcut is disabled on Linux due to instability with dynamic shortcut registration
     #[cfg(target_os = "linux")]
     {
-        let _ = app;
+        let _ = (app, registered);
         return;
     }
 
     #[cfg(not(target_os = "linux"))]
     {
         let app_clone = app.clone();
-        tauri::async_runtime::spawn(async move {
+        let request = CANCEL_SHORTCUT_REQUEST.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        tauri::async_runtime::spawn_blocking(move || {
+            // Start/stop can enqueue tasks faster than the runtime executes
+            // them. Apply only the latest requested state, serially.
+            let _mutation = CANCEL_SHORTCUT_MUTATION.lock().unwrap_or_else(|error| error.into_inner());
+            if CANCEL_SHORTCUT_REQUEST.load(std::sync::atomic::Ordering::SeqCst) != request {
+                return;
+            }
             if let Some(cancel_binding) = get_settings(&app_clone).bindings.get("cancel").cloned() {
-                // We ignore errors here as it might already be unregistered
-                let _ = unregister_shortcut(&app_clone, cancel_binding);
+                if registered {
+                    if shortcut_handy_keys::is_registered(&app_clone, &cancel_binding.id) {
+                        return;
+                    }
+                    if let Err(e) = register_shortcut(&app_clone, cancel_binding) {
+                        eprintln!("Failed to register cancel shortcut: {}", e);
+                    }
+                } else {
+                    // It may already have been removed by engine reconfiguration.
+                    let _ = unregister_shortcut(&app_clone, cancel_binding);
+                }
             }
         });
     }
