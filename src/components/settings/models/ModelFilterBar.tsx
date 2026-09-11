@@ -33,6 +33,7 @@ interface ModelFilterBarProps {
   /** All local models (unfiltered union) for computing chip counts. */
   allLocalModels: ModelInfo[];
   filters: ModelFilters;
+  resetVersion: number;
   isAnyFilterActive: boolean;
   onSearch: (value: string) => void;
   onToggleSet: <K extends "engines" | "sizeRanges" | "languages">(
@@ -47,24 +48,36 @@ interface ModelFilterBarProps {
 }
 
 // Debounce helper
-function useDebouncedCallback(callback: (value: string) => void, delay: number) {
+function useDebouncedCallback(callback: (value: string) => void, delay: number, resetVersion: number) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
+  const resetVersionRef = useRef(resetVersion);
+  resetVersionRef.current = resetVersion;
+
+  const cancel = useCallback(() => {
+    if (timerRef.current !== null) clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }, []);
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      cancel();
     };
-  }, []);
+  }, [cancel]);
 
-  return useCallback(
+  const schedule = useCallback(
     (value: string) => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => callbackRef.current(value), delay);
+      cancel();
+      const version = resetVersionRef.current;
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        if (version === resetVersionRef.current) callbackRef.current(value);
+      }, delay);
     },
-    [delay],
+    [delay, cancel],
   );
+  return { schedule, cancel };
 }
 
 // Toggle chip component
@@ -215,6 +228,7 @@ const LanguageDropdown: React.FC<{
 export const ModelFilterBar: React.FC<ModelFilterBarProps> = ({
   allLocalModels,
   filters,
+  resetVersion,
   isAnyFilterActive,
   onSearch,
   onToggleSet,
@@ -226,14 +240,20 @@ export const ModelFilterBar: React.FC<ModelFilterBarProps> = ({
 }) => {
   const { t, i18n } = useTranslation();
   const [localSearch, setLocalSearch] = useState(filters.search);
-  const debouncedSearch = useDebouncedCallback(onSearch, 200);
+  const previousResetVersionRef = useRef(resetVersion);
+  const { schedule: debouncedSearch, cancel: cancelSearch } = useDebouncedCallback(onSearch, 200, resetVersion);
 
   // Sync local search state when filters are reset externally
   useEffect(() => {
-    if (filters.search === "" && localSearch !== "") {
-      setLocalSearch("");
-    }
-  }, [filters.search]); // eslint-disable-line react-hooks/exhaustive-deps
+    setLocalSearch(filters.search);
+  }, [filters.search]);
+
+  useEffect(() => {
+    if (previousResetVersionRef.current === resetVersion) return;
+    previousResetVersionRef.current = resetVersion;
+    cancelSearch();
+    setLocalSearch("");
+  }, [resetVersion, cancelSearch]);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -321,6 +341,7 @@ export const ModelFilterBar: React.FC<ModelFilterBarProps> = ({
           <button
             type="button"
             onClick={() => {
+              cancelSearch();
               setLocalSearch("");
               onSearch("");
             }}
