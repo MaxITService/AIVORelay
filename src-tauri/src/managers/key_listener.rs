@@ -1,7 +1,7 @@
 use log::{debug, error, info, warn};
-use rdev::{Event, EventType, Key};
+use rdev::{EventType, Key};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
@@ -84,6 +84,7 @@ pub struct ShortcutEvent {
 pub struct KeyListenerManager {
     app_handle: Arc<AppHandle>,
     running: Arc<Mutex<bool>>,
+    event_generation: Arc<AtomicU64>,
     listener_thread_started: Arc<AtomicBool>,
     modifiers: Arc<Mutex<ModifierState>>,
     shortcuts: Arc<Mutex<HashMap<String, RegisteredShortcut>>>,
@@ -97,6 +98,7 @@ impl KeyListenerManager {
         Self {
             app_handle: Arc::new(app_handle),
             running: Arc::new(Mutex::new(false)),
+            event_generation: Arc::new(AtomicU64::new(0)),
             listener_thread_started: Arc::new(AtomicBool::new(false)),
             modifiers: Arc::new(Mutex::new(ModifierState::default())),
             shortcuts: Arc::new(Mutex::new(HashMap::new())),
@@ -160,6 +162,7 @@ impl KeyListenerManager {
                 return Ok(());
             }
             *running_guard = true;
+            self.event_generation.fetch_add(1, Ordering::SeqCst);
         }
 
         if self.listener_thread_started.load(Ordering::SeqCst) {
@@ -184,18 +187,33 @@ impl KeyListenerManager {
         let shortcuts = self.shortcuts.clone();
         let active_shortcuts = self.active_shortcuts.clone();
         let listener_thread_started = self.listener_thread_started.clone();
+        let event_generation = self.event_generation.clone();
 
         std::thread::spawn(move || {
             let running_for_events = running.clone();
+            let generation_for_events = event_generation.clone();
+            let (sender, receiver) = std::sync::mpsc::channel();
+            // The OS hook only enqueues key transitions. Waiting for a
+            // registration lock must not drop KeyRelease or block the hook.
+            std::thread::spawn(move || {
+                while let Ok((generation, event_type)) = receiver.recv() {
+                    Self::handle_event(
+                        event_type,
+                        generation,
+                        &generation_for_events,
+                        &app_handle,
+                        &running_for_events,
+                        &modifiers,
+                        &shortcuts,
+                        &active_shortcuts,
+                    );
+                }
+            });
             if let Err(e) = rdev::listen(move |event| {
-                Self::handle_event(
-                    event,
-                    &app_handle,
-                    &running_for_events,
-                    &modifiers,
-                    &shortcuts,
-                    &active_shortcuts,
-                );
+                if matches!(event.event_type, EventType::KeyPress(_) | EventType::KeyRelease(_)) {
+                    let generation = event_generation.load(Ordering::SeqCst);
+                    let _ = sender.send((generation, event.event_type));
+                }
             }) {
                 error!("Failed to start key listener: {:?}", e);
                 if let Ok(mut running_lock) = running.lock() {
@@ -211,14 +229,13 @@ impl KeyListenerManager {
 
     /// Stop listening for keyboard events
     pub async fn stop(&self) -> Result<(), String> {
-        {
-            let mut running = self.running.lock().map_err(|e| e.to_string())?;
-            if !*running {
-                info!("Key listener already stopped");
-                return Ok(());
-            }
-            *running = false;
+        let mut running = self.running.lock().map_err(|e| e.to_string())?;
+        if !*running {
+            info!("Key listener already stopped");
+            return Ok(());
         }
+        *running = false;
+        self.event_generation.fetch_add(1, Ordering::SeqCst);
 
         info!("Stopping key listener");
 
@@ -233,39 +250,41 @@ impl KeyListenerManager {
         Ok(())
     }
 
-    /// Handle individual keyboard events - must be non-blocking!
+    /// Process queued transitions off the OS hook, in arrival order.
     fn handle_event(
-        event: Event,
+        event_type: EventType,
+        generation: u64,
+        event_generation: &AtomicU64,
         app_handle: &Arc<AppHandle>,
         running: &Arc<Mutex<bool>>,
         modifiers: &Arc<Mutex<ModifierState>>,
         shortcuts: &Arc<Mutex<HashMap<String, RegisteredShortcut>>>,
         active_shortcuts: &Arc<Mutex<HashMap<String, bool>>>,
     ) {
-        let Ok(running_guard) = running.try_lock() else {
+        let Ok(running_guard) = running.lock() else {
             return;
         };
-        if !*running_guard {
+        if !*running_guard || event_generation.load(Ordering::SeqCst) != generation {
             return;
         }
-        drop(running_guard);
+        let mut emitted = Vec::new();
 
-        match event.event_type {
+        match event_type {
             EventType::KeyPress(key) => {
-                // Update modifiers - non-blocking with try_lock or unwrap_or_else
+                // The worker can wait for state without losing transitions.
                 let current_mods = {
-                    let Ok(mut mods) = modifiers.try_lock() else {
-                        return; // Skip if can't get lock immediately
+                    let Ok(mut mods) = modifiers.lock() else {
+                        return;
                     };
                     mods.update(key, true);
                     mods.clone()
                 };
 
                 // Check if this key press matches any registered shortcut
-                let Ok(shortcuts_guard) = shortcuts.try_lock() else {
+                let Ok(shortcuts_guard) = shortcuts.lock() else {
                     return;
                 };
-                let Ok(mut active_guard) = active_shortcuts.try_lock() else {
+                let Ok(mut active_guard) = active_shortcuts.lock() else {
                     return;
                 };
 
@@ -302,9 +321,7 @@ impl KeyListenerManager {
                                 binding: shortcut.original_binding.clone(),
                                 pressed: true,
                             };
-                            if let Err(e) = app_handle.emit("rdev-shortcut", &event) {
-                                warn!("Failed to emit rdev-shortcut event: {}", e);
-                            }
+                            emitted.push(event);
                         }
                     }
                 }
@@ -312,7 +329,7 @@ impl KeyListenerManager {
             EventType::KeyRelease(key) => {
                 // Update modifiers
                 let current_mods = {
-                    let Ok(mut mods) = modifiers.try_lock() else {
+                    let Ok(mut mods) = modifiers.lock() else {
                         return;
                     };
                     mods.update(key, false);
@@ -320,10 +337,10 @@ impl KeyListenerManager {
                 };
 
                 // Check if releasing this key deactivates any shortcuts
-                let Ok(shortcuts_guard) = shortcuts.try_lock() else {
+                let Ok(shortcuts_guard) = shortcuts.lock() else {
                     return;
                 };
-                let Ok(mut active_guard) = active_shortcuts.try_lock() else {
+                let Ok(mut active_guard) = active_shortcuts.lock() else {
                     return;
                 };
 
@@ -358,14 +375,23 @@ impl KeyListenerManager {
                                 binding: shortcut.original_binding.clone(),
                                 pressed: false,
                             };
-                            if let Err(e) = app_handle.emit("rdev-shortcut", &event) {
-                                warn!("Failed to emit rdev-shortcut event: {}", e);
-                            }
+                            emitted.push(event);
                         }
                     }
                 }
             }
             _ => {}
+        }
+        // Rust event subscribers can register/unregister shortcuts. Never
+        // invoke them while holding listener-state locks.
+        drop(running_guard);
+        for event in emitted {
+            if event_generation.load(Ordering::SeqCst) != generation {
+                break;
+            }
+            if let Err(e) = app_handle.emit("rdev-shortcut", &event) {
+                warn!("Failed to emit rdev-shortcut event: {}", e);
+            }
         }
     }
 
