@@ -533,14 +533,9 @@ pub fn trim_json_for_preset(app: &AppHandle, preset_id: &str) -> Result<usize, S
     let _guard = OUTPUT_WRITE_LOCK
         .lock()
         .map_err(|_| "Send Selected Text output lock is unavailable".to_string())?;
-    let last_json_path = history
-        .last_output_path_for_preset(&preset.id, "json")
-        .map_err(|error| format!("Failed to find the preset's last JSON file: {error}"))?
-        .map(PathBuf::from);
-    let path = match last_json_path {
-        Some(path) if path.exists() => path,
-        _ => resolve_output_path(&request, "json")?,
-    };
+    // JSON does not support AppendLast. Resolve the current preset so editing
+    // its destination or filename cannot trim an unrelated previous output.
+    let path = resolve_output_path(&request, "json")?;
     if !path.exists() {
         return Err(format!("JSON file does not exist: {}", path.display()));
     }
