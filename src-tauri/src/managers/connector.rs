@@ -1211,6 +1211,10 @@ async fn handle_get_messages(
         let deadline = tokio::time::Instant::now() + Duration::from_secs(wait_seconds as u64);
 
         loop {
+            // notify_waiters only reaches futures created before the notify.
+            // Arm this before inspecting the queue or a just-enqueued message
+            // can wait for the entire long-poll timeout.
+            let notification = app_state.message_notify.notified();
             if app_state.stop_flag.load(Ordering::SeqCst) {
                 break (Vec::new(), Vec::new());
             }
@@ -1226,7 +1230,7 @@ async fn handle_get_messages(
             }
 
             tokio::select! {
-                _ = app_state.message_notify.notified() => {
+                _ = notification => {
                     if app_state.stop_flag.load(Ordering::SeqCst) {
                         break (Vec::new(), Vec::new());
                     }
