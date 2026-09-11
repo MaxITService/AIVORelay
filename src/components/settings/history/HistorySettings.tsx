@@ -29,6 +29,7 @@ import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { useSettings } from "@/hooks/useSettings";
 import { useNavigationStore } from "@/stores/navigationStore";
+import { reconcileHistoryPage } from "./historyPage";
 
 const PAGE_SIZE = 30;
 
@@ -837,6 +838,8 @@ export const HistorySettings: React.FC = () => {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const entriesRef = useRef<HistoryEntry[]>([]);
   const loadingRef = useRef(false);
+  const historyRequestRef = useRef(0);
+  const pendingHistoryChangesRef = useRef<HistoryUpdatePayload[]>([]);
   const pendingToggleIdsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
@@ -850,6 +853,8 @@ export const HistorySettings: React.FC = () => {
     }
 
     loadingRef.current = true;
+    const request = ++historyRequestRef.current;
+    pendingHistoryChangesRef.current = [];
     if (isFirstPage) {
       setLoading(true);
     }
@@ -860,16 +865,21 @@ export const HistorySettings: React.FC = () => {
         limit: PAGE_SIZE,
       });
 
+      if (request !== historyRequestRef.current) return;
+      const changes = pendingHistoryChangesRef.current.slice();
       const nextEntries = result.entries ?? [];
       setHistoryEntries((prev) =>
-        isFirstPage ? nextEntries : [...prev, ...nextEntries],
+        reconcileHistoryPage(prev, nextEntries, isFirstPage, changes),
       );
-      setHasMore(Boolean(result.has_more));
+      setHasMore(!changes.some((change) => change.action === "cleared") && Boolean(result.has_more));
     } catch (error) {
       console.error("Failed to load history entries:", error);
     } finally {
-      setLoading(false);
-      loadingRef.current = false;
+      if (request === historyRequestRef.current) {
+        setLoading(false);
+        loadingRef.current = false;
+        pendingHistoryChangesRef.current = [];
+      }
     }
   }, []);
 
@@ -915,8 +925,11 @@ export const HistorySettings: React.FC = () => {
         "history-update-payload",
         (event) => {
           const payload = event.payload;
+          if (loadingRef.current) pendingHistoryChangesRef.current.push(payload);
           if (payload.action === "added") {
-            setHistoryEntries((prev) => [payload.entry, ...prev]);
+            setHistoryEntries((prev) =>
+              [payload.entry, ...prev.filter((entry) => entry.id !== payload.entry.id)],
+            );
           } else if (payload.action === "updated") {
             setHistoryEntries((prev) =>
               prev.map((entry) =>
