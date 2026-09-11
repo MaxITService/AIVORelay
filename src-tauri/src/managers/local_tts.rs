@@ -812,6 +812,8 @@ impl LocalTtsRuntime {
         let mut command = Command::new(self.venv_python_path());
         command
             .arg("-I")
+            // Isolated mode ignores PYTHON* environment variables.
+            .args(["-X", "utf8"])
             .arg(self.worker_path())
             .arg("--model")
             .arg(model_path)
