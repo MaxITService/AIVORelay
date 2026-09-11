@@ -228,6 +228,11 @@ fn run_local_tts_inner(
             // Keep the diagnostic command fast and guarantee worker reuse for
             // moderately sized test passages without changing saved settings.
             settings.file_target_chars = 220;
+            // A local engine diagnostic must not inherit paid/network AI
+            // cleanup or rewrite the test passage using saved replacement rules.
+            settings.llm_preprocessing.file_enabled = false;
+            settings.llm_preprocessing.interactive_enabled = false;
+            settings.preprocessing_enabled = false;
             settings.interactive_history_enabled = false;
             settings.file_history_enabled = false;
             TtsManager::validate_settings(&settings)
