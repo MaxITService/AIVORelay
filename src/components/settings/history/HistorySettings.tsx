@@ -188,7 +188,7 @@ type HistoryUpdatePayload =
   | { action: "updated"; entry: HistoryEntry }
   | { action: "deleted"; id: number }
   | { action: "cleared" }
-  | { action: "toggled"; id: number };
+  | { action: "toggled"; id: number; saved: boolean };
 
 interface HistoryActionsProps {
   deleteAllDisabled: boolean;
@@ -937,7 +937,7 @@ export const HistorySettings: React.FC = () => {
             setHistoryEntries((prev) =>
               prev.map((entry) =>
                 entry.id === payload.id
-                  ? { ...entry, saved: !entry.saved }
+                  ? { ...entry, saved: payload.saved }
                   : entry,
               ),
             );
@@ -960,6 +960,9 @@ export const HistorySettings: React.FC = () => {
   }, []);
 
   const toggleSaved = async (id: number) => {
+    if (pendingToggleIdsRef.current.has(id)) {
+      return;
+    }
     pendingToggleIdsRef.current.add(id);
     setHistoryEntries((prev) =>
       prev.map((entry) =>

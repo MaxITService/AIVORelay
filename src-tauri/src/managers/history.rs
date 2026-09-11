@@ -60,7 +60,7 @@ pub enum HistoryUpdatePayload {
     #[serde(rename = "cleared")]
     Cleared,
     #[serde(rename = "toggled")]
-    Toggled { id: i64 },
+    Toggled { id: i64, saved: bool },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
@@ -629,10 +629,10 @@ impl HistoryManager {
         }
     }
 
-    fn emit_history_toggled(&self, id: i64) {
+    fn emit_history_toggled(&self, id: i64, saved: bool) {
         if let Err(e) = self.app_handle.emit(
             "history-update-payload",
-            &HistoryUpdatePayload::Toggled { id },
+            &HistoryUpdatePayload::Toggled { id, saved },
         ) {
             error!("Failed to emit history-update-payload event: {}", e);
         }
@@ -753,7 +753,7 @@ impl HistoryManager {
 
         debug!("Toggled saved status for entry {}: {}", id, new_saved);
 
-        self.emit_history_toggled(id);
+        self.emit_history_toggled(id, new_saved);
 
         Ok(())
     }
