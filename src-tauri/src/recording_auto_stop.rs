@@ -1,6 +1,6 @@
 use crate::actions::{reset_toggle_state, transcribe_action_for_binding};
 use crate::settings::get_settings;
-use crate::utils::cancel_current_operation;
+use crate::utils::cancel_current_operation_guarded;
 use log::{debug, info};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -16,7 +16,7 @@ pub fn new_managed_state() -> ManagedAutoStopToken {
     Mutex::new(None)
 }
 
-pub fn start_auto_stop_timer(app: &AppHandle, binding_id: &str) {
+pub fn start_auto_stop_timer(app: &AppHandle, binding_id: &str, operation_id: u64) {
     let settings = get_settings(app);
     if !settings.recording_auto_stop_enabled {
         return;
@@ -29,6 +29,13 @@ pub fn start_auto_stop_timer(app: &AppHandle, binding_id: &str) {
         notify: tokio::sync::Notify::new(),
     });
 
+    let session_state = app.state::<crate::session_manager::ManagedSessionState>();
+    let session_guard = crate::session_manager::lock_session_state(&session_state, "register auto-stop");
+    if !matches!(&*session_guard, crate::session_manager::SessionState::Recording {
+        binding_id: active_binding, operation_id: active_id, ..
+    } if active_binding == binding_id && *active_id == operation_id) {
+        return;
+    }
     if let Ok(mut state) = app.state::<ManagedAutoStopToken>().lock() {
         *state = Some(Arc::clone(&token));
         debug!("Auto-stop timer registered for binding '{}'", binding_id);
@@ -36,6 +43,7 @@ pub fn start_auto_stop_timer(app: &AppHandle, binding_id: &str) {
         log::error!("Failed to lock ManagedAutoStopToken");
         return;
     }
+    drop(session_guard);
 
     let app_clone = app.clone();
     let binding_id = binding_id.to_string();
@@ -78,6 +86,13 @@ pub fn start_auto_stop_timer(app: &AppHandle, binding_id: &str) {
             debug!("Auto-stop timer for binding '{}' woke up but was no longer the active token. Aborting.", binding_id);
             return;
         }
+        // Claim the original recording under the session mutex and prevent
+        // a replacement from starting until this timer's payload returns.
+        let Some(control_guard) = crate::session_manager::try_begin_operation_control(
+            &app_clone, Some((&binding_id, operation_id)),
+        ) else {
+            return;
+        };
 
         info!(
             "Recording auto-stop timer fired after {} seconds",
@@ -91,11 +106,11 @@ pub fn start_auto_stop_timer(app: &AppHandle, binding_id: &str) {
                 reset_toggle_state(&app_clone, &binding_id);
             } else {
                 log::error!("Auto-stop: no action found for binding_id {}", binding_id);
-                cancel_current_operation(&app_clone);
+                cancel_current_operation_guarded(&app_clone, &control_guard);
             }
         } else {
             debug!("Auto-stop: cancelling current operation");
-            cancel_current_operation(&app_clone);
+            cancel_current_operation_guarded(&app_clone, &control_guard);
         }
     });
 }

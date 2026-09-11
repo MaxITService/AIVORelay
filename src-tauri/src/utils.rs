@@ -91,6 +91,16 @@ fn native_windows_machine() -> Option<u16> {
 /// Handles cancelling both recording and transcription operations and updates UI state.
 /// This also cancels any ongoing Processing work (transcription, LLM, etc.).
 pub fn cancel_current_operation(app: &AppHandle) {
+    let Some(guard) = session_manager::try_begin_operation_control(app, None) else {
+        return;
+    };
+    cancel_current_operation_guarded(app, &guard);
+}
+
+pub(crate) fn cancel_current_operation_guarded(
+    app: &AppHandle,
+    _guard: &session_manager::OperationControlGuard,
+) {
     info!("Initiating operation cancellation...");
     crate::recording_auto_stop::cancel_auto_stop_timer(app);
 
@@ -126,6 +136,7 @@ pub fn cancel_current_operation(app: &AppHandle) {
     };
     states.active_toggles.values_mut().for_each(|v| *v = false);
     states.active_presses.clear();
+    drop(states);
 
     // Cancel any ongoing recording (belt-and-suspenders, session should have done this)
     let audio_manager = app.state::<Arc<AudioRecordingManager>>();
