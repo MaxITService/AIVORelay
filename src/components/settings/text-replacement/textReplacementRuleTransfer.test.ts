@@ -291,18 +291,18 @@ const replaceResult = applyTextReplacementImport(
 );
 assert.deepStrictEqual(
   replaceResult.rules.map((rule) => rule.id),
-  ["same-id", "replacement-0"],
+  ["same-id", "replacement-0", "replacement-1"],
 );
 assert.deepStrictEqual(
   replaceResult.rules.map((rule) => rule.from),
-  ["replace-a", "replace-b"],
+  ["replace-a", "replace-b", "replace-b"],
 );
-assert.strictEqual(replaceResult.importedCount, 2);
-assert.strictEqual(replaceResult.addedCount, 2);
+assert.strictEqual(replaceResult.importedCount, 3);
+assert.strictEqual(replaceResult.addedCount, 3);
 assert.strictEqual(replaceResult.overwrittenConflictCount, 0);
-assert.strictEqual(replaceResult.skippedDuplicateCount, 1);
+assert.strictEqual(replaceResult.skippedDuplicateCount, 0);
 assert.strictEqual(replaceResult.skippedConflictCount, 0);
-assert.strictEqual(replaceResult.remappedIdCount, 1);
+assert.strictEqual(replaceResult.remappedIdCount, 2);
 assert.deepStrictEqual(replaceDuplicateIdRules, replaceSnapshot);
 
 const replaceEmptyResult = applyTextReplacementImport(
