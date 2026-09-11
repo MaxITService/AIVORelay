@@ -884,10 +884,6 @@ export const HistorySettings: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    loadHistoryEntries();
-  }, [loadHistoryEntries]);
-
-  useEffect(() => {
     if (loading) {
       return;
     }
@@ -920,10 +916,12 @@ export const HistorySettings: React.FC = () => {
   }, [hasMore, loadHistoryEntries, loading]);
 
   useEffect(() => {
+    let disposed = false;
     const setupListener = async () => {
       const unlisten = await listen<HistoryUpdatePayload>(
         "history-update-payload",
         (event) => {
+          if (disposed) return;
           const payload = event.payload;
           if (loadingRef.current) pendingHistoryChangesRef.current.push(payload);
           if (payload.action === "added") {
@@ -955,19 +953,26 @@ export const HistorySettings: React.FC = () => {
         },
       );
 
+      // Subscribe before reading the snapshot so no intervening change is lost.
+      if (!disposed) void loadHistoryEntries();
       return unlisten;
     };
 
-    const unlistenPromise = setupListener();
+    const unlistenPromise = setupListener().catch((error) => {
+      console.error("Failed to subscribe to history updates:", error);
+      if (!disposed) void loadHistoryEntries();
+    });
 
     return () => {
+      disposed = true;
+      ++historyRequestRef.current;
       unlistenPromise.then((unlisten) => {
         if (unlisten) {
           unlisten();
         }
       });
     };
-  }, []);
+  }, [loadHistoryEntries]);
 
   const toggleSaved = async (id: number) => {
     if (pendingToggleIdsRef.current.has(id)) {
@@ -1069,8 +1074,7 @@ export const HistorySettings: React.FC = () => {
       if (result.status === "error") {
         throw toHistoryDeleteCommandError(result.error);
       }
-      setHistoryEntries([]);
-      setHasMore(false);
+      await loadHistoryEntries();
       toast.success(t("settings.history.deleteAllSuccess"));
     } catch (error) {
       console.error("Failed to delete all history entries:", error);

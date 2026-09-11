@@ -22,3 +22,11 @@ test("overlapping pages preserve current rows and do not duplicate entries", () 
   expect(reconcileHistoryPage([row(3, true)], [row(3), row(2)], false, []))
     .toEqual([row(3, true), row(2)]);
 });
+
+test("delete-all ID events preserve a concurrently added row during reload", () => {
+  expect(reconcileHistoryPage([], [row(3), row(2)], true, [
+    { action: "deleted", id: 2 },
+    { action: "added", entry: row(4) },
+    { action: "deleted", id: 3 },
+  ])).toEqual([row(4)]);
+});
