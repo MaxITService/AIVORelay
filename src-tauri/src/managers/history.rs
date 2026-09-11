@@ -616,19 +616,6 @@ impl HistoryManager {
         }
     }
 
-    fn emit_history_cleared(&self) {
-        if let Err(e) = self
-            .app_handle
-            .emit("history-update-payload", &HistoryUpdatePayload::Cleared)
-        {
-            error!("Failed to emit history-update-payload event: {}", e);
-        }
-
-        if let Err(e) = self.app_handle.emit("history-updated", ()) {
-            error!("Failed to emit history-updated event: {}", e);
-        }
-    }
-
     fn emit_history_toggled(&self, id: i64, saved: bool) {
         if let Err(e) = self.app_handle.emit(
             "history-update-payload",
@@ -910,7 +897,8 @@ impl HistoryManager {
 
         if failures.is_empty() && remaining_count == 0 {
             debug!("Deleted all history entries: {}", deleted_count);
-            self.emit_history_cleared();
+            // Individual committed deletions already emitted their IDs. A
+            // blanket clear could hide a new row inserted after the count.
             Ok(deleted_count)
         } else {
             if failures.is_empty() {
