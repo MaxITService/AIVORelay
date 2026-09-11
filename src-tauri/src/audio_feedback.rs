@@ -157,6 +157,7 @@ fn wait_for_play(settings: &AppSettings, path: PathBuf) {
 struct CachedStream {
     selection: Option<String>,
     default_name: Option<String>,
+    used_fallback: bool,
     stream: rodio::OutputStream,
 }
 
@@ -218,17 +219,19 @@ fn ensure_stream(
         None
     };
     let is_stale = cached.as_ref().is_none_or(|stream| {
-        stream.selection != device
+        stream.used_fallback
+            || stream.selection != device
             || (is_default_selection(&device) && stream.default_name != default_name)
     });
 
     if is_stale {
         scrap_stream(cached);
         match create_stream(device.as_deref()) {
-            Ok(stream) => {
+            Ok((stream, used_fallback)) => {
                 *cached = Some(CachedStream {
                     selection: device,
                     default_name,
+                    used_fallback,
                     stream,
                 });
             }
@@ -241,7 +244,8 @@ fn ensure_stream(
 
 fn create_stream(
     device_name: Option<&str>,
-) -> Result<rodio::OutputStream, Box<dyn std::error::Error>> {
+) -> Result<(rodio::OutputStream, bool), Box<dyn std::error::Error>> {
+    let mut used_fallback = false;
     let stream_builder = if let Some(name) = device_name.filter(|name| *name != "Default") {
         let host = crate::audio_toolkit::get_cpal_host();
         let devices = host.output_devices()?;
@@ -258,6 +262,9 @@ fn create_stream(
             Some(device) => OutputStreamBuilder::from_device(device)?,
             None => {
                 warn!("Device '{}' not found, using default device", name);
+                // Retry the requested device on the next cue rather than
+                // caching the fallback as though that device had opened.
+                used_fallback = true;
                 OutputStreamBuilder::from_default_device()?
             }
         }
@@ -266,7 +273,7 @@ fn create_stream(
         OutputStreamBuilder::from_default_device()?
     };
 
-    Ok(stream_builder.open_stream()?)
+    Ok((stream_builder.open_stream()?, used_fallback))
 }
 
 fn play_on_stream(
