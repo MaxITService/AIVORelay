@@ -148,6 +148,17 @@ export const useModels = () => {
         return next;
       });
       return false;
+    } finally {
+      setExtractingModels((prev) => {
+        const next = new Set(prev);
+        next.delete(modelId);
+        return next;
+      });
+      setDownloadProgress((prev) => {
+        const next = new Map(prev);
+        next.delete(modelId);
+        return next;
+      });
     }
   };
 
@@ -244,6 +255,11 @@ export const useModels = () => {
       (event) => {
         const modelId = event.payload;
         cancelModelDownloadActivationIntent(modelId);
+        setExtractingModels((prev) => {
+          const next = new Set(prev);
+          next.delete(modelId);
+          return next;
+        });
         setDownloadingModels((prev) => {
           const next = new Set(prev);
           next.delete(modelId);

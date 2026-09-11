@@ -72,7 +72,9 @@ impl<R: Read> Read for CancellationAwareReader<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if self.cancel_token.is_cancelled() {
             return Err(io::Error::new(
-                io::ErrorKind::Interrupted,
+                // Read helpers retry Interrupted indefinitely. Cancellation
+                // is terminal and must unwind decompression and extraction.
+                io::ErrorKind::Other,
                 "model operation cancelled",
             ));
         }
