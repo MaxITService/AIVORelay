@@ -1617,6 +1617,9 @@ impl AudioRecordingManager {
     fn finish_capture_stop(&self) {
         // Still Stopping: a new capture cannot install its callback or be
         // closed by this operation's cleanup.
+        // Serialize the mode decision with update_mode through the Idle
+        // transition, so a concurrent toggle cannot miss stream cleanup.
+        let mut state = self.state.lock().unwrap();
         self.clear_stream_frame_callback();
         *self.is_recording.lock().unwrap() = false;
         let on_demand = matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand);
@@ -1627,7 +1630,7 @@ impl AudioRecordingManager {
                 self.stop_microphone_stream();
             }
         }
-        self.set_state(&mut self.state.lock().unwrap(), RecordingState::Idle);
+        self.set_state(&mut state, RecordingState::Idle);
     }
     pub fn update_vad_threshold(&self, threshold: f32) {
         if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
