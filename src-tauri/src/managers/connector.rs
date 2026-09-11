@@ -296,15 +296,30 @@ pub struct MessageCancelledEvent {
 }
 
 /// Internal state shared between handlers
+#[derive(Default)]
 struct ConnectorState {
     /// Queue of messages waiting to be picked up by extension
     messages: VecDeque<QueuedMessage>,
+    /// Cursor stays ordered even if producers race or the system clock moves back.
+    last_message_ts: i64,
     /// Timestamp of last keepalive sent
     last_keepalive: i64,
     /// Blobs stored for extension to download (attId -> blob data)
     blobs: HashMap<String, PendingBlob>,
     /// Set of message IDs that have been delivered (for deduplication)
     delivered_ids: HashSet<String>,
+}
+
+impl ConnectorState {
+    fn enqueue_message(&mut self, mut message: QueuedMessage) -> i64 {
+        message.ts = message.ts.max(self.last_message_ts.saturating_add(1));
+        self.last_message_ts = message.ts;
+        self.messages.push_back(message);
+        while self.messages.len() > MAX_MESSAGES {
+            self.messages.pop_front();
+        }
+        self.last_message_ts
+    }
 }
 
 /// Per-session symmetric encryption and authentication material.
@@ -428,6 +443,7 @@ impl ConnectorManager {
             port: Arc::new(RwLock::new(port)),
             state: Arc::new(Mutex::new(ConnectorState {
                 messages: VecDeque::new(),
+                last_message_ts: 0,
                 last_keepalive: 0,
                 blobs: HashMap::new(),
                 delivered_ids: HashSet::new(),
@@ -641,17 +657,13 @@ impl ConnectorManager {
 
                         if now - state_guard.last_keepalive > KEEPALIVE_INTERVAL_MS {
                             state_guard.last_keepalive = now;
-                            state_guard.messages.push_back(QueuedMessage {
+                            state_guard.enqueue_message(QueuedMessage {
                                 id: uuid_simple(),
                                 msg_type: "keepalive".to_string(),
                                 text: "keepalive".to_string(),
                                 ts: now,
                                 attachments: None,
                             });
-
-                            while state_guard.messages.len() > MAX_MESSAGES {
-                                state_guard.messages.pop_front();
-                            }
                         }
 
                         state_guard.blobs.retain(|_, blob| blob.expires_at > now);
@@ -891,22 +903,16 @@ impl ConnectorManager {
         }
 
         let msg_id = uuid_simple();
-        let ts = now_ms();
-
-        {
+        let ts = {
             let mut state = self.state.lock().unwrap();
-            state.messages.push_back(QueuedMessage {
+            state.enqueue_message(QueuedMessage {
                 id: msg_id.clone(),
                 msg_type: "text".to_string(),
                 text: trimmed.to_string(),
-                ts,
+                ts: now_ms(),
                 attachments: None,
-            });
-
-            while state.messages.len() > MAX_MESSAGES {
-                state.messages.pop_front();
-            }
-        }
+            })
+        };
 
         self.message_notify.notify_waiters();
 
@@ -972,7 +978,7 @@ impl ConnectorManager {
             },
         };
 
-        {
+        let ts = {
             let mut state = self.state.lock().unwrap();
             state.blobs.insert(
                 att_id,
@@ -982,7 +988,7 @@ impl ConnectorManager {
                     expires_at,
                 },
             );
-            state.messages.push_back(QueuedMessage {
+            let ts = state.enqueue_message(QueuedMessage {
                 id: msg_id.clone(),
                 msg_type: "bundle".to_string(),
                 text: text.trim().to_string(),
@@ -990,12 +996,9 @@ impl ConnectorManager {
                 attachments: Some(vec![attachment]),
             });
 
-            while state.messages.len() > MAX_MESSAGES {
-                state.messages.pop_front();
-            }
-
             state.blobs.retain(|_, blob| blob.expires_at > now);
-        }
+            ts
+        };
 
         self.message_notify.notify_waiters();
 
@@ -1004,7 +1007,7 @@ impl ConnectorManager {
             MessageQueuedEvent {
                 id: msg_id.clone(),
                 text: text.trim().to_string(),
-                timestamp: now,
+                timestamp: ts,
             },
         );
 
@@ -1051,7 +1054,7 @@ impl ConnectorManager {
             },
         };
 
-        {
+        let ts = {
             let mut state = self.state.lock().unwrap();
             state.blobs.insert(
                 att_id,
@@ -1061,7 +1064,7 @@ impl ConnectorManager {
                     expires_at,
                 },
             );
-            state.messages.push_back(QueuedMessage {
+            let ts = state.enqueue_message(QueuedMessage {
                 id: msg_id.clone(),
                 msg_type: "bundle".to_string(),
                 text: text.trim().to_string(),
@@ -1069,12 +1072,9 @@ impl ConnectorManager {
                 attachments: Some(vec![attachment]),
             });
 
-            while state.messages.len() > MAX_MESSAGES {
-                state.messages.pop_front();
-            }
-
             state.blobs.retain(|_, blob| blob.expires_at > now);
-        }
+            ts
+        };
 
         self.message_notify.notify_waiters();
 
@@ -1083,7 +1083,7 @@ impl ConnectorManager {
             MessageQueuedEvent {
                 id: msg_id.clone(),
                 text: text.trim().to_string(),
-                timestamp: now,
+                timestamp: ts,
             },
         );
 
@@ -2441,6 +2441,34 @@ fn json_session_response<T: Serialize>(
 mod tests {
     use super::*;
     use axum::http::HeaderMap;
+
+    fn text_message(id: &str, ts: i64) -> QueuedMessage {
+        QueuedMessage {
+            id: id.to_string(),
+            msg_type: "text".to_string(),
+            text: id.to_string(),
+            ts,
+            attachments: None,
+        }
+    }
+
+    #[test]
+    fn queued_cursor_stays_ahead_of_late_producers_and_clock_rollback() {
+        let state = Arc::new(Mutex::new(ConnectorState::default()));
+        let cursor = state.lock().unwrap().enqueue_message(text_message("first", 100));
+        state.lock().unwrap().enqueue_message(text_message("late", 99));
+        let (messages, _) = get_pending_messages(&state, cursor);
+        assert_eq!(messages.last().unwrap().id, "late");
+        assert!(messages.last().unwrap().ts > cursor);
+    }
+
+    #[test]
+    fn emptied_queue_does_not_reset_the_message_cursor() {
+        let mut state = ConnectorState::default();
+        let previous = state.enqueue_message(text_message("removed", 100));
+        state.messages.clear();
+        assert!(state.enqueue_message(text_message("replacement", 90)) > previous);
+    }
 
     fn header_map(values: &[(&'static str, &str)]) -> HeaderMap {
         let mut headers = HeaderMap::new();
