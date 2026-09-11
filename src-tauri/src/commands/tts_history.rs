@@ -15,7 +15,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
 static REGENERATION_FILE_ID: AtomicU64 = AtomicU64::new(0);
 const ALLOWED_MP3_BITRATES: &[u16] = &[64, 96, 128, 192, 256, 320];
@@ -624,9 +624,7 @@ fn prepare_regeneration_output(
         TtsOutputFormat::Mp3 => "mp3",
         TtsOutputFormat::Wav => "wav",
     };
-    let directory = app
-        .path()
-        .app_cache_dir()
+    let directory = crate::portable::app_cache_dir(app)
         .map_err(|error| format!("Failed to resolve app cache directory: {error}"))?
         .join("tts-history-regeneration");
     fs::create_dir_all(&directory).map_err(|error| {
@@ -1034,9 +1032,7 @@ fn write_temporary_source(
     source_text: &str,
     source_kind: TtsHistorySourceKind,
 ) -> Result<TemporarySourceFile, String> {
-    let directory = app
-        .path()
-        .app_cache_dir()
+    let directory = crate::portable::app_cache_dir(app)
         .map_err(|error| format!("Failed to resolve app cache directory: {error}"))?
         .join("tts-history-regeneration");
     fs::create_dir_all(&directory).map_err(|error| {
