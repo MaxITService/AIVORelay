@@ -63,6 +63,7 @@ fn headless_control_dir() -> PathBuf {
 }
 
 fn cancel_active_headless_conversion(app: &AppHandle) {
+    file_transcription::cancel_file_transcription();
     if let Some(manager) = app.try_state::<Arc<TtsManager>>() {
         manager.cancel_active_batch();
         let operation_id = manager.current_state().operation_id;
@@ -72,15 +73,6 @@ fn cancel_active_headless_conversion(app: &AppHandle) {
     }
     if let Some(manager) = app.try_state::<Arc<TranscriptionManager>>() {
         manager.cancel_file_transcription();
-    }
-    if let Some(manager) = app.try_state::<Arc<RemoteSttManager>>() {
-        manager.cancel();
-    }
-    if let Some(manager) = app.try_state::<Arc<SonioxSttManager>>() {
-        manager.cancel();
-    }
-    if let Some(manager) = app.try_state::<Arc<DeepgramSttManager>>() {
-        manager.cancel();
     }
 }
 
@@ -382,15 +374,11 @@ fn run_multi_tts_file_conversion(app: &AppHandle, args: &CliArgs) -> i32 {
         tauri::async_runtime::block_on(convert_multiple_text_files(app, args, inputs))
     });
     match result {
-        Ok((metadata, failed)) => {
+        Ok((metadata, exit_code)) => {
             if args.json {
                 println!("{}", metadata);
             }
-            if failed == 0 {
-                0
-            } else {
-                1
-            }
+            exit_code
         }
         Err(failure) => {
             if args.json {
@@ -442,7 +430,7 @@ async fn convert_multiple_text_files(
     app: &AppHandle,
     args: &CliArgs,
     inputs: Vec<PathBuf>,
-) -> Result<(Value, usize), CliFailure> {
+) -> Result<(Value, i32), CliFailure> {
     let mut planning_settings = get_settings(app)
         .tts
         .effective_for_scope(crate::settings::TtsOperationScope::File);
@@ -475,8 +463,12 @@ async fn convert_multiple_text_files(
     let mut results = Vec::with_capacity(total);
     let mut completed = 0usize;
     let mut failed = 0usize;
+    let mut cancelled = false;
     for (index, input) in inputs.into_iter().enumerate() {
-        ensure_headless_conversion_not_cancelled()?;
+        if HEADLESS_CANCEL_REQUESTED.load(Ordering::SeqCst) {
+            cancelled = true;
+            break;
+        }
         let destination = output_directory
             .as_deref()
             .or_else(|| input.parent())
@@ -498,7 +490,11 @@ async fn convert_multiple_text_files(
                 completed += 1;
                 results.push(metadata);
             }
-            Err(error) => {
+            Err(mut error) => {
+                if HEADLESS_CANCEL_REQUESTED.load(Ordering::SeqCst) {
+                    cancelled = true;
+                    error = CliFailure::cancelled();
+                }
                 failed += 1;
                 if !args.json {
                     eprintln!("error: {}: {}", input.display(), error.message);
@@ -509,22 +505,31 @@ async fn convert_multiple_text_files(
                     "error": error.message,
                     "exit_code": error.exit_code,
                 }));
+                if cancelled {
+                    break;
+                }
             }
         }
     }
+    let exit_code = if cancelled { 130 } else if failed > 0 { 1 } else { 0 };
+    let remaining = total - results.len();
     if !args.json {
-        eprintln!("TTS batch finished: {completed} completed, {failed} failed, {total} total.");
+        let status = if cancelled { "cancelled" } else { "finished" };
+        eprintln!("TTS batch {status}: {completed} completed, {failed} failed, {remaining} remaining, {total} total.");
     }
     Ok((
         json!({
-            "ok": failed == 0,
+            "ok": exit_code == 0,
             "operation": "text_to_audio_batch",
             "total": total,
             "completed": completed,
             "failed": failed,
+            "cancelled": cancelled,
+            "remaining": remaining,
+            "exit_code": exit_code,
             "results": results,
         }),
-        failed,
+        exit_code,
     ))
 }
 
@@ -710,6 +715,7 @@ async fn convert_text_to_audio(
     }
 
     let started = Instant::now();
+    ensure_headless_conversion_not_cancelled()?;
     let mut operation = Box::pin(manager.convert_text_file_resolved(&input, &output, &settings));
     let mut interval = tokio::time::interval(Duration::from_millis(200));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -717,7 +723,15 @@ async fn convert_text_to_audio(
     let result = loop {
         tokio::select! {
             result = &mut operation => break result,
-            _ = interval.tick(), if !args.json => {
+            _ = interval.tick() => {
+                // Cancellation can arrive before the operation registers itself.
+                // Keep forwarding it, and let the future finish its own cleanup.
+                if HEADLESS_CANCEL_REQUESTED.load(Ordering::SeqCst) {
+                    cancel_active_headless_conversion(app);
+                }
+                if args.json {
+                    continue;
+                }
                 let state = manager.current_state();
                 let marker = (
                     state.phase,
@@ -733,7 +747,13 @@ async fn convert_text_to_audio(
             }
         }
     }
-    .map_err(|error| CliFailure::runtime(error.to_string()))?;
+    .map_err(|error| {
+        if HEADLESS_CANCEL_REQUESTED.load(Ordering::SeqCst) {
+            CliFailure::cancelled()
+        } else {
+            CliFailure::runtime(error.to_string())
+        }
+    })?;
     drop(operation);
     settings = result.settings;
     let result = result.value;
@@ -1742,7 +1762,8 @@ async fn convert_audio_to_text(
     }
 
     let started = Instant::now();
-    let result = file_transcription::transcribe_audio_file(
+    ensure_headless_conversion_not_cancelled()?;
+    let mut operation = Box::pin(file_transcription::transcribe_audio_file(
         app.clone(),
         input.to_string_lossy().into_owned(),
         None,
@@ -1752,9 +1773,28 @@ async fn convert_audio_to_text(
         None,
         None,
         None,
-    )
-    .await
-    .map_err(CliFailure::runtime)?;
+    ));
+    let mut interval = tokio::time::interval(Duration::from_millis(200));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let result = loop {
+        tokio::select! {
+            result = &mut operation => break result,
+            _ = interval.tick() => {
+                if HEADLESS_CANCEL_REQUESTED.load(Ordering::SeqCst) {
+                    cancel_active_headless_conversion(app);
+                }
+            }
+        }
+    }
+    .map_err(|error| {
+        if HEADLESS_CANCEL_REQUESTED.load(Ordering::SeqCst) {
+            CliFailure::cancelled()
+        } else {
+            CliFailure::runtime(error)
+        }
+    })?;
+    drop(operation);
+    ensure_headless_conversion_not_cancelled()?;
 
     if !args.json {
         eprintln!("Transcription: writing {} atomically…", output.display());
