@@ -11,7 +11,6 @@ use rsa::RsaPrivateKey;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use specta::Type;
-use std::env;
 use std::fs::{self, File};
 use std::io::{self, Read, Seek};
 use std::path::{Path, PathBuf};
@@ -109,24 +108,27 @@ fn resolve_bundled_extension_zip(app: &AppHandle) -> Result<PathBuf, String> {
     // In dev mode, prefer the source resource over the stale build-cache copy
     // in target/debug/resources/. Tauri dev rebuilds on code changes but does
     // NOT re-copy resource files, so the target copy can be arbitrarily stale.
-    let dev_candidates: &[&str] = &[
-        // CWD is repo root (e.g. launched from workspace root)
-        "src-tauri/resources/browser-connector/aivorelay-extension.zip",
-        // CWD is src-tauri/ (normal cargo tauri dev)
-        "resources/browser-connector/aivorelay-extension.zip",
-    ];
-    if let Ok(cwd) = env::current_dir() {
-        for relative in dev_candidates {
-            let candidate = cwd.join(relative);
-            if candidate.exists() {
-                return Ok(candidate);
+    #[cfg(debug_assertions)]
+    {
+        let dev_candidates: &[&str] = &[
+            // CWD is repo root (e.g. launched from workspace root)
+            "src-tauri/resources/browser-connector/aivorelay-extension.zip",
+            // CWD is src-tauri/ (normal cargo tauri dev)
+            "resources/browser-connector/aivorelay-extension.zip",
+        ];
+        if let Ok(cwd) = std::env::current_dir() {
+            for relative in dev_candidates {
+                let candidate = cwd.join(relative);
+                if candidate.is_file() {
+                    return Ok(candidate);
+                }
             }
         }
     }
 
     for relative_path in BUNDLED_EXTENSION_RESOURCE_CANDIDATES {
         if let Ok(resolved) = app.path().resolve(relative_path, BaseDirectory::Resource) {
-            if resolved.exists() {
+            if resolved.is_file() {
                 return Ok(resolved);
             }
         }
