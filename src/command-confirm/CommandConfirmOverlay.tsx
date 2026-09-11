@@ -67,6 +67,7 @@ export default function CommandConfirmOverlay() {
   const destroyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const payloadGenerationRef = useRef(0);
   const executingGenerationRef = useRef<number | null>(null);
+  const lastRequestIdRef = useRef(0);
 
   // Whether auto-run is active for current payload
   const isAutoRunActive =
@@ -77,28 +78,32 @@ export default function CommandConfirmOverlay() {
     !status;
 
   useEffect(() => {
-    const unlisten = listen<CommandConfirmPayload>(
+    let disposed = false;
+    const unlisten = listen<{ request_id: number; payload: CommandConfirmPayload }>(
       "show-command-confirm",
       (event) => {
+        if (disposed || event.payload.request_id <= lastRequestIdRef.current) return;
+        lastRequestIdRef.current = event.payload.request_id;
+        const incoming = event.payload.payload;
         payloadGenerationRef.current += 1;
         executingGenerationRef.current = null;
         if (destroyTimeoutRef.current) {
           clearTimeout(destroyTimeoutRef.current);
           destroyTimeoutRef.current = null;
         }
-        setPayload(event.payload);
-        setEditedCommand(event.payload.command);
+        setPayload(incoming);
+        setEditedCommand(incoming.command);
         setIsEditing(false);
         setStatus(null);
         setIsExecuting(false);
         setIsPaused(false);
         // Initialize countdown if auto_run is enabled for predefined commands
         if (
-          event.payload.auto_run &&
-          !event.payload.from_llm &&
-          event.payload.auto_run_seconds
+          incoming.auto_run &&
+          !incoming.from_llm &&
+          incoming.auto_run_seconds
         ) {
-          setCountdownMs(event.payload.auto_run_seconds * 1000);
+          setCountdownMs(incoming.auto_run_seconds * 1000);
         } else {
           setCountdownMs(0);
         }
@@ -108,8 +113,12 @@ export default function CommandConfirmOverlay() {
           .catch(console.error);
       },
     );
+    unlisten.then(() => {
+      if (!disposed) return emit("command-confirm-ready");
+    }).catch(console.error);
 
     return () => {
+      disposed = true;
       payloadGenerationRef.current += 1;
       if (destroyTimeoutRef.current) {
         clearTimeout(destroyTimeoutRef.current);

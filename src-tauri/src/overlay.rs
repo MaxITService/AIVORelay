@@ -2799,6 +2799,20 @@ pub fn show_voice_activation_button_window(_app_handle: &AppHandle) -> Result<()
 /// Shows the command confirmation overlay with the given payload.
 /// Creates the window if it doesn't exist yet.
 #[cfg(target_os = "windows")]
+#[derive(Clone, Serialize)]
+struct PendingCommandConfirmation {
+    request_id: u64,
+    payload: crate::actions::CommandConfirmPayload,
+}
+
+#[cfg(target_os = "windows")]
+static PENDING_COMMAND_CONFIRMATION: Mutex<Option<PendingCommandConfirmation>> = Mutex::new(None);
+#[cfg(target_os = "windows")]
+static COMMAND_CONFIRM_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
+#[cfg(target_os = "windows")]
+static COMMAND_CONFIRM_READY_LISTENER: std::sync::Once = std::sync::Once::new();
+
+#[cfg(target_os = "windows")]
 pub fn show_command_confirm_overlay(
     app_handle: &AppHandle,
     payload: crate::actions::CommandConfirmPayload,
@@ -2811,19 +2825,34 @@ pub fn show_command_confirm_overlay(
     }
 
     let window_label = "command_confirm";
+    let pending = PendingCommandConfirmation {
+        request_id: COMMAND_CONFIRM_REQUEST_ID.fetch_add(1, Ordering::SeqCst) + 1,
+        payload,
+    };
+    *PENDING_COMMAND_CONFIRMATION.lock().unwrap() = Some(pending.clone());
+    COMMAND_CONFIRM_READY_LISTENER.call_once(|| {
+        use tauri::Listener;
+        let app = app_handle.clone();
+        app_handle.listen("command-confirm-ready", move |_| {
+            let pending = PENDING_COMMAND_CONFIRMATION.lock().unwrap().clone();
+            if let (Some(pending), Some(window)) =
+                (pending, app.get_webview_window("command_confirm"))
+            {
+                let _ = window.emit("show-command-confirm", pending);
+                let _ = window.show();
+                force_overlay_topmost(&window);
+                let _ = window.set_focus();
+            }
+        });
+    });
 
     debug!("show_command_confirm_overlay called");
 
-    // Track whether we're creating a new window (need to wait longer for React to mount)
-    let is_new_window;
-
     // Get or create the window
     let window = if let Some(existing) = app_handle.get_webview_window(window_label) {
-        is_new_window = false;
         debug!("Reusing existing command_confirm window");
         existing
     } else {
-        is_new_window = true;
         debug!("Creating new command_confirm window");
         // Create the window
         if let Some((x, y)) = calculate_command_confirm_position(app_handle) {
@@ -2882,46 +2911,14 @@ pub fn show_command_confirm_overlay(
         let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
     }
 
-    // For new windows, we need to wait for the webview to load before emitting the payload.
-    // For existing windows, emit the payload immediately, then show.
-    if is_new_window {
-        // New window: wait for webview to load, THEN emit payload, THEN show.
-        // Emitting before webview loads will lose the event!
-        let window_clone = window.clone();
-        let payload_clone = payload.clone();
-        std::thread::spawn(move || {
-            // Wait for webview to load and React to mount
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            // Now emit the payload (React is ready to receive it)
-            if let Err(e) = window_clone.emit("show-command-confirm", payload_clone) {
-                log::error!("Failed to emit show-command-confirm event: {}", e);
-            }
-            // Small delay for React to process the payload
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            // Show the window (now with content)
-            if let Err(e) = window_clone.show() {
-                log::error!("Failed to show window: {}", e);
-            }
-            force_overlay_topmost(&window_clone);
-            let _ = window_clone.set_focus();
-        });
-    } else {
-        // Existing window: emit payload first, then show immediately
-        if let Err(e) = window.emit("show-command-confirm", payload) {
-            log::error!("Failed to emit show-command-confirm event: {}", e);
-        }
-
-        // Small delay to let React process the payload before showing
-        let window_clone = window.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(30));
-            if let Err(e) = window_clone.show() {
-                log::error!("Failed to show window: {}", e);
-            }
-            force_overlay_topmost(&window_clone);
-            let _ = window_clone.set_focus();
-        });
+    // Existing renderers receive this immediately. A renderer still loading
+    // requests the retained latest payload after registering its listener.
+    if let Err(error) = window.emit("show-command-confirm", pending) {
+        log::error!("Failed to emit command confirmation: {error}");
     }
+    let _ = window.show();
+    force_overlay_topmost(&window);
+    let _ = window.set_focus();
 }
 
 fn show_transient_message_overlay(
