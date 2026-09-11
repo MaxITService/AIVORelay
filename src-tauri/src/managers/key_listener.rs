@@ -131,6 +131,9 @@ impl KeyListenerManager {
                 ));
             }
         }
+        // A previous binding for this ID may have been removed while held;
+        // its release is no longer routed through the shortcut map.
+        self.active_shortcuts.lock().map_err(|e| e.to_string())?.remove(&id);
         shortcuts.insert(id.clone(), shortcut);
         info!("Registered rdev shortcut '{}': {}", id, binding);
         Ok(())
@@ -139,6 +142,7 @@ impl KeyListenerManager {
     /// Unregister a shortcut by ID
     pub async fn unregister_shortcut(&self, id: &str) -> Result<(), String> {
         let mut shortcuts = self.shortcuts.lock().map_err(|e| e.to_string())?;
+        self.active_shortcuts.lock().map_err(|e| e.to_string())?.remove(id);
         if shortcuts.remove(id).is_some() {
             info!("Unregistered rdev shortcut '{}'", id);
             Ok(())
