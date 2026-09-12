@@ -6229,12 +6229,12 @@ pub fn change_connector_password_setting(
     settings.connector_pending_password = Some(trimmed.clone()).into();
     settings.connector_pending_password_issued_at_ms = crate::managers::connector::now_ms();
     settings.connector_password_user_set = true;
+    settings::write_settings_checked(&app, settings.clone())?;
     connector_manager.refresh_crypto_state(
         &settings.connector_password,
         settings.connector_pending_password.as_deref(),
     );
     connector_manager.clear_sessions();
-    settings::write_settings(&app, settings);
 
     Ok(())
 }
@@ -6271,12 +6271,12 @@ pub async fn rotate_connector_password_now(
     settings.connector_pending_password = Some(new_password.clone()).into();
     settings.connector_pending_password_issued_at_ms = crate::managers::connector::now_ms();
     settings.connector_password_user_set = true;
+    settings::write_settings_checked(&app, settings.clone())?;
     connector_manager.refresh_crypto_state(
         &settings.connector_password,
         settings.connector_pending_password.as_deref(),
     );
     connector_manager.clear_sessions();
-    settings::write_settings(&app, settings);
 
     let deadline = std::time::Instant::now()
         + std::time::Duration::from_millis(CONNECTOR_PASSWORD_ROTATION_WAIT_MS);

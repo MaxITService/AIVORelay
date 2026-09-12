@@ -16,7 +16,7 @@
 //! - Keep the protocol narrow: only expose the headers, methods, and payload shapes
 //!   that the extension actually needs.
 
-use crate::settings::{get_settings, write_settings};
+use crate::settings::{get_settings, write_settings, write_settings_checked};
 use axum::{
     body::Body,
     extract::{Path, Query, State},
@@ -1487,7 +1487,13 @@ async fn handle_post_messages(
     if let Ok(post_body) = serde_json::from_str::<PostBody>(&body) {
         if post_body.msg_type.as_deref() == Some("password_ack") {
             info!("Extension acknowledged password - committing...");
-            commit_pending_password(&app_state.app_handle);
+            if let Err(error) = commit_pending_password(&app_state.app_handle) {
+                error!("Failed to commit acknowledged connector password: {}", error);
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to save the acknowledged connector password",
+                );
+            }
         }
     }
 
@@ -1904,7 +1910,7 @@ fn pending_password_update(app: &AppHandle) -> Option<String> {
     None
 }
 
-fn commit_pending_password(app: &AppHandle) {
+fn commit_pending_password(app: &AppHandle) -> Result<(), String> {
     let settings = get_settings(app);
     if let Some(pending) = active_pending_password(app, &settings) {
         info!("Extension acknowledged password - committing new password");
@@ -1913,7 +1919,7 @@ fn commit_pending_password(app: &AppHandle) {
         new_settings.connector_password = pending.clone().into();
         new_settings.connector_pending_password = None.into();
         new_settings.connector_pending_password_issued_at_ms = 0;
-        write_settings(app, new_settings);
+        write_settings_checked(app, new_settings)?;
 
         let connector_manager = app.state::<Arc<ConnectorManager>>();
         connector_manager.refresh_crypto_state(&pending, None);
@@ -1921,6 +1927,7 @@ fn commit_pending_password(app: &AppHandle) {
     } else {
         debug!("Received password_ack but no pending password to commit");
     }
+    Ok(())
 }
 
 fn replace_missing_or_legacy_connector_password(
@@ -1943,8 +1950,7 @@ fn replace_missing_or_legacy_connector_password(
     new_settings.connector_password_user_set = false;
     new_settings.connector_pending_password = None.into();
     new_settings.connector_pending_password_issued_at_ms = 0;
-    write_settings(app, new_settings);
-    Ok(())
+    write_settings_checked(app, new_settings)
 }
 
 fn ensure_pending_password_metadata(app: &AppHandle, settings: &crate::settings::AppSettings) {
