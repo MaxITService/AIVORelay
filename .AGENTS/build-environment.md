@@ -76,6 +76,17 @@ Rules:
 - If active processes look stale or unrelated, stop and ask the user before killing them.
 - Frontend-only verification is safe anytime when it does not conflict with active work. `bun` dev/build processes still count as conflicts for Rust verification because Tauri may be driving Cargo underneath.
 
+## User-Run Dev Build as Live Verification
+
+`Dev-AivoRelay` and `Fast-Dev-AivoRelay` are interactive, user-owned dev sessions. Their console is the authoritative source for the rebuild triggered by an agent's source edits.
+
+- When the user says one of these sessions is running, do not launch another build, test, formatter, or dev server unless the user explicitly asks.
+- After editing frontend files, inspect the next Vite update or error. After editing Rust files, inspect the complete Cargo rebuild and the subsequent app launch/runtime lines. Do not judge the result from process existence alone.
+- Read the live console through the current task terminal when it is available, or analyze output pasted by the user. A process listing cannot recover an interactive console's text; if the console is inaccessible, state that limitation and ask the user for the relevant tail only when it is needed.
+- Attribute diagnostics carefully: report errors introduced by the current edit separately from warnings that were already present, such as an existing `dead_code` warning.
+- Do not send input to, terminate, restart, or otherwise take ownership of the user's dev session.
+- A clean dev rebuild establishes that the affected dev configuration compiles and starts. It does not replace targeted tests or release-build verification when those are separately requested.
+
 ## Safe Frontend Commands
 
 These are normally safe when only frontend verification is needed:

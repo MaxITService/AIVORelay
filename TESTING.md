@@ -59,6 +59,12 @@ Run it with:
   `pwsh -NoProfile -File .\scripts\start-playwright-tauri-dev.ps1`
 - After launch, verify CDP with:
   `Invoke-WebRequest -UseBasicParsing http://127.0.0.1:9333/json/version | Select-Object -ExpandProperty Content`
+- Verify the main Tauri window through Playwright with `Test-AivoRelayPlaywright`
+  from a second profile-enabled shell, or with
+  `python .\scripts\check-playwright-tauri.py` from any shell.
+- Exercise both TTS voice-gallery pages with `Test-AivoRelayTtsGallery`, or with
+  `python .\scripts\check-playwright-tts-gallery.py` from any shell. The E2E
+  scenario restores the original TTS settings after testing Apply.
 
 ## Documented Backend Test Areas
 

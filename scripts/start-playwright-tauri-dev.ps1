@@ -10,6 +10,24 @@ Set-StrictMode -Version Latest
 
 . "$PSScriptRoot\setup-rust-build-env.ps1"
 
+function Assert-TcpPortAvailable {
+    param([Parameter(Mandatory = $true)][int]$Port)
+
+    $listener = [System.Net.Sockets.TcpListener]::new(
+        [System.Net.IPAddress]::Loopback,
+        $Port
+    )
+    try {
+        $listener.Start()
+    }
+    catch {
+        throw "Playwright CDP port $Port is already in use. Close the stale AivoRelay instance or choose -PlaywrightPort <port>."
+    }
+    finally {
+        $listener.Stop()
+    }
+}
+
 function Ensure-AivoRelayVulkanDll {
     param([Parameter(Mandatory = $true)][string]$TargetRoot)
 
@@ -63,11 +81,13 @@ try {
         -MinimumFreeSpaceGB 10
 
     Ensure-AivoRelayVulkanDll -TargetRoot $repoRoot
+    Assert-TcpPortAvailable -Port $PlaywrightPort
 
     $env:PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT = $PlaywrightPort.ToString()
 
     Write-Host "Using CARGO_TARGET_DIR=$($context.CargoTargetDir)" -ForegroundColor DarkGray
     Write-Host "Playwright CDP enabled on port $PlaywrightPort." -ForegroundColor Cyan
+    Write-Host "Verify from another shell: python .\scripts\check-playwright-tauri.py --port $PlaywrightPort" -ForegroundColor DarkGray
     Write-Host "Starting 'bun x tauri dev' in $repoRoot" -ForegroundColor Green
 
     Push-Location -LiteralPath $repoRoot
