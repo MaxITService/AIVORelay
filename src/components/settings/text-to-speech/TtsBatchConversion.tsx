@@ -25,7 +25,7 @@ import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { Tooltip } from "@/components/ui/Tooltip";
 
-type TtsOutputFormat = "mp3" | "wav";
+type TtsOutputFormat = "mp3" | "opus" | "wav";
 type BatchSourceMode = "files" | "folder";
 
 const ActionTooltip: React.FC<{
@@ -109,6 +109,7 @@ type TtsChunkProgress = {
 type TtsBatchConversionProps = {
   outputFormat: TtsOutputFormat;
   mp3Bitrate: number;
+  opusBitrate: number;
   flushPendingSettingsWrites: () => Promise<void>;
 };
 
@@ -155,6 +156,7 @@ const statusAppearance: Record<
 export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
   outputFormat,
   mp3Bitrate,
+  opusBitrate,
   flushPendingSettingsWrites,
 }) => {
   const { t } = useTranslation();
@@ -401,6 +403,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
           clientId,
           scan: scanResult,
           mp3Bitrate,
+          opusBitrate,
         },
       });
       batchIdRef.current = result.batchId;
@@ -700,7 +703,11 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
             </h4>
             <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[11px] text-[#b8b8b8]">
               {outputFormat.toUpperCase()}
-              {outputFormat === "mp3" ? ` · ${mp3Bitrate} kb/s` : ""}
+              {outputFormat === "mp3"
+                ? ` · ${mp3Bitrate} kb/s`
+                : outputFormat === "opus"
+                  ? ` · ${opusBitrate} kb/s`
+                  : ""}
             </span>
           </div>
           {rows.length === 0 ? (

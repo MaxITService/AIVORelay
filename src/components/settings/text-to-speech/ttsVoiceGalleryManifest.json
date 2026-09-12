@@ -1,0 +1,403 @@
+{
+  "schemaVersion": 1,
+  "generatedOn": "2026-09-12",
+  "previewEncoding": {
+    "container": "ogg",
+    "codec": "opus",
+    "bitrateKbps": 80
+  },
+  "providers": {
+    "soniox": {
+      "label": "Soniox",
+      "kind": "remote",
+      "license": {
+        "kind": "provider-output-terms",
+        "name": "Soniox Terms of Service",
+        "url": "https://soniox.com/policies/terms-of-service",
+        "checkedOn": "2026-09-12"
+      }
+    },
+    "deepgram": {
+      "label": "Deepgram",
+      "kind": "remote",
+      "license": {
+        "kind": "provider-output-terms",
+        "name": "Deepgram Terms of Service",
+        "url": "https://deepgram.com/terms",
+        "checkedOn": "2026-09-12"
+      }
+    },
+    "openai": {
+      "label": "OpenAI",
+      "kind": "remote",
+      "license": {
+        "kind": "provider-output-terms",
+        "name": "OpenAI Services Agreement",
+        "url": "https://openai.com/policies/services-agreement/",
+        "checkedOn": "2026-09-12"
+      }
+    },
+    "murf": {
+      "label": "Murf AI",
+      "kind": "remote",
+      "license": {
+        "kind": "provider-output-terms",
+        "name": "Murf Product-Specific Terms",
+        "url": "https://murf.ai/legal/product-specific-terms",
+        "checkedOn": "2026-09-12"
+      }
+    },
+    "local_qwen": {
+      "label": "Qwen",
+      "kind": "local",
+      "license": {
+        "kind": "open-source-license",
+        "name": "Apache License 2.0",
+        "url": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice/blob/85e237c12c027371202489a0ec509ded67b5e4b5/README.md",
+        "checkedOn": "2026-09-12"
+      }
+    },
+    "local_kokoro": {
+      "label": "Kokoro",
+      "kind": "local",
+      "license": {
+        "kind": "open-source-license",
+        "name": "Apache License 2.0",
+        "url": "https://huggingface.co/csukuangfj/kokoro-int8-multi-lang-v1_1/blob/main/LICENSE",
+        "checkedOn": "2026-09-12"
+      }
+    }
+  },
+  "voices": [
+    {
+      "id": "soniox-maya",
+      "provider": "soniox",
+      "voiceName": "Maya",
+      "modelFamily": "Real-time TTS",
+      "model": "tts-rt-v1",
+      "voice": "Maya",
+      "language": "en",
+      "speed": 1,
+      "transcript": "Hi, I'm Maya, a real-time voice from Soniox.",
+      "asset": {
+        "path": "voice-gallery/soniox-maya.opus",
+        "bytes": 41569,
+        "sha256": "a339f274a58455fade0d6118276eab8a28fc62a6bf0cf6ff72d41a807a7914c6"
+      }
+    },
+    {
+      "id": "soniox-daniel",
+      "provider": "soniox",
+      "voiceName": "Daniel",
+      "modelFamily": "Real-time TTS",
+      "model": "tts-rt-v1",
+      "voice": "Daniel",
+      "language": "en",
+      "speed": 1,
+      "transcript": "Hi, I'm Daniel, a real-time voice from Soniox.",
+      "asset": {
+        "path": "voice-gallery/soniox-daniel.opus",
+        "bytes": 40055,
+        "sha256": "3646f81588e09ea502e48f8a205c722c2514c23c83a776105b9ff385d5be44d3"
+      }
+    },
+    {
+      "id": "soniox-grace",
+      "provider": "soniox",
+      "voiceName": "Grace",
+      "modelFamily": "Real-time TTS",
+      "model": "tts-rt-v1",
+      "voice": "Grace",
+      "language": "en",
+      "speed": 1,
+      "transcript": "Hi, I'm Grace, a real-time voice from Soniox.",
+      "asset": {
+        "path": "voice-gallery/soniox-grace.opus",
+        "bytes": 37433,
+        "sha256": "cafc1e97719b6c8f6045caadb06abfd709f76492c6ae31d09d15aec06f183c03"
+      }
+    },
+    {
+      "id": "deepgram-kit",
+      "provider": "deepgram",
+      "voiceName": "Kit",
+      "modelFamily": "Flux",
+      "model": "flux-kit-en",
+      "voice": "flux-kit-en",
+      "language": "",
+      "speed": 1,
+      "transcript": "Hi, I'm Kit, a Flux voice from Deepgram.",
+      "asset": {
+        "path": "voice-gallery/deepgram-kit.opus",
+        "bytes": 39994,
+        "sha256": "006a8c249831949a1158db41c6610657879365d56bb7e88a3e89297d3cb6ecba"
+      }
+    },
+    {
+      "id": "deepgram-hannah",
+      "provider": "deepgram",
+      "voiceName": "Hannah",
+      "modelFamily": "Flux",
+      "model": "flux-hannah-en",
+      "voice": "flux-hannah-en",
+      "language": "",
+      "speed": 1,
+      "transcript": "Hi, I'm Hannah, a Flux voice from Deepgram.",
+      "asset": {
+        "path": "voice-gallery/deepgram-hannah.opus",
+        "bytes": 36653,
+        "sha256": "e1857bba1242877e193cae92e416a3f6c5f37825ba2451f408c870d7c0608baf"
+      }
+    },
+    {
+      "id": "deepgram-gemma",
+      "provider": "deepgram",
+      "voiceName": "Gemma",
+      "modelFamily": "Flux",
+      "model": "flux-gemma-en",
+      "voice": "flux-gemma-en",
+      "language": "",
+      "speed": 1,
+      "transcript": "Hi, I'm Gemma, a Flux voice from Deepgram.",
+      "asset": {
+        "path": "voice-gallery/deepgram-gemma.opus",
+        "bytes": 36517,
+        "sha256": "ca39f493dd6b46c40732b461075744e8942d90e0869e9d3b0e63cb9ddd6f8f53"
+      }
+    },
+    {
+      "id": "deepgram-asteria",
+      "provider": "deepgram",
+      "voiceName": "Asteria",
+      "modelFamily": "Aura 2",
+      "model": "aura-2-asteria-en",
+      "voice": "aura-2-asteria-en",
+      "language": "",
+      "speed": 1,
+      "transcript": "Hi, I'm Asteria, an Aura 2 voice from Deepgram.",
+      "asset": {
+        "path": "voice-gallery/deepgram-asteria.opus",
+        "bytes": 38097,
+        "sha256": "c5ce0138b4ca7e772fa31ba3cf8a08fecbc9e28e0b6c753d0a500f6bcc20dd0e"
+      }
+    },
+    {
+      "id": "deepgram-draco",
+      "provider": "deepgram",
+      "voiceName": "Draco",
+      "modelFamily": "Aura 2",
+      "model": "aura-2-draco-en",
+      "voice": "aura-2-draco-en",
+      "language": "",
+      "speed": 1,
+      "transcript": "Hi, I'm Draco, an Aura 2 voice from Deepgram.",
+      "asset": {
+        "path": "voice-gallery/deepgram-draco.opus",
+        "bytes": 48886,
+        "sha256": "80c6135cd0ef2eafeae43126bab2ef2ab199881c35b17dc122a29dd1ed4a2a4c"
+      }
+    },
+    {
+      "id": "deepgram-hyperion",
+      "provider": "deepgram",
+      "voiceName": "Hyperion",
+      "modelFamily": "Aura 2",
+      "model": "aura-2-hyperion-en",
+      "voice": "aura-2-hyperion-en",
+      "language": "",
+      "speed": 1,
+      "transcript": "Hi, I'm Hyperion, an Aura 2 voice from Deepgram.",
+      "asset": {
+        "path": "voice-gallery/deepgram-hyperion.opus",
+        "bytes": 48547,
+        "sha256": "f2ec1a6be471cab242573675353d5da9e6758da5e25f8e50fa1bf3c1def8480a"
+      }
+    },
+    {
+      "id": "openai-marin",
+      "provider": "openai",
+      "voiceName": "Marin",
+      "modelFamily": "GPT-4o mini TTS",
+      "model": "gpt-4o-mini-tts",
+      "voice": "marin",
+      "language": "",
+      "speed": 1,
+      "voiceInstructions": "Speak naturally and clearly.",
+      "transcript": "Hi, I'm Marin, a voice from OpenAI.",
+      "asset": {
+        "path": "voice-gallery/openai-marin.opus",
+        "bytes": 43032,
+        "sha256": "c5685d978aaed1e01621a19cbd72bde2ca63b048ecbeec5611ae62295e4f2885"
+      }
+    },
+    {
+      "id": "openai-cedar",
+      "provider": "openai",
+      "voiceName": "Cedar",
+      "modelFamily": "GPT-4o mini TTS",
+      "model": "gpt-4o-mini-tts",
+      "voice": "cedar",
+      "language": "",
+      "speed": 1,
+      "voiceInstructions": "Speak naturally and clearly.",
+      "transcript": "Hi, I'm Cedar, a voice from OpenAI.",
+      "asset": {
+        "path": "voice-gallery/openai-cedar.opus",
+        "bytes": 38204,
+        "sha256": "22d2f89737cecc617e2083fb18c08f5d7f738b209595a81df677e8048c24056b"
+      }
+    },
+    {
+      "id": "murf-sharon",
+      "provider": "murf",
+      "voiceName": "Sharon",
+      "modelFamily": "Falcon 2",
+      "model": "falcon-2",
+      "voice": "en-UK-sharon",
+      "language": "en-UK",
+      "speed": 1,
+      "murfRate": 0,
+      "murfPitch": 0,
+      "murfVariation": 1,
+      "murfStyle": "Conversational",
+      "transcript": "Hi, I'm Sharon, a Falcon 2 voice from Murf AI.",
+      "asset": {
+        "path": "voice-gallery/murf-sharon.opus",
+        "bytes": 42249,
+        "sha256": "eae9f40b90d1932668a39691eab2618fa3770cc9120eb207f921dfc246626559"
+      }
+    },
+    {
+      "id": "murf-miles",
+      "provider": "murf",
+      "voiceName": "Miles",
+      "modelFamily": "Falcon 2",
+      "model": "falcon-2",
+      "voice": "en-US-miles",
+      "language": "en-US",
+      "speed": 1,
+      "murfRate": 0,
+      "murfPitch": 0,
+      "murfVariation": 1,
+      "murfStyle": "AIAgent",
+      "transcript": "Hi, I'm Miles, a Falcon 2 voice from Murf AI.",
+      "asset": {
+        "path": "voice-gallery/murf-miles.opus",
+        "bytes": 46135,
+        "sha256": "53bf4c740640a784792299762eca03bbde46455ebeadcb1915be530cc875eea8"
+      }
+    },
+    {
+      "id": "murf-ivy",
+      "provider": "murf",
+      "voiceName": "Ivy",
+      "modelFamily": "Falcon 2",
+      "model": "falcon-2",
+      "voice": "en-AU-ivy",
+      "language": "en-AU",
+      "speed": 1,
+      "murfRate": 0,
+      "murfPitch": 0,
+      "murfVariation": 1,
+      "murfStyle": "Conversational",
+      "transcript": "Hi, I'm Ivy, a Falcon 2 voice from Murf AI.",
+      "asset": {
+        "path": "voice-gallery/murf-ivy.opus",
+        "bytes": 39029,
+        "sha256": "b6648da583b4b3b8bd857a08ecd094300b648fbba661d18862bc40a905ffbab3"
+      }
+    },
+    {
+      "id": "murf-samar",
+      "provider": "murf",
+      "voiceName": "Samar",
+      "modelFamily": "Falcon 2",
+      "model": "falcon-2",
+      "voice": "en-IN-samar",
+      "language": "en-IN",
+      "speed": 1,
+      "murfRate": 0,
+      "murfPitch": 0,
+      "murfVariation": 1,
+      "murfStyle": "Conversational",
+      "transcript": "Hi, I'm Samar, a Falcon 2 voice from Murf AI.",
+      "asset": {
+        "path": "voice-gallery/murf-samar.opus",
+        "bytes": 39119,
+        "sha256": "9305436a4c049c7187cc043414b47dac237a75a3c1c5ec7258f31d9b30f983eb"
+      }
+    },
+    {
+      "id": "murf-emily",
+      "provider": "murf",
+      "voiceName": "Emily",
+      "modelFamily": "Falcon 2",
+      "model": "falcon-2",
+      "voice": "en-SCOTT-emily",
+      "language": "en-SCOTT",
+      "speed": 1,
+      "murfRate": 0,
+      "murfPitch": 0,
+      "murfVariation": 1,
+      "murfStyle": "Conversational",
+      "transcript": "Hi, I'm Emily, a Falcon 2 voice from Murf AI.",
+      "asset": {
+        "path": "voice-gallery/murf-emily.opus",
+        "bytes": 42205,
+        "sha256": "8aa316eac2a89d2b9637cd61451127146e4c97ceefc8b60729881915d0a12a04"
+      }
+    },
+    {
+      "id": "murf-gordon",
+      "provider": "murf",
+      "voiceName": "Gordon",
+      "modelFamily": "Falcon 2",
+      "model": "falcon-2",
+      "voice": "en-US-gordon",
+      "language": "en-US",
+      "speed": 1,
+      "murfRate": 0,
+      "murfPitch": 0,
+      "murfVariation": 1,
+      "murfStyle": "Conversational",
+      "transcript": "Hi, I'm Gordon, a Falcon 2 voice from Murf AI.",
+      "asset": {
+        "path": "voice-gallery/murf-gordon.opus",
+        "bytes": 37473,
+        "sha256": "abdbbcf483c86bd071ed5e054bb0a5bfda947b6e03a285a20636c17b4645ddf8"
+      }
+    },
+    {
+      "id": "local-qwen-ryan",
+      "provider": "local_qwen",
+      "voiceName": "Ryan",
+      "modelFamily": "Qwen3-TTS 0.6B",
+      "model": "qwen3-tts-12hz-0.6b-customvoice",
+      "voice": "Ryan",
+      "language": "English",
+      "speed": 1,
+      "transcript": "Hi, I'm Ryan, running locally with Qwen three TTS.",
+      "asset": {
+        "path": "voice-gallery/local-qwen-ryan.opus",
+        "bytes": 64483,
+        "sha256": "c1e4e656878b461a6ce3f0d9de11a841df8f040269a7fd32d6a67031a23e2465"
+      }
+    },
+    {
+      "id": "local-kokoro-maple",
+      "provider": "local_kokoro",
+      "voiceName": "Maple",
+      "modelFamily": "Kokoro 82M",
+      "model": "kokoro-82m",
+      "voice": "af_maple",
+      "language": "English",
+      "speed": 1,
+      "transcript": "Hi, I'm Maple, running locally with Kokoro eighty-two M.",
+      "asset": {
+        "path": "voice-gallery/local-kokoro-maple.opus",
+        "bytes": 32228,
+        "sha256": "ba8b8a0b250e665ea4427e84cdcc6a17e50991120f711a7e2d73507b93e670e3"
+      }
+    }
+  ]
+}

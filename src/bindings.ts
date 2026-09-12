@@ -4637,9 +4637,9 @@ port: number;
  * Last server error (e.g., port binding failure), None if no error
  */
 server_error: string | null }
-export type ConvertTtsBatchRequest = { clientId: string; scan: TtsBatchScanResult; mp3Bitrate: number }
-export type ConvertTtsTextFileRequest = { inputPath: string; outputPath: string; outputFormat: TtsOutputFormat; mp3Bitrate: number }
-export type ConvertTtsTextFileResponse = { operation_id: string; output_path: string; source_character_count: number; processed_character_count: number; chunk_count: number; resumed_chunks: number; output_format: TtsOutputFormat; mp3_bitrate_kbps: number | null }
+export type ConvertTtsBatchRequest = { clientId: string; scan: TtsBatchScanResult; mp3Bitrate: number; opusBitrate: number }
+export type ConvertTtsTextFileRequest = { inputPath: string; outputPath: string; outputFormat: TtsOutputFormat; mp3Bitrate: number; opusBitrate: number }
+export type ConvertTtsTextFileResponse = { operation_id: string; output_path: string; source_character_count: number; processed_character_count: number; chunk_count: number; resumed_chunks: number; output_format: TtsOutputFormat; mp3_bitrate_kbps: number | null; opus_bitrate_kbps: number | null }
 export type CustomSounds = { start: boolean; stop: boolean }
 export type DecapitalizeOverlayStateResponse = { decapitalizeEligible: boolean; decapitalizeArmed: boolean }
 export type DeepgramFileTranscriptionOptions = { diarize: boolean | null; multichannel: boolean | null }
@@ -4841,7 +4841,7 @@ instructions: string | null;
  * Optional LLM text-cleanup overrides. These are separate from TTS voice
  * instructions and never mutate saved settings.
  */
-llmPreprocessing: boolean | null; llmPromptId: string | null; llmPromptName: string | null; llmInstructions: string | null; llmProviderId: string | null; llmModel: string | null; llmKeySource: TtsKeySource | null; llmCustomBaseUrl: string | null; llmCustomAllowInsecureHttp: boolean | null; llmReasoningEnabled: boolean | null; llmReasoningBudget: number | null; llmChunkTargetChars: number | null; llmRetryCount: number | null; llmRetryBaseDelayMs: number | null; llmRequestTimeoutSeconds: number | null; outputFormat: TtsOutputFormat | null; mp3BitrateKbps: number | null;
+llmPreprocessing: boolean | null; llmPromptId: string | null; llmPromptName: string | null; llmInstructions: string | null; llmProviderId: string | null; llmModel: string | null; llmKeySource: TtsKeySource | null; llmCustomBaseUrl: string | null; llmCustomAllowInsecureHttp: boolean | null; llmReasoningEnabled: boolean | null; llmReasoningBudget: number | null; llmChunkTargetChars: number | null; llmRetryCount: number | null; llmRetryBaseDelayMs: number | null; llmRequestTimeoutSeconds: number | null; outputFormat: TtsOutputFormat | null; mp3BitrateKbps: number | null; opusBitrateKbps: number | null;
 /**
  * Must be true only after showing the API-credit warning.
  */
@@ -5124,7 +5124,7 @@ export type TtsLlmPreprocessingSettings = { interactive_enabled?: boolean; file_
 export type TtsLlmScope = "interactive" | "file"
 export type TtsModelSynthesisSettings = { model_key: string; config: TtsSynthesisConfig }
 export type TtsOperationScope = "interactive" | "file"
-export type TtsOutputFormat = "mp3" | "wav"
+export type TtsOutputFormat = "mp3" | "opus" | "wav"
 export type TtsOverlayChunk = { index: number; path: string; pause_after_ms: number }
 export type TtsOverlayQueueItem = { id: string; text_preview: string; source_label: string; status: string }
 export type TtsOverlayState = { operation_id: string; status: string; provider: string; model: string; voice: string; text_preview: string; chunks: TtsOverlayChunk[]; current_chunk: number; total_chunks: number; retry_attempt: number; error: string | null; play_pause_hotkey: string; play_history_when_overlay_closed: boolean; stop_hotkey: string; autoplay: boolean; auto_hide_enabled: boolean; auto_hide_delay_seconds: number; playback_pitch: number; playback_effect: TtsPlaybackEffect; queue_enabled: boolean; queue_generation: string; queue_items: TtsOverlayQueueItem[]; active_queue_item_id: string | null }
@@ -5161,8 +5161,8 @@ playback_pitch?: number;
 /**
  * Optional overlay playback effect. The stored/generated audio is unchanged.
  */
-playback_effect?: TtsPlaybackEffect; output_format?: TtsOutputFormat; mp3_bitrate_kbps?: number; watch_folder_enabled?: boolean; watch_recursive?: boolean; watch_input_directory?: string; watch_output_directory?: string; watch_settle_delay_ms?: number; disk_reserve_mb?: number; interactive_history_enabled?: boolean; interactive_history_max_entries?: number; interactive_history_max_storage_mb?: number; file_history_enabled?: boolean; file_history_max_entries?: number; file_history_max_storage_mb?: number }
-export type TtsSynthesisConfig = { provider: TtsProvider; model: string; voice: string; language: string; key_source?: TtsKeySource; openai_compatible_base_url?: string; openai_compatible_allow_insecure_http?: boolean; speed?: number; murf_rate?: number; murf_pitch?: number; murf_variation?: number; murf_style?: string | null; elevenlabs_stability?: number; elevenlabs_similarity_boost?: number; elevenlabs_style?: number; elevenlabs_use_speaker_boost?: boolean; elevenlabs_apply_text_normalization?: ElevenLabsTextNormalization; cartesia_emotion?: string | null; cartesia_volume?: number; voice_instructions?: string; voice_prompt_preset_id?: string; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; output_format?: TtsOutputFormat; mp3_bitrate_kbps?: number }
+playback_effect?: TtsPlaybackEffect; output_format?: TtsOutputFormat; mp3_bitrate_kbps?: number; opus_bitrate_kbps?: number; watch_folder_enabled?: boolean; watch_recursive?: boolean; watch_input_directory?: string; watch_output_directory?: string; watch_settle_delay_ms?: number; disk_reserve_mb?: number; interactive_history_enabled?: boolean; interactive_history_max_entries?: number; interactive_history_max_storage_mb?: number; file_history_enabled?: boolean; file_history_max_entries?: number; file_history_max_storage_mb?: number }
+export type TtsSynthesisConfig = { provider: TtsProvider; model: string; voice: string; language: string; key_source?: TtsKeySource; openai_compatible_base_url?: string; openai_compatible_allow_insecure_http?: boolean; speed?: number; murf_rate?: number; murf_pitch?: number; murf_variation?: number; murf_style?: string | null; elevenlabs_stability?: number; elevenlabs_similarity_boost?: number; elevenlabs_style?: number; elevenlabs_use_speaker_boost?: boolean; elevenlabs_apply_text_normalization?: ElevenLabsTextNormalization; cartesia_emotion?: string | null; cartesia_volume?: number; voice_instructions?: string; voice_prompt_preset_id?: string; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; output_format?: TtsOutputFormat; mp3_bitrate_kbps?: number; opus_bitrate_kbps?: number }
 export type TtsSynthesisPreset = { id: string; name: string; config: TtsSynthesisConfig }
 export type TtsVoiceCatalog = { provider: TtsProvider; voices: TtsVoiceCatalogEntry[]; source: string; supports_live_refresh: boolean; replace_builtin: boolean; warning: string | null }
 export type TtsVoiceCatalogEntry = { id: string; label: string; group: string; language: string; gender: string; description: string; locales?: TtsVoiceCatalogLocale[] }

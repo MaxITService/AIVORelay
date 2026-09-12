@@ -9,6 +9,7 @@ interface SettingsGroupProps {
   collapsed?: boolean;
   collapseLabel?: string;
   expandLabel?: string;
+  toggleTestId?: string;
   onCollapsedChange?: (collapsed: boolean) => void;
   help?: React.ReactNode;
   children: React.ReactNode;
@@ -22,6 +23,7 @@ export const SettingsGroup: React.FC<SettingsGroupProps> = ({
   collapsed,
   collapseLabel = "Collapse",
   expandLabel = "Expand",
+  toggleTestId,
   onCollapsedChange,
   help,
   children,
@@ -50,6 +52,7 @@ export const SettingsGroup: React.FC<SettingsGroupProps> = ({
           {isCollapsible ? (
             <button
               type="button"
+              data-testid={toggleTestId}
               onClick={toggleCollapsed}
               className="flex w-full items-start justify-between gap-3 rounded-lg px-1 py-1 text-left transition-colors hover:bg-white/[0.03] focus:outline-none focus:ring-2 focus:ring-[#ff4d8d]/35"
               aria-expanded={!isCollapsed}

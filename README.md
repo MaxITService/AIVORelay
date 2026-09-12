@@ -21,7 +21,7 @@ AivoRelay exposes the same two app-managed file workflows in the current
 terminal:
 
 - [Audio file → text or Markdown](CLI-SPEECH-TO-TEXT.md)
-- [Text or Markdown → MP3 or WAV](CLI-TEXT-TO-SPEECH.md)
+- [Text or Markdown → MP3, Opus, or WAV](CLI-TEXT-TO-SPEECH.md)
 
 Provider credentials and detailed conversion behavior remain configured in
 the matching app settings pages.
@@ -108,9 +108,11 @@ The "Default Profile" uses your global settings (Speech / Mic). It cannot be del
 
 ### 🔊 Text to Speech (App can also do that!)
 
-**Read text aloud or turn complete documents into narrated MP3 or WAV files.** AivoRelay can speak clipboard or selected text in most Windows applications and convert `.txt` and `.md` documents to mp3 with cloud, Windows, or optional local voices. Cloud services receive the supplied text and set their own pricing; Windows voices and local models keep synthesis on the device.
+**Read text aloud or turn complete documents into narrated MP3, Opus, or WAV files.** AivoRelay can speak clipboard or selected text in most Windows applications and convert `.txt` and `.md` documents to audio with cloud, Windows, or optional local voices. Cloud services receive the supplied text and set their own pricing; Windows voices and local models keep synthesis on the device.
 
 You do not need to understand every setting to begin. AivoRelay includes ready-made presets for every TTS provider and automatically opens the recommended preset the first time you select a provider on each TTS page.
+
+The collapsed voice gallery on both TTS pages includes locally playable Opus samples with their provider, model, voice, and synthesis settings. Applying a card restores those exact voice settings without changing the selected output format or spending API credits on the preview.
 
 #### Speak selected text
 
@@ -120,7 +122,7 @@ You do not need to understand every setting to begin. AivoRelay includes ready-m
 4. Assign a keyboard shortcut under **Actions**. Other settings can stay at their defaults.
 5. Select text in a supported application and press the shortcut to hear it.
 
-#### Text file to MP3 or WAV
+#### Text file to MP3, Opus, or WAV
 
 Open **Text file to mp3** in the sidebar to convert one or more `.txt` or `.md` documents, scan folders with optional subfolders, or automate a watched folder. Long documents are split at natural boundaries, and interrupted jobs can resume from saved progress. Optional AI cleanup may send text to the configured LLM and incur provider costs. Existing outputs are never overwritten. The workflow is also available from the [TTS file-conversion CLI](CLI-TEXT-TO-SPEECH.md).
 

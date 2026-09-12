@@ -31,3 +31,4 @@ pub mod tts_history;
 pub mod tts_llm;
 pub(crate) mod tts_resume;
 pub mod windows_tts;
+pub(crate) mod xiph_opus;

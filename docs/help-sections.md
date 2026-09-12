@@ -38,7 +38,7 @@ button for the related settings page.
 4. [[#4. Choose an audio or video file. Get text.|Choose an audio or video file. Get text.]]
 5. [[#5. Play computer audio. See the words live.|Play computer audio. See the words live.]]
 6. [[#6. Select text. Press a key. Hear it spoken.|Select text. Press a key. Hear it spoken.]]
-7. [[#7. Choose text files. Get MP3 or WAV audio.|Choose text files. Get MP3 or WAV audio.]]
+7. [[#7. Choose text files. Get MP3, Opus, or WAV audio.|Choose text files. Get MP3, Opus, or WAV audio.]]
 8. [[#8. Speak a command. AivoRelay performs it.|Speak a command. AivoRelay performs it.]]
 9. [[#9. Connect to an LLM chat open in Chrome via the separate extension.|Connect to an LLM chat open in Chrome via the separate extension.]]
 10. [[#10. Add corrections once. Apply them automatically.|Add corrections once. Apply them automatically.]]
@@ -145,11 +145,11 @@ generation on this computer, but optional LLM cleanup can still send text online
 Console commands: selected-text reading has no direct console command in the
 current CLI documentation.
 
-## 7. Choose text files. Get MP3 or WAV audio.
+## 7. Choose text files. Get MP3, Opus, or WAV audio.
 
 Open **Text file to mp3** and choose a cloud provider, an installed Windows
 voice, or an optional local model. Select a text or Markdown file, inspect its
-characters and planned chunks, choose MP3 or WAV and an output path, then start
+characters and planned chunks, choose MP3, Opus, or WAV and an output path, then start
 the conversion. The page also supports multiple files, folders, resumable
 conversions, folder automation, and File History. File Operations has its own
 settings; saved synthesis presets can also be shared with **Speak selected text**.

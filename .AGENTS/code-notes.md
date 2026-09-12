@@ -39,7 +39,8 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/shortcut_handy_keys.rs` | Ported upstream HandyKeys shortcut backend and backend-side shortcut recording. |
 | `src-tauri/src/language_resolver.rs` | Soniox language resolver. |
 | `src-tauri/src/text_replacement_decapitalize.rs` | Decapitalize trigger. |
-| `src-tauri/src/managers/tts.rs` | Provider-independent Soniox/Deepgram/OpenAI/Murf/ElevenLabs/Cartesia/experimental-Edge/local-Qwen/local-Kokoro/Windows TTS, bounded live cloud voice catalogs, semantic chunking, retry, Markdown rendering, resumable PCM-backed WAV/MP3 assembly, disk protection, cache, and lazy recursive/non-recursive folder watching. Interactive Listen Later workers wait cancellably for the shared foreground synthesis lane and claim their manager operation before its first event; successful watcher conversions are copied into opt-in TTS History without invalidating the external result when History capture fails. |
+| `src-tauri/src/managers/tts.rs` | Provider-independent Soniox/Deepgram/OpenAI/Murf/ElevenLabs/Cartesia/experimental-Edge/local-Qwen/local-Kokoro/Windows TTS, bounded live cloud voice catalogs, semantic chunking, retry, Markdown rendering, resumable PCM-backed WAV/MP3/Ogg Opus assembly, disk protection, cache, and lazy recursive/non-recursive folder watching. Interactive Listen Later workers wait cancellably for the shared foreground synthesis lane and claim their manager operation before its first event; successful watcher conversions are copied into opt-in TTS History without invalidating the external result when History capture fails. |
+| `src-tauri/src/managers/xiph_opus.rs` | Minimal safe FFI wrapper for the verified, vendored official Xiph libopus release used by provider-independent Ogg Opus export. |
 | `src-tauri/src/managers/edge_tts.rs` | Experimental no-key native Rust client for Microsoft Edge Read Aloud via the MIT-licensed `kothok-edge-tts` protocol crate, with bounded voice/media handling, timeout/cancellation-safe WebSocket teardown, UTF-8/SSML-aware request splitting, MP3 decoding, and 24 kHz mono PCM normalization. |
 | `src-tauri/src/managers/local_tts.rs` | Explicit app-managed Qwen3-TTS model/runtime lifecycle, pinned resumable downloads, conservative complete-install preflight, isolated uv/Python/PyTorch installation, preserved upstream license declaration, measured managed footprint, persistent offline worker supervision, and validated 24 kHz mono PCM handoff. |
 | `src-tauri/src/managers/local_kokoro.rs` | Pinned app-managed Kokoro int8 archive and sherpa-onnx runtime, safe extraction, retained original model `LICENSE`, measured managed footprint, hidden persistent CPU worker, and validated 24 kHz mono PCM handoff. |
@@ -85,7 +86,8 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/settings/debug/ShortcutEngineSelector.tsx` | Shortcut engine toggle UI. |
 | `src/lib/constants/sonioxLanguages.ts` | Soniox languages mapping. |
 | `src/lib/constants/remoteSttProviders.ts` | Remote STT preset metadata for Groq/OpenAI/custom URL handling. |
-| `src/components/settings/text-to-speech/TextToSpeechSettings.tsx` | Interactive TTS providers, secure key source, searchable/grouped/creatable provider values, live voice refresh where provider APIs permit it, grouped help with human documentation links, two-step local download consent and source/path/size/license disclosure, voice prompt presets, preprocessing, chunk/retry controls, non-destructive playback pitch/effects, overlay keys, opt-in in-memory Listen Later queue, opt-in Interactive History replay fallback, and Interactive History. |
+| `src/components/settings/text-to-speech/TextToSpeechSettings.tsx` | Interactive TTS providers, secure key source, a bundled playable voice gallery that can apply exact sample settings, searchable/grouped/creatable provider values, live voice refresh where provider APIs permit it, grouped help with human documentation links, two-step local download consent and source/path/size/license disclosure, voice prompt presets, preprocessing, chunk/retry controls, non-destructive playback pitch/effects, overlay keys, opt-in in-memory Listen Later queue, opt-in Interactive History replay fallback, and Interactive History. |
+| `src/components/settings/text-to-speech/TtsVoiceGallery.tsx` | Collapsed-by-default, provider-grouped gallery of bundled Ogg Opus voice samples shared by Interactive and File TTS; cards disclose and apply the exact sample synthesis settings. |
 | `src/components/settings/text-to-speech/TtsHelpDisclosure.tsx` | Accessible native progressive disclosure shared by logical TTS settings groups for concise parameter guidance and human-facing documentation links. |
 | `src/lib/tts/ttsProviderMetadata.ts` | Shared TTS provider defaults, documented speed bounds, human-facing documentation URLs, searchable model/language values, and local download source/license/size metadata. |
 | `src/components/settings/text-to-speech/TtsFileOperationsSettings.tsx` | Separate TTS File Operations page for manual conversion, folder automation, file chunking, and independently retained File History. |
@@ -102,6 +104,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `build-local.ps1` | Local rebuild script (Windows). |
 | `test-local.ps1` | Local backend test harness with MSVC/bindgen setup and subset filtering. |
 | `build-unsigned.js` | Unsigned build Node.js script. |
+| `src-tauri/vendor/xiph/opus-1.5.2.tar.gz` | Unmodified official Xiph libopus release archive; `build.rs` verifies its pinned SHA-256 before static compilation. |
 | `benchmark-linkers.ps1` | Benchmarks unsigned Windows builds across supported linker variants using isolated target dirs. |
 | `scripts/setup-rust-build-env.ps1` | Shared Windows Rust build/test environment bootstrap for bindgen and short target dirs. |
 | `.github/workflows/code-quality.yml` | Combined PR lint/format workflow with path filters and cancellation of stale runs. |
@@ -145,6 +148,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/managers/deepgram_realtime.rs` | Deepgram live preview/finalize flow plus speaker-aware live page updates. |
 | `src-tauri/src/utils.rs` | Central cancellation path. |
 | `src-tauri/Cargo.toml` | Extra crates (`keyring`, `reqwest`, `axum`, etc). |
+| `src-tauri/build.rs` | Also verifies, extracts, and statically compiles the vendored official Xiph libopus release without build-time network access. |
 | `src-tauri/resources/default_settings.json` | Default settings for fork. |
 
 ### Frontend Settings UI

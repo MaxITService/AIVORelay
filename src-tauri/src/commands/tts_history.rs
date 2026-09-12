@@ -19,6 +19,7 @@ use tauri::{AppHandle, State};
 
 static REGENERATION_FILE_ID: AtomicU64 = AtomicU64::new(0);
 const ALLOWED_MP3_BITRATES: &[u16] = &[64, 96, 128, 192, 256, 320];
+const ALLOWED_OPUS_BITRATES: &[u16] = &[32, 48, 64, 80, 96, 128, 160, 192];
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -55,6 +56,7 @@ pub struct RegenerateTtsHistoryRequest {
     pub llm_request_timeout_seconds: Option<u32>,
     pub output_format: Option<TtsOutputFormat>,
     pub mp3_bitrate_kbps: Option<u16>,
+    pub opus_bitrate_kbps: Option<u16>,
     /// Must be true only after showing the API-credit warning.
     pub confirmed_api_charge: bool,
 }
@@ -306,6 +308,22 @@ pub async fn regenerate_tts_history_entry_core(
         }
         settings.mp3_bitrate_kbps = bitrate;
     }
+    if let Some(bitrate) = request.opus_bitrate_kbps {
+        if output_format != TtsOutputFormat::Opus {
+            return Err("--bitrate is valid only for Opus output".to_string());
+        }
+        if !ALLOWED_OPUS_BITRATES.contains(&bitrate) {
+            return Err(format!(
+                "Unsupported Opus bitrate {bitrate}; use {} kb/s",
+                ALLOWED_OPUS_BITRATES
+                    .iter()
+                    .map(u16::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        settings.opus_bitrate_kbps = bitrate;
+    }
     if output_format == TtsOutputFormat::Mp3
         && !ALLOWED_MP3_BITRATES.contains(&settings.mp3_bitrate_kbps)
     {
@@ -313,6 +331,19 @@ pub async fn regenerate_tts_history_entry_core(
             "Saved MP3 bitrate {} is invalid; select one of {}",
             settings.mp3_bitrate_kbps,
             ALLOWED_MP3_BITRATES
+                .iter()
+                .map(u16::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if output_format == TtsOutputFormat::Opus
+        && !ALLOWED_OPUS_BITRATES.contains(&settings.opus_bitrate_kbps)
+    {
+        return Err(format!(
+            "Saved Opus bitrate {} is invalid; select one of {}",
+            settings.opus_bitrate_kbps,
+            ALLOWED_OPUS_BITRATES
                 .iter()
                 .map(u16::to_string)
                 .collect::<Vec<_>>()
@@ -622,6 +653,7 @@ fn prepare_regeneration_output(
     let output_format = requested_format.unwrap_or(source_format);
     let extension = match output_format {
         TtsOutputFormat::Mp3 => "mp3",
+        TtsOutputFormat::Opus => "opus",
         TtsOutputFormat::Wav => "wav",
     };
     let directory = crate::portable::app_cache_dir(app)
@@ -662,8 +694,9 @@ fn resolve_output_format(
         .as_deref()
     {
         Some("mp3") => TtsOutputFormat::Mp3,
+        Some("opus") => TtsOutputFormat::Opus,
         Some("wav") => TtsOutputFormat::Wav,
-        _ => return Err("Regeneration output must end in .mp3 or .wav".to_string()),
+        _ => return Err("Regeneration output must end in .mp3, .opus, or .wav".to_string()),
     };
     if let Some(requested) = requested {
         if requested != from_extension {
@@ -1101,6 +1134,10 @@ mod tests {
             resolve_output_format(Path::new("voice.mp3"), None).expect("infer MP3"),
             TtsOutputFormat::Mp3
         );
+        assert_eq!(
+            resolve_output_format(Path::new("voice.opus"), None).expect("infer Opus"),
+            TtsOutputFormat::Opus
+        );
         assert!(resolve_output_format(Path::new("voice.wav"), Some(TtsOutputFormat::Mp3)).is_err());
         assert!(resolve_output_format(Path::new("voice.flac"), None).is_err());
     }
@@ -1108,6 +1145,14 @@ mod tests {
     #[test]
     fn mp3_bitrate_allowlist_is_stable() {
         assert_eq!(ALLOWED_MP3_BITRATES, &[64, 96, 128, 192, 256, 320]);
+    }
+
+    #[test]
+    fn opus_bitrate_allowlist_is_stable() {
+        assert_eq!(
+            ALLOWED_OPUS_BITRATES,
+            &[32, 48, 64, 80, 96, 128, 160, 192]
+        );
     }
 
     #[test]

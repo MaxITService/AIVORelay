@@ -10,8 +10,8 @@ use crate::managers::tts::{
     is_tts_output_collision, normalize_deepgram_tts_speed, FileConversionResult,
     TextFileInspection, TtsBatchFilePlan, TtsBatchScanRequest, TtsBatchScanResult, TtsChunkReady,
     TtsManager, TtsOperationKind, TtsPhase, TtsState, TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES,
-    SONIOX_TTS_API_KEY_MAX_CHARS, SUPPORTED_MP3_BITRATES, TTS_EVENT_BATCH_PROGRESS,
-    TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
+    SONIOX_TTS_API_KEY_MAX_CHARS, SUPPORTED_MP3_BITRATES, SUPPORTED_OPUS_BITRATES,
+    TTS_EVENT_BATCH_PROGRESS, TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
 };
 use crate::managers::tts_history::{
     metadata_from_settings, NewTtsHistoryEntry, TtsHistoryManager, TtsHistoryScope,
@@ -330,6 +330,7 @@ pub struct ConvertTtsTextFileRequest {
     pub output_path: PathBuf,
     pub output_format: TtsOutputFormat,
     pub mp3_bitrate: u16,
+    pub opus_bitrate: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -342,6 +343,7 @@ pub struct ConvertTtsTextFileResponse {
     pub resumed_chunks: usize,
     pub output_format: TtsOutputFormat,
     pub mp3_bitrate_kbps: Option<u16>,
+    pub opus_bitrate_kbps: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -362,6 +364,7 @@ impl From<FileConversionResult> for ConvertTtsTextFileResponse {
             resumed_chunks: value.resumed_chunks,
             output_format: value.output_format,
             mp3_bitrate_kbps: value.mp3_bitrate_kbps,
+            opus_bitrate_kbps: value.opus_bitrate_kbps,
         }
     }
 }
@@ -372,6 +375,7 @@ pub struct ConvertTtsBatchRequest {
     pub client_id: String,
     pub scan: TtsBatchScanResult,
     pub mp3_bitrate: u16,
+    pub opus_bitrate: u16,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Type, PartialEq, Eq)]
@@ -1771,6 +1775,9 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     if !SUPPORTED_MP3_BITRATES.contains(&settings.mp3_bitrate_kbps) {
         settings.mp3_bitrate_kbps = 256;
     }
+    if !SUPPORTED_OPUS_BITRATES.contains(&settings.opus_bitrate_kbps) {
+        settings.opus_bitrate_kbps = 80;
+    }
     let mut prompt_names = std::collections::HashSet::new();
     let mut prompt_ids = std::collections::HashSet::new();
     settings.prompt_presets.retain(|preset| {
@@ -1838,7 +1845,6 @@ fn normalize_synthesis_config(
             config.model = nonempty_setting(std::mem::take(&mut config.model), "falcon-2");
             config.voice = normalize_murf_voice(&config.model, std::mem::take(&mut config.voice));
             config.language = nonempty_setting(std::mem::take(&mut config.language), "en-US");
-            config.key_source = crate::settings::TtsKeySource::Separate;
         }
         TtsProvider::ElevenLabs => {
             config.model = nonempty_setting(
@@ -1851,7 +1857,6 @@ fn normalize_synthesis_config(
             );
             config.language = nonempty_setting(std::mem::take(&mut config.language), "en")
                 .to_ascii_lowercase();
-            config.key_source = crate::settings::TtsKeySource::Separate;
         }
         TtsProvider::Cartesia => {
             config.model = nonempty_setting(std::mem::take(&mut config.model), "sonic-3.5");
@@ -1860,7 +1865,6 @@ fn normalize_synthesis_config(
                 DEFAULT_TTS_CARTESIA_VOICE,
             );
             config.language = nonempty_setting(std::mem::take(&mut config.language), "en");
-            config.key_source = crate::settings::TtsKeySource::Separate;
         }
         TtsProvider::Edge => {
             config.model = EDGE_TTS_MODEL.to_string();
@@ -1918,9 +1922,6 @@ fn normalize_synthesis_config(
     config.retry_base_delay_ms = config.retry_base_delay_ms.clamp(100, 30_000);
     config.inter_chunk_pause_ms = config.inter_chunk_pause_ms.min(5_000);
     config.paragraph_pause_ms = config.paragraph_pause_ms.min(10_000);
-    if !SUPPORTED_MP3_BITRATES.contains(&config.mp3_bitrate_kbps) {
-        config.mp3_bitrate_kbps = 256;
-    }
     if let Some(selected) = prompt_presets
         .iter()
         .find(|preset| preset.id == config.voice_prompt_preset_id)
@@ -2103,13 +2104,6 @@ fn is_tts_synthesis_field(field: &str) -> bool {
     matches!(
         field,
         "provider"
-            | "soniox_key_source"
-            | "deepgram_key_source"
-            | "openai_key_source"
-            | "openai_compatible_key_source"
-            | "murf_key_source"
-            | "elevenlabs_key_source"
-            | "cartesia_key_source"
             | "soniox_model"
             | "soniox_language"
             | "soniox_voice"
@@ -2160,8 +2154,7 @@ fn is_tts_synthesis_field(field: &str) -> bool {
             | "retry_base_delay_ms"
             | "inter_chunk_pause_ms"
             | "paragraph_pause_ms"
-            | "output_format"
-            | "mp3_bitrate_kbps"
+            | "voice_gallery_apply"
             | "synthesis_preset_load"
     )
 }
@@ -2648,6 +2641,11 @@ pub async fn convert_tts_text_file(
     } else {
         256
     };
+    settings.opus_bitrate_kbps = if SUPPORTED_OPUS_BITRATES.contains(&request.opus_bitrate) {
+        request.opus_bitrate
+    } else {
+        80
+    };
     let manager = app.state::<Arc<TtsManager>>().inner().clone();
     let history_source = if settings.file_history_enabled {
         Some(
@@ -2720,6 +2718,11 @@ pub async fn start_tts_file_job(
         request.mp3_bitrate
     } else {
         256
+    };
+    settings.opus_bitrate_kbps = if SUPPORTED_OPUS_BITRATES.contains(&request.opus_bitrate) {
+        request.opus_bitrate
+    } else {
+        80
     };
     let manager = app.state::<Arc<TtsManager>>().inner().clone();
     let (job_id, resolved) = manager
@@ -2963,6 +2966,11 @@ pub async fn convert_tts_batch(
         request.mp3_bitrate
     } else {
         256
+    };
+    settings.opus_bitrate_kbps = if SUPPORTED_OPUS_BITRATES.contains(&request.opus_bitrate) {
+        request.opus_bitrate
+    } else {
+        80
     };
     let mut files = Vec::with_capacity(total);
     emit_batch_progress(
@@ -3956,6 +3964,9 @@ mod tests {
         config.model = "gpt-4o-mini-tts".to_string();
         config.voice = "coral".to_string();
         config.speed = 1.1;
+        settings.openai_key_source = crate::settings::TtsKeySource::Separate;
+        settings.output_format = TtsOutputFormat::Opus;
+        settings.opus_bitrate_kbps = 96;
         settings
             .synthesis_presets
             .push(crate::settings::TtsSynthesisPreset {
@@ -3974,10 +3985,34 @@ mod tests {
         assert_eq!(file.provider, TtsProvider::OpenAi);
         assert_eq!(file.openai_voice, "coral");
         assert_eq!(file.speed, 1.1);
+        assert_eq!(
+            file.openai_key_source,
+            crate::settings::TtsKeySource::Separate
+        );
+        assert_eq!(file.output_format, TtsOutputFormat::Opus);
+        assert_eq!(file.opus_bitrate_kbps, 96);
     }
 
     #[test]
-    fn synthesis_profiles_exclude_llm_history_hotkey_and_path_settings() {
+    fn credentials_and_encoding_are_not_synthesis_customizations() {
+        for field in [
+            "soniox_key_source",
+            "deepgram_key_source",
+            "openai_key_source",
+            "openai_compatible_key_source",
+            "murf_key_source",
+            "elevenlabs_key_source",
+            "cartesia_key_source",
+            "output_format",
+            "mp3_bitrate_kbps",
+            "opus_bitrate_kbps",
+        ] {
+            assert!(!is_tts_synthesis_field(field), "unexpected {field}");
+        }
+    }
+
+    #[test]
+    fn synthesis_profiles_exclude_credentials_encoding_history_hotkeys_and_paths() {
         let mut settings = TtsSettings::default();
         settings.llm_preprocessing.file_enabled = true;
         settings.llm_preprocessing.file_selected_prompt_id = "cleanup".to_string();
@@ -3996,6 +4031,10 @@ mod tests {
             "watch_output_directory",
             "play_pause_hotkey",
             "api_key",
+            "key_source",
+            "output_format",
+            "mp3_bitrate_kbps",
+            "opus_bitrate_kbps",
         ] {
             assert!(
                 !serialized.get(forbidden).is_some(),
@@ -4007,6 +4046,37 @@ mod tests {
             serialized["target_chars"],
             serde_json::json!(settings.file_target_chars)
         );
+    }
+
+    #[test]
+    fn legacy_synthesis_configs_ignore_credentials_and_encoding_fields() {
+        let config = TtsSynthesisConfig::from_settings(
+            &TtsSettings::default(),
+            TtsOperationScope::Interactive,
+        );
+        let mut legacy = serde_json::to_value(config).expect("serialize synthesis config");
+        let fields = [
+            ("key_source", serde_json::json!("separate")),
+            ("output_format", serde_json::json!("opus")),
+            ("mp3_bitrate_kbps", serde_json::json!(192)),
+            ("opus_bitrate_kbps", serde_json::json!(80)),
+        ];
+        let object = legacy.as_object_mut().expect("synthesis config object");
+        for (field, value) in fields {
+            object.insert(field.to_string(), value);
+        }
+
+        let migrated: TtsSynthesisConfig =
+            serde_json::from_value(legacy).expect("read legacy synthesis config");
+        let rewritten = serde_json::to_value(migrated).expect("rewrite synthesis config");
+        for field in [
+            "key_source",
+            "output_format",
+            "mp3_bitrate_kbps",
+            "opus_bitrate_kbps",
+        ] {
+            assert!(rewritten.get(field).is_none(), "unexpected {field}");
+        }
     }
 
     #[test]

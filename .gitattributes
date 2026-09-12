@@ -94,6 +94,7 @@ Dockerfile text eol=lf
 
 # Audio/Video
 *.mp3 binary
+*.opus binary
 *.mp4 binary
 *.wav binary
 *.ogg binary

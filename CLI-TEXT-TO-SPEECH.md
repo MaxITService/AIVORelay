@@ -1,12 +1,13 @@
 # CLI Text-to-Speech File Conversion
 
-Use AivoRelay's saved **Text to Speech** configuration to create MP3 or WAV
+Use AivoRelay's saved **Text to Speech** configuration to create MP3, Opus, or WAV
 audio from a text or Markdown document.
 
 ## Basic commands
 
 ```powershell
 AivoRelay.exe --convert-file .\chapter.md --output .\chapter.mp3
+AivoRelay.exe --convert-file .\chapter.md --output .\chapter.opus --tts-bitrate 80
 AivoRelay.exe --convert-file .\notes.txt --output .\notes.wav
 AivoRelay.exe --convert-file .\chapter.md --output .\windows.wav --tts-provider windows
 AivoRelay.exe --convert-file .\chapter.md --output .\edge.mp3 --tts-provider edge --tts-voice en-US-AriaNeural
@@ -19,7 +20,8 @@ AivoRelay.exe --convert-file .\chapter.md --output .\kokoro.mp3 --tts-provider l
 
 `.md` and `.txt` are first-class inputs. Markdown is converted to readable
 text before TTS-only preprocessing, semantic chunking, retry, and synthesis.
-The output extension selects MP3 or WAV. If `--output` is omitted, the saved
+The output extension selects MP3, Opus, or WAV. `.opus` is a standard Ogg
+container carrying Opus audio. If `--output` is omitted, the saved
 TTS output format is used beside the input file.
 
 The CLI starts from the active provider/model profile in **Text file to mp3**
@@ -64,8 +66,8 @@ AivoRelay.exe --convert-file .\chapter.md --output .\chapter.mp3 `
 | `--tts-elevenlabs-text-normalization` | `auto`, `on`, or `off` |
 | `--tts-cartesia-emotion` | Cartesia emotion, or `none` to clear it |
 | `--tts-cartesia-volume` | Cartesia Sonic 3.5 generation volume from `0.5` to `2.0` |
-| `--tts-format` | `mp3` or `wav`; with `--output`, it must match the extension |
-| `--tts-bitrate` | MP3 only: `64`, `96`, `128`, `192`, `256`, or `320` kb/s |
+| `--tts-format` | `mp3`, `opus`, or `wav`; with `--output`, it must match the extension |
+| `--tts-bitrate` | MP3: `64`, `96`, `128`, `192`, `256`, or `320`; Opus: `32`, `48`, `64`, `80`, `96`, `128`, `160`, or `192` kb/s |
 | `--tts-chunk-chars` | `50` through the selected provider's hard character limit |
 | `--tts-retries` | `0–10` retries after the first attempt |
 | `--tts-retry-delay-ms` | `100–30000` ms initial exponential retry delay |
@@ -263,15 +265,15 @@ output path automatically recovers compatible chunks instead of paying to
 synthesize them again. The terminal and `--json` result report
 `resumed_chunks`. Changing the source text, provider, active model/voice,
 voice instructions, effective provider-specific voice controls, speed, chunk plan, or pauses starts safely from zero;
-retry count, API-key source, disk/history limits, final MP3 bitrate, and
-MP3/WAV selection do not invalidate compatible PCM.
+retry count, API-key source, disk/history limits, final MP3/Opus bitrate, and
+MP3/Opus/WAV selection do not invalidate compatible PCM.
 
 Ordinary conversions keep a resume sidecar workspace beside the requested
 output so temporary PCM stays on the destination disk. Managed-only History
 regeneration uses an app-cache workspace with a stable History-entry key.
 Explicit **Cancel** deletes the checkpoint; runtime/provider failures retain
 it. Managed-only regeneration also retains complete resumable PCM until the
-new History row and managed audio copy are safely stored. A final MP3/WAV is
+new History row and managed audio copy are safely stored. A final MP3/Opus/WAV is
 still encoded from the complete verified PCM and published atomically—an
 incomplete file is never presented as finished.
 
@@ -315,8 +317,8 @@ profile and warns that synthesis may be slower than real time.
 
 After installation, select **Qwen3-TTS (Local)** on the Text to Speech page.
 Normal `--convert-file`, folder automation, History, and regeneration commands
-then use the same preprocessing, semantic chunking, retry, resume, WAV, and
-MP3/256 kb/s pipeline as cloud providers. CLI conversion never starts an
+then use the same preprocessing, semantic chunking, retry, resume, WAV, MP3,
+and Opus pipeline as cloud providers. CLI conversion never starts an
 implicit model download: a missing/incomplete installation returns an
 actionable error.
 
@@ -371,7 +373,7 @@ Exporting copies retained audio and does **not** make an API request:
 AivoRelay.exe tts-history export 42 --output .\retained-copy.mp3
 ```
 
-The output extension must match the retained MP3/WAV format. Existing files
+The output extension must match the retained MP3/Opus/WAV format. Existing files
 are never overwritten.
 
 ### Regenerate a comparison variant
@@ -400,6 +402,10 @@ AivoRelay.exe tts-history regenerate 42 --output .\variant.wav `
 AivoRelay.exe tts-history regenerate 42 --output .\variant.mp3 `
   --format mp3 --bitrate 256 --yes
 
+# Opus VBR target
+AivoRelay.exe tts-history regenerate 42 --output .\variant.opus `
+  --format opus --bitrate 80 --yes
+
 # Re-run through a different AI cleanup model and saved scope-specific prompt
 AivoRelay.exe tts-history regenerate 42 `
   --tts-llm-preprocessing true `
@@ -409,8 +415,9 @@ AivoRelay.exe tts-history regenerate 42 `
 
 `--output` is optional for regeneration. Without it, AivoRelay stores only the
 new managed History result; the default is MP3 at 256 kb/s. `--format wav`
-selects managed WAV instead, and `--format mp3 --bitrate N` overrides the
-managed MP3 bitrate. With `--output`, the output extension determines the
+selects managed WAV instead. `--format mp3 --bitrate N` overrides the managed
+MP3 bitrate; `--format opus --bitrate N` selects Ogg Opus and its VBR target.
+With `--output`, the output extension determines the
 format and must match any explicit `--format`. Managed-only regeneration also
 recovers verified chunks after a failed process and reports
 `resumed_chunks`.
@@ -424,8 +431,9 @@ the recorded language together with the provider, model, and voice identity.
 Windows voices require no model download or API key. AivoRelay does not
 redistribute them, and usage/licensing rights depend on the installed voice
 and its provider terms.
-Supported formats are `mp3` and `wav`; MP3 bitrates are `64`, `96`, `128`,
-`192`, `256`, and `320` kb/s. Provider credentials, retry, chunking,
+Supported formats are `mp3`, `opus`, and `wav`. MP3 bitrates are `64`, `96`,
+`128`, `192`, `256`, and `320` kb/s; Opus bitrates are `32`, `48`, `64`, `80`,
+`96`, `128`, `160`, and `192` kb/s. Provider credentials, retry, chunking,
 preprocessing, speed, and other behavior still come from the saved Text to
 Speech settings. `local-qwen` and `local-kokoro` require a completed explicit
 `tts-local --engine ... install`. Local speech regeneration does not itself

@@ -1,4 +1,6 @@
 fn main() {
+    build_xiph_opus();
+
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     build_apple_intelligence_bridge();
 
@@ -10,6 +12,94 @@ fn main() {
     let build_attributes = configure_windows_manifest();
 
     tauri_build::try_build(build_attributes).expect("failed to run Tauri build script")
+}
+
+/// Verify, unpack, and statically build the exact official Xiph libopus release.
+///
+/// The archive is intentionally vendored so normal and release builds never
+/// download executable code or depend on a system-installed Opus library.
+fn build_xiph_opus() {
+    use sha2::{Digest, Sha256};
+    use std::fs;
+    use std::path::PathBuf;
+
+    const ARCHIVE_SHA256: &str = "65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1";
+
+    let manifest_dir =
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"));
+    let archive_path = manifest_dir.join("vendor/xiph/opus-1.5.2.tar.gz");
+    println!("cargo:rerun-if-changed={}", archive_path.display());
+
+    let archive_bytes = fs::read(&archive_path)
+        .unwrap_or_else(|error| panic!("read {}: {error}", archive_path.display()));
+    let actual_sha256 = format!("{:x}", Sha256::digest(&archive_bytes));
+    assert_eq!(
+        actual_sha256,
+        ARCHIVE_SHA256,
+        "{} does not match the official Xiph libopus 1.5.2 SHA-256",
+        archive_path.display()
+    );
+
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR not set"));
+    let source_parent = out_dir.join("xiph-opus-source");
+    let stamp_path = source_parent.join(".archive-sha256");
+    let stamp_matches = fs::read_to_string(&stamp_path)
+        .map(|stamp| stamp == ARCHIVE_SHA256)
+        .unwrap_or(false);
+
+    if !stamp_matches {
+        if source_parent.exists() {
+            fs::remove_dir_all(&source_parent)
+                .unwrap_or_else(|error| panic!("remove {}: {error}", source_parent.display()));
+        }
+        fs::create_dir_all(&source_parent)
+            .unwrap_or_else(|error| panic!("create {}: {error}", source_parent.display()));
+
+        let decoder = flate2::read::GzDecoder::new(archive_bytes.as_slice());
+        let mut archive = tar::Archive::new(decoder);
+        archive
+            .unpack(&source_parent)
+            .unwrap_or_else(|error| panic!("extract {}: {error}", archive_path.display()));
+        fs::write(&stamp_path, ARCHIVE_SHA256)
+            .unwrap_or_else(|error| panic!("write {}: {error}", stamp_path.display()));
+    }
+
+    let source_dir = source_parent.join("opus-1.5.2");
+    if !source_dir.join("CMakeLists.txt").is_file() {
+        panic!(
+            "{} is missing after extracting the verified libopus archive",
+            source_dir.display()
+        );
+    }
+
+    let mut config = cmake::Config::new(&source_dir);
+    config
+        // Rust's MSVC targets use the release CRT in every Cargo profile.
+        // Building this codec as CMake Debug would pull in MSVCRTD and fail to
+        // link test/dev executables; optimized codec code is preferable there too.
+        .profile("Release")
+        .define("BUILD_SHARED_LIBS", "OFF")
+        .define("BUILD_TESTING", "OFF")
+        .define("CMAKE_INSTALL_LIBDIR", "lib")
+        .define("OPUS_BUILD_PROGRAMS", "OFF")
+        .define("OPUS_BUILD_SHARED_LIBRARY", "OFF")
+        .define("OPUS_BUILD_TESTING", "OFF")
+        .define("OPUS_INSTALL_CMAKE_CONFIG_MODULE", "OFF")
+        .define("OPUS_INSTALL_PKG_CONFIG_MODULE", "OFF");
+
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        config.define("OPUS_STATIC_RUNTIME", "OFF");
+    }
+
+    let install_dir = config.build();
+    println!(
+        "cargo:rustc-link-search=native={}",
+        install_dir.join("lib").display()
+    );
+    println!("cargo:rustc-link-lib=static=opus");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        println!("cargo:rustc-link-lib=m");
+    }
 }
 
 /// Embed one Common Controls v6 manifest in every Windows executable target.

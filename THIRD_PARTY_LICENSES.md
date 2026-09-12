@@ -198,6 +198,34 @@ The applicable license texts are shipped in:
 
 ---
 
+## Xiph libopus and RustAudio ogg
+
+**Components and versions:**
+
+- Xiph libopus 1.5.2
+- RustAudio `ogg` 0.9.2
+
+**Licenses:** BSD 3-Clause License. The Xiph notice also identifies the
+royalty-free Opus patent grants.
+
+**Sources:**
+
+- https://github.com/xiph/opus/releases/tag/v1.5.2
+- https://github.com/RustAudio/ogg
+
+The unmodified official libopus release archive is vendored and statically
+linked for provider-independent Opus encoding. Its SHA-256 digest is verified
+before every extraction or build. The RustAudio crate supplies Ogg container
+framing. `.opus` output requires no external FFmpeg executable, system codec,
+or runtime Opus DLL.
+
+The applicable license and patent notices are shipped in:
+
+- `src-tauri/resources/licenses/XIPH-OPUS-BSD-3-CLAUSE.txt`
+- `src-tauri/resources/licenses/RUSTAUDIO-OGG-BSD-3-CLAUSE.txt`
+
+---
+
 ## pulldown-cmark
 
 **Copyright:** pulldown-cmark contributors

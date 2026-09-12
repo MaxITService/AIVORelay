@@ -33,6 +33,7 @@ const EXIT_OUTPUT_COLLISION: i32 = 5;
 const EXIT_RETAINED_AUDIO_MISSING: i32 = 6;
 const EXIT_PARTIAL: i32 = 7;
 const ALLOWED_MP3_BITRATES: &[u16] = &[64, 96, 128, 192, 256, 320];
+const ALLOWED_OPUS_BITRATES: &[u16] = &[32, 48, 64, 80, 96, 128, 160, 192];
 const TTS_LLM_INSTRUCTIONS_MAX_CHARS: usize = 32_768;
 const UTF8_BOM_BYTES: usize = 3;
 const UTF8_MAX_BYTES_PER_CHAR: usize = 4;
@@ -476,18 +477,22 @@ fn regenerate_history(
         (None, requested_format.unwrap_or(TtsOutputFormat::Mp3))
     };
     if let Some(bitrate) = options.bitrate {
-        if output_format != TtsOutputFormat::Mp3 {
-            return Err(CliFailure::new(
-                EXIT_USAGE,
-                "--bitrate is valid only for MP3 regeneration",
-            ));
-        }
-        if !ALLOWED_MP3_BITRATES.contains(&bitrate) {
+        let (format_name, allowed) = match output_format {
+            TtsOutputFormat::Mp3 => ("MP3", ALLOWED_MP3_BITRATES),
+            TtsOutputFormat::Opus => ("Opus", ALLOWED_OPUS_BITRATES),
+            TtsOutputFormat::Wav => {
+                return Err(CliFailure::new(
+                    EXIT_USAGE,
+                    "--bitrate is valid only for MP3 or Opus regeneration",
+                ));
+            }
+        };
+        if !allowed.contains(&bitrate) {
             return Err(CliFailure::new(
                 EXIT_USAGE,
                 format!(
-                    "Unsupported MP3 bitrate {bitrate}; use {} kb/s",
-                    ALLOWED_MP3_BITRATES
+                    "Unsupported {format_name} bitrate {bitrate}; use {} kb/s",
+                    allowed
                         .iter()
                         .map(u16::to_string)
                         .collect::<Vec<_>>()
@@ -631,7 +636,12 @@ fn regenerate_history(
         output_format: Some(output_format),
         mp3_bitrate_kbps: options
             .bitrate
+            .filter(|_| output_format == TtsOutputFormat::Mp3)
             .or((output.is_none() && output_format == TtsOutputFormat::Mp3).then_some(256)),
+        opus_bitrate_kbps: options
+            .bitrate
+            .filter(|_| output_format == TtsOutputFormat::Opus)
+            .or((output.is_none() && output_format == TtsOutputFormat::Opus).then_some(80)),
         confirmed_api_charge: true,
     };
     let tts = app.state::<Arc<TtsManager>>().inner().clone();
@@ -1027,10 +1037,12 @@ fn is_regeneration_usage_error(message: &str) -> bool {
         "Regeneration output must end",
         "Requested output format does not match",
         "Saved MP3 bitrate",
+        "Saved Opus bitrate",
         "Specify a TTS prompt preset",
         "TTS instruction prompts require",
         "Unknown TTS prompt preset",
         "Unsupported MP3 bitrate",
+        "Unsupported Opus bitrate",
     ]
     .iter()
     .any(|prefix| message.starts_with(prefix))
@@ -1044,10 +1056,11 @@ fn format_from_audio_path(path: &Path) -> Result<TtsOutputFormat, CliFailure> {
         .as_deref()
     {
         Some("mp3") => Ok(TtsOutputFormat::Mp3),
+        Some("opus") => Ok(TtsOutputFormat::Opus),
         Some("wav") => Ok(TtsOutputFormat::Wav),
         _ => Err(CliFailure::new(
             EXIT_USAGE,
-            "Output path must end in .mp3 or .wav",
+            "Output path must end in .mp3, .opus, or .wav",
         )),
     }
 }
@@ -1071,6 +1084,7 @@ fn cli_provider(provider: CliTtsProvider) -> TtsProvider {
 fn cli_output_format(format: CliTtsOutputFormat) -> TtsOutputFormat {
     match format {
         CliTtsOutputFormat::Mp3 => TtsOutputFormat::Mp3,
+        CliTtsOutputFormat::Opus => TtsOutputFormat::Opus,
         CliTtsOutputFormat::Wav => TtsOutputFormat::Wav,
     }
 }
@@ -1078,6 +1092,7 @@ fn cli_output_format(format: CliTtsOutputFormat) -> TtsOutputFormat {
 fn output_format_name(format: TtsOutputFormat) -> &'static str {
     match format {
         TtsOutputFormat::Mp3 => "MP3",
+        TtsOutputFormat::Opus => "Opus",
         TtsOutputFormat::Wav => "WAV",
     }
 }
