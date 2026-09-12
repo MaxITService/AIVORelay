@@ -29,6 +29,31 @@ const CHROME_EXTENSION_ORIGIN_PREFIX: &str = "chrome-extension://";
 const EXTENSION_PASSWORD_FILES: &[&str] = &["popup.js", "sw-config.js"];
 const EXTENSION_SETTINGS_FILES: &[&str] = &["popup.js", "sw-config.js"];
 const STAGING_FOLDER_NAME: &str = "connector-export-staging";
+static EXPORT_MUTATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+struct ExportStagingDirectory(PathBuf);
+
+impl ExportStagingDirectory {
+    fn create(parent: &Path) -> Result<Self, String> {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create export staging directory: {}", e))?;
+        let path = parent.join(generate_random_hex_token(8)?);
+        // Only clean up a directory that this invocation created itself.
+        fs::create_dir(&path)
+            .map_err(|e| format!("Failed to create staging export folder: {}", e))?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for ExportStagingDirectory {
+    fn drop(&mut self) {
+        if let Err(error) = fs::remove_dir_all(&self.0) {
+            if error.kind() != io::ErrorKind::NotFound {
+                log::warn!("Failed to clean extension export staging {}: {}", self.0.display(), error);
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -409,11 +434,26 @@ pub fn connector_cancel_message(
 /// Export the bundled browser connector extension zip into a folder selected by the user.
 #[tauri::command]
 #[specta::specta]
-pub fn connector_export_bundled_extension(
+pub async fn connector_export_bundled_extension(
     app: AppHandle,
     destination_dir: String,
     generate_new_id: bool,
 ) -> Result<BundledExtensionExportResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        export_bundled_extension_blocking(app, destination_dir, generate_new_id)
+    })
+    .await
+    .map_err(|error| format!("Extension export task failed: {}", error))?
+}
+
+fn export_bundled_extension_blocking(
+    app: AppHandle,
+    destination_dir: String,
+    generate_new_id: bool,
+) -> Result<BundledExtensionExportResult, String> {
+    // Two exports must not move or restore each other's destination folders.
+    let _export = EXPORT_MUTATION.lock()
+        .map_err(|_| "Extension export lock is unavailable".to_string())?;
     let trimmed_destination = destination_dir.trim();
     if trimmed_destination.is_empty() {
         return Err("Destination folder is required".to_string());
@@ -444,11 +484,8 @@ pub fn connector_export_bundled_extension(
             e
         )
     })?;
-    let staging_root = app_data_dir
-        .join(STAGING_FOLDER_NAME)
-        .join(generate_random_hex_token(8)?);
-    fs::create_dir_all(&staging_root)
-        .map_err(|e| format!("Failed to create staging export folder: {}", e))?;
+    let staging_directory = ExportStagingDirectory::create(&app_data_dir.join(STAGING_FOLDER_NAME))?;
+    let staging_root = &staging_directory.0;
 
     unzip_to_directory(&mut archive, &staging_root)?;
 
@@ -510,7 +547,6 @@ pub fn connector_export_bundled_extension(
 
     let copy_result = copy_directory_recursive(&staging_root, &export_dir);
     if let Err(err) = copy_result {
-        let _ = fs::remove_dir_all(&staging_root);
         if let Err(restore_err) =
             restore_exported_extension_backup(&export_dir, backup_dir.as_deref())
         {
@@ -526,7 +562,6 @@ pub fn connector_export_bundled_extension(
         &manifest_key,
         &connector_password,
     ) {
-        let _ = fs::remove_dir_all(&staging_root);
         if let Err(restore_err) =
             restore_exported_extension_backup(&export_dir, backup_dir.as_deref())
         {
@@ -545,7 +580,7 @@ pub fn connector_export_bundled_extension(
         }
     }
 
-    let _ = fs::remove_dir_all(&staging_root);
+    drop(staging_directory);
 
     if let Err(error) = app
         .opener()
@@ -609,6 +644,22 @@ mod tests {
             writer.write_all(contents).unwrap();
         }
         ZipArchive::new(writer.finish().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn failed_export_cleans_staging_without_removing_sibling_exports() {
+        let root = TestDirectory::new("staging-cleanup");
+        let sibling = root.path().join("existing-export");
+        fs::create_dir(&sibling).unwrap();
+        let staged_path;
+        {
+            let staging = ExportStagingDirectory::create(root.path()).unwrap();
+            staged_path = staging.0.clone();
+            fs::write(staging.0.join("sw-config.js"), "temporary connection password").unwrap();
+            // Early error unwinds the same guard before returning to the caller.
+        }
+        assert!(!staged_path.exists());
+        assert!(sibling.is_dir());
     }
 
     #[test]
