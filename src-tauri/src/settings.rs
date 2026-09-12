@@ -7471,6 +7471,31 @@ pub fn record_dictation_stats_for_text(app: &AppHandle, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repair_backups_preserve_each_original_byte_sequence_without_overwriting() {
+        let directory = std::env::temp_dir().join(format!(
+            "aivorelay-settings-backup-{}-{}", std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        fs::create_dir(&directory).unwrap();
+        let store = directory.join(SETTINGS_STORE_PATH);
+        fs::write(&store, b"current store must remain unchanged").unwrap();
+        let first = b"{malformed original\xff";
+        let second = b"{different malformed original\0";
+        backup_settings_bytes(&store, first, "malformed");
+        backup_settings_bytes(&store, second, "malformed");
+        let backups: Vec<_> = fs::read_dir(&directory).unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "bak"))
+            .map(|path| fs::read(path).unwrap())
+            .collect();
+        assert_eq!(backups.len(), 2);
+        assert!(backups.iter().any(|bytes| bytes == first));
+        assert!(backups.iter().any(|bytes| bytes == second));
+        assert_eq!(fs::read(&store).unwrap(), b"current store must remain unchanged");
+        fs::remove_dir_all(directory).unwrap();
+    }
     use serde_json::json;
 
     fn test_text_replacement(

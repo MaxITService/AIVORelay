@@ -2544,6 +2544,37 @@ impl ModelManager {
 #[cfg(test)]
 mod tests {
     use super::{effective_language, HfDownloadProgressState, ModelManager};
+
+    #[test]
+    fn extraction_cancellation_is_terminal_instead_of_retryable_interruption() {
+        use std::io::Read;
+        let token = tokio_util::sync::CancellationToken::new();
+        let mut reader = super::CancellationAwareReader {
+            inner: std::io::Cursor::new(b"archive bytes"),
+            cancel_token: token.clone(),
+        };
+        let mut prefix = [0; 3];
+        reader.read_exact(&mut prefix).unwrap();
+        assert_eq!(&prefix, b"arc");
+        token.cancel();
+        // Inspect one read rather than calling io::copy: the old Interrupted
+        // error would make copy retry forever and hang the regression test.
+        let error = reader.read(&mut prefix).unwrap_err();
+        assert_ne!(error.kind(), std::io::ErrorKind::Interrupted);
+        assert!(error.to_string().contains("cancelled"));
+    }
+
+    #[test]
+    fn extraction_reader_preserves_archive_bytes_without_cancellation() {
+        let expected = b"archive bytes\0with binary data";
+        let mut reader = super::CancellationAwareReader {
+            inner: std::io::Cursor::new(expected),
+            cancel_token: tokio_util::sync::CancellationToken::new(),
+        };
+        let mut output = Vec::new();
+        assert_eq!(std::io::copy(&mut reader, &mut output).unwrap(), expected.len() as u64);
+        assert_eq!(output, expected);
+    }
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
