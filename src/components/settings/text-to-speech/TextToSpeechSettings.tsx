@@ -38,6 +38,11 @@ import { TtsBetaBanner } from "./TtsBetaBanner";
 import { TtsHelpDisclosure } from "./TtsHelpDisclosure";
 import { TtsHistory } from "./TtsHistory";
 import { TtsUnfinishedJobs } from "./TtsUnfinishedJobs";
+import {
+  TtsVoiceGallery,
+  synthesisConfigForGalleryVoice,
+  type TtsVoiceGalleryEntry,
+} from "./TtsVoiceGallery";
 import { CommittedNumberInput } from "./CommittedNumberInput";
 import {
   DEFAULT_TTS_LLM_PREPROCESSING,
@@ -76,7 +81,7 @@ import {
 
 type LocalTtsKind = "qwen" | "kokoro";
 type TtsKeySource = "shared" | "separate";
-type TtsOutputFormat = "mp3" | "wav";
+type TtsOutputFormat = "mp3" | "opus" | "wav";
 type TtsPlaybackEffect = "none" | "radio" | "retro";
 type TtsOperationScope = "interactive" | "file";
 type ElevenLabsTextNormalization = "auto" | "on" | "off";
@@ -115,7 +120,6 @@ type TtsSynthesisConfig = {
   model: string;
   voice: string;
   language: string;
-  key_source: TtsKeySource;
   openai_compatible_base_url?: string;
   openai_compatible_allow_insecure_http?: boolean;
   speed: number;
@@ -139,8 +143,6 @@ type TtsSynthesisConfig = {
   retry_base_delay_ms: number;
   inter_chunk_pause_ms: number;
   paragraph_pause_ms: number;
-  output_format: TtsOutputFormat;
-  mp3_bitrate_kbps: number;
 };
 
 type TtsModelSynthesisSettings = {
@@ -244,6 +246,7 @@ type TtsSettings = {
   playback_effect: TtsPlaybackEffect;
   output_format: TtsOutputFormat;
   mp3_bitrate_kbps: number;
+  opus_bitrate_kbps: number;
   watch_folder_enabled: boolean;
   watch_recursive: boolean;
   watch_input_directory: string;
@@ -445,6 +448,7 @@ const DEFAULT_TTS_SETTINGS: TtsSettings = {
   playback_effect: "none",
   output_format: "mp3",
   mp3_bitrate_kbps: 256,
+  opus_bitrate_kbps: 80,
   watch_folder_enabled: false,
   watch_recursive: false,
   watch_input_directory: "",
@@ -1061,7 +1065,8 @@ const CloudVoiceSelector: React.FC<CloudVoiceSelectorProps> = ({
   );
 };
 
-const BITRATES = [64, 96, 128, 192, 256, 320];
+const MP3_BITRATES = [64, 96, 128, 192, 256, 320];
+const OPUS_BITRATES = [32, 48, 64, 80, 96, 128, 160, 192];
 const SETTINGS_EDIT_DEBOUNCE_MS = 250;
 const COALESCED_TTS_FIELDS = new Set([
   "soniox_model",
@@ -1122,12 +1127,6 @@ const COALESCED_TTS_LLM_FIELDS = new Set([
 ]);
 const TTS_SYNTHESIS_CUSTOMIZATION_FIELDS = new Set([
   "provider",
-  "soniox_key_source",
-  "deepgram_key_source",
-  "openai_key_source",
-  "murf_key_source",
-  "elevenlabs_key_source",
-  "cartesia_key_source",
   "soniox_model",
   "soniox_language",
   "soniox_voice",
@@ -1174,8 +1173,7 @@ const TTS_SYNTHESIS_CUSTOMIZATION_FIELDS = new Set([
   "retry_base_delay_ms",
   "inter_chunk_pause_ms",
   "paragraph_pause_ms",
-  "output_format",
-  "mp3_bitrate_kbps",
+  "voice_gallery_apply",
 ]);
 
 const asErrorMessage = (error: unknown) =>
@@ -1421,45 +1419,11 @@ const synthesisConfigFromSettings = (
       assertNever(settings.provider);
   }
 
-  let keySource: TtsKeySource;
-  switch (settings.provider) {
-    case "soniox":
-      keySource = settings.soniox_key_source;
-      break;
-    case "deepgram":
-      keySource = settings.deepgram_key_source;
-      break;
-    case "openai":
-      keySource = settings.openai_key_source;
-      break;
-    case "openai_compatible":
-      keySource = settings.openai_compatible_key_source;
-      break;
-    case "murf":
-      keySource = settings.murf_key_source;
-      break;
-    case "elevenlabs":
-      keySource = settings.elevenlabs_key_source;
-      break;
-    case "cartesia":
-      keySource = settings.cartesia_key_source;
-      break;
-    case "edge":
-    case "local_qwen":
-    case "local_kokoro":
-    case "windows":
-      keySource = "shared";
-      break;
-    default:
-      assertNever(settings.provider);
-  }
-
   return {
     provider: settings.provider,
     model,
     voice,
     language,
-    key_source: keySource,
     openai_compatible_base_url: settings.openai_compatible_base_url,
     openai_compatible_allow_insecure_http:
       settings.openai_compatible_allow_insecure_http,
@@ -1488,8 +1452,6 @@ const synthesisConfigFromSettings = (
     retry_base_delay_ms: settings.retry_base_delay_ms,
     inter_chunk_pause_ms: settings.inter_chunk_pause_ms,
     paragraph_pause_ms: settings.paragraph_pause_ms,
-    output_format: settings.output_format,
-    mp3_bitrate_kbps: settings.mp3_bitrate_kbps,
   };
 };
 
@@ -1514,8 +1476,6 @@ const applySynthesisConfig = (
     retry_base_delay_ms: config.retry_base_delay_ms,
     inter_chunk_pause_ms: config.inter_chunk_pause_ms,
     paragraph_pause_ms: config.paragraph_pause_ms,
-    output_format: config.output_format,
-    mp3_bitrate_kbps: config.mp3_bitrate_kbps,
     ...(mode === "files"
       ? { file_target_chars: config.target_chars }
       : { interactive_target_chars: config.target_chars }),
@@ -1526,21 +1486,17 @@ const applySynthesisConfig = (
       next.soniox_model = config.model;
       next.soniox_voice = config.voice;
       next.soniox_language = config.language;
-      next.soniox_key_source = config.key_source ?? "separate";
       break;
     case "deepgram":
       next.deepgram_model = config.model;
-      next.deepgram_key_source = config.key_source ?? "separate";
       break;
     case "openai":
       next.openai_model = config.model;
       next.openai_voice = config.voice;
-      next.openai_key_source = config.key_source ?? "separate";
       break;
     case "openai_compatible":
       next.openai_compatible_model = config.model;
       next.openai_compatible_voice = config.voice;
-      next.openai_compatible_key_source = config.key_source ?? "separate";
       if (config.openai_compatible_base_url !== undefined) {
         next.openai_compatible_base_url = config.openai_compatible_base_url;
       }
@@ -1553,7 +1509,6 @@ const applySynthesisConfig = (
       next.murf_model = config.model;
       next.murf_voice = config.voice;
       next.murf_language = config.language;
-      next.murf_key_source = "separate";
       next.murf_rate = config.murf_rate;
       next.murf_pitch = config.murf_pitch;
       next.murf_variation = config.murf_variation;
@@ -1563,7 +1518,6 @@ const applySynthesisConfig = (
       next.elevenlabs_model = config.model;
       next.elevenlabs_voice = config.voice;
       next.elevenlabs_language = config.language;
-      next.elevenlabs_key_source = "separate";
       next.elevenlabs_stability = config.elevenlabs_stability;
       next.elevenlabs_similarity_boost = config.elevenlabs_similarity_boost;
       next.elevenlabs_style = config.elevenlabs_style;
@@ -1575,7 +1529,6 @@ const applySynthesisConfig = (
       next.cartesia_model = config.model;
       next.cartesia_voice = config.voice;
       next.cartesia_language = config.language;
-      next.cartesia_key_source = "separate";
       next.cartesia_emotion = config.cartesia_emotion;
       next.cartesia_volume = config.cartesia_volume;
       break;
@@ -1783,6 +1736,10 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
 
   const [savingField, setSavingField] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [galleryApplyingId, setGalleryApplyingId] = useState<string | null>(
+    null,
+  );
+  const [galleryAppliedId, setGalleryAppliedId] = useState<string | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] =
     useState<TtsDeleteConfirmation | null>(null);
   const [showFirstVisitNotice, setShowFirstVisitNotice] = useState(() =>
@@ -1865,6 +1822,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const [inspecting, setInspecting] = useState(false);
   const [outputFormat, setOutputFormat] = useState<TtsOutputFormat>("mp3");
   const [mp3Bitrate, setMp3Bitrate] = useState(256);
+  const [opusBitrate, setOpusBitrate] = useState(80);
   const [conversionBusy, setConversionBusy] = useState(false);
   const [conversionStopping, setConversionStopping] = useState(false);
   const [conversionProgress, setConversionProgress] =
@@ -2321,7 +2279,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   }, [activeLocalKind, refreshLocalTtsStatus]);
 
   const updateTts = useCallback(
-    async (patch: Partial<TtsSettings>, field: string) => {
+    async (
+      patch: Partial<TtsSettings>,
+      field: string,
+      options: { propagateError?: boolean } = {},
+    ) => {
       const writeGeneration = ++settingsWriteGenerationRef.current;
       const nextSettings: TtsSettings = { ...ttsRef.current, ...patch };
       if (TTS_SYNTHESIS_CUSTOMIZATION_FIELDS.has(field)) {
@@ -2403,9 +2365,43 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         if (settingsWriteGenerationRef.current === writeGeneration) {
           setSettingsError(asErrorMessage(error));
         }
+        if (options.propagateError) throw error;
       }
     },
     [invalidateInspection, mode, refreshSettings],
+  );
+
+  const applyGalleryVoice = useCallback(
+    async (entry: TtsVoiceGalleryEntry) => {
+      if (pendingSettingsWritesRef.current !== 0) return;
+      setGalleryApplyingId(entry.id);
+      setGalleryAppliedId(null);
+      const current = ttsRef.current;
+      const scopeKey = scopeSettingsKey(mode);
+      const config: TtsSynthesisConfig = synthesisConfigForGalleryVoice(
+        entry,
+        synthesisConfigFromSettings(current, mode),
+        current[scopeKey].models.map((model) => model.config),
+      );
+      const applied = applySynthesisConfig(current, config, mode);
+      try {
+        await updateTts(
+          {
+            ...applied,
+            [scopeKey]: upsertScopeConfig(current[scopeKey], config, ""),
+          },
+          "voice_gallery_apply",
+          { propagateError: true },
+        );
+        setGalleryAppliedId(entry.id);
+        invalidateInspection();
+      } catch {
+        // updateTts already exposes the persistence error in the settings UI.
+      } finally {
+        setGalleryApplyingId(null);
+      }
+    },
+    [invalidateInspection, mode, updateTts],
   );
 
   const updateTtsLlmPreprocessing = useCallback(
@@ -2965,8 +2961,6 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       },
       "synthesis_preset_load",
     );
-    setOutputFormat(config.output_format);
-    setMp3Bitrate(config.mp3_bitrate_kbps);
     invalidateInspection();
   };
 
@@ -3041,9 +3035,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         llmChunkTargetChars: tts.llm_preprocessing.chunk_target_chars,
         outputFormat,
         mp3Bitrate,
+        opusBitrate,
       }),
     [
       mp3Bitrate,
+      opusBitrate,
       outputFormat,
       tts.deepgram_key_source,
       tts.deepgram_model,
@@ -3143,7 +3139,9 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           name:
             outputFormat === "mp3"
               ? t("textToSpeech.conversion.mp3Audio")
-              : t("textToSpeech.conversion.wavAudio"),
+              : outputFormat === "opus"
+                ? t("textToSpeech.conversion.opusAudio")
+                : t("textToSpeech.conversion.wavAudio"),
           extensions: [outputFormat],
         },
       ],
@@ -3193,6 +3191,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           outputPath,
           outputFormat,
           mp3Bitrate,
+          opusBitrate,
         },
       });
       const conversion = result.conversion;
@@ -3312,7 +3311,8 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   useEffect(() => {
     setOutputFormat(tts.output_format);
     setMp3Bitrate(tts.mp3_bitrate_kbps);
-  }, [tts.mp3_bitrate_kbps, tts.output_format]);
+    setOpusBitrate(tts.opus_bitrate_kbps);
+  }, [tts.mp3_bitrate_kbps, tts.opus_bitrate_kbps, tts.output_format]);
 
   useEffect(() => {
     if (!inputPath || outputPathCustomizedRef.current) return;
@@ -3552,6 +3552,13 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           </SettingsGroup>
         )}
 
+        <TtsVoiceGallery
+          savingSettings={savingField !== null}
+          applyingId={galleryApplyingId}
+          appliedId={galleryAppliedId}
+          onApply={applyGalleryVoice}
+        />
+
         {mode === "files" && (
           <>
             <TtsUnfinishedJobs
@@ -3720,51 +3727,77 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   "textToSpeech.conversion.finalFormatDescription",
                 )}
               >
-                <Select
-                  className="w-full md:w-72"
-                  value={outputFormat}
-                  options={[
-                    { value: "mp3", label: "MP3" },
-                    { value: "wav", label: "WAV" },
-                  ]}
-                  onChange={(value) => {
-                    if (!value) return;
-                    const format = value as TtsOutputFormat;
-                    setOutputFormat(format);
-                    if (!outputPathCustomizedRef.current) {
-                      setOutputPath(defaultTtsOutputPath(inputPath, format));
-                    }
-                    void updateTts({ output_format: format }, "output_format");
-                  }}
-                  isClearable={false}
-                  disabled={conversionBusy}
-                />
-              </SettingContainer>
-              {outputFormat === "mp3" && (
-                <SettingContainer
-                  grouped
-                  title={t("textToSpeech.conversion.bitrateTitle")}
-                  description={t("textToSpeech.conversion.bitrateDescription")}
-                >
+                <div data-testid="tts-output-format">
                   <Select
                     className="w-full md:w-72"
-                    value={String(mp3Bitrate)}
-                    options={BITRATES.map((bitrate) => ({
-                      value: String(bitrate),
-                      label: `${bitrate} kb/s`,
-                    }))}
+                    value={outputFormat}
+                    options={[
+                      { value: "mp3", label: "MP3" },
+                      { value: "opus", label: "Opus" },
+                      { value: "wav", label: "WAV" },
+                    ]}
                     onChange={(value) => {
                       if (!value) return;
-                      const bitrate = Number(value);
-                      setMp3Bitrate(bitrate);
-                      void updateTts(
-                        { mp3_bitrate_kbps: bitrate },
-                        "mp3_bitrate_kbps",
-                      );
+                      const format = value as TtsOutputFormat;
+                      setOutputFormat(format);
+                      if (!outputPathCustomizedRef.current) {
+                        setOutputPath(defaultTtsOutputPath(inputPath, format));
+                      }
+                      void updateTts({ output_format: format }, "output_format");
                     }}
                     isClearable={false}
                     disabled={conversionBusy}
                   />
+                </div>
+              </SettingContainer>
+              {outputFormat !== "wav" && (
+                <SettingContainer
+                  grouped
+                  title={t(
+                    outputFormat === "mp3"
+                      ? "textToSpeech.conversion.bitrateTitle"
+                      : "textToSpeech.conversion.opusBitrateTitle",
+                  )}
+                  description={t(
+                    outputFormat === "mp3"
+                      ? "textToSpeech.conversion.bitrateDescription"
+                      : "textToSpeech.conversion.opusBitrateDescription",
+                  )}
+                >
+                  <div data-testid="tts-output-bitrate">
+                    <Select
+                      className="w-full md:w-72"
+                      value={String(
+                        outputFormat === "mp3" ? mp3Bitrate : opusBitrate,
+                      )}
+                      options={(outputFormat === "mp3"
+                        ? MP3_BITRATES
+                        : OPUS_BITRATES
+                      ).map((bitrate) => ({
+                        value: String(bitrate),
+                        label: `${bitrate} kb/s`,
+                      }))}
+                      onChange={(value) => {
+                        if (!value) return;
+                        const bitrate = Number(value);
+                        if (outputFormat === "mp3") {
+                          setMp3Bitrate(bitrate);
+                          void updateTts(
+                            { mp3_bitrate_kbps: bitrate },
+                            "mp3_bitrate_kbps",
+                          );
+                        } else {
+                          setOpusBitrate(bitrate);
+                          void updateTts(
+                            { opus_bitrate_kbps: bitrate },
+                            "opus_bitrate_kbps",
+                          );
+                        }
+                      }}
+                      isClearable={false}
+                      disabled={conversionBusy}
+                    />
+                  </div>
                 </SettingContainer>
               )}
               <SettingContainer
@@ -5696,6 +5729,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           <TtsBatchConversion
             outputFormat={outputFormat}
             mp3Bitrate={mp3Bitrate}
+            opusBitrate={opusBitrate}
             flushPendingSettingsWrites={flushPendingSettingsWrites}
           />
 

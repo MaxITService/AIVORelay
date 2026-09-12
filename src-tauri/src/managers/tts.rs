@@ -4,7 +4,7 @@
 //! PCM at 24 kHz. Interactive cloud synthesis publishes bounded WAV cache
 //! segments while the response arrives; local/system providers publish each
 //! completed semantic chunk. File conversion still assembles PCM first and
-//! encodes exactly one final WAV or MP3 stream.
+//! encodes exactly one final WAV, MP3, or Ogg Opus stream.
 
 use crate::managers::edge_tts::{self, DEFAULT_EDGE_TTS_VOICE, EDGE_TTS_PROVIDER_LIMIT};
 use crate::managers::local_kokoro::{
@@ -46,6 +46,7 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use futures_util::StreamExt;
 use mp3lame_encoder::{Bitrate, Builder as LameBuilder, FlushGap, Mode, MonoPcm, Quality, VbrMode};
+use ogg::{PacketWriteEndInfo, PacketWriter};
 use parking_lot::RwLock;
 use reqwest::{header::RETRY_AFTER, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -60,6 +61,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
+
+use super::xiph_opus::{self, Encoder as XiphOpusEncoder, MAX_PACKET_BYTES};
 
 pub const TTS_EVENT_STATE: &str = "tts://state";
 pub const TTS_EVENT_CHUNK_READY: &str = "tts://chunk-ready";
@@ -82,6 +85,7 @@ pub const OPENAI_TTS_INSTRUCTIONS_MAX_CHARS: usize = 4_096;
 pub const PROVIDER_PCM_SAMPLE_RATE: u32 = 24_000;
 pub const MP3_OUTPUT_SAMPLE_RATE: u32 = 32_000;
 pub const SUPPORTED_MP3_BITRATES: [u16; 6] = [64, 96, 128, 192, 256, 320];
+pub const SUPPORTED_OPUS_BITRATES: [u16; 8] = [32, 48, 64, 80, 96, 128, 160, 192];
 
 const SONIOX_TTS_URL: &str = "https://tts-rt.soniox.com/tts";
 const DEEPGRAM_AURA_TTS_URL: &str = "https://api.deepgram.com/v1/speak";
@@ -301,6 +305,7 @@ pub struct FileConversionResult {
     pub resumed_chunks: usize,
     pub output_format: TtsOutputFormat,
     pub mp3_bitrate_kbps: Option<u16>,
+    pub opus_bitrate_kbps: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -1547,6 +1552,7 @@ impl TtsManager {
 
         let output_extension = match request.output_format {
             TtsOutputFormat::Mp3 => "mp3",
+            TtsOutputFormat::Opus => "opus",
             TtsOutputFormat::Wav => "wav",
         };
         let mut reserved_outputs = HashSet::new();
@@ -1843,6 +1849,7 @@ impl TtsManager {
             let output_dir = PathBuf::from(settings.watch_output_directory.trim());
             let extension = match settings.output_format {
                 TtsOutputFormat::Mp3 => "mp3",
+                TtsOutputFormat::Opus => "opus",
                 TtsOutputFormat::Wav => "wav",
             };
             let require_resume_checkpoint = resume_output_path.is_some();
@@ -2081,6 +2088,7 @@ impl TtsManager {
                 "history-result.{}",
                 match settings.output_format {
                     TtsOutputFormat::Mp3 => "mp3",
+                    TtsOutputFormat::Opus => "opus",
                     TtsOutputFormat::Wav => "wav",
                 }
             ));
@@ -2265,6 +2273,12 @@ impl TtsManager {
                         PROVIDER_PCM_SAMPLE_RATE,
                         settings.mp3_bitrate_kbps,
                     )?,
+                    TtsOutputFormat::Opus => encode_opus_file(
+                        &history_raw_path,
+                        &mut output,
+                        PROVIDER_PCM_SAMPLE_RATE,
+                        settings.opus_bitrate_kbps,
+                    )?,
                 }
                 output
                     .sync_all()
@@ -2293,6 +2307,7 @@ impl TtsManager {
         if result.is_err() {
             let _ = fs::remove_file(operation_cache.join("history-result.pcm.partial"));
             let _ = fs::remove_file(operation_cache.join("history-result.mp3"));
+            let _ = fs::remove_file(operation_cache.join("history-result.opus"));
             let _ = fs::remove_file(operation_cache.join("history-result.wav"));
         }
         self.finish_result(operation_id, &result);
@@ -2302,9 +2317,9 @@ impl TtsManager {
         })
     }
 
-    /// Converts a supported text file to one final WAV or CBR MP3. Provider
-    /// chunks are deterministic and sequential; a transient failure retries
-    /// only its current chunk.
+    /// Converts a supported text file to one final WAV, CBR MP3, or Ogg Opus.
+    /// Provider chunks are deterministic and sequential; a transient failure
+    /// retries only its current chunk.
     pub async fn convert_text_file(
         self: &Arc<Self>,
         input_path: impl AsRef<Path>,
@@ -2612,6 +2627,12 @@ impl TtsManager {
                 &mut output,
                 PROVIDER_PCM_SAMPLE_RATE,
                 job.settings.mp3_bitrate_kbps,
+            ),
+            TtsOutputFormat::Opus => encode_opus_file(
+                workspace.raw_path(),
+                &mut output,
+                PROVIDER_PCM_SAMPLE_RATE,
+                job.settings.opus_bitrate_kbps,
             ),
         }
         .and_then(|_| output.sync_all().map_err(anyhow::Error::from));
@@ -2933,6 +2954,12 @@ impl TtsManager {
                     PROVIDER_PCM_SAMPLE_RATE,
                     settings.mp3_bitrate_kbps,
                 )?,
+                TtsOutputFormat::Opus => encode_opus_file(
+                    &raw_partial,
+                    &mut final_partial,
+                    PROVIDER_PCM_SAMPLE_RATE,
+                    settings.opus_bitrate_kbps,
+                )?,
             }
             self.ensure_active(operation_id)?;
             final_partial
@@ -2970,6 +2997,8 @@ impl TtsManager {
                 output_format: settings.output_format,
                 mp3_bitrate_kbps: (settings.output_format == TtsOutputFormat::Mp3)
                     .then_some(settings.mp3_bitrate_kbps),
+                opus_bitrate_kbps: (settings.output_format == TtsOutputFormat::Opus)
+                    .then_some(settings.opus_bitrate_kbps),
             })
         }
         .await;
@@ -5002,6 +5031,7 @@ fn decode_utf16(bytes: &[u8], little_endian: bool) -> Result<String> {
 fn validate_output_extension(path: &Path, format: TtsOutputFormat) -> Result<()> {
     let expected = match format {
         TtsOutputFormat::Mp3 => "mp3",
+        TtsOutputFormat::Opus => "opus",
         TtsOutputFormat::Wav => "wav",
     };
     let actual = path
@@ -5025,6 +5055,14 @@ fn validate_output_settings(settings: &TtsSettings) -> Result<()> {
         return Err(anyhow!(
             "Unsupported MP3 bitrate: {} kb/s",
             settings.mp3_bitrate_kbps
+        ));
+    }
+    if settings.output_format == TtsOutputFormat::Opus
+        && !SUPPORTED_OPUS_BITRATES.contains(&settings.opus_bitrate_kbps)
+    {
+        return Err(anyhow!(
+            "Unsupported Opus bitrate: {} kb/s",
+            settings.opus_bitrate_kbps
         ));
     }
     Ok(())
@@ -5078,6 +5116,7 @@ fn watcher_resume_task_allowed(
     }
     let expected_extension = match output_format {
         TtsOutputFormat::Mp3 => "mp3",
+        TtsOutputFormat::Opus => "opus",
         TtsOutputFormat::Wav => "wav",
     };
     if !task
@@ -6094,6 +6133,157 @@ fn mp3_encode_buffer_capacity(input_samples: usize, input_sample_rate: u32) -> u
     mp3lame_encoder::max_required_buffer_size(input_samples.max(resampled_samples))
 }
 
+/// Encode the provider-normalized mono PCM as a standards-compliant Ogg Opus file.
+///
+/// The official Xiph libopus release is statically linked, while the small
+/// RustAudio `ogg` crate supplies only the container framing. Saved `.opus` files
+/// therefore do not depend on FFmpeg, a system codec, or a runtime DLL. A 20 ms
+/// frame keeps normal Opus speech/audio mode selection available, while VBR
+/// avoids spending the target bitrate on silence.
+fn encode_opus_file(
+    raw_path: &Path,
+    output: &mut impl Write,
+    input_sample_rate: u32,
+    bitrate_kbps: u16,
+) -> Result<()> {
+    if !SUPPORTED_OPUS_BITRATES.contains(&bitrate_kbps) {
+        return Err(anyhow!("Unsupported Opus bitrate: {bitrate_kbps} kb/s"));
+    }
+    if ![8_000, 12_000, 16_000, 24_000, 48_000].contains(&input_sample_rate) {
+        return Err(anyhow!(
+            "Unsupported Opus input sample rate: {input_sample_rate} Hz"
+        ));
+    }
+
+    let raw_size = fs::metadata(raw_path)
+        .with_context(|| format!("Failed to inspect partial PCM {}", raw_path.display()))?
+        .len();
+    if raw_size == 0 || raw_size % 2 != 0 {
+        return Err(anyhow!("Partial PCM has an invalid byte length"));
+    }
+
+    let sample_rate = input_sample_rate as usize;
+    let frame_samples = sample_rate / 50;
+    let total_samples = (raw_size / 2) as usize;
+    let mut encoder = XiphOpusEncoder::new(input_sample_rate, 1)
+        .map_err(|error| anyhow!("Failed to create Opus encoder: {error}"))?;
+    encoder
+        .set_bitrate(i32::from(bitrate_kbps) * 1_000)
+        .map_err(|error| anyhow!("Failed to set Opus bitrate: {error}"))?;
+    encoder
+        .set_vbr(true)
+        .map_err(|error| anyhow!("Failed to enable Opus VBR: {error}"))?;
+    encoder
+        .set_lsb_depth(16)
+        .map_err(|error| anyhow!("Failed to set Opus input depth: {error}"))?;
+
+    let granule_ticks_per_sample = 48_000 / sample_rate;
+    let lookahead_samples = encoder
+        .lookahead()
+        .map_err(|error| anyhow!("Failed to read Opus lookahead: {error}"))?
+        as usize;
+    let pre_skip = lookahead_samples
+        .checked_mul(granule_ticks_per_sample)
+        .and_then(|samples| u16::try_from(samples).ok())
+        .ok_or_else(|| anyhow!("Opus pre-skip does not fit the Ogg Opus header"))?;
+    let frame_count = (total_samples + lookahead_samples).div_ceil(frame_samples);
+    let final_granule =
+        u64::from(pre_skip) + (total_samples.saturating_mul(granule_ticks_per_sample)) as u64;
+
+    const OGG_STREAM_SERIAL: u32 = 0x4156_4f52;
+    let mut writer = PacketWriter::new(output);
+    writer
+        .write_packet(
+            opus_identification_header(1, pre_skip, input_sample_rate),
+            OGG_STREAM_SERIAL,
+            PacketWriteEndInfo::EndPage,
+            0,
+        )
+        .map_err(|error| anyhow!("Failed to write Ogg Opus identification header: {error}"))?;
+    writer
+        .write_packet(
+            opus_comment_header(&format!("AivoRelay / {}", xiph_opus::version())),
+            OGG_STREAM_SERIAL,
+            PacketWriteEndInfo::EndPage,
+            0,
+        )
+        .map_err(|error| anyhow!("Failed to write Ogg Opus comment header: {error}"))?;
+    let mut reader = BufReader::new(
+        File::open(raw_path)
+            .with_context(|| format!("Failed to reopen partial PCM {}", raw_path.display()))?,
+    );
+    let mut source_bytes = vec![0_u8; frame_samples * 2];
+    let mut block = vec![0_i16; frame_samples];
+    let mut packet = vec![0_u8; MAX_PACKET_BYTES];
+    let mut source_samples_read = 0_usize;
+
+    for frame_index in 0..frame_count {
+        let real_samples = total_samples
+            .saturating_sub(source_samples_read)
+            .min(frame_samples);
+        if real_samples > 0 {
+            reader.read_exact(&mut source_bytes[..real_samples * 2])?;
+            for (sample, bytes) in block[..real_samples]
+                .iter_mut()
+                .zip(source_bytes[..real_samples * 2].chunks_exact(2))
+            {
+                *sample = i16::from_le_bytes([bytes[0], bytes[1]]);
+            }
+            source_samples_read += real_samples;
+        }
+        block[real_samples..].fill(0);
+
+        let encoded_len = encoder
+            .encode_s16(&block, frame_samples, &mut packet)
+            .map_err(|error| anyhow!("Opus encoding failed: {error}"))?;
+        let is_final = frame_index + 1 == frame_count;
+        let granule = if is_final {
+            final_granule
+        } else {
+            ((frame_index + 1) * frame_samples * granule_ticks_per_sample) as u64
+        };
+        writer
+            .write_packet(
+                packet[..encoded_len].to_vec(),
+                OGG_STREAM_SERIAL,
+                if is_final {
+                    PacketWriteEndInfo::EndStream
+                } else {
+                    PacketWriteEndInfo::NormalPacket
+                },
+                granule,
+            )
+            .map_err(|error| anyhow!("Failed to write Ogg Opus packet: {error}"))?;
+    }
+    writer
+        .inner_mut()
+        .flush()
+        .map_err(|error| anyhow!("Failed to flush Ogg Opus stream: {error}"))?;
+    Ok(())
+}
+
+fn opus_identification_header(channels: u8, pre_skip: u16, input_sample_rate: u32) -> Vec<u8> {
+    let mut header = Vec::with_capacity(19);
+    header.extend_from_slice(b"OpusHead");
+    header.push(1);
+    header.push(channels);
+    header.extend_from_slice(&pre_skip.to_le_bytes());
+    header.extend_from_slice(&input_sample_rate.to_le_bytes());
+    header.extend_from_slice(&0_i16.to_le_bytes());
+    header.push(0);
+    header
+}
+
+fn opus_comment_header(vendor: &str) -> Vec<u8> {
+    let vendor = vendor.as_bytes();
+    let mut header = Vec::with_capacity(16 + vendor.len());
+    header.extend_from_slice(b"OpusTags");
+    header.extend_from_slice(&(vendor.len() as u32).to_le_bytes());
+    header.extend_from_slice(vendor);
+    header.extend_from_slice(&0_u32.to_le_bytes());
+    header
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6236,6 +6426,68 @@ mod tests {
 
         assert!(mp3_encode_buffer_capacity(input_samples, 24_000) > unscaled);
         assert_eq!(mp3_encode_buffer_capacity(input_samples, 48_000), unscaled);
+    }
+
+    #[test]
+    fn opus_encoder_writes_ogg_opus_and_validates_bitrate() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "aivorelay-tts-opus-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let raw_path = directory.join("source.pcm");
+        let samples = (0..PROVIDER_PCM_SAMPLE_RATE / 4)
+            .flat_map(|index| {
+                let sample = ((index % 200) as i32 * 240 - 24_000) as i16;
+                sample.to_le_bytes()
+            })
+            .collect::<Vec<_>>();
+        fs::write(&raw_path, &samples).unwrap();
+
+        let mut encoded = Vec::new();
+        encode_opus_file(
+            &raw_path,
+            &mut encoded,
+            PROVIDER_PCM_SAMPLE_RATE,
+            80,
+        )
+        .unwrap();
+
+        assert!(encoded.starts_with(b"OggS"));
+        assert!(encoded.windows(8).any(|window| window == b"OpusHead"));
+        assert!(encoded.windows(8).any(|window| window == b"OpusTags"));
+        assert!(encoded
+            .windows(b"libopus 1.5.2".len())
+            .any(|window| window == b"libopus 1.5.2"));
+        assert!(encoded.len() < samples.len());
+
+        let mut packets = ogg::PacketReader::new(std::io::Cursor::new(encoded.as_slice()));
+        let identification = packets.read_packet().unwrap().unwrap();
+        assert_eq!(&identification.data[..8], b"OpusHead");
+        let pre_skip = u16::from_le_bytes([identification.data[10], identification.data[11]]);
+        let mut final_packet = None;
+        while let Some(packet) = packets.read_packet().unwrap() {
+            final_packet = Some(packet);
+        }
+        let final_packet = final_packet.unwrap();
+        assert!(final_packet.last_in_stream());
+        assert_eq!(
+            final_packet.absgp_page(),
+            u64::from(pre_skip) + (samples.len() as u64 / 2) * 2
+        );
+        assert!(encode_opus_file(
+            &raw_path,
+            &mut Vec::new(),
+            PROVIDER_PCM_SAMPLE_RATE,
+            81,
+        )
+        .is_err());
+
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

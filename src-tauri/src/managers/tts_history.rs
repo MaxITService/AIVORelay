@@ -1131,6 +1131,7 @@ fn provider_from_db(value: &str) -> Result<TtsProvider> {
 fn output_format_to_db(format: TtsOutputFormat) -> &'static str {
     match format {
         TtsOutputFormat::Mp3 => "mp3",
+        TtsOutputFormat::Opus => "opus",
         TtsOutputFormat::Wav => "wav",
     }
 }
@@ -1153,6 +1154,7 @@ fn source_kind_from_db(value: &str) -> Result<TtsHistorySourceKind> {
 fn output_format_from_db(value: &str) -> Result<TtsOutputFormat> {
     match value {
         "mp3" => Ok(TtsOutputFormat::Mp3),
+        "opus" => Ok(TtsOutputFormat::Opus),
         "wav" => Ok(TtsOutputFormat::Wav),
         _ => Err(anyhow!("Unknown TTS output format in history: {value}")),
     }
@@ -1295,6 +1297,16 @@ mod tests {
             llm_cleanup_config: None,
             provider_synthesis_config: None,
         }
+    }
+
+    #[test]
+    fn opus_output_format_round_trips_through_history_storage() {
+        assert_eq!(output_format_to_db(TtsOutputFormat::Opus), "opus");
+        assert_eq!(
+            output_format_from_db("opus").expect("read Opus history format"),
+            TtsOutputFormat::Opus
+        );
+        assert!(new_managed_filename(123, TtsOutputFormat::Opus).ends_with(".opus"));
     }
 
     #[test]

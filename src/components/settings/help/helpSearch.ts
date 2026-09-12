@@ -123,9 +123,9 @@ const HELP_SEARCH_RECORDS: readonly HelpSearchRecord[] = [
   },
   {
     anchor: "help-text-file-to-mp3",
-    title: "Choose text files. Get MP3 or WAV audio.",
+    title: "Choose text files. Get MP3, Opus, or WAV audio.",
     summary:
-      "Open Text file to mp3, choose a provider, and select a text or Markdown file. Choose MP3 or WAV, select where to save it, and start conversion; File Operations has its own settings, while synthesis presets can be shared with Speak selected text. The page also supports multiple files, folders, resumable work, folder automation, and File History; optional LLM cleanup can send text online.",
+      "Open Text file to mp3, choose a provider, and select a text or Markdown file. Choose MP3, Opus, or WAV, select where to save it, and start conversion; File Operations has its own settings, while synthesis presets can be shared with Speak selected text. The page also supports multiple files, folders, resumable work, folder automation, and File History; optional LLM cleanup can send text online.",
     destination: "Text file to mp3",
     keywords: [
       "text file",

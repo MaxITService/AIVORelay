@@ -31,7 +31,7 @@ type TtsFileJob = {
   sourcePath: string;
   outputPath: string;
   provider: string;
-  outputFormat: "mp3" | "wav";
+  outputFormat: "mp3" | "opus" | "wav";
   status: JobStatus;
   completedChunks: number;
   totalChunks: number;
@@ -306,7 +306,12 @@ export const TtsUnfinishedJobs: React.FC<TtsUnfinishedJobsProps> = ({
       defaultPath: partialDefaultPath(job),
       filters: [
         {
-          name: job.outputFormat === "mp3" ? "MP3" : "WAV",
+          name:
+            job.outputFormat === "mp3"
+              ? "MP3"
+              : job.outputFormat === "opus"
+                ? "Opus"
+                : "WAV",
           extensions: [job.outputFormat],
         },
       ],

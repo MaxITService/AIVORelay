@@ -67,7 +67,7 @@ pub struct CliArgs {
     pub convert_file: Vec<PathBuf>,
 
     /// Output path for one --convert-file input, or an output directory when
-    /// multiple TXT/MD inputs are supplied. Its extension selects MP3/WAV for
+    /// multiple TXT/MD inputs are supplied. Its extension selects MP3/Opus/WAV for
     /// one TTS input or TXT/MD for transcription. When omitted, output is
     /// created next to each input using the saved format.
     #[arg(short = 'o', long, value_name = "FILE", requires = "convert_file")]
@@ -143,12 +143,12 @@ pub struct CliArgs {
     #[arg(long, value_enum, requires = "convert_file")]
     pub tts_key_source: Option<CliTtsKeySource>,
 
-    /// Select MP3 or WAV when --output is omitted. With --output, this must
+    /// Select MP3, Opus, or WAV when --output is omitted. With --output, this must
     /// match the destination extension.
     #[arg(long, value_enum, requires = "convert_file")]
     pub tts_format: Option<CliTtsOutputFormat>,
 
-    /// Override the final MP3 CBR bitrate in kb/s.
+    /// Override the final MP3 or Opus bitrate in kb/s.
     #[arg(long, value_name = "KBPS", requires = "convert_file")]
     pub tts_bitrate: Option<u16>,
 
@@ -377,7 +377,7 @@ pub enum TtsLocalCommand {
     Install(TtsLocalConfirmationArgs),
     /// Delete the app-managed local model and runtime.
     Delete(TtsLocalConfirmationArgs),
-    /// Generate a real local MP3/WAV without changing saved provider settings.
+    /// Generate a real local MP3/Opus/WAV without changing saved provider settings.
     Test(TtsLocalTestArgs),
 }
 
@@ -394,7 +394,7 @@ pub struct TtsLocalTestArgs {
     #[arg(long, value_name = "TEXT")]
     pub text: Option<String>,
 
-    /// New .mp3 or .wav output path. Existing files are never overwritten.
+    /// New .mp3, .opus, or .wav output path. Existing files are never overwritten.
     #[arg(short = 'o', long, value_name = "FILE")]
     pub output: PathBuf,
 
@@ -459,7 +459,7 @@ pub struct TtsHistoryExportArgs {
     /// Numeric TTS history result ID.
     pub id: i64,
 
-    /// New MP3/WAV destination. Existing files are never overwritten.
+    /// New MP3/Opus/WAV destination. Existing files are never overwritten.
     #[arg(short = 'o', long, value_name = "FILE")]
     pub output: PathBuf,
 }
@@ -469,7 +469,7 @@ pub struct TtsHistoryRegenerateArgs {
     /// Numeric source TTS history result ID.
     pub id: i64,
 
-    /// Optional new MP3/WAV destination. When omitted, only the managed TTS
+    /// Optional new MP3/Opus/WAV destination. When omitted, only the managed TTS
     /// History result is kept; its default format is MP3.
     #[arg(short = 'o', long, value_name = "FILE")]
     pub output: Option<PathBuf>,
@@ -563,7 +563,7 @@ pub struct TtsHistoryRegenerateArgs {
     #[arg(long, value_enum)]
     pub format: Option<CliTtsOutputFormat>,
 
-    /// MP3 CBR bitrate in kb/s.
+    /// MP3 CBR or Opus VBR target bitrate in kb/s.
     #[arg(long, value_name = "KBPS")]
     pub bitrate: Option<u16>,
 
@@ -616,6 +616,7 @@ pub enum CliTtsKeySource {
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CliTtsOutputFormat {
     Mp3,
+    Opus,
     Wav,
 }
 

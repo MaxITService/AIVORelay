@@ -116,7 +116,7 @@
     "liveSoundTranscription": "Transcribe computer audio live while it plays.",
     "transcribeFile": "Turn an audio or video file into text.",
     "textToSpeech": "Choose a provider, voice, and shortcut, then read selected text aloud from any app.",
-    "ttsFiles": "Convert text or Markdown files into MP3 or WAV, one file, many files, or a folder."
+    "ttsFiles": "Convert text or Markdown files into MP3, Opus, or WAV, one file, many files, or a folder."
   },
   "help": {
     "title": "Help",
@@ -201,8 +201,8 @@
         "summary": "Open Speak selected text, choose a provider, and start with its recommended preset. Assign a shortcut under Actions, then select text in any app and press the shortcut to hear it aloud. You can read the clipboard, copy selected text first, or read a selection directly where Windows supports it; cloud providers send text online, while Windows voices and local models keep speech generation on this computer."
       },
       "textFileToMp3": {
-        "title": "Choose text files. Get MP3 or WAV audio.",
-        "summary": "Open Text file to mp3, choose a provider, and select a text or Markdown file. Choose MP3 or WAV, select where to save it, and start conversion; File Operations has its own settings, while synthesis presets can be shared with Speak selected text. The page also supports multiple files, folders, resumable work, folder automation, and File History; optional LLM cleanup can send text online."
+        "title": "Choose text files. Get MP3, Opus, or WAV audio.",
+        "summary": "Open Text file to mp3, choose a provider, and select a text or Markdown file. Choose MP3, Opus, or WAV, select where to save it, and start conversion; File Operations has its own settings, while synthesis presets can be shared with Speak selected text. The page also supports multiple files, folders, resumable work, folder automation, and File History; optional LLM cleanup can send text online."
       },
       "voiceCommands": {
         "title": "Speak a command. AivoRelay performs it.",
@@ -251,7 +251,7 @@
   },
   "textToSpeech": {
     "title": "Speak selected text",
-    "description": "Read clipboard or selected text aloud and configure provider-independent voice generation.",
+    "description": "Read text from the clipboard or selection aloud, and convert text files to audio.",
     "disabledWhileSaving": "Wait for the current settings change to finish.",
     "beta": {
       "label": "BETA",
@@ -264,6 +264,25 @@
       "description": "Don't be intimidated by the number of settings. The first time you select a provider on each TTS page, AivoRelay automatically opens its recommended preset. Add an API key if required and start using it; everything else can stay at the recommended value.",
       "interactiveReminder": "Before using Speak selected text, assign at least one keyboard shortcut in Actions.",
       "dismiss": "Got it"
+    },
+    "voiceGallery": {
+      "title": "Voices gallery",
+      "description": "Listen to sample voices from several TTS providers, review their synthesis settings, and apply one to this page.",
+      "collapse": "Collapse",
+      "expand": "Explore",
+      "bundledNote": "This gallery includes only a small selection of voices from several providers to help you get started. Providers regularly add and update voices, so it is not possible to include every sample here. Check your provider's voice catalog or documentation to explore all currently available voices.",
+      "voiceCount_one": "{{count}} sample",
+      "voiceCount_other": "{{count}} samples",
+      "model": "Model",
+      "voiceId": "Voice ID",
+      "language": "Language",
+      "speed": "Speed",
+      "style": "Style",
+      "ratePitch": "Rate / pitch",
+      "instructions": "Instructions",
+      "apply": "Apply these settings",
+      "applying": "Applying…",
+      "applied": "Settings applied"
     },
     "help": {
       "tellMeMore": "Tell me more",
@@ -283,9 +302,9 @@
       "aivoRelayGuide": "AivoRelay TTS guide",
       "presetsSummary": "Synthesis presets are shared between the two TTS pages, while each page keeps its own active provider and model state.",
       "savedValues": "Saved values",
-      "savedValuesDescription": "Provider, model, voice, language, speed, pauses, retries, chunking, deterministic rules, key source, and output format.",
+      "savedValuesDescription": "Provider, model, voice, language, speed, pauses, retries, chunking, voice instructions, and deterministic text rules.",
       "excludedValues": "Not saved",
-      "excludedValuesDescription": "Secrets, local paths, history, hotkeys, playback effects, and LLM cleanup remain outside synthesis presets.",
+      "excludedValuesDescription": "API keys and their sources, output format and bitrate, local paths, history, hotkeys, playback effects, and LLM cleanup remain outside synthesis presets.",
       "localSummary": "AivoRelay downloads a pinned third-party model and its managed runtime only after both consent statements are accepted. Review the source, location, size, and license first.",
       "source": "Source",
       "localSourceDescription": "The author, repository, and exact pinned revision identify what will be downloaded.",
@@ -321,11 +340,11 @@
       "autoHideDescription": "Hides the playback overlay after the audio finishes and the configured delay passes without interaction. The delay defaults to four seconds.",
       "hotkeys": "Hotkeys",
       "hotkeysDescription": "Playback keys normally act while the overlay is visible. The History fallback can make Play/Pause global.",
-      "conversionSummary": "Manual conversion inspects a text or Markdown file, applies the File Operations settings, and writes MP3 or WAV without publishing an incomplete final file.",
+      "conversionSummary": "Manual conversion inspects a text or Markdown file, applies the File Operations settings, and writes MP3, Opus, or WAV without publishing an incomplete final file.",
       "input": "Input",
       "inputDescription": "Choose UTF-8 text or Markdown. Inspection reports source characters, processed characters, and planned chunks.",
       "output": "Output",
-      "outputDescription": "MP3 is compact and uses the selected bitrate. WAV is uncompressed and substantially larger.",
+      "outputDescription": "Opus gives the smallest high-quality speech files, MP3 has the broadest compatibility, and WAV is uncompressed and substantially larger.",
       "resume": "Resume",
       "resumeDescription": "Interrupted conversions retain validated state so compatible work can continue without repeating completed chunks.",
       "preprocessingSummary": "Deterministic replacements run locally before chunking. Rules are predictable and do not send text to another service.",
@@ -397,7 +416,7 @@
       "description": "Saved presets are shared between Interactive TTS and File Operations. Loading a preset changes only this page.",
       "modelMemory": "This page automatically remembers its settings separately for every provider/model you select.",
       "loadTitle": "Load synthesis preset",
-      "loadDescription": "Load the provider, model, voice, language, speed, chunking, retry, pause, text-rule, API-key source, and output settings saved in a preset.",
+      "loadDescription": "Load the provider, model, voice, language, speed, voice instructions, chunking, retry, pause, and text-rule settings saved in a preset.",
       "custom": "Custom / unsaved settings",
       "delete": "Delete preset",
       "saveTitle": "Save current synthesis settings",
@@ -408,7 +427,7 @@
       "enterName": "Enter a preset name first.",
       "deleteConfirmTitle": "Delete synthesis preset?",
       "deleteConfirmMessage": "Permanently delete the synthesis preset “{{name}}”? This cannot be undone.",
-      "exclusions": "API secrets, playback pitch/effects, hotkeys, history, folder paths, and LLM cleanup settings or prompts are not stored in synthesis presets. LLM presets remain separate.",
+      "exclusions": "API keys and their sources, output format and bitrate, playback pitch/effects, hotkeys, history, folder paths, and LLM cleanup settings or prompts are not stored in synthesis presets. LLM presets remain separate.",
       "missing": "The selected synthesis preset no longer exists."
     },
     "api": {
@@ -495,7 +514,7 @@
     },
     "voice": {
       "title": "Voice",
-      "description": "Provider request options.",
+      "description": "Choose the model, voice, language, and delivery settings sent to the provider.",
       "voiceTitle": "Voice",
       "voiceDescription": "Provider voice ID or name.",
       "voicePlaceholder": "Voice ID",
@@ -733,7 +752,7 @@
     },
     "conversion": {
       "title": "Convert text file to audio",
-      "description": "Analyze the file locally, then generate a final MP3 or WAV file. External AI cleanup starts only after you choose Start conversion.",
+      "description": "Analyze the file locally, then generate a final MP3, Opus, or WAV file. External AI cleanup starts only after you choose Start conversion.",
       "cliHelpTitle": "CLI help — text or Markdown to audio",
       "cliHelpDescription": "Starts from the settings on this page. Any --tts-* override applies only to that conversion and never rewrites the saved configuration.",
       "cliExample": "AivoRelay.exe --convert-file .\\article.md --output .\\article.mp3",
@@ -750,6 +769,7 @@
       "sourceDescription": "Supports .txt and .md input in UTF-8, UTF-8 BOM, and BOM-marked UTF-16 LE/BE. Markdown is converted to readable text before voiceover.",
       "textMarkdownFiles": "Text and Markdown files",
       "mp3Audio": "MP3 audio",
+      "opusAudio": "Opus audio",
       "wavAudio": "WAV audio",
       "noFileSelected": "No file selected",
       "chooseFile": "Choose file",
@@ -766,6 +786,8 @@
       "finalFormatDescription": "Provider response format does not determine this file format.",
       "bitrateTitle": "MP3 bitrate",
       "bitrateDescription": "Constant bitrate for the final locally encoded MP3.",
+      "opusBitrateTitle": "Opus bitrate",
+      "opusBitrateDescription": "Variable-bitrate target for the final locally encoded Ogg Opus file. 80 kb/s is the high-quality speech default.",
       "outputTitle": "Output file",
       "outputDescription": "The completed file is published only after all chunks succeed.",
       "noOutputSelected": "No output path selected",
@@ -1019,11 +1041,12 @@
       "confirmDeleteTitle": "Delete this TTS result?",
       "confirmDelete": "This deletes only AivoRelay's retained audio copy and history record. It never deletes a file you previously exported elsewhere.",
       "confirmRegenerateTitle": "Generate a new comparison variant?",
-      "confirmRegenerate": "This sends the saved source text through the complete TTS pipeline again using {{provider}}, voice {{voice}}, and prompt {{prompt}}. Speech synthesis and/or AI cleanup can make new paid API requests. Existing variants remain unchanged.",
-      "confirmRegenerateNoCredits": "This sends the saved source text through the complete TTS pipeline again using {{provider}} and voice {{voice}}. Speech is generated by an online experimental service without an API key or API credits. Existing variants remain unchanged.",
-      "confirmRegenerateOffline": "This sends the saved source text through the complete TTS pipeline again using {{provider}} and voice {{voice}}. It runs locally without API credits. Existing variants remain unchanged.",
+      "confirmRegenerate": "Speech will be generated again from the saved source text using {{provider}}, voice {{voice}}, and prompt {{prompt}}. Speech synthesis and AI cleanup may make new paid API requests. Existing variants will remain unchanged.",
+      "confirmRegenerateNoCredits": "Speech will be generated again from the saved source text using {{provider}} and voice {{voice}}. This uses an experimental online service without an API key or paid API credits. Existing variants will remain unchanged.",
+      "confirmRegenerateOffline": "Speech will be generated again from the saved source text using {{provider}} and voice {{voice}}. Generation runs locally and does not use API credits. Existing variants will remain unchanged.",
       "audio": {
         "mp3": "MP3 audio",
+        "opus": "Opus audio",
         "wav": "WAV audio"
       },
       "metadata": {

@@ -465,6 +465,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             return (
               <div
                 key={id}
+                data-testid={`sidebar-section-${id}`}
                 role="button"
                 tabIndex={0}
                 aria-current={isActive ? "page" : undefined}

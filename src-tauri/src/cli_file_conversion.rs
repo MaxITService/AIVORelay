@@ -16,6 +16,7 @@ use crate::managers::soniox_stt::SonioxSttManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::managers::tts::{
     TtsManager, TtsPhase, OPENAI_TTS_INSTRUCTIONS_MAX_CHARS, SUPPORTED_MP3_BITRATES,
+    SUPPORTED_OPUS_BITRATES,
 };
 use crate::managers::tts_history::{
     metadata_from_settings, TtsHistoryManager, TtsHistoryScope, TtsHistorySourceKind,
@@ -636,6 +637,10 @@ async fn convert_text_to_audio(
         .tts
         .effective_for_scope(crate::settings::TtsOperationScope::File);
     apply_tts_provider_override(args, &mut settings)?;
+    if args.output.is_some() {
+        settings.output_format =
+            resolve_tts_output(args.output.as_deref(), &input, settings.output_format)?.1;
+    }
     apply_tts_conversion_overrides(args, &mut settings)?;
     let llm_cleanup_instruction_source = apply_tts_llm_overrides(args, &mut settings)?;
     let (output, format) =
@@ -649,9 +654,9 @@ async fn convert_text_to_audio(
     }
     refuse_existing_output(&output)?;
     settings.output_format = format;
-    if args.tts_bitrate.is_some() && format != TtsOutputFormat::Mp3 {
+    if args.tts_bitrate.is_some() && format == TtsOutputFormat::Wav {
         return Err(CliFailure::usage(
-            "--tts-bitrate applies only when the final output format is MP3",
+            "--tts-bitrate applies only when the final output format is MP3 or Opus",
         ));
     }
     let instruction_source = apply_tts_instruction_override(args, &mut settings)?;
@@ -823,6 +828,7 @@ async fn convert_text_to_audio(
         "provider_controls": effective_provider_controls(&settings),
         "output_format": result.output_format,
         "mp3_bitrate_kbps": result.mp3_bitrate_kbps,
+        "opus_bitrate_kbps": result.opus_bitrate_kbps,
         "file_chunk_target_chars": settings.file_target_chars,
         "retry_count": settings.retry_count,
         "retry_base_delay_ms": settings.retry_base_delay_ms,
@@ -1237,21 +1243,44 @@ fn apply_tts_conversion_overrides(
     if let Some(format) = args.tts_format {
         settings.output_format = match format {
             CliTtsOutputFormat::Mp3 => TtsOutputFormat::Mp3,
+            CliTtsOutputFormat::Opus => TtsOutputFormat::Opus,
             CliTtsOutputFormat::Wav => TtsOutputFormat::Wav,
         };
     }
     if let Some(bitrate) = args.tts_bitrate {
-        if !SUPPORTED_MP3_BITRATES.contains(&bitrate) {
-            return Err(CliFailure::usage(format!(
-                "--tts-bitrate must be one of: {}",
-                SUPPORTED_MP3_BITRATES
-                    .iter()
-                    .map(u16::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )));
+        match settings.output_format {
+            TtsOutputFormat::Mp3 => {
+                if !SUPPORTED_MP3_BITRATES.contains(&bitrate) {
+                    return Err(CliFailure::usage(format!(
+                        "--tts-bitrate must be one of these MP3 values: {}",
+                        SUPPORTED_MP3_BITRATES
+                            .iter()
+                            .map(u16::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )));
+                }
+                settings.mp3_bitrate_kbps = bitrate;
+            }
+            TtsOutputFormat::Opus => {
+                if !SUPPORTED_OPUS_BITRATES.contains(&bitrate) {
+                    return Err(CliFailure::usage(format!(
+                        "--tts-bitrate must be one of these Opus values: {}",
+                        SUPPORTED_OPUS_BITRATES
+                            .iter()
+                            .map(u16::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )));
+                }
+                settings.opus_bitrate_kbps = bitrate;
+            }
+            TtsOutputFormat::Wav => {
+                return Err(CliFailure::usage(
+                    "--tts-bitrate applies only when the final output format is MP3 or Opus",
+                ));
+            }
         }
-        settings.mp3_bitrate_kbps = bitrate;
     }
     if let Some(chars) = args.tts_chunk_chars {
         let hard_limit = TtsManager::settings_character_limit(settings) as u32;
@@ -1574,6 +1603,7 @@ fn apply_tts_llm_overrides(
 fn output_format_name(format: TtsOutputFormat) -> &'static str {
     match format {
         TtsOutputFormat::Mp3 => "mp3",
+        TtsOutputFormat::Opus => "opus",
         TtsOutputFormat::Wav => "wav",
     }
 }
@@ -1841,14 +1871,17 @@ fn resolve_tts_output(
     if let Some(output) = explicit {
         let output = absolute_path(output).map_err(CliFailure::usage)?;
         let extension = extension(&output).ok_or_else(|| {
-            CliFailure::usage("--output must end in .mp3 or .wav for text-to-audio conversion")
+            CliFailure::usage(
+                "--output must end in .mp3, .opus, or .wav for text-to-audio conversion",
+            )
         })?;
         let format = match extension.as_str() {
             "mp3" => TtsOutputFormat::Mp3,
+            "opus" => TtsOutputFormat::Opus,
             "wav" => TtsOutputFormat::Wav,
             _ => {
                 return Err(CliFailure::usage(
-                    "--output must end in .mp3 or .wav for text-to-audio conversion",
+                    "--output must end in .mp3, .opus, or .wav for text-to-audio conversion",
                 ))
             }
         };
@@ -1856,6 +1889,7 @@ fn resolve_tts_output(
     } else {
         let extension = match saved_format {
             TtsOutputFormat::Mp3 => "mp3",
+            TtsOutputFormat::Opus => "opus",
             TtsOutputFormat::Wav => "wav",
         };
         Ok((input.with_extension(extension), saved_format))
@@ -2172,6 +2206,7 @@ mod tests {
     fn output_extension_selects_tts_format() {
         let input = std::env::temp_dir().join("aivorelay-cli-input.md");
         let mp3 = std::env::temp_dir().join("aivorelay-cli-output.mp3");
+        let opus = std::env::temp_dir().join("aivorelay-cli-output.opus");
         let wav = std::env::temp_dir().join("aivorelay-cli-output.wav");
 
         assert_eq!(
@@ -2181,11 +2216,42 @@ mod tests {
             TtsOutputFormat::Mp3
         );
         assert_eq!(
+            resolve_tts_output(Some(&opus), &input, TtsOutputFormat::Mp3)
+                .expect("Opus output should resolve")
+                .1,
+            TtsOutputFormat::Opus
+        );
+        assert_eq!(
             resolve_tts_output(Some(&wav), &input, TtsOutputFormat::Mp3)
                 .expect("WAV output should resolve")
                 .1,
             TtsOutputFormat::Wav
         );
+    }
+
+    #[test]
+    fn explicit_opus_output_validates_bitrate_as_opus_before_conversion() {
+        let input = std::env::temp_dir().join("aivorelay-cli-input.md");
+        let output = std::env::temp_dir().join("aivorelay-cli-output.opus");
+        let mut settings = TtsSettings::default();
+        settings.output_format = resolve_tts_output(
+            Some(&output),
+            &input,
+            settings.output_format,
+        )
+        .expect("Opus output should resolve")
+        .1;
+        let args = CliArgs {
+            tts_bitrate: Some(80),
+            ..CliArgs::default()
+        };
+
+        apply_tts_conversion_overrides(&args, &mut settings)
+            .expect("80 kb/s should be accepted for an explicit Opus output");
+
+        assert_eq!(settings.output_format, TtsOutputFormat::Opus);
+        assert_eq!(settings.opus_bitrate_kbps, 80);
+        assert_eq!(settings.mp3_bitrate_kbps, 256);
     }
 
     #[test]

@@ -1100,16 +1100,6 @@ impl TtsProvider {
             && (model.trim().is_empty() || model.trim().starts_with("gpt-4o-mini-tts"))
     }
 
-    pub fn supports_shared_key(self) -> bool {
-        matches!(
-            self,
-            Self::Soniox
-                | Self::Deepgram
-                | Self::OpenAi
-                | Self::OpenAiCompatible
-        )
-    }
-
     pub fn is_local_or_system(self) -> bool {
         matches!(self, Self::LocalQwen | Self::LocalKokoro | Self::Windows)
     }
@@ -1166,6 +1156,7 @@ impl Default for TtsKeySource {
 pub enum TtsOutputFormat {
     #[serde(rename = "mp3")]
     Mp3,
+    Opus,
     Wav,
 }
 
@@ -1195,8 +1186,6 @@ pub struct TtsSynthesisConfig {
     pub model: String,
     pub voice: String,
     pub language: String,
-    #[serde(default)]
-    pub key_source: TtsKeySource,
     #[serde(default = "default_tts_openai_compatible_base_url")]
     pub openai_compatible_base_url: String,
     #[serde(default)]
@@ -1243,10 +1232,6 @@ pub struct TtsSynthesisConfig {
     pub inter_chunk_pause_ms: u32,
     #[serde(default = "default_tts_paragraph_pause_ms")]
     pub paragraph_pause_ms: u32,
-    #[serde(default)]
-    pub output_format: TtsOutputFormat,
-    #[serde(default = "default_tts_mp3_bitrate_kbps")]
-    pub mp3_bitrate_kbps: u16,
 }
 
 impl TtsSynthesisConfig {
@@ -1316,19 +1301,6 @@ impl TtsSynthesisConfig {
                 settings.windows_voice_language.clone(),
             ),
         };
-        let key_source = match settings.provider {
-            TtsProvider::Soniox => settings.soniox_key_source,
-            TtsProvider::Deepgram => settings.deepgram_key_source,
-            TtsProvider::OpenAi => settings.openai_key_source,
-            TtsProvider::OpenAiCompatible => settings.openai_compatible_key_source,
-            TtsProvider::Murf => settings.murf_key_source,
-            TtsProvider::ElevenLabs => settings.elevenlabs_key_source,
-            TtsProvider::Cartesia => settings.cartesia_key_source,
-            TtsProvider::Edge
-            | TtsProvider::LocalQwen
-            | TtsProvider::LocalKokoro
-            | TtsProvider::Windows => TtsKeySource::Shared,
-        };
         let target_chars = match scope {
             TtsOperationScope::Interactive => settings.interactive_target_chars,
             TtsOperationScope::File => settings.file_target_chars,
@@ -1338,7 +1310,6 @@ impl TtsSynthesisConfig {
             model,
             voice,
             language,
-            key_source,
             openai_compatible_base_url: settings.openai_compatible_base_url.clone(),
             openai_compatible_allow_insecure_http: settings.openai_compatible_allow_insecure_http,
             speed: settings.speed,
@@ -1363,8 +1334,6 @@ impl TtsSynthesisConfig {
             retry_base_delay_ms: settings.retry_base_delay_ms,
             inter_chunk_pause_ms: settings.inter_chunk_pause_ms,
             paragraph_pause_ms: settings.paragraph_pause_ms,
-            output_format: settings.output_format,
-            mp3_bitrate_kbps: settings.mp3_bitrate_kbps,
         }
     }
 
@@ -1375,21 +1344,17 @@ impl TtsSynthesisConfig {
                 settings.soniox_model = self.model.clone();
                 settings.soniox_voice = self.voice.clone();
                 settings.soniox_language = self.language.clone();
-                settings.soniox_key_source = self.key_source;
             }
             TtsProvider::Deepgram => {
                 settings.deepgram_model = self.model.clone();
-                settings.deepgram_key_source = self.key_source;
             }
             TtsProvider::OpenAi => {
                 settings.openai_model = self.model.clone();
                 settings.openai_voice = self.voice.clone();
-                settings.openai_key_source = self.key_source;
             }
             TtsProvider::OpenAiCompatible => {
                 settings.openai_compatible_model = self.model.clone();
                 settings.openai_compatible_voice = self.voice.clone();
-                settings.openai_compatible_key_source = self.key_source;
                 settings.openai_compatible_base_url = self.openai_compatible_base_url.clone();
                 settings.openai_compatible_allow_insecure_http = self.openai_compatible_allow_insecure_http;
             }
@@ -1397,7 +1362,6 @@ impl TtsSynthesisConfig {
                 settings.murf_model = self.model.clone();
                 settings.murf_voice = self.voice.clone();
                 settings.murf_language = self.language.clone();
-                settings.murf_key_source = TtsKeySource::Separate;
                 settings.murf_rate = self.murf_rate;
                 settings.murf_pitch = self.murf_pitch;
                 settings.murf_variation = self.murf_variation;
@@ -1407,7 +1371,6 @@ impl TtsSynthesisConfig {
                 settings.elevenlabs_model = self.model.clone();
                 settings.elevenlabs_voice = self.voice.clone();
                 settings.elevenlabs_language = self.language.clone();
-                settings.elevenlabs_key_source = TtsKeySource::Separate;
                 settings.elevenlabs_stability = self.elevenlabs_stability;
                 settings.elevenlabs_similarity_boost = self.elevenlabs_similarity_boost;
                 settings.elevenlabs_style = self.elevenlabs_style;
@@ -1419,7 +1382,6 @@ impl TtsSynthesisConfig {
                 settings.cartesia_model = self.model.clone();
                 settings.cartesia_voice = self.voice.clone();
                 settings.cartesia_language = self.language.clone();
-                settings.cartesia_key_source = TtsKeySource::Separate;
                 settings.cartesia_emotion = self.cartesia_emotion.clone();
                 settings.cartesia_volume = self.cartesia_volume;
             }
@@ -1463,8 +1425,6 @@ impl TtsSynthesisConfig {
         settings.retry_base_delay_ms = self.retry_base_delay_ms;
         settings.inter_chunk_pause_ms = self.inter_chunk_pause_ms;
         settings.paragraph_pause_ms = self.paragraph_pause_ms;
-        settings.output_format = self.output_format;
-        settings.mp3_bitrate_kbps = self.mp3_bitrate_kbps;
     }
 }
 
@@ -1670,11 +1630,6 @@ fn builtin_tts_synthesis_preset(
             model: model.to_string(),
             voice: voice.to_string(),
             language: language.to_string(),
-            key_source: if provider.supports_shared_key() {
-                TtsKeySource::Shared
-            } else {
-                TtsKeySource::Separate
-            },
             openai_compatible_base_url: default_tts_openai_compatible_base_url(),
             openai_compatible_allow_insecure_http: false,
             speed,
@@ -1700,8 +1655,6 @@ fn builtin_tts_synthesis_preset(
             retry_base_delay_ms: default_tts_retry_base_delay_ms(),
             inter_chunk_pause_ms: default_tts_inter_chunk_pause_ms(),
             paragraph_pause_ms: default_tts_paragraph_pause_ms(),
-            output_format: TtsOutputFormat::Mp3,
-            mp3_bitrate_kbps: default_tts_mp3_bitrate_kbps(),
         },
     }
 }
@@ -2216,6 +2169,8 @@ pub struct TtsSettings {
     pub output_format: TtsOutputFormat,
     #[serde(default = "default_tts_mp3_bitrate_kbps")]
     pub mp3_bitrate_kbps: u16,
+    #[serde(default = "default_tts_opus_bitrate_kbps")]
+    pub opus_bitrate_kbps: u16,
     #[serde(default)]
     pub watch_folder_enabled: bool,
     #[serde(default)]
@@ -2320,6 +2275,7 @@ impl Default for TtsSettings {
             playback_effect: TtsPlaybackEffect::default(),
             output_format: TtsOutputFormat::default(),
             mp3_bitrate_kbps: default_tts_mp3_bitrate_kbps(),
+            opus_bitrate_kbps: default_tts_opus_bitrate_kbps(),
             watch_folder_enabled: false,
             watch_recursive: false,
             watch_input_directory: String::new(),
@@ -4884,6 +4840,10 @@ fn default_tts_overlay_auto_hide_delay_seconds() -> u32 {
 
 fn default_tts_mp3_bitrate_kbps() -> u16 {
     256
+}
+
+fn default_tts_opus_bitrate_kbps() -> u16 {
+    80
 }
 
 fn default_tts_watch_settle_delay_ms() -> u32 {
@@ -7981,6 +7941,7 @@ mod tests {
         assert_eq!(settings.tts.retry_count, 3);
         assert_eq!(settings.tts.output_format, TtsOutputFormat::Mp3);
         assert_eq!(settings.tts.mp3_bitrate_kbps, 256);
+        assert_eq!(settings.tts.opus_bitrate_kbps, 80);
         assert!(!settings.tts.watch_folder_enabled);
         assert!(!settings.tts.watch_recursive);
         assert!(!settings.tts.interactive_history_enabled);
@@ -8012,6 +7973,7 @@ mod tests {
         assert_eq!(settings.tts.retry_count, 3);
         assert_eq!(settings.tts.output_format, TtsOutputFormat::Mp3);
         assert_eq!(settings.tts.mp3_bitrate_kbps, 256);
+        assert_eq!(settings.tts.opus_bitrate_kbps, 80);
         assert!(!settings.tts.interactive_history_enabled);
         assert_eq!(settings.tts.interactive_history_max_entries, 100);
         assert_eq!(settings.tts.interactive_history_max_storage_mb, 1_024);

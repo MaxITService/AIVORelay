@@ -1,6 +1,6 @@
 //! Crash-safe checkpoints for provider-generated TTS PCM.
 //!
-//! The final WAV/MP3 remains non-resumable and is always encoded from one
+//! The final WAV/MP3/Ogg Opus remains non-resumable and is always encoded from one
 //! verified PCM prefix. Each PCM segment is synced before an alternating JSON
 //! checkpoint is atomically published.
 

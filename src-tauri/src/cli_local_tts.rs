@@ -179,11 +179,12 @@ fn run_local_tts_inner(
                 .as_deref()
             {
                 Some("mp3") => TtsOutputFormat::Mp3,
+                Some("opus") => TtsOutputFormat::Opus,
                 Some("wav") => TtsOutputFormat::Wav,
                 _ => {
                     return Err((
                         EXIT_USAGE,
-                        "Local TTS test output must end in .mp3 or .wav".to_string(),
+                        "Local TTS test output must end in .mp3, .opus, or .wav".to_string(),
                     ))
                 }
             };
@@ -225,6 +226,7 @@ fn run_local_tts_inner(
             }
             settings.output_format = format;
             settings.mp3_bitrate_kbps = 256;
+            settings.opus_bitrate_kbps = 80;
             // Keep the diagnostic command fast and guarantee worker reuse for
             // moderately sized test passages without changing saved settings.
             settings.file_target_chars = 220;
@@ -280,6 +282,7 @@ fn run_local_tts_inner(
                 "output": result.output_path,
                 "format": result.output_format,
                 "mp3_bitrate_kbps": result.mp3_bitrate_kbps,
+                "opus_bitrate_kbps": result.opus_bitrate_kbps,
                 "chunks": result.chunk_count,
                 "resumed_chunks": result.resumed_chunks,
             }))

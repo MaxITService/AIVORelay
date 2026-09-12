@@ -42,7 +42,7 @@ import {
   type TtsPlaybackEffect,
 } from "@/lib/utils/ttsPlaybackEffects";
 
-type TtsOutputFormat = "mp3" | "wav";
+type TtsOutputFormat = "mp3" | "opus" | "wav";
 export type TtsHistoryScope = "interactive" | "file";
 
 export type TtsHistorySettingsSnapshot = {
@@ -78,6 +78,7 @@ export type TtsHistorySettingsSnapshot = {
   selected_prompt_id?: string;
   output_format?: TtsOutputFormat;
   mp3_bitrate_kbps?: number;
+  opus_bitrate_kbps?: number;
   playback_pitch?: number;
   playback_effect?: TtsPlaybackEffect;
   prompt_presets?: Array<{
@@ -686,7 +687,9 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
           name:
             entry.output_format === "mp3"
               ? t("textToSpeech.history.audio.mp3")
-              : t("textToSpeech.history.audio.wav"),
+              : entry.output_format === "opus"
+                ? t("textToSpeech.history.audio.opus")
+                : t("textToSpeech.history.audio.wav"),
           extensions: [entry.output_format],
         },
       ],
@@ -791,6 +794,10 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
             mp3BitrateKbps:
               (tts.output_format ?? entry.output_format) === "mp3"
                 ? (tts.mp3_bitrate_kbps ?? null)
+                : null,
+            opusBitrateKbps:
+              (tts.output_format ?? entry.output_format) === "opus"
+                ? (tts.opus_bitrate_kbps ?? null)
                 : null,
             confirmedApiCharge:
               providerUsesPaidApi(provider) ||
