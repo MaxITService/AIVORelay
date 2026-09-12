@@ -30,3 +30,18 @@ test("delete-all ID events preserve a concurrently added row during reload", () 
     { action: "deleted", id: 3 },
   ])).toEqual([row(4)]);
 });
+
+test("duplicate saved acknowledgements assign state instead of inverting it twice", () => {
+  expect(reconcileHistoryPage([], [row(3)], true, [
+    { action: "toggled", id: 3, saved: true },
+    { action: "toggled", id: 3, saved: true },
+  ])).toEqual([row(3, true)]);
+});
+
+test("late updates and saved acknowledgements cannot resurrect a deleted entry", () => {
+  expect(reconcileHistoryPage([row(4)], [row(3)], false, [
+    { action: "deleted", id: 3 },
+    { action: "updated", entry: row(3, true) },
+    { action: "toggled", id: 3, saved: true },
+  ])).toEqual([row(4)]);
+});

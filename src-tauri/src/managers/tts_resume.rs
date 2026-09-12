@@ -2318,6 +2318,50 @@ mod tests {
     }
 
     #[test]
+    fn output_collision_does_not_remove_unfinished_jobs_or_their_source() {
+        let directory = temp_directory("unfinished-output-collision");
+        fs::create_dir(&directory).unwrap();
+        for status in [UiFileJobStatus::Planned, UiFileJobStatus::Paused, UiFileJobStatus::Failed] {
+            let output = directory.join(format!("{status:?}.wav"));
+            let mut job = create_ui_file_job(
+                &directory, directory.join("source.txt"), output.clone(),
+                "retained source for retry".to_string(), TtsSettings::default(),
+            ).unwrap();
+            job.status = status;
+            touch_ui_job(&mut job);
+            persist_ui_file_job(&directory, &job).unwrap();
+            fs::write(&output, b"unrelated existing audio").unwrap();
+
+            let jobs = list_ui_file_jobs(&directory, None).unwrap();
+            let retained = jobs.iter().find(|entry| entry.job_id == job.job_id)
+                .expect("an output collision is not proof that a job completed");
+            assert_eq!(retained.status, status);
+            assert_eq!(load_ui_file_job(&directory, &job.job_id).unwrap().source_text, "retained source for retry");
+            assert_eq!(fs::read(&output).unwrap(), b"unrelated existing audio");
+        }
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn completed_job_cleanup_preserves_the_final_audio() {
+        let directory = temp_directory("completed-output-retained");
+        fs::create_dir(&directory).unwrap();
+        let output = directory.join("completed.wav");
+        let mut job = create_ui_file_job(
+            &directory, directory.join("source.txt"), output.clone(),
+            "completed source".to_string(), TtsSettings::default(),
+        ).unwrap();
+        job.status = UiFileJobStatus::Completed;
+        touch_ui_job(&mut job);
+        persist_ui_file_job(&directory, &job).unwrap();
+        fs::write(&output, b"completed audio").unwrap();
+        assert!(list_ui_file_jobs(&directory, None).unwrap().is_empty());
+        assert!(!ui_job_root(&directory, &job.job_id).exists());
+        assert_eq!(fs::read(&output).unwrap(), b"completed audio");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn ui_job_recovers_only_the_verified_ai_cleanup_prefix() {
         let directory = temp_directory("llm-cleanup-prefix");
         fs::create_dir(&directory).unwrap();
