@@ -1029,6 +1029,14 @@ async changeGeminiDictationModeSetting(mode: GeminiTranscriptionMode) : Promise<
     else return { status: "error", error: e  as any };
 }
 },
+async changeGeminiEarlyFinalizationSetting(enabled: boolean | null, delayMs: number | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_gemini_early_finalization_setting", { enabled, delayMs }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeGeminiFileModeSetting(mode: GeminiTranscriptionMode) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_gemini_file_mode_setting", { mode }) };
@@ -1274,9 +1282,9 @@ async changeLogTranscriptionTextSetting(enabled: boolean) : Promise<Result<null,
  * The default profile owns `post_process_enabled`; custom profiles own their
  * individual `llm_post_process_enabled` value.
  */
-async changePostProcessEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+async changePostProcessEnabledSetting(enabled: boolean, profileId: string | null) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("change_post_process_enabled_setting", { enabled }) };
+    return { status: "ok", data: await TAURI_INVOKE("change_post_process_enabled_setting", { enabled, profileId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -3221,6 +3229,9 @@ async getAvailableModels() : Promise<Result<ModelInfo[], string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async takeMissingModelSelectionNotice() : Promise<[string, string | null] | null> {
+    return await TAURI_INVOKE("take_missing_model_selection_notice");
+},
 async rescanLocalModels() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("rescan_local_models") };
@@ -3853,6 +3864,9 @@ async transcribeAudioFile(filePath: string, profileId: string | null, saveToFile
     else return { status: "error", error: e  as any };
 }
 },
+async cancelFileTranscription() : Promise<void> {
+    await TAURI_INVOKE("cancel_file_transcription");
+},
 async initializeFileTranscriptionModelSettings() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("initialize_file_transcription_model_settings") };
@@ -4193,7 +4207,7 @@ live_sound_gemini_mode?: GeminiTranscriptionMode | null; openai_realtime_whisper
 /**
  * Gemini exact BCP-47 locale, `auto`, or `os_input`.
  */
-gemini_language_code?: string; gemini_custom_vocabulary?: string[]; gemini_live_mode?: GeminiTranscriptionMode;
+gemini_language_code?: string; gemini_custom_vocabulary?: string[]; gemini_live_mode?: GeminiTranscriptionMode; gemini_live_early_finalization_enabled?: boolean; gemini_live_early_finalization_delay_ms?: number;
 /**
  * Batch Gemini mode used by ordinary dictation. None migrates the former shared file value.
  */
@@ -5162,7 +5176,7 @@ playback_pitch?: number;
  * Optional overlay playback effect. The stored/generated audio is unchanged.
  */
 playback_effect?: TtsPlaybackEffect; output_format?: TtsOutputFormat; mp3_bitrate_kbps?: number; opus_bitrate_kbps?: number; watch_folder_enabled?: boolean; watch_recursive?: boolean; watch_input_directory?: string; watch_output_directory?: string; watch_settle_delay_ms?: number; disk_reserve_mb?: number; interactive_history_enabled?: boolean; interactive_history_max_entries?: number; interactive_history_max_storage_mb?: number; file_history_enabled?: boolean; file_history_max_entries?: number; file_history_max_storage_mb?: number }
-export type TtsSynthesisConfig = { provider: TtsProvider; model: string; voice: string; language: string; key_source?: TtsKeySource; openai_compatible_base_url?: string; openai_compatible_allow_insecure_http?: boolean; speed?: number; murf_rate?: number; murf_pitch?: number; murf_variation?: number; murf_style?: string | null; elevenlabs_stability?: number; elevenlabs_similarity_boost?: number; elevenlabs_style?: number; elevenlabs_use_speaker_boost?: boolean; elevenlabs_apply_text_normalization?: ElevenLabsTextNormalization; cartesia_emotion?: string | null; cartesia_volume?: number; voice_instructions?: string; voice_prompt_preset_id?: string; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; output_format?: TtsOutputFormat; mp3_bitrate_kbps?: number; opus_bitrate_kbps?: number }
+export type TtsSynthesisConfig = { provider: TtsProvider; model: string; voice: string; language: string; openai_compatible_base_url?: string; openai_compatible_allow_insecure_http?: boolean; speed?: number; murf_rate?: number; murf_pitch?: number; murf_variation?: number; murf_style?: string | null; elevenlabs_stability?: number; elevenlabs_similarity_boost?: number; elevenlabs_style?: number; elevenlabs_use_speaker_boost?: boolean; elevenlabs_apply_text_normalization?: ElevenLabsTextNormalization; cartesia_emotion?: string | null; cartesia_volume?: number; voice_instructions?: string; voice_prompt_preset_id?: string; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number }
 export type TtsSynthesisPreset = { id: string; name: string; config: TtsSynthesisConfig }
 export type TtsVoiceCatalog = { provider: TtsProvider; voices: TtsVoiceCatalogEntry[]; source: string; supports_live_refresh: boolean; replace_builtin: boolean; warning: string | null }
 export type TtsVoiceCatalogEntry = { id: string; label: string; group: string; language: string; gender: string; description: string; locales?: TtsVoiceCatalogLocale[] }
