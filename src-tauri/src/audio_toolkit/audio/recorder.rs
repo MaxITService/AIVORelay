@@ -2,7 +2,7 @@ use std::{
     borrow::Cow,
     io::{Error, ErrorKind},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -12,6 +12,7 @@ use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     Device, Sample, SizedSample,
 };
+use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::audio_toolkit::{
     audio::{AudioVisualiser, FrameResampler, NoiseSuppressor},
@@ -22,6 +23,10 @@ use crate::audio_toolkit::{
 
 const CONTROL_REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+const AUDIO_RING_SECONDS: usize = 2;
+const CONSUMER_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const MAX_DRAIN_CHUNK: Duration = Duration::from_millis(50);
+const PAUSE_ACK_TIMEOUT: Duration = Duration::from_secs(2);
 
 enum Cmd {
     /// Begin capturing and acknowledge only after the first real audio chunk
@@ -36,9 +41,13 @@ enum Cmd {
     Shutdown,
 }
 
-enum AudioChunk {
-    Samples(Vec<f32>),
-    EndOfStream,
+/// Atomics shared by the callback and consumer; audio samples travel through a
+/// wait-free single-producer/single-consumer ring.
+#[derive(Default)]
+struct CaptureTransportState {
+    pause_requested: AtomicBool,
+    pause_acknowledged: AtomicBool,
+    overrun_samples: AtomicU64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -139,7 +148,6 @@ impl AudioRecorder {
 
         self.stream_error.store(false, Ordering::Relaxed);
 
-        let (sample_tx, sample_rx) = mpsc::channel::<AudioChunk>();
         let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
         let (init_tx, init_rx) = mpsc::channel::<Result<(), String>>();
 
@@ -174,10 +182,9 @@ impl AudioRecorder {
         let stream_error = Arc::clone(&self.stream_error);
 
         let worker = std::thread::spawn(move || {
-            let stop_flag = Arc::new(AtomicBool::new(false));
-            let stop_flag_for_stream = Arc::clone(&stop_flag);
+            let transport = Arc::new(CaptureTransportState::default());
 
-            let init_result = (|| -> Result<(cpal::Stream, u32), String> {
+            let init_result = (|| -> Result<(cpal::Stream, u32, Consumer<f32>), String> {
                 let config_started = Instant::now();
                 let device_name = thread_device.name().unwrap_or_default();
                 let cached_config = config_cache
@@ -211,59 +218,50 @@ impl AudioRecorder {
                 );
 
                 let build_started = Instant::now();
-                let stream = match config.sample_format() {
+                let (stream, sample_consumer) = match config.sample_format() {
                     cpal::SampleFormat::U8 => AudioRecorder::build_stream::<u8>(
                         &thread_device,
                         &config,
-                        sample_tx,
                         channels,
                         selected_channel,
-                        stop_flag_for_stream,
+                        Arc::clone(&transport),
                         Arc::clone(&stream_error),
-                    )
-                    .map_err(|e| format!("Failed to build audio stream: {}", e))?,
+                    ),
                     cpal::SampleFormat::I8 => AudioRecorder::build_stream::<i8>(
                         &thread_device,
                         &config,
-                        sample_tx,
                         channels,
                         selected_channel,
-                        stop_flag_for_stream,
+                        Arc::clone(&transport),
                         Arc::clone(&stream_error),
-                    )
-                    .map_err(|e| format!("Failed to build audio stream: {}", e))?,
+                    ),
                     cpal::SampleFormat::I16 => AudioRecorder::build_stream::<i16>(
                         &thread_device,
                         &config,
-                        sample_tx,
                         channels,
                         selected_channel,
-                        stop_flag_for_stream,
+                        Arc::clone(&transport),
                         Arc::clone(&stream_error),
-                    )
-                    .map_err(|e| format!("Failed to build audio stream: {}", e))?,
+                    ),
                     cpal::SampleFormat::I32 => AudioRecorder::build_stream::<i32>(
                         &thread_device,
                         &config,
-                        sample_tx,
                         channels,
                         selected_channel,
-                        stop_flag_for_stream,
+                        Arc::clone(&transport),
                         Arc::clone(&stream_error),
-                    )
-                    .map_err(|e| format!("Failed to build audio stream: {}", e))?,
+                    ),
                     cpal::SampleFormat::F32 => AudioRecorder::build_stream::<f32>(
                         &thread_device,
                         &config,
-                        sample_tx,
                         channels,
                         selected_channel,
-                        stop_flag_for_stream,
+                        Arc::clone(&transport),
                         Arc::clone(&stream_error),
-                    )
-                    .map_err(|e| format!("Failed to build audio stream: {}", e))?,
+                    ),
                     other => return Err(format!("Unsupported sample format: {:?}", other)),
-                };
+                }
+                .map_err(|e| format!("Failed to build audio stream: {}", e))?;
                 let build_elapsed = build_started.elapsed();
 
                 let play_started = Instant::now();
@@ -283,23 +281,24 @@ impl AudioRecorder {
                     *config_cache.lock().unwrap() = Some((source, device_name, config));
                 }
 
-                Ok((stream, sample_rate))
+                Ok((stream, sample_rate, sample_consumer))
             })();
 
             match init_result {
-                Ok((stream, sample_rate)) => {
+                Ok((stream, sample_rate, sample_consumer)) => {
                     let _ = init_tx.send(Ok(()));
                     run_consumer(
                         sample_rate,
                         vad,
-                        sample_rx,
+                        sample_consumer,
                         cmd_rx,
                         level_cb,
                         stream_frame_cb,
                         source,
                         microphone_input_gain,
                         microphone_noise_cancellation_enabled,
-                        stop_flag,
+                        transport,
+                        Arc::clone(&stream_error),
                     );
                     drop(stream);
                 }
@@ -453,41 +452,126 @@ impl AudioRecorder {
     fn build_stream<T>(
         device: &cpal::Device,
         config: &cpal::SupportedStreamConfig,
-        sample_tx: mpsc::Sender<AudioChunk>,
         channels: usize,
         selected_channel: Option<usize>,
-        stop_flag: Arc<AtomicBool>,
+        transport: Arc<CaptureTransportState>,
         stream_error: Arc<AtomicBool>,
-    ) -> Result<cpal::Stream, cpal::BuildStreamError>
+    ) -> Result<(cpal::Stream, Consumer<f32>), cpal::BuildStreamError>
     where
-        T: Sample + SizedSample + Send + 'static,
+        T: Sample + SizedSample + Copy + Send + 'static,
         f32: cpal::FromSample<T>,
     {
-        let mut output_buffer = Vec::new();
-        let mut eos_sent = false;
+        let ring_capacity = config.sample_rate().0 as usize * AUDIO_RING_SECONDS;
+        let (mut sample_producer, mut sample_consumer) = RingBuffer::new(ring_capacity);
+
+        // Fault in rtrb's backing pages before the device starts calling us.
+        // This is outside the real-time callback and does not pin memory.
+        {
+            let chunk = sample_producer
+                .write_chunk(ring_capacity)
+                .expect("new audio ring has its full capacity available");
+            chunk.commit_all();
+        }
+        {
+            let chunk = sample_consumer
+                .read_chunk(ring_capacity)
+                .expect("pre-filled audio ring is readable");
+            chunk.commit_all();
+        }
+
         let use_channel = selected_channel.filter(|channel| *channel < channels);
+        let callback_transport = Arc::clone(&transport);
 
         let stream_cb = move |data: &[T], _: &cpal::InputCallbackInfo| {
-            handle_input_block(
+            AudioRecorder::write_input_to_ring(
                 data,
                 channels,
                 use_channel,
-                &stop_flag,
-                &mut eos_sent,
-                &mut output_buffer,
-                &sample_tx,
+                &mut sample_producer,
+                &callback_transport,
             );
         };
 
-        device.build_input_stream(
+        let stream = device.build_input_stream(
             &config.clone().into(),
             stream_cb,
-            move |err| {
-                log::error!("Stream error: {}", err);
-                stream_error.store(true, Ordering::Relaxed);
+            move |_err| {
+                // Some backends invoke this on their audio thread. Defer
+                // logging and recovery to the consumer/manager path.
+                stream_error.store(true, Ordering::Release);
             },
             None,
-        )
+        )?;
+        Ok((stream, sample_consumer))
+    }
+
+    /// Real-time callback body: no allocation, locks, logging, clocks, or
+    /// blocking operations. The first block that observes a pause is retained
+    /// as boundary audio; subsequent callbacks stay silent until resumed.
+    fn write_input_to_ring<T>(
+        data: &[T],
+        channels: usize,
+        use_channel: Option<usize>,
+        producer: &mut Producer<f32>,
+        transport: &CaptureTransportState,
+    ) where
+        T: Sample + SizedSample + Copy,
+        f32: cpal::FromSample<T>,
+    {
+        if channels == 0 {
+            return;
+        }
+
+        if transport.pause_requested.load(Ordering::Acquire)
+            && transport.pause_acknowledged.load(Ordering::Acquire)
+        {
+            return;
+        }
+
+        let frame_count = data.len() / channels;
+        let writable_frames = producer.slots().min(frame_count);
+        let written = if writable_frames == 0 {
+            0
+        } else {
+            let chunk = producer
+                .write_chunk_uninit(writable_frames)
+                .expect("the producer just reported this many writable slots");
+            if channels == 1 {
+                chunk.fill_from_iter(
+                    data.iter()
+                        .take(writable_frames)
+                        .map(|&sample| sample.to_sample::<f32>()),
+                )
+            } else if let Some(channel) = use_channel {
+                chunk.fill_from_iter(
+                    data.chunks_exact(channels)
+                        .take(writable_frames)
+                        .map(|frame| frame[channel].to_sample::<f32>()),
+                )
+            } else {
+                chunk.fill_from_iter(data.chunks_exact(channels).take(writable_frames).map(
+                    |frame| {
+                        frame
+                            .iter()
+                            .map(|&sample| sample.to_sample::<f32>())
+                            .sum::<f32>()
+                            / channels as f32
+                    },
+                ))
+            }
+        };
+        debug_assert_eq!(written, writable_frames);
+
+        let dropped = frame_count - written;
+        if dropped > 0 {
+            transport
+                .overrun_samples
+                .fetch_add(dropped as u64, Ordering::Relaxed);
+        }
+
+        if transport.pause_requested.load(Ordering::Acquire) {
+            transport.pause_acknowledged.store(true, Ordering::Release);
+        }
     }
 
     pub fn preferred_input_channel_count(
@@ -592,66 +676,6 @@ impl AudioRecorder {
     }
 }
 
-/// Convert one CPAL callback block to mono and forward it to the consumer.
-/// The first callback that observes the stop flag was already captured at the
-/// recording boundary, so forward that block before the end-of-stream marker.
-fn handle_input_block<T>(
-    data: &[T],
-    channels: usize,
-    use_channel: Option<usize>,
-    stop_flag: &AtomicBool,
-    eos_sent: &mut bool,
-    output_buffer: &mut Vec<f32>,
-    sample_tx: &mpsc::Sender<AudioChunk>,
-) where
-    T: Sample,
-    f32: cpal::FromSample<T>,
-{
-    let stopping = stop_flag.load(Ordering::Relaxed);
-    if stopping && *eos_sent {
-        return;
-    }
-
-    output_buffer.clear();
-
-    if channels == 1 {
-        output_buffer.extend(data.iter().map(|&sample| sample.to_sample::<f32>()));
-    } else {
-        let frame_count = data.len() / channels;
-        output_buffer.reserve(frame_count);
-
-        if let Some(channel) = use_channel {
-            for frame in data.chunks_exact(channels) {
-                output_buffer.push(frame[channel].to_sample::<f32>());
-            }
-        } else {
-            for frame in data.chunks_exact(channels) {
-                let mono_sample = frame
-                    .iter()
-                    .map(|&sample| sample.to_sample::<f32>())
-                    .sum::<f32>()
-                    / channels as f32;
-                output_buffer.push(mono_sample);
-            }
-        }
-    }
-
-    if sample_tx
-        .send(AudioChunk::Samples(output_buffer.clone()))
-        .is_err()
-        && !stopping
-    {
-        log::error!("Failed to send samples");
-    }
-
-    if stopping {
-        let _ = sample_tx.send(AudioChunk::EndOfStream);
-        *eos_sent = true;
-    } else {
-        *eos_sent = false;
-    }
-}
-
 pub fn is_microphone_access_denied(error_message: &str) -> bool {
     let normalized = error_message.to_lowercase();
     normalized.contains("access is denied")
@@ -685,73 +709,150 @@ fn visualizer_window_size(sample_rate: u32) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        handle_input_block, is_microphone_access_denied, is_no_input_device_error, AudioChunk,
-        AudioRecorder,
+        drain_available_samples, is_microphone_access_denied, is_no_input_device_error,
+        run_consumer, AudioCaptureSource, AudioRecorder, CaptureTransportState, Cmd,
     };
     use crate::audio_toolkit::constants;
-    use std::sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc,
+    use rtrb::RingBuffer;
+    use std::{
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            mpsc, Arc, Mutex,
+        },
+        thread,
+        time::Duration,
     };
 
     #[test]
-    fn boundary_block_is_forwarded_before_end_of_stream() {
-        let (tx, rx) = mpsc::channel();
-        let stop_flag = AtomicBool::new(false);
-        let mut eos_sent = false;
-        let mut scratch = Vec::new();
+    fn callback_writes_mono_samples() {
+        let (mut producer, mut consumer) = RingBuffer::<f32>::new(8);
+        let transport = CaptureTransportState::default();
 
-        handle_input_block(
-            &[0.1f32],
+        AudioRecorder::write_input_to_ring(
+            &[0.25f32, -0.5, 1.0],
             1,
             None,
-            &stop_flag,
-            &mut eos_sent,
-            &mut scratch,
-            &tx,
+            &mut producer,
+            &transport,
         );
-        assert!(matches!(rx.try_recv(), Ok(AudioChunk::Samples(_))));
-        assert!(rx.try_recv().is_err());
 
-        stop_flag.store(true, Ordering::Relaxed);
-        handle_input_block(
-            &[0.5f32, 0.5],
-            1,
-            None,
-            &stop_flag,
-            &mut eos_sent,
-            &mut scratch,
-            &tx,
-        );
-        match rx.try_recv() {
-            Ok(AudioChunk::Samples(samples)) => assert_eq!(samples, vec![0.5, 0.5]),
-            _ => panic!("boundary block must be forwarded before end of stream"),
-        }
-        assert!(matches!(rx.try_recv(), Ok(AudioChunk::EndOfStream)));
+        let mut output = [0.0; 3];
+        consumer.pop_entire_slice(&mut output).expect("samples");
+        assert_eq!(output, [0.25, -0.5, 1.0]);
+    }
 
-        handle_input_block(
-            &[0.9f32],
-            1,
+    #[test]
+    fn callback_downmixes_or_selects_multichannel_input() {
+        let transport = CaptureTransportState::default();
+        let (mut average_tx, mut average_rx) = RingBuffer::<f32>::new(4);
+        AudioRecorder::write_input_to_ring(
+            &[1.0f32, 3.0, -1.0, 1.0],
+            2,
             None,
-            &stop_flag,
-            &mut eos_sent,
-            &mut scratch,
-            &tx,
+            &mut average_tx,
+            &transport,
         );
-        assert!(rx.try_recv().is_err(), "blocks after EOS must be dropped");
+        let mut averaged = [0.0; 2];
+        average_rx
+            .pop_entire_slice(&mut averaged)
+            .expect("averaged samples");
+        assert_eq!(averaged, [2.0, 0.0]);
 
-        stop_flag.store(false, Ordering::Relaxed);
-        handle_input_block(
-            &[0.2f32],
-            1,
-            None,
-            &stop_flag,
-            &mut eos_sent,
-            &mut scratch,
-            &tx,
+        let (mut selected_tx, mut selected_rx) = RingBuffer::<f32>::new(4);
+        AudioRecorder::write_input_to_ring(
+            &[1.0f32, 3.0, -1.0, 1.0],
+            2,
+            Some(1),
+            &mut selected_tx,
+            &transport,
         );
-        assert!(matches!(rx.try_recv(), Ok(AudioChunk::Samples(_))));
-        assert!(rx.try_recv().is_err());
+        let mut selected = [0.0; 2];
+        selected_rx
+            .pop_entire_slice(&mut selected)
+            .expect("selected samples");
+        assert_eq!(selected, [3.0, 1.0]);
+    }
+
+    #[test]
+    fn callback_forwards_boundary_block_then_stays_silent_until_resumed() {
+        let (mut producer, mut consumer) = RingBuffer::<f32>::new(8);
+        let transport = CaptureTransportState::default();
+
+        transport.pause_requested.store(true, Ordering::Release);
+        AudioRecorder::write_input_to_ring(&[1.0f32, 2.0], 1, None, &mut producer, &transport);
+        assert!(transport.pause_acknowledged.load(Ordering::Acquire));
+        assert_eq!(consumer.slots(), 2);
+
+        AudioRecorder::write_input_to_ring(&[3.0f32], 1, None, &mut producer, &transport);
+        assert_eq!(consumer.slots(), 2);
+        assert_eq!(transport.overrun_samples.load(Ordering::Relaxed), 0);
+
+        transport.pause_acknowledged.store(false, Ordering::Relaxed);
+        transport.pause_requested.store(false, Ordering::Release);
+        AudioRecorder::write_input_to_ring(&[4.0f32], 1, None, &mut producer, &transport);
+        let mut output = [0.0; 3];
+        consumer.pop_entire_slice(&mut output).expect("samples");
+        assert_eq!(output, [1.0, 2.0, 4.0]);
+    }
+
+    #[test]
+    fn callback_partially_fills_ring_and_counts_dropped_audio() {
+        let (mut producer, mut consumer) = RingBuffer::<f32>::new(2);
+        let transport = CaptureTransportState::default();
+
+        AudioRecorder::write_input_to_ring(&[1.0f32, 2.0, 3.0], 1, None, &mut producer, &transport);
+
+        let mut captured = [0.0; 2];
+        consumer
+            .pop_entire_slice(&mut captured)
+            .expect("partial callback audio");
+        assert_eq!(captured, [1.0, 2.0]);
+        assert_eq!(transport.overrun_samples.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn bounded_drain_leaves_remaining_samples_for_next_command_cycle() {
+        let (mut producer, mut consumer) = RingBuffer::<f32>::new(8);
+        producer
+            .push_entire_slice(&[1.0, 2.0, 3.0, 4.0, 5.0])
+            .expect("samples");
+        let mut drained = Vec::new();
+
+        let count =
+            drain_available_samples(&mut consumer, 3, |part| drained.extend_from_slice(part));
+
+        assert_eq!(count, 3);
+        assert_eq!(drained, [1.0, 2.0, 3.0]);
+        assert_eq!(consumer.slots(), 2);
+    }
+
+    #[test]
+    fn shutdown_is_processed_without_audio_samples() {
+        let (_producer, consumer) = RingBuffer::<f32>::new(48_000);
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            run_consumer(
+                48_000,
+                None,
+                consumer,
+                cmd_rx,
+                None,
+                Arc::new(Mutex::new(None)),
+                AudioCaptureSource::Microphone,
+                Arc::new(Mutex::new(1.0)),
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(CaptureTransportState::default()),
+                Arc::new(AtomicBool::new(false)),
+            );
+            let _ = done_tx.send(());
+        });
+
+        cmd_tx.send(Cmd::Shutdown).expect("send shutdown");
+        done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("consumer shutdown");
+        worker.join().expect("consumer worker");
     }
 
     #[test]
@@ -991,277 +1092,351 @@ fn apply_noise_cancellation_if_needed<'a>(
     }
 }
 
-fn process_consumer_cmd(
-    cmd: Cmd,
-    recording: &mut bool,
-    capture_ready_tx: &mut Option<mpsc::Sender<()>>,
-    processed_samples: &mut Vec<f32>,
-    pending_chunk: Option<&mut Option<AudioChunk>>,
-    sample_rx: &mpsc::Receiver<AudioChunk>,
-    frame_resampler: &mut FrameResampler,
-    vad_frame_resampler: &mut Option<FrameResampler>,
-    vad: &Option<Arc<Mutex<Box<dyn vad::VoiceActivityDetector>>>>,
-    stream_frame_cb: &Arc<Mutex<Option<StreamFrameCallback>>>,
-    visualizer: &mut AudioVisualiser,
+fn drain_available_samples(
+    consumer: &mut Consumer<f32>,
+    max_samples: usize,
+    mut process: impl FnMut(&[f32]),
+) -> usize {
+    let available = consumer.slots().min(max_samples);
+    if available == 0 {
+        return 0;
+    }
+
+    let chunk = consumer
+        .read_chunk(available)
+        .expect("reported audio ring slots must be readable");
+    let (first, second) = chunk.as_slices();
+    if !first.is_empty() {
+        process(first);
+    }
+    if !second.is_empty() {
+        process(second);
+    }
+    chunk.commit_all();
+    available
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ChunkDisposition {
+    Capture,
+    Discard,
+}
+
+struct CapturePipeline {
+    vad: Option<Arc<Mutex<Box<dyn vad::VoiceActivityDetector>>>>,
+    level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
+    stream_frame_cb: Arc<Mutex<Option<StreamFrameCallback>>>,
     source: AudioCaptureSource,
-    microphone_input_gain: &Arc<Mutex<f32>>,
-    microphone_noise_cancellation_enabled: &Arc<AtomicBool>,
-    noise_suppressor: &mut Option<NoiseSuppressor>,
-    stop_flag: &Arc<AtomicBool>,
-) -> bool {
-    match cmd {
-        Cmd::Start(sent_at, ready_tx) => {
-            log::debug!(
-                "Cmd::Start processed {:?} after send; capture begins with the in-flight chunk",
-                sent_at.elapsed()
+    microphone_input_gain: Arc<Mutex<f32>>,
+    microphone_noise_cancellation_enabled: Arc<AtomicBool>,
+    noise_suppressor: Option<NoiseSuppressor>,
+    visualizer: AudioVisualiser,
+    frame_resampler: FrameResampler,
+    vad_frame_resampler: Option<FrameResampler>,
+    processed_samples: Vec<f32>,
+    capture_ready_tx: Option<mpsc::Sender<()>>,
+    max_drain_samples: usize,
+    total_dropped_samples: u64,
+    overrun_warning_logged: bool,
+}
+
+impl CapturePipeline {
+    fn new(
+        in_sample_rate: u32,
+        vad: Option<Arc<Mutex<Box<dyn vad::VoiceActivityDetector>>>>,
+        level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
+        stream_frame_cb: Arc<Mutex<Option<StreamFrameCallback>>>,
+        source: AudioCaptureSource,
+        microphone_input_gain: Arc<Mutex<f32>>,
+        microphone_noise_cancellation_enabled: Arc<AtomicBool>,
+    ) -> Self {
+        let frame_resampler = FrameResampler::new(
+            in_sample_rate as usize,
+            constants::WHISPER_SAMPLE_RATE as usize,
+            Duration::from_millis(30),
+        );
+        let vad_frame_resampler = vad.as_ref().map(|detector| {
+            let frame_samples = detector.lock().unwrap().frame_samples();
+            FrameResampler::new(
+                constants::WHISPER_SAMPLE_RATE as usize,
+                constants::WHISPER_SAMPLE_RATE as usize,
+                Duration::from_secs_f64(
+                    frame_samples as f64 / constants::WHISPER_SAMPLE_RATE as f64,
+                ),
+            )
+        });
+        const BUCKETS: usize = 16;
+        let window_size = visualizer_window_size(in_sample_rate);
+        let visualizer = AudioVisualiser::new(in_sample_rate, window_size, BUCKETS, 400.0, 4000.0);
+        let max_drain_samples =
+            ((in_sample_rate as u128 * MAX_DRAIN_CHUNK.as_millis()) / 1_000).max(1) as usize;
+
+        Self {
+            vad,
+            level_cb,
+            stream_frame_cb,
+            source,
+            microphone_input_gain,
+            microphone_noise_cancellation_enabled,
+            noise_suppressor: None,
+            visualizer,
+            frame_resampler,
+            vad_frame_resampler,
+            processed_samples: Vec::new(),
+            capture_ready_tx: None,
+            max_drain_samples,
+            total_dropped_samples: 0,
+            overrun_warning_logged: false,
+        }
+    }
+
+    fn begin_recording(&mut self, sent_at: Instant, ready_tx: mpsc::Sender<()>) {
+        log::debug!(
+            "Cmd::Start processed {:?} after send; capture begins with the next available samples",
+            sent_at.elapsed()
+        );
+        self.processed_samples.clear();
+        self.noise_suppressor = None;
+        self.capture_ready_tx = Some(ready_tx);
+        self.total_dropped_samples = 0;
+        self.overrun_warning_logged = false;
+        self.visualizer.reset();
+        self.frame_resampler.reset();
+        if let Some(resampler) = self.vad_frame_resampler.as_mut() {
+            resampler.reset();
+        }
+        if let Some(detector) = &self.vad {
+            detector.lock().unwrap().reset();
+        }
+    }
+
+    fn cancel_ready_signal(&mut self) {
+        self.capture_ready_tx = None;
+    }
+
+    fn drain(&mut self, consumer: &mut Consumer<f32>, disposition: ChunkDisposition) -> usize {
+        let max_samples = self.max_drain_samples;
+        drain_available_samples(consumer, max_samples, |raw| {
+            self.process_raw_chunk(raw, disposition)
+        })
+    }
+
+    fn process_raw_chunk(&mut self, raw: &[f32], disposition: ChunkDisposition) {
+        if disposition == ChunkDisposition::Discard {
+            return;
+        }
+
+        if let Some(buckets) = self.visualizer.feed(raw) {
+            if let Some(callback) = &self.level_cb {
+                callback(buckets);
+            }
+        }
+
+        self.frame_resampler.push(raw, &mut |frame: &[f32]| {
+            process_enhanced_capture_frame(
+                frame,
+                &self.vad,
+                &mut self.vad_frame_resampler,
+                &self.stream_frame_cb,
+                self.source,
+                &self.microphone_input_gain,
+                &self.microphone_noise_cancellation_enabled,
+                &mut self.noise_suppressor,
+                &mut self.processed_samples,
             );
-            stop_flag.store(false, Ordering::Relaxed);
-            processed_samples.clear();
-            *noise_suppressor = None;
-            *recording = true;
-            *capture_ready_tx = Some(ready_tx);
-            visualizer.reset();
-            frame_resampler.reset();
-            if let Some(resampler) = vad_frame_resampler.as_mut() {
-                resampler.reset();
-            }
-            if let Some(v) = vad {
-                v.lock().unwrap().reset();
-            }
-            false
+        });
+
+        if let Some(ready_tx) = self.capture_ready_tx.take() {
+            // Silence still counts as ready: the host is delivering samples.
+            let _ = ready_tx.send(());
         }
-        Cmd::Flush {
-            keep_samples,
-            min_samples,
-            reply_tx,
-        } => {
-            if !*recording {
-                let _ = reply_tx.send(Vec::new());
-                return false;
-            }
+    }
 
-            let flushable_len = processed_samples.len().saturating_sub(keep_samples);
-            if flushable_len < min_samples {
-                let _ = reply_tx.send(Vec::new());
-                return false;
-            }
-
-            let flushed: Vec<f32> = processed_samples.drain(..flushable_len).collect();
-            let _ = reply_tx.send(flushed);
-            false
+    fn flush(&mut self, keep_samples: usize, min_samples: usize) -> Vec<f32> {
+        let flushable_len = self.processed_samples.len().saturating_sub(keep_samples);
+        if flushable_len < min_samples {
+            return Vec::new();
         }
-        Cmd::Stop(reply_tx) => {
-            *recording = false;
-            *capture_ready_tx = None;
-            stop_flag.store(true, Ordering::Relaxed);
+        self.processed_samples.drain(..flushable_len).collect()
+    }
 
-            if let Some(Some(AudioChunk::Samples(remaining))) =
-                pending_chunk.map(|pending| pending.take())
-            {
-                frame_resampler.push(&remaining, &mut |frame: &[f32]| {
-                    process_enhanced_capture_frame(
-                        frame,
-                        vad,
-                        vad_frame_resampler,
-                        stream_frame_cb,
-                        source,
-                        microphone_input_gain,
-                        microphone_noise_cancellation_enabled,
-                        noise_suppressor,
-                        processed_samples,
-                    );
-                });
-            }
+    fn observe_overrun(&mut self, samples: u64) {
+        if samples == 0 {
+            return;
+        }
+        self.total_dropped_samples = self.total_dropped_samples.saturating_add(samples);
+        if !self.overrun_warning_logged {
+            self.overrun_warning_logged = true;
+            log::warn!(
+                "Audio capture ring dropped {samples} samples; continuing the active recording"
+            );
+        }
+    }
 
-            let drain_deadline = Instant::now() + Duration::from_secs(2);
-            loop {
-                let remaining = drain_deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
-                    log::warn!("Audio stop drain reached its deadline");
-                    break;
-                }
-                match sample_rx.recv_timeout(remaining) {
-                    Ok(AudioChunk::Samples(remaining)) => {
-                        frame_resampler.push(&remaining, &mut |frame: &[f32]| {
-                            process_enhanced_capture_frame(
-                                frame,
-                                vad,
-                                vad_frame_resampler,
-                                stream_frame_cb,
-                                source,
-                                microphone_input_gain,
-                                microphone_noise_cancellation_enabled,
-                                noise_suppressor,
-                                processed_samples,
-                            );
-                        });
-                    }
-                    Ok(AudioChunk::EndOfStream) => break,
-                    Err(_) => {
-                        log::warn!("Timed out waiting for EndOfStream from audio callback");
-                        break;
-                    }
-                }
-            }
-
-            frame_resampler.finish(&mut |frame: &[f32]| {
-                process_enhanced_capture_frame(
-                    frame,
-                    vad,
-                    vad_frame_resampler,
-                    stream_frame_cb,
-                    source,
-                    microphone_input_gain,
-                    microphone_noise_cancellation_enabled,
-                    noise_suppressor,
-                    processed_samples,
-                );
+    fn finish_recording(&mut self) -> Vec<f32> {
+        self.frame_resampler.finish(&mut |frame: &[f32]| {
+            process_enhanced_capture_frame(
+                frame,
+                &self.vad,
+                &mut self.vad_frame_resampler,
+                &self.stream_frame_cb,
+                self.source,
+                &self.microphone_input_gain,
+                &self.microphone_noise_cancellation_enabled,
+                &mut self.noise_suppressor,
+                &mut self.processed_samples,
+            );
+        });
+        if let Some(resampler) = self.vad_frame_resampler.as_mut() {
+            resampler.finish(|frame: &[f32]| {
+                handle_frame(frame, true, &self.vad, &mut self.processed_samples)
             });
-
-            // Drain the detector-sized stage only after the unchanged main
-            // enhanced 480-sample pipeline has finished.
-            if let Some(resampler) = vad_frame_resampler.as_mut() {
-                resampler.finish(|frame: &[f32]| handle_frame(frame, true, vad, processed_samples));
-            }
-
-            let _ = reply_tx.send(std::mem::take(processed_samples));
-            *noise_suppressor = None;
-
-            stop_flag.store(false, Ordering::Relaxed);
-            false
         }
-        Cmd::Shutdown => {
-            *capture_ready_tx = None;
-            stop_flag.store(true, Ordering::Relaxed);
-            true
+        if self.total_dropped_samples > 0 {
+            log::warn!(
+                "Active recording completed after dropping {} audio samples",
+                self.total_dropped_samples
+            );
         }
+        self.noise_suppressor = None;
+        std::mem::take(&mut self.processed_samples)
     }
 }
 
 fn run_consumer(
     in_sample_rate: u32,
     vad: Option<Arc<Mutex<Box<dyn vad::VoiceActivityDetector>>>>,
-    sample_rx: mpsc::Receiver<AudioChunk>,
+    mut sample_consumer: Consumer<f32>,
     cmd_rx: mpsc::Receiver<Cmd>,
     level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
     stream_frame_cb: Arc<Mutex<Option<StreamFrameCallback>>>,
     source: AudioCaptureSource,
     microphone_input_gain: Arc<Mutex<f32>>,
     microphone_noise_cancellation_enabled: Arc<AtomicBool>,
-    stop_flag: Arc<AtomicBool>,
+    transport: Arc<CaptureTransportState>,
+    stream_error: Arc<AtomicBool>,
 ) {
-    let mut frame_resampler = FrameResampler::new(
-        in_sample_rate as usize,
-        constants::WHISPER_SAMPLE_RATE as usize,
-        Duration::from_millis(30),
+    let mut pipeline = CapturePipeline::new(
+        in_sample_rate,
+        vad,
+        level_cb,
+        stream_frame_cb,
+        source,
+        microphone_input_gain,
+        microphone_noise_cancellation_enabled,
     );
-    let mut vad_frame_resampler = vad.as_ref().map(|detector| {
-        let frame_samples = detector.lock().unwrap().frame_samples();
-        FrameResampler::new(
-            constants::WHISPER_SAMPLE_RATE as usize,
-            constants::WHISPER_SAMPLE_RATE as usize,
-            Duration::from_secs_f64(frame_samples as f64 / constants::WHISPER_SAMPLE_RATE as f64),
-        )
-    });
-
-    let mut processed_samples = Vec::<f32>::new();
     let mut recording = false;
-    let mut capture_ready_tx: Option<mpsc::Sender<()>> = None;
-    let mut noise_suppressor: Option<NoiseSuppressor> = None;
-
-    const BUCKETS: usize = 16;
-    let window_size = visualizer_window_size(in_sample_rate);
-    let mut visualizer = AudioVisualiser::new(in_sample_rate, window_size, BUCKETS, 400.0, 4000.0);
+    let mut stream_error_logged = false;
 
     loop {
-        while let Ok(cmd) = cmd_rx.try_recv() {
-            if process_consumer_cmd(
-                cmd,
-                &mut recording,
-                &mut capture_ready_tx,
-                &mut processed_samples,
-                None,
-                &sample_rx,
-                &mut frame_resampler,
-                &mut vad_frame_resampler,
-                &vad,
-                &stream_frame_cb,
-                &mut visualizer,
-                source,
-                &microphone_input_gain,
-                &microphone_noise_cancellation_enabled,
-                &mut noise_suppressor,
-                &stop_flag,
-            ) {
-                return;
+        // Commands are checked before every bounded drain so Stop cannot wait
+        // behind a multi-second ring backlog.
+        let mut command = if sample_consumer.slots() > 0 {
+            match cmd_rx.try_recv() {
+                Ok(command) => Some(command),
+                Err(mpsc::TryRecvError::Empty) => None,
+                Err(mpsc::TryRecvError::Disconnected) => return,
             }
-        }
-
-        let chunk = match sample_rx.recv_timeout(Duration::from_millis(20)) {
-            Ok(chunk) => chunk,
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
-            Err(_) => break,
+        } else {
+            match cmd_rx.recv_timeout(CONSUMER_POLL_INTERVAL) {
+                Ok(command) => Some(command),
+                Err(mpsc::RecvTimeoutError::Timeout) => None,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            }
         };
 
-        let mut pending_chunk = Some(chunk);
+        loop {
+            if let Some(cmd) = command.take() {
+                match cmd {
+                    Cmd::Start(sent_at, ready_tx) => {
+                        transport.overrun_samples.store(0, Ordering::Release);
+                        pipeline.begin_recording(sent_at, ready_tx);
+                        recording = true;
+                    }
+                    Cmd::Flush {
+                        keep_samples,
+                        min_samples,
+                        reply_tx,
+                    } => {
+                        let samples = if recording {
+                            pipeline.flush(keep_samples, min_samples)
+                        } else {
+                            Vec::new()
+                        };
+                        let _ = reply_tx.send(samples);
+                    }
+                    Cmd::Stop(reply_tx) => {
+                        pipeline
+                            .observe_overrun(transport.overrun_samples.swap(0, Ordering::AcqRel));
+                        recording = false;
+                        pipeline.cancel_ready_signal();
 
-        while let Ok(cmd) = cmd_rx.try_recv() {
-            if process_consumer_cmd(
-                cmd,
-                &mut recording,
-                &mut capture_ready_tx,
-                &mut processed_samples,
-                Some(&mut pending_chunk),
-                &sample_rx,
-                &mut frame_resampler,
-                &mut vad_frame_resampler,
-                &vad,
-                &stream_frame_cb,
-                &mut visualizer,
-                source,
-                &microphone_input_gain,
-                &microphone_noise_cancellation_enabled,
-                &mut noise_suppressor,
-                &stop_flag,
-            ) {
-                return;
-            }
-        }
+                        // Retain one callback block at the recording boundary,
+                        // then drain everything committed before its acknowledgement.
+                        transport.pause_acknowledged.store(false, Ordering::Relaxed);
+                        transport.pause_requested.store(true, Ordering::Release);
+                        let pause_started = Instant::now();
+                        while !transport.pause_acknowledged.load(Ordering::Acquire)
+                            && pause_started.elapsed() < PAUSE_ACK_TIMEOUT
+                        {
+                            if pipeline.drain(&mut sample_consumer, ChunkDisposition::Capture) == 0
+                            {
+                                std::thread::sleep(Duration::from_millis(1));
+                            }
+                        }
 
-        let raw = match pending_chunk.take() {
-            Some(AudioChunk::Samples(samples)) => samples,
-            _ => continue,
-        };
+                        let pause_timed_out = !transport.pause_acknowledged.load(Ordering::Acquire);
+                        if pause_timed_out {
+                            log::warn!("Timed out waiting for the audio callback to pause");
+                            stream_error.store(true, Ordering::Release);
+                        }
 
-        // In always-on mode the capture stream remains open while idle. The
-        // level meter has no idle consumer and handle_frame discards idle
-        // output, so skip both expensive paths until Cmd::Start resets them.
-        if recording {
-            if let Some(buckets) = visualizer.feed(&raw) {
-                if let Some(cb) = &level_cb {
-                    cb(buckets);
+                        while pipeline.drain(&mut sample_consumer, ChunkDisposition::Capture) > 0 {}
+                        pipeline
+                            .observe_overrun(transport.overrun_samples.swap(0, Ordering::AcqRel));
+                        let samples = pipeline.finish_recording();
+
+                        if !pause_timed_out {
+                            // Resume before stop() returns so an immediate new
+                            // recording cannot lose its first callback.
+                            transport.pause_acknowledged.store(false, Ordering::Relaxed);
+                            transport.pause_requested.store(false, Ordering::Release);
+                        }
+                        let _ = reply_tx.send(samples);
+                        if pause_timed_out {
+                            return;
+                        }
+                    }
+                    Cmd::Shutdown => {
+                        pipeline.cancel_ready_signal();
+                        transport.pause_requested.store(true, Ordering::Release);
+                        return;
+                    }
                 }
             }
 
-            frame_resampler.push(&raw, &mut |frame: &[f32]| {
-                process_enhanced_capture_frame(
-                    frame,
-                    &vad,
-                    &mut vad_frame_resampler,
-                    &stream_frame_cb,
-                    source,
-                    &microphone_input_gain,
-                    &microphone_noise_cancellation_enabled,
-                    &mut noise_suppressor,
-                    &mut processed_samples,
-                );
-            });
+            command = match cmd_rx.try_recv() {
+                Ok(command) => Some(command),
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => return,
+            };
+        }
 
-            if let Some(ready_tx) = capture_ready_tx.take() {
-                // Silence still counts as ready: this acknowledges that the
-                // host is delivering samples, not that VAD detected speech.
-                let _ = ready_tx.send(());
-            }
+        let disposition = if recording {
+            ChunkDisposition::Capture
+        } else {
+            ChunkDisposition::Discard
+        };
+        pipeline.drain(&mut sample_consumer, disposition);
+
+        let overrun_samples = transport.overrun_samples.swap(0, Ordering::AcqRel);
+        if recording {
+            pipeline.observe_overrun(overrun_samples);
+        }
+
+        if stream_error.load(Ordering::Acquire) && !stream_error_logged {
+            log::error!("Audio backend reported a stream error; it will be rebuilt");
+            stream_error_logged = true;
         }
     }
 }

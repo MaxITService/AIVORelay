@@ -1836,6 +1836,13 @@ pub fn run(cli_args: CliArgs) {
         .manage(std::sync::Mutex::new(settings::ShortcutEngine::default())
             as shortcut::ActiveShortcutEngine)
         .setup(move |app| {
+            #[cfg(target_os = "windows")]
+            log::info!(
+                "Vulkan layer policy: VK_LOADER_LAYERS_DISABLE={:?}, AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS={:?}",
+                std::env::var_os("VK_LOADER_LAYERS_DISABLE"),
+                std::env::var_os("AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS"),
+            );
+
             if headless_mode {
                 let app_handle = app.handle().clone();
                 if cli_local_tts::is_local_tts_requested(&cli_args) {

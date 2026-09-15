@@ -59,6 +59,18 @@ const RECORDING_OVERLAY_CORNER_INSET: f64 = 5.0;
 const RECORDING_OVERLAY_TASKBAR_WIDGET_GAP: f64 = 16.0;
 const RECORDING_OVERLAY_TASKBAR_VERTICAL_LIFT: f64 = 5.0;
 
+/// Windows accessibility text size is independent of monitor DPI. WebView2
+/// applies it as content zoom, so the native recording-overlay window must grow
+/// by the same factor or the enlarged content is clipped.
+#[cfg(target_os = "windows")]
+fn windows_text_scale_factor() -> f64 {
+    winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+        .open_subkey(r"Software\Microsoft\Accessibility")
+        .and_then(|key| key.get_value::<u32, _>("TextScaleFactor"))
+        .map(|percent| (percent as f64 / 100.0).clamp(1.0, 2.25))
+        .unwrap_or(1.0)
+}
+
 // Command Confirmation Overlay dimensions
 const COMMAND_CONFIRM_WIDTH: f64 = 520.0;
 const COMMAND_CONFIRM_HEIGHT: f64 = 280.0;
@@ -995,7 +1007,7 @@ fn recording_overlay_manual_frame_origin(
     let (frame_x, frame_y) = match metrics.layout {
         RecordingOverlayLayout::Error => {
             let default_metrics =
-                recording_overlay_window_metrics(app_handle, RecordingOverlayLayout::Default);
+                recording_overlay_geometry_metrics(app_handle, RecordingOverlayLayout::Default);
             (
                 saved_frame_x + ((default_metrics.frame_width - metrics.frame_width) / 2.0),
                 saved_frame_y + ((default_metrics.frame_height - metrics.frame_height) / 2.0),
@@ -1018,7 +1030,7 @@ fn calculate_recording_overlay_window_geometry(
         .recording_overlay_use_manual_position
     {
         let default_metrics =
-            recording_overlay_window_metrics(app_handle, RecordingOverlayLayout::Default);
+            recording_overlay_geometry_metrics(app_handle, RecordingOverlayLayout::Default);
         let (monitor, saved_frame_x, saved_frame_y) =
             if settings.recording_overlay_manual_position_uses_physical_px {
                 let monitor = get_monitor_for_scaled_physical_rect(
@@ -1208,7 +1220,7 @@ fn reassert_recording_overlay_window_geometry(app_handle: &AppHandle) {
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(50));
         let metrics =
-            recording_overlay_window_metrics(&app_clone, current_recording_overlay_layout());
+            recording_overlay_geometry_metrics(&app_clone, current_recording_overlay_layout());
         if let Some(overlay_window) = app_clone.get_webview_window("recording_overlay") {
             if let Some(geometry) = calculate_recording_overlay_window_geometry(&app_clone, metrics)
             {
@@ -1225,7 +1237,7 @@ pub fn show_positioned_recording_overlay_window(app_handle: &AppHandle) {
 
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
         let metrics =
-            recording_overlay_window_metrics(app_handle, current_recording_overlay_layout());
+            recording_overlay_geometry_metrics(app_handle, current_recording_overlay_layout());
         let preserve_visible_position = current_recording_overlay_layout()
             == RecordingOverlayLayout::Default
             && overlay_window.is_visible().unwrap_or(false);
@@ -1430,6 +1442,36 @@ fn recording_overlay_window_metrics(
     }
 }
 
+#[cfg(any(target_os = "windows", test))]
+fn scale_recording_overlay_metrics(
+    metrics: RecordingOverlayWindowMetrics,
+    content_scale: f64,
+) -> RecordingOverlayWindowMetrics {
+    RecordingOverlayWindowMetrics {
+        layout: metrics.layout,
+        frame_width: metrics.frame_width * content_scale,
+        frame_height: metrics.frame_height * content_scale,
+        padding: metrics.padding * content_scale,
+        window_width: metrics.window_width * content_scale,
+        window_height: metrics.window_height * content_scale,
+    }
+}
+
+fn recording_overlay_geometry_metrics(
+    app_handle: &AppHandle,
+    layout: RecordingOverlayLayout,
+) -> RecordingOverlayWindowMetrics {
+    let metrics = recording_overlay_window_metrics(app_handle, layout);
+
+    #[cfg(target_os = "windows")]
+    {
+        return scale_recording_overlay_metrics(metrics, windows_text_scale_factor());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    metrics
+}
+
 fn set_recording_overlay_layout(app_handle: &AppHandle, layout: RecordingOverlayLayout) {
     let previous_layout = RECORDING_OVERLAY_LAYOUT.swap(layout as u8, Ordering::SeqCst);
     let preserve_visible_position = previous_layout == layout as u8
@@ -1444,7 +1486,7 @@ fn set_recording_overlay_layout(app_handle: &AppHandle, layout: RecordingOverlay
         return;
     }
 
-    let metrics = recording_overlay_window_metrics(app_handle, layout);
+    let metrics = recording_overlay_geometry_metrics(app_handle, layout);
     apply_recording_overlay_layout(app_handle, metrics);
 }
 
@@ -1652,7 +1694,8 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
         return;
     }
 
-    let metrics = recording_overlay_window_metrics(app_handle, current_recording_overlay_layout());
+    let metrics =
+        recording_overlay_geometry_metrics(app_handle, current_recording_overlay_layout());
     let position = calculate_overlay_position_for_window(app_handle, metrics);
 
     #[cfg(not(target_os = "linux"))]
@@ -1958,7 +2001,8 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
         return;
     }
 
-    let metrics = recording_overlay_window_metrics(app_handle, current_recording_overlay_layout());
+    let metrics =
+        recording_overlay_geometry_metrics(app_handle, current_recording_overlay_layout());
     if let Some((x, y)) = calculate_overlay_position_for_window(app_handle, metrics) {
         // PanelBuilder creates a Tauri window then converts it to NSPanel.
         // The window remains registered, so get_webview_window() still works.
@@ -2107,7 +2151,8 @@ pub fn show_finalizing_overlay(app_handle: &AppHandle) {
 
 /// Updates the overlay window position based on current settings
 pub fn update_overlay_position(app_handle: &AppHandle) {
-    let metrics = recording_overlay_window_metrics(app_handle, current_recording_overlay_layout());
+    let metrics =
+        recording_overlay_geometry_metrics(app_handle, current_recording_overlay_layout());
     apply_recording_overlay_layout(app_handle, metrics);
 }
 
@@ -3050,7 +3095,7 @@ fn clamp_custom_position_to_nearest_work_area(
         return Err("Custom coordinates must be between -100000 and 100000".to_string());
     }
 
-    let metrics = recording_overlay_window_metrics(app_handle, RecordingOverlayLayout::Default);
+    let metrics = recording_overlay_geometry_metrics(app_handle, RecordingOverlayLayout::Default);
     let monitor = get_monitor_for_scaled_physical_rect(
         app_handle,
         x_px as f64,
@@ -3105,7 +3150,8 @@ pub fn remember_recording_overlay_window_position(
     x_px: i32,
     y_px: i32,
 ) -> Result<(), String> {
-    let metrics = recording_overlay_window_metrics(&app_handle, current_recording_overlay_layout());
+    let metrics =
+        recording_overlay_geometry_metrics(&app_handle, current_recording_overlay_layout());
     let monitor = get_monitor_for_scaled_physical_rect(
         &app_handle,
         x_px as f64,
@@ -3125,7 +3171,7 @@ pub fn remember_recording_overlay_window_position(
         RecordingOverlayLayout::Default => (current_frame_x, current_frame_y),
         RecordingOverlayLayout::Error => {
             let default_metrics =
-                recording_overlay_window_metrics(&app_handle, RecordingOverlayLayout::Default);
+                recording_overlay_geometry_metrics(&app_handle, RecordingOverlayLayout::Default);
             (
                 current_frame_x + ((metrics.frame_width - default_metrics.frame_width) / 2.0),
                 current_frame_y + ((metrics.frame_height - default_metrics.frame_height) / 2.0),
@@ -3169,4 +3215,32 @@ pub fn get_recording_overlay_appearance(
 enum RecordingOverlayLayout {
     Default = 0,
     Error = 1,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        scale_recording_overlay_metrics, RecordingOverlayLayout, RecordingOverlayWindowMetrics,
+    };
+
+    #[test]
+    fn recording_overlay_metrics_grow_with_windows_text_scale() {
+        let scaled = scale_recording_overlay_metrics(
+            RecordingOverlayWindowMetrics {
+                layout: RecordingOverlayLayout::Default,
+                frame_width: 200.0,
+                frame_height: 40.0,
+                padding: 10.0,
+                window_width: 220.0,
+                window_height: 60.0,
+            },
+            1.25,
+        );
+
+        assert_eq!(scaled.frame_width, 250.0);
+        assert_eq!(scaled.frame_height, 50.0);
+        assert_eq!(scaled.padding, 12.5);
+        assert_eq!(scaled.window_width, 275.0);
+        assert_eq!(scaled.window_height, 75.0);
+    }
 }

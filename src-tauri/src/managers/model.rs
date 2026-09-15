@@ -1112,6 +1112,24 @@ impl ModelManager {
         }
     }
 
+    /// Models discovered only from disk should disappear together with their
+    /// files. Catalog defaults remain visible so they can be downloaded again.
+    fn disappears_when_missing(model: &ModelInfo) -> bool {
+        if model.is_custom {
+            return true;
+        }
+
+        let Some((repo_id, _, filename)) = model_hf_source(model) else {
+            return false;
+        };
+        !crate::catalog::CATALOG.iter().any(|catalog_model| {
+            catalog_model.id == repo_id
+                && catalog_model
+                    .default_file()
+                    .is_some_and(|file| file.filename == filename)
+        })
+    }
+
     fn clear_download_state(&self, model_id: &str, partial_path: &Path) {
         let partial_size = partial_path
             .metadata()
@@ -1285,6 +1303,7 @@ impl ModelManager {
         // A live extraction is not an interrupted installation.
         let tokens = self.cancellation_tokens.lock().unwrap();
         let mut models = self.available_models.lock().unwrap();
+        let mut vanished_models = Vec::new();
 
         for model in models.values_mut() {
             if tokens.contains_key(&model.id) {
@@ -1300,6 +1319,9 @@ impl ModelManager {
                     .metadata()
                     .map(|metadata| metadata.len())
                     .unwrap_or(0);
+                if !model.is_downloaded && Self::disappears_when_missing(model) {
+                    vanished_models.push(model.id.clone());
+                }
                 continue;
             }
 
@@ -1341,6 +1363,14 @@ impl ModelManager {
                     model.partial_size = 0;
                 }
             }
+
+            if !model.is_downloaded && Self::disappears_when_missing(model) {
+                vanished_models.push(model.id.clone());
+            }
+        }
+
+        for model_id in vanished_models {
+            models.remove(&model_id);
         }
 
         Ok(())
@@ -2351,7 +2381,10 @@ impl ModelManager {
             }
 
             if !deleted_something {
-                return Err(anyhow::anyhow!("No model files found to delete"));
+                debug!(
+                    "ModelManager: no HF cache or mirrored files found for {}; clearing stale state",
+                    model_id
+                );
             }
 
             self.update_download_status()?;
@@ -2395,7 +2428,10 @@ impl ModelManager {
         }
 
         if !deleted_something {
-            return Err(anyhow::anyhow!("No model files found to delete"));
+            debug!(
+                "ModelManager: no files found on disk for {}; clearing stale state",
+                model_id
+            );
         }
 
         // Custom models have no download URL and should disappear after deletion.
@@ -2412,6 +2448,34 @@ impl ModelManager {
         let _ = self.app_handle.emit("model-deleted", model_id);
 
         Ok(())
+    }
+
+    /// Reconcile a model that was advertised as downloaded but whose file has
+    /// disappeared since the last scan. This does not touch the persisted
+    /// selection: catalog models can be downloaded on demand by the fork.
+    fn mark_model_unavailable(&self, model_id: &str) {
+        let removed = {
+            let mut models = self.available_models.lock().unwrap();
+            let should_remove = models
+                .get(model_id)
+                .is_some_and(Self::disappears_when_missing);
+            if should_remove {
+                models.remove(model_id);
+                true
+            } else if let Some(model) = models.get_mut(model_id) {
+                model.is_downloaded = false;
+                false
+            } else {
+                return;
+            }
+        };
+
+        if removed {
+            info!("Removing vanished discovered model '{}'", model_id);
+        } else {
+            info!("Marking model '{}' as unavailable on disk", model_id);
+        }
+        let _ = self.app_handle.emit("models-updated", ());
     }
 
     pub fn get_model_path(&self, model_id: &str) -> Result<PathBuf> {
@@ -2439,6 +2503,7 @@ impl ModelManager {
             if local_path.exists() {
                 return Ok(local_path);
             }
+            self.mark_model_unavailable(model_id);
             return Err(anyhow::anyhow!(
                 "Complete model file not found in HF cache or mirror directory: {}",
                 model_id
@@ -2451,25 +2516,32 @@ impl ModelManager {
             .join(format!("{}.partial", &model_info.filename));
 
         if model_info.is_directory {
-            // For directory-based models, ensure the directory exists and is complete
-            if model_path.exists() && model_path.is_dir() && !partial_path.exists() {
-                Ok(model_path)
-            } else {
-                Err(anyhow::anyhow!(
+            if !model_path.exists() || !model_path.is_dir() {
+                self.mark_model_unavailable(model_id);
+                return Err(anyhow::anyhow!(
                     "Complete model directory not found: {}",
                     model_id
-                ))
+                ));
             }
+            if partial_path.exists() {
+                return Err(anyhow::anyhow!(
+                    "Model directory is incomplete: {}",
+                    model_id
+                ));
+            }
+            Ok(model_path)
         } else {
-            // For file-based models (existing logic)
-            if model_path.exists() && !partial_path.exists() {
-                Ok(model_path)
-            } else {
-                Err(anyhow::anyhow!(
+            if !model_path.exists() {
+                self.mark_model_unavailable(model_id);
+                return Err(anyhow::anyhow!(
                     "Complete model file not found: {}",
                     model_id
-                ))
+                ));
             }
+            if partial_path.exists() {
+                return Err(anyhow::anyhow!("Model file is incomplete: {}", model_id));
+            }
+            Ok(model_path)
         }
     }
 
@@ -2543,7 +2615,10 @@ impl ModelManager {
 
 #[cfg(test)]
 mod tests {
-    use super::{effective_language, HfDownloadProgressState, ModelManager};
+    use super::{
+        effective_language, hf_source_url, model_hf_source, HfDownloadProgressState, ModelManager,
+    };
+    use std::collections::HashMap;
 
     #[test]
     fn extraction_cancellation_is_terminal_instead_of_retryable_interruption() {
@@ -2575,6 +2650,30 @@ mod tests {
         assert_eq!(std::io::copy(&mut reader, &mut output).unwrap(), expected.len() as u64);
         assert_eq!(output, expected);
     }
+
+    #[test]
+    fn only_discovery_created_models_disappear_when_their_files_do() {
+        let mut models = HashMap::new();
+        ModelManager::seed_catalog_models(&mut models);
+        let catalog_default = models
+            .values()
+            .find(|model| model_hf_source(model).is_some())
+            .expect("catalog HF model")
+            .clone();
+        assert!(!ModelManager::disappears_when_missing(&catalog_default));
+
+        let (repo_id, revision, _) = model_hf_source(&catalog_default).unwrap();
+        let mut alternate = catalog_default.clone();
+        alternate.filename = "alternate-quant.gguf".to_string();
+        alternate.url = Some(hf_source_url(&repo_id, &revision, &alternate.filename));
+        assert!(ModelManager::disappears_when_missing(&alternate));
+
+        let mut custom = catalog_default;
+        custom.is_custom = true;
+        custom.url = None;
+        assert!(ModelManager::disappears_when_missing(&custom));
+    }
+
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
