@@ -7019,6 +7019,24 @@ impl AppSettings {
         }
     }
 
+    /// Resolve the Voice Command model while preserving a separate per-provider override.
+    pub fn voice_command_model(&self, provider_id: &str) -> String {
+        if self.voice_command_provider_id.as_deref() != Some(provider_id) {
+            return self
+                .post_process_models
+                .get(provider_id)
+                .cloned()
+                .unwrap_or_default();
+        }
+
+        self.voice_command_models
+            .get(provider_id)
+            .filter(|model| !model.trim().is_empty())
+            .cloned()
+            .or_else(|| self.post_process_models.get(provider_id).cloned())
+            .unwrap_or_default()
+    }
+
     /// Get a transcription profile by its ID.
     pub fn transcription_profile(&self, profile_id: &str) -> Option<&TranscriptionProfile> {
         self.transcription_profiles
@@ -7199,14 +7217,7 @@ impl AppSettings {
                             .unwrap_or_default()
                     };
 
-                // Use voice command model with fallback to post-processing model
-                let model = self
-                    .voice_command_models
-                    .get(&provider.id)
-                    .cloned()
-                    .filter(|m| !m.is_empty())
-                    .or_else(|| self.post_process_models.get(&provider.id).cloned())
-                    .unwrap_or_default();
+                let model = self.voice_command_model(&provider.id);
 
                 Some(LlmConfig {
                     provider_id: provider.id.clone(),
@@ -8576,5 +8587,85 @@ mod tests {
         let provider: LiveSoundTranscriptionProvider =
             serde_json::from_value(json!("system")).unwrap();
         assert_eq!(provider, LiveSoundTranscriptionProvider::System);
+    }
+
+    #[test]
+    fn voice_command_model_switches_between_separate_and_inherited_without_losing_override() {
+        let mut settings = get_default_settings();
+        let provider = settings.post_process_providers.first_mut().unwrap();
+        provider.id = "voice-model-regression".to_string();
+        let provider_id = provider.id.clone();
+
+        settings.post_process_provider_id = provider_id.clone();
+        settings
+            .post_process_models
+            .insert(provider_id.clone(), "post-model-a".to_string());
+        settings
+            .voice_command_models
+            .insert(provider_id.clone(), "voice-model-b".to_string());
+
+        settings.voice_command_provider_id = Some(provider_id.clone());
+        assert_eq!(
+            settings
+                .llm_config_for(LlmFeature::VoiceCommand)
+                .unwrap()
+                .model,
+            "voice-model-b"
+        );
+
+        settings.voice_command_provider_id = None;
+        assert_eq!(
+            settings
+                .llm_config_for(LlmFeature::VoiceCommand)
+                .unwrap()
+                .model,
+            "post-model-a"
+        );
+        assert_eq!(
+            settings.voice_command_models.get(&provider_id).map(String::as_str),
+            Some("voice-model-b")
+        );
+
+        settings.voice_command_provider_id = Some(provider_id);
+        assert_eq!(
+            settings
+                .llm_config_for(LlmFeature::VoiceCommand)
+                .unwrap()
+                .model,
+            "voice-model-b"
+        );
+    }
+
+    #[test]
+    fn explicit_voice_command_model_falls_back_when_missing_or_empty() {
+        let mut settings = get_default_settings();
+        let provider = settings.post_process_providers.first_mut().unwrap();
+        provider.id = "voice-model-empty-regression".to_string();
+        let provider_id = provider.id.clone();
+
+        settings.post_process_provider_id = provider_id.clone();
+        settings.voice_command_provider_id = Some(provider_id.clone());
+        settings
+            .post_process_models
+            .insert(provider_id.clone(), "post-model".to_string());
+
+        assert_eq!(
+            settings
+                .llm_config_for(LlmFeature::VoiceCommand)
+                .unwrap()
+                .model,
+            "post-model"
+        );
+
+        settings
+            .voice_command_models
+            .insert(provider_id, String::new());
+        assert_eq!(
+            settings
+                .llm_config_for(LlmFeature::VoiceCommand)
+                .unwrap()
+                .model,
+            "post-model"
+        );
     }
 }

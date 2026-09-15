@@ -1164,6 +1164,18 @@ export default function VoiceCommandSettings() {
                 </div>
 
                 {(settings.voice_command_use_phonetic ?? true) && (
+                  <div
+                    role="note"
+                    className="mx-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100"
+                  >
+                    {t(
+                      "voiceCommands.fuzzyMatching.phoneticWarning",
+                      "Soundex is designed for English words and is used only when both words contain ASCII letters. Other scripts use exact and character-level matching. Similarity percentages are heuristic scores, not recognition probabilities.",
+                    )}
+                  </div>
+                )}
+
+                {(settings.voice_command_use_phonetic ?? true) && (
                   <div className="setting-row sub-setting">
                     <div className="setting-label">
                       <span>

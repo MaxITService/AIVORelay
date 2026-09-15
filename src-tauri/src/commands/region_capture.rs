@@ -74,14 +74,16 @@ pub fn region_capture_get_data(app: AppHandle) -> Result<RegionCaptureData, Stri
 /// Called from the overlay when user confirms region selection.
 #[tauri::command]
 #[specta::specta]
-pub fn region_capture_confirm(app: AppHandle, region: SelectedRegion) {
+pub fn region_capture_confirm(app: AppHandle, region: SelectedRegion) -> Result<(), String> {
     #[cfg(target_os = "windows")]
-    on_region_selected(&app, region);
+    {
+        return on_region_selected(&app, region);
+    }
 
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (app, region);
-        log::warn!("region_capture_confirm called on non-Windows platform");
+        Err("Region capture is only supported on Windows".to_string())
     }
 }
 

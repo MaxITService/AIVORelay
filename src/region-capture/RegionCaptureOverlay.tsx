@@ -1,18 +1,19 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+import {
+  createRegionWithinBounds,
+  logicalScreenBounds,
+  MIN_REGION_SIZE,
+  moveRegionWithinBounds,
+  resizeRegionWithinBounds,
+  toPhysicalRegion,
+  type HandlePosition,
+  type Region,
+} from "./geometry";
+
 // State machine states
 type CaptureState = "idle" | "creating" | "selected" | "moving" | "resizing";
-
-// Resize handle positions
-type HandlePosition = "nw" | "n" | "ne" | "w" | "e" | "sw" | "s" | "se";
-
-interface Region {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
 
 interface VirtualScreenInfo {
   offset_x: number;
@@ -27,7 +28,6 @@ interface RegionCaptureData {
   virtual_screen: VirtualScreenInfo;
 }
 
-const MIN_REGION_SIZE = 10;
 const HANDLE_SIZE = 10;
 
 export default function RegionCaptureOverlay() {
@@ -64,15 +64,13 @@ export default function RegionCaptureOverlay() {
   // Confirm region selection (used by Enter key and double-click)
   const handleConfirm = useCallback((regionToConfirm?: Region) => {
     const r = regionToConfirm || region;
-    if (r && virtualScreen && r.width > MIN_REGION_SIZE && r.height > MIN_REGION_SIZE) {
-      const scale = virtualScreen.scale_factor || 1;
-      invoke("region_capture_confirm", {
-        region: {
-          x: Math.round(r.x * scale),
-          y: Math.round(r.y * scale),
-          width: Math.round(r.width * scale),
-          height: Math.round(r.height * scale),
-        },
+    if (r && virtualScreen && r.width >= MIN_REGION_SIZE && r.height >= MIN_REGION_SIZE) {
+      setError(null);
+      void invoke("region_capture_confirm", {
+        region: toPhysicalRegion(r, virtualScreen),
+      }).catch((invokeError) => {
+        console.error("Failed to confirm region capture:", invokeError);
+        setError(String(invokeError));
       });
     }
   }, [region, virtualScreen]);
@@ -90,17 +88,12 @@ export default function RegionCaptureOverlay() {
 
       // Wait for next frame to ensure UI update before sending confirm
       requestAnimationFrame(() => {
-        if (savedRegion && savedRegion.width > MIN_REGION_SIZE && savedRegion.height > MIN_REGION_SIZE) {
+        if (savedRegion && savedRegion.width >= MIN_REGION_SIZE && savedRegion.height >= MIN_REGION_SIZE) {
           // Had a valid selection before double-click → send it
           handleConfirm(savedRegion);
         } else {
           // No valid selection → send full screen
-          const fullScreen: Region = {
-            x: 0,
-            y: 0,
-            width: virtualScreen.total_width / (virtualScreen.scale_factor || 1),
-            height: virtualScreen.total_height / (virtualScreen.scale_factor || 1),
-          };
+          const fullScreen: Region = { x: 0, y: 0, ...logicalScreenBounds(virtualScreen) };
           handleConfirm(fullScreen);
         }
       });
@@ -215,62 +208,31 @@ export default function RegionCaptureOverlay() {
 
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
+      const bounds = { width: rect.width, height: rect.height };
 
       if (state === "creating") {
         // Update region while creating
-        const newRegion = {
-          x: Math.min(dragStart.x, x),
-          y: Math.min(dragStart.y, y),
-          width: Math.abs(x - dragStart.x),
-          height: Math.abs(y - dragStart.y),
-        };
+        const newRegion = createRegionWithinBounds(dragStart, { x, y }, bounds);
         setRegion(newRegion);
       } else if (state === "moving" && regionStart) {
         // Move region
         const deltaX = x - dragStart.x;
         const deltaY = y - dragStart.y;
-        setRegion({
-          ...regionStart,
-          x: regionStart.x + deltaX,
-          y: regionStart.y + deltaY,
-        });
+        setRegion(
+          moveRegionWithinBounds(regionStart, { x: deltaX, y: deltaY }, bounds),
+        );
       } else if (state === "resizing" && regionStart && activeHandle) {
         // Resize based on handle
         const deltaX = x - dragStart.x;
         const deltaY = y - dragStart.y;
-        const newRegion = { ...regionStart };
-
-        // Horizontal component
-        if (activeHandle.includes("w")) {
-          newRegion.x = regionStart.x + deltaX;
-          newRegion.width = regionStart.width - deltaX;
-        } else if (activeHandle.includes("e")) {
-          newRegion.width = regionStart.width + deltaX;
-        }
-
-        // Vertical component
-        if (activeHandle.includes("n")) {
-          newRegion.y = regionStart.y + deltaY;
-          newRegion.height = regionStart.height - deltaY;
-        } else if (activeHandle.includes("s")) {
-          newRegion.height = regionStart.height + deltaY;
-        }
-
-        // Enforce minimum size
-        if (newRegion.width < MIN_REGION_SIZE) {
-          if (activeHandle.includes("w")) {
-            newRegion.x = regionStart.x + regionStart.width - MIN_REGION_SIZE;
-          }
-          newRegion.width = MIN_REGION_SIZE;
-        }
-        if (newRegion.height < MIN_REGION_SIZE) {
-          if (activeHandle.includes("n")) {
-            newRegion.y = regionStart.y + regionStart.height - MIN_REGION_SIZE;
-          }
-          newRegion.height = MIN_REGION_SIZE;
-        }
-
-        setRegion(newRegion);
+        setRegion(
+          resizeRegionWithinBounds(
+            regionStart,
+            activeHandle,
+            { x: deltaX, y: deltaY },
+            bounds,
+          ),
+        );
       }
     },
     [state, dragStart, regionStart, activeHandle]
@@ -279,7 +241,7 @@ export default function RegionCaptureOverlay() {
   // Mouse up handler
   const handleMouseUp = useCallback(() => {
     if (state === "creating") {
-      if (region && region.width > MIN_REGION_SIZE && region.height > MIN_REGION_SIZE) {
+      if (region && region.width >= MIN_REGION_SIZE && region.height >= MIN_REGION_SIZE) {
         setState("selected");
       } else {
         // Region too small - reset
