@@ -43,6 +43,11 @@ type PlaybackPosition = Omit<GaplessPlaybackSnapshot, "chunkIndex"> & {
 };
 
 const SCHEDULE_LEAD_SECONDS = 0.02;
+// Keep in sync with PROVIDER_PCM_SAMPLE_RATE in managers/tts.rs. Decoding
+// each 250 ms file at the device rate resamples its edges independently,
+// breaking continuity even when the sources are scheduled back-to-back.
+// Let the context resample the continuous output for the device instead.
+const PLAYBACK_SAMPLE_RATE = 24_000;
 // Twelve 250 ms cloud chunks provide up to three seconds of jitter tolerance
 // without constructing an unbounded graph for long selections.
 const MAX_SCHEDULED_CHUNKS = 12;
@@ -219,6 +224,7 @@ export class GaplessTtsPlayer {
     if (!this.context || this.context.state === "closed") {
       this.context = new AudioContext({
         latencyHint: "interactive",
+        sampleRate: PLAYBACK_SAMPLE_RATE,
       });
       this.nextPlayTime = this.context.currentTime;
     }
@@ -297,10 +303,13 @@ export class GaplessTtsPlayer {
           Math.max(0, this.pendingPauseOffset),
         );
         this.pendingPauseOffset = 0;
-        const startTime = Math.max(
-          context.currentTime + SCHEDULE_LEAD_SECONDS,
-          this.nextPlayTime,
-        );
+        // Lead time is for startup or a real underrun. Applying it to every
+        // chunk inserts silence when decoding finishes just before the join.
+        const now = context.currentTime;
+        const startTime =
+          this.nextPlayTime > now
+            ? this.nextPlayTime
+            : now + SCHEDULE_LEAD_SECONDS;
         const endTime =
           startTime +
           (prepared.buffer.duration - sourceOffset) / effectivePlaybackRate;

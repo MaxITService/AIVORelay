@@ -1419,10 +1419,22 @@ impl TranscriptionManager {
             },
         );
 
-        let model_info = self
-            .model_manager
-            .get_model_info(model_id)
-            .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
+        let model_info = match self.model_manager.get_model_info(model_id) {
+            Some(model_info) => model_info,
+            None => {
+                let error_msg = format!("Model not found: {}", model_id);
+                let _ = self.app_handle.emit(
+                    "model-state-changed",
+                    ModelStateEvent {
+                        event_type: "loading_failed".to_string(),
+                        model_id: Some(model_id.to_string()),
+                        model_name: None,
+                        error: Some(error_msg.clone()),
+                    },
+                );
+                return Err(anyhow::anyhow!(error_msg));
+            }
+        };
 
         let emit_loading_failed = |error_msg: &str| {
             let _ = self.app_handle.emit(
@@ -1442,7 +1454,10 @@ impl TranscriptionManager {
             return Err(anyhow::anyhow!(error_msg));
         }
 
-        let model_path = self.model_manager.get_model_path(model_id)?;
+        let model_path = self
+            .model_manager
+            .get_model_path(model_id)
+            .inspect_err(|error| emit_loading_failed(&error.to_string()))?;
 
         if matches!(
             &model_info.engine_type,

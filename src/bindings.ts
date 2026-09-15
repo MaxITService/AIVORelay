@@ -3753,8 +3753,13 @@ async regionCaptureGetData() : Promise<Result<RegionCaptureData, string>> {
 /**
  * Called from the overlay when user confirms region selection.
  */
-async regionCaptureConfirm(region: SelectedRegion) : Promise<void> {
-    await TAURI_INVOKE("region_capture_confirm", { region });
+async regionCaptureConfirm(region: SelectedRegion) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("region_capture_confirm", { region }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 },
 /**
  * Called from the overlay when user cancels region capture.

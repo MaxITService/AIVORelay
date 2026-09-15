@@ -225,7 +225,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col p-8 gap-6 inset-0 overflow-y-auto bg-gradient-to-br from-[#1e1e1e] via-[#222222] to-[#1a1a1a]">
+    <div className="h-screen w-full flex flex-col p-8 gap-6 inset-0 overflow-y-auto bg-gradient-to-br from-[#1e1e1e] via-[#222222] to-[#1a1a1a]">
       <div className="flex flex-col items-center gap-3 shrink-0">
         <HandyTextLogo
           width={220}

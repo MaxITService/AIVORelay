@@ -3,6 +3,17 @@
 
 use clap::{error::ErrorKind, Parser};
 
+#[cfg(target_os = "windows")]
+fn env_flag_enabled(name: &str) -> bool {
+    match std::env::var(name) {
+        Ok(value) => !matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "" | "0" | "false" | "no" | "off"
+        ),
+        Err(_) => false,
+    }
+}
+
 fn main() {
     #[cfg(target_os = "linux")]
     {
@@ -43,6 +54,17 @@ fn main() {
         }
         Err(error) => error.exit(),
     };
+
+    #[cfg(target_os = "windows")]
+    {
+        // Implicit Vulkan layers injected by overlays and capture tools can
+        // crash GPU backend discovery. Preserve explicit user/launcher policy.
+        if std::env::var_os("VK_LOADER_LAYERS_DISABLE").is_none()
+            && !env_flag_enabled("AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS")
+        {
+            std::env::set_var("VK_LOADER_LAYERS_DISABLE", "~implicit~");
+        }
+    }
 
     aivorelay_app_lib::run(cli_args)
 }

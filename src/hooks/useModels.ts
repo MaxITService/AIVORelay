@@ -341,6 +341,7 @@ export const useModels = () => {
     });
     const modelsUpdatedUnlisten = listen("models-updated", () => {
       void loadModels();
+      void loadCurrentModel();
     });
 
     return () => {
