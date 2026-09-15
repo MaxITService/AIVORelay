@@ -5,12 +5,13 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Added a beta speech-only mode that runs dictation without the full interface to reduce memory use, with clear recovery through the tray.
-- Transcription profiles can now activate automatically for matching applications, window titles, or paths.
-- Profile LLM post-processing can now copy any saved prompt into a profile-specific override.
-- Settings search now works better across interface languages and common separators, with direct links to more options.
-- Paste Delay can now be set as high as five seconds for slower target applications.
-- Improved Gemini session finalization, recording stop behavior, profile prompts, model controls, and dropdown placement.
+- Added a small built-in voice gallery with representative samples from several cloud and local providers; applying a sample configures its provider, model, voice, language, and voice controls.
+- Added compact Opus output for text-to-speech and file conversion, including bundled Opus support that does not depend on a system installation.
+- Added configurable early finalization for Gemini live dictation to reduce perceived latency.
+- Expanded settings search across the complete interactive and file TTS interface, including navigation into collapsed sections, and completed the global shortcut guide for read actions.
+- Fixed Voice Commands so inherited models are used consistently, prompt values are inserted literally, and English-only Soundex matching is skipped for unsupported scripts such as Cyrillic.
+- Improved native region capture bounds, audio capture, model availability, recording-overlay scaling, and gapless TTS playback.
+- Hardened recording, file transcription, history, hotkeys, clipboard streaming, TTS queues, and browser connector state against races, stale data, and failed persistence.
 - Included the latest upstream Handy transcription improvements and fixes.
 
 ---

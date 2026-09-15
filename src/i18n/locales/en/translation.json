@@ -244,16 +244,16 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.35",
+      "since": "Since version 1.0.36",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "lowMemoryMode": "A new beta speech-only mode runs dictation without opening the full interface, reducing memory use. The tray menu makes returning to the full interface straightforward.",
-        "automaticProfiles": "Transcription profiles can now activate automatically for matching applications, window titles, or paths.",
-        "promptReuse": "Profile LLM post-processing can now copy any saved prompt into a profile-specific override.",
-        "settingsDiscovery": "Settings search now understands English names in every interface language, treats common separators alike, and links directly to more options.",
-        "pasteDelay": "Paste Delay can now be set as high as five seconds for applications that need more time before accepting dictated text.",
-        "reliability": "Improved Gemini session finalization, recording stop behavior, transcription profile prompts, model controls, and dropdown placement.",
+        "voiceGallery": "A small built-in gallery now lets you hear representative voices from several cloud and local providers and apply their settings.",
+        "opusOutput": "Text-to-speech and file conversion can now save compact Opus audio alongside the existing output formats.",
+        "geminiFinalization": "Gemini live dictation can finalize speech earlier with configurable timing for lower perceived latency.",
+        "ttsDiscovery": "Settings search now covers the full interactive and file TTS interface, opens collapsed destinations, and the shortcut guide shows every assigned global read action.",
+        "voiceCommandSafety": "Voice Commands now inherit the correct model, substitute prompt placeholders literally, and avoid English-only phonetic matching for unsupported scripts.",
+        "reliability": "Improved native region capture, audio capture, model availability, overlays, TTS playback, histories, file transcription, shortcuts, clipboard streaming, and browser connector reliability.",
         "upstreamImprovements": "Included the latest upstream Handy improvements and fixes."
       }
     },
