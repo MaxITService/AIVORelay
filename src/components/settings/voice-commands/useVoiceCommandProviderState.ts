@@ -4,6 +4,7 @@ import type { PostProcessProvider } from "@/bindings";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import type { DropdownOption } from "../../ui/Dropdown";
 import { useInheritedPostProcessStatus } from "../post-processing/useInheritedPostProcessStatus";
+import { resolveVoiceCommandModel } from "./voiceCommandModel";
 
 export interface ModelOption {
   value: string;
@@ -113,15 +114,12 @@ export const useVoiceCommandProviderState = (): VoiceCommandProviderState => {
   );
 
   const model = useMemo(() => {
-    const voiceCommandModel =
-      settings?.voice_command_models?.[effectiveProviderId] ?? "";
-    if (voiceCommandModel) return voiceCommandModel;
-    return settings?.post_process_models?.[effectiveProviderId] ?? "";
-  }, [
-    settings?.voice_command_models,
-    settings?.post_process_models,
-    effectiveProviderId,
-  ]);
+    return resolveVoiceCommandModel(
+      settings,
+      effectiveProviderId,
+      useSameAsPostProcess,
+    );
+  }, [settings, effectiveProviderId, useSameAsPostProcess]);
 
   // Include "Same as Post-Processing" option
   const providerOptions = useMemo<DropdownOption[]>(() => {

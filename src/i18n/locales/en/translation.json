@@ -1176,6 +1176,7 @@
       "levenshteinThreshold": "Character tolerance",
       "usePhonetic": "Phonetic matching",
       "usePhoneticDesc": "Match similar-sounding words",
+      "phoneticWarning": "Soundex is designed for English words and is used only when both words contain ASCII letters. Other scripts use exact and character-level matching. Similarity percentages are heuristic scores, not recognition probabilities.",
       "phoneticBoost": "Phonetic boost factor",
       "wordSimilarityThreshold": "Word match strictness"
     }

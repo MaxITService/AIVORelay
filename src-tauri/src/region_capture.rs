@@ -84,6 +84,30 @@ type PendingRegionCapture = (
     Option<Vec<u8>>,
 );
 
+fn validate_region_bounds(
+    region: &SelectedRegion,
+    canvas_width: u32,
+    canvas_height: u32,
+) -> Result<(), String> {
+    if region.x < 0 || region.y < 0 {
+        return Err("Invalid region: negative coordinates".to_string());
+    }
+    if region.width == 0 || region.height == 0 {
+        return Err("Invalid region: width and height must be positive".to_string());
+    }
+
+    let right = region.x as u64 + region.width as u64;
+    let bottom = region.y as u64 + region.height as u64;
+    if right > canvas_width as u64 || bottom > canvas_height as u64 {
+        return Err(format!(
+            "Region out of bounds: ({}, {}) + {}x{} exceeds {}x{}",
+            region.x, region.y, region.width, region.height, canvas_width, canvas_height
+        ));
+    }
+
+    Ok(())
+}
+
 /// Atomically claims and clears the current picker state.
 fn take_pending_region_capture(app: &AppHandle) -> PendingRegionCapture {
     let state = app.state::<ManagedRegionCaptureState>();
@@ -246,24 +270,9 @@ fn crop_region_to_png(
 ) -> Result<Vec<u8>, String> {
     use screenshots::image::{self, ImageEncoder};
 
-    // Validate region bounds
-    if region.x < 0 || region.y < 0 {
-        return Err("Invalid region: negative coordinates".to_string());
-    }
+    validate_region_bounds(region, canvas.width(), canvas.height())?;
     let x = region.x as u32;
     let y = region.y as u32;
-
-    if x + region.width > canvas.width() || y + region.height > canvas.height() {
-        return Err(format!(
-            "Region out of bounds: ({}, {}) + {}x{} exceeds {}x{}",
-            x,
-            y,
-            region.width,
-            region.height,
-            canvas.width(),
-            canvas.height()
-        ));
-    }
 
     // Crop the region
     let cropped = image::imageops::crop_imm(canvas, x, y, region.width, region.height).to_image();
@@ -429,27 +438,36 @@ pub async fn open_region_picker(
 }
 
 /// Called from the overlay when user selects a region.
-pub fn on_region_selected(app: &AppHandle, region: SelectedRegion) {
-    // Claim the pending result before destroying the window. The Destroyed event
-    // can then safely run the cancellation path without racing this confirmation.
-    let (sender, virtual_info, screenshot_data) = take_pending_region_capture(app);
+pub fn on_region_selected(app: &AppHandle, region: SelectedRegion) -> Result<(), String> {
+    // Validate before claiming the result or closing the picker. A correctable
+    // selection error can then be shown in the overlay and retried.
+    let (sender, virtual_info, screenshot_data) = {
+        let state = app.state::<ManagedRegionCaptureState>();
+        let mut guard = state.lock().unwrap();
+        let virtual_info = guard
+            .virtual_info
+            .as_ref()
+            .ok_or_else(|| "Virtual screen info missing".to_string())?;
+        validate_region_bounds(
+            &region,
+            virtual_info.total_width,
+            virtual_info.total_height,
+        )?;
+
+        let sender = guard
+            .result_sender
+            .take()
+            .ok_or_else(|| "No region capture operation is pending".to_string())?;
+        let virtual_info = guard.virtual_info.take().unwrap();
+        let screenshot_data = guard.screenshot_data.take();
+        (sender, virtual_info, screenshot_data)
+    };
 
     // Hide/close the overlay window immediately so it won't be included in the capture.
     if let Some(window) = app.get_webview_window("region_capture") {
         let _ = window.hide();
         let _ = window.destroy();
     }
-
-    let Some(sender) = sender else {
-        return;
-    };
-
-    let Some(virtual_info) = virtual_info else {
-        let _ = sender.send(RegionCaptureResult::Error(
-            "Virtual screen info missing".to_string(),
-        ));
-        return;
-    };
 
     std::thread::spawn(move || {
         // Give the window manager a moment to apply the hide before capturing.
@@ -473,6 +491,8 @@ pub fn on_region_selected(app: &AppHandle, region: SelectedRegion) {
             }
         }
     });
+
+    Ok(())
 }
 
 /// Called from the overlay when user cancels.
@@ -575,6 +595,59 @@ mod tests {
         let encoded = base64_encode(&input);
 
         assert_eq!(STANDARD.decode(encoded).unwrap(), input);
+    }
+
+    #[test]
+    fn region_bounds_accept_full_canvas_and_reject_invalid_rectangles() {
+        let full_canvas = SelectedRegion {
+            x: 0,
+            y: 0,
+            width: 800,
+            height: 600,
+        };
+        let minimum = SelectedRegion {
+            x: 790,
+            y: 590,
+            width: 10,
+            height: 10,
+        };
+        assert!(validate_region_bounds(&full_canvas, 800, 600).is_ok());
+        assert!(validate_region_bounds(&minimum, 800, 600).is_ok());
+
+        for invalid in [
+            SelectedRegion {
+                x: -1,
+                y: 0,
+                width: 10,
+                height: 10,
+            },
+            SelectedRegion {
+                x: 0,
+                y: -1,
+                width: 10,
+                height: 10,
+            },
+            SelectedRegion {
+                x: 791,
+                y: 590,
+                width: 10,
+                height: 10,
+            },
+            SelectedRegion {
+                x: 790,
+                y: 591,
+                width: 10,
+                height: 10,
+            },
+            SelectedRegion {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 10,
+            },
+        ] {
+            assert!(validate_region_bounds(&invalid, 800, 600).is_err());
+        }
     }
 
     #[cfg(target_os = "windows")]

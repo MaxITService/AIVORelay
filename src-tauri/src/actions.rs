@@ -1041,18 +1041,92 @@ fn build_llm_template_context(
     }
 }
 
+fn expand_template_vars_once(template: &str, variables: &[(&str, &str)]) -> String {
+    let mut rendered = String::with_capacity(template.len());
+    let mut cursor = 0;
+
+    while let Some(relative_start) = template[cursor..].find("${") {
+        let start = cursor + relative_start;
+        rendered.push_str(&template[cursor..start]);
+
+        let name_start = start + 2;
+        let Some(relative_end) = template[name_start..].find('}') else {
+            rendered.push_str(&template[start..]);
+            return rendered;
+        };
+        let end = name_start + relative_end;
+        let name = &template[name_start..end];
+
+        if let Some((_, value)) = variables.iter().find(|(key, _)| *key == name) {
+            rendered.push_str(value);
+        } else {
+            rendered.push_str(&template[start..=end]);
+        }
+
+        cursor = end + 1;
+    }
+
+    rendered.push_str(&template[cursor..]);
+    rendered
+}
+
 fn apply_llm_template_vars(template: &str, context: &LlmTemplateContext) -> String {
-    template
-        .replace("${output}", &context.output)
-        .replace("${instruction}", &context.instruction)
-        .replace("${selection}", &context.selection)
-        .replace("${current_app}", &context.current_app)
-        .replace("${short_prev_transcript}", &context.short_prev_transcript)
-        .replace("${language}", &context.language)
-        .replace("${profile_name}", &context.profile_name)
-        .replace("${time_local}", &context.time_local)
-        .replace("${date_iso}", &context.date_iso)
-        .replace("${translate_to_english}", &context.translate_to_english)
+    expand_template_vars_once(
+        template,
+        &[
+            ("output", &context.output),
+            ("instruction", &context.instruction),
+            ("selection", &context.selection),
+            ("current_app", &context.current_app),
+            ("short_prev_transcript", &context.short_prev_transcript),
+            ("language", &context.language),
+            ("profile_name", &context.profile_name),
+            ("time_local", &context.time_local),
+            ("date_iso", &context.date_iso),
+            ("translate_to_english", &context.translate_to_english),
+        ],
+    )
+}
+
+#[cfg(test)]
+mod llm_template_regression_tests {
+    use super::*;
+
+    #[test]
+    fn llm_template_only_expands_placeholders_from_the_original_template() {
+        let context = LlmTemplateContext {
+            output: "Unicode: почта ${language}; quotes: \"x\"; slash: \\; dollars: $$"
+                .to_string(),
+            instruction: String::new(),
+            selection: "${output}".to_string(),
+            language: "en".to_string(),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            apply_llm_template_vars(
+                "${output}|${output}|${instruction}|${selection}|${unknown}|${unfinished",
+                &context,
+            ),
+            "Unicode: почта ${language}; quotes: \"x\"; slash: \\; dollars: $$|Unicode: почта ${language}; quotes: \"x\"; slash: \\; dollars: $$||${output}|${unknown}|${unfinished"
+        );
+    }
+
+    #[test]
+    fn default_ai_replace_prompt_preserves_placeholder_text_inside_selection() {
+        let settings = crate::settings::get_default_settings();
+        let context = LlmTemplateContext {
+            output: "const label = \"${language}\";".to_string(),
+            instruction: "Add a comment".to_string(),
+            language: "en".to_string(),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            apply_llm_template_vars(&settings.ai_replace_user_prompt, &context),
+            "INSTRUCTION:\nAdd a comment\n\nTEXT:\nconst label = \"${language}\";"
+        );
+    }
 }
 
 fn is_blank_transcription(transcription: &str) -> bool {
@@ -4518,15 +4592,19 @@ fn filter_local_preview_flush_text(existing: &str, incoming: &str) -> String {
 }
 
 fn apply_sliding_lm_template_vars(template: &str, context: &SlidingLmPromptContext) -> String {
-    template
-        .replace("${stable_context}", &context.stable_context)
-        .replace("${editable_tail}", &context.editable_tail)
-        .replace("${new_chunk}", &context.new_chunk)
-        .replace("${current_preview}", &context.current_preview)
-        .replace("${deterministic_notes}", &context.deterministic_notes)
-        .replace("${language}", &context.language)
-        .replace("${profile_name}", &context.profile_name)
-        .replace("${current_app}", &context.current_app)
+    expand_template_vars_once(
+        template,
+        &[
+            ("stable_context", &context.stable_context),
+            ("editable_tail", &context.editable_tail),
+            ("new_chunk", &context.new_chunk),
+            ("current_preview", &context.current_preview),
+            ("deterministic_notes", &context.deterministic_notes),
+            ("language", &context.language),
+            ("profile_name", &context.profile_name),
+            ("current_app", &context.current_app),
+        ],
+    )
 }
 
 fn split_preview_for_sliding_lm_window(
@@ -5206,6 +5284,28 @@ mod local_preview_text_tests {
         assert_eq!(
             rendered,
             "Stable sentence.|tail text|new chunk|Stable sentence tail text|merged with overlap|en|Default|Editor"
+        );
+    }
+
+    #[test]
+    fn sliding_lm_template_preserves_placeholders_inside_inserted_values() {
+        let context = SlidingLmPromptContext {
+            stable_context: "Литерал ${language} \\ \"quoted\" $$".to_string(),
+            editable_tail: String::new(),
+            new_chunk: "${current_app}".to_string(),
+            current_preview: String::new(),
+            deterministic_notes: String::new(),
+            language: "ru".to_string(),
+            profile_name: "Default".to_string(),
+            current_app: "Editor".to_string(),
+        };
+
+        assert_eq!(
+            apply_sliding_lm_template_vars(
+                "${stable_context}|${new_chunk}|${unknown}|${unfinished",
+                &context,
+            ),
+            "Литерал ${language} \\ \"quoted\" $$|${current_app}|${unknown}|${unfinished"
         );
     }
 
@@ -10811,6 +10911,10 @@ impl FuzzyMatchConfig {
     }
 }
 
+fn supports_voice_command_soundex(word: &str) -> bool {
+    !word.is_empty() && word.chars().all(|character| character.is_ascii_alphabetic())
+}
+
 /// Computes word-level similarity using hybrid algorithm:
 /// - Levenshtein distance for typo tolerance
 /// - Soundex phonetic matching for pronunciation similarity
@@ -10832,8 +10936,14 @@ fn compute_word_similarity(word_a: &str, word_b: &str, config: &FuzzyMatchConfig
         }
     }
 
-    // Phonetic matching (Soundex)
-    if config.use_phonetic && soundex(word_a, word_b) {
+    // This Soundex implementation is designed for English words. Restricting
+    // it to ASCII letters prevents unsupported scripts from collapsing to the
+    // same first-letter code while leaving exact and edit-distance matching intact.
+    if config.use_phonetic
+        && supports_voice_command_soundex(word_a)
+        && supports_voice_command_soundex(word_b)
+        && soundex(word_a, word_b)
+    {
         // Phonetic match - boost the score
         let phonetic_score = config.word_similarity_threshold
             + config.phonetic_boost * (1.0 - config.word_similarity_threshold);
@@ -10948,6 +11058,131 @@ pub fn find_matching_command(
     best_match
 }
 
+#[cfg(test)]
+mod voice_command_matching_regression_tests {
+    use super::*;
+
+    fn command(trigger_phrase: &str) -> crate::settings::VoiceCommand {
+        crate::settings::VoiceCommand {
+            id: "test-command".to_string(),
+            name: "Test command".to_string(),
+            trigger_phrase: trigger_phrase.to_string(),
+            script: "Write-Output test".to_string(),
+            similarity_threshold: 0.0,
+            enabled: true,
+            silent: true,
+            no_profile: false,
+            use_pwsh: false,
+            execution_policy: None,
+            working_directory: None,
+        }
+    }
+
+    #[test]
+    fn cyrillic_words_with_same_first_letter_do_not_get_a_soundex_match() {
+        let commands = vec![command("почта")];
+
+        assert!(find_matching_command("погода", &commands, 0.75, &FuzzyMatchConfig::default())
+            .is_none());
+    }
+
+    #[test]
+    fn cyrillic_exact_and_levenshtein_matches_are_preserved() {
+        let commands = vec![command("почта")];
+        let config = FuzzyMatchConfig::default();
+
+        assert_eq!(
+            find_matching_command("ПОЧТА", &commands, 0.75, &config)
+                .unwrap()
+                .1,
+            1.0
+        );
+        assert!(find_matching_command("почту", &commands, 0.75, &config).is_some());
+    }
+
+    #[test]
+    fn ascii_soundex_match_is_preserved() {
+        let commands = vec![command("robert")];
+
+        assert!(find_matching_command("rupert", &commands, 0.75, &FuzzyMatchConfig::default())
+            .is_some());
+    }
+
+    #[test]
+    fn digits_and_mixed_alphabets_do_not_receive_a_phonetic_boost() {
+        let config = FuzzyMatchConfig {
+            use_levenshtein: false,
+            ..FuzzyMatchConfig::default()
+        };
+
+        assert_eq!(compute_word_similarity("r2d2", "road", &config), 0.0);
+        assert_eq!(
+            compute_word_similarity("mailпочта", "maleпогода", &config),
+            0.0
+        );
+    }
+
+    #[test]
+    fn disabling_phonetics_disables_ascii_soundex_matches() {
+        let commands = vec![command("robert")];
+        let config = FuzzyMatchConfig {
+            use_phonetic: false,
+            ..FuzzyMatchConfig::default()
+        };
+
+        assert!(find_matching_command("rupert", &commands, 0.75, &config).is_none());
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_voice_command_llm_request_settings(
+    settings: &AppSettings,
+) -> Result<(
+    crate::settings::PostProcessProvider,
+    crate::settings::LlmConfig,
+), String> {
+    let llm_config = settings
+        .llm_config_for(LlmFeature::VoiceCommand)
+        .ok_or_else(|| "No LLM provider configured for Voice Commands".to_string())?;
+    let provider = settings
+        .post_process_providers
+        .iter()
+        .find(|provider| provider.id == llm_config.provider_id)
+        .cloned()
+        .ok_or_else(|| "No LLM provider configured for Voice Commands".to_string())?;
+
+    Ok((provider, llm_config))
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod voice_command_llm_settings_regression_tests {
+    use super::*;
+
+    #[test]
+    fn execution_settings_match_the_shared_voice_command_resolver() {
+        let mut settings = crate::settings::get_default_settings();
+        let provider_id = settings.post_process_providers[0].id.clone();
+        settings.post_process_provider_id = provider_id.clone();
+        settings.voice_command_provider_id = None;
+        settings
+            .post_process_models
+            .insert(provider_id.clone(), "inherited-model".to_string());
+        settings
+            .voice_command_models
+            .insert(provider_id, "hidden-separate-model".to_string());
+
+        let shared = settings.llm_config_for(LlmFeature::VoiceCommand).unwrap();
+        let (provider, execution) = resolve_voice_command_llm_request_settings(&settings).unwrap();
+
+        assert_eq!(provider.id, shared.provider_id);
+        assert_eq!(execution.provider_id, shared.provider_id);
+        assert_eq!(execution.model, shared.model);
+        assert_eq!(execution.api_key, shared.api_key);
+        assert_eq!(execution.base_url, shared.base_url);
+        assert_eq!(execution.model, "inherited-model");
+    }
+}
+
 /// Generates a PowerShell command using LLM based on user's spoken request
 #[cfg(target_os = "windows")]
 async fn generate_command_with_llm_with_settings(
@@ -10956,19 +11191,10 @@ async fn generate_command_with_llm_with_settings(
     spoken_text: &str,
     current_app: &str,
 ) -> Result<String, String> {
-    // Use Voice Command specific provider (falls back to post-processing if not set)
-    let provider = settings
-        .active_voice_command_provider()
-        .cloned()
-        .ok_or_else(|| "No LLM provider configured for Voice Commands".to_string())?;
-
-    // Use Voice Command specific model, fallback to post-processing model
-    let model = settings
-        .voice_command_models
-        .get(&provider.id)
-        .cloned()
-        .or_else(|| settings.post_process_models.get(&provider.id).cloned())
-        .unwrap_or_default();
+    // Use the shared resolver so provider, key, and model follow the same
+    // explicit-versus-inherited selection rules everywhere.
+    let (provider, llm_config) = resolve_voice_command_llm_request_settings(settings)?;
+    let model = llm_config.model;
 
     if model.trim().is_empty() {
         return Err(format!(
@@ -10990,33 +11216,6 @@ async fn generate_command_with_llm_with_settings(
         apply_llm_template_vars(&settings.voice_command_system_prompt, &template_context);
     let user_prompt = spoken_text.to_string();
 
-    // Use post-processing key only when voice command provider is set to
-    // "same as post-processing" (voice_command_provider_id = None).
-    let use_post_process_key =
-        settings.voice_command_provider_id.as_deref() != Some(provider.id.as_str());
-
-    #[cfg(target_os = "windows")]
-    let api_key = if use_post_process_key {
-        crate::secure_keys::get_post_process_api_key(&provider.id)
-    } else {
-        crate::secure_keys::get_voice_command_api_key(&provider.id).unwrap_or_default()
-    };
-
-    #[cfg(not(target_os = "windows"))]
-    let api_key = if use_post_process_key {
-        settings
-            .post_process_api_keys
-            .get(&provider.id)
-            .cloned()
-            .unwrap_or_default()
-    } else {
-        settings
-            .voice_command_api_keys
-            .get(&provider.id)
-            .cloned()
-            .unwrap_or_default()
-    };
-
     // Build reasoning config from settings
     let reasoning_config = crate::llm_client::ReasoningConfig::from_user_toggle(
         settings.voice_command_reasoning_enabled,
@@ -11025,7 +11224,7 @@ async fn generate_command_with_llm_with_settings(
 
     match crate::llm_client::send_chat_completion_with_system_and_reasoning(
         &provider,
-        api_key,
+        llm_config.api_key,
         &model,
         system_prompt,
         user_prompt,
