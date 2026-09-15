@@ -425,6 +425,7 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
 
   return (
     <SettingsGroup
+      id={`tts-${mode}-ai-cleanup`}
       title={t("textToSpeech.aiCleanup.title", "AI text cleanup")}
       description={t(
         "textToSpeech.aiCleanup.description",
@@ -906,6 +907,7 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
       </div>
 
       <SettingsGroup
+        id={`tts-${mode}-ai-cleanup-benchmark`}
         title={t("textToSpeech.aiCleanup.benchmarkTitle", "Test and benchmark")}
         description={t(
           "textToSpeech.aiCleanup.benchmarkDescription",

@@ -52,6 +52,7 @@ export const TtsFolderAutomation: React.FC<TtsFolderAutomationProps> = ({
 
   return (
     <SettingsGroup
+      id="tts-folder-automation"
       title={t("textToSpeech.folder.title")}
       description={t("textToSpeech.folder.description")}
       help={

@@ -108,16 +108,34 @@ export const navigateToSettingsAnchor = ({
     );
     collapsedToggle?.click();
 
+    let targetAttempts = 0;
+    const revealExpandedTarget = () => {
+      pendingRevealTimer = null;
+      if (!isCurrent()) return;
+
+      const target = document.getElementById(targetId);
+      if (!target && collapsedToggle && targetAttempts < 20) {
+        targetAttempts += 1;
+        pendingRevealTimer = window.setTimeout(revealExpandedTarget, 50);
+        return;
+      }
+
+      if (target && target !== expansionTarget) {
+        target
+          .querySelector<HTMLButtonElement>('button[aria-expanded="false"]')
+          ?.click();
+      }
+
+      const destination =
+        target ??
+        expansionTarget ??
+        (fallbackId ? document.getElementById(fallbackId) : null);
+      if (destination) scrollAndFocusAnchor(destination, block, isCurrent);
+    };
+
     window.requestAnimationFrame(() => {
       if (!isCurrent()) return;
-      window.requestAnimationFrame(() => {
-        if (!isCurrent()) return;
-        const target =
-          document.getElementById(targetId) ??
-          expansionTarget ??
-          (fallbackId ? document.getElementById(fallbackId) : null);
-        if (target) scrollAndFocusAnchor(target, block, isCurrent);
-      });
+      window.requestAnimationFrame(revealExpandedTarget);
     });
   };
 

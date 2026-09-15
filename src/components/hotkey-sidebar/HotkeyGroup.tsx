@@ -56,7 +56,7 @@ export const HotkeyGroup: React.FC<HotkeyGroupProps> = ({
                 className="flex min-w-0 flex-1 flex-col items-start gap-0.5 pr-2"
                 title={displayName}
               >
-                <span className="text-sm text-[#d0d0d0] truncate">
+                <span className="max-w-full whitespace-normal break-words text-sm leading-snug text-[#d0d0d0]">
                   {displayName}
                 </span>
                 {hotkey.id === "repaste_last" && (
@@ -65,7 +65,7 @@ export const HotkeyGroup: React.FC<HotkeyGroupProps> = ({
                   </span>
                 )}
               </span>
-              <kbd className="text-xs font-mono text-[#ff6b9d] bg-[#2a1a22] px-2 py-1 rounded border border-[#3a2a32] whitespace-nowrap">
+              <kbd className="shrink-0 whitespace-nowrap rounded border border-[#3a2a32] bg-[#2a1a22] px-2 py-1 font-mono text-xs text-[#ff6b9d]">
                 {formatKeyCombination(hotkey.current_binding, HOTKEY_OS_TYPE)}
               </kbd>
             </a>

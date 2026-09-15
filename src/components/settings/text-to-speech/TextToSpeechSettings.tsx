@@ -30,6 +30,7 @@ import {
 
 import { useSettings } from "@/hooks/useSettings";
 import { scrollAndFocusAnchor } from "@/lib/anchorNavigation";
+import { getShortcutAnchorId } from "@/lib/shortcutAnchors";
 import { ApiKeyEditor, StoredApiKeyDisplay } from "../ApiKeyControls";
 import { HandyShortcut } from "../HandyShortcut";
 import { TtsFolderAutomation } from "./TtsFolderAutomation";
@@ -3355,7 +3356,22 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-violet-200" />
           <div className="min-w-0 flex-1 space-y-1.5">
             <p className="font-semibold">
-              {t("textToSpeech.firstVisit.title")}
+              {t("textToSpeech.firstVisit.title")} {" "}
+              <span className="font-normal text-violet-50/85">
+                — {t("textToSpeech.firstVisit.galleryPrompt")} {" "}
+              </span>
+              <a
+                href="#tts-voice-gallery"
+                onClick={(event) => {
+                  event.preventDefault();
+                  const target = document.getElementById("tts-voice-gallery");
+                  if (target) scrollAndFocusAnchor(target);
+                }}
+                className="font-semibold text-violet-100 underline decoration-violet-200/60 underline-offset-2 hover:text-white"
+              >
+                {t("textToSpeech.firstVisit.galleryLink")}
+              </a>
+              <span className="font-normal text-violet-50/85">.</span>
             </p>
             <p className="leading-relaxed text-violet-50/85">
               {t("textToSpeech.firstVisit.description")}
@@ -3391,6 +3407,81 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       <>
         {mode === "interactive" && (
           <SettingsGroup
+            id="tts-actions"
+            title={t("textToSpeech.actions.title")}
+            help={
+              <TtsHelpDisclosure
+                summary={t("textToSpeech.help.actionsSummary")}
+                items={[
+                  {
+                    term: t("textToSpeech.help.clipboardAction"),
+                    description: t(
+                      "textToSpeech.help.clipboardActionDescription",
+                    ),
+                  },
+                  {
+                    term: t("textToSpeech.help.directSelection"),
+                    description: t(
+                      "textToSpeech.help.directSelectionDescription",
+                    ),
+                  },
+                ]}
+                links={aivoRelayTtsGuideLink}
+              />
+            }
+          >
+            <ToggleSwitch
+              grouped
+              checked={tts.listen_queue_enabled}
+              onChange={(listen_queue_enabled) =>
+                void updateTts({ listen_queue_enabled }, "listen_queue_enabled")
+              }
+              isUpdating={savingField === "listen_queue_enabled"}
+              label={t("textToSpeech.actions.listenQueueLabel")}
+              description={t("textToSpeech.actions.listenQueueDescription")}
+              descriptionMode="inline"
+            />
+            <SettingContainer
+              grouped
+              layout="stacked"
+              title={t("textToSpeech.actions.readClipboardTitle")}
+              description={t("textToSpeech.actions.readClipboardDescription")}
+              descriptionMode="inline"
+            >
+              <HandyShortcut shortcutId="read_clipboard" grouped />
+            </SettingContainer>
+            <SettingContainer
+              grouped
+              layout="stacked"
+              title={t("textToSpeech.actions.readSelectionTitle")}
+              description={t("textToSpeech.actions.readSelectionDescription")}
+              descriptionMode="inline"
+            >
+              <HandyShortcut shortcutId="read_selection_tts" grouped />
+            </SettingContainer>
+            <SettingContainer
+              grouped
+              layout="stacked"
+              title={t("textToSpeech.actions.readSelectionDirectTitle")}
+              description={
+                osKind === "windows"
+                  ? t("textToSpeech.actions.readSelectionDirectDescription")
+                  : t("textToSpeech.actions.readSelectionDirectWindowsOnly")
+              }
+              descriptionMode="inline"
+            >
+              <HandyShortcut
+                shortcutId="read_selection_direct_tts"
+                grouped
+                disabled={osKind !== "windows"}
+              />
+            </SettingContainer>
+          </SettingsGroup>
+        )}
+
+        {mode === "interactive" && (
+          <SettingsGroup
+            id="tts-provider-settings"
             title={t("textToSpeech.title")}
             description={t("textToSpeech.description")}
             help={
@@ -3478,6 +3569,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
 
         {mode === "files" && (
           <SettingsGroup
+            id="tts-file-provider-settings"
             title={t("textToSpeech.fileSettings.title")}
             description={t("textToSpeech.fileSettings.description")}
             help={
@@ -3561,21 +3653,28 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
 
         {mode === "files" && (
           <>
-            <TtsUnfinishedJobs
-              activeOperationId={conversionBusy ? operationId : null}
-              activeCompletedChunks={
-                conversionBusy ? completedChunks : undefined
-              }
-              activeTotalChunks={conversionBusy ? totalChunks : undefined}
-              activeProgressStage={
-                conversionBusy && conversionPhase === "preprocessing"
-                  ? "ai_cleanup"
-                  : conversionBusy
-                    ? "speech"
-                    : undefined
-              }
-            />
+            <div
+              id="tts-unfinished-conversions"
+              className="shortcut-settings-anchor"
+              tabIndex={-1}
+            >
+              <TtsUnfinishedJobs
+                activeOperationId={conversionBusy ? operationId : null}
+                activeCompletedChunks={
+                  conversionBusy ? completedChunks : undefined
+                }
+                activeTotalChunks={conversionBusy ? totalChunks : undefined}
+                activeProgressStage={
+                  conversionBusy && conversionPhase === "preprocessing"
+                    ? "ai_cleanup"
+                    : conversionBusy
+                      ? "speech"
+                      : undefined
+                }
+              />
+            </div>
             <SettingsGroup
+              id="tts-file-conversion"
               title={t("textToSpeech.conversion.title")}
               description={t("textToSpeech.conversion.description")}
               help={
@@ -3727,7 +3826,12 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   "textToSpeech.conversion.finalFormatDescription",
                 )}
               >
-                <div data-testid="tts-output-format">
+                <div
+                  id="tts-file-output-format"
+                  className="shortcut-settings-anchor"
+                  tabIndex={-1}
+                  data-testid="tts-output-format"
+                >
                   <Select
                     className="w-full md:w-72"
                     value={outputFormat}
@@ -3950,6 +4054,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         )}
 
         <SettingsGroup
+          id="tts-synthesis-presets"
           title={t("textToSpeech.synthesisPresets.title")}
           description={t("textToSpeech.synthesisPresets.description")}
           help={
@@ -4067,6 +4172,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
 
         {(tts.provider === "local_qwen" || tts.provider === "local_kokoro") && (
           <SettingsGroup
+            id="tts-local-model"
             title={t("textToSpeech.local.title")}
             description={t("textToSpeech.local.description")}
             help={
@@ -4419,80 +4525,8 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           </SettingsGroup>
         )}
 
-        {mode === "interactive" && (
-          <SettingsGroup
-            title={t("textToSpeech.actions.title")}
-            help={
-              <TtsHelpDisclosure
-                summary={t("textToSpeech.help.actionsSummary")}
-                items={[
-                  {
-                    term: t("textToSpeech.help.clipboardAction"),
-                    description: t(
-                      "textToSpeech.help.clipboardActionDescription",
-                    ),
-                  },
-                  {
-                    term: t("textToSpeech.help.directSelection"),
-                    description: t(
-                      "textToSpeech.help.directSelectionDescription",
-                    ),
-                  },
-                ]}
-                links={aivoRelayTtsGuideLink}
-              />
-            }
-          >
-            <ToggleSwitch
-              grouped
-              checked={tts.listen_queue_enabled}
-              onChange={(listen_queue_enabled) =>
-                void updateTts({ listen_queue_enabled }, "listen_queue_enabled")
-              }
-              isUpdating={savingField === "listen_queue_enabled"}
-              label={t("textToSpeech.actions.listenQueueLabel")}
-              description={t("textToSpeech.actions.listenQueueDescription")}
-              descriptionMode="inline"
-            />
-            <SettingContainer
-              grouped
-              layout="stacked"
-              title={t("textToSpeech.actions.readClipboardTitle")}
-              description={t("textToSpeech.actions.readClipboardDescription")}
-              descriptionMode="inline"
-            >
-              <HandyShortcut shortcutId="read_clipboard" grouped />
-            </SettingContainer>
-            <SettingContainer
-              grouped
-              layout="stacked"
-              title={t("textToSpeech.actions.readSelectionTitle")}
-              description={t("textToSpeech.actions.readSelectionDescription")}
-              descriptionMode="inline"
-            >
-              <HandyShortcut shortcutId="read_selection_tts" grouped />
-            </SettingContainer>
-            <SettingContainer
-              grouped
-              layout="stacked"
-              title={t("textToSpeech.actions.readSelectionDirectTitle")}
-              description={
-                osKind === "windows"
-                  ? t("textToSpeech.actions.readSelectionDirectDescription")
-                  : t("textToSpeech.actions.readSelectionDirectWindowsOnly")
-              }
-              descriptionMode="inline"
-            >
-              <HandyShortcut
-                shortcutId="read_selection_direct_tts"
-                grouped
-                disabled={osKind !== "windows"}
-              />
-            </SettingContainer>
-          </SettingsGroup>
-        )}
-
         <SettingsGroup
+          id="tts-voice-settings"
           title={t("textToSpeech.voice.title")}
           description={t("textToSpeech.voice.description")}
           help={
@@ -5518,6 +5552,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         </SettingsGroup>
 
         <SettingsGroup
+          id="tts-playback-settings"
           title={t("textToSpeech.playback.title")}
           description={t("textToSpeech.playback.description")}
           help={
@@ -5594,6 +5629,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
 
         {mode === "interactive" && (
           <SettingsGroup
+            id="tts-overlay-settings"
             title={t("textToSpeech.overlay.title")}
             description={t("textToSpeech.overlay.description")}
             help={
@@ -5662,29 +5698,36 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 }
               />
             </SettingContainer>
-            <SettingContainer
-              grouped
-              title={t("textToSpeech.overlay.playPauseTitle")}
-              description={t("textToSpeech.overlay.playPauseDescription")}
+            <div
+              id={getShortcutAnchorId("tts_play_history_fallback")}
+              className="shortcut-settings-anchor"
+              tabIndex={-1}
+              data-shortcut-id="tts_play_history_fallback"
             >
-              <HotkeyCapture
-                value={tts.play_pause_hotkey}
-                isCapturing={capturingHotkey === "play_pause"}
-                onStartCapture={() => setCapturingHotkey("play_pause")}
-                onCaptured={(value) => {
-                  setCapturingHotkey(null);
-                  void updateTts(
-                    { play_pause_hotkey: value },
-                    "play_pause_hotkey",
-                  );
-                }}
-                onCancel={() => setCapturingHotkey(null)}
-                onClear={() =>
-                  void updateTts({ play_pause_hotkey: "" }, "play_pause_hotkey")
-                }
-                osType={hotkeyOsType}
-              />
-            </SettingContainer>
+              <SettingContainer
+                grouped
+                title={t("textToSpeech.overlay.playPauseTitle")}
+                description={t("textToSpeech.overlay.playPauseDescription")}
+              >
+                <HotkeyCapture
+                  value={tts.play_pause_hotkey}
+                  isCapturing={capturingHotkey === "play_pause"}
+                  onStartCapture={() => setCapturingHotkey("play_pause")}
+                  onCaptured={(value) => {
+                    setCapturingHotkey(null);
+                    void updateTts(
+                      { play_pause_hotkey: value },
+                      "play_pause_hotkey",
+                    );
+                  }}
+                  onCancel={() => setCapturingHotkey(null)}
+                  onClear={() =>
+                    void updateTts({ play_pause_hotkey: "" }, "play_pause_hotkey")
+                  }
+                  osType={hotkeyOsType}
+                />
+              </SettingContainer>
+            </div>
             <ToggleSwitch
               grouped
               checked={tts.play_history_when_overlay_closed}
@@ -5751,6 +5794,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       />
 
       <SettingsGroup
+        id="tts-preprocessing-settings"
         title={t("textToSpeech.preprocessing.title")}
         description={t("textToSpeech.preprocessing.description")}
         help={
@@ -5888,6 +5932,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       </SettingsGroup>
 
       <SettingsGroup
+        id="tts-chunking-settings"
         title={t("textToSpeech.chunking.title")}
         description={t(
           providerPublishesInputLimit(tts.provider)

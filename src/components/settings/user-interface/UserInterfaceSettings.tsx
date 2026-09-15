@@ -26,6 +26,7 @@ import { Info } from "lucide-react";
 import { HotkeyCapture } from "../../ui/HotkeyCapture";
 import { InfoTooltip } from "../../ui/InfoTooltip";
 import { commands } from "@/bindings";
+import { getShortcutAnchorId } from "@/lib/shortcutAnchors";
 
 const SONIOX_LIVE_PREVIEW_CURSOR_OFFSET_MIN = 24;
 const SONIOX_LIVE_PREVIEW_CURSOR_OFFSET_MAX = 320;
@@ -517,7 +518,12 @@ export const UserInterfaceSettings: React.FC = () => {
               {isPreviewDemoOpen ? "Close Preview" : "Open Preview To See How it Looks"}
             </button>
           </SettingContainer>
-            <div className="px-6">
+            <div
+              id={getShortcutAnchorId("preview_delete_last_word")}
+              className="shortcut-settings-anchor px-6"
+              tabIndex={-1}
+              data-shortcut-id="preview_delete_last_word"
+            >
             <button
               type="button"
               onClick={() => setPreviewActionsExpanded((prev) => !prev)}

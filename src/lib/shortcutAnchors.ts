@@ -4,6 +4,7 @@ const SHORTCUT_SECTION_BY_ID: Record<string, SidebarSection> = {
   ai_replace_selection: "aiReplace",
   cancel: "debug",
   cycle_profile: "general",
+  preview_delete_last_word: "userInterface",
   repaste_last: "history",
   read_clipboard: "textToSpeech",
   read_selection_tts: "textToSpeech",
@@ -16,6 +17,7 @@ const SHORTCUT_SECTION_BY_ID: Record<string, SidebarSection> = {
   text_replacement_decapitalize_after_edit_secondary_key: "textReplacement",
   transcribe: "general",
   transcribe_default: "general",
+  tts_play_history_fallback: "textToSpeech",
   voice_command: "voiceCommands",
 };
 
