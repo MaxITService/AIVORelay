@@ -61,13 +61,22 @@
       "vocabulary": "Vocabulary",
       "session": "Session",
       "modelAndLanguage": "Model & language",
-      "providerAndVoice": "Provider & voice"
+      "providerAndVoice": "Provider & voice",
+      "setup": "Setup",
+      "playback": "Playback",
+      "processing": "Processing",
+      "conversion": "Conversion",
+      "automation": "Automation",
+      "history": "History",
+      "api": "API"
     },
     "unavailable": {
       "default": "This section is currently unavailable.",
       "windowsOnly": "Available on Windows only.",
       "voiceCommands": "Enable Beta Voice Commands on Windows to open this section.",
-      "diarization": "Select a model or provider that supports speaker diarization."
+      "diarization": "Select a model or provider that supports speaker diarization.",
+      "ttsLocalModel": "Select Qwen or Kokoro as the TTS provider to configure its local model.",
+      "ttsApiKey": "The selected TTS provider does not use an API key."
     },
     "items": {
       "microphone": "Microphone and dictation shortcut",
@@ -94,8 +103,10 @@
       "liveDiarization": "Live Monitor speaker diarization",
       "fileModel": "File transcription model and settings",
       "fileDiarization": "File transcription speaker diarization",
-      "tts": "Text-to-speech provider and voice",
-      "ttsFiles": "Text file to MP3"
+      "tts": "Text-to-speech setup",
+      "ttsFiles": "Text file to MP3",
+      "ttsVoiceSettings": "Model, voice, language, and delivery",
+      "ttsPreprocessing": "TTS text replacement rules"
     }
   },
   "quickHelp": {
@@ -260,6 +271,8 @@
     },
     "firstVisit": {
       "title": "Start with a preset",
+      "galleryPrompt": "or browse a small selection of samples in the",
+      "galleryLink": "gallery",
       "description": "Don't be intimidated by the number of settings. The first time you select a provider on each TTS page, AivoRelay automatically opens its recommended preset. Add an API key if required and start using it; everything else can stay at the recommended value.",
       "interactiveReminder": "Before using Speak selected text, assign at least one keyboard shortcut in Actions.",
       "dismiss": "Got it"
@@ -604,7 +617,7 @@
       "unsupportedModel": "The selected OpenAI model does not support voice instructions. Saved prompts are preserved but will not be sent unless a gpt-4o-mini-tts model is selected."
     },
     "actions": {
-      "title": "Global read actions",
+      "title": "Global read actions and keys that summon them",
       "listenQueueLabel": "Enable Listen Later queue",
       "listenQueueDescription": "Append new clipboard and selected-text requests while another item is active. The queue stays in memory only until AivoRelay exits. Turning it off clears queued items and stops queued playback.",
       "readClipboardTitle": "Read clipboard",
@@ -1083,12 +1096,19 @@
     "categories": {
       "recording": "Recording",
       "actions": "Actions",
+      "textToSpeech": "Text to Speech",
       "textEditing": "Text editing",
       "profiles": "Profiles"
     },
     "bindings": {
+      "preview_delete_last_word": "Delete last word in Preview",
+      "read_clipboard": "Read clipboard",
+      "read_selection_tts": "Copy selected text, then read clipboard",
+      "read_selection_direct_tts": "Read selected text without copying",
+      "spawn_button": "Spawn Voice Activation Button",
       "text_replacement_decapitalize_after_edit_key": "Decapitalize monitored key",
-      "text_replacement_decapitalize_after_edit_secondary_key": "Decapitalize secondary monitored key"
+      "text_replacement_decapitalize_after_edit_secondary_key": "Decapitalize secondary monitored key",
+      "tts_play_history_fallback": "Play / Pause TTS history fallback"
     },
     "visibleHints": {
       "repasteLastNetworkRetry": "Repastes latest text. Or, in case of network error, resends the recording and tries again."

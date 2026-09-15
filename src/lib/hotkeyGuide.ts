@@ -18,7 +18,7 @@ export interface HotkeyGuideCategory {
 
 export interface HotkeyGuideManifest {
   version: number;
-  featureGates: Record<string, keyof AppSettings>;
+  featureGates: Record<string, string>;
   categories: HotkeyGuideCategory[];
 }
 
@@ -33,6 +33,7 @@ export const hotkeyGuideManifest = manifest as HotkeyGuideManifest;
 const isFeatureEnabled = (
   hotkeyId: string,
   settings: AppSettings | null,
+  osKind: string,
 ): boolean => {
   if (hotkeyId.startsWith("send_selected_text_") && settings) {
     const presetId = hotkeyId.slice("send_selected_text_".length);
@@ -51,7 +52,21 @@ const isFeatureEnabled = (
   }
   const settingKey = hotkeyGuideManifest.featureGates[hotkeyId];
   if (!settingKey || !settings) return true;
-  return Boolean(settings[settingKey]);
+
+  switch (settingKey) {
+    case "tts.enabled":
+      return Boolean(settings.tts?.enabled);
+    case "tts.directSelectionEnabled":
+      return osKind === "windows" && Boolean(settings.tts?.enabled);
+    case "tts.historyFallbackEnabled":
+      return Boolean(
+        settings.tts?.enabled &&
+          settings.tts?.interactive_history_enabled &&
+          settings.tts?.play_history_when_overlay_closed,
+      );
+    default:
+      return Boolean(settings[settingKey as keyof AppSettings]);
+  }
 };
 
 const profileBindingIds = (profiles: TranscriptionProfile[]): Set<string> =>
@@ -96,6 +111,7 @@ export const buildHotkeyGuideCategories = (
   bindings: Record<string, ShortcutBinding>,
   profiles: TranscriptionProfile[],
   settings: AppSettings | null,
+  osKind = "unknown",
 ): HotkeyGuideCategoryItems[] => {
   const assigned = [
     ...Object.values(bindings),
@@ -103,7 +119,7 @@ export const buildHotkeyGuideCategories = (
   ].filter(
     (binding) =>
       Boolean(binding.current_binding?.trim()) &&
-      isFeatureEnabled(binding.id, settings),
+      isFeatureEnabled(binding.id, settings, osKind),
   );
   const profileIds = profileBindingIds(profiles);
 

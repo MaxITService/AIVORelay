@@ -551,6 +551,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
 
   return (
     <SettingsGroup
+      id="tts-batch-conversion"
       title={t("textToSpeech.batch.title")}
       description={t("textToSpeech.batch.description")}
     >

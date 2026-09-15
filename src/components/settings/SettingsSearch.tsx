@@ -21,7 +21,7 @@ interface SettingsSearchProps {
   onSearchHelp: (query: string) => void;
 }
 
-const MAX_SETTINGS_SEARCH_RESULTS = 20;
+const MAX_SETTINGS_SEARCH_RESULTS = 50;
 
 const HighlightMatch: React.FC<{ text: string; query: string }> = ({
   text,

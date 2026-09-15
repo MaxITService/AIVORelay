@@ -124,6 +124,13 @@ fn is_binding_enabled_for_guide(
         }
         "send_screenshot_to_extension_enabled" => settings.send_screenshot_to_extension_enabled,
         "voice_command_enabled" => settings.voice_command_enabled,
+        "tts.enabled" => settings.tts.enabled,
+        "tts.directSelectionEnabled" => cfg!(target_os = "windows") && settings.tts.enabled,
+        "tts.historyFallbackEnabled" => {
+            settings.tts.enabled
+                && settings.tts.interactive_history_enabled
+                && settings.tts.play_history_when_overlay_closed
+        }
         unknown => {
             log::warn!(
                 "Unknown hotkey guide feature gate setting '{}' for binding '{}'.",
@@ -180,6 +187,9 @@ mod tests {
             "send_to_extension_with_selection_enabled",
             "send_screenshot_to_extension_enabled",
             "voice_command_enabled",
+            "tts.enabled",
+            "tts.directSelectionEnabled",
+            "tts.historyFallbackEnabled",
         ]);
         assert!(manifest
             .feature_gates
@@ -198,6 +208,16 @@ mod tests {
                     "duplicate dynamic prefix {prefix}"
                 );
             }
+        }
+
+        for binding_id in get_default_settings().bindings.keys() {
+            assert!(
+                static_ids.contains(binding_id)
+                    || dynamic_prefixes
+                        .iter()
+                        .any(|prefix| binding_id.starts_with(prefix)),
+                "default binding {binding_id} is missing from the hotkey guide manifest"
+            );
         }
     }
 

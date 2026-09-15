@@ -24,6 +24,11 @@ const baseSettings = {
   send_to_extension_with_selection_enabled: true,
   send_screenshot_to_extension_enabled: true,
   text_replacement_decapitalize_after_edit_key_enabled: false,
+  tts: {
+    enabled: true,
+    interactive_history_enabled: true,
+    play_history_when_overlay_closed: true,
+  },
 } as unknown as AppSettings;
 
 describe("hotkeyGuideManifest", () => {
@@ -34,6 +39,10 @@ describe("hotkeyGuideManifest", () => {
       send_to_extension_with_selection:
         "send_to_extension_with_selection_enabled",
       send_screenshot_to_extension: "send_screenshot_to_extension_enabled",
+      read_clipboard: "tts.enabled",
+      read_selection_tts: "tts.enabled",
+      read_selection_direct_tts: "tts.directSelectionEnabled",
+      tts_play_history_fallback: "tts.historyFallbackEnabled",
     });
     expect(hotkeyGuideManifest.version).toBe(1);
     expect(hotkeyGuideManifest.categories.length).toBeGreaterThan(0);
@@ -59,6 +68,74 @@ describe("buildHotkeyGuideCategories", () => {
       "voice_command",
     ]);
     expect(byId.profiles).toBeUndefined(); // no profiles => category dropped
+  });
+
+  it("includes every assigned TTS binding only while its action is available", () => {
+    const bindings = {
+      read_clipboard: binding("read_clipboard"),
+      read_selection_tts: binding("read_selection_tts"),
+      read_selection_direct_tts: binding("read_selection_direct_tts"),
+      tts_play_history_fallback: binding("tts_play_history_fallback"),
+    };
+    const categories = buildHotkeyGuideCategories(
+      bindings,
+      [],
+      baseSettings,
+      "windows",
+    );
+    const ttsIds = categories
+      .find((category) => category.id === "textToSpeech")!
+      .hotkeys.map((hotkey) => hotkey.id);
+
+    expect(ttsIds).toEqual([
+      "read_clipboard",
+      "read_selection_tts",
+      "read_selection_direct_tts",
+      "tts_play_history_fallback",
+    ]);
+
+    const disabledSettings = {
+      ...baseSettings,
+      tts: {
+        ...baseSettings.tts,
+        enabled: false,
+      },
+    } as unknown as AppSettings;
+    expect(
+      buildHotkeyGuideCategories(
+        bindings,
+        [],
+        disabledSettings,
+        "windows",
+      ),
+    ).toHaveLength(0);
+
+    const nonWindowsIds = buildHotkeyGuideCategories(
+      bindings,
+      [],
+      baseSettings,
+      "linux",
+    )
+      .find((category) => category.id === "textToSpeech")!
+      .hotkeys.map((hotkey) => hotkey.id);
+    expect(nonWindowsIds).not.toContain("read_selection_direct_tts");
+
+    const historyDisabledSettings = {
+      ...baseSettings,
+      tts: {
+        ...baseSettings.tts,
+        play_history_when_overlay_closed: false,
+      },
+    } as unknown as AppSettings;
+    const historyDisabledIds = buildHotkeyGuideCategories(
+      bindings,
+      [],
+      historyDisabledSettings,
+      "windows",
+    )
+      .find((category) => category.id === "textToSpeech")!
+      .hotkeys.map((hotkey) => hotkey.id);
+    expect(historyDisabledIds).not.toContain("tts_play_history_fallback");
   });
 
   it("routes every transcribe_ binding to Profiles, including per-profile ids", () => {

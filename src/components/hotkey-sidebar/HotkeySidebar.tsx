@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, Pin, PinOff, Keyboard } from "lucide-react";
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import { useSettings } from "@/hooks/useSettings";
 import { HotkeyGroup } from "./HotkeyGroup";
 import type { ShortcutBinding, TranscriptionProfile } from "@/bindings";
@@ -39,6 +40,7 @@ export const HotkeySidebar: React.FC = () => {
     ShortcutBinding
   >;
   const profiles = (settings as any)?.transcription_profiles ?? [];
+  const osKind = getOsType();
 
   // Sync isOpen with isPinned when it changes (pinned = auto-open)
   React.useEffect(() => {
@@ -57,8 +59,8 @@ export const HotkeySidebar: React.FC = () => {
   }, [savedWidth]);
 
   const categories = useMemo(
-    () => buildHotkeyGuideCategories(bindings, profiles, settings),
-    [bindings, profiles, settings],
+    () => buildHotkeyGuideCategories(bindings, profiles, settings, osKind),
+    [bindings, profiles, settings, osKind],
   );
 
   const hasAnyHotkeys = categories.length > 0;

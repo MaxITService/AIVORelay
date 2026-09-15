@@ -862,6 +862,7 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
   return (
     <>
       <SettingsGroup
+        id={`tts-${scope}-history`}
         title={t(`textToSpeech.history.scopes.${scope}.title`)}
         description={t(`textToSpeech.history.scopes.${scope}.description`)}
         help={

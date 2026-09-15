@@ -7,6 +7,7 @@ describe("getShortcutSettingsSection", () => {
       ai_replace_selection: "aiReplace",
       cancel: "debug",
       cycle_profile: "general",
+      preview_delete_last_word: "userInterface",
       repaste_last: "history",
       read_clipboard: "textToSpeech",
       read_selection_tts: "textToSpeech",
@@ -19,6 +20,7 @@ describe("getShortcutSettingsSection", () => {
       text_replacement_decapitalize_after_edit_secondary_key: "textReplacement",
       transcribe: "general",
       transcribe_default: "general",
+      tts_play_history_fallback: "textToSpeech",
       voice_command: "voiceCommands",
       "send_selected_text_preset-1": "sendSelectedText",
     } as const;
