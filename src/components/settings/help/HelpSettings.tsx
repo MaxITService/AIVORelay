@@ -63,13 +63,12 @@ const SMART_HELP_ACTIONS = [
 ] as const;
 
 const WHATS_NEW_ITEMS = [
-  "help.whatsNew.items.lowMemoryMode",
-  "help.whatsNew.items.profileModels",
-  "help.whatsNew.items.promptReuse",
-  "help.whatsNew.items.transcriptionWorkflows",
-  "help.whatsNew.items.textToSpeech",
-  "help.whatsNew.items.searchAndHelp",
-  "help.whatsNew.items.reliability",
+  "help.whatsNew.items.voiceGallery",
+  "help.whatsNew.items.geminiFinalization",
+  "help.whatsNew.items.ttsDiscovery",
+  "help.whatsNew.items.emptyTranscriptionFeedback",
+  "help.whatsNew.items.workflowReliability",
+  "help.whatsNew.items.historyLimitEditing",
   "help.whatsNew.items.upstreamImprovements",
 ] as const;
 

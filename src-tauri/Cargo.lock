@@ -83,7 +83,7 @@ dependencies = [
 
 [[package]]
 name = "aivorelay"
-version = "1.0.36"
+version = "1.0.38"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -92,6 +92,7 @@ dependencies = [
  "bzip2",
  "chrono",
  "clap",
+ "cmake",
  "cpal",
  "dirs 5.0.1",
  "earshot",
@@ -117,6 +118,7 @@ dependencies = [
  "natural",
  "nnnoiseless",
  "notify",
+ "ogg",
  "once_cell",
  "p256",
  "parking_lot",
@@ -126,10 +128,12 @@ dependencies = [
  "reqwest 0.12.28",
  "rodio",
  "rsa",
+ "rtrb",
  "rubato",
  "rusqlite",
  "rusqlite_migration",
  "rustfft",
+ "rustls",
  "screenshots",
  "serde",
  "serde_json",
@@ -5002,6 +5006,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ogg"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdab8dcd8d4052eaacaf8fb07a3ccd9a6e26efadb42878a413c68fc4af1dee2b"
+dependencies = [
+ "byteorder",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6291,6 +6304,12 @@ dependencies = [
  "subtle",
  "zeroize",
 ]
+
+[[package]]
+name = "rtrb"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9278fb35b3e730abe136e9b395b5b81b96d06b9f5478a50f0c8430a2237b22de"
 
 [[package]]
 name = "rubato"
@@ -8502,9 +8521,9 @@ dependencies = [
 
 [[package]]
 name = "transcribe-cpp"
-version = "0.2.0"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9cff7b2aaacac97e5f7abb3898d91ad885c87c15dc433907b8045ff5c4ca8440"
+checksum = "b405c121ef674311b9e8eba83e45d859663da681952c7b95b730792ffde358e7"
 dependencies = [
  "log",
  "thiserror 2.0.18",
@@ -8513,9 +8532,9 @@ dependencies = [
 
 [[package]]
 name = "transcribe-cpp-sys"
-version = "0.2.0"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02f9a1f1be01b78806a3546a751aa094b8144ac3032474a1e8e783d22bd26281"
+checksum = "00e81030804f0ce2dd83761ba18e90e0c0c0c2794d68ca008e24245ed6d2702e"
 dependencies = [
  "cmake",
  "serde_json",

@@ -244,17 +244,16 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.26",
+      "since": "Since version 1.0.36",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "lowMemoryMode": "A new beta speech-only mode runs dictation without opening the full interface, reducing memory use. The tray menu makes returning to the full interface straightforward.",
-        "profileModels": "Transcription profiles can use their own speech recognition models and activate automatically for matching applications, window titles, or paths.",
-        "promptReuse": "Profile LLM post-processing can now copy any saved prompt into a profile-specific override.",
-        "transcriptionWorkflows": "Regular dictation, audio files, and Live Monitor can use independent models, with improved speaker handling and timed transcript export.",
-        "textToSpeech": "Text to Speech can read selected text, convert text or Markdown files to audio, resume interrupted work, and retain optional history.",
-        "searchAndHelp": "Expanded Help and settings search make features easier to discover and open directly, including across interface languages.",
-        "reliability": "Improved security and reliability across audio capture, Gemini sessions, model downloads, clipboard handling, startup, history, and the interface.",
+        "voiceGallery": "A small built-in gallery now lets you hear representative voices from several cloud and local providers and apply their settings. Text-to-speech and file conversion can also save compact Opus audio.",
+        "geminiFinalization": "Gemini live dictation can finalize speech earlier with configurable timing for lower perceived latency.",
+        "ttsDiscovery": "Settings search now covers the full interactive and file TTS interface, opens collapsed destinations, and the shortcut guide shows every assigned global read action.",
+        "emptyTranscriptionFeedback": "Dictation now clearly reports when a recording ends without recognized text. Very short taps remain quiet, and their threshold can be adjusted in Debug settings.",
+        "workflowReliability": "Improved recording, audio devices, models, file transcription, Live Monitor, Voice Commands, history, clipboard streaming, browser connector, and TTS reliability.",
+        "historyLimitEditing": "The history limit field now waits until you finish editing before applying the new value.",
         "upstreamImprovements": "Included the latest upstream Handy improvements and fixes."
       }
     },
