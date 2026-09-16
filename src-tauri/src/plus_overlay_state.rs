@@ -8,26 +8,17 @@ use crate::overlay;
 use crate::tray::{change_tray_icon, TrayIconState};
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard};
 use tauri::{AppHandle, Emitter, Manager};
 
 const DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 3500;
 const MAX_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 100_000;
 
 static OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
-static OVERLAY_OWNERSHIP_LOCK: Mutex<()> = Mutex::new(());
 static ERROR_OVERLAY_AUTO_HIDE_MS: AtomicU64 = AtomicU64::new(DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS);
-
-fn lock_overlay_ownership() -> MutexGuard<'static, ()> {
-    OVERLAY_OWNERSHIP_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
 
 /// Invalidate pending error auto-hide timers.
 /// Call this when showing any non-error overlay state.
 pub fn invalidate_error_overlay_auto_hide() -> u64 {
-    let _ownership_guard = lock_overlay_ownership();
     let generation = OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     crate::actions::clear_any_ready_remote_recording_retry();
     generation
@@ -37,15 +28,31 @@ pub fn current_recording_overlay_generation() -> u64 {
     OVERLAY_GENERATION.load(Ordering::SeqCst)
 }
 
-pub fn with_recording_overlay_generation<F>(expected_generation: u64, action: F) -> bool
+/// Serialize guarded window operations on the UI thread. A worker must never
+/// hold an overlay lock while a Tauri window getter waits for that thread.
+/// Recheck ownership when the task executes, since it may become stale in the
+/// queue. True means the task was accepted, not necessarily that it ran.
+pub(crate) fn run_recording_overlay_update<F>(
+    app: &AppHandle,
+    expected_generation: u64,
+    action: F,
+) -> bool
 where
-    F: FnOnce(),
+    F: FnOnce(&AppHandle) + Send + 'static,
 {
-    let _ownership_guard = lock_overlay_ownership();
     if OVERLAY_GENERATION.load(Ordering::SeqCst) != expected_generation {
         return false;
     }
-    action();
+
+    let app_clone = app.clone();
+    if let Err(error) = app.run_on_main_thread(move || {
+        if OVERLAY_GENERATION.load(Ordering::SeqCst) == expected_generation {
+            action(&app_clone);
+        }
+    }) {
+        log::warn!("Failed to queue recording overlay update: {error}");
+        return false;
+    }
     true
 }
 
@@ -53,10 +60,42 @@ pub fn hide_recording_overlay_if_generation_matches(
     app: &AppHandle,
     expected_generation: u64,
 ) -> bool {
-    with_recording_overlay_generation(expected_generation, || {
+    run_recording_overlay_update(app, expected_generation, |app| {
         overlay::hide_recording_overlay(app);
         change_tray_icon(app, TrayIconState::Idle);
     })
+}
+
+/// Start the timeout after showing the overlay, and the fade delay after its
+/// hide event actually runs. Both timer stages must recheck ownership on the UI
+/// thread so an older notification cannot hide a new recording.
+pub(crate) fn schedule_recording_overlay_auto_hide<F>(
+    app: &AppHandle,
+    expected_generation: u64,
+    auto_hide_ms: u64,
+    after_hide: F,
+) where
+    F: FnOnce(&AppHandle) + Send + 'static,
+{
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(auto_hide_ms));
+        run_recording_overlay_update(&app_clone, expected_generation, move |app| {
+            if let Some(window) = app.get_webview_window("recording_overlay") {
+                let _ = window.emit("hide-overlay", ());
+            }
+            let app_clone = app.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                run_recording_overlay_update(&app_clone, expected_generation, move |app| {
+                    if let Some(window) = app.get_webview_window("recording_overlay") {
+                        let _ = window.hide();
+                    }
+                    after_hide(app);
+                });
+            });
+        });
+    });
 }
 
 pub fn get_error_overlay_auto_hide_ms() -> u64 {
@@ -749,48 +788,26 @@ fn show_error_overlay_internal(
             error_envelope: Some(resolved_error_envelope),
             retry_action,
         };
-        // Serialize generation changes with timer-driven hide operations. A
-        // newer owner either runs before this show or after it, never between
-        // the ownership change and its event.
-        let current_gen = {
-            let _ownership_guard = lock_overlay_ownership();
-            let current_gen = OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-            overlay::set_recording_overlay_error_layout(app);
-            let _ = overlay_window.emit("show-overlay", payload);
-            overlay::show_positioned_recording_overlay_window(app);
-            current_gen
-        };
-
-        // Auto-hide after configurable duration
+        let current_gen = OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
         let auto_hide_ms = auto_hide_ms_override
             .unwrap_or_else(get_error_overlay_auto_hide_ms)
             .min(MAX_ERROR_OVERLAY_AUTO_HIDE_MS);
-        let window_clone = overlay_window.clone();
-        let app_clone = app.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(auto_hide_ms));
-            let started_hiding = {
-                let _ownership_guard = lock_overlay_ownership();
-                if OVERLAY_GENERATION.load(Ordering::SeqCst) == current_gen {
-                    let _ = window_clone.emit("hide-overlay", ());
-                    true
-                } else {
-                    false
-                }
-            };
-            if started_hiding {
-                std::thread::sleep(std::time::Duration::from_millis(300));
-                let _ownership_guard = lock_overlay_ownership();
-                if OVERLAY_GENERATION.load(Ordering::SeqCst) == current_gen {
-                    let _ = window_clone.hide();
-                    change_tray_icon(&app_clone, TrayIconState::Idle);
+        run_recording_overlay_update(app, current_gen, move |app| {
+            overlay::set_recording_overlay_error_layout(app);
+            let _ = overlay_window.emit("show-overlay", payload);
+            overlay::show_positioned_recording_overlay_window(app);
+            schedule_recording_overlay_auto_hide(
+                app,
+                current_gen,
+                auto_hide_ms,
+                move |app| {
+                    change_tray_icon(app, TrayIconState::Idle);
                     if let Some(retry_session_id) = retry_session_id {
                         crate::actions::clear_ready_remote_recording_retry_by_id(retry_session_id);
                     }
-                }
-            }
-        });
-        true
+                },
+            );
+        })
     } else {
         // If no overlay window, just reset tray icon
         change_tray_icon(app, TrayIconState::Idle);

@@ -2053,20 +2053,24 @@ pub fn show_recording_overlay(
         return;
     }
 
-    plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
-        set_recording_overlay_default_layout(app_handle);
-        if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-            let mut payload = build_overlay_state_payload(
-                "recording",
-                &settings,
-                captured_active_app,
-                allow_active_app_lookup,
-            );
-            payload.recording_session_id = Some(recording_session_id);
-            let _ = overlay_window.emit("show-overlay", payload);
-            show_positioned_recording_overlay_window(app_handle);
-        }
-    });
+    let mut payload = build_overlay_state_payload(
+        "recording",
+        &settings,
+        captured_active_app,
+        allow_active_app_lookup,
+    );
+    payload.recording_session_id = Some(recording_session_id);
+    plus_overlay_state::run_recording_overlay_update(
+        app_handle,
+        overlay_generation,
+        move |app_handle| {
+            set_recording_overlay_default_layout(app_handle);
+            if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+                let _ = overlay_window.emit("show-overlay", payload);
+                show_positioned_recording_overlay_window(app_handle);
+            }
+        },
+    );
 }
 
 /// Shows the transcribing overlay window
@@ -2079,14 +2083,18 @@ pub fn show_transcribing_overlay(app_handle: &AppHandle) {
         return;
     }
 
-    plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
-        set_recording_overlay_default_layout(app_handle);
-        if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-            let payload = build_overlay_state_payload("transcribing", &settings, None, false);
-            let _ = overlay_window.emit("show-overlay", payload);
-            show_positioned_recording_overlay_window(app_handle);
-        }
-    });
+    let payload = build_overlay_state_payload("transcribing", &settings, None, false);
+    plus_overlay_state::run_recording_overlay_update(
+        app_handle,
+        overlay_generation,
+        move |app_handle| {
+            set_recording_overlay_default_layout(app_handle);
+            if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+                let _ = overlay_window.emit("show-overlay", payload);
+                show_positioned_recording_overlay_window(app_handle);
+            }
+        },
+    );
 }
 
 /// Shows the sending overlay window (for remote API calls)
@@ -2099,14 +2107,18 @@ pub fn show_sending_overlay(app_handle: &AppHandle) {
         return;
     }
 
-    plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
-        set_recording_overlay_default_layout(app_handle);
-        if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-            let payload = build_overlay_state_payload("sending", &settings, None, false);
-            let _ = overlay_window.emit("show-overlay", payload);
-            show_positioned_recording_overlay_window(app_handle);
-        }
-    });
+    let payload = build_overlay_state_payload("sending", &settings, None, false);
+    plus_overlay_state::run_recording_overlay_update(
+        app_handle,
+        overlay_generation,
+        move |app_handle| {
+            set_recording_overlay_default_layout(app_handle);
+            if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+                let _ = overlay_window.emit("show-overlay", payload);
+                show_positioned_recording_overlay_window(app_handle);
+            }
+        },
+    );
 }
 
 /// Shows the thinking overlay window (for LLM processing)
@@ -2119,14 +2131,18 @@ pub fn show_thinking_overlay(app_handle: &AppHandle) {
         return;
     }
 
-    plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
-        set_recording_overlay_default_layout(app_handle);
-        if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-            let payload = build_overlay_state_payload("thinking", &settings, None, false);
-            let _ = overlay_window.emit("show-overlay", payload);
-            show_positioned_recording_overlay_window(app_handle);
-        }
-    });
+    let payload = build_overlay_state_payload("thinking", &settings, None, false);
+    plus_overlay_state::run_recording_overlay_update(
+        app_handle,
+        overlay_generation,
+        move |app_handle| {
+            set_recording_overlay_default_layout(app_handle);
+            if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+                let _ = overlay_window.emit("show-overlay", payload);
+                show_positioned_recording_overlay_window(app_handle);
+            }
+        },
+    );
 }
 
 /// Shows the finalizing overlay window (for Soniox live stop/finalization)
@@ -2139,14 +2155,18 @@ pub fn show_finalizing_overlay(app_handle: &AppHandle) {
         return;
     }
 
-    plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
-        set_recording_overlay_default_layout(app_handle);
-        if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-            let payload = build_overlay_state_payload("finalizing", &settings, None, false);
-            let _ = overlay_window.emit("show-overlay", payload);
-            show_positioned_recording_overlay_window(app_handle);
-        }
-    });
+    let payload = build_overlay_state_payload("finalizing", &settings, None, false);
+    plus_overlay_state::run_recording_overlay_update(
+        app_handle,
+        overlay_generation,
+        move |app_handle| {
+            set_recording_overlay_default_layout(app_handle);
+            if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+                let _ = overlay_window.emit("show-overlay", payload);
+                show_positioned_recording_overlay_window(app_handle);
+            }
+        },
+    );
 }
 
 /// Updates the overlay window position based on current settings
@@ -2982,7 +3002,7 @@ fn show_transient_message_overlay(
     );
 }
 
-fn show_transient_overlay<P: Serialize + Clone>(
+fn show_transient_overlay<P: Serialize + Clone + Send + 'static>(
     app_handle: &AppHandle,
     payload: P,
     auto_hide_ms: u64,
@@ -3006,31 +3026,21 @@ fn show_transient_overlay<P: Serialize + Clone>(
     }
 
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        let shown =
-            plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
+        plus_overlay_state::run_recording_overlay_update(
+            app_handle,
+            overlay_generation,
+            move |app_handle| {
                 set_recording_overlay_default_layout(app_handle);
                 let _ = overlay_window.emit("show-message-overlay", payload);
                 show_positioned_recording_overlay_window(app_handle);
-            });
-        if !shown {
-            return;
-        }
-
-        let window_clone = overlay_window.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(auto_hide_ms));
-            let started_hiding =
-                plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
-                    let _ = window_clone.emit("hide-overlay", ());
-                });
-            if !started_hiding {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            plus_overlay_state::with_recording_overlay_generation(overlay_generation, || {
-                let _ = window_clone.hide();
-            });
-        });
+                plus_overlay_state::schedule_recording_overlay_auto_hide(
+                    app_handle,
+                    overlay_generation,
+                    auto_hide_ms,
+                    |_| {},
+                );
+            },
+        );
     }
 }
 
