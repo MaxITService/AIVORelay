@@ -244,17 +244,12 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.36",
+      "since": "Since version 1.0.37",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "voiceGallery": "A small built-in gallery now lets you hear representative voices from several cloud and local providers and apply their settings.",
-        "opusOutput": "Text-to-speech and file conversion can now save compact Opus audio alongside the existing output formats.",
-        "geminiFinalization": "Gemini live dictation can finalize speech earlier with configurable timing for lower perceived latency.",
-        "ttsDiscovery": "Settings search now covers the full interactive and file TTS interface, opens collapsed destinations, and the shortcut guide shows every assigned global read action.",
-        "voiceCommandSafety": "Voice Commands now inherit the correct model, substitute prompt placeholders literally, and avoid English-only phonetic matching for unsupported scripts.",
-        "reliability": "Improved native region capture, audio capture, model availability, overlays, TTS playback, histories, file transcription, shortcuts, clipboard streaming, and browser connector reliability.",
-        "upstreamImprovements": "Included the latest upstream Handy improvements and fixes."
+        "emptyTranscriptionFeedback": "Dictation now clearly reports when a recording ends without recognized text. Very short taps remain quiet, and their threshold can be adjusted in Debug settings.",
+        "historyLimitEditing": "The history limit field now waits until you finish editing before applying the new value."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"
@@ -3528,6 +3523,10 @@
         "title": "Extra Local Recording Buffer",
         "description": "Extra time in milliseconds to keep recording after you release the hotkey on local STT paths. Helps catch the tail end of a phrase without changing remote streaming behavior."
       },
+      "dictationQuickTap": {
+        "title": "Short press threshold (ms)",
+        "description": "Recordings shorter than this do not show a no-text error. Live recordings with no output are cancelled without waiting for finalization. Default: 500 ms. Range: 0–5000 ms; 0 disables this exception. Does not change Gemini's early finalization delay."
+      },
       "appendTrailingSpace": {
         "label": "[Legacy] Append Trailing Space",
         "description": "[Legacy] Deprecated debug option, no longer used."
@@ -4196,6 +4195,14 @@
       "unknown": {
         "title": "Transcription failed",
         "hint": "Try again. If it keeps happening, check the logs."
+      },
+      "noText": {
+        "title": "No transcription received",
+        "hint": "Recording ended, but no transcription text was received."
+      },
+      "geminiEarlyNoText": {
+        "title": "Gemini returned no text",
+        "hint": "Gemini early finalization ended, but no transcription text was received."
       }
     }
   },
