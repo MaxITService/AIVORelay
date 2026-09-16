@@ -13,6 +13,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-09-16 | `release/microsoft-store` | `b1b0a285` | chore: bump version to 1.0.39 | `2c38add8` | chore: bump version to 1.0.39 | overlay UI-thread hotfix propagated cleanly; Store notes adapted; lock regenerated |
 | 2026-09-16 | `release/microsoft-store` | `2aaf46d4` | chore: bump version to 1.0.38 | `583e9146` | chore: bump version to 1.0.38 | 77 runtime/UI/test and release commits propagated; main-only docs, updater, and intermediate 1.0.37 bump excluded; Store notes adapted; lock regenerated |
 | 2026-09-06 | `release/microsoft-store` | `d18bfba8` | fix(copy): generalize realtime audio warning | `9da95e55` | fix(copy): generalize realtime audio warning | copy-only change propagated cleanly |
 | 2026-09-06 | `release/microsoft-store` | `0ca930c0` | Revert "feat(text-replacement): add quick literal replacement dialog" | `d47dd52b` | Revert "feat(text-replacement): add quick literal replacement dialog" | Quick Replacement removed from runtime, Help, search, and release notes; later features preserved |
@@ -22,7 +23,6 @@ Rules:
 | 2026-09-06 | `release/microsoft-store` | `2a23c076` | feat(settings): allow longer paste delays | `7eaf6a5c` | feat(settings): allow longer paste delays | one-line upstream UI adaptation; upstream-only audit documentation excluded |
 | 2026-09-06 | `release/microsoft-store` | `f07fe24d` | fix(audio): prevent recording stop races and hangs | `0315472e` | fix(audio): prevent recording stop races and hangs | 16 runtime/UI commits propagated manually; main-only docs and Cargo.lock excluded; one startup conflict resolved for Store |
 | 2026-09-02 | `release/microsoft-store` | `aaedfecd` | test: use Developer PowerShell for local Rust setup | `ba6021ad` | ci(store): audit x64 transcribe runtime packaging | remaining main runtime propagated; updater and AVX512 excluded; lock regenerated; applicable docs and x64 packaging checks updated |
-| 2026-07-24 | `release/microsoft-store` | `3d772235` | chore: bump version to 1.0.26 | `777eedd2` | chore: bump version to 1.0.26 | 2 runtime fixes propagated; main-only docs and updater binding excluded; Store notes updated; lock version updated locally |
 
 Entry template:
 
