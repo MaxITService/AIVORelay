@@ -1,7 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../../hooks/useSettings";
-import { Input } from "../ui/Input";
+import { CommittedNumberInput } from "./text-to-speech/CommittedNumberInput";
 import { SettingContainer } from "../ui/SettingContainer";
 
 interface HistoryLimitProps {
@@ -27,17 +27,6 @@ export const HistoryLimit: React.FC<HistoryLimitProps> = ({
       )
     : 5;
 
-  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseInt(event.target.value, 10);
-    if (!isNaN(value)) {
-      const clamped = Math.min(
-        HISTORY_LIMIT_MAX,
-        Math.max(HISTORY_LIMIT_MIN, value),
-      );
-      updateSetting("history_limit", clamped);
-    }
-  };
-
   return (
     <SettingContainer
       title={t("settings.history.historyLimit.title")}
@@ -47,13 +36,13 @@ export const HistoryLimit: React.FC<HistoryLimitProps> = ({
       layout="horizontal"
     >
       <div className="flex items-center space-x-2">
-        <Input
-          type="number"
+        <CommittedNumberInput
           min={HISTORY_LIMIT_MIN}
           max={HISTORY_LIMIT_MAX}
           value={historyLimit}
-          onChange={handleChange}
+          onCommit={(value) => updateSetting("history_limit", value)}
           disabled={isUpdating("history_limit")}
+          aria-label={t("settings.history.historyLimit.title")}
           className="w-20"
         />
         <span className="text-sm text-text">
