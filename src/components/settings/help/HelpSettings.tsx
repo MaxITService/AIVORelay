@@ -63,8 +63,7 @@ const SMART_HELP_ACTIONS = [
 ] as const;
 
 const WHATS_NEW_ITEMS = [
-  "help.whatsNew.items.emptyTranscriptionFeedback",
-  "help.whatsNew.items.historyLimitEditing",
+  "help.whatsNew.items.overlayReliability",
 ] as const;
 
 export const HelpSettings: React.FC = () => {

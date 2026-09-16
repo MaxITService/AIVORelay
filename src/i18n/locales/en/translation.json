@@ -244,12 +244,11 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.37",
+      "since": "Since version 1.0.38",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "emptyTranscriptionFeedback": "Dictation now clearly reports when a recording ends without recognized text. Very short taps remain quiet, and their threshold can be adjusted in Debug settings.",
-        "historyLimitEditing": "The history limit field now waits until you finish editing before applying the new value."
+        "overlayReliability": "Fixed a rare freeze when recording and error overlays update or hide automatically."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"
