@@ -63,13 +63,7 @@ const SMART_HELP_ACTIONS = [
 ] as const;
 
 const WHATS_NEW_ITEMS = [
-  "help.whatsNew.items.voiceGallery",
-  "help.whatsNew.items.geminiFinalization",
-  "help.whatsNew.items.ttsDiscovery",
-  "help.whatsNew.items.emptyTranscriptionFeedback",
-  "help.whatsNew.items.workflowReliability",
-  "help.whatsNew.items.historyLimitEditing",
-  "help.whatsNew.items.upstreamImprovements",
+  "help.whatsNew.items.overlayReliability",
 ] as const;
 
 export const HelpSettings: React.FC = () => {

@@ -244,17 +244,11 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.36",
+      "since": "Since version 1.0.38",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "voiceGallery": "A small built-in gallery now lets you hear representative voices from several cloud and local providers and apply their settings. Text-to-speech and file conversion can also save compact Opus audio.",
-        "geminiFinalization": "Gemini live dictation can finalize speech earlier with configurable timing for lower perceived latency.",
-        "ttsDiscovery": "Settings search now covers the full interactive and file TTS interface, opens collapsed destinations, and the shortcut guide shows every assigned global read action.",
-        "emptyTranscriptionFeedback": "Dictation now clearly reports when a recording ends without recognized text. Very short taps remain quiet, and their threshold can be adjusted in Debug settings.",
-        "workflowReliability": "Improved recording, audio devices, models, file transcription, Live Monitor, Voice Commands, history, clipboard streaming, browser connector, and TTS reliability.",
-        "historyLimitEditing": "The history limit field now waits until you finish editing before applying the new value.",
-        "upstreamImprovements": "Included the latest upstream Handy improvements and fixes."
+        "overlayReliability": "Fixed a rare freeze when recording and error overlays update or hide automatically."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"

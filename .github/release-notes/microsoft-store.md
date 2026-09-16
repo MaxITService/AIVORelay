@@ -5,13 +5,7 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Added a small built-in voice gallery with representative cloud and local voices, plus compact Opus output for text-to-speech and file conversion.
-- Added configurable early finalization for Gemini live dictation to reduce perceived latency.
-- Expanded settings search across the interactive and file TTS interface, including navigation into collapsed sections, and completed the global shortcut guide for read actions.
-- Dictation now clearly reports when a recording ends without recognized text; very short accidental taps remain quiet, with an adjustable threshold in Debug settings.
-- Improved recording, audio devices, models, file transcription, Live Monitor, Voice Commands, history, clipboard streaming, browser connector, and TTS reliability.
-- The history limit field now waits until editing is finished before applying the new value.
-- Included the latest upstream Handy improvements and fixes.
+- Fixed a rare freeze when recording and error overlays update or hide automatically.
 
 ---
 
