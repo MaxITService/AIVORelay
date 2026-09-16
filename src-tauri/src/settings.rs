@@ -4227,6 +4227,9 @@ pub struct AppSettings {
     /// Extra trailing capture time for local STT paths after hotkey release (0..1500 ms)
     #[serde(default)]
     pub extra_recording_buffer_ms: u64,
+    /// Suppress empty dictation errors and cancel empty live taps below this duration.
+    #[serde(default = "default_dictation_quick_tap_threshold_ms")]
+    pub dictation_quick_tap_threshold_ms: u32,
     /// Keep the microphone stream alive briefly after stop to reduce startup latency.
     #[serde(default)]
     pub lazy_stream_close: bool,
@@ -5207,6 +5210,10 @@ fn default_gemini_early_finalization_delay_ms() -> u32 {
     500
 }
 
+fn default_dictation_quick_tap_threshold_ms() -> u32 {
+    500
+}
+
 fn default_false() -> bool {
     false
 }
@@ -6142,6 +6149,7 @@ pub fn get_default_settings() -> AppSettings {
         recording_auto_stop_timeout_seconds: 1800,
         recording_auto_stop_paste: false,
         extra_recording_buffer_ms: 0,
+        dictation_quick_tap_threshold_ms: default_dictation_quick_tap_threshold_ms(),
         lazy_stream_close: false,
         // Window Geometry
         remember_window_size: true,

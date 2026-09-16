@@ -197,7 +197,6 @@ const SONIOX_REALTIME_FALLBACK_ASYNC_THRESHOLD_SECS: f32 = 20.0;
 const SONIOX_LONG_AUDIO_TIMEOUT_MULTIPLIER: f32 = 2.0;
 const SONIOX_LONG_AUDIO_TIMEOUT_PADDING_SECS: f32 = 30.0;
 const SONIOX_LONG_AUDIO_MAX_TIMEOUT_SECS: u32 = 600;
-const LIVE_QUICK_CANCEL_THRESHOLD_MS: u64 = 500;
 pub(crate) const OPENAI_REALTIME_WHISPER_LIVE_FINALIZE_TIMEOUT_MS: u32 = 5_000;
 const LOCAL_PREVIEW_AUTO_MIN_SAMPLES: usize = 16_000;
 const LOCAL_PREVIEW_MANUAL_MIN_SAMPLES: usize = 1;
@@ -732,6 +731,53 @@ fn handle_remote_transcription_error_with_retry_session(
     );
     emit_remote_stt_error(app, err_str, retry_visible);
     retry_visible
+}
+
+fn empty_transcription_error_category(
+    recording_elapsed: Duration,
+    quick_tap_threshold_ms: u32,
+    early_gemini_finalization: bool,
+) -> Option<crate::plus_overlay_state::OverlayErrorCategory> {
+    if is_short_dictation_tap(recording_elapsed, quick_tap_threshold_ms) {
+        return None;
+    }
+    Some(if early_gemini_finalization {
+        crate::plus_overlay_state::OverlayErrorCategory::GeminiEarlyFinalizationNoText
+    } else {
+        crate::plus_overlay_state::OverlayErrorCategory::NoText
+    })
+}
+
+fn report_empty_transcription(
+    app: &AppHandle,
+    operation_stamp: OperationStamp,
+    recording_elapsed: Duration,
+    quick_tap_threshold_ms: u32,
+    early_gemini_finalization: bool,
+) -> bool {
+    if !operation_stamp.is_current(app) || operation_stamp.was_cancelled(app) {
+        return false;
+    }
+    let Some(category) = empty_transcription_error_category(
+        recording_elapsed,
+        quick_tap_threshold_ms,
+        early_gemini_finalization,
+    ) else {
+        return false;
+    };
+    let message = category.display_text();
+    let message_key = if early_gemini_finalization {
+        "overlay.errors.geminiEarlyNoText.hint"
+    } else {
+        "overlay.errors.noText.hint"
+    };
+    error!("{} (operation={}, recording_ms={})", message, operation_stamp.operation_id, recording_elapsed.as_millis());
+    let _ = app.emit("remote-stt-error", serde_json::json!({
+        "message": message,
+        "messageKey": message_key,
+    }));
+    crate::plus_overlay_state::show_error_overlay(app, category);
+    true
 }
 
 fn register_soniox_stream_processor(
@@ -5573,12 +5619,17 @@ fn preview_has_new_output() -> bool {
         != crate::managers::preview_output_mode::recording_prefix_text().trim()
 }
 
+fn is_short_dictation_tap(recording_elapsed: Duration, threshold_ms: u32) -> bool {
+    recording_elapsed < Duration::from_millis(u64::from(threshold_ms.min(5000)))
+}
+
 fn should_cancel_live_quick_stop_without_finalize(
     recording_elapsed: Duration,
+    quick_tap_threshold_ms: u32,
     preview_output_only_enabled: bool,
     had_stream_output: bool,
 ) -> bool {
-    if recording_elapsed >= Duration::from_millis(LIVE_QUICK_CANCEL_THRESHOLD_MS) {
+    if !is_short_dictation_tap(recording_elapsed, quick_tap_threshold_ms) {
         return false;
     }
 
@@ -6691,10 +6742,38 @@ fn should_run_transcription_post_process(post_process_requested: bool, text: &st
 #[cfg(test)]
 mod transcription_post_process_tests {
     use super::{
-        is_blank_transcription, parse_openai_realtime_keywords,
-        post_process_allowed_for_output_route, should_run_transcription_post_process,
+        empty_transcription_error_category, is_blank_transcription, parse_openai_realtime_keywords,
+        post_process_allowed_for_output_route, should_cancel_live_quick_stop_without_finalize,
+        should_run_transcription_post_process,
     };
+    use crate::plus_overlay_state::OverlayErrorCategory;
     use crate::settings::{get_default_settings, TranscriptionProvider};
+    use std::time::Duration;
+
+    #[test]
+    fn empty_dictation_feedback_respects_short_press_boundary_and_reason() {
+        for early in [false, true] {
+            assert!(empty_transcription_error_category(Duration::from_millis(499), 500, early).is_none());
+            assert!(empty_transcription_error_category(Duration::from_millis(999), 1000, early).is_none());
+        }
+        assert!(matches!(
+            empty_transcription_error_category(Duration::from_millis(500), 500, false),
+            Some(OverlayErrorCategory::NoText)
+        ));
+        assert!(matches!(
+            empty_transcription_error_category(Duration::from_millis(500), 500, true),
+            Some(OverlayErrorCategory::GeminiEarlyFinalizationNoText)
+        ));
+        assert!(empty_transcription_error_category(Duration::ZERO, 0, false).is_some());
+    }
+
+    #[test]
+    fn configurable_live_quick_stop_preserves_existing_output() {
+        assert!(should_cancel_live_quick_stop_without_finalize(Duration::from_millis(750), 1000, false, false));
+        assert!(!should_cancel_live_quick_stop_without_finalize(Duration::from_millis(750), 500, false, false));
+        assert!(!should_cancel_live_quick_stop_without_finalize(Duration::from_millis(100), 1000, false, true));
+        assert!(!should_cancel_live_quick_stop_without_finalize(Duration::ZERO, 0, false, false));
+    }
 
     #[test]
     fn blank_transcription_is_detected() {
@@ -8100,6 +8179,7 @@ impl ShortcutAction for TranscribeAction {
                     );
                 if should_cancel_live_quick_stop_without_finalize(
                     stop_context.recording_elapsed,
+                    recording_settings.dictation_quick_tap_threshold_ms,
                     preview_output_only_enabled,
                     had_stream_output,
                 ) {
@@ -8262,6 +8342,8 @@ impl ShortcutAction for TranscribeAction {
                         }
                     };
                     let app_for_output = ah.clone();
+                    let had_gemini_output = had_openai_realtime_whisper_stream_output
+                        || take_openai_realtime_whisper_stream_emitted(&binding_id);
                     let overlay_generation = crate::plus_overlay_state::current_recording_overlay_generation();
                     let processor_for_output = stream_processor.take();
                     let binding_for_output = binding_id.clone();
@@ -8290,10 +8372,16 @@ impl ShortcutAction for TranscribeAction {
                     if let Err(error) = output_result {
                         warn!("Gemini early final output dispatch failed: {}", error);
                     }
-                    if text.is_empty() {
+                    if is_blank_transcription(&text) {
                         end_streaming_paste_session_after_main_thread_queue(
                             &ah, recording_operation_id, streaming_clipboard_timeout_ms,
                         );
+                        if !had_gemini_output {
+                            report_empty_transcription(
+                                &ah, operation_stamp, stop_context.recording_elapsed,
+                                recording_settings.dictation_quick_tap_threshold_ms, true,
+                            );
+                        }
                     } else {
                         let output_finalized = finalize_streaming_paste_session_after_main_thread_queue(
                             &ah, recording_operation_id, operation_stamp, streaming_clipboard_timeout_ms, text.clone(),
@@ -8304,7 +8392,7 @@ impl ShortcutAction for TranscribeAction {
                     }
                     finish_guard.finish();
                     // History may finish later, but this branch never inserts text again.
-                    if !text.is_empty() {
+                    if !is_blank_transcription(&text) {
                         before_dictation_final_output(&ah, &text);
                         let text = apply_profile_output_filters(&recording_settings, text, profile_id_for_postprocess.as_deref());
                         let _ = apply_post_processing_and_history(
@@ -8664,7 +8752,11 @@ impl ShortcutAction for TranscribeAction {
                     }
                 }
 
-                if transcription.is_empty() {
+                if is_blank_transcription(&transcription) {
+                    let had_live_output = had_soniox_stream_output
+                        || had_deepgram_stream_output
+                        || had_openai_realtime_whisper_stream_output
+                        || (preview_output_only_enabled && preview_has_new_output());
                     if !preview_output_only_enabled {
                         end_streaming_paste_session_after_main_thread_queue(
                             &ah,
@@ -8684,7 +8776,13 @@ impl ShortcutAction for TranscribeAction {
                             crate::managers::preview_output_mode::set_error(&ah, Some(err));
                         }
                     }
-                    if !invoked_from_realtime_error {
+                    let empty_error_shown = !invoked_from_realtime_error
+                        && !had_live_output
+                        && report_empty_transcription(
+                            &ah, operation_stamp, stop_context.recording_elapsed,
+                            recording_settings.dictation_quick_tap_threshold_ms, false,
+                        );
+                    if !invoked_from_realtime_error && !empty_error_shown {
                         utils::hide_recording_overlay(&ah);
                     }
                     change_tray_icon(&ah, TrayIconState::Idle);
@@ -9106,7 +9204,8 @@ impl ShortcutAction for TranscribeAction {
                 return;
             }
 
-            if transcription.is_empty() {
+            if is_blank_transcription(&transcription) {
+                let had_preview_output = preview_output_only_enabled && preview_has_new_output();
                 if is_soniox_optimized_delivery {
                     ah.state::<Arc<SonioxRealtimeManager>>().cancel();
                 }
@@ -9129,7 +9228,13 @@ impl ShortcutAction for TranscribeAction {
                 if let Some(file_name) = pre_saved_file_name {
                     save_failed_transcription_entry(&ah, file_name, post_process_requested);
                 }
-                utils::hide_recording_overlay(&ah);
+                let empty_error_shown = !had_preview_output && report_empty_transcription(
+                    &ah, operation_stamp, stop_context.recording_elapsed,
+                    recording_settings.dictation_quick_tap_threshold_ms, false,
+                );
+                if !empty_error_shown {
+                    utils::hide_recording_overlay(&ah);
+                }
                 change_tray_icon(&ah, TrayIconState::Idle);
                 finish_guard.finish();
                 return;

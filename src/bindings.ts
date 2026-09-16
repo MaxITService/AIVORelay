@@ -1847,6 +1847,14 @@ async changeExtraRecordingBufferSetting(valueMs: number) : Promise<Result<null, 
     else return { status: "error", error: e  as any };
 }
 },
+async changeDictationQuickTapThresholdSetting(valueMs: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_dictation_quick_tap_threshold_setting", { valueMs }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeLazyStreamCloseSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_lazy_stream_close_setting", { enabled }) };
@@ -4577,6 +4585,10 @@ recording_auto_stop_paste?: boolean;
  * Extra trailing capture time for local STT paths after hotkey release (0..1500 ms)
  */
 extra_recording_buffer_ms?: number;
+/**
+ * Suppress empty dictation errors and cancel empty live taps below this duration.
+ */
+dictation_quick_tap_threshold_ms?: number;
 /**
  * Keep the microphone stream alive briefly after stop to reduce startup latency.
  */

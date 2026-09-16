@@ -557,6 +557,10 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_extra_recording_buffer_setting", {
     valueMs: Math.round(Number(value)),
   });
+(settingUpdaters as any).dictation_quick_tap_threshold_ms = (value: any) =>
+  invoke("change_dictation_quick_tap_threshold_setting", {
+    valueMs: Math.round(Number(value)),
+  });
 (settingUpdaters as any).lazy_stream_close = (value: any) =>
   invoke("change_lazy_stream_close_setting", { enabled: Boolean(value) });
 (settingUpdaters as any).native_region_capture_mode = (value: any) =>
