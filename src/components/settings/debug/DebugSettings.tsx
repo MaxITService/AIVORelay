@@ -13,6 +13,7 @@ import { AlwaysOnMicrophone } from "../AlwaysOnMicrophone";
 import { SoundPicker } from "../SoundPicker";
 import { LazyStreamClose } from "./LazyStreamClose";
 import { RecordingBuffer } from "./RecordingBuffer";
+import { DictationQuickTapThreshold } from "./DictationQuickTapThreshold";
 import { ClamshellMicrophoneSelector } from "../ClamshellMicrophoneSelector";
 import { HandyShortcut } from "../HandyShortcut";
 import { UpdateChecksToggle } from "../UpdateChecksToggle";
@@ -135,6 +136,7 @@ export const DebugSettings: React.FC = () => {
         <AlwaysOnMicrophone descriptionMode="tooltip" grouped={true} />
         <ClamshellMicrophoneSelector descriptionMode="tooltip" grouped={true} />
         <RecordingBuffer descriptionMode="tooltip" grouped={true} />
+        <DictationQuickTapThreshold />
         {/* Cancel shortcut is disabled on Linux due to instability with dynamic shortcut registration */}
         {!isLinux && (
           <HandyShortcut

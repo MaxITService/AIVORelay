@@ -259,6 +259,22 @@ function getOverlayErrorCopy(
   }
 
   switch (category) {
+    case "NoText":
+      return {
+        title: t("overlay.errors.noText.title", "No transcription received"),
+        hint: t(
+          "overlay.errors.noText.hint",
+          "Recording ended, but no transcription text was received.",
+        ),
+      };
+    case "GeminiEarlyFinalizationNoText":
+      return {
+        title: t("overlay.errors.geminiEarlyNoText.title", "Gemini returned no text"),
+        hint: t(
+          "overlay.errors.geminiEarlyNoText.hint",
+          "Gemini early finalization ended, but no transcription text was received.",
+        ),
+      };
     case "Auth":
       return {
         title: t("overlay.errors.auth.title", "Check API key"),

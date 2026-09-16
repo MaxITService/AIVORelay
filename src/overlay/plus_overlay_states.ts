@@ -35,6 +35,8 @@ export type OverlayErrorCategory =
   | "ParseError"
   | "ExtensionOffline"
   | "MicrophoneUnavailable"
+  | "NoText"
+  | "GeminiEarlyFinalizationNoText"
   | "Unknown";
 
 export type OverlayErrorProvider =
@@ -136,6 +138,8 @@ export function fallbackCodeFromCategory(
     ParseError: "E_PARSE",
     ExtensionOffline: "E_EXT",
     MicrophoneUnavailable: "E_MIC",
+    NoText: "E_UNKNOWN",
+    GeminiEarlyFinalizationNoText: "E_UNKNOWN",
     Unknown: "E_UNKNOWN",
   };
   return map[category];

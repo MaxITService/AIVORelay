@@ -28,6 +28,7 @@ type RemoteSttErrorPayload =
   | string
   | {
       message?: string;
+      messageKey?: string;
       retryAction?: {
         command?: string;
         label?: string;
@@ -191,11 +192,15 @@ function App() {
     const unlistenRemote = listen<RemoteSttErrorPayload>(
       "remote-stt-error",
       (event) => {
-        const message =
+        const fallbackMessage =
           typeof event.payload === "string"
             ? event.payload
             : event.payload.message ||
               t("overlay.errors.unknown.title", "Transcription failed");
+        const message =
+          typeof event.payload === "object" && event.payload?.messageKey
+            ? t(event.payload.messageKey, fallbackMessage)
+            : fallbackMessage;
         const retryAction =
           typeof event.payload === "object" && event.payload?.retryAction
             ? event.payload.retryAction

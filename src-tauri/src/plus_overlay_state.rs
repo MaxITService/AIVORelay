@@ -85,6 +85,8 @@ pub enum OverlayErrorCategory {
     ParseError,
     ExtensionOffline,
     MicrophoneUnavailable,
+    NoText,
+    GeminiEarlyFinalizationNoText,
     Unknown,
 }
 
@@ -104,6 +106,8 @@ impl OverlayErrorCategory {
             OverlayErrorCategory::ParseError => "Invalid response",
             OverlayErrorCategory::ExtensionOffline => "Extension offline",
             OverlayErrorCategory::MicrophoneUnavailable => "Mic unavailable",
+            OverlayErrorCategory::NoText => "Recording ended, but no transcription text was received.",
+            OverlayErrorCategory::GeminiEarlyFinalizationNoText => "Gemini early finalization ended, but no transcription text was received.",
             OverlayErrorCategory::Unknown => "Transcription failed",
         }
     }
@@ -681,7 +685,9 @@ fn build_default_envelope_from_category(
         OverlayErrorCategory::ParseError => OverlayCanonicalErrorCode::EParse,
         OverlayErrorCategory::ExtensionOffline => OverlayCanonicalErrorCode::EExtensionOffline,
         OverlayErrorCategory::MicrophoneUnavailable => OverlayCanonicalErrorCode::EMicUnavailable,
-        OverlayErrorCategory::Unknown => OverlayCanonicalErrorCode::EUnknown,
+        OverlayErrorCategory::NoText
+        | OverlayErrorCategory::GeminiEarlyFinalizationNoText
+        | OverlayErrorCategory::Unknown => OverlayCanonicalErrorCode::EUnknown,
     };
 
     let provider = match category {

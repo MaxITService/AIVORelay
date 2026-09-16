@@ -1412,6 +1412,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_recording_auto_stop_timeout_seconds_setting,
         shortcut::change_recording_auto_stop_paste_setting,
         shortcut::change_extra_recording_buffer_setting,
+        shortcut::change_dictation_quick_tap_threshold_setting,
         shortcut::change_lazy_stream_close_setting,
         shortcut::change_ai_replace_system_prompt_setting,
         shortcut::change_ai_replace_user_prompt_setting,
