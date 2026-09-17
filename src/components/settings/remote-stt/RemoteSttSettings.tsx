@@ -1758,8 +1758,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     <>
                       <GeminiEarlyFinalizationSettings />
                       <SettingContainer
-                        title={t("settings.gemini.liveMode.initialTitle", "Initial Live Monitor mode")}
-                        description={t("settings.gemini.liveMode.initialDescription", "Used when Live Monitor first creates its independent Gemini settings. Later changes in Live Monitor stay independent.")}
+                        title={t("settings.gemini.liveMode.initialTitle", "Initial mode for AivoRelay Live Monitor")}
+                        description={t("settings.gemini.liveMode.initialDescription", "Live Monitor is AivoRelay's continuous transcription workspace, not a Gemini model or API mode. This setting is used only as the initial Smart or Verbatim choice when Live Monitor creates its own Gemini settings for the first time. It does not affect ordinary dictation or Transcribe File. After initialization, Live Monitor keeps an independent value; change it in Live Monitor's Session settings.")}
                         descriptionMode={descriptionMode}
                         grouped={grouped}
                         layout="stacked"
