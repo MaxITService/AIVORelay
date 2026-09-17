@@ -3804,6 +3804,7 @@ pub fn change_gemini_early_finalization_setting(
     app: AppHandle,
     enabled: Option<bool>,
     delay_ms: Option<u32>,
+    append_space: Option<bool>,
 ) -> Result<(), String> {
     if delay_ms.is_some_and(|delay| !(100..=5000).contains(&delay)) {
         return Err("Early finalization delay must be between 100 and 5000 ms.".to_string());
@@ -3814,6 +3815,9 @@ pub fn change_gemini_early_finalization_setting(
     }
     if let Some(delay) = delay_ms {
         settings.gemini_live_early_finalization_delay_ms = delay;
+    }
+    if let Some(append_space) = append_space {
+        settings.gemini_live_early_finalization_append_space = append_space;
     }
     settings::write_settings_checked(&app, settings)
 }

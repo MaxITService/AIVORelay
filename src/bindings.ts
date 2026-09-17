@@ -1029,9 +1029,9 @@ async changeGeminiDictationModeSetting(mode: GeminiTranscriptionMode) : Promise<
     else return { status: "error", error: e  as any };
 }
 },
-async changeGeminiEarlyFinalizationSetting(enabled: boolean | null, delayMs: number | null) : Promise<Result<null, string>> {
+async changeGeminiEarlyFinalizationSetting(enabled: boolean | null, delayMs: number | null, appendSpace: boolean | null) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("change_gemini_early_finalization_setting", { enabled, delayMs }) };
+    return { status: "ok", data: await TAURI_INVOKE("change_gemini_early_finalization_setting", { enabled, delayMs, appendSpace }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -4218,6 +4218,10 @@ live_sound_gemini_mode?: GeminiTranscriptionMode | null; openai_realtime_whisper
  * Gemini exact BCP-47 locale, `auto`, or `os_input`.
  */
 gemini_language_code?: string; gemini_custom_vocabulary?: string[]; gemini_live_mode?: GeminiTranscriptionMode; gemini_live_early_finalization_enabled?: boolean; gemini_live_early_finalization_delay_ms?: number;
+/**
+ * Add one separator space when ordinary Gemini Live dictation is finalized early.
+ */
+gemini_live_early_finalization_append_space?: boolean;
 /**
  * Batch Gemini mode used by ordinary dictation. None migrates the former shared file value.
  */

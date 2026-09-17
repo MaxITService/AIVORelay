@@ -178,6 +178,18 @@ impl SonioxStreamProcessor {
         tail
     }
 
+    /// Flush pending text without manufacturing a final separator. A provider's
+    /// standalone completion whitespace is discarded, while any tail containing
+    /// real text or punctuation is preserved exactly.
+    pub fn flush_without_standalone_whitespace(&mut self) -> String {
+        let tail = self.flush();
+        if !tail.is_empty() && tail.chars().all(char::is_whitespace) {
+            String::new()
+        } else {
+            tail
+        }
+    }
+
     pub fn record_output_ending(&mut self, character: Option<char>) {
         if character.is_some() {
             self.last_output_character = character;
@@ -351,5 +363,29 @@ fn replace_case_insensitive(text: &str, from: &str, to: &str) -> String {
             );
             text.to_string()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SonioxStreamProcessor;
+
+    #[test]
+    fn flush_without_standalone_whitespace_discards_provider_separator() {
+        let mut processor = SonioxStreamProcessor::default();
+        processor.pending_raw = " ".to_string();
+
+        assert_eq!(processor.flush_without_standalone_whitespace(), "");
+    }
+
+    #[test]
+    fn flush_without_standalone_whitespace_preserves_real_tail() {
+        let mut processor = SonioxStreamProcessor::default();
+        processor.pending_raw = "late words. ".to_string();
+
+        assert_eq!(
+            processor.flush_without_standalone_whitespace(),
+            "late words. "
+        );
     }
 }
