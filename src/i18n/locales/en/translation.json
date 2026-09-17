@@ -2113,8 +2113,8 @@
       "liveMode": {
         "title": "Live transcription mode",
         "description": "Smart removes disfluencies and applies readable formatting. Verbatim preserves fillers, repetitions, and false starts.",
-        "initialTitle": "Initial Live Monitor mode",
-        "initialDescription": "Used when Live Monitor first creates its independent Gemini settings. Later changes in Live Monitor stay independent.",
+        "initialTitle": "Initial mode for AivoRelay Live Monitor",
+        "initialDescription": "Live Monitor is AivoRelay's continuous transcription workspace, not a Gemini model or API mode. This setting is used only as the initial Smart or Verbatim choice when Live Monitor creates its own Gemini settings for the first time. It does not affect ordinary dictation or Transcribe File. After initialization, Live Monitor keeps an independent value; change it in Live Monitor's Session settings.",
         "smartHelp": "Smart removes disfluencies and applies readable formatting.",
         "verbatimHelp": "Verbatim preserves fillers, repetitions, and false starts."
       },
