@@ -1470,6 +1470,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_tray_icon_blink_on_processing_setting,
         shortcut::change_tray_icon_blink_frequency_hz_setting,
         shortcut::change_update_checks_setting,
+        shortcut::change_first_start_wizard_skipped_setting,
         shortcut::change_beta_voice_commands_enabled_setting,
         shortcut::change_voice_button_show_aot_toggle_setting,
         shortcut::change_voice_button_single_click_close_setting,

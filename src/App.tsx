@@ -435,6 +435,17 @@ function App() {
         commands.getAppSettings(),
         commands.hasAnyModelsAvailable(),
       ]);
+
+      if (
+        settingsResult.status === "ok" &&
+        Boolean((settingsResult.data as any).first_start_wizard_skipped)
+      ) {
+        setOnboardingStartsWithPermissions(false);
+        setOnboardingPermissionOnly(false);
+        setShowOnboarding(false);
+        return;
+      }
+
       let windowsMicPermissionDenied = false;
 
       if (currentPlatform === "windows") {
@@ -515,6 +526,28 @@ function App() {
     refreshSettings();
   };
 
+  const handleSkipFirstStartWizard = async () => {
+    try {
+      await invoke("change_first_start_wizard_skipped_setting", {
+        skipped: true,
+      });
+      setOnboardingFromDebug(false);
+      setOnboardingStartsWithPermissions(false);
+      setOnboardingPermissionOnly(false);
+      setCurrentSection("general");
+      setShowOnboarding(false);
+      await refreshSettings();
+    } catch (error) {
+      console.error("Failed to skip the first-start wizard:", error);
+      toast.error(
+        t(
+          "onboarding.errors.skipWizard",
+          "Could not skip the wizard. Please try again.",
+        ),
+      );
+    }
+  };
+
   const handlePermissionResolved = () => {
     setOnboardingStartsWithPermissions(false);
     if (onboardingPermissionOnly) {
@@ -528,6 +561,7 @@ function App() {
       <Onboarding
         onModelSelected={handleModelSelected}
         onRemoteSelected={handleRemoteSelected}
+        onSkipWizard={handleSkipFirstStartWizard}
         showFullCatalog={onboardingFromDebug}
         startWithPermissionStep={onboardingStartsWithPermissions}
         permissionOnly={onboardingPermissionOnly}

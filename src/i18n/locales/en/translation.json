@@ -1199,6 +1199,7 @@
     }
   },
   "onboarding": {
+    "skipWizard": "Skip wizard and open main menu",
     "subtitle": "To get started, choose a transcription model",
     "mode": {
       "subtitle": "Choose how you want AivoRelay to transcribe speech",
@@ -1308,7 +1309,8 @@
       "downloadModel": "Failed to download model: {{error}}",
       "selectModel": "Failed to select model: {{error}}",
       "selectLocal": "Failed to select local mode",
-      "selectRemote": "Failed to select remote mode"
+      "selectRemote": "Failed to select remote mode",
+      "skipWizard": "Could not skip the wizard. Please try again."
     },
     "remoteSttWizard": {
       "title": "Configure Remote STT",
@@ -1316,8 +1318,28 @@
       "engineLabel": "Voice Provider",
       "engineOptions": {
         "openai": "OpenAI API Compatible",
+        "gemini": "Gemini",
         "soniox": "Soniox",
         "deepgram": "Deepgram"
+      },
+      "geminiInfo": "Gemini 3.5 Transcribe supports low-latency live dictation and transcription after recording. Choose a connection route and enter the matching API key.",
+      "geminiRecommendation": "Vercel AI Gateway is recommended for initial setup. You can change the route and Gemini options later in Models.",
+      "geminiApiKeyPlaceholder": "Paste your Vercel AI Gateway API key",
+      "geminiWorkflow": {
+        "label": "Transcription workflow",
+        "options": {
+          "live": "Live dictation · Recommended",
+          "recorded": "After recording"
+        }
+      },
+      "geminiRoute": {
+        "label": "Connection route",
+        "options": {
+          "vercel": "Vercel AI Gateway · Recommended",
+          "google": "Google Gemini API · Experimental"
+        },
+        "vercelHint": "Use a dedicated Vercel AI Gateway key and configure a Spend Quota before sending speech.",
+        "googleWarning": "The direct Google route is experimental and requires a Google Gemini API key with billing configured outside AivoRelay."
       },
       "whisperFamilyRecommendation": "Regardless of which provider you prefer, I recommend using the Whisper family of models.",
       "recommendation": "Any OpenAI-compatible speech-to-text API will work. I tested the app with Groq and it worked well, so the fields below are pre-filled with Groq defaults. The Groq website is linked below because it's easy to register a free account there, but you are free to use any provider you prefer.",

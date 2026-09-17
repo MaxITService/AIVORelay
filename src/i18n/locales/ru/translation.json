@@ -1391,6 +1391,7 @@
     "vadTip": "Если возникают заикания («ч-ч-что»), увеличьте до 0.5-0.6."
   },
   "onboarding": {
+    "skipWizard": "Пропустить мастер и открыть главное меню",
     "subtitle": "Для начала выберите модель транскрипции",
     "mode": {
       "subtitle": "Выберите, как AivoRelay будет распознавать речь",
@@ -1500,7 +1501,32 @@
       "downloadModel": "Не удалось загрузить модель: {{error}}.",
       "selectModel": "Не удалось выбрать модель: {{error}}.",
       "selectLocal": "Не удалось включить локальный режим.",
-      "selectRemote": "Не удалось включить удалённый режим."
+      "selectRemote": "Не удалось включить удалённый режим.",
+      "skipWizard": "Не удалось пропустить мастер. Попробуйте ещё раз."
+    },
+    "remoteSttWizard": {
+      "engineOptions": {
+        "gemini": "Gemini"
+      },
+      "geminiInfo": "Gemini 3.5 Transcribe поддерживает быструю живую диктовку и распознавание после завершения записи. Выберите маршрут подключения и введите соответствующий API-ключ.",
+      "geminiRecommendation": "Для первоначальной настройки рекомендуется Vercel AI Gateway. Позже маршрут и параметры Gemini можно изменить в разделе «Модели».",
+      "geminiApiKeyPlaceholder": "Вставьте API-ключ Vercel AI Gateway",
+      "geminiWorkflow": {
+        "label": "Режим распознавания",
+        "options": {
+          "live": "Живая диктовка · Рекомендуется",
+          "recorded": "После завершения записи"
+        }
+      },
+      "geminiRoute": {
+        "label": "Маршрут подключения",
+        "options": {
+          "vercel": "Vercel AI Gateway · Рекомендуется",
+          "google": "Google Gemini API · Экспериментально"
+        },
+        "vercelHint": "Используйте отдельный ключ Vercel AI Gateway и настройте Spend Quota до отправки речи.",
+        "googleWarning": "Прямой маршрут Google экспериментальный. Для него нужен API-ключ Google Gemini и биллинг, настроенный вне AivoRelay."
+      }
     },
     "welcome": {
       "title": "Всё готово!",
