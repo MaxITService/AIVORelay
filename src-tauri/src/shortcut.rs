@@ -7456,6 +7456,17 @@ pub fn change_extra_recording_buffer_setting(app: AppHandle, value_ms: u64) -> R
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_first_start_wizard_skipped_setting(
+    app: AppHandle,
+    skipped: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.first_start_wizard_skipped = skipped;
+    settings::write_settings_checked(&app, settings)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_dictation_quick_tap_threshold_setting(app: AppHandle, value_ms: u32) -> Result<(), String> {
     if value_ms > 5000 {
         return Err("Short press threshold must be between 0 and 5000 ms".to_string());

@@ -19,7 +19,20 @@ interface RemoteSttWizardProps {
   onComplete: () => void;
 }
 
-type EngineType = "openai" | "soniox" | "deepgram";
+type EngineType = "openai" | "gemini" | "soniox" | "deepgram";
+type GeminiWorkflow = "live" | "recorded";
+
+const getGeminiModel = (
+  preset: "vercel" | "google",
+  workflow: GeminiWorkflow,
+) => {
+  if (workflow === "live") {
+    return preset === "google"
+      ? "gemini-3.5-transcribe-live"
+      : "google/gemini-3.5-transcribe-live";
+  }
+  return REMOTE_STT_PRESETS[preset].defaultModel;
+};
 
 const resetConnectionState = (
   setConnectionStatus: React.Dispatch<
@@ -44,6 +57,8 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
   } = useSettings();
 
   const [engine, setEngine] = useState<EngineType>("openai");
+  const [geminiWorkflow, setGeminiWorkflow] =
+    useState<GeminiWorkflow>("live");
   const [remotePreset, setRemotePreset] = useState<RemoteSttPreset>("groq");
   const [baseUrl, setBaseUrl] = useState<string>(
     REMOTE_STT_PRESETS.groq.baseUrl,
@@ -70,6 +85,10 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
         label: t("onboarding.remoteSttWizard.engineOptions.openai"),
       },
       {
+        value: "gemini",
+        label: t("onboarding.remoteSttWizard.engineOptions.gemini", "Gemini"),
+      },
+      {
         value: "soniox",
         label: t("onboarding.remoteSttWizard.engineOptions.soniox"),
       },
@@ -83,11 +102,42 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
 
   const isSoniox = engine === "soniox";
   const isDeepgram = engine === "deepgram";
+  const isGemini = engine === "gemini";
+  const savesApiKeyWithoutTest = isSoniox || isDeepgram || isGemini;
   const isCustomRemotePreset = remotePreset === "custom";
   const hasRequiredRemoteUrl =
     isSoniox || isDeepgram || !isCustomRemotePreset || baseUrl.trim().length > 0;
 
   if (!isOpen) return null;
+
+  const configureRemotePreset = (
+    preset: RemoteSttPreset,
+    nextModel: string,
+  ) => {
+    setRemotePreset(preset);
+    setAllowInsecureHttp(false);
+    setBaseUrl(REMOTE_STT_PRESETS[preset].baseUrl);
+    setModelId(nextModel);
+    resetConnectionState(setConnectionStatus, setConnectionMessage);
+  };
+
+  const handleEngineChange = (value: EngineType) => {
+    setEngine(value);
+    setApiKey("");
+    if (value === "gemini") {
+      configureRemotePreset(
+        "vercel",
+        getGeminiModel("vercel", geminiWorkflow),
+      );
+    } else if (value === "openai") {
+      configureRemotePreset(
+        "groq",
+        REMOTE_STT_PRESETS.groq.defaultModel,
+      );
+    } else {
+      resetConnectionState(setConnectionStatus, setConnectionMessage);
+    }
+  };
 
   const handleSaveAndTest = async () => {
     if (!apiKey.trim()) return;
@@ -120,9 +170,11 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
         await invoke("change_remote_stt_provider_preset_setting", {
           preset: remotePreset,
         });
-        await invoke("change_remote_stt_allow_insecure_http_setting", {
-          enabled: allowInsecureHttp,
-        });
+        if (!isGemini) {
+          await invoke("change_remote_stt_allow_insecure_http_setting", {
+            enabled: allowInsecureHttp,
+          });
+        }
 
         if (isCustomRemotePreset) {
           await updateRemoteSttBaseUrl(baseUrl.trim());
@@ -137,22 +189,30 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
           throw new Error(keyResult.error);
         }
 
-        // Test connection
-        const testResult = await commands.remoteSttTestConnection(
-          baseUrl.trim(),
-        );
-        if (testResult.status === "ok") {
+        if (isGemini) {
           setConnectionStatus("success");
           setConnectionMessage(
-            t("onboarding.remoteSttWizard.connectionSuccess"),
+            t("onboarding.remoteSttWizard.apiKeySaved", "API key saved."),
           );
         } else {
-          setConnectionStatus("error");
-          setConnectionMessage(
-            t("onboarding.remoteSttWizard.connectionFailed", {
-              error: testResult.error,
-            }),
+          // Test OpenAI-compatible connections. Gemini routes do not expose
+          // the same lightweight /models check, so their key is saved only.
+          const testResult = await commands.remoteSttTestConnection(
+            baseUrl.trim(),
           );
+          if (testResult.status === "ok") {
+            setConnectionStatus("success");
+            setConnectionMessage(
+              t("onboarding.remoteSttWizard.connectionSuccess"),
+            );
+          } else {
+            setConnectionStatus("error");
+            setConnectionMessage(
+              t("onboarding.remoteSttWizard.connectionFailed", {
+                error: testResult.error,
+              }),
+            );
+          }
         }
       }
     } catch (error) {
@@ -188,9 +248,11 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
           await invoke("change_remote_stt_provider_preset_setting", {
             preset: remotePreset,
           });
-          await invoke("change_remote_stt_allow_insecure_http_setting", {
-            enabled: allowInsecureHttp,
-          });
+          if (!isGemini) {
+            await invoke("change_remote_stt_allow_insecure_http_setting", {
+              enabled: allowInsecureHttp,
+            });
+          }
           if (isCustomRemotePreset) {
             await updateRemoteSttBaseUrl(baseUrl.trim());
           }
@@ -281,22 +343,50 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
               options={engineOptions}
               onChange={(value) => {
                 if (value) {
-                  setEngine(value as EngineType);
-                  resetConnectionState(
-                    setConnectionStatus,
-                    setConnectionMessage,
-                  );
+                  handleEngineChange(value as EngineType);
                 }
               }}
               isClearable={false}
             />
-            <p className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
-              {t("onboarding.remoteSttWizard.whisperFamilyRecommendation")}
-            </p>
+            {!isGemini && (
+              <p className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
+                {t("onboarding.remoteSttWizard.whisperFamilyRecommendation")}
+              </p>
+            )}
           </div>
 
           {/* Info box */}
-          {isSoniox ? (
+          {isGemini ? (
+            <div className="p-4 bg-fuchsia-500/10 border border-fuchsia-400/30 rounded-xl text-sm space-y-2">
+              <p className="text-text/90">
+                {t(
+                  "onboarding.remoteSttWizard.geminiInfo",
+                  "Gemini 3.5 Transcribe supports low-latency live dictation and transcription after recording. Choose a connection route and enter the matching API key.",
+                )}
+              </p>
+              <p className="text-text/60 text-xs">
+                {t(
+                  "onboarding.remoteSttWizard.geminiRecommendation",
+                  "Vercel AI Gateway is recommended for initial setup. You can change the route and Gemini options later in Models.",
+                )}
+              </p>
+              <a
+                href={
+                  remotePreset === "google"
+                    ? "https://aistudio.google.com/app/apikey"
+                    : "https://vercel.com/ai-gateway"
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-fuchsia-300 hover:text-fuchsia-200 font-medium transition-colors"
+              >
+                {remotePreset === "google"
+                  ? "Google AI Studio"
+                  : "Vercel AI Gateway"}
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          ) : isSoniox ? (
             <>
               <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl text-sm space-y-2">
                 <p className="text-text/90">
@@ -371,8 +461,100 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
             </h3>
           </div>
 
+          {isGemini && (
+            <>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text/80">
+                  {t(
+                    "onboarding.remoteSttWizard.geminiWorkflow.label",
+                    "Transcription workflow",
+                  )}
+                </label>
+                <Select
+                  value={geminiWorkflow}
+                  disabled={isLoading}
+                  options={[
+                    {
+                      value: "live",
+                      label: t(
+                        "onboarding.remoteSttWizard.geminiWorkflow.options.live",
+                        "Live dictation · Recommended",
+                      ),
+                    },
+                    {
+                      value: "recorded",
+                      label: t(
+                        "onboarding.remoteSttWizard.geminiWorkflow.options.recorded",
+                        "After recording",
+                      ),
+                    },
+                  ]}
+                  onChange={(value) => {
+                    if (value !== "live" && value !== "recorded") return;
+                    setGeminiWorkflow(value);
+                    const preset =
+                      remotePreset === "google" ? "google" : "vercel";
+                    configureRemotePreset(
+                      preset,
+                      getGeminiModel(preset, value),
+                    );
+                  }}
+                  isClearable={false}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text/80">
+                  {t(
+                    "onboarding.remoteSttWizard.geminiRoute.label",
+                    "Connection route",
+                  )}
+                </label>
+                <Select
+                  value={remotePreset === "google" ? "google" : "vercel"}
+                  disabled={isLoading}
+                  options={[
+                    {
+                      value: "vercel",
+                      label: t(
+                        "onboarding.remoteSttWizard.geminiRoute.options.vercel",
+                        "Vercel AI Gateway · Recommended",
+                      ),
+                    },
+                    {
+                      value: "google",
+                      label: t(
+                        "onboarding.remoteSttWizard.geminiRoute.options.google",
+                        "Google Gemini API · Experimental",
+                      ),
+                    },
+                  ]}
+                  onChange={(value) => {
+                    if (value !== "vercel" && value !== "google") return;
+                    setApiKey("");
+                    configureRemotePreset(
+                      value,
+                      getGeminiModel(value, geminiWorkflow),
+                    );
+                  }}
+                  isClearable={false}
+                />
+                <p className="text-xs text-mid-gray">
+                  {remotePreset === "google"
+                    ? t(
+                        "onboarding.remoteSttWizard.geminiRoute.googleWarning",
+                        "The direct Google route is experimental and requires a Google Gemini API key with billing configured outside AivoRelay.",
+                      )
+                    : t(
+                        "onboarding.remoteSttWizard.geminiRoute.vercelHint",
+                        "Use a dedicated Vercel AI Gateway key and configure a Spend Quota before sending speech.",
+                      )}
+                </p>
+              </div>
+            </>
+          )}
+
           {/* OpenAI-specific fields */}
-          {!isSoniox && !isDeepgram && (
+          {!isSoniox && !isDeepgram && !isGemini && (
             <>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-text/80">
@@ -536,7 +718,18 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
                   setConnectionMessage,
                 );
               }}
-              placeholder={isDeepgram ? "dg-..." : "sk-..."}
+              placeholder={
+                isDeepgram
+                  ? "dg-..."
+                  : isGemini && remotePreset === "google"
+                    ? "AIza..."
+                    : isGemini
+                      ? t(
+                          "onboarding.remoteSttWizard.geminiApiKeyPlaceholder",
+                          "Paste your Vercel AI Gateway API key",
+                        )
+                      : "sk-..."
+              }
               disabled={isLoading}
             />
             <p className="text-xs text-mid-gray">
@@ -566,13 +759,13 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
             disabled={!canTest || isLoading}
           >
             {connectionStatus === "testing"
-              ? isSoniox || isDeepgram
+              ? savesApiKeyWithoutTest
                 ? t(
                     "onboarding.remoteSttWizard.savingApiKey",
                     "Saving API key...",
                   )
                 : t("onboarding.remoteSttWizard.testing")
-              : isSoniox || isDeepgram
+              : savesApiKeyWithoutTest
                 ? t("onboarding.remoteSttWizard.saveApiKey")
                 : t("onboarding.remoteSttWizard.testConnection")}
           </Button>

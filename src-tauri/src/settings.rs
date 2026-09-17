@@ -3436,6 +3436,8 @@ pub struct AppSettings {
     #[serde(default = "default_start_hidden")]
     pub start_hidden: bool,
     #[serde(default)]
+    pub first_start_wizard_skipped: bool,
+    #[serde(default)]
     pub never_launch_webview: bool,
     #[serde(default)]
     pub show_speech_only_mode_in_tray: bool,
@@ -5797,6 +5799,7 @@ pub fn get_default_settings() -> AppSettings {
         audio_feedback_volume: default_audio_feedback_volume(),
         sound_theme: default_sound_theme(),
         start_hidden: default_start_hidden(),
+        first_start_wizard_skipped: false,
         never_launch_webview: false,
         show_speech_only_mode_in_tray: false,
         autostart_enabled: default_autostart_enabled(),
