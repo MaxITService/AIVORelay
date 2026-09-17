@@ -28,9 +28,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -77,7 +77,7 @@ fn remote_stt_api_key_redaction_marker(api_key: &str) -> String {
     format!("[redacted key, SHA-256: {fingerprint}]")
 }
 
-fn redact_remote_stt_api_key(value: &str, api_key: &str) -> String {
+pub(crate) fn redact_remote_stt_api_key(value: &str, api_key: &str) -> String {
     let api_key = api_key.trim();
     if api_key.is_empty() {
         value.to_string()
@@ -871,6 +871,21 @@ pub struct RemoteSttManager {
     cancelled_before_id: AtomicU64,
     /// Cancellation tokens for requests that are currently awaiting remote I/O.
     active_requests: Mutex<HashMap<u64, CancellationToken>>,
+}
+
+/// Route diagnostics from realtime managers through the same bounded buffer
+/// and frontend event used by request-based remote STT. Callers must provide
+/// metadata-only messages that do not contain credentials, audio, or transcript text.
+pub(crate) fn record_external_remote_stt_debug(
+    app_handle: &AppHandle,
+    line: String,
+    is_error: bool,
+) {
+    let Some(manager) = app_handle.try_state::<Arc<RemoteSttManager>>() else {
+        return;
+    };
+    let settings = crate::settings::get_settings(app_handle);
+    manager.record_line(&settings.remote_stt, line, is_error);
 }
 
 impl RemoteSttManager {

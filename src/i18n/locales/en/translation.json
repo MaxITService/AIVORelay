@@ -2666,11 +2666,11 @@
         "debug": {
           "capture": {
             "title": "Debug Capture",
-            "description": "Capture remote STT debug logs in memory."
+            "description": "Capture remote STT request and live-session diagnostics in memory, including Gemini Live. Gemini Live entries contain lifecycle metadata only; they do not include audio, transcript text, or API keys."
           },
           "mode": {
             "title": "Debug Mode",
-            "description": "Normal captures errors only; verbose includes request metadata.",
+            "description": "Normal captures errors only; verbose includes request and live-session lifecycle metadata.",
             "options": {
               "normal": "Normal",
               "verbose": "Verbose"
@@ -2678,7 +2678,7 @@
           },
           "output": {
             "title": "Remote Debug Log",
-            "description": "Latest remote STT debug output.",
+            "description": "Latest remote STT request and live-session diagnostics.",
             "empty": "No remote debug output yet.",
             "clear": "Clear"
           }

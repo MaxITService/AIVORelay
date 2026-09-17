@@ -76,6 +76,15 @@ enum GeminiLiveTransport {
     VercelGateway,
 }
 
+impl GeminiLiveTransport {
+    fn debug_label(self) -> &'static str {
+        match self {
+            Self::GoogleDirect => "google_direct",
+            Self::VercelGateway => "vercel_ai_gateway",
+        }
+    }
+}
+
 fn initial_session_limit(
     transport: GeminiLiveTransport,
     ready_session_limit: Duration,
@@ -265,6 +274,16 @@ impl GeminiRealtimeManager {
             || model.eq_ignore_ascii_case(GEMINI_LIVE_GOOGLE_DEFAULT_MODEL)
     }
 
+    fn start_error(&self, message: impl Into<String>) -> anyhow::Error {
+        let message = message.into();
+        crate::managers::remote_stt::record_external_remote_stt_debug(
+            &self.app_handle,
+            format!("Gemini Live startup failed: {message}"),
+            true,
+        );
+        anyhow!(message)
+    }
+
     pub fn restart_session(&self) -> Result<()> {
         if !self.has_active_session() {
             return Ok(());
@@ -293,18 +312,18 @@ impl GeminiRealtimeManager {
         on_final_chunk: Option<FinalChunkCallback>,
     ) -> Result<()> {
         if api_key.trim().is_empty() {
-            return Err(anyhow!("Gemini 3.5 Transcribe Live API key is missing"));
+            return Err(self.start_error("Gemini 3.5 Transcribe Live API key is missing"));
         }
         if let Some(error) = options.validation_error.as_deref() {
-            return Err(anyhow!(error.to_string()));
+            return Err(self.start_error(error));
         }
 
         let transport = match options.preset.as_str() {
             REMOTE_STT_PRESET_GOOGLE => GeminiLiveTransport::GoogleDirect,
             REMOTE_STT_PRESET_VERCEL => GeminiLiveTransport::VercelGateway,
             _ => {
-                return Err(anyhow!(
-                    "Gemini 3.5 Transcribe Live requires the Vercel or Google connection route"
+                return Err(self.start_error(
+                    "Gemini 3.5 Transcribe Live requires the Vercel or Google connection route",
                 ));
             }
         };
@@ -313,20 +332,21 @@ impl GeminiRealtimeManager {
             GeminiLiveTransport::VercelGateway => GEMINI_LIVE_DEFAULT_MODEL,
         };
         if !options.model.trim().eq_ignore_ascii_case(expected_model) {
-            return Err(anyhow!(
+            return Err(self.start_error(format!(
                 "This Gemini 3.5 Transcribe Live route requires model '{}', but settings contain '{}'",
                 expected_model,
                 options.model.trim()
-            ));
+            )));
         }
-        crate::gemini_config::validate_vocabulary(&options.custom_vocabulary)
-            .map_err(anyhow::Error::msg)?;
+        if let Err(error) = crate::gemini_config::validate_vocabulary(&options.custom_vocabulary) {
+            return Err(self.start_error(error));
+        }
         if let Some(language) = options.language.as_deref() {
             if !crate::gemini_config::is_supported_exact_locale(language) {
-                return Err(anyhow!(
+                return Err(self.start_error(format!(
                     "'{}' is not an exact locale supported by Gemini 3.5 Transcribe Live",
                     language
-                ));
+                )));
             }
         }
 
@@ -336,13 +356,31 @@ impl GeminiRealtimeManager {
             .as_ref()
             .is_some_and(|pending| pending.operation_id == operation_id)
         {
-            return Err(anyhow!("Gemini recording operation is no longer active"));
+            return Err(self.start_error("Gemini recording operation is no longer active"));
         }
         if active_session_guard.is_some() {
-            return Err(anyhow!(
-                "Gemini 3.5 Transcribe Live session is already active for this profile"
+            return Err(self.start_error(
+                "Gemini 3.5 Transcribe Live session is already active for this profile",
             ));
         }
+
+        let mode = match options.mode {
+            GeminiTranscriptionMode::Smart => "smart",
+            GeminiTranscriptionMode::Verbatim => "verbatim",
+        };
+        crate::managers::remote_stt::record_external_remote_stt_debug(
+            &self.app_handle,
+            format!(
+                "Gemini Live session start route={} model={} language={} mode={} vocabulary_terms={} binding={}",
+                transport.debug_label(),
+                options.model,
+                options.language.as_deref().unwrap_or("auto"),
+                mode,
+                options.custom_vocabulary.len(),
+                binding_id,
+            ),
+            false,
+        );
 
         {
             let mut params_guard = self.session_params.lock();
@@ -373,6 +411,7 @@ impl GeminiRealtimeManager {
         *self.reported_runtime_error.lock() = Arc::clone(&reported_runtime_error);
 
         let join_handle = tauri::async_runtime::spawn(async move {
+            let session_started = Instant::now();
             let session_result: Result<()> = async {
                 let request = build_live_websocket_request(
                     transport,
@@ -388,6 +427,16 @@ impl GeminiRealtimeManager {
                 .map_err(|_| anyhow!("Timed out while connecting to Gemini 3.5 Transcribe Live"))?
                 .map_err(|e| anyhow!("Failed to connect to Gemini 3.5 Transcribe Live: {}", e))?;
 
+                crate::managers::remote_stt::record_external_remote_stt_debug(
+                    &app_handle_for_task,
+                    format!(
+                        "Gemini Live connected route={} binding={}",
+                        transport.debug_label(),
+                        binding_id_for_task,
+                    ),
+                    false,
+                );
+
                 let (mut write, mut read) = stream.split();
 
                 let setup_payload = match transport {
@@ -402,6 +451,16 @@ impl GeminiRealtimeManager {
                     .send(Message::Text(setup_payload.to_string().into()))
                     .await
                     .map_err(|e| anyhow!("Failed to send Gemini 3.5 Transcribe Live setup message: {}", e))?;
+
+                crate::managers::remote_stt::record_external_remote_stt_debug(
+                    &app_handle_for_task,
+                    format!(
+                        "Gemini Live setup sent route={} binding={}",
+                        transport.debug_label(),
+                        binding_id_for_task,
+                    ),
+                    false,
+                );
 
                 Self::run_session_loop(
                     &mut write,
@@ -424,6 +483,21 @@ impl GeminiRealtimeManager {
 
             if let Err(err) = &session_result {
                 let err_str = err.to_string();
+                let debug_error = crate::managers::remote_stt::redact_remote_stt_api_key(
+                    &err_str,
+                    &api_key_for_task,
+                );
+                crate::managers::remote_stt::record_external_remote_stt_debug(
+                    &app_handle_for_task,
+                    format!(
+                        "Gemini Live runtime failed route={} binding={} elapsed_ms={} error={}",
+                        transport.debug_label(),
+                        binding_id_for_task,
+                        session_started.elapsed().as_millis(),
+                        debug_error,
+                    ),
+                    true,
+                );
                 record_time_limit_failure(&time_limit_completion, &err_str);
                 warn!(
                     "Gemini 3.5 Transcribe Live session runtime error (binding='{}'): {}",
@@ -481,6 +555,17 @@ impl GeminiRealtimeManager {
                         crate::managers::live_sound_audio::stop(&app_handle_for_task);
                     }
                 }
+            } else {
+                crate::managers::remote_stt::record_external_remote_stt_debug(
+                    &app_handle_for_task,
+                    format!(
+                        "Gemini Live session ended route={} binding={} elapsed_ms={}",
+                        transport.debug_label(),
+                        binding_id_for_task,
+                        session_started.elapsed().as_millis(),
+                    ),
+                    false,
+                );
             }
 
             session_result
@@ -893,6 +978,15 @@ impl GeminiRealtimeManager {
                             || payload.get("setup_complete").is_some())
                     {
                         google_setup_complete = true;
+                        crate::managers::remote_stt::record_external_remote_stt_debug(
+                            &app_handle,
+                            format!(
+                                "Gemini Live setup confirmed route={} binding={}",
+                                transport.debug_label(),
+                                binding_id,
+                            ),
+                            false,
+                        );
                         session_limit.as_mut().reset(
                             tokio::time::Instant::now() + time_limit_duration,
                         );
