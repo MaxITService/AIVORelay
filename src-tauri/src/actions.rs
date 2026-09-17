@@ -8347,13 +8347,21 @@ impl ShortcutAction for TranscribeAction {
                     let overlay_generation = crate::plus_overlay_state::current_recording_overlay_generation();
                     let processor_for_output = stream_processor.take();
                     let binding_for_output = binding_id.clone();
+                    let append_final_space =
+                        recording_settings.gemini_live_early_finalization_append_space;
                     let output_result = run_on_main_thread_sync(
                         &ah, recording_settings.paste_delay_ms.saturating_add(1500), move || {
                             if !operation_stamp.is_current(&app_for_output) || operation_stamp.was_cancelled(&app_for_output) {
                                 return;
                             }
                             let tail = processor_for_output.and_then(|processor| {
-                                let tail = processor.lock().ok().map(|mut processor| processor.flush_with_trailing_space());
+                                let tail = processor.lock().ok().map(|mut processor| {
+                                    if append_final_space {
+                                        processor.flush_with_trailing_space()
+                                    } else {
+                                        processor.flush_without_standalone_whitespace()
+                                    }
+                                });
                                 tail
                             }).unwrap_or_default();
                             change_tray_icon(&app_for_output, TrayIconState::Idle);

@@ -3516,6 +3516,9 @@ pub struct AppSettings {
     pub gemini_live_early_finalization_enabled: bool,
     #[serde(default = "default_gemini_early_finalization_delay_ms")]
     pub gemini_live_early_finalization_delay_ms: u32,
+    /// Add one separator space when ordinary Gemini Live dictation is finalized early.
+    #[serde(default = "default_true")]
+    pub gemini_live_early_finalization_append_space: bool,
     /// Batch Gemini mode used by ordinary dictation. None migrates the former shared file value.
     #[serde(default)]
     pub gemini_dictation_mode: Option<GeminiTranscriptionMode>,
@@ -5830,6 +5833,7 @@ pub fn get_default_settings() -> AppSettings {
         gemini_live_mode: GeminiTranscriptionMode::Smart,
         gemini_live_early_finalization_enabled: true,
         gemini_live_early_finalization_delay_ms: default_gemini_early_finalization_delay_ms(),
+        gemini_live_early_finalization_append_space: true,
         gemini_dictation_mode: None,
         gemini_file_mode: GeminiTranscriptionMode::Smart,
         gemini_file_diarization: false,
