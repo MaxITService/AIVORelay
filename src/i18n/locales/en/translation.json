@@ -246,11 +246,13 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.38",
+      "since": "Since version 1.0.39",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "overlayReliability": "Fixed a rare freeze when recording and error overlays update or hide automatically."
+        "geminiLiveDiagnostics": "Gemini Live Debug Capture now shows session activity and errors in the Remote Debug Log, including sessions that return no text.",
+        "geminiFinalSpace": "Early finalization can now discard Gemini Live's standalone space after Stop, preventing it from replacing text selected afterward.",
+        "geminiLiveMonitorScope": "Clarified that Initial Live Monitor mode applies only to AivoRelay's Live Monitor."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"

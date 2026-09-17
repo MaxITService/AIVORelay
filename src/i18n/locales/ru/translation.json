@@ -246,11 +246,13 @@
       }
     },
     "whatsNew": {
-      "since": "После версии 1.0.38",
+      "since": "После версии 1.0.39",
       "title": "Что нового",
       "description": "Главные изменения после предыдущего выпуска:",
       "items": {
-        "overlayReliability": "Исправлено редкое зависание при обновлении или автоматическом скрытии оверлея записи и ошибок."
+        "geminiLiveDiagnostics": "Debug Capture для Gemini Live теперь показывает ход сессии и ошибки в Remote Debug Log, в том числе если распознавание не вернуло текст.",
+        "geminiFinalSpace": "Раннее завершение теперь может отбрасывать отдельный пробел Gemini Live после Stop, чтобы он не заменял выделенный позднее текст.",
+        "geminiLiveMonitorScope": "Уточнено, что Initial Live Monitor mode применяется только к режиму Live Monitor в AivoRelay."
       }
     },
     "aboutLinkPrefix": "Версия, обновления, лицензии и информация о проекте:"

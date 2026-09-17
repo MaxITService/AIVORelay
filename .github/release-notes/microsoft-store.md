@@ -5,7 +5,9 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Fixed a rare freeze when recording and error overlays update or hide automatically.
+- Gemini Live Debug Capture now records session activity and errors in the Remote Debug Log, including sessions that return no text.
+- Added an Early finalization option to discard Gemini Live's standalone space after Stop so it cannot replace newly selected text.
+- Clarified that Initial Live Monitor mode applies only to AivoRelay's Live Monitor.
 
 ---
 

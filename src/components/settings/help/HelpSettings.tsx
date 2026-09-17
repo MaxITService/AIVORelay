@@ -63,7 +63,9 @@ const SMART_HELP_ACTIONS = [
 ] as const;
 
 const WHATS_NEW_ITEMS = [
-  "help.whatsNew.items.overlayReliability",
+  "help.whatsNew.items.geminiLiveDiagnostics",
+  "help.whatsNew.items.geminiFinalSpace",
+  "help.whatsNew.items.geminiLiveMonitorScope",
 ] as const;
 
 export const HelpSettings: React.FC = () => {
