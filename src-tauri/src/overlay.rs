@@ -904,7 +904,10 @@ fn build_recording_overlay_appearance_payload(
             .recording_overlay_decapitalize_indicator_font_family,
         decapitalize_indicator_font_size_px: settings
             .recording_overlay_decapitalize_indicator_font_size_px
-            .clamp(10, 32),
+            .clamp(
+                crate::shortcut::RECORDING_OVERLAY_DECAPITALIZE_INDICATOR_MIN_FONT_SIZE_PX,
+                crate::shortcut::RECORDING_OVERLAY_DECAPITALIZE_INDICATOR_MAX_FONT_SIZE_PX,
+            ),
         decapitalize_indicator_color: settings.recording_overlay_decapitalize_indicator_color,
         frame_width_px: metrics.frame_width.round().clamp(0.0, u16::MAX as f64) as u16,
         frame_height_px: metrics.frame_height.round().clamp(0.0, u16::MAX as f64) as u16,
