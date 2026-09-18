@@ -13,6 +13,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-09-19 | `release/microsoft-store` | `d4b13e3a` | chore: bump version to 1.0.41 | `64a43859` | chore: bump version to 1.0.41 | 10 runtime/UI commits propagated cleanly; main-only docs (CLAUDE.md, .AGENTS notes) excluded; Store notes adapted; lock version refreshed |
 | 2026-09-17 | `release/microsoft-store` | `a2d79f3e` | chore: bump version to 1.0.40 | `f45b68cd` | chore: bump version to 1.0.40 | 3 Gemini runtime/UI commits propagated cleanly; Store notes adapted; lock version refreshed |
 | 2026-09-16 | `release/microsoft-store` | `b1b0a285` | chore: bump version to 1.0.39 | `2c38add8` | chore: bump version to 1.0.39 | overlay UI-thread hotfix propagated cleanly; Store notes adapted; lock regenerated |
 | 2026-09-16 | `release/microsoft-store` | `2aaf46d4` | chore: bump version to 1.0.38 | `583e9146` | chore: bump version to 1.0.38 | 77 runtime/UI/test and release commits propagated; main-only docs, updater, and intermediate 1.0.37 bump excluded; Store notes adapted; lock regenerated |
@@ -22,7 +23,6 @@ Rules:
 | 2026-09-06 | `release/microsoft-store` | `9da54b31` | chore: bump version to 1.0.36 | `6f649239` | chore: bump version to 1.0.36 | prompt reuse and Gemini Live availability fix propagated manually; Store release text adapted; lock version regenerated locally |
 | 2026-09-06 | `release/microsoft-store` | `8271ee6e` | fix(settings): improve search across localized menus | `b88ef92e` | fix(settings): improve search across localized menus | runtime/UI commit propagated cleanly; main-only sync documentation excluded |
 | 2026-09-06 | `release/microsoft-store` | `2a23c076` | feat(settings): allow longer paste delays | `7eaf6a5c` | feat(settings): allow longer paste delays | one-line upstream UI adaptation; upstream-only audit documentation excluded |
-| 2026-09-06 | `release/microsoft-store` | `f07fe24d` | fix(audio): prevent recording stop races and hangs | `0315472e` | fix(audio): prevent recording stop races and hangs | 16 runtime/UI commits propagated manually; main-only docs and Cargo.lock excluded; one startup conflict resolved for Store |
 
 Entry template:
 
