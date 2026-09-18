@@ -4427,6 +4427,8 @@
     "decapitalizeAfterEditDescription": "Passively monitor a primary key (default: Backspace), with an optional secondary key. After pressing either one, the next suitable transcription chunk can start with lowercase to avoid unwanted sentence capitalization.",
     "decapitalizeAfterEditEnableLabel": "Enable Decapitalize After Edit Key",
     "decapitalizeAfterEditEnableDescription": "Use a passive keyboard hook (non-blocking) to detect manual edits and lowercase the next matching chunk.",
+    "decapitalizeIndicatorHint": "While decapitalization is armed, the recording overlay shows an indicator chip.",
+    "decapitalizeIndicatorLink": "Adjust its size, text, and color",
     "decapitalizeAfterEditKeyLabel": "Monitored Key",
     "decapitalizeAfterEditKeyDescription": "Click the field and press any key or key combination. Monitoring is passive, and any combo containing the monitored key also counts.",
     "decapitalizeAfterEditComboHint": "If you choose Backspace, Ctrl+Backspace also triggers.",
