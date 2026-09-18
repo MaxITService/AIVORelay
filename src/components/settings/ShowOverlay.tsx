@@ -305,6 +305,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
           )}
           descriptionMode={descriptionMode}
           grouped={grouped}
+          layout="stacked"
         >
           <div className="w-full space-y-3">
             <Dropdown
