@@ -428,7 +428,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       "Segoe UI",
   );
   const decapIndicatorFontSizePx = Number(
-    (settings as any)?.recording_overlay_decapitalize_indicator_font_size_px ?? 16,
+    (settings as any)?.recording_overlay_decapitalize_indicator_font_size_px ?? 11,
   );
   const decapIndicatorColor = normalizeRecordingOverlayColor(
     (settings as any)?.recording_overlay_decapitalize_indicator_color,
@@ -1281,7 +1281,7 @@ export const RecordingOverlaySettings: React.FC = () => {
                       silenceOpacityPercent={presetConfig.silenceOpacityPercent}
                       decapIndicatorMode="hidden"
                       decapIndicatorFontFamily="Segoe UI"
-                      decapIndicatorFontSizePx={16}
+                      decapIndicatorFontSizePx={11}
                       decapIndicatorColor="#72f29a"
                       maxPreviewWidthPx={248}
                     />
@@ -1749,10 +1749,10 @@ export const RecordingOverlaySettings: React.FC = () => {
         description="Adjust the size of the decapitalize indicator text or emoji."
         descriptionMode="tooltip"
         grouped={true}
-        min={10}
-        max={32}
+        min={6}
+        max={48}
         step={1}
-        value={Math.max(10, Math.min(32, Math.round(decapIndicatorFontSizePx)))}
+        value={Math.max(6, Math.min(48, Math.round(decapIndicatorFontSizePx)))}
         formatValue={(value) => `${Math.round(value)} px`}
         onChange={(value) =>
           void updateSetting(
@@ -1793,7 +1793,7 @@ export const RecordingOverlaySettings: React.FC = () => {
               style={{
                 color: decapIndicatorColor,
                 fontFamily: `${decapIndicatorFontFamily}, "Segoe UI Emoji", sans-serif`,
-                fontSize: `${Math.max(10, Math.min(32, Math.round(decapIndicatorFontSizePx)))}px`,
+                fontSize: `${Math.max(6, Math.min(48, Math.round(decapIndicatorFontSizePx)))}px`,
                 fontWeight: 600,
               }}
             >
