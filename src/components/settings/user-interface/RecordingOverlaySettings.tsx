@@ -318,6 +318,10 @@ export const RecordingOverlaySettings: React.FC = () => {
 
   const updateRecordingOverlayCollapsed = React.useCallback((collapsed: boolean) => {
     setIsRecordingOverlayCollapsed(collapsed);
+    if (collapsed) {
+      // The floating preview is hidden together with the section.
+      setIsCollapsedPreviewOpen(false);
+    }
     try {
       window.localStorage.setItem(
         RECORDING_OVERLAY_SETTINGS_COLLAPSED_KEY,
@@ -1019,9 +1023,6 @@ export const RecordingOverlaySettings: React.FC = () => {
 
   return (
     <>
-    {isRecordingOverlayCollapsed && (
-      <div ref={floatingPreviewAnchorRef} className="h-0" aria-hidden="true" />
-    )}
     <SettingsGroup
       id="recording-overlay-settings"
       title={t(
@@ -2260,7 +2261,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         </div>
       </div>
     </SettingsGroup>
-    {floatingPreview}
+    {!isRecordingOverlayCollapsed && floatingPreview}
     </>
   );
 };
