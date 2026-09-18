@@ -852,22 +852,25 @@ export const TextReplacementSettings: React.FC = () => {
             )}
             descriptionMode="inline"
           />
-          <p className="mt-3 text-xs text-text/70">
-            {t(
-              "textReplacement.decapitalizeIndicatorHint",
-              "While decapitalization is armed, the recording overlay shows an indicator chip."
-            )}{" "}
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-primary/30 bg-primary/10 px-4 py-3 text-sm">
+            <p className="text-text/85">
+              {t(
+                "textReplacement.decapitalizeIndicatorHint",
+                "While decapitalization is armed, the recording overlay shows an indicator chip."
+              )}
+            </p>
             <button
               type="button"
               onClick={openDecapitalizeIndicatorSettings}
-              className="font-medium text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
+              className="text-base font-semibold text-primary underline underline-offset-4 transition-colors hover:text-primary/80"
             >
               {t(
                 "textReplacement.decapitalizeIndicatorLink",
                 "Adjust its size, text, and color"
-              )}
+              )}{" "}
+              →
             </button>
-          </p>
+          </div>
         </div>
 
         {decapitalizeAfterEditEnabled && (
