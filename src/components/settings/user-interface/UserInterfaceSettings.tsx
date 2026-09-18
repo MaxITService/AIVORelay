@@ -42,6 +42,8 @@ const LOCAL_PREVIEW_AUTO_FLUSH_OVERLAP_MIN_MS = 0;
 const LOCAL_PREVIEW_AUTO_FLUSH_OVERLAP_MAX_MS = 2000;
 const SLIDING_LM_WINDOW_TAIL_WORDS_MIN = 20;
 const SLIDING_LM_WINDOW_TAIL_WORDS_MAX = 240;
+const LIVE_PREVIEW_SETTINGS_COLLAPSED_KEY =
+  "aivorelay.userInterface.livePreview.collapsed";
 const DEFAULT_SLIDING_LM_WINDOW_PROMPT =
   "You are inside a speech recognition live preview system.\n" +
   "Rewrite ONLY the editable tail so it fits naturally after the stable context.\n" +
@@ -185,6 +187,30 @@ export const UserInterfaceSettings: React.FC = () => {
   const [slidingLmPromptDraft, setSlidingLmPromptDraft] = React.useState(
     DEFAULT_SLIDING_LM_WINDOW_PROMPT,
   );
+  const [isLivePreviewCollapsed, setIsLivePreviewCollapsed] =
+    React.useState(false);
+
+  React.useEffect(() => {
+    try {
+      if (window.localStorage.getItem(LIVE_PREVIEW_SETTINGS_COLLAPSED_KEY) === "true") {
+        setIsLivePreviewCollapsed(true);
+      }
+    } catch {
+      // Keep the section expanded when localStorage is unavailable.
+    }
+  }, []);
+
+  const updateLivePreviewCollapsed = React.useCallback((collapsed: boolean) => {
+    setIsLivePreviewCollapsed(collapsed);
+    try {
+      window.localStorage.setItem(
+        LIVE_PREVIEW_SETTINGS_COLLAPSED_KEY,
+        collapsed ? "true" : "false",
+      );
+    } catch {
+      // UI preference only; ignoring storage errors preserves the toggle behavior.
+    }
+  }, []);
 
   const voiceButtonShowAotToggle =
     (settings as any)?.voice_button_show_aot_toggle ?? false;
@@ -374,7 +400,13 @@ export const UserInterfaceSettings: React.FC = () => {
       <RecordingOverlaySettings />
 
       {isWindows && (
-        <SettingsGroup id="live-preview-settings" title="Live Preview">
+        <SettingsGroup
+          id="live-preview-settings"
+          title="Live Preview"
+          collapsible={true}
+          collapsed={isLivePreviewCollapsed}
+          onCollapsedChange={updateLivePreviewCollapsed}
+        >
           <LivePreviewSubsection title="Overview">
             <div className="px-6">
             <TellMeMore title="Tell me more: Live Preview">
