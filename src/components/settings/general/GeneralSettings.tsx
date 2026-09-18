@@ -4,6 +4,7 @@ import { AutomaticMicrophoneMask } from "../AutomaticMicrophoneMask";
 import { MicrophoneInputBoost } from "../MicrophoneInputBoost";
 import { MicrophoneNoiseCancellation } from "../MicrophoneNoiseCancellation";
 import { MicrophoneSelector } from "../MicrophoneSelector";
+import { MicrophoneAccessNotice } from "../MicrophoneAccessNotice";
 import { ChannelSelector } from "../ChannelSelector";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { OutputDeviceSelector } from "../OutputDeviceSelector";
@@ -23,6 +24,8 @@ export const GeneralSettings: React.FC = () => {
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-8 pb-12">
+      <MicrophoneAccessNotice />
+
       <div>
         <TranscriptionProfiles />
       </div>

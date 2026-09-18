@@ -1,110 +1,40 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { type } from "@tauri-apps/plugin-os";
-import { invoke } from "@tauri-apps/api/core";
 import { Check, Loader2, Mic } from "lucide-react";
-import type { WindowsMicrophonePermissionStatus } from "@/lib/types/windowsPermissions";
+import { useWindowsMicrophonePermission } from "@/hooks/useWindowsMicrophonePermission";
 
 interface AccessibilityOnboardingProps {
   onComplete: () => void;
 }
 
-type PermissionState = "checking" | "needed" | "waiting" | "granted";
+const GRANTED_DISMISS_DELAY_MS = 300;
 
 const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
   onComplete,
 }) => {
   const { t } = useTranslation();
-  const [permissionState, setPermissionState] =
-    useState<PermissionState>("checking");
-  const [error, setError] = useState<string | null>(null);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isWindows = type() === "windows";
+  const { permissionState, openError, openSettings } =
+    useWindowsMicrophonePermission();
+  const completedRef = useRef(false);
 
-  const finishOnboarding = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    timeoutRef.current = setTimeout(() => onComplete(), 300);
-  }, [onComplete]);
-
-  const checkPermission = useCallback(async (): Promise<boolean> => {
-    try {
-      const status = await invoke<WindowsMicrophonePermissionStatus>(
-        "get_windows_microphone_permission_status",
-      );
-      const granted =
-        !status.supported || status.overall_access !== "denied";
-
-      setPermissionState(granted ? "granted" : "needed");
-      return granted;
-    } catch (checkError) {
-      console.warn("Failed to check Windows microphone permissions:", checkError);
-      setPermissionState("granted");
-      return true;
-    }
-  }, []);
-
-  const stopPolling = useCallback(() => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
-  }, []);
-
-  const startPolling = useCallback(() => {
-    if (pollingRef.current) {
-      return;
-    }
-
-    pollingRef.current = setInterval(async () => {
-      const granted = await checkPermission();
-      if (!granted) {
-        return;
-      }
-
-      stopPolling();
-      finishOnboarding();
-    }, 1000);
-  }, [checkPermission, finishOnboarding, stopPolling]);
-
+  // Leave the step on its own once access is granted; the microphone is not
+  // required for the rest of the app, so the user may also continue without it.
   useEffect(() => {
-    if (!isWindows) {
-      onComplete();
+    if (permissionState !== "granted" || completedRef.current) {
       return;
     }
 
-    checkPermission().then((granted) => {
-      if (granted) {
-        finishOnboarding();
-      }
-    });
+    completedRef.current = true;
+    const timeout = setTimeout(onComplete, GRANTED_DISMISS_DELAY_MS);
+    return () => clearTimeout(timeout);
+  }, [onComplete, permissionState]);
 
-    return () => {
-      stopPolling();
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, [checkPermission, finishOnboarding, isWindows, onComplete, stopPolling]);
-
-  const handleOpenSettings = async () => {
-    setError(null);
-
-    try {
-      await invoke("open_microphone_privacy_settings");
-      setPermissionState("waiting");
-      startPolling();
-    } catch (openError) {
-      console.error("Failed to open Windows microphone privacy settings:", openError);
-      setError(
-        t(
-          "onboarding.permissions.errors.openSettingsFailed",
-          "Failed to open Windows microphone privacy settings.",
-        ),
-      );
+  const handleContinueWithout = () => {
+    if (completedRef.current) {
+      return;
     }
+    completedRef.current = true;
+    onComplete();
   };
 
   if (permissionState === "checking") {
@@ -168,29 +98,50 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
         </p>
       </div>
 
-      {error && (
+      {openError && (
         <div className="rounded-xl border border-[#ff453a]/30 bg-[#ff453a]/10 p-3 text-sm text-[#ff7b73]">
-          {error}
+          {t(
+            "onboarding.permissions.errors.openSettingsFailed",
+            "Failed to open Windows microphone privacy settings.",
+          )}
         </div>
       )}
 
-      {permissionState === "waiting" ? (
-        <div className="flex items-center gap-2 text-sm text-[#a0a0a0]">
-          <Loader2 className="h-4 w-4 animate-spin text-[#ff4d8d]" />
-          {t(
-            "onboarding.permissions.waiting",
-            "Waiting for Windows microphone access...",
-          )}
-        </div>
-      ) : (
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        {permissionState === "waiting" ? (
+          <div className="flex items-center gap-2 text-sm text-[#a0a0a0]">
+            <Loader2 className="h-4 w-4 animate-spin text-[#ff4d8d]" />
+            {t(
+              "onboarding.permissions.waiting",
+              "Waiting for Windows microphone access...",
+            )}
+          </div>
+        ) : (
+          <button
+            className="rounded-xl bg-[#ff4d8d] px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#ff3377]"
+            onClick={() => void openSettings()}
+            type="button"
+          >
+            {t("onboarding.permissions.openSettings", "Open Windows settings")}
+          </button>
+        )}
         <button
-          className="self-start rounded-xl bg-[#ff4d8d] px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#ff3377]"
-          onClick={handleOpenSettings}
+          className="text-sm font-medium text-[#a0a0a0] underline-offset-4 transition-colors hover:text-[#f5f5f5] hover:underline"
+          onClick={handleContinueWithout}
           type="button"
         >
-          {t("onboarding.permissions.openSettings", "Open Windows settings")}
+          {t(
+            "onboarding.permissions.continueWithout",
+            "Continue without microphone",
+          )}
         </button>
-      )}
+      </div>
+      <p className="text-xs leading-relaxed text-[#7a7a7a]">
+        {t(
+          "onboarding.permissions.continueWithoutHint",
+          "You can allow access later. AivoRelay shows a reminder in its settings until Windows grants it.",
+        )}
+      </p>
     </div>
   );
 };

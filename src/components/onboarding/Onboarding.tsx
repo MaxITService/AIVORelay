@@ -23,7 +23,6 @@ interface OnboardingProps {
   onSkipWizard: () => Promise<void>;
   showFullCatalog?: boolean;
   startWithPermissionStep?: boolean;
-  permissionOnly?: boolean;
   onPermissionResolved?: () => void;
 }
 
@@ -33,7 +32,6 @@ const Onboarding: React.FC<OnboardingProps> = ({
   onSkipWizard,
   showFullCatalog = false,
   startWithPermissionStep = false,
-  permissionOnly = false,
   onPermissionResolved,
 }) => {
   const { t } = useTranslation();
@@ -201,10 +199,6 @@ const Onboarding: React.FC<OnboardingProps> = ({
 
   const handlePermissionsComplete = () => {
     onPermissionResolved?.();
-    if (permissionOnly) {
-      return;
-    }
-
     setMode("select");
   };
 
@@ -239,28 +233,30 @@ const Onboarding: React.FC<OnboardingProps> = ({
   };
 
   return (
-    <div className="h-screen w-full flex flex-col p-8 gap-6 inset-0 overflow-y-auto bg-gradient-to-br from-[#1e1e1e] via-[#222222] to-[#1a1a1a]">
-      <div className="flex w-full shrink-0 justify-center">
-        <button
-          type="button"
-          onClick={() => void handleSkipWizard()}
-          disabled={isSkipping}
-          className="group relative inline-flex items-center gap-2 overflow-hidden rounded-full border border-fuchsia-300/40 bg-gradient-to-r from-[#ff4d8d] via-[#b14cff] to-[#6d5dfc] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_30px_rgba(177,76,255,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_38px_rgba(255,77,141,0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff8fba] focus-visible:ring-offset-2 focus-visible:ring-offset-[#1e1e1e] disabled:cursor-wait disabled:opacity-60"
-        >
-          <span className="absolute inset-0 translate-x-[-120%] bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-[120%]" />
-          <Sparkles className="relative h-4 w-4" aria-hidden="true" />
-          <span className="relative">
-            {t(
-              "onboarding.skipWizard",
-              "Skip wizard and open main menu",
-            )}
-          </span>
-          <ArrowRight
-            className="relative h-4 w-4 transition-transform group-hover:translate-x-1"
-            aria-hidden="true"
-          />
-        </button>
-      </div>
+    <div className="h-screen w-full flex flex-col p-8 gap-6 inset-0 overflow-y-auto bg-gradient-to-br from-[#121212] via-[#161616] to-[#0f0f0f]">
+      {mode !== "permissions" && (
+        <div className="flex w-full shrink-0 justify-center">
+          <button
+            type="button"
+            onClick={() => void handleSkipWizard()}
+            disabled={isSkipping}
+            className="group relative inline-flex items-center gap-2 overflow-hidden rounded-full border border-fuchsia-300/40 bg-gradient-to-r from-[#ff4d8d] via-[#b14cff] to-[#6d5dfc] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_30px_rgba(177,76,255,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_38px_rgba(255,77,141,0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff8fba] focus-visible:ring-offset-2 focus-visible:ring-offset-[#121212] disabled:cursor-wait disabled:opacity-60"
+          >
+            <span className="absolute inset-0 translate-x-[-120%] bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-[120%]" />
+            <Sparkles className="relative h-4 w-4" aria-hidden="true" />
+            <span className="relative">
+              {t(
+                "onboarding.skipWizard",
+                "Skip wizard and open main menu",
+              )}
+            </span>
+            <ArrowRight
+              className="relative h-4 w-4 transition-transform group-hover:translate-x-1"
+              aria-hidden="true"
+            />
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-col items-center gap-3 shrink-0">
         <HandyTextLogo
