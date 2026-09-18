@@ -1090,16 +1090,6 @@ export const RecordingOverlaySettings: React.FC = () => {
               );
             })}
           </div>
-          <div className="mt-3">
-            <ToggleSwitch
-              checked={showDecapIndicatorInPreview}
-              onChange={setShowDecapIndicatorInPreview}
-              label="Show Decapitalize Indicator In Preview"
-              description="Only affects this settings-page preview. Preset cards never show the decapitalize indicator."
-              descriptionMode="tooltip"
-              grouped={true}
-            />
-          </div>
           <div className="rounded-lg border border-dashed border-[#3a3a3a] bg-[#181818] px-3 py-2 text-xs leading-relaxed text-[#a8a8a8] xl:hidden">
             Preview docks in the empty left gutter when there is enough room.
             On narrower windows it collapses into a floating button that opens
@@ -1734,6 +1724,14 @@ export const RecordingOverlaySettings: React.FC = () => {
           </p>
         </div>
         <div className="divide-y divide-white/[0.05]">
+        <ToggleSwitch
+          checked={showDecapIndicatorInPreview}
+          onChange={setShowDecapIndicatorInPreview}
+          label="Show Decapitalize Indicator In Preview"
+          description="Only affects this settings-page preview. Preset cards never show the decapitalize indicator."
+          descriptionMode="tooltip"
+          grouped={true}
+        />
         <SettingContainer
           title="Decapitalize Indicator Mode"
           description="Show the standard label, a custom emoji/text badge, or hide the decapitalize indicator completely."
