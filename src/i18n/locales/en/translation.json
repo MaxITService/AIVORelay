@@ -3,8 +3,8 @@
     "title": "Early finalization",
     "recommended": "Recommended",
     "help": "Gemini can send its final completion signal several seconds after the last words, causing a late space to replace newly selected text. After Stop, wait only for the chosen delay and close the stream. Late words may be lost, including from History. A selection made during this delay can still be replaced. Applies to dictation into other apps; Live Monitor and Output to Preview keep full finalization. The option below can discard Gemini's standalone final space independently of the general trailing-space setting.",
-    "delay": "Delay after Stop (ms)",
-    "delayHelp": "Default: 500 ms. Range: 100–5000 ms. Increase this if final words are missing. Actual insertion can be later if the UI or paste queue is busy.",
+    "delay": "Wait for text for this long after Stop (ms)",
+    "delayHelp": "How long the app keeps accepting text from Gemini after Stop. Words that arrive within this window are inserted; anything later is dropped. A shorter delay finishes faster but may cut off the last words. A longer delay catches more late words but leaves more time for a stray space to replace text you select. Default: 500 ms. Range: 100–5000 ms. Actual insertion can be later if the UI or paste queue is busy.",
     "removeFinalSpace": "Remove the final space after Stop",
     "removeFinalSpaceHelp": "Gemini Live often sends a standalone space after Stop. Enable this option to discard that space instead of inserting it. Late chunks containing words or punctuation are still inserted unchanged. Applies only to ordinary Gemini Live dictation, not Live Monitor or Output to Preview."
   },
