@@ -57,6 +57,8 @@ Files that are added by this fork rather than upstream files that were modified.
 | File | Purpose |
 | --- | --- |
 | `src/components/settings/AccelerationSelector.tsx` | Whisper/ORT accelerator selector UI for local model backends. |
+| `src/hooks/useWindowsMicrophonePermission.ts` | Shared Windows microphone privacy status: registry-backed check, focus/recording-error re-checks, polling after opening `ms-settings:privacy-microphone`. |
+| `src/components/settings/MicrophoneAccessNotice.tsx` | Speech / Microphone banner shown only while Windows blocks microphone access; the wizard permission step is skippable and no longer gates the app. |
 | `src/components/settings/SonioxContextEditor.tsx` | Soniox context editor. |
 | `src/components/settings/ai-replace/AiReplaceSelectionSettings.tsx` | AI Replace config UI. |
 | `src/components/settings/advanced/AiReplaceSettings.tsx` | Legacy AI Replace UI. |

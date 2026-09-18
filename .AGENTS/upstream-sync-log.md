@@ -6,6 +6,39 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-09-18):
+- Refreshed `upstream/main` and reviewed the complete linear corridor after
+  `ba10ce19` through upstream HEAD `05e0aedd` (5 commits); the safe review
+  cursor is now `05e0aedd`. There are no merge commits in this corridor.
+- Skipped everything: three README-only edits (`53c55d70`, `53766a27`,
+  `055c7a5e`), the Canty Digital sponsor addition (`69175114`), and the
+  upstream `0.9.7` release bump (`05e0aedd`). Nothing was integrated.
+
+Audit note (2026-09-15):
+- Reviewed the complete linear corridor after `bc7facea` through upstream HEAD
+  `ba10ce19` (14 commits); the safe review cursor is now `ba10ce19`. There are
+  no merge commits in this corridor.
+- Integrated six items in one `main` commit, `4d1ce0bb` (`fix: stabilize
+  audio, model, and overlay behavior`): the `w-screen` -> `w-full` onboarding
+  overflow fix from `1cd92662`; Windows text-scaling support for the overlay
+  from `e29520d6`, adapted to the fork's dynamic frame/error layouts, manual
+  and automatic placement, native `SetWindowPos`, and mixed-DPI coordinates;
+  the real-time-safe `rtrb` capture transport from `d54c88eb`, retaining
+  loopback capture, `Flush`, input boost, noise suppression, boundary/tail
+  delivery, and worker recovery; missing-model-file recovery from `e4ae0d44`
+  with stale-path reconciliation, terminal `loading_failed`, and idempotent
+  deletion; the Windows `VK_LOADER_LAYERS_DISABLE=~implicit~` default from
+  `2c5c7601`, with a pre-set value preserved and an
+  `AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS` opt-out; and the transcribe.cpp
+  `0.2.3` pin from `db1aaac7`. `Cargo.lock` was regenerated locally.
+- `bf8756c3` (WebView2 accelerator keys) was already covered by `cb3b916e`
+  and `b33879bf`, which harden every production WebView.
+- Skipped macOS-only `330b2ddb`, the contributor-only onboarding debug UI
+  `988521f8`, upstream-specific clipboard docs `42afd1bf`, upstream CI fix
+  `14cfed8a`, Fedora/Ubuntu install notes `ba10ce19`, and the Catalan and
+  Indonesian locales (`ed1bfb9b`, `2bdf9ac0`) whose 443 keys overlap only
+  8.3% of the fork's English keys and retain Handy branding.
+
 Audit note (2026-09-06):
 - Refreshed `Q:\Handy-upstream` and reviewed the complete two-commit corridor
   after `00d25549` through upstream HEAD `bc7facea`; there are no merge commits.

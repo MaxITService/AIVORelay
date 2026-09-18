@@ -75,8 +75,6 @@ function App() {
   const [onboardingFromDebug, setOnboardingFromDebug] = useState(false);
   const [onboardingStartsWithPermissions, setOnboardingStartsWithPermissions] =
     useState(false);
-  const [onboardingPermissionOnly, setOnboardingPermissionOnly] =
-    useState(false);
   const {
     currentSection,
     setSection: setCurrentSection,
@@ -169,7 +167,6 @@ function App() {
     const handleOpenFirstStartWizard = () => {
       setOnboardingFromDebug(true);
       setOnboardingStartsWithPermissions(false);
-      setOnboardingPermissionOnly(false);
       setShowOnboarding(true);
     };
 
@@ -268,6 +265,26 @@ function App() {
           toast.error(t("errors.noInputDeviceTitle"), {
             duration: ERROR_TOAST_DURATION_MS,
             description: t("errors.noInputDevice"),
+          });
+          return;
+        }
+
+        if (error_type === "microphone_permission_denied") {
+          toast.error(t("errors.microphonePermissionDeniedTitle"), {
+            duration: ERROR_TOAST_DURATION_MS,
+            description: t("errors.microphonePermissionDenied"),
+            action: {
+              label: t("onboarding.permissions.openSettings"),
+              onClick: () => {
+                commands.openMicrophonePrivacySettings().then((result) => {
+                  if (result.status === "error") {
+                    toast.error(
+                      t("onboarding.permissions.errors.openSettingsFailed"),
+                    );
+                  }
+                });
+              },
+            },
           });
           return;
         }
@@ -441,11 +458,33 @@ function App() {
         Boolean((settingsResult.data as any).first_start_wizard_skipped)
       ) {
         setOnboardingStartsWithPermissions(false);
-        setOnboardingPermissionOnly(false);
         setShowOnboarding(false);
         return;
       }
 
+      if (settingsResult.status === "ok") {
+        const provider = String(settingsResult.data.transcription_provider);
+        if (
+          provider === "remote_openai_compatible" ||
+          provider === "remote_soniox" ||
+          provider === "remote_deepgram"
+        ) {
+          setOnboardingStartsWithPermissions(false);
+          setShowOnboarding(false);
+          return;
+        }
+      }
+
+      if (modelResult.status === "ok" && modelResult.data) {
+        setOnboardingStartsWithPermissions(false);
+        setShowOnboarding(false);
+        return;
+      }
+
+      // A denied microphone no longer forces the wizard: the app works
+      // without recording, and MicrophoneAccessNotice reminds the user in
+      // Speech / Microphone settings. It only puts the permission step first
+      // when the wizard is shown anyway.
       let windowsMicPermissionDenied = false;
 
       if (currentPlatform === "windows") {
@@ -465,46 +504,11 @@ function App() {
         }
       }
 
-      if (settingsResult.status === "ok") {
-        const provider = String(settingsResult.data.transcription_provider);
-        if (
-          provider === "remote_openai_compatible" ||
-          provider === "remote_soniox" ||
-          provider === "remote_deepgram"
-        ) {
-          if (windowsMicPermissionDenied) {
-            setOnboardingStartsWithPermissions(true);
-            setOnboardingPermissionOnly(true);
-            setShowOnboarding(true);
-            return;
-          }
-          setOnboardingStartsWithPermissions(false);
-          setOnboardingPermissionOnly(false);
-          setShowOnboarding(false);
-          return;
-        }
-      }
-
-      if (modelResult.status === "ok") {
-        if (modelResult.data && windowsMicPermissionDenied) {
-          setOnboardingStartsWithPermissions(true);
-          setOnboardingPermissionOnly(true);
-          setShowOnboarding(true);
-          return;
-        }
-
-        setOnboardingStartsWithPermissions(windowsMicPermissionDenied);
-        setOnboardingPermissionOnly(false);
-        setShowOnboarding(!modelResult.data);
-      } else {
-        setOnboardingStartsWithPermissions(windowsMicPermissionDenied);
-        setOnboardingPermissionOnly(false);
-        setShowOnboarding(true);
-      }
+      setOnboardingStartsWithPermissions(windowsMicPermissionDenied);
+      setShowOnboarding(true);
     } catch (error) {
       console.error("Failed to check onboarding status:", error);
       setOnboardingStartsWithPermissions(false);
-      setOnboardingPermissionOnly(false);
       setShowOnboarding(true);
     }
   };
@@ -513,14 +517,12 @@ function App() {
     // Transition to main app - user has started a download
     setOnboardingFromDebug(false);
     setOnboardingStartsWithPermissions(false);
-    setOnboardingPermissionOnly(false);
     setShowOnboarding(false);
   };
 
   const handleRemoteSelected = () => {
     setOnboardingFromDebug(false);
     setOnboardingStartsWithPermissions(false);
-    setOnboardingPermissionOnly(false);
     setShowOnboarding(false);
     setCurrentSection("general");
     refreshSettings();
@@ -533,7 +535,6 @@ function App() {
       });
       setOnboardingFromDebug(false);
       setOnboardingStartsWithPermissions(false);
-      setOnboardingPermissionOnly(false);
       setCurrentSection("general");
       setShowOnboarding(false);
       await refreshSettings();
@@ -550,10 +551,6 @@ function App() {
 
   const handlePermissionResolved = () => {
     setOnboardingStartsWithPermissions(false);
-    if (onboardingPermissionOnly) {
-      setOnboardingPermissionOnly(false);
-      setShowOnboarding(false);
-    }
   };
 
   if (showOnboarding) {
@@ -564,7 +561,6 @@ function App() {
         onSkipWizard={handleSkipFirstStartWizard}
         showFullCatalog={onboardingFromDebug}
         startWithPermissionStep={onboardingStartsWithPermissions}
-        permissionOnly={onboardingPermissionOnly}
         onPermissionResolved={handlePermissionResolved}
       />
     );

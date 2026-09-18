@@ -1222,6 +1222,8 @@
       "waiting": "Waiting for Windows microphone access...",
       "allGranted": "Microphone access is ready.",
       "openSettings": "Open Windows settings",
+      "continueWithout": "Continue without microphone",
+      "continueWithoutHint": "You can allow access later. AivoRelay shows a reminder in its settings until Windows grants it.",
       "microphone": {
         "title": "Windows microphone privacy",
         "description": "Open the Windows privacy settings page, allow microphone access, then return here. AivoRelay will detect the change automatically."
@@ -1568,6 +1570,10 @@
       "selectCompatibleModel": "Select compatible model",
       "profileOverrideTitle": "Override dictation model",
       "profileOverrideDescription": "Use a different provider and model for ordinary dictation with this profile."
+    },
+    "microphoneAccess": {
+      "title": "Microphone access is blocked by Windows",
+      "description": "Voice recording will fail until Windows privacy settings allow microphone access for desktop apps. Everything else keeps working."
     },
     "generalHelp": {
       "title": "See what AivoRelay can do",
@@ -4128,7 +4134,9 @@
     "modelDownloadFailed": "Failed to download model: {{model}}",
     "modelDownloadFailedUnknown": "Unknown model",
     "noInputDeviceTitle": "No Microphone Found",
-    "noInputDevice": "No audio input device was detected. Please connect a microphone or headset and try again."
+    "noInputDevice": "No audio input device was detected. Please connect a microphone or headset and try again.",
+    "microphonePermissionDeniedTitle": "Microphone Access Blocked",
+    "microphonePermissionDenied": "Windows privacy settings do not allow AivoRelay to use the microphone. Allow microphone access for desktop apps and try again."
   },
   "appLanguage": {
     "title": "Application Language",
