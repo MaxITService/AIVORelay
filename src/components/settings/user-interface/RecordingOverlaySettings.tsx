@@ -8,6 +8,8 @@ import { Dropdown } from "../../ui/Dropdown";
 import { Slider } from "../../ui/Slider";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { useSettings } from "../../../hooks/useSettings";
+import { navigateToSettingsAnchor } from "../../../lib/anchorNavigation";
+import { useNavigationStore } from "../../../stores/navigationStore";
 import { ShowOverlay } from "../ShowOverlay";
 import { RecordingOverlayPreview } from "./RecordingOverlayPreview";
 import type {
@@ -56,6 +58,17 @@ type OverlaySliderDrafts = Record<OverlaySliderDraftKey, number>;
 
 const RESET_RECORDING_OVERLAY_STYLE_CONFIG: RecordingOverlayStyleConfig = {
   ...DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG,
+};
+
+/** Jump to Text Replacement -> Decapitalize After Manual Edit. */
+const openDecapitalizeFeatureSettings = () => {
+  navigateToSettingsAnchor({
+    activateSection: () =>
+      useNavigationStore.getState().setSection("textReplacement"),
+    targetId: "decapitalize-after-edit-settings",
+    readyId: "settings-section-textReplacement",
+    updateHash: false,
+  });
 };
 
 const RECORDING_OVERLAY_SETTINGS_COLLAPSED_KEY =
@@ -1698,11 +1711,29 @@ export const RecordingOverlaySettings: React.FC = () => {
         </div>
       </SettingContainer>
 
-      <div
+      <section
         id="recording-overlay-decapitalize-indicator"
         tabIndex={-1}
-        className="outline-none"
+        className="mx-3 my-4 rounded-xl border border-[#ff4d8d]/20 bg-[#ff4d8d]/[0.04] outline-none focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/35"
       >
+        <div className="px-6 pt-4 pb-1">
+          <h3 className="text-xs font-bold uppercase tracking-widest text-[#ff8ebb]">
+            Decapitalize Indicator
+          </h3>
+          <p className="mt-1 text-xs leading-relaxed text-[#a0a0a0]">
+            The chip shown on the recording overlay while decapitalization is
+            armed. The feature itself is configured under{" "}
+            <button
+              type="button"
+              onClick={openDecapitalizeFeatureSettings}
+              className="font-medium text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
+            >
+              Text Replacement → Decapitalize After Manual Edit
+            </button>
+            .
+          </p>
+        </div>
+        <div className="divide-y divide-white/[0.05]">
         <SettingContainer
           title="Decapitalize Indicator Mode"
           description="Show the standard label, a custom emoji/text badge, or hide the decapitalize indicator completely."
@@ -1721,7 +1752,6 @@ export const RecordingOverlaySettings: React.FC = () => {
             disabled={isUpdating("recording_overlay_decapitalize_indicator_mode")}
           />
         </SettingContainer>
-      </div>
 
       <SettingContainer
         title="Decapitalize Indicator Font"
@@ -1831,6 +1861,8 @@ export const RecordingOverlaySettings: React.FC = () => {
           </span>
         </div>
       </SettingContainer>
+        </div>
+      </section>
 
       <SettingContainer
         title={t(
