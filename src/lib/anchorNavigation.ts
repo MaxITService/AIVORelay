@@ -53,6 +53,10 @@ export const scrollAndFocusAnchor = (
   });
 };
 
+/** Collapsed section toggles; dropdown triggers also carry aria-expanded but must not be opened. */
+const COLLAPSED_TOGGLE_SELECTOR =
+  'button[aria-expanded="false"]:not([aria-haspopup])';
+
 interface NavigateToSettingsAnchorOptions {
   activateSection: () => void;
   targetId: string;
@@ -104,7 +108,7 @@ export const navigateToSettingsAnchor = ({
       ? document.getElementById(expandId)
       : null;
     const collapsedToggle = expansionTarget?.querySelector<HTMLButtonElement>(
-      'button[aria-expanded="false"]',
+      COLLAPSED_TOGGLE_SELECTOR,
     );
     collapsedToggle?.click();
 
@@ -122,7 +126,7 @@ export const navigateToSettingsAnchor = ({
 
       if (target && target !== expansionTarget) {
         target
-          .querySelector<HTMLButtonElement>('button[aria-expanded="false"]')
+          .querySelector<HTMLButtonElement>(COLLAPSED_TOGGLE_SELECTOR)
           ?.click();
       }
 

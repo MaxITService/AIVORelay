@@ -23,6 +23,7 @@ import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { useSettings } from "@/hooks/useSettings";
 import { useNavigationStore } from "@/stores/navigationStore";
+import { navigateToSettingsAnchor } from "@/lib/anchorNavigation";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -166,6 +167,18 @@ export const TextReplacementSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting, isUpdating } = useSettings();
   const { setSection } = useNavigationStore();
+
+  /** Jump to User Interface -> Recording Overlay and reveal the decapitalize indicator settings. */
+  const openDecapitalizeIndicatorSettings = () => {
+    navigateToSettingsAnchor({
+      activateSection: () => setSection("userInterface"),
+      targetId: "recording-overlay-decapitalize-indicator",
+      readyId: "settings-section-userInterface",
+      expandId: "recording-overlay-settings",
+      block: "center",
+      updateHash: false,
+    });
+  };
   type DecapCaptureTarget = "primary" | "secondary";
 
   const [newFrom, setNewFrom] = useState("");
@@ -839,6 +852,22 @@ export const TextReplacementSettings: React.FC = () => {
             )}
             descriptionMode="inline"
           />
+          <p className="mt-3 text-xs text-text/70">
+            {t(
+              "textReplacement.decapitalizeIndicatorHint",
+              "While decapitalization is armed, the recording overlay shows an indicator chip."
+            )}{" "}
+            <button
+              type="button"
+              onClick={openDecapitalizeIndicatorSettings}
+              className="font-medium text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
+            >
+              {t(
+                "textReplacement.decapitalizeIndicatorLink",
+                "Adjust its size, text, and color"
+              )}
+            </button>
+          </p>
         </div>
 
         {decapitalizeAfterEditEnabled && (
