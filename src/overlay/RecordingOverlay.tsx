@@ -140,7 +140,7 @@ const DEFAULT_OVERLAY_APPEARANCE: RecordingOverlayAppearanceState = {
   decapitalize_indicator_mode: "text",
   decapitalize_indicator_custom_text: "",
   decapitalize_indicator_font_family: "Segoe UI",
-  decapitalize_indicator_font_size_px: 16,
+  decapitalize_indicator_font_size_px: 11,
   decapitalize_indicator_color: "#72f29a",
   frame_width_px: 172,
   frame_height_px: 36,
@@ -633,9 +633,9 @@ const RecordingOverlay: React.FC = () => {
         decapitalize_indicator_font_size_px:
           typeof data.decapitalize_indicator_font_size_px === "number"
             ? Math.max(
-                10,
+                6,
                 Math.min(
-                  32,
+                  48,
                   Math.round(data.decapitalize_indicator_font_size_px),
                 ),
               )

@@ -4577,7 +4577,7 @@ fn default_recording_overlay_decapitalize_indicator_font_family() -> String {
 }
 
 fn default_recording_overlay_decapitalize_indicator_font_size_px() -> u8 {
-    16
+    11
 }
 
 fn default_recording_overlay_decapitalize_indicator_color() -> String {
