@@ -56,7 +56,7 @@ pub(crate) fn lock_clipboard_transaction(
 /// Windows-only: Advanced clipboard backup/restore that preserves all formats
 #[cfg(target_os = "windows")]
 mod win_clipboard {
-    use log::{debug, warn};
+    use log::{debug, info, warn};
     use std::mem::size_of;
     use std::ptr;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -332,9 +332,16 @@ mod win_clipboard {
     ) -> Result<Option<u32>, String> {
         unsafe {
             OpenClipboard(None).map_err(|e| format!("Failed to open clipboard: {}", e))?;
-            if expected_sequence.is_some_and(|expected| expected == 0 || expected != GetClipboardSequenceNumber()) {
-                let _ = CloseClipboard();
-                return Ok(None);
+            if let Some(expected) = expected_sequence {
+                let current = GetClipboardSequenceNumber();
+                if expected == 0 || expected != current {
+                    let _ = CloseClipboard();
+                    info!(
+                        "Skipping clipboard text write: clipboard changed externally (expected sequence {}, current {})",
+                        expected, current
+                    );
+                    return Ok(None);
+                }
             }
             let result = (|| {
                 EmptyClipboard().map_err(|e| format!("Failed to empty clipboard: {}", e))?;
@@ -347,11 +354,15 @@ mod win_clipboard {
                 } else {
                     write_history_marker("CanIncludeInClipboardHistory", 1);
                 }
-                Ok(Some(GetClipboardSequenceNumber()))
+                Ok(())
             })();
-            LAST_WRITE_SEQUENCE.store(GetClipboardSequenceNumber(), Ordering::Relaxed);
             let _ = CloseClipboard();
-            result
+            // CloseClipboard adds synthesized formats (CF_TEXT, CF_OEMTEXT,
+            // CF_LOCALE), which bumps the sequence number again. Read it only
+            // after closing so later "unchanged" checks compare the final value.
+            let sequence = GetClipboardSequenceNumber();
+            LAST_WRITE_SEQUENCE.store(sequence, Ordering::Relaxed);
+            result.map(|()| Some(sequence))
         }
     }
 
@@ -381,10 +392,17 @@ mod win_clipboard {
                 return Err("Failed to open clipboard for restore".into());
             }
 
-            if expected_sequence.is_some_and(|expected| expected == 0 || expected != GetClipboardSequenceNumber()) {
-                cleanup_entries(entries);
-                let _ = CloseClipboard();
-                return Ok(None);
+            if let Some(expected) = expected_sequence {
+                let current = GetClipboardSequenceNumber();
+                if expected == 0 || expected != current {
+                    cleanup_entries(entries);
+                    let _ = CloseClipboard();
+                    info!(
+                        "Skipping clipboard restore: clipboard changed externally (expected sequence {}, current {})",
+                        expected, current
+                    );
+                    return Ok(None);
+                }
             }
 
             // Clear existing content
@@ -411,8 +429,10 @@ mod win_clipboard {
 
             write_history_exclusion_markers();
 
-            LAST_WRITE_SEQUENCE.store(GetClipboardSequenceNumber(), Ordering::Relaxed);
             let _ = CloseClipboard();
+            // Same as write_text_if_unchanged: the final sequence number is
+            // only known once the clipboard is closed.
+            LAST_WRITE_SEQUENCE.store(GetClipboardSequenceNumber(), Ordering::Relaxed);
 
             Ok(Some(RestoreStats {
                 restored_formats,
