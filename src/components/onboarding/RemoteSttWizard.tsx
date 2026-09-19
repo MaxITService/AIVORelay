@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
-import { X, Cloud, ExternalLink } from "lucide-react";
+import { X, Cloud, ExternalLink, ArrowRight } from "lucide-react";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { commands } from "@/bindings";
 import { Button } from "../ui/Button";
@@ -17,6 +17,9 @@ interface RemoteSttWizardProps {
   isOpen: boolean;
   onClose: () => void;
   onComplete: () => void;
+  /** Leaves the whole first-start wizard without closing this dialog first. */
+  onSkipWizard?: () => void;
+  skipDisabled?: boolean;
 }
 
 type EngineType = "openai" | "gemini" | "soniox" | "deepgram";
@@ -48,6 +51,8 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
   isOpen,
   onClose,
   onComplete,
+  onSkipWizard,
+  skipDisabled = false,
 }) => {
   const { t } = useTranslation();
   const {
@@ -778,6 +783,21 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
             {t("onboarding.remoteSttWizard.finishConfig")}
           </Button>
         </div>
+
+        {/* Escape hatch: same action as the wizard-level skip button */}
+        {onSkipWizard && (
+          <div className="px-6 pb-6 -mt-3 flex justify-center">
+            <button
+              type="button"
+              onClick={onSkipWizard}
+              disabled={skipDisabled}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-mid-gray underline-offset-4 transition-colors hover:text-text hover:underline disabled:cursor-wait disabled:opacity-60"
+            >
+              {t("onboarding.skipWizard", "Skip wizard and open main menu")}
+              <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
