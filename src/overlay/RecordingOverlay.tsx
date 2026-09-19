@@ -34,7 +34,10 @@ import {
   type RecordingOverlayMaterialMode,
   type RecordingOverlayTheme,
 } from "./recordingOverlayAppearance";
-import { RecordingOverlayAnimatedBorder } from "./RecordingOverlayAnimatedBorder";
+import {
+  RecordingOverlayAnimatedBorder,
+  resolveRecordingOverlayFrameRadiusPx,
+} from "./RecordingOverlayAnimatedBorder";
 import { RecordingOverlayBars } from "./RecordingOverlayBars";
 import { RecordingOverlayBackground } from "./RecordingOverlayBackground";
 import { RecordingOverlayCenterpiece } from "./RecordingOverlayCenterpiece";
@@ -1222,7 +1225,9 @@ const RecordingOverlay: React.FC = () => {
           accentColor={appearance.accent_color}
           levels={visibleLevels}
           animationSoftnessPercent={appearance.animation_softness_percent}
-          depthParallaxPercent={appearance.depth_parallax_percent}
+          frameRadiusPx={resolveRecordingOverlayFrameRadiusPx(
+            resolvedSurfaceStyle.borderRadius,
+          )}
         />
       )}
 
