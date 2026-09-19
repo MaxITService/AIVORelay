@@ -1140,6 +1140,12 @@ const RecordingOverlay: React.FC = () => {
     });
   };
 
+  const handleDismissError = () => {
+    void invoke("dismiss_error_overlay").catch((error) => {
+      console.error("Failed to dismiss the error overlay:", error);
+    });
+  };
+
   const handleCopyError = () => {
     const value = errorTechnical || errorMessage;
     if (!value) return;
@@ -1413,34 +1419,46 @@ const RecordingOverlay: React.FC = () => {
               <CancelIcon color={cancelIconColor} />
             </button>
           )}
-        {state === "error" && errorRetryAvailable ? (
-          <button
-            type="button"
-            className="error-retry-button"
-            title={retryButtonTitle}
-            onClick={handleRetryRemoteTranscription}
-          >
-            {t("common.retry", "Retry")}
-          </button>
-        ) : state === "error" && errorContext === "send_selected_text" ? (
-          <button
-            type="button"
-            className="error-copy-button"
-            title={t("overlay.errors.copyFullError", "Copy full error")}
-            aria-label={t("overlay.errors.copyFullError", "Copy full error")}
-            onClick={handleCopyError}
-          >
-            {errorCopied ? <Check size={12} /> : <Copy size={12} />}
-          </button>
-        ) : (
-          state === "error" && (
-            <span
-              className="error-code-chip"
-              title={errorTechnical || undefined}
+        {state === "error" && (
+          <div className="error-actions">
+            {errorRetryAvailable ? (
+              <button
+                type="button"
+                className="error-retry-button"
+                title={retryButtonTitle}
+                onClick={handleRetryRemoteTranscription}
+              >
+                {t("common.retry", "Retry")}
+              </button>
+            ) : errorContext === "send_selected_text" ? (
+              <button
+                type="button"
+                className="error-copy-button"
+                title={t("overlay.errors.copyFullError", "Copy full error")}
+                aria-label={t("overlay.errors.copyFullError", "Copy full error")}
+                onClick={handleCopyError}
+              >
+                {errorCopied ? <Check size={12} /> : <Copy size={12} />}
+              </button>
+            ) : (
+              <span
+                className="error-code-chip"
+                title={errorTechnical || undefined}
+              >
+                {errorCode || "E_UNKNOWN"}
+              </span>
+            )}
+            {/* The error overlay has no other way to go away before auto-hide. */}
+            <button
+              type="button"
+              className={`cancel-button error-close-button ${customOverlayEnabled ? "" : "cancel-button-legacy"}`}
+              title={t("common.close", "Close")}
+              aria-label={t("common.close", "Close")}
+              onClick={handleDismissError}
             >
-              {errorCode || "E_UNKNOWN"}
-            </span>
-          )
+              <CancelIcon color={cancelIconColor} />
+            </button>
+          </div>
         )}
       </div>
     </div>

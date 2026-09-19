@@ -662,21 +662,43 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
                 </div>
               )}
               {state === "error" && (
-                <span
-                  style={{
-                    color: "#ffd5d5",
-                    fontSize: "10px",
-                    fontFamily: '"Cascadia Mono", "Consolas", monospace',
-                    fontWeight: 600,
-                    letterSpacing: "0.02em",
-                    padding: "1px 5px",
-                    borderRadius: "999px",
-                    border: "1px solid rgba(255, 107, 107, 0.4)",
-                    background: "rgba(255, 107, 107, 0.1)",
-                  }}
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "6px" }}
                 >
-                  NET
-                </span>
+                  <span
+                    style={{
+                      color: "#ffd5d5",
+                      fontSize: "10px",
+                      fontFamily: '"Cascadia Mono", "Consolas", monospace',
+                      fontWeight: 600,
+                      letterSpacing: "0.02em",
+                      padding: "1px 5px",
+                      borderRadius: "999px",
+                      border: "1px solid rgba(255, 107, 107, 0.4)",
+                      background: "rgba(255, 107, 107, 0.1)",
+                    }}
+                  >
+                    NET
+                  </span>
+                  <div
+                    style={{
+                      width: "24px",
+                      height: "24px",
+                      borderRadius: "999px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      border: customEnabled
+                        ? "1px solid rgba(255, 122, 122, 0.5)"
+                        : "0",
+                      background: customEnabled
+                        ? "linear-gradient(180deg, rgba(255,190,190,0.16) 0%, rgba(255,107,107,0.08) 100%), rgba(255,107,107,0.08)"
+                        : "transparent",
+                    }}
+                  >
+                    <CancelIcon color={normalizedCancelIconColor} />
+                  </div>
+                </div>
               )}
             </div>
           </div>

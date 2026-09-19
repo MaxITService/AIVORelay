@@ -4120,6 +4120,14 @@ async retryLastRemoteTranscription() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Hide the error overlay from its close button. Mirrors auto-hide, and only
+ * the presentation that showed the error may hide it, so a click that lands
+ * after a new recording has taken over the overlay is ignored.
+ */
+async dismissErrorOverlay() : Promise<void> {
+    await TAURI_INVOKE("dismiss_error_overlay");
+},
 async applyRecordingOverlayCustomPosition(xPx: number, yPx: number) : Promise<Result<RecordingOverlayCustomPositionPayload, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("apply_recording_overlay_custom_position", { xPx, yPx }) };

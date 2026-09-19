@@ -8,6 +8,7 @@ use crate::overlay;
 use crate::tray::{change_tray_icon, TrayIconState};
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 
 const DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 3500;
@@ -15,6 +16,15 @@ const MAX_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 100_000;
 
 static OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static ERROR_OVERLAY_AUTO_HIDE_MS: AtomicU64 = AtomicU64::new(DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS);
+/// The most recent error presentation, so its close button can only hide the
+/// overlay while that presentation still owns the window.
+static ERROR_OVERLAY_OWNER: Mutex<Option<ErrorOverlayOwner>> = Mutex::new(None);
+
+#[derive(Clone, Copy)]
+struct ErrorOverlayOwner {
+    generation: u64,
+    retry_session_id: Option<u64>,
+}
 
 /// Invalidate pending error auto-hide timers.
 /// Call this when showing any non-error overlay state.
@@ -789,6 +799,12 @@ fn show_error_overlay_internal(
             retry_action,
         };
         let current_gen = OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+        if let Ok(mut owner) = ERROR_OVERLAY_OWNER.lock() {
+            *owner = Some(ErrorOverlayOwner {
+                generation: current_gen,
+                retry_session_id,
+            });
+        }
         let auto_hide_ms = auto_hide_ms_override
             .unwrap_or_else(get_error_overlay_auto_hide_ms)
             .min(MAX_ERROR_OVERLAY_AUTO_HIDE_MS);
@@ -815,6 +831,25 @@ fn show_error_overlay_internal(
             crate::actions::clear_ready_remote_recording_retry_by_id(retry_session_id);
         }
         false
+    }
+}
+
+/// Hide the error overlay from its close button. Mirrors auto-hide, and only
+/// the presentation that showed the error may hide it, so a click that lands
+/// after a new recording has taken over the overlay is ignored.
+#[tauri::command]
+#[specta::specta]
+pub fn dismiss_error_overlay(app: AppHandle) {
+    let owner = ERROR_OVERLAY_OWNER.lock().ok().and_then(|owner| *owner);
+    let Some(owner) = owner else {
+        return;
+    };
+
+    // The pending auto-hide timer later finds the window already hidden.
+    if hide_recording_overlay_if_generation_matches(&app, owner.generation) {
+        if let Some(retry_session_id) = owner.retry_session_id {
+            crate::actions::clear_ready_remote_recording_retry_by_id(retry_session_id);
+        }
     }
 }
 
