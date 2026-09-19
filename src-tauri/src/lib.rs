@@ -49,6 +49,7 @@ mod tls;
 mod utils;
 mod webview_hardening;
 mod webview_mode;
+mod webview_recovery;
 #[cfg(target_os = "windows")]
 mod webview_runtime;
 #[cfg(debug_assertions)]
@@ -263,6 +264,71 @@ fn restart_in_speech_only_mode(app: &AppHandle) {
     }
 }
 
+/// Builds the hidden main window and restores its saved geometry. Used at
+/// startup and again by `webview_recovery` after the WebView2 browser process
+/// dies and every webview has to be rebuilt. With `focus_on_show` false the
+/// first `show()` does not activate the window, so a rebuild that nobody
+/// asked for cannot steal the focus from whatever the user is doing.
+pub(crate) fn create_main_window(
+    app: &AppHandle,
+    settings: &settings::AppSettings,
+    focus_on_show: bool,
+) -> tauri::Result<tauri::WebviewWindow> {
+    let mut window_builder =
+        tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
+            .title("AivoRelay")
+            .inner_size(680.0, 570.0)
+            .min_inner_size(680.0, 570.0)
+            .resizable(true)
+            .maximizable(true)
+            .focused(focus_on_show)
+            .visible(false);
+
+    #[cfg(target_os = "windows")]
+    {
+        let runtime = webview_runtime::config(app)?;
+        window_builder = window_builder.data_directory(runtime.data_directory);
+        if let Some(browser_args) = runtime.additional_browser_args {
+            window_builder = window_builder.additional_browser_args(&browser_args);
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    if let Some(data_dir) = portable::data_dir() {
+        window_builder = window_builder.data_directory(data_dir.join("webview"));
+    }
+
+    let main_window = window_builder.build()?;
+    webview_hardening::disable_browser_accelerator_keys(&main_window);
+    webview_recovery::watch(&main_window);
+
+    // Restore main window geometry before showing
+    if settings.remember_window_size
+        && settings.saved_window_width > 0
+        && settings.saved_window_height > 0
+    {
+        let _ = main_window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+            width: settings.saved_window_width,
+            height: settings.saved_window_height,
+        }));
+    }
+    if settings.remember_window_position
+        && settings.saved_window_x != i32::MIN
+        && saved_window_position_is_usable(
+            settings.saved_window_x,
+            settings.saved_window_y,
+            main_window.available_monitors(),
+        )
+    {
+        let _ = main_window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+            x: settings.saved_window_x,
+            y: settings.saved_window_y,
+        }));
+    }
+
+    Ok(main_window)
+}
+
 fn show_main_window(app: &AppHandle) {
     if webview_mode::webviews_disabled() {
         log::info!(
@@ -291,7 +357,9 @@ fn show_main_window(app: &AppHandle) {
             }
         }
     } else {
-        log::error!("Main window not found.");
+        // Automatic WebView2 recovery may have closed the dead windows; an
+        // explicit request is the moment to try again.
+        webview_recovery::rebuild_for_user(app);
     }
 }
 
@@ -1749,7 +1817,9 @@ pub fn run(cli_args: CliArgs) {
                 .level(log::LevelFilter::Trace) // Set to most verbose level globally
                 .timezone_strategy(TimezoneStrategy::UseLocal)
                 .max_file_size(500_000)
-                .rotation_strategy(RotationStrategy::KeepOne)
+                // Keep the previous logs too: a failure flood must not erase
+                // the startup lines that explain it. Bounded to 4 x 500 KB.
+                .rotation_strategy(RotationStrategy::KeepSome(3))
                 .clear_targets()
                 .targets([
                     // In a release build this respects RUST_LOG. In Dev Mode
@@ -1948,56 +2018,7 @@ pub fn run(cli_args: CliArgs) {
                 return Ok(());
             }
 
-            let mut window_builder =
-                tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
-                    .title("AivoRelay")
-                    .inner_size(680.0, 570.0)
-                    .min_inner_size(680.0, 570.0)
-                    .resizable(true)
-                    .maximizable(true)
-                    .visible(false);
-
-            #[cfg(target_os = "windows")]
-            {
-                let runtime = webview_runtime::config(app.handle())?;
-                window_builder = window_builder.data_directory(runtime.data_directory);
-                if let Some(browser_args) = runtime.additional_browser_args {
-                    window_builder = window_builder.additional_browser_args(&browser_args);
-                }
-            }
-
-            #[cfg(not(target_os = "windows"))]
-            if let Some(data_dir) = portable::data_dir() {
-                window_builder = window_builder.data_directory(data_dir.join("webview"));
-            }
-
-            let main_window = window_builder.build()?;
-            webview_hardening::disable_browser_accelerator_keys(&main_window);
-
-            // Restore main window geometry before showing
-            if settings.remember_window_size
-                && settings.saved_window_width > 0
-                && settings.saved_window_height > 0
-            {
-                let _ = main_window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
-                    width: settings.saved_window_width,
-                    height: settings.saved_window_height,
-                }));
-            }
-            if settings.remember_window_position
-                && settings.saved_window_x != i32::MIN
-                && saved_window_position_is_usable(
-                    settings.saved_window_x,
-                    settings.saved_window_y,
-                    main_window.available_monitors(),
-                )
-            {
-                let _ =
-                    main_window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                        x: settings.saved_window_x,
-                        y: settings.saved_window_y,
-                    }));
-            }
+            create_main_window(&app_handle, &settings, true)?;
 
             timed_startup("core logic", || initialize_core_logic(&app_handle));
 
@@ -2081,6 +2102,15 @@ pub fn run(cli_args: CliArgs) {
             _ => {}
         })
         .invoke_handler(specta_builder.invoke_handler())
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = &event {
+                // Rebuilding the webviews after a WebView2 crash briefly leaves
+                // the app without windows; that is not "all windows closed".
+                if webview_recovery::is_recovering() {
+                    api.prevent_exit();
+                }
+            }
+        });
 }

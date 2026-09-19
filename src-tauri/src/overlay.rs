@@ -1981,6 +1981,7 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
     match builder.build() {
         Ok(window) => {
             crate::webview_hardening::disable_browser_accelerator_keys(&window);
+            crate::webview_recovery::watch(&window);
             debug!("Recording overlay window created successfully (hidden)");
         }
         Err(e) => {
@@ -2045,6 +2046,7 @@ pub fn create_soniox_live_preview_window(app_handle: &AppHandle) {
         match builder.build() {
             Ok(window) => {
                 crate::webview_hardening::disable_browser_accelerator_keys(&window);
+                crate::webview_recovery::watch(&window);
                 debug!("Live preview window created successfully (hidden)");
             }
             Err(e) => {
@@ -2122,6 +2124,7 @@ pub fn create_tts_overlay_window(app_handle: &AppHandle) {
     match builder.build() {
         Ok(window) => {
             crate::webview_hardening::disable_browser_accelerator_keys(&window);
+            crate::webview_recovery::watch(&window);
             #[cfg(target_os = "windows")]
             remove_tts_overlay_native_frame(&window);
             log::debug!("Text-to-Speech overlay window created successfully (hidden)");
@@ -3015,6 +3018,7 @@ pub fn show_voice_activation_button_window(app_handle: &AppHandle) -> Result<(),
         match builder.build() {
             Ok(window) => {
                 crate::webview_hardening::disable_browser_accelerator_keys(&window);
+                crate::webview_recovery::watch(&window);
                 window
             }
             Err(e) => {
@@ -3059,6 +3063,7 @@ pub fn show_voice_activation_button_window(app_handle: &AppHandle) -> Result<(),
         match builder.build() {
             Ok(window) => {
                 crate::webview_hardening::disable_browser_accelerator_keys(&window);
+                crate::webview_recovery::watch(&window);
                 window
             }
             Err(e) => {
@@ -3191,6 +3196,7 @@ pub fn show_command_confirm_overlay(
             match builder.build() {
                 Ok(window) => {
                     crate::webview_hardening::disable_browser_accelerator_keys(&window);
+                    crate::webview_recovery::watch(&window);
                     debug!("Command confirm overlay window created successfully");
                     window
                 }
