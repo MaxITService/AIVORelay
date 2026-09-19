@@ -233,151 +233,114 @@ const Onboarding: React.FC<OnboardingProps> = ({
   };
 
   return (
-    <div className="h-screen w-full flex flex-col p-8 gap-6 inset-0 overflow-y-auto bg-gradient-to-br from-[#121212] via-[#161616] to-[#0f0f0f]">
-      {mode !== "permissions" && (
-        <div className="flex w-full shrink-0 justify-center">
-          <button
-            type="button"
-            onClick={() => void handleSkipWizard()}
-            disabled={isSkipping}
-            className="group relative inline-flex items-center gap-2 overflow-hidden rounded-full border border-fuchsia-300/40 bg-gradient-to-r from-[#ff4d8d] via-[#b14cff] to-[#6d5dfc] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_30px_rgba(177,76,255,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_38px_rgba(255,77,141,0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff8fba] focus-visible:ring-offset-2 focus-visible:ring-offset-[#121212] disabled:cursor-wait disabled:opacity-60"
-          >
-            <span className="absolute inset-0 translate-x-[-120%] bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-[120%]" />
-            <Sparkles className="relative h-4 w-4" aria-hidden="true" />
-            <span className="relative">
-              {t(
-                "onboarding.skipWizard",
-                "Skip wizard and open main menu",
-              )}
-            </span>
-            <ArrowRight
-              className="relative h-4 w-4 transition-transform group-hover:translate-x-1"
-              aria-hidden="true"
-            />
-          </button>
-        </div>
-      )}
-
-      <div className="flex flex-col items-center gap-3 shrink-0">
-        <HandyTextLogo
-          width={220}
-          className="drop-shadow-[0_0_20px_rgba(255,107,157,0.4)]"
-        />
-        {getSubtitle() && (
-          <p className="text-[#a0a0a0] max-w-md font-medium mx-auto text-center">
-            {getSubtitle()}
-          </p>
-        )}
+    <div className="h-screen w-full flex flex-col inset-0 bg-gradient-to-br from-[#121212] via-[#161616] to-[#0f0f0f]">
+      {/* Kept outside the scrolling area so the exit stays reachable on every step */}
+      <div className="flex w-full shrink-0 justify-center px-8 pt-8">
+        <button
+          type="button"
+          onClick={() => void handleSkipWizard()}
+          disabled={isSkipping}
+          className="group relative inline-flex items-center gap-2 overflow-hidden rounded-full border border-fuchsia-300/40 bg-gradient-to-r from-[#ff4d8d] via-[#b14cff] to-[#6d5dfc] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_30px_rgba(177,76,255,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_38px_rgba(255,77,141,0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff8fba] focus-visible:ring-offset-2 focus-visible:ring-offset-[#121212] disabled:cursor-wait disabled:opacity-60"
+        >
+          <span className="absolute inset-0 translate-x-[-120%] bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-[120%]" />
+          <Sparkles className="relative h-4 w-4" aria-hidden="true" />
+          <span className="relative">
+            {t(
+              "onboarding.skipWizard",
+              "Skip wizard and open main menu",
+            )}
+          </span>
+          <ArrowRight
+            className="relative h-4 w-4 transition-transform group-hover:translate-x-1"
+            aria-hidden="true"
+          />
+        </button>
       </div>
 
-      <div className="max-w-[600px] w-full mx-auto text-center flex-1 flex flex-col min-h-0">
-        {error && (
-          <div className="bg-[#ff453a]/10 border border-[#ff453a]/30 rounded-xl p-4 mb-4 shrink-0 backdrop-blur-sm">
-            <p className="text-[#ff453a] text-sm font-medium">{error}</p>
-          </div>
-        )}
+      <div className="flex-1 min-h-0 flex flex-col gap-6 overflow-y-auto p-8 pt-6">
+        <div className="flex flex-col items-center gap-3 shrink-0">
+          <HandyTextLogo
+            width={220}
+            className="drop-shadow-[0_0_20px_rgba(255,107,157,0.4)]"
+          />
+          {getSubtitle() && (
+            <p className="text-[#a0a0a0] max-w-md font-medium mx-auto text-center">
+              {getSubtitle()}
+            </p>
+          )}
+        </div>
 
-        <div className="flex flex-col gap-4 ">
-          {mode === "permissions" ? (
-            <AccessibilityOnboarding onComplete={handlePermissionsComplete} />
-          ) : mode === "welcome" ? (
-            <div className="flex flex-col items-center gap-6 mt-4">
-              <h2 className="text-2xl font-bold text-[#f5f5f5]">
-                {t("onboarding.welcome.title")}
-              </h2>
-
-              {/* Status message */}
-              <p className="text-[#a0a0a0] text-sm">
-                {welcomeVariant === "local"
-                  ? t("onboarding.welcome.modelDownloading")
-                  : t("onboarding.welcome.providerReady")}
-              </p>
-
-              {welcomeVariant === "local" && downloadingModelId && (
-                <button
-                  className="px-5 py-2 rounded-lg border border-[#4a4a4a] text-[#d0d0d0] text-sm hover:border-[#ff4d8d] hover:text-white transition-colors"
-                  onClick={() => void handleCancelDownload()}
-                  type="button"
-                >
-                  {t("common.cancel")}
-                </button>
-              )}
-
-              {/* Shortcut selector */}
-              <div className="w-full text-left space-y-2">
-                <p className="text-sm text-[#a0a0a0]">
-                  {t("onboarding.welcome.shortcutDescription")}
-                </p>
-                <HandyShortcut
-                  shortcutId="transcribe"
-                  descriptionMode="inline"
-                />
-              </div>
-
-              {/* Settings note */}
-              <p className="text-xs text-[#6b6b6b] max-w-md">
-                {t("onboarding.welcome.settingsNote")}
-              </p>
-
-              {/* Get Started button */}
-              <button
-                className="px-8 py-3 rounded-xl bg-[#ff4d8d] hover:bg-[#ff3377] text-white font-semibold transition-colors"
-                onClick={handleGetStarted}
-              >
-                {t("onboarding.welcome.getStarted")}
-              </button>
+        <div className="max-w-[600px] w-full mx-auto text-center flex-1 flex flex-col min-h-0">
+          {error && (
+            <div className="bg-[#ff453a]/10 border border-[#ff453a]/30 rounded-xl p-4 mb-4 shrink-0 backdrop-blur-sm">
+              <p className="text-[#ff453a] text-sm font-medium">{error}</p>
             </div>
-          ) : mode === "select" ? (
-            <div className="flex flex-col gap-4">
-              <button
-                className="glass-panel-interactive flex justify-between items-center rounded-xl p-5 text-left group"
-                onClick={handleSelectLocal}
-              >
-                <div>
-                  <h3 className="text-lg font-semibold text-[#f5f5f5] group-hover:text-[#ff4d8d] transition-colors">
-                    {t("onboarding.mode.local.title")}
-                  </h3>
-                  <p className="text-[#a0a0a0] text-sm mt-1">
-                    {t("onboarding.mode.local.description")}
-                  </p>
-                </div>
-                <div className="w-10 h-10 rounded-full bg-[#9b5de5] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <svg
-                    className="w-5 h-5 text-white"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+          )}
+
+          <div className="flex flex-col gap-4 ">
+            {mode === "permissions" ? (
+              <AccessibilityOnboarding onComplete={handlePermissionsComplete} />
+            ) : mode === "welcome" ? (
+              <div className="flex flex-col items-center gap-6 mt-4">
+                <h2 className="text-2xl font-bold text-[#f5f5f5]">
+                  {t("onboarding.welcome.title")}
+                </h2>
+
+                {/* Status message */}
+                <p className="text-[#a0a0a0] text-sm">
+                  {welcomeVariant === "local"
+                    ? t("onboarding.welcome.modelDownloading")
+                    : t("onboarding.welcome.providerReady")}
+                </p>
+
+                {welcomeVariant === "local" && downloadingModelId && (
+                  <button
+                    className="px-5 py-2 rounded-lg border border-[#4a4a4a] text-[#d0d0d0] text-sm hover:border-[#ff4d8d] hover:text-white transition-colors"
+                    onClick={() => void handleCancelDownload()}
+                    type="button"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 5l7 7-7 7"
-                    />
-                  </svg>
-                </div>
-              </button>
-              <button
-                className={`glass-panel-interactive flex justify-between items-center rounded-xl p-5 text-left group ${
-                  !isWindows ? "opacity-40 cursor-not-allowed" : ""
-                }`}
-                onClick={handleSelectRemote}
-                disabled={!isWindows}
-              >
-                <div>
-                  <h3 className="text-lg font-semibold text-[#f5f5f5] group-hover:text-[#ff4d8d] transition-colors">
-                    {t("onboarding.mode.remote.title")}
-                  </h3>
-                  <p className="text-[#a0a0a0] text-sm mt-1">
-                    {t("onboarding.mode.remote.description")}
+                    {t("common.cancel")}
+                  </button>
+                )}
+
+                {/* Shortcut selector */}
+                <div className="w-full text-left space-y-2">
+                  <p className="text-sm text-[#a0a0a0]">
+                    {t("onboarding.welcome.shortcutDescription")}
                   </p>
-                  {!isWindows && (
-                    <p className="text-xs text-[#6b6b6b] mt-2">
-                      {t("onboarding.mode.remote.windowsOnly")}
-                    </p>
-                  )}
+                  <HandyShortcut
+                    shortcutId="transcribe"
+                    descriptionMode="inline"
+                  />
                 </div>
-                {isWindows && (
+
+                {/* Settings note */}
+                <p className="text-xs text-[#6b6b6b] max-w-md">
+                  {t("onboarding.welcome.settingsNote")}
+                </p>
+
+                {/* Get Started button */}
+                <button
+                  className="px-8 py-3 rounded-xl bg-[#ff4d8d] hover:bg-[#ff3377] text-white font-semibold transition-colors"
+                  onClick={handleGetStarted}
+                >
+                  {t("onboarding.welcome.getStarted")}
+                </button>
+              </div>
+            ) : mode === "select" ? (
+              <div className="flex flex-col gap-4">
+                <button
+                  className="glass-panel-interactive flex justify-between items-center rounded-xl p-5 text-left group"
+                  onClick={handleSelectLocal}
+                >
+                  <div>
+                    <h3 className="text-lg font-semibold text-[#f5f5f5] group-hover:text-[#ff4d8d] transition-colors">
+                      {t("onboarding.mode.local.title")}
+                    </h3>
+                    <p className="text-[#a0a0a0] text-sm mt-1">
+                      {t("onboarding.mode.local.description")}
+                    </p>
+                  </div>
                   <div className="w-10 h-10 rounded-full bg-[#9b5de5] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <svg
                       className="w-5 h-5 text-white"
@@ -393,39 +356,77 @@ const Onboarding: React.FC<OnboardingProps> = ({
                       />
                     </svg>
                   </div>
-                )}
-              </button>
-              <p className="text-xs text-[#6b6b6b] mt-2">
-                {t("onboarding.mode.changeProviderLater")}
-              </p>
-            </div>
-          ) : (
-            <>
-              {availableModels
-                .filter((model) => getRecommendedBadge(model))
-                .map((model) => (
-                  <ModelCard
-                    key={model.id}
-                    model={model}
-                    variant="featured"
-                    disabled={downloading}
-                    onSelect={handleModelSelection}
-                  />
-                ))}
+                </button>
+                <button
+                  className={`glass-panel-interactive flex justify-between items-center rounded-xl p-5 text-left group ${
+                    !isWindows ? "opacity-40 cursor-not-allowed" : ""
+                  }`}
+                  onClick={handleSelectRemote}
+                  disabled={!isWindows}
+                >
+                  <div>
+                    <h3 className="text-lg font-semibold text-[#f5f5f5] group-hover:text-[#ff4d8d] transition-colors">
+                      {t("onboarding.mode.remote.title")}
+                    </h3>
+                    <p className="text-[#a0a0a0] text-sm mt-1">
+                      {t("onboarding.mode.remote.description")}
+                    </p>
+                    {!isWindows && (
+                      <p className="text-xs text-[#6b6b6b] mt-2">
+                        {t("onboarding.mode.remote.windowsOnly")}
+                      </p>
+                    )}
+                  </div>
+                  {isWindows && (
+                    <div className="w-10 h-10 rounded-full bg-[#9b5de5] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <svg
+                        className="w-5 h-5 text-white"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 5l7 7-7 7"
+                        />
+                      </svg>
+                    </div>
+                  )}
+                </button>
+                <p className="text-xs text-[#6b6b6b] mt-2">
+                  {t("onboarding.mode.changeProviderLater")}
+                </p>
+              </div>
+            ) : (
+              <>
+                {availableModels
+                  .filter((model) => getRecommendedBadge(model))
+                  .map((model) => (
+                    <ModelCard
+                      key={model.id}
+                      model={model}
+                      variant="featured"
+                      disabled={downloading}
+                      onSelect={handleModelSelection}
+                    />
+                  ))}
 
-              {availableModels
-                .filter((model) => !getRecommendedBadge(model))
-                .sort((a, b) => Number(a.size_mb) - Number(b.size_mb))
-                .map((model) => (
-                  <ModelCard
-                    key={model.id}
-                    model={model}
-                    disabled={downloading}
-                    onSelect={handleModelSelection}
-                  />
-                ))}
-            </>
-          )}
+                {availableModels
+                  .filter((model) => !getRecommendedBadge(model))
+                  .sort((a, b) => Number(a.size_mb) - Number(b.size_mb))
+                  .map((model) => (
+                    <ModelCard
+                      key={model.id}
+                      model={model}
+                      disabled={downloading}
+                      onSelect={handleModelSelection}
+                    />
+                  ))}
+              </>
+            )}
+          </div>
         </div>
       </div>
       {/* Remote STT Configuration Wizard */}
@@ -433,6 +434,8 @@ const Onboarding: React.FC<OnboardingProps> = ({
         isOpen={showRemoteWizard}
         onClose={handleRemoteWizardClose}
         onComplete={handleRemoteWizardComplete}
+        onSkipWizard={() => void handleSkipWizard()}
+        skipDisabled={isSkipping}
       />
     </div>
   );

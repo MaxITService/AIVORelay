@@ -187,7 +187,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | --- | --- |
 | `src/App.tsx` | Fork specific event listeners. |
 | `src/components/model-selector/ModelSelector.tsx` | Soniox/Deepgram behavior support. |
-| `src/components/onboarding/Onboarding.tsx` | Remote STT wizards. |
+| `src/components/onboarding/Onboarding.tsx` | Remote STT wizards; the skip-wizard button sits in a non-scrolling header on every step (`RemoteSttWizard` repeats it inside the modal). |
 | `src/overlay/RecordingOverlay.tsx` | Extended error/sending states plus a first-sample-aware arming state that keeps reactive visuals dormant until capture is actually flowing. |
 | `src/overlay/RecordingOverlay.css` | Styles for error state and the theme-compatible, reduced-motion-safe capture-arming pulse. |
 | `vite.config.ts` | Multi-entry target for live preview and the lazy TTS playback overlay. |
