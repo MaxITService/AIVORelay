@@ -965,44 +965,243 @@ fn clamp_recording_overlay_window_origin(
     (clamp_f64(x, min_x, max_x), clamp_f64(y, min_y, max_y))
 }
 
-fn recording_overlay_manual_clamp_bounds(
-    monitor: &tauri::Monitor,
-    metrics: RecordingOverlayWindowMetrics,
-) -> LogicalBounds {
-    match metrics.layout {
-        RecordingOverlayLayout::Default => get_monitor_logical_bounds(monitor),
-        RecordingOverlayLayout::Error => get_monitor_logical_work_area_bounds(monitor)
-            .unwrap_or_else(|| get_monitor_logical_bounds(monitor)),
-    }
+/// Start coordinates a frame of `frame_length` may take inside the span
+/// `bounds_start..bounds_start + bounds_length`, keeping `edge_margin` clear on
+/// both sides when there is room for it.
+fn recording_overlay_frame_axis_limits(
+    bounds_start: f64,
+    bounds_length: f64,
+    frame_length: f64,
+    edge_margin: f64,
+) -> (f64, f64) {
+    let margin = if bounds_length > frame_length + (edge_margin * 2.0) {
+        edge_margin
+    } else {
+        0.0
+    };
+
+    (
+        bounds_start + margin,
+        bounds_start + bounds_length - frame_length - margin,
+    )
 }
 
 fn clamp_recording_overlay_frame_origin(
     bounds: LogicalBounds,
     metrics: RecordingOverlayWindowMetrics,
+    edge_margin: f64,
     x: f64,
     y: f64,
 ) -> (f64, f64) {
-    let edge_margin = match metrics.layout {
-        RecordingOverlayLayout::Default => 0.0,
-        RecordingOverlayLayout::Error => RECORDING_OVERLAY_EDGE_MARGIN,
-    };
-    let x_margin = if bounds.width > metrics.frame_width + (edge_margin * 2.0) {
-        edge_margin
-    } else {
-        0.0
-    };
-    let y_margin = if bounds.height > metrics.frame_height + (edge_margin * 2.0) {
-        edge_margin
-    } else {
-        0.0
-    };
-
-    let min_x = bounds.x + x_margin;
-    let max_x = bounds.x + bounds.width - metrics.frame_width - x_margin;
-    let min_y = bounds.y + y_margin;
-    let max_y = bounds.y + bounds.height - metrics.frame_height - y_margin;
+    let (min_x, max_x) = recording_overlay_frame_axis_limits(
+        bounds.x,
+        bounds.width,
+        metrics.frame_width,
+        edge_margin,
+    );
+    let (min_y, max_y) = recording_overlay_frame_axis_limits(
+        bounds.y,
+        bounds.height,
+        metrics.frame_height,
+        edge_margin,
+    );
 
     (clamp_f64(x, min_x, max_x), clamp_f64(y, min_y, max_y))
+}
+
+/// Places a span of `new_length` around the span `default_start..default_start
+/// + default_length`: centered on it when that fits between `min_start` and
+/// `max_start`, otherwise sharing the edge on the side that ran out of room so
+/// the overlay grows away from that edge instead of being pushed off its spot.
+fn grow_frame_span_in_place(
+    default_start: f64,
+    default_length: f64,
+    new_length: f64,
+    min_start: f64,
+    max_start: f64,
+) -> f64 {
+    let centered = default_start + ((default_length - new_length) / 2.0);
+    if centered < min_start {
+        default_start
+    } else if centered > max_start {
+        default_start + default_length - new_length
+    } else {
+        centered
+    }
+}
+
+/// The error layout of a manually placed overlay stays inside the work area
+/// when the default layout sits inside it. An overlay parked over the taskbar
+/// was put there on purpose, so its error layout may use the whole monitor.
+fn manual_error_layout_bounds(
+    monitor_bounds: LogicalBounds,
+    work_area: Option<LogicalBounds>,
+    default_frame: LogicalBounds,
+) -> LogicalBounds {
+    const TOLERANCE: f64 = 0.5;
+
+    match work_area {
+        Some(work_area)
+            if default_frame.x >= work_area.x - TOLERANCE
+                && default_frame.y >= work_area.y - TOLERANCE
+                && default_frame.x + default_frame.width
+                    <= work_area.x + work_area.width + TOLERANCE
+                && default_frame.y + default_frame.height
+                    <= work_area.y + work_area.height + TOLERANCE =>
+        {
+            work_area
+        }
+        _ => monitor_bounds,
+    }
+}
+
+/// Error-layout frame origin for a manually placed overlay whose default frame
+/// starts at (`default_frame_x`, `default_frame_y`): the error frame grows in
+/// place around the default frame, per axis, see `grow_frame_span_in_place`.
+fn manual_error_frame_origin(
+    monitor_bounds: LogicalBounds,
+    work_area: Option<LogicalBounds>,
+    default_frame_x: f64,
+    default_frame_y: f64,
+    default_metrics: RecordingOverlayWindowMetrics,
+    error_metrics: RecordingOverlayWindowMetrics,
+) -> (f64, f64) {
+    // Grow from where the default layout actually sits on this monitor.
+    let (default_x, default_y) = clamp_recording_overlay_frame_origin(
+        monitor_bounds,
+        default_metrics,
+        0.0,
+        default_frame_x,
+        default_frame_y,
+    );
+    let bounds = manual_error_layout_bounds(
+        monitor_bounds,
+        work_area,
+        LogicalBounds {
+            x: default_x,
+            y: default_y,
+            width: default_metrics.frame_width,
+            height: default_metrics.frame_height,
+        },
+    );
+    let (min_x, max_x) = recording_overlay_frame_axis_limits(
+        bounds.x,
+        bounds.width,
+        error_metrics.frame_width,
+        RECORDING_OVERLAY_EDGE_MARGIN,
+    );
+    let (min_y, max_y) = recording_overlay_frame_axis_limits(
+        bounds.y,
+        bounds.height,
+        error_metrics.frame_height,
+        RECORDING_OVERLAY_EDGE_MARGIN,
+    );
+    let x = grow_frame_span_in_place(
+        default_x,
+        default_metrics.frame_width,
+        error_metrics.frame_width,
+        min_x,
+        max_x,
+    );
+    let y = grow_frame_span_in_place(
+        default_y,
+        default_metrics.frame_height,
+        error_metrics.frame_height,
+        min_y,
+        max_y,
+    );
+
+    // A shared edge stays exactly where the default frame had it, so only the
+    // bounds themselves clamp here, without the edge margin.
+    clamp_recording_overlay_frame_origin(bounds, error_metrics, 0.0, x, y)
+}
+
+/// Default-frame starts that `grow_frame_span_in_place` could have turned into
+/// an error frame starting at `error_start`: centered growth, shared end edge,
+/// shared start edge.
+fn default_span_candidates(error_start: f64, error_length: f64, default_length: f64) -> [f64; 3] {
+    [
+        error_start + ((error_length - default_length) / 2.0),
+        error_start + error_length - default_length,
+        error_start,
+    ]
+}
+
+/// Inverse of `manual_error_frame_origin` for an error overlay the user
+/// dragged: the default frame origin whose error placement best reproduces the
+/// dropped error frame. Among equally good candidates the one closest to the
+/// previously saved origin wins, so dropping the error overlay where it already
+/// was keeps the saved spot instead of re-centering the default frame on it.
+fn manual_default_frame_origin_for_error_frame(
+    monitor_bounds: LogicalBounds,
+    work_area: Option<LogicalBounds>,
+    error_frame_x: f64,
+    error_frame_y: f64,
+    default_metrics: RecordingOverlayWindowMetrics,
+    error_metrics: RecordingOverlayWindowMetrics,
+    previous_default_frame: Option<(f64, f64)>,
+) -> (f64, f64) {
+    let x_candidates = default_span_candidates(
+        error_frame_x,
+        error_metrics.frame_width,
+        default_metrics.frame_width,
+    );
+    let y_candidates = default_span_candidates(
+        error_frame_y,
+        error_metrics.frame_height,
+        default_metrics.frame_height,
+    );
+
+    let mut best = ((x_candidates[0], y_candidates[0]), (i64::MAX, f64::MAX));
+    for candidate_y in y_candidates {
+        for candidate_x in x_candidates {
+            let (placed_x, placed_y) = manual_error_frame_origin(
+                monitor_bounds,
+                work_area,
+                candidate_x,
+                candidate_y,
+                default_metrics,
+                error_metrics,
+            );
+            // Half-pixel units keep float noise from deciding between
+            // candidates that reproduce the drop equally well.
+            let placement_error = ((placed_x - error_frame_x)
+                .abs()
+                .max((placed_y - error_frame_y).abs())
+                * 2.0)
+                .round() as i64;
+            let drift = previous_default_frame
+                .map(|(previous_x, previous_y)| {
+                    (candidate_x - previous_x)
+                        .abs()
+                        .max((candidate_y - previous_y).abs())
+                })
+                .unwrap_or(0.0);
+            let score = (placement_error, drift);
+            if score < best.1 {
+                best = ((candidate_x, candidate_y), score);
+            }
+        }
+    }
+
+    best.0
+}
+
+/// The manually saved default-frame origin, in logical pixels of a monitor
+/// with `scale`.
+fn saved_manual_default_frame_origin(app_handle: &AppHandle, scale: f64) -> Option<(f64, f64)> {
+    let settings = settings::get_settings(app_handle);
+    if !settings.recording_overlay_use_manual_position {
+        return None;
+    }
+
+    let x = settings.recording_overlay_custom_x_px as f64;
+    let y = settings.recording_overlay_custom_y_px as f64;
+    if settings.recording_overlay_manual_position_uses_physical_px {
+        Some((x / scale, y / scale))
+    } else {
+        Some((x, y))
+    }
 }
 
 fn recording_overlay_manual_frame_origin(
@@ -1012,20 +1211,26 @@ fn recording_overlay_manual_frame_origin(
     saved_frame_y: f64,
     monitor: &tauri::Monitor,
 ) -> (f64, f64) {
-    let (frame_x, frame_y) = match metrics.layout {
-        RecordingOverlayLayout::Error => {
-            let default_metrics =
-                recording_overlay_geometry_metrics(app_handle, RecordingOverlayLayout::Default);
-            (
-                saved_frame_x + ((default_metrics.frame_width - metrics.frame_width) / 2.0),
-                saved_frame_y + ((default_metrics.frame_height - metrics.frame_height) / 2.0),
-            )
-        }
-        RecordingOverlayLayout::Default => (saved_frame_x, saved_frame_y),
-    };
-
-    let bounds = recording_overlay_manual_clamp_bounds(monitor, metrics);
-    clamp_recording_overlay_frame_origin(bounds, metrics, frame_x, frame_y)
+    // The user chose this spot, taskbar included, so the default layout may
+    // use the whole monitor.
+    let monitor_bounds = get_monitor_logical_bounds(monitor);
+    match metrics.layout {
+        RecordingOverlayLayout::Default => clamp_recording_overlay_frame_origin(
+            monitor_bounds,
+            metrics,
+            0.0,
+            saved_frame_x,
+            saved_frame_y,
+        ),
+        RecordingOverlayLayout::Error => manual_error_frame_origin(
+            monitor_bounds,
+            get_monitor_logical_work_area_bounds(monitor),
+            saved_frame_x,
+            saved_frame_y,
+            recording_overlay_geometry_metrics(app_handle, RecordingOverlayLayout::Default),
+            metrics,
+        ),
+    }
 }
 
 fn calculate_recording_overlay_window_geometry(
@@ -3218,10 +3423,21 @@ pub fn remember_recording_overlay_window_position(
         RecordingOverlayLayout::Error => {
             let default_metrics =
                 recording_overlay_geometry_metrics(&app_handle, RecordingOverlayLayout::Default);
-            (
-                current_frame_x + ((metrics.frame_width - default_metrics.frame_width) / 2.0),
-                current_frame_y + ((metrics.frame_height - default_metrics.frame_height) / 2.0),
-            )
+            match monitor.as_ref() {
+                Some(monitor) => manual_default_frame_origin_for_error_frame(
+                    get_monitor_logical_bounds(monitor),
+                    get_monitor_logical_work_area_bounds(monitor),
+                    current_frame_x,
+                    current_frame_y,
+                    default_metrics,
+                    metrics,
+                    saved_manual_default_frame_origin(&app_handle, scale),
+                ),
+                None => (
+                    current_frame_x + ((metrics.frame_width - default_metrics.frame_width) / 2.0),
+                    current_frame_y + ((metrics.frame_height - default_metrics.frame_height) / 2.0),
+                ),
+            }
         }
     };
 
@@ -3269,8 +3485,124 @@ enum RecordingOverlayLayout {
 #[cfg(test)]
 mod tests {
     use super::{
-        scale_recording_overlay_metrics, RecordingOverlayLayout, RecordingOverlayWindowMetrics,
+        manual_default_frame_origin_for_error_frame, manual_error_frame_origin,
+        scale_recording_overlay_metrics, LogicalBounds, RecordingOverlayLayout,
+        RecordingOverlayWindowMetrics,
     };
+
+    // A 4K monitor at 100% with a bottom taskbar, and this fork's overlay
+    // sizes with a 13 px / 19 px window padding.
+    const MONITOR: LogicalBounds = LogicalBounds {
+        x: 0.0,
+        y: 0.0,
+        width: 3840.0,
+        height: 2160.0,
+    };
+    const WORK_AREA: LogicalBounds = LogicalBounds {
+        x: 0.0,
+        y: 0.0,
+        width: 3840.0,
+        height: 2102.0,
+    };
+    const DEFAULT_METRICS: RecordingOverlayWindowMetrics = RecordingOverlayWindowMetrics {
+        layout: RecordingOverlayLayout::Default,
+        frame_width: 207.0,
+        frame_height: 36.0,
+        padding: 13.0,
+        window_width: 233.0,
+        window_height: 62.0,
+    };
+    const ERROR_METRICS: RecordingOverlayWindowMetrics = RecordingOverlayWindowMetrics {
+        layout: RecordingOverlayLayout::Error,
+        frame_width: 340.0,
+        frame_height: 82.0,
+        padding: 19.0,
+        window_width: 378.0,
+        window_height: 120.0,
+    };
+
+    fn error_origin(default_x: f64, default_y: f64) -> (f64, f64) {
+        manual_error_frame_origin(
+            MONITOR,
+            Some(WORK_AREA),
+            default_x,
+            default_y,
+            DEFAULT_METRICS,
+            ERROR_METRICS,
+        )
+    }
+
+    fn default_origin(error_x: f64, error_y: f64, previous: Option<(f64, f64)>) -> (f64, f64) {
+        manual_default_frame_origin_for_error_frame(
+            MONITOR,
+            Some(WORK_AREA),
+            error_x,
+            error_y,
+            DEFAULT_METRICS,
+            ERROR_METRICS,
+            previous,
+        )
+    }
+
+    #[test]
+    fn manual_error_layout_grows_around_a_mid_screen_overlay() {
+        assert_eq!(error_origin(1000.0, 1000.0), (933.5, 977.0));
+    }
+
+    #[test]
+    fn manual_error_layout_keeps_the_bottom_edge_of_an_overlay_over_the_taskbar() {
+        // Default frame 2115..2151 sits on the taskbar: the error frame keeps
+        // that bottom edge and grows upward, 2069..2151.
+        assert_eq!(error_origin(122.0, 2115.0), (55.5, 2069.0));
+    }
+
+    #[test]
+    fn manual_error_layout_stays_inside_the_work_area_when_the_overlay_does() {
+        // Default frame 2066..2102 ends exactly at the work area: the error
+        // frame shares that edge instead of overlapping the taskbar.
+        assert_eq!(error_origin(122.0, 2066.0), (55.5, 2020.0));
+    }
+
+    #[test]
+    fn manual_error_layout_keeps_the_top_and_left_edges_near_the_origin() {
+        assert_eq!(error_origin(10.0, 10.0), (10.0, 10.0));
+    }
+
+    #[test]
+    fn manual_error_layout_starts_from_the_clamped_default_frame() {
+        // A saved spot past the monitor edge is clamped for the default
+        // layout first, so the error layout grows from the visible frame.
+        assert_eq!(error_origin(5000.0, 5000.0), (3500.0, 2078.0));
+    }
+
+    #[test]
+    fn dragging_the_error_overlay_back_in_place_keeps_the_saved_origin() {
+        assert_eq!(
+            default_origin(55.5, 2069.0, Some((122.0, 2115.0))),
+            (122.0, 2115.0)
+        );
+    }
+
+    #[test]
+    fn dragging_the_error_overlay_mid_screen_centers_the_default_frame() {
+        assert_eq!(default_origin(933.5, 977.0, None), (1000.0, 1000.0));
+        assert_eq!(
+            default_origin(933.5, 977.0, Some((122.0, 2115.0))),
+            (1000.0, 1000.0)
+        );
+    }
+
+    #[test]
+    fn error_overlay_drops_round_trip_through_the_forward_placement() {
+        for (error_x, error_y) in [(933.5, 977.0), (55.5, 2069.0), (55.5, 2020.0), (4.0, 4.0)] {
+            let (default_x, default_y) = default_origin(error_x, error_y, None);
+            assert_eq!(
+                error_origin(default_x, default_y),
+                (error_x, error_y),
+                "error frame at ({error_x}, {error_y})"
+            );
+        }
+    }
 
     #[test]
     fn recording_overlay_metrics_grow_with_windows_text_scale() {
