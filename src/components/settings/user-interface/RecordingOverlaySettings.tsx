@@ -73,6 +73,8 @@ const openDecapitalizeFeatureSettings = () => {
 
 const RECORDING_OVERLAY_SETTINGS_COLLAPSED_KEY =
   "aivorelay.userInterface.recordingOverlay.collapsed";
+const RECORDING_OVERLAY_PRESETS_COLLAPSED_KEY =
+  "aivorelay.userInterface.recordingOverlay.presetsCollapsed";
 
 const THEME_OPTIONS: Array<{
   value: RecordingOverlayTheme;
@@ -324,10 +326,26 @@ export const RecordingOverlaySettings: React.FC = () => {
       if (window.localStorage.getItem(RECORDING_OVERLAY_SETTINGS_COLLAPSED_KEY) === "true") {
         setIsRecordingOverlayCollapsed(true);
       }
+      if (window.localStorage.getItem(RECORDING_OVERLAY_PRESETS_COLLAPSED_KEY) === "true") {
+        setArePresetsExpanded(false);
+      }
     } catch {
       // Keep the section expanded when localStorage is unavailable.
     }
   }, []);
+
+  const togglePresetsExpanded = React.useCallback(() => {
+    const expanded = !arePresetsExpanded;
+    setArePresetsExpanded(expanded);
+    try {
+      window.localStorage.setItem(
+        RECORDING_OVERLAY_PRESETS_COLLAPSED_KEY,
+        expanded ? "false" : "true",
+      );
+    } catch {
+      // UI preference only; ignoring storage errors preserves the toggle behavior.
+    }
+  }, [arePresetsExpanded]);
 
   const updateRecordingOverlayCollapsed = React.useCallback((collapsed: boolean) => {
     setIsRecordingOverlayCollapsed(collapsed);
@@ -1178,7 +1196,7 @@ export const RecordingOverlaySettings: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={() => setArePresetsExpanded((current) => !current)}
+              onClick={togglePresetsExpanded}
               className="rounded-md border border-[#3f3f3f] bg-[#202020] px-3 py-1.5 text-xs font-medium text-[#ededed] transition-colors hover:bg-[#2b2b2b]"
             >
               {arePresetsExpanded
