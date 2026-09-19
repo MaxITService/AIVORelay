@@ -1,0 +1,68 @@
+/* Animated border of the recording overlay. Imported by the component itself so
+   the settings preview, which does not load RecordingOverlay.css, renders the
+   same layers as the overlay window. */
+
+.recording-overlay-border {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.recording-overlay-border-pulse,
+.recording-overlay-border-glow,
+.recording-overlay-border-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+/* Only the outer band stays visible: the mask cuts the content box out of the
+   layer, so the inner edge follows the frame radius as well. */
+.recording-overlay-border-ring {
+  padding: var(--rob-thickness, 1.5px);
+  box-sizing: border-box;
+  background-color: var(--rob-line);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+/* The frame clips its children, so the glow bleeds inward instead of outward. */
+.recording-overlay-border-glow {
+  box-shadow: inset 0 0 var(--rob-glow-size, 12px) var(--rob-glow);
+}
+
+/* Glints repeat every 96px; the animation slides the tiles along the edge. */
+.recording-overlay-border[data-mode="shimmer_edge"] .recording-overlay-border-ring {
+  background-image: linear-gradient(
+    100deg,
+    var(--rob-line) 0%,
+    var(--rob-line) 32%,
+    var(--rob-spark) 44%,
+    var(--rob-spark-core) 50%,
+    var(--rob-spark) 56%,
+    var(--rob-line) 68%,
+    var(--rob-line) 100%
+  );
+  background-size: 96px 100%;
+  background-repeat: repeat-x;
+}
+
+.recording-overlay-border-svg {
+  position: absolute;
+  inset: 1px;
+  width: calc(100% - 2px);
+  height: calc(100% - 2px);
+  overflow: visible;
+  /* Mirrored so the comet runs clockwise: the rect path is clockwise and a
+     growing dash offset moves the pattern against it. */
+  transform: scaleX(-1);
+}
