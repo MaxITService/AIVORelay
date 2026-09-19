@@ -246,16 +246,16 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.40",
+      "since": "Since version 1.0.41",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "clipboardRestore": "Fixed live dictation not restoring your clipboard: after Stop, whatever you had copied before (including images and formatted text) is put back, and the full transcript is offered to the clipboard again where your settings allow it.",
-        "geminiOnboarding": "The setup wizard can now configure Gemini 3.5 Transcribe, including the connection route and live or after-recording workflow, and the wizard can be skipped to go straight to the main menu.",
-        "microphoneAccess": "AivoRelay now opens even when Windows blocks microphone access. Speech / Microphone settings show a reminder with a button to open Windows privacy settings, and the wizard's permission step can be skipped.",
-        "decapitalizeIndicator": "The decapitalize indicator on the recording overlay is smaller by default and can be sized from 6 to 48 px. Its appearance settings sit in their own card under User Interface, linked both ways with the Decapitalize After Manual Edit settings.",
-        "overlaySettings": "Collapsing the Recording Overlay settings section now hides the floating preview, and the Live Preview section can be collapsed too. Fixed the Custom Position card covering the Overlay Position label.",
-        "geminiDelayHelp": "The Gemini Live early finalization delay is now called \"Wait for text for this long after Stop\" and explains what shorter and longer values trade off."
+        "webviewRecovery": "If the app's windows suddenly turn black because the built-in browser engine crashed (this can happen with overlay tools such as RivaTuner), AivoRelay now rebuilds its windows on its own instead of staying blank until you restart it.",
+        "errorOverlayClose": "The error overlay now has a close (X) button next to Retry and Copy, so you can dismiss it right away instead of waiting for it to hide.",
+        "overlayErrorPosition": "A manually placed recording overlay no longer jumps or drifts when an error appears: the error layout grows in place around the recording frame, and the app's own repositioning is no longer saved as your manual position.",
+        "animatedBorder": "The animated border styles (Traveling Highlight, Shimmer Edge, Breathing Contour) now actually move all the time, including while transcribing and in the settings preview. Your voice level changes their speed and brightness.",
+        "onboardingSkip": "The Skip button in the setup wizard stays visible on every step, and the Remote STT wizard now has a skip link at the bottom.",
+        "overlaySettings": "The Recording Overlay settings remember whether the presets list was collapsed, and \"Show Decapitalize Indicator In Preview\" now sits at the top of the Decapitalize Indicator card."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"
