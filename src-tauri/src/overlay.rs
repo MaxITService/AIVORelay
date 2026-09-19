@@ -18,6 +18,11 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 static RECORDING_OVERLAY_LAYOUT: AtomicU8 = AtomicU8::new(0);
 // Kept in sync at startup and whenever the persisted enable setting changes.
 static RECORDING_OVERLAY_ENABLED: AtomicBool = AtomicBool::new(false);
+/// Physical window origin the app applied itself since the last persisted
+/// drag. The overlay webview reports every window move, including layout
+/// switches such as the error overlay appearing mid-drag, and those must never
+/// be persisted as a manual position.
+static LAST_SELF_APPLIED_ORIGIN: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 static LAST_MIC_LEVEL_EMIT: AtomicU64 = AtomicU64::new(0);
 const MIC_LEVEL_EMIT_THROTTLE_MS: u64 = 33; // ~30 FPS
 
@@ -1185,11 +1190,32 @@ fn calculate_recording_overlay_window_geometry(
     })
 }
 
+fn set_last_self_applied_origin(origin: Option<(i32, i32)>) {
+    if let Ok(mut last) = LAST_SELF_APPLIED_ORIGIN.lock() {
+        *last = origin;
+    }
+}
+
+fn is_self_applied_origin(x_px: i32, y_px: i32) -> bool {
+    LAST_SELF_APPLIED_ORIGIN
+        .lock()
+        .ok()
+        .and_then(|last| *last)
+        // Non-Windows placement goes through logical coordinates and may
+        // round differently from what the OS reports back.
+        .is_some_and(|(x, y)| (x - x_px).abs() <= 1 && (y - y_px).abs() <= 1)
+}
+
 fn apply_recording_overlay_window_geometry(
     overlay_window: &tauri::webview::WebviewWindow,
     geometry: RecordingOverlayWindowGeometry,
     show_window: bool,
 ) {
+    set_last_self_applied_origin(Some((
+        (geometry.x * geometry.scale_factor).round() as i32,
+        (geometry.y * geometry.scale_factor).round() as i32,
+    )));
+
     #[cfg(target_os = "windows")]
     {
         apply_recording_overlay_geometry_native(overlay_window, geometry, show_window);
@@ -3163,6 +3189,13 @@ pub fn remember_recording_overlay_window_position(
     x_px: i32,
     y_px: i32,
 ) -> Result<(), String> {
+    if is_self_applied_origin(x_px, y_px) {
+        log::debug!(
+            "Ignoring recording overlay position ({x_px}, {y_px}) that the app placed itself"
+        );
+        return Ok(());
+    }
+
     let metrics =
         recording_overlay_geometry_metrics(&app_handle, current_recording_overlay_layout());
     let monitor = get_monitor_for_scaled_physical_rect(
@@ -3194,6 +3227,9 @@ pub fn remember_recording_overlay_window_position(
 
     let saved_x_px = ((default_frame_x * scale).round() as i32).clamp(-100000, 100000);
     let saved_y_px = ((default_frame_y * scale).round() as i32).clamp(-100000, 100000);
+    // A real drag supersedes the earlier app placement, so dragging back to
+    // that exact spot later must still be persisted.
+    set_last_self_applied_origin(None);
     persist_recording_overlay_custom_position(&app_handle, saved_x_px, saved_y_px);
     Ok(())
 }
