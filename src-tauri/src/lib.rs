@@ -1701,6 +1701,7 @@ pub fn run(cli_args: CliArgs) {
         actions::preview_delete_last_word_action,
         actions::preview_delete_last_char_action,
         actions::retry_last_remote_transcription,
+        plus_overlay_state::dismiss_error_overlay,
         overlay::apply_recording_overlay_custom_position,
         overlay::remember_recording_overlay_window_position,
         overlay::reset_recording_overlay_manual_position,

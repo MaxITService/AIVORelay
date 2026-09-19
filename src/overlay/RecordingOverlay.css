@@ -731,6 +731,26 @@ body,
   text-shadow: 0 0 10px rgba(255, 190, 120, 0.18);
 }
 
+.recording-overlay.recording-overlay-custom .error-actions,
+.recording-overlay.recording-overlay-legacy .error-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  flex-shrink: 0;
+}
+
+.recording-overlay.recording-overlay-custom .error-close-button {
+  border-color: rgba(255, 122, 122, 0.5);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 190, 190, 0.16) 0%,
+      rgba(255, 107, 107, 0.08) 100%
+    ),
+    rgba(255, 107, 107, 0.08);
+}
+
 .recording-overlay.recording-overlay-custom .error-code-chip,
 .recording-overlay.recording-overlay-legacy .error-code-chip,
 .recording-overlay.recording-overlay-custom .error-retry-button,
@@ -738,7 +758,6 @@ body,
 .recording-overlay.recording-overlay-custom .error-copy-button,
 .recording-overlay.recording-overlay-legacy .error-copy-button {
   flex-shrink: 0;
-  align-self: flex-start;
   color: #ffd5d5;
   font-size: 10px;
   font-family: "Cascadia Mono", "Consolas", monospace;
