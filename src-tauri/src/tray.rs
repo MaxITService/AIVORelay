@@ -16,9 +16,9 @@ use crate::{commands::audio, settings};
 use log::{debug, error, info, trace, warn};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIcon;
@@ -38,42 +38,80 @@ impl TrayIconState {
     }
 }
 
-static BLINK_GENERATION: AtomicU64 = AtomicU64::new(0);
 static MAIN_THREAD_POST_PENDING: AtomicBool = AtomicBool::new(false);
 
-fn handle_tray_blinking_transition(app: &AppHandle, state: TrayIconState) {
-    let settings = settings::get_settings(app);
-    let should_blink = settings.show_tray_icon
-        && settings.tray_icon_blinking_enabled
-        && match state {
-            TrayIconState::Recording => settings.tray_icon_blink_on_recording,
-            TrayIconState::Transcribing => settings.tray_icon_blink_on_processing,
-            TrayIconState::Idle => false,
-        };
+/// Blink settings captured before the tray lock is taken. The settings store
+/// must never be read while holding the tray lock.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct BlinkPolicy {
+    tray_visible: bool,
+    enabled: bool,
+    on_recording: bool,
+    on_processing: bool,
+    frequency_hz: f64,
+}
 
-    if !should_blink {
-        BLINK_GENERATION.fetch_add(1, Ordering::SeqCst);
-        return;
+impl BlinkPolicy {
+    fn from_settings(settings: &settings::AppSettings) -> Self {
+        Self {
+            tray_visible: settings.show_tray_icon,
+            enabled: settings.tray_icon_blinking_enabled,
+            on_recording: settings.tray_icon_blink_on_recording,
+            on_processing: settings.tray_icon_blink_on_processing,
+            frequency_hz: settings::normalize_tray_icon_blink_frequency_hz(
+                settings.tray_icon_blink_frequency_hz,
+            ),
+        }
     }
 
-    let generation = BLINK_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-    let hz = settings::normalize_tray_icon_blink_frequency_hz(
-        settings.tray_icon_blink_frequency_hz,
-    );
-    let half_period = std::time::Duration::from_secs_f64(0.5 / hz);
-    let app_handle = app.clone();
+    fn load(app: &AppHandle) -> Self {
+        Self::from_settings(&settings::get_settings(app))
+    }
 
+    fn applies_to(&self, state: TrayIconState) -> bool {
+        self.tray_visible
+            && self.enabled
+            && match state {
+                TrayIconState::Recording => self.on_recording,
+                TrayIconState::Transcribing => self.on_processing,
+                TrayIconState::Idle => false,
+            }
+    }
+
+    fn half_period(&self) -> Duration {
+        Duration::from_secs_f64(0.5 / self.frequency_hz)
+    }
+}
+
+/// A blink loop claimed under the tray lock and started once it is released.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BlinkPlan {
+    generation: u64,
+    half_period: Duration,
+}
+
+/// Ordering claimed for a tray sync whose (slow) snapshot is computed later.
+/// Dropping a ticket without committing it leaves the tray stale until the
+/// next sync, so callers should commit as soon as they leave their lock.
+#[must_use = "commit the ticket with `commit_tray_sync`"]
+pub struct TraySyncTicket {
+    seq: u64,
+    icon_state: TrayIconState,
+}
+
+fn spawn_blink_loop(app: &AppHandle, plan: BlinkPlan) {
+    let app = app.clone();
     std::thread::spawn(move || {
-        let mut toggle = false;
-        while BLINK_GENERATION.load(Ordering::SeqCst) == generation {
-            std::thread::sleep(half_period);
-            if BLINK_GENERATION.load(Ordering::SeqCst) != generation {
+        let mut show_recording_icon = false;
+        loop {
+            std::thread::sleep(plan.half_period);
+            if !blink_is_current(&app, plan.generation) {
                 break;
             }
 
-            toggle = !toggle;
+            show_recording_icon = !show_recording_icon;
             // Alternates between standard app logo and recording "ear" icon
-            let blink_state = if toggle {
+            let frame = if show_recording_icon {
                 TrayIconState::Recording
             } else {
                 TrayIconState::Idle
@@ -83,14 +121,11 @@ fn handle_tray_blinking_transition(app: &AppHandle, state: TrayIconState) {
                 .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                 .is_ok()
             {
-                let h = app_handle.clone();
-                let gen = generation;
-                if app_handle
+                let h = app.clone();
+                if app
                     .run_on_main_thread(move || {
                         MAIN_THREAD_POST_PENDING.store(false, Ordering::SeqCst);
-                        if BLINK_GENERATION.load(Ordering::SeqCst) == gen {
-                            apply_blink_icon_on_main(&h, blink_state);
-                        }
+                        apply_blink_frame_on_main(&h, plan.generation, frame);
                     })
                     .is_err()
                 {
@@ -101,7 +136,13 @@ fn handle_tray_blinking_transition(app: &AppHandle, state: TrayIconState) {
     });
 }
 
-fn apply_blink_icon_on_main(app: &AppHandle, state: TrayIconState) {
+fn blink_is_current(app: &AppHandle, generation: u64) -> bool {
+    app.try_state::<TrayState>()
+        .map(|state| state.lock().blink_is_current(generation))
+        .unwrap_or(false)
+}
+
+fn apply_blink_frame_on_main(app: &AppHandle, generation: u64, frame: TrayIconState) {
     let Some(tray_state) = app.try_state::<TrayState>() else {
         return;
     };
@@ -110,10 +151,15 @@ fn apply_blink_icon_on_main(app: &AppHandle, state: TrayIconState) {
     };
 
     let theme = get_current_theme(app);
-    let icon_path = get_icon_path(theme, state);
+    let icon_path = get_icon_path(theme, frame);
 
     let image = {
         let mut inner = tray_state.lock();
+        // Re-checked under the lock: a frame queued before the loop was
+        // retired must not overwrite the static icon applied after it.
+        if !inner.blink_is_current(generation) {
+            return;
+        }
         inner.applied_icon = None;
         if let Some(img) = inner.icons.get(icon_path).cloned() {
             img
@@ -132,21 +178,36 @@ fn apply_blink_icon_on_main(app: &AppHandle, state: TrayIconState) {
 }
 
 pub fn set_tray_state(app: &AppHandle, state: TrayIconState) {
-    sync_tray_with(app, |inner| inner.icon_state = state, None);
-    handle_tray_blinking_transition(app, state);
+    if let Some(ticket) = claim_tray_state(app, state, &settings::get_settings(app)) {
+        commit_tray_sync(app, ticket);
+    }
 }
 
 pub fn change_tray_icon(app: &AppHandle, state: TrayIconState) {
     set_tray_state(app, state);
 }
 
+/// Records the new icon state and settles the blink loop without touching
+/// the native tray. Cheap enough to call while holding another lock that
+/// decides whether the transition is still valid; the returned ticket must
+/// then be committed after that lock is released. Settings are passed in
+/// because loading them reads the store file from disk, which callers should
+/// do before taking their lock.
+pub fn claim_tray_state(
+    app: &AppHandle,
+    state: TrayIconState,
+    settings: &settings::AppSettings,
+) -> Option<TraySyncTicket> {
+    let policy = BlinkPolicy::from_settings(settings);
+    claim_tray_sync(app, |inner| inner.icon_state = state, Some(policy))
+}
+
 /// Re-applies the current state when the appearance changed without changing
 /// whether the app is idle, recording, or transcribing.
 pub fn refresh_tray_icon(app: &AppHandle) {
-    sync_tray(app, None);
-    if let Some(state) = app.try_state::<TrayState>() {
-        let icon_state = state.lock().icon_state;
-        handle_tray_blinking_transition(app, icon_state);
+    let policy = BlinkPolicy::load(app);
+    if let Some(ticket) = claim_tray_sync(app, |_| {}, Some(policy)) {
+        commit_tray_sync(app, ticket);
     }
 }
 
@@ -208,6 +269,54 @@ struct TrayInner {
     icons: HashMap<&'static str, Image<'static>>,
     next_seq: u64,
     desired_seq: u64,
+    /// Identifies the blink loop allowed to touch the tray. Changed only
+    /// together with `icon_state`, under the same lock, so the last writer of
+    /// the state is always the last to decide whether the tray blinks.
+    blink_generation: u64,
+}
+
+impl TrayInner {
+    /// Retires the running blink loop and, when the current state should
+    /// blink, claims a new generation for its replacement.
+    fn transition_blink(&mut self, policy: &BlinkPolicy) -> Option<BlinkPlan> {
+        self.blink_generation += 1;
+        policy.applies_to(self.icon_state).then(|| BlinkPlan {
+            generation: self.blink_generation,
+            half_period: policy.half_period(),
+        })
+    }
+
+    /// A loop keeps running only while it owns the generation and the tray
+    /// is still busy. The second check is defense in depth: it stops any loop
+    /// that outlived its state without waiting for the next transition.
+    fn blink_is_current(&self, generation: u64) -> bool {
+        self.blink_generation == generation && self.icon_state.is_busy()
+    }
+
+    /// Claims the next sync ordering slot for the current icon state.
+    fn claim_seq(&mut self) -> TraySyncTicket {
+        self.next_seq += 1;
+        TraySyncTicket {
+            seq: self.next_seq,
+            icon_state: self.icon_state,
+        }
+    }
+
+    /// Stores the snapshot for `ticket` unless a newer ticket already landed.
+    /// Returns whether a main-thread apply must be posted.
+    fn record_desired(&mut self, ticket: &TraySyncTicket, desired: TrayDesired) -> Option<bool> {
+        if ticket.seq < self.desired_seq {
+            trace!(
+                "Tray sync request {} was superseded by {}",
+                ticket.seq,
+                self.desired_seq
+            );
+            return None;
+        }
+        self.desired = Some(desired);
+        self.desired_seq = ticket.seq;
+        Some(!std::mem::replace(&mut self.pending, true))
+    }
 }
 
 /// Owns the desired and applied tray snapshots. Native tray mutations are
@@ -225,6 +334,7 @@ impl TrayState {
             icons: HashMap::new(),
             next_seq: 0,
             desired_seq: 0,
+            blink_generation: 0,
         }))
     }
 
@@ -358,30 +468,55 @@ fn version_label() -> String {
 }
 
 pub fn update_tray_menu(app: &AppHandle, state: &TrayIconState, locale: Option<&str>) {
-    sync_tray_with(app, |inner| inner.icon_state = *state, locale);
+    let policy = BlinkPolicy::load(app);
+    if let Some(ticket) = claim_tray_sync(app, |inner| inner.icon_state = *state, Some(policy)) {
+        commit_tray_sync_with_locale(app, ticket, locale);
+    }
 }
 
 pub fn refresh_tray_menu(app: &AppHandle, locale: Option<&str>) {
-    sync_tray(app, locale);
+    if let Some(ticket) = claim_tray_sync(app, |_| {}, None) {
+        commit_tray_sync_with_locale(app, ticket, locale);
+    }
 }
 
-fn sync_tray(app: &AppHandle, locale: Option<&str>) {
-    sync_tray_with(app, |_| {}, locale);
-}
+/// Applies `update` and claims the ordering slot for the resulting state in
+/// one critical section. With a policy, the blink loop is settled in the same
+/// section, so no stale transition can restart blinking after a newer one
+/// stopped it. Any write to `icon_state` must pass a policy.
+fn claim_tray_sync(
+    app: &AppHandle,
+    update: impl FnOnce(&mut TrayInner),
+    blink_policy: Option<BlinkPolicy>,
+) -> Option<TraySyncTicket> {
+    let state = app.try_state::<TrayState>()?;
 
-/// Records the latest desired tray snapshot and schedules one main-thread
-/// apply. Concurrent requests are coalesced, and an older slow snapshot can
-/// never overwrite a newer request.
-fn sync_tray_with(app: &AppHandle, update: impl FnOnce(&mut TrayInner), locale: Option<&str>) {
-    let Some(state) = app.try_state::<TrayState>() else {
-        return;
-    };
-
-    let (seq, icon_state) = {
+    let (ticket, blink_plan) = {
         let mut inner = state.lock();
         update(&mut inner);
-        inner.next_seq += 1;
-        (inner.next_seq, inner.icon_state)
+        let blink_plan = blink_policy
+            .as_ref()
+            .and_then(|policy| inner.transition_blink(policy));
+        (inner.claim_seq(), blink_plan)
+    };
+
+    if let Some(plan) = blink_plan {
+        spawn_blink_loop(app, plan);
+    }
+
+    Some(ticket)
+}
+
+/// Computes and records the tray snapshot for a claimed ticket and schedules
+/// one main-thread apply. Concurrent requests are coalesced, and an older slow
+/// snapshot can never overwrite a newer request.
+pub fn commit_tray_sync(app: &AppHandle, ticket: TraySyncTicket) {
+    commit_tray_sync_with_locale(app, ticket, None);
+}
+
+fn commit_tray_sync_with_locale(app: &AppHandle, ticket: TraySyncTicket, locale: Option<&str>) {
+    let Some(state) = app.try_state::<TrayState>() else {
+        return;
     };
 
     // Early callbacks may arrive before the native tray is built. The icon
@@ -390,7 +525,7 @@ fn sync_tray_with(app: &AppHandle, update: impl FnOnce(&mut TrayInner), locale: 
         return;
     }
 
-    let desired = compute_desired(app, icon_state, locale);
+    let desired = compute_desired(app, ticket.icon_state, locale);
     let needs_icon = !state.lock().icons.contains_key(desired.icon_path);
     let loaded_icon = if needs_icon {
         match load_tray_icon(
@@ -412,20 +547,10 @@ fn sync_tray_with(app: &AppHandle, update: impl FnOnce(&mut TrayInner), locale: 
         if let Some(image) = loaded_icon {
             inner.icons.insert(desired.icon_path, image);
         }
-        if seq < inner.desired_seq {
-            trace!(
-                "Tray sync request {} was superseded by {}",
-                seq,
-                inner.desired_seq
-            );
-            return;
-        }
-        inner.desired = Some(desired);
-        inner.desired_seq = seq;
-        !std::mem::replace(&mut inner.pending, true)
+        inner.record_desired(&ticket, desired)
     };
 
-    if schedule {
+    if schedule == Some(true) {
         post_tray_apply(app);
     }
 }
@@ -1344,10 +1469,204 @@ mod tests {
     use super::{
         get_icon_path, last_transcript_text, parse_microphone_menu_selection,
         parse_model_menu_selection, should_show_enter_speech_only_mode, tray_tooltip, AppTheme,
-        TrayIconState, TrayModelSelection, TRAY_MICROPHONE_DEFAULT_ID,
-        TRAY_MICROPHONE_MENU_PREFIX, TRAY_MICROPHONE_MISSING_ID, TRAY_MODEL_MENU_PREFIX,
+        BlinkPolicy, MenuInputs, TrayDesired, TrayIconState, TrayModelSelection, TrayState,
+        TRAY_MICROPHONE_DEFAULT_ID, TRAY_MICROPHONE_MENU_PREFIX, TRAY_MICROPHONE_MISSING_ID,
+        TRAY_MODEL_MENU_PREFIX,
     };
     use crate::managers::history::HistoryEntry;
+    use crate::settings::TranscriptionProvider;
+    use std::time::Duration;
+
+    fn blink_everywhere() -> BlinkPolicy {
+        BlinkPolicy {
+            tray_visible: true,
+            enabled: true,
+            on_recording: true,
+            on_processing: true,
+            frequency_hz: 2.0,
+        }
+    }
+
+    fn desired_for(icon_state: TrayIconState) -> TrayDesired {
+        TrayDesired {
+            icon_path: get_icon_path(AppTheme::Dark, icon_state),
+            menu: MenuInputs {
+                busy: icon_state.is_busy(),
+                webviews_disabled: false,
+                show_speech_only_mode_in_tray: false,
+                locale: "en".to_string(),
+                update_checks_enabled: false,
+                transcription_provider: TranscriptionProvider::Local,
+                selected_model: String::new(),
+                selected_local_model_name: None,
+                selected_microphone: None,
+                remote_provider_preset: String::new(),
+                remote_model_id: String::new(),
+                soniox_model: String::new(),
+                deepgram_model: String::new(),
+                show_shortcut_guide: false,
+                show_shortcut_guide_in_main_menu: false,
+                model_loaded: false,
+                downloaded_local_models: Vec::new(),
+                microphones: Vec::new(),
+                shortcut_items: Vec::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn blink_policy_only_applies_to_busy_states_it_is_enabled_for() {
+        let policy = blink_everywhere();
+        assert!(!policy.applies_to(TrayIconState::Idle));
+        assert!(policy.applies_to(TrayIconState::Recording));
+        assert!(policy.applies_to(TrayIconState::Transcribing));
+
+        let recording_only = BlinkPolicy {
+            on_processing: false,
+            ..policy
+        };
+        assert!(recording_only.applies_to(TrayIconState::Recording));
+        assert!(!recording_only.applies_to(TrayIconState::Transcribing));
+
+        let disabled = BlinkPolicy {
+            enabled: false,
+            ..policy
+        };
+        assert!(!disabled.applies_to(TrayIconState::Recording));
+
+        let hidden_tray = BlinkPolicy {
+            tray_visible: false,
+            ..policy
+        };
+        assert!(!hidden_tray.applies_to(TrayIconState::Recording));
+
+        assert_eq!(policy.half_period(), Duration::from_millis(250));
+    }
+
+    #[test]
+    fn transition_to_idle_retires_the_running_blink_loop() {
+        let state = TrayState::new();
+        let mut inner = state.lock();
+        let policy = blink_everywhere();
+
+        inner.icon_state = TrayIconState::Recording;
+        let recording = inner
+            .transition_blink(&policy)
+            .expect("recording should blink");
+        assert!(inner.blink_is_current(recording.generation));
+
+        inner.icon_state = TrayIconState::Idle;
+        assert!(inner.transition_blink(&policy).is_none());
+        assert!(!inner.blink_is_current(recording.generation));
+    }
+
+    #[test]
+    fn every_transition_retires_the_previous_loop_even_when_the_new_one_blinks() {
+        let state = TrayState::new();
+        let mut inner = state.lock();
+        let policy = blink_everywhere();
+
+        inner.icon_state = TrayIconState::Recording;
+        let recording = inner.transition_blink(&policy).expect("blinks");
+        inner.icon_state = TrayIconState::Transcribing;
+        let transcribing = inner.transition_blink(&policy).expect("blinks");
+
+        assert_ne!(recording.generation, transcribing.generation);
+        assert!(!inner.blink_is_current(recording.generation));
+        assert!(inner.blink_is_current(transcribing.generation));
+    }
+
+    #[test]
+    fn a_loop_never_survives_an_idle_icon_state() {
+        // Defense in depth: even if a generation somehow stayed current, an
+        // idle tray must stop any loop within one half period.
+        let state = TrayState::new();
+        let mut inner = state.lock();
+        let policy = blink_everywhere();
+
+        inner.icon_state = TrayIconState::Recording;
+        let plan = inner.transition_blink(&policy).expect("blinks");
+        inner.icon_state = TrayIconState::Idle;
+        assert!(!inner.blink_is_current(plan.generation));
+    }
+
+    #[test]
+    fn blink_decision_follows_the_last_state_writer_regardless_of_interleaving() {
+        // Models the stop path: the hotkey thread writes Transcribing and the
+        // transcription task writes Idle. Whatever order the two claims take
+        // under the lock, only the last claimed state decides the blink loop.
+        for order in [
+            [TrayIconState::Transcribing, TrayIconState::Idle],
+            [TrayIconState::Idle, TrayIconState::Transcribing],
+        ] {
+            let state = TrayState::new();
+            let mut inner = state.lock();
+            let policy = blink_everywhere();
+            let mut plans = Vec::new();
+            for icon_state in order {
+                inner.icon_state = icon_state;
+                plans.push(inner.transition_blink(&policy));
+            }
+
+            let (earlier, last) = (plans[0], plans[1]);
+            if let Some(earlier) = earlier {
+                assert!(!inner.blink_is_current(earlier.generation));
+            }
+            assert_eq!(last.is_some(), policy.applies_to(inner.icon_state));
+            if let Some(last) = last {
+                assert!(inner.blink_is_current(last.generation));
+            }
+        }
+    }
+
+    #[test]
+    fn a_slow_older_sync_never_overwrites_a_newer_snapshot() {
+        // Models the recording start: the Recording ticket is claimed under
+        // the session lock, then a stop claims Transcribing, commits first,
+        // and the late Recording commit must be discarded.
+        let state = TrayState::new();
+        let mut inner = state.lock();
+
+        inner.icon_state = TrayIconState::Recording;
+        let recording = inner.claim_seq();
+        inner.icon_state = TrayIconState::Transcribing;
+        let transcribing = inner.claim_seq();
+        assert!(recording.seq < transcribing.seq);
+        assert_eq!(recording.icon_state, TrayIconState::Recording);
+        assert_eq!(transcribing.icon_state, TrayIconState::Transcribing);
+
+        assert_eq!(
+            inner.record_desired(&transcribing, desired_for(TrayIconState::Transcribing)),
+            Some(true)
+        );
+        assert_eq!(
+            inner.record_desired(&recording, desired_for(TrayIconState::Recording)),
+            None
+        );
+        assert_eq!(
+            inner.desired.as_ref().map(|desired| desired.icon_path),
+            Some(get_icon_path(AppTheme::Dark, TrayIconState::Transcribing))
+        );
+    }
+
+    #[test]
+    fn newer_syncs_coalesce_into_the_pending_apply() {
+        let state = TrayState::new();
+        let mut inner = state.lock();
+
+        let first = inner.claim_seq();
+        let second = inner.claim_seq();
+        assert_eq!(
+            inner.record_desired(&first, desired_for(TrayIconState::Idle)),
+            Some(true)
+        );
+        // The apply is already posted; the newer snapshot only replaces it.
+        assert_eq!(
+            inner.record_desired(&second, desired_for(TrayIconState::Recording)),
+            Some(false)
+        );
+        assert_eq!(inner.desired_seq, second.seq);
+    }
 
     fn build_entry(transcription: &str, post_processed: Option<&str>) -> HistoryEntry {
         HistoryEntry {

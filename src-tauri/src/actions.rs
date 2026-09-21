@@ -36,7 +36,7 @@ use crate::settings::{
     LlmPostProcessBenchmarkResult, TranscriptionProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
 };
 use crate::soniox_stream_processor::SonioxStreamProcessor;
-use crate::tray::{change_tray_icon, TrayIconState};
+use crate::tray::{change_tray_icon, claim_tray_state, commit_tray_sync, TrayIconState};
 use crate::url_security::{
     REMOTE_STT_PRESET_GOOGLE, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_VERCEL,
 };
@@ -2205,6 +2205,7 @@ fn start_recording_with_feedback_with_settings(
 
     if recording_started {
         let mut session_still_recording = false;
+        let mut tray_ticket = None;
         if let Some(started_at) = recording_started_at {
             let state = app.state::<ManagedSessionState>();
             let mut state_guard = session_manager::lock_session_state(
@@ -2221,6 +2222,12 @@ fn start_recording_with_feedback_with_settings(
                 if active_binding_id.as_str() == binding_id && *active_operation_id == operation_id {
                     *active_started_at = started_at;
                     session_still_recording = true;
+                    // Claim the Recording tray state while the session lock
+                    // still proves the session is ours. A stop that lands
+                    // right after we release the lock is then ordered after
+                    // this claim and cannot be overwritten by a stale
+                    // Recording icon (or a blink loop nobody would stop).
+                    tray_ticket = claim_tray_state(app, TrayIconState::Recording, &settings);
                 }
             }
         }
@@ -2253,7 +2260,9 @@ fn start_recording_with_feedback_with_settings(
         // Register cancel shortcut now that recording is confirmed
         session.register_cancel_shortcut();
         crate::recording_auto_stop::start_auto_stop_timer(app, binding_id, operation_id);
-        change_tray_icon(app, TrayIconState::Recording);
+        if let Some(ticket) = tray_ticket {
+            commit_tray_sync(app, ticket);
+        }
     } else {
         // Drop captured app context for failed recordings.
         let _ = take_recording_app_context(binding_id);
