@@ -1803,15 +1803,22 @@ struct FinishGuard {
     app: AppHandle,
     binding_id: String,
     operation_id: u64,
+    unload_local_model: bool,
     finished: bool,
 }
 
 impl FinishGuard {
-    fn new(app: AppHandle, binding_id: String, operation_id: u64) -> Self {
+    fn new(
+        app: AppHandle,
+        binding_id: String,
+        operation_id: u64,
+        unload_local_model: bool,
+    ) -> Self {
         Self {
             app,
             binding_id,
             operation_id,
+            unload_local_model,
             finished: false,
         }
     }
@@ -1826,13 +1833,24 @@ impl FinishGuard {
             "FinishGuard: finishing shortcut '{}' operation {}",
             self.binding_id, self.operation_id
         );
-        if session_manager::exit_processing_if_matches(&self.app, self.operation_id) {
-            reset_toggle_state(&self.app, &self.binding_id);
-        } else {
+        let Some(_completion_guard) = session_manager::try_begin_processing_completion(
+            &self.app,
+            &self.binding_id,
+            self.operation_id,
+        ) else {
             debug!(
                 "FinishGuard: skipped stale cleanup for shortcut '{}' operation {}",
                 self.binding_id, self.operation_id
             );
+            return;
+        };
+        if self.unload_local_model {
+            self.app
+                .state::<Arc<TranscriptionManager>>()
+                .maybe_unload_immediately("transcription session");
+        }
+        if session_manager::exit_processing_if_matches(&self.app, self.operation_id) {
+            reset_toggle_state(&self.app, &self.binding_id);
         }
     }
 
@@ -8058,8 +8076,12 @@ impl ShortcutAction for TranscribeAction {
                         app: ah.clone(),
                         operation_id: recording_operation_id,
                     });
-                let mut finish_guard =
-                    FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
+                let mut finish_guard = FinishGuard::new(
+                    ah.clone(),
+                    binding_id.clone(),
+                    recording_operation_id,
+                    recording_settings.transcription_provider == TranscriptionProvider::Local,
+                );
                 let rm = Arc::clone(&ah.state::<Arc<AudioRecordingManager>>());
                 let (mut stream_processor, had_soniox_stream_output,
                     mut had_deepgram_stream_output, mut had_openai_realtime_whisper_stream_output) = {
@@ -9071,8 +9093,12 @@ impl ShortcutAction for TranscribeAction {
         let invoked_from_preview_action = invoked_from_preview_action;
 
         tauri::async_runtime::spawn(async move {
-            let mut finish_guard =
-                FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
+            let mut finish_guard = FinishGuard::new(
+                ah.clone(),
+                binding_id.clone(),
+                recording_operation_id,
+                recording_settings.transcription_provider == TranscriptionProvider::Local,
+            );
             let is_soniox_streaming_insert = recording_settings.transcription_provider
                 == TranscriptionProvider::RemoteSoniox
                 && recording_settings.soniox_live_enabled
@@ -9470,8 +9496,12 @@ impl ShortcutAction for SendToExtensionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let mut finish_guard =
-                FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
+            let mut finish_guard = FinishGuard::new(
+                ah.clone(),
+                binding_id.clone(),
+                recording_operation_id,
+                recording_settings.transcription_provider == TranscriptionProvider::Local,
+            );
 
             let (transcription, samples) = match get_transcription_or_cleanup(
                 &ah,
@@ -9613,8 +9643,12 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let mut finish_guard =
-                FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
+            let mut finish_guard = FinishGuard::new(
+                ah.clone(),
+                binding_id.clone(),
+                recording_operation_id,
+                recording_settings.transcription_provider == TranscriptionProvider::Local,
+            );
 
             let (transcription, samples) = match get_transcription_or_cleanup(
                 &ah,
@@ -10047,8 +10081,12 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let mut finish_guard =
-                FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
+            let mut finish_guard = FinishGuard::new(
+                ah.clone(),
+                binding_id.clone(),
+                recording_operation_id,
+                recording_settings.transcription_provider == TranscriptionProvider::Local,
+            );
 
             let (voice_text, samples) = match get_transcription_or_cleanup(
                 &ah,
@@ -10289,8 +10327,12 @@ impl ShortcutAction for AiReplaceSelectionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let mut finish_guard =
-                FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
+            let mut finish_guard = FinishGuard::new(
+                ah.clone(),
+                binding_id.clone(),
+                recording_operation_id,
+                recording_settings.transcription_provider == TranscriptionProvider::Local,
+            );
 
             // Register LLM operation tracking before selection capture so cancel
             // cannot be missed between destructive cut and LLM request start.
@@ -11443,8 +11485,12 @@ impl ShortcutAction for VoiceCommandAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let mut finish_guard =
-                FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
+            let mut finish_guard = FinishGuard::new(
+                ah.clone(),
+                binding_id.clone(),
+                recording_operation_id,
+                recording_settings.transcription_provider == TranscriptionProvider::Local,
+            );
 
             let (transcription, _) = match get_transcription_or_cleanup(
                 &ah,
