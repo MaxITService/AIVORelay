@@ -683,7 +683,7 @@ mod tests {
             "--tts-provider",
             "soniox",
             "--tts-model",
-            "sonic-preview",
+            "tts-rt-v2",
             "--tts-voice",
             "voice-id",
             "--tts-language",
@@ -744,7 +744,7 @@ mod tests {
         .expect("TTS provider overrides should parse");
 
         assert_eq!(args.tts_provider, Some(CliTtsProvider::Soniox));
-        assert_eq!(args.tts_model.as_deref(), Some("sonic-preview"));
+        assert_eq!(args.tts_model.as_deref(), Some("tts-rt-v2"));
         assert_eq!(args.tts_voice.as_deref(), Some("voice-id"));
         assert_eq!(args.tts_language.as_deref(), Some("ru"));
         assert_eq!(args.tts_speed, Some(1.2));

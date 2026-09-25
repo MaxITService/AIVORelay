@@ -3523,7 +3523,7 @@ impl TtsManager {
                     .post(SONIOX_TTS_URL)
                     .bearer_auth(api_key)
                     .json(&json!({
-                        "model": nonempty_or(&settings.soniox_model, "tts-rt-v1"),
+                        "model": nonempty_or(&settings.soniox_model, "tts-rt-v2"),
                         "language": nonempty_or(&settings.soniox_language, "en"),
                         "voice": nonempty_or(&settings.soniox_voice, DEFAULT_TTS_SONIOX_VOICE),
                         "audio_format": "pcm_s16le",
@@ -6317,7 +6317,7 @@ mod tests {
         let soniox = soniox_catalog_entry(&json!({
             "id": "voice-id",
             "name": "Narrator",
-            "models": [{ "model": "tts-rt-v1", "status": "ready" }]
+            "models": [{ "model": "tts-rt-v2", "status": "ready" }]
         }))
         .unwrap();
         assert_eq!(soniox.id, "voice-id");

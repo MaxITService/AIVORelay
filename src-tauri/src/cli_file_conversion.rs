@@ -2498,7 +2498,7 @@ mod tests {
         let args = CliArgs {
             convert_file: vec![PathBuf::from("chapter.md")],
             tts_provider: Some(CliTtsProvider::Soniox),
-            tts_model: Some("sonic-preview".to_string()),
+            tts_model: Some("tts-rt-v2".to_string()),
             tts_voice: Some("voice-id".to_string()),
             tts_language: Some("ru".to_string()),
             tts_speed: Some(1.2),
@@ -2520,7 +2520,7 @@ mod tests {
         apply_tts_conversion_overrides(&args, &mut effective).unwrap();
 
         assert_eq!(effective.provider, TtsProvider::Soniox);
-        assert_eq!(effective.soniox_model, "sonic-preview");
+        assert_eq!(effective.soniox_model, "tts-rt-v2");
         assert_eq!(effective.soniox_voice, "voice-id");
         assert_eq!(effective.soniox_language, "ru");
         assert_eq!(effective.soniox_key_source, TtsKeySource::Separate);

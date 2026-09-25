@@ -38,7 +38,7 @@ created output file.
 
 ```powershell
 AivoRelay.exe --convert-file .\chapter.md --output .\chapter.mp3 `
-  --tts-provider soniox --tts-model sonic-preview --tts-voice voice-id `
+  --tts-provider soniox --tts-model tts-rt-v2 --tts-voice Maya `
   --tts-language ru --tts-speed 1.2 --tts-key-source separate `
   --tts-bitrate 192 --tts-chunk-chars 1400 --tts-retries 4 `
   --tts-retry-delay-ms 750 --tts-chunk-pause-ms 80 `

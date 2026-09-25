@@ -58,7 +58,7 @@ export const TTS_PROVIDER_DEFAULTS: Record<
   { model: string; voice: string; language: string; speed: number }
 > = {
   soniox: {
-    model: "tts-rt-v1",
+    model: "tts-rt-v2",
     voice: "Maya",
     language: "en",
     speed: 1,
@@ -229,7 +229,11 @@ export const TTS_PROVIDER_DOCUMENTATION: Record<
   },
 };
 
-export const SONIOX_MODEL_OPTIONS = ["tts-rt-v1", "tts-rt-v1-preview"];
+export const SONIOX_MODEL_OPTIONS = [
+  "tts-rt-v2",
+  "tts-rt-v1",
+  "tts-rt-v1-preview",
+];
 
 export const OPENAI_MODEL_OPTIONS = [
   "gpt-4o-mini-tts",

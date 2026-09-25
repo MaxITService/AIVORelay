@@ -1670,7 +1670,7 @@ fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
             "builtin_tts_soniox_maya",
             "Soniox — Maya",
             TtsProvider::Soniox,
-            "tts-rt-v1",
+            "tts-rt-v2",
             "Maya",
             "en",
             1.0,
@@ -1679,7 +1679,7 @@ fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
             "builtin_tts_soniox_daniel",
             "Soniox — Daniel",
             TtsProvider::Soniox,
-            "tts-rt-v1",
+            "tts-rt-v2",
             "Daniel",
             "en",
             1.0,
@@ -4589,7 +4589,7 @@ fn default_soniox_live_preview_enabled() -> bool {
 }
 
 fn default_tts_soniox_model() -> String {
-    "tts-rt-v1".to_string()
+    "tts-rt-v2".to_string()
 }
 
 fn default_tts_soniox_language() -> String {
@@ -8123,7 +8123,7 @@ mod tests {
     fn tts_provider_defaults_match_documented_working_choices() {
         let settings = TtsSettings::default();
         assert_eq!(settings.provider, TtsProvider::Soniox);
-        assert_eq!(settings.soniox_model, "tts-rt-v1");
+        assert_eq!(settings.soniox_model, "tts-rt-v2");
         assert_eq!(settings.soniox_language, "en");
         assert_eq!(settings.soniox_voice, "Maya");
         assert_eq!(settings.deepgram_model, "flux-kit-en");
