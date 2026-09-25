@@ -28,6 +28,7 @@ import { SettingContainer } from "../ui/SettingContainer";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Textarea } from "../ui/Textarea";
+import { TextFileActions } from "../ui/TextFileActions";
 import { Dropdown } from "../ui/Dropdown";
 import { Badge } from "../ui/Badge";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
@@ -51,7 +52,11 @@ import { getModelPromptInfo } from "./TranscriptionSystemPrompt";
 import { useNavigationStore } from "../../stores/navigationStore";
 import { getPostProcessingAvailability } from "../../lib/postProcessingAvailability";
 import { GEMINI_LOCALES } from "../../lib/gemini/geminiConfig";
-import { parseGeminiVocabulary } from "../../lib/gemini/vocabulary";
+import {
+  GEMINI_VOCABULARY_FILE_EXTENSIONS,
+  parseGeminiVocabulary,
+  validateGeminiVocabularyFile,
+} from "../../lib/gemini/vocabulary";
 import { SttModelSelector } from "./SttModelSelector";
 import {
   globalSttSelection,
@@ -116,9 +121,10 @@ const DefaultModelPromptEditor: React.FC<DefaultModelPromptEditorProps> = ({
 
   const isOverLimit = promptLimit > 0 && draft.length > promptLimit;
 
-  const save = async () => {
-    if (disabled || isSaving || isOverLimit) return;
-    if (draft === persistedValue) {
+  const save = async (value = draft) => {
+    if (disabled || isSaving) return;
+    if (promptLimit > 0 && value.length > promptLimit) return;
+    if (value === persistedValue) {
       dirtyRef.current = false;
       return;
     }
@@ -127,7 +133,7 @@ const DefaultModelPromptEditor: React.FC<DefaultModelPromptEditorProps> = ({
     try {
       const result = await commands.changeTranscriptionPromptSetting(
         modelId,
-        draft,
+        value,
       );
       if (result.status === "error") throw new Error(String(result.error));
       dirtyRef.current = false;
@@ -175,6 +181,17 @@ const DefaultModelPromptEditor: React.FC<DefaultModelPromptEditorProps> = ({
             ? "border-red-400 focus:border-red-400"
             : "border-[#3c3c3c] focus:border-[#4a4a4a]"
         } text-[#e8e8e8] placeholder-[#6b6b6b] ${disabled || isSaving ? "opacity-50 cursor-not-allowed" : ""}`}
+      />
+      <TextFileActions
+        value={draft}
+        defaultFileName="voice-model-prompt.txt"
+        maxLength={promptLimit}
+        disabled={disabled || isSaving}
+        onOpen={async (text) => {
+          dirtyRef.current = text !== persistedValue;
+          setDraft(text);
+          await save(text);
+        }}
       />
       {isOverLimit && (
         <p className="text-xs text-red-400">
@@ -437,6 +454,22 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     () => parseGeminiVocabulary(geminiVocabularyDraft),
     [geminiVocabularyDraft],
   );
+  const commitGeminiVocabularyDraft = async (draft: string) => {
+    const result = parseGeminiVocabulary(draft);
+    if (!result.safeToPersist) return;
+    const normalizedTerms = result.normalizedTerms;
+    setIsUpdating(true);
+    try {
+      await onUpdate({
+        ...profile,
+        gemini_custom_vocabulary_override: normalizedTerms,
+      });
+      geminiVocabularyDirtyRef.current = false;
+      setGeminiVocabularyDraft(normalizedTerms.join("\n"));
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   useEffect(() => {
     const previous = systemPromptSyncRef.current;
@@ -585,15 +618,15 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     }
   };
 
-  const handleSystemPromptChange = async () => {
-    if (isOverLimit) return;
-    if (systemPromptDraft === persistedSystemPrompt) {
+  const handleSystemPromptChange = async (value = systemPromptDraft) => {
+    if (promptLimit > 0 && value.length > promptLimit) return;
+    if (value === persistedSystemPrompt) {
       systemPromptDirtyRef.current = false;
       return;
     }
     setIsUpdating(true);
     try {
-      await onUpdate({ ...profile, system_prompt: systemPromptDraft });
+      await onUpdate({ ...profile, system_prompt: value });
       systemPromptDirtyRef.current = false;
     } catch (error) {
       toast.error(
@@ -1407,31 +1440,31 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                           nextDraft !== persistedGeminiVocabularyDraft;
                         setGeminiVocabularyDraft(nextDraft);
                       }}
-                      onBlur={async () => {
-                        if (!geminiVocabularyResult.safeToPersist) return;
-                        const normalizedTerms = geminiVocabularyResult.normalizedTerms;
-                        setIsUpdating(true);
-                        try {
-                          await onUpdate({
-                            ...profile,
-                            gemini_custom_vocabulary_override: normalizedTerms,
-                          });
-                          geminiVocabularyDirtyRef.current = false;
-                          setGeminiVocabularyDraft(normalizedTerms.join("\n"));
-                        } finally {
-                          setIsUpdating(false);
-                        }
-                      }}
+                      onBlur={() => void commitGeminiVocabularyDraft(geminiVocabularyDraft)}
                       rows={7}
                       disabled={isUpdating}
                       placeholder={'Gemini\nKubernetes\nBigQuery'}
                     />
-                    <p className={`text-xs ${geminiVocabularyResult.errors.length ? "text-red-400" : "text-mid-gray"}`}>
-                      {t("settings.gemini.vocabulary.status", "Detected {{format}} · {{count}}/1000 terms", {
-                        format: geminiVocabularyResult.format,
-                        count: geminiVocabularyResult.normalizedTerms.length,
-                      })}
-                    </p>
+                    <div className="flex items-start justify-between gap-3">
+                      <p className={`text-xs ${geminiVocabularyResult.errors.length ? "text-red-400" : "text-mid-gray"}`}>
+                        {t("settings.gemini.vocabulary.status", "Detected {{format}} · {{count}}/1000 terms", {
+                          format: geminiVocabularyResult.format,
+                          count: geminiVocabularyResult.normalizedTerms.length,
+                        })}
+                      </p>
+                      <TextFileActions
+                        value={geminiVocabularyDraft}
+                        defaultFileName="gemini-vocabulary.txt"
+                        extensions={GEMINI_VOCABULARY_FILE_EXTENSIONS}
+                        validate={validateGeminiVocabularyFile}
+                        disabled={isUpdating}
+                        onOpen={async text => {
+                          geminiVocabularyDirtyRef.current = true;
+                          setGeminiVocabularyDraft(text);
+                          await commitGeminiVocabularyDraft(text);
+                        }}
+                      />
+                    </div>
                     <p className="text-xs text-mid-gray">
                       {t(
                         "settings.gemini.vocabulary.formatHelp",
@@ -1558,11 +1591,25 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                           : "border-[#3c3c3c] focus:border-[#4a4a4a]"
                       } ${isUpdating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
                     />
-                    <p className="text-xs text-mid-gray">
-                      {t(
-                        "settings.transcriptionProfiles.systemPromptDescription",
-                      )}
-                    </p>
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-xs text-mid-gray">
+                        {t(
+                          "settings.transcriptionProfiles.systemPromptDescription",
+                        )}
+                      </p>
+                      <TextFileActions
+                        value={systemPromptDraft}
+                        defaultFileName="voice-model-prompt.txt"
+                        maxLength={promptLimit}
+                        disabled={isUpdating}
+                        onOpen={async (text) => {
+                          systemPromptDirtyRef.current =
+                            text !== persistedSystemPrompt;
+                          setSystemPromptDraft(text);
+                          await handleSystemPromptChange(text);
+                        }}
+                      />
+                    </div>
                     {isOverLimit && (
                       <p className="text-xs text-red-400">
                         {t(
@@ -1836,6 +1883,16 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                         rows={6}
                         className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors border-[#3c3c3c] focus:border-[#4a4a4a] ${isUpdating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
                       />
+                      <TextFileActions
+                        value={localLlmPrompt}
+                        defaultFileName="llm-prompt.txt"
+                        disabled={isUpdating}
+                        onOpen={async (text) => {
+                          setLocalLlmPrompt(text);
+                          setIsCustomOverride(true);
+                          await handleLlmPromptChange(text);
+                        }}
+                      />
                     </div>
 
                     {/* Model Override */}
@@ -1953,6 +2010,22 @@ export const TranscriptionProfiles: React.FC = () => {
     () => parseGeminiVocabulary(globalGeminiVocabularyDraft),
     [globalGeminiVocabularyDraft],
   );
+  const commitGlobalGeminiVocabularyDraft = async (draft: string) => {
+    const result = parseGeminiVocabulary(draft);
+    if (!result.safeToPersist) return;
+    const normalizedTerms = result.normalizedTerms;
+    try {
+      await updateSetting(
+        "gemini_custom_vocabulary" as any,
+        normalizedTerms as any,
+        { throwOnError: true },
+      );
+      globalGeminiVocabularyDirtyRef.current = false;
+      setGlobalGeminiVocabularyDraft(normalizedTerms.join("\n"));
+    } catch {
+      // Keep the dirty draft so the user can retry or repair it.
+    }
+  };
 
   useEffect(() => {
     if (
@@ -2989,30 +3062,29 @@ export const TranscriptionProfiles: React.FC = () => {
                             nextDraft !== persistedGlobalGeminiVocabularyDraft;
                           setGlobalGeminiVocabularyDraft(nextDraft);
                         }}
-                        onBlur={async () => {
-                          if (!globalGeminiVocabularyResult.safeToPersist) return;
-                          const normalizedTerms = globalGeminiVocabularyResult.normalizedTerms;
-                          try {
-                            await updateSetting(
-                              "gemini_custom_vocabulary" as any,
-                              normalizedTerms as any,
-                              { throwOnError: true },
-                            );
-                            globalGeminiVocabularyDirtyRef.current = false;
-                            setGlobalGeminiVocabularyDraft(normalizedTerms.join("\n"));
-                          } catch {
-                            // Keep the dirty draft so the user can retry or repair it.
-                          }
-                        }}
+                        onBlur={() => void commitGlobalGeminiVocabularyDraft(globalGeminiVocabularyDraft)}
                         rows={8}
                         placeholder={'Gemini\nKubernetes\nBigQuery'}
                       />
-                      <p className={`text-xs ${globalGeminiVocabularyResult.errors.length ? "text-red-400" : "text-mid-gray"}`}>
-                        {t("settings.gemini.vocabulary.status", "Detected {{format}} · {{count}}/1000 terms", {
-                          format: globalGeminiVocabularyResult.format,
-                          count: globalGeminiVocabularyResult.normalizedTerms.length,
-                        })}
-                      </p>
+                      <div className="flex items-start justify-between gap-3">
+                        <p className={`text-xs ${globalGeminiVocabularyResult.errors.length ? "text-red-400" : "text-mid-gray"}`}>
+                          {t("settings.gemini.vocabulary.status", "Detected {{format}} · {{count}}/1000 terms", {
+                            format: globalGeminiVocabularyResult.format,
+                            count: globalGeminiVocabularyResult.normalizedTerms.length,
+                          })}
+                        </p>
+                        <TextFileActions
+                          value={globalGeminiVocabularyDraft}
+                          defaultFileName="gemini-vocabulary.txt"
+                          extensions={GEMINI_VOCABULARY_FILE_EXTENSIONS}
+                          validate={validateGeminiVocabularyFile}
+                          onOpen={async text => {
+                            globalGeminiVocabularyDirtyRef.current = true;
+                            setGlobalGeminiVocabularyDraft(text);
+                            await commitGlobalGeminiVocabularyDraft(text);
+                          }}
+                        />
+                      </div>
                       <p className="text-xs text-mid-gray">
                         {t(
                           "settings.gemini.vocabulary.formatHelp",
@@ -3669,11 +3741,20 @@ export const TranscriptionProfiles: React.FC = () => {
                           : "border-[#3c3c3c] focus:border-[#4a4a4a]"
                       } ${isCreating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
                     />
-                    <p className="text-xs text-mid-gray">
-                      {t(
-                        "settings.transcriptionProfiles.systemPromptDescription",
-                      )}
-                    </p>
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-xs text-mid-gray">
+                        {t(
+                          "settings.transcriptionProfiles.systemPromptDescription",
+                        )}
+                      </p>
+                      <TextFileActions
+                        value={newSystemPrompt}
+                        defaultFileName="voice-model-prompt.txt"
+                        maxLength={promptLimit}
+                        disabled={isCreating}
+                        onOpen={setNewSystemPrompt}
+                      />
+                    </div>
                     {isNewPromptOverLimit && (
                       <p className="text-xs text-red-400">
                         {t(
@@ -3906,6 +3987,12 @@ export const TranscriptionProfiles: React.FC = () => {
                         disabled={isCreating}
                         rows={6}
                         className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors border-[#3c3c3c] focus:border-[#4a4a4a] ${isCreating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
+                      />
+                      <TextFileActions
+                        value={newLlmPromptOverride || globalPromptText}
+                        defaultFileName="llm-prompt.txt"
+                        disabled={isCreating}
+                        onOpen={setNewLlmPromptOverride}
                       />
                     </div>
 

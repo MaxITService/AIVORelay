@@ -31,6 +31,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
+import { TextFileActions } from "@/components/ui/TextFileActions";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { Dropdown } from "@/components/ui/Dropdown";
@@ -51,7 +52,11 @@ import {
   validateGeminiCompatibility,
   type GeminiTranscriptionMode,
 } from "@/lib/gemini/geminiConfig";
-import { parseGeminiVocabulary } from "@/lib/gemini/vocabulary";
+import {
+  GEMINI_VOCABULARY_FILE_EXTENSIONS,
+  parseGeminiVocabulary,
+  validateGeminiVocabularyFile,
+} from "@/lib/gemini/vocabulary";
 import {
   globalSttSelection,
   sttSupports,
@@ -768,20 +773,22 @@ export const TranscribeFileSettings: React.FC = () => {
     [refreshSettings, setError],
   );
 
-  const persistFileGeminiVocabulary = useCallback(async () => {
-    if (!parsedGeminiVocabulary.safeToPersist) return;
-    try {
-      await invoke("change_file_gemini_vocabulary_setting", {
-        terms: parsedGeminiVocabulary.normalizedTerms,
-      });
-      setGeminiVocabularyDraft(
-        parsedGeminiVocabulary.normalizedTerms.join("\n"),
-      );
-      await refreshSettings();
-    } catch (error) {
-      setError(String(error));
-    }
-  }, [parsedGeminiVocabulary, refreshSettings, setError]);
+  const persistFileGeminiVocabulary = useCallback(
+    async (draft: string) => {
+      const result = parseGeminiVocabulary(draft);
+      if (!result.safeToPersist) return;
+      try {
+        await invoke("change_file_gemini_vocabulary_setting", {
+          terms: result.normalizedTerms,
+        });
+        setGeminiVocabularyDraft(result.normalizedTerms.join("\n"));
+        await refreshSettings();
+      } catch (error) {
+        setError(String(error));
+      }
+    },
+    [refreshSettings, setError],
+  );
 
   const persistFileSonioxLanguageHints = useCallback(async () => {
     const parsed = parsedSonioxLanguageHintsInput;
@@ -1962,28 +1969,42 @@ export const TranscribeFileSettings: React.FC = () => {
                     onChange={(event) =>
                       setGeminiVocabularyDraft(event.target.value)
                     }
-                    onBlur={() => void persistFileGeminiVocabulary()}
+                    onBlur={() =>
+                      void persistFileGeminiVocabulary(geminiVocabularyDraft)
+                    }
                     rows={5}
                     className="w-full rounded border border-[#333333] bg-[#101010] px-3 py-2 text-sm text-[#f5f5f5] focus:border-purple-500 focus:outline-none"
                     placeholder={"Gemini\nKubernetes\nBigQuery"}
                   />
-                  <p
-                    className={`text-xs ${
-                      parsedGeminiVocabulary.errors.length > 0
-                        ? "text-red-400"
-                        : "text-[#808080]"
-                    }`}
-                  >
-                    {parsedGeminiVocabulary.errors[0]?.message ??
-                      t(
-                        "transcribeFile.gemini.vocabularyIndependent",
-                        "{{count}}/1000 terms · saved independently for this file model.",
-                        {
-                          count:
-                            parsedGeminiVocabulary.normalizedTerms.length,
-                        },
-                      )}
-                  </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <p
+                      className={`text-xs ${
+                        parsedGeminiVocabulary.errors.length > 0
+                          ? "text-red-400"
+                          : "text-[#808080]"
+                      }`}
+                    >
+                      {parsedGeminiVocabulary.errors[0]?.message ??
+                        t(
+                          "transcribeFile.gemini.vocabularyIndependent",
+                          "{{count}}/1000 terms · saved independently for this file model.",
+                          {
+                            count:
+                              parsedGeminiVocabulary.normalizedTerms.length,
+                          },
+                        )}
+                    </p>
+                    <TextFileActions
+                      value={geminiVocabularyDraft}
+                      defaultFileName="gemini-vocabulary.txt"
+                      extensions={GEMINI_VOCABULARY_FILE_EXTENSIONS}
+                      validate={validateGeminiVocabularyFile}
+                      onOpen={async (text) => {
+                        setGeminiVocabularyDraft(text);
+                        await persistFileGeminiVocabulary(text);
+                      }}
+                    />
+                  </div>
                 </div>
                 {selectedModelSupportsDiarization && (
                 <label

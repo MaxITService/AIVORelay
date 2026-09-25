@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { TellMeMore } from "../ui/TellMeMore";
+import { TextFileActions } from "../ui/TextFileActions";
 
 const SONIOX_CONTEXT_MAX_CHARS = 10_000;
 
@@ -184,13 +185,16 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
     () => computeContextSize(generalDraft, textDraft, termsDraft),
     [generalDraft, textDraft, termsDraft],
   );
-  const contextSizeError =
-    contextSize > SONIOX_CONTEXT_MAX_CHARS
-      ? t(
-          "settings.transcriptionProfiles.sonioxContext.tooLarge",
-          "Soniox context is too large. Keep total context under 10,000 characters.",
-        )
+  const tooLargeMessage = t(
+    "settings.transcriptionProfiles.sonioxContext.tooLarge",
+    "Soniox context is too large. Keep total context under 10,000 characters.",
+  );
+  const sizeErrorFor = (general: string, contextText: string, termsText: string) =>
+    computeContextSize(general, contextText, termsText) > SONIOX_CONTEXT_MAX_CHARS
+      ? tooLargeMessage
       : null;
+  const contextSizeError =
+    contextSize > SONIOX_CONTEXT_MAX_CHARS ? tooLargeMessage : null;
 
   const generalStatus: "empty" | "valid" | "invalid" = generalValidation.empty
     ? "empty"
@@ -206,12 +210,13 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
     }
   }, [generalValidation.valid, generalValidation.empty]);
 
-  const commitGeneral = async () => {
+  const commitGeneral = async (value = generalDraft) => {
     if (disabled) return;
     setGeneralError(null);
-    if (!generalValidation.valid) {
+    const validation = parseGeneralJson(value);
+    if (!validation.valid) {
       setGeneralError(
-        generalValidation.error ||
+        validation.error ||
           t(
             "settings.transcriptionProfiles.sonioxContext.generalInvalid",
             "Invalid JSON format.",
@@ -219,11 +224,12 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
       );
       return;
     }
-    if (contextSizeError) {
-      setGeneralError(contextSizeError);
+    const sizeError = sizeErrorFor(value, textDraft, termsDraft);
+    if (sizeError) {
+      setGeneralError(sizeError);
       return;
     }
-    const next = generalDraft.trim();
+    const next = value.trim();
     if (next === (generalJson || "").trim()) return;
     try {
       await onCommitGeneralJson(next);
@@ -239,14 +245,15 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
     }
   };
 
-  const commitText = async () => {
+  const commitText = async (value = textDraft) => {
     if (disabled) return;
     setTextError(null);
-    if (contextSizeError) {
-      setTextError(contextSizeError);
+    const sizeError = sizeErrorFor(generalDraft, value, termsDraft);
+    if (sizeError) {
+      setTextError(sizeError);
       return;
     }
-    const next = textDraft.trim();
+    const next = value.trim();
     if (next === (text || "").trim()) return;
     try {
       await onCommitText(next);
@@ -262,22 +269,24 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
     }
   };
 
-  const commitTerms = async () => {
+  const commitTerms = async (value = termsDraft) => {
     if (disabled) return;
     setTermsError(null);
-    if (contextSizeError) {
-      setTermsError(contextSizeError);
+    const sizeError = sizeErrorFor(generalDraft, textDraft, value);
+    if (sizeError) {
+      setTermsError(sizeError);
       return;
     }
+    const nextTerms = normalizeTerms(value);
     const previous = normalizeTerms((terms || []).join("\n"));
     if (
-      previous.length === normalizedTerms.length &&
-      previous.every((value, idx) => value === normalizedTerms[idx])
+      previous.length === nextTerms.length &&
+      previous.every((term, idx) => term === nextTerms[idx])
     ) {
       return;
     }
     try {
-      await onCommitTerms(normalizedTerms);
+      await onCommitTerms(nextTerms);
     } catch (error) {
       setTermsError(
         error instanceof Error
@@ -359,11 +368,27 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
                 setGeneralDraft(nextValue);
                 onDraftGeneralJsonChange?.(nextValue);
               }}
-              onBlur={commitGeneral}
+              onBlur={() => void commitGeneral()}
               rows={6}
               disabled={disabled}
               placeholder={`[\n  { "key": "domain", "value": "Healthcare" },\n  { "key": "topic", "value": "Diabetes consultation" }\n]`}
               className="mt-2 w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border border-[#3c3c3c] rounded-md resize-y text-[#e8e8e8] placeholder-[#6b6b6b]"
+            />
+            <TextFileActions
+              value={generalDraft}
+              defaultFileName="soniox-context-general.json"
+              extensions={["json", "txt"]}
+              disabled={disabled}
+              validate={(value) => {
+                const validation = parseGeneralJson(value);
+                if (!validation.valid) return validation.error;
+                return sizeErrorFor(value, textDraft, termsDraft);
+              }}
+              onOpen={async (value) => {
+                setGeneralDraft(value);
+                onDraftGeneralJsonChange?.(value);
+                await commitGeneral(value);
+              }}
             />
             {(generalError || (!generalValidation.valid && !generalValidation.empty)) && (
               <p className="text-xs text-red-400">
@@ -452,7 +477,7 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
                 setTextDraft(nextValue);
                 onDraftTextChange?.(nextValue);
               }}
-              onBlur={commitText}
+              onBlur={() => void commitText()}
               rows={4}
               disabled={disabled}
               placeholder={t(
@@ -460,6 +485,17 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
                 "Background notes, names, prior context, product details, etc.",
               )}
               className="mt-2 w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border border-[#3c3c3c] rounded-md resize-y text-[#e8e8e8] placeholder-[#6b6b6b]"
+            />
+            <TextFileActions
+              value={textDraft}
+              defaultFileName="soniox-context-text.txt"
+              disabled={disabled}
+              validate={(value) => sizeErrorFor(generalDraft, value, termsDraft)}
+              onOpen={async (value) => {
+                setTextDraft(value);
+                onDraftTextChange?.(value);
+                await commitText(value);
+              }}
             />
             {textError && <p className="text-xs text-red-400">{textError}</p>}
             <TellMeMore
@@ -528,18 +564,31 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
                 setTermsDraft(nextValue);
                 onDraftTermsChange?.(normalizeTerms(nextValue));
               }}
-              onBlur={commitTerms}
+              onBlur={() => void commitTerms()}
               rows={5}
               disabled={disabled}
               placeholder={`Celebrex\nPrilosec\nAcme Cloud Pro`}
               className="mt-2 w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border border-[#3c3c3c] rounded-md resize-y text-[#e8e8e8] placeholder-[#6b6b6b]"
             />
-            <p className="text-xs text-mid-gray">
-              {t(
-                "settings.transcriptionProfiles.sonioxContext.termsHint",
-                "One term per line. Empty lines are ignored and duplicates are removed.",
-              )}
-            </p>
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-xs text-mid-gray">
+                {t(
+                  "settings.transcriptionProfiles.sonioxContext.termsHint",
+                  "One term per line. Empty lines are ignored and duplicates are removed.",
+                )}
+              </p>
+              <TextFileActions
+                value={termsDraft}
+                defaultFileName="soniox-context-terms.txt"
+                disabled={disabled}
+                validate={(value) => sizeErrorFor(generalDraft, textDraft, value)}
+                onOpen={async (value) => {
+                  setTermsDraft(value);
+                  onDraftTermsChange?.(normalizeTerms(value));
+                  await commitTerms(value);
+                }}
+              />
+            </div>
             {termsError && <p className="text-xs text-red-400">{termsError}</p>}
             <TellMeMore
               title={t(

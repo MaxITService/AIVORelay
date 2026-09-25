@@ -16,11 +16,21 @@ export const usePersistedSettingText = <K extends StringSettingKey>(settingKey: 
     setDraft(persistedValue);
   }, [persistedValue]);
 
+  const persistValue = useCallback(
+    (value: string) => {
+      setDraft(value);
+      if (value !== persistedValue) {
+        void updateSetting(settingKey, value as AppSettings[K]);
+      }
+    },
+    [persistedValue, settingKey, updateSetting],
+  );
+
   const persistDraft = useCallback(() => {
     if (draft !== persistedValue) {
       void updateSetting(settingKey, draft as AppSettings[K]);
     }
   }, [draft, persistedValue, settingKey, updateSetting]);
 
-  return { draft, setDraft, persistDraft };
+  return { draft, setDraft, persistDraft, persistValue };
 };

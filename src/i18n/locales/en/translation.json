@@ -4108,6 +4108,18 @@
     "no": "No",
     "noOptionsFound": "No options found",
     "copied": "Copied!",
+    "copy": "Copy",
+    "textFileActions": {
+      "textFiles": "Text files",
+      "saved": "Saved to file.",
+      "saveFailed": "Could not save the file: {{error}}",
+      "openFailed": "Could not open the file: {{error}}",
+      "unsupportedType": "Unsupported file type. Choose a {{extensions}} file.",
+      "notText": "The selected file is not a UTF-8 text file.",
+      "empty": "The file is empty.",
+      "tooLong": "The file has {{length}} characters; the limit is {{limit}}.",
+      "invalidContent": "File was not opened: {{error}}"
+    },
     "tristate": {
       "global": "Global",
       "on": "On",

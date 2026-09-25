@@ -26,6 +26,7 @@ import { Input } from "../../ui/Input";
 import { Select, type SelectOption } from "../../ui/Select";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { Textarea } from "../../ui/Textarea";
+import { TextFileActions } from "../../ui/TextFileActions";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { GeminiEarlyFinalizationSettings } from "./GeminiEarlyFinalizationSettings";
@@ -1848,6 +1849,34 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                         placeholder={"AivoRelay\nDeepgram\nAC-42"}
                         className="w-full min-h-[120px]"
                       />
+                      <TextFileActions
+                        className="mt-2"
+                        value={openAiRealtimeWhisperKeywordsInput}
+                        defaultFileName="openai-realtime-keywords.txt"
+                        validate={(text) => {
+                          const invalid = text
+                            .split(/\r?\n/)
+                            .map((keyword) => keyword.trim())
+                            .filter((keyword) => /[<>]/.test(keyword));
+                          return invalid.length > 0
+                            ? `Invalid keywords: ${invalid.join(", ")}`
+                            : null;
+                        }}
+                        onOpen={async (text) => {
+                          const normalizedKeywords = text
+                            .split(/\r?\n/)
+                            .map((keyword) => keyword.trim())
+                            .filter((keyword) => keyword.length > 0)
+                            .join("\n");
+                          setOpenAiRealtimeWhisperKeywordsInput(normalizedKeywords);
+                          if (normalizedKeywords !== openAiRealtimeWhisperKeywords) {
+                            await updateSetting(
+                              "openai_realtime_whisper_keywords" as any,
+                              normalizedKeywords as any,
+                            );
+                          }
+                        }}
+                      />
                       {invalidOpenAiRealtimeKeywords.length > 0 && (
                         <p className="mt-2 text-xs text-red-300">
                           ⚠️ Invalid lines will be removed when you leave this
@@ -2038,6 +2067,13 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                           }
                           placeholder="Add names, vocabulary, formatting rules, or output-language instructions. Variables: ${language}, ${translate_to_english}."
                           className="min-h-[120px] w-full resize-y border-blue-400/20 bg-[#151515] text-sm"
+                        />
+                        <TextFileActions
+                          className="mt-2"
+                          value={realtimeAgentPromptDraft}
+                          defaultFileName="realtime-agent-prompt.txt"
+                          disabled={isSavingRealtimeAgentPrompt}
+                          onOpen={setRealtimeAgentPromptDraft}
                         />
                         {!realtimeAgentPromptDraft.trim() && (
                           <div className="mt-2 rounded-md border border-amber-400/40 bg-amber-400/10 p-2 text-[11px] text-amber-100">
