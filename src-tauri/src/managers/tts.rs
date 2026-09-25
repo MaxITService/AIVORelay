@@ -3523,7 +3523,7 @@ impl TtsManager {
                     .post(SONIOX_TTS_URL)
                     .bearer_auth(api_key)
                     .json(&json!({
-                        "model": nonempty_or(&settings.soniox_model, "tts-rt-v1"),
+                        "model": nonempty_or(&settings.soniox_model, "tts-rt-v2"),
                         "language": nonempty_or(&settings.soniox_language, "en"),
                         "voice": nonempty_or(&settings.soniox_voice, DEFAULT_TTS_SONIOX_VOICE),
                         "audio_format": "pcm_s16le",

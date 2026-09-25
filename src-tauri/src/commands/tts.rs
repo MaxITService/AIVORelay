@@ -1652,7 +1652,7 @@ fn parse_provider(provider: &str) -> Result<TtsProvider, String> {
 }
 
 fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
-    settings.soniox_model = nonempty_setting(settings.soniox_model, "tts-rt-v1");
+    settings.soniox_model = nonempty_setting(settings.soniox_model, "tts-rt-v2");
     settings.soniox_language = nonempty_setting(settings.soniox_language, "en");
     settings.soniox_voice = nonempty_setting(settings.soniox_voice, DEFAULT_TTS_SONIOX_VOICE);
     settings.deepgram_model = nonempty_setting(settings.deepgram_model, DEFAULT_TTS_DEEPGRAM_MODEL);
@@ -1816,7 +1816,7 @@ fn normalize_synthesis_config(
 ) {
     match config.provider {
         TtsProvider::Soniox => {
-            config.model = nonempty_setting(std::mem::take(&mut config.model), "tts-rt-v1");
+            config.model = nonempty_setting(std::mem::take(&mut config.model), "tts-rt-v2");
             config.voice =
                 nonempty_setting(std::mem::take(&mut config.voice), DEFAULT_TTS_SONIOX_VOICE);
             config.language = nonempty_setting(std::mem::take(&mut config.language), "en")

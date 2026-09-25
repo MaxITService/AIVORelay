@@ -1670,7 +1670,7 @@ fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
             "builtin_tts_soniox_maya",
             "Soniox — Maya",
             TtsProvider::Soniox,
-            "tts-rt-v1",
+            "tts-rt-v2",
             "Maya",
             "en",
             1.0,
@@ -1679,7 +1679,7 @@ fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
             "builtin_tts_soniox_daniel",
             "Soniox — Daniel",
             TtsProvider::Soniox,
-            "tts-rt-v1",
+            "tts-rt-v2",
             "Daniel",
             "en",
             1.0,
@@ -4589,7 +4589,7 @@ fn default_soniox_live_preview_enabled() -> bool {
 }
 
 fn default_tts_soniox_model() -> String {
-    "tts-rt-v1".to_string()
+    "tts-rt-v2".to_string()
 }
 
 fn default_tts_soniox_language() -> String {
