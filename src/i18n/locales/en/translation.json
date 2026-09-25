@@ -246,16 +246,15 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.41",
+      "since": "Since version 1.0.42",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "webviewRecovery": "If the app's windows suddenly turn black because the built-in browser engine crashed (this can happen with overlay tools such as RivaTuner), AivoRelay now rebuilds its windows on its own instead of staying blank until you restart it.",
-        "errorOverlayClose": "The error overlay now has a close (X) button next to Retry and Copy, so you can dismiss it right away instead of waiting for it to hide.",
-        "overlayErrorPosition": "A manually placed recording overlay no longer jumps or drifts when an error appears: the error layout grows in place around the recording frame, and the app's own repositioning is no longer saved as your manual position.",
-        "animatedBorder": "The animated border styles (Traveling Highlight, Shimmer Edge, Breathing Contour) now actually move all the time, including while transcribing and in the settings preview. Your voice level changes their speed and brightness.",
-        "onboardingSkip": "The Skip button in the setup wizard stays visible on every step, and the Remote STT wizard now has a skip link at the bottom.",
-        "overlaySettings": "The Recording Overlay settings remember whether the presets list was collapsed, and \"Show Decapitalize Indicator In Preview\" now sits at the top of the Decapitalize Indicator card."
+        "textFileActions": "Prompt, vocabulary, and Soniox context editors now let you save text to a file, open it from a file, or copy it.",
+        "trayIcon": "The tray icon stops blinking when a recording finishes.",
+        "settingsScroll": "Settings remembers where you scrolled in each section as you move between sections.",
+        "recordingCleanup": "Starting a new recording soon after the previous one finishes is more reliable.",
+        "historyCopy": "History confirms a copy only after the text was copied successfully, and shows an error if copying fails."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"
