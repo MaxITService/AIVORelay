@@ -1,5 +1,5 @@
 import { listenForVoiceCommandResults } from "./stores/voiceCommandLogStore";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import "./App.css";
@@ -85,6 +85,66 @@ function App() {
   const { refreshSettings, refreshAudioDevices } = useSettings();
   const notifiedModelDownloadStarts = useRef(new Set<string>());
   const onDemandModelDownloads = useRef(new Set<string>());
+  const settingsScrollRef = useRef<HTMLDivElement>(null);
+  const settingsScrollPositions = useRef<Partial<Record<SidebarSection, number>>>({});
+  const pendingScrollRestore = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    return useNavigationStore.subscribe((state, previousState) => {
+      if (
+        state.currentSection !== previousState.currentSection &&
+        settingsScrollRef.current
+      ) {
+        settingsScrollPositions.current[previousState.currentSection] =
+          pendingScrollRestore.current ?? settingsScrollRef.current.scrollTop;
+      }
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    const scrollContainer = settingsScrollRef.current;
+    if (!scrollContainer) return;
+
+    const navigation = useNavigationStore.getState();
+    if (
+      currentSection === "help" &&
+      (navigation.pendingHelpAnchor || navigation.pendingHelpSearchQuery)
+    ) {
+      scrollContainer.scrollTop = 0;
+      return;
+    }
+
+    const savedPosition = settingsScrollPositions.current[currentSection] ?? 0;
+    scrollContainer.scrollTop = savedPosition;
+    if (scrollContainer.scrollTop >= savedPosition - 1) return;
+
+    // Some sections grow after loading; restore again once their content arrives.
+    pendingScrollRestore.current = savedPosition;
+    const restore = () => {
+      const target = pendingScrollRestore.current;
+      if (target === null) return;
+      scrollContainer.scrollTop = target;
+      if (scrollContainer.scrollTop >= target - 1) {
+        pendingScrollRestore.current = null;
+      }
+    };
+    const observer = new ResizeObserver(restore);
+    if (scrollContainer.firstElementChild) {
+      observer.observe(scrollContainer.firstElementChild);
+    }
+    return () => {
+      observer.disconnect();
+      pendingScrollRestore.current = null;
+    };
+  }, [currentSection, showOnboarding]);
+
+  const cancelPendingScrollRestore = () => {
+    if (pendingScrollRestore.current === null) return;
+    pendingScrollRestore.current = null;
+    if (settingsScrollRef.current) {
+      settingsScrollPositions.current[currentSection] = settingsScrollRef.current.scrollTop;
+    }
+  };
 
   useEffect(() => {
     // Consume after onboarding; the backend retains startup notices until this point.
@@ -577,7 +637,18 @@ function App() {
         />
         {/* Scrollable content area with gradient background */}
         <div className="min-h-0 flex-1 flex flex-col overflow-hidden bg-gradient-to-br from-[#121212] via-[#161616] to-[#0f0f0f]">
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div
+            ref={settingsScrollRef}
+            className="min-h-0 flex-1 overflow-y-auto"
+            onScroll={(event) => {
+              if (pendingScrollRestore.current !== null) return;
+              settingsScrollPositions.current[currentSection] = event.currentTarget.scrollTop;
+            }}
+            onWheel={cancelPendingScrollRestore}
+            onPointerDown={cancelPendingScrollRestore}
+            onTouchStart={cancelPendingScrollRestore}
+            onKeyDown={cancelPendingScrollRestore}
+          >
             <div className="flex flex-col items-center p-6 gap-5 max-w-3xl mx-auto min-h-full">
               <AccessibilityPermissions />
               <QuickHelp activeSection={currentSection} />
