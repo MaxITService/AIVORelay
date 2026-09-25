@@ -63,12 +63,11 @@ const SMART_HELP_ACTIONS = [
 ] as const;
 
 const WHATS_NEW_ITEMS = [
-  "help.whatsNew.items.webviewRecovery",
-  "help.whatsNew.items.errorOverlayClose",
-  "help.whatsNew.items.overlayErrorPosition",
-  "help.whatsNew.items.animatedBorder",
-  "help.whatsNew.items.onboardingSkip",
-  "help.whatsNew.items.overlaySettings",
+  "help.whatsNew.items.textFileActions",
+  "help.whatsNew.items.trayIcon",
+  "help.whatsNew.items.settingsScroll",
+  "help.whatsNew.items.recordingCleanup",
+  "help.whatsNew.items.historyCopy",
 ] as const;
 
 export const HelpSettings: React.FC = () => {
