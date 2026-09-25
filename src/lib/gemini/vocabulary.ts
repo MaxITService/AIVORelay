@@ -135,3 +135,13 @@ export function parseGeminiVocabulary(input: string): GeminiVocabularyParseResul
 
   return { format, parsedTerms, normalizedTerms, warnings, errors, safeToPersist: errors.length === 0 };
 }
+
+export const GEMINI_VOCABULARY_FILE_EXTENSIONS = ["txt", "csv", "json"];
+
+/** Returns why a vocabulary file must not be loaded, or null when it is valid. */
+export function validateGeminiVocabularyFile(text: string): string | null {
+  const result = parseGeminiVocabulary(text);
+  if (result.errors.length > 0) return result.errors[0].message;
+  if (result.normalizedTerms.length === 0) return "The file contains no terms.";
+  return null;
+}

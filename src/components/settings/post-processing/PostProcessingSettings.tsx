@@ -12,6 +12,7 @@ import { ResetButton } from "../../ui/ResetButton";
 import { Input } from "../../ui/Input";
 import { Dropdown } from "../../ui/Dropdown";
 import { Textarea } from "../../ui/Textarea";
+import { TextFileActions } from "../../ui/TextFileActions";
 import { PostProcessingToggle } from "../PostProcessingToggle";
 import { ProviderSelect } from "../PostProcessingSettingsApi/ProviderSelect";
 import { BaseUrlField } from "../PostProcessingSettingsApi/BaseUrlField";
@@ -276,7 +277,12 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
               onBlur={customSystemPrompt.persistDraft}
               className="w-full"
             />
-            <div className="flex justify-end">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <TextFileActions
+                value={customSystemPrompt.draft}
+                defaultFileName="benchmark-system-prompt.txt"
+                onOpen={customSystemPrompt.persistValue}
+              />
               <Button
                 onClick={() => updateSetting("post_process_benchmark_use_selected_prompt", true)}
                 variant="secondary"
@@ -617,6 +623,11 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
                   "settings.postProcessing.prompts.promptInstructionsPlaceholder",
                 )}
               />
+              <TextFileActions
+                value={draftText}
+                defaultFileName="post-processing-prompt.txt"
+                onOpen={setDraftText}
+              />
               <p className="text-xs text-mid-gray/70">
                 <Trans
                   i18nKey="settings.postProcessing.prompts.promptTip"
@@ -683,6 +694,11 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
                 placeholder={t(
                   "settings.postProcessing.prompts.promptInstructionsPlaceholder",
                 )}
+              />
+              <TextFileActions
+                value={draftText}
+                defaultFileName="post-processing-prompt.txt"
+                onOpen={setDraftText}
               />
               <p className="text-xs text-mid-gray/70">
                 <Trans
