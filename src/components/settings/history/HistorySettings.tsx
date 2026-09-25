@@ -1009,8 +1009,10 @@ export const HistorySettings: React.FC = () => {
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
+      return true;
     } catch (error) {
       console.error("Failed to copy to clipboard:", error);
+      return false;
     }
   };
 
@@ -1221,7 +1223,7 @@ export const HistorySettings: React.FC = () => {
                           ? (entry.ai_response ?? entry.transcription_text)
                           : (entry.post_processed_text ??
                             entry.transcription_text);
-                      copyToClipboard(textToCopy);
+                      return copyToClipboard(textToCopy);
                     }}
                     getAudioUrl={getAudioUrl}
                     deleteAudio={deleteAudioEntry}
@@ -1242,7 +1244,7 @@ export const HistorySettings: React.FC = () => {
 interface HistoryEntryProps {
   entry: HistoryEntry;
   onToggleSaved: () => void;
-  onCopyText: () => void;
+  onCopyText: () => Promise<boolean>;
   getAudioUrl: (fileName: string) => Promise<string | null>;
   deleteAudio: (id: number) => Promise<void>;
   retryTranscription: (id: number) => Promise<void>;
@@ -1258,6 +1260,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
 }) => {
   const { t, i18n } = useTranslation();
   const [showCopied, setShowCopied] = useState(false);
+  const copyFeedbackTimeoutRef = useRef<number | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [playableAudio, setPlayableAudio] = useState<{
     url: string;
@@ -1272,6 +1275,14 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   const hasAudioReference =
     !isAiReplace && entry.file_name.trim().length > 0;
   const hasPlayableAudio = playableAudio !== null;
+
+  useEffect(() => {
+    return () => {
+      if (copyFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(copyFeedbackTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1328,14 +1339,29 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
     };
   }, [entry.file_name, getAudioUrl, hasAudioReference]);
 
-  const handleCopyText = () => {
+  const handleCopyText = async () => {
     if (!hasDisplayText || retrying) {
       return;
     }
 
-    onCopyText();
+    if (!(await onCopyText())) {
+      setShowCopied(false);
+      if (copyFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(copyFeedbackTimeoutRef.current);
+        copyFeedbackTimeoutRef.current = null;
+      }
+      toast.error(t("settings.history.copyError"));
+      return;
+    }
+
+    if (copyFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(copyFeedbackTimeoutRef.current);
+    }
     setShowCopied(true);
-    setTimeout(() => setShowCopied(false), 2000);
+    copyFeedbackTimeoutRef.current = window.setTimeout(() => {
+      setShowCopied(false);
+      copyFeedbackTimeoutRef.current = null;
+    }, 2000);
   };
 
   const handleDeleteEntry = async () => {

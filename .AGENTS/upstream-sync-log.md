@@ -6,6 +6,18 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-09-25):
+- Reviewed the complete six-commit corridor after `05e0aedd` through upstream
+  HEAD `8f9cf53c`; there are no merge commits. The safe review cursor is now
+  `8f9cf53c`.
+- Adapted `dc5bdc9d` for operation-owned local recording cleanup when the user
+  selects immediate model unloading, `a6eed754` for unknown reset binding IDs,
+  `496a80cc` for copy-success feedback with the fork's 14 translations, and
+  `141f981d` for parser-compatible captured key names with readable labels.
+- Rejected `7c31572d` because AivoRelay remembers each settings section's own
+  scroll position instead of resetting every section to the top. Skipped
+  Linux/Omarchy README-only `8f9cf53c`.
+
 Audit note (2026-09-18):
 - Refreshed `upstream/main` and reviewed the complete linear corridor after
   `ba10ce19` through upstream HEAD `05e0aedd` (5 commits); the safe review
@@ -212,16 +224,16 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-09-25 | 2026-09-19 | `dc5bdc9d` | fix: unload model after recordings with no audio (#2106) | fix: adapt upstream recording, shortcut, and history fixes | local-only operation guard; immediate setting only; no wait for in-flight model loads |
+| 2026-09-25 | 2026-09-19 | `a6eed754` | fix(shortcut): reject unknown reset binding IDs (#2033) | fix: adapt upstream recording, shortcut, and history fixes | preserved fork binding mutation flow; unknown ID now returns an error |
+| 2026-09-25 | 2026-09-19 | `496a80cc` | fix(history): show copy success only after clipboard write (#2011) | fix: adapt upstream recording, shortcut, and history fixes | awaited clipboard result; translated error across fork locales |
+| 2026-09-25 | 2026-09-19 | `141f981d` | fix: emit parseable names for compound shortcut keys (#1862) | fix: adapt upstream recording, shortcut, and history fixes | retained fork multi-engine routing and friendly display labels |
 | 2026-09-06 | 2026-09-05 | `bc7facea` | 5000ms paste delay | feat(settings): allow longer paste delays | adapted to fork Paste Method control; backend already accepts and budgets the longer delay |
 | 2026-09-01 | 2026-08-30 | `c62a5fcd` | auto push to talk mode (#1971) | feat(shortcuts): add per-profile automatic tap or hold | manual fixed-300ms adaptation; hidden and off by default; external invocation unchanged |
 | 2026-08-31 | 2026-08-30 | `6fa85061` | fix 'no' not showing up + add ci so shouldnt happen again (#2001) | fix(language): preserve intent across model code aliases | manual runtime/UI adaptation; fork-aware catalog coverage guard added |
 | 2026-08-27 | 2026-08-25 | `df216832` | stop losing tail audio when a recording ends (#1958) | feat(audio): add Earshot and preserve recording output | manual boundary/resampler adaptation; bounded drain and fork framing retained |
 | 2026-08-27 | 2026-08-25 | `20ada47` | experimental earshot vad implementation (#1967) | feat(audio): add Earshot and preserve recording output | manual selectable backend; separate 256-sample VAD stage and transactional runtime swap |
 | 2026-08-27 | 2026-08-25 | `258899a` | redact transcriptions from log in production build | feat(audio): add Earshot and preserve recording output | release redaction retained; explicit independent text-log toggle added |
-| 2026-08-24 | 2026-08-23 | `f6fac42e` | update to tauri-plugin-updater 2.10.1 | fix(deps): update Tauri updater to 2.10.1 | manifests updated; Bun and Cargo locks regenerated locally; Nix metadata skipped |
-| 2026-08-24 | 2026-08-23 | `5ec2276a` | single writer tray icon (#1952) | fix(tray): serialize native tray updates | manual desired-state port; retained fork microphone, provider, shortcut-guide, and troubleshooting menus |
-| 2026-08-21 | 2026-08-19 | `afbf44cd`, `d55ea7ef`, `0e503672` | transcribe.cpp 0.2.0 (#1924); drop 'gpu' accelerator selector; Merge branch 'main' of github.com:cjpais/Handy | feat(transcription): migrate to transcribe.cpp 0.2 | manual final-tree adaptation; merge resolution reviewed; Windows runtime packaging completed; Multitalker bundle deferred |
-| 2026-08-18 | 2026-08-17 | `c89b7bf` | fix: fall back to default microphone after disconnect (#1874) | fix(audio): recover after microphone disconnects | manual health/fallback port; retained fork capture routing and audio processing |
 
 Entry template:
 

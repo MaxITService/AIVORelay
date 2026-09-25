@@ -141,6 +141,28 @@ pub(crate) fn try_begin_operation_control(
     Some(OperationControlGuard { app: app.clone() })
 }
 
+/// Holds admission closed while the matching Processing operation finishes
+/// model and shortcut cleanup. Cancellation owns cleanup if it got here first.
+pub(crate) fn try_begin_processing_completion(
+    app: &AppHandle,
+    expected_binding: &str,
+    expected_operation_id: u64,
+) -> Option<OperationControlGuard> {
+    let state = app.state::<ManagedSessionState>();
+    let state_guard = lock_session_state(&state, "begin processing completion");
+    if !matches!(&*state_guard, SessionState::Processing { binding_id, operation_id }
+        if binding_id == expected_binding && *operation_id == expected_operation_id)
+    {
+        return None;
+    }
+    let mut control = OPERATION_CONTROL.lock().unwrap_or_else(|error| error.into_inner());
+    if control.active {
+        return None;
+    }
+    control.active = true;
+    Some(OperationControlGuard { app: app.clone() })
+}
+
 /// Returns a process-local generation ID for a recording/processing lifecycle.
 /// The ID is created when recording starts and remains unchanged through Processing.
 pub fn next_operation_id() -> u64 {

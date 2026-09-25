@@ -3293,6 +3293,7 @@
         "resetError": "Failed to reset dictation stats. Please try again."
       },
       "copyToClipboard": "Copy transcription to clipboard",
+      "copyError": "Failed to copy transcription to clipboard.",
       "save": "Save transcription",
       "unsave": "Remove from saved",
       "delete": "Delete entry",
