@@ -3752,16 +3752,6 @@ fn transcribe_backend_init_result() -> &'static std::result::Result<(), String> 
                          hiding transcribe.cpp GPU devices and using CPU"
                     );
                 }
-                let devices = transcribe_compute_devices();
-                info!(
-                    "transcribe.cpp initialized with {} compute device(s): [{}]",
-                    devices.len(),
-                    devices
-                        .iter()
-                        .map(|device| format!("{} ({})", device.name, device.kind))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
             })
     })
 }
@@ -3777,8 +3767,26 @@ pub fn init_transcribe_backend() {
     let _ = transcribe_backend_init_result();
 }
 
+/// Device enumeration opens the GPU, so GUI startup reports from its prewarm thread.
+pub fn report_compute_devices() {
+    if transcribe_backend_init_result().is_err() {
+        return;
+    }
+    let devices = transcribe_compute_devices();
+    info!(
+        "transcribe.cpp initialized with {} compute device(s): [{}]",
+        devices.len(),
+        devices
+            .iter()
+            .map(|device| format!("{} ({})", device.name, device.kind))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+}
+
 pub fn prewarm_local_transcription_backends() {
     init_transcribe_backend();
+    report_compute_devices();
     let _ = get_available_accelerators();
 }
 

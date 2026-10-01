@@ -1955,6 +1955,39 @@ fn start_recording_with_feedback_with_settings(
     // Load model in the background if using local transcription
     let tm = app.state::<Arc<TranscriptionManager>>();
     if settings.transcription_provider == TranscriptionProvider::Local {
+        let model_id = &settings.selected_model;
+        let model_manager = app.state::<Arc<ModelManager>>();
+        let model_info = model_manager.get_model_info(model_id);
+        let selected_model_loaded = tm.get_current_model().as_deref() == Some(model_id.as_str())
+            && tm.is_model_loaded();
+        let error = if model_id.trim().is_empty() {
+            Some("No local transcription model is selected.".to_string())
+        } else if selected_model_loaded {
+            None
+        } else {
+            match &model_info {
+                None => Some(format!("Model not found: {model_id}")),
+                // Catalog models can be downloaded on use after recording.
+                Some(model) if model.url.is_some() => None,
+                Some(_) => model_manager
+                    .get_model_path(model_id)
+                    .err()
+                    .map(|e| e.to_string()),
+            }
+        };
+        if let Some(error) = error {
+            warn!("Not starting recording: {error}");
+            let _ = app.emit(
+                "model-state-changed",
+                crate::managers::transcription::ModelStateEvent {
+                    event_type: "loading_failed".to_string(),
+                    model_id: Some(model_id.clone()),
+                    model_name: model_info.map(|model| model.name),
+                    error: Some(error),
+                },
+            );
+            return false;
+        }
         let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
         tm.initiate_model_load_for(&settings.selected_model);
         std::thread::spawn(move || {
