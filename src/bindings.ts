@@ -213,6 +213,22 @@ async applyRecordingOverlayAppearance(appearance: RecordingOverlayAppearanceSett
     else return { status: "error", error: e  as any };
 }
 },
+async saveRecordingOverlayUserPreset(name: string) : Promise<Result<AppSettings, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("save_recording_overlay_user_preset", { name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteRecordingOverlayUserPreset(id: string) : Promise<Result<AppSettings, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_recording_overlay_user_preset", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeRecordingOverlayCustomEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_custom_enabled_setting", { enabled }) };
@@ -277,9 +293,25 @@ async changeRecordingOverlayShowStatusIconSetting(enabled: boolean) : Promise<Re
     else return { status: "error", error: e  as any };
 }
 },
+async changeRecordingOverlayStatusIconStyleSetting(style: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_status_icon_style_setting", { style }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeRecordingOverlayShowCancelButtonSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_show_cancel_button_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayCancelButtonInvisibleSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_cancel_button_invisible_setting", { enabled }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -4270,7 +4302,11 @@ error_overlay_auto_hide_ms?: number;
 /**
  * Show runtime errors in the recording overlay.
  */
-error_feedback_enabled?: boolean; recording_overlay_custom_enabled?: boolean; recording_overlay_show_drag_grip?: boolean; recording_overlay_theme?: RecordingOverlayTheme; recording_overlay_background_mode?: RecordingOverlayBackgroundMode; recording_overlay_material_mode?: RecordingOverlayMaterialMode; recording_overlay_centerpiece_mode?: RecordingOverlayCenterpieceMode; recording_overlay_animated_border_mode?: RecordingOverlayAnimatedBorderMode; recording_overlay_show_status_icon?: boolean; recording_overlay_show_cancel_button?: boolean; recording_overlay_bar_count?: number; recording_overlay_width_px?: number; recording_overlay_bar_width_px?: number; recording_overlay_bar_style?: RecordingOverlayBarStyle; recording_overlay_accent_color?: string; recording_overlay_status_icon_color?: string; recording_overlay_cancel_icon_color?: string; recording_overlay_surface_base_color?: string; recording_overlay_body_background_color?: string; recording_overlay_audio_reactive_scale?: boolean; recording_overlay_audio_reactive_scale_max_percent?: number; recording_overlay_voice_sensitivity_percent?: number; recording_overlay_animation_softness_percent?: number; recording_overlay_depth_parallax_percent?: number; recording_overlay_opacity_percent?: number; recording_overlay_silence_fade?: boolean; recording_overlay_silence_opacity_percent?: number; recording_overlay_decapitalize_indicator_mode?: RecordingOverlayDecapitalizeIndicatorMode; recording_overlay_decapitalize_indicator_custom_text?: string; recording_overlay_decapitalize_indicator_font_family?: string; recording_overlay_decapitalize_indicator_font_size_px?: number; recording_overlay_decapitalize_indicator_color?: string; soniox_live_preview_enabled?: boolean; soniox_live_preview_position?: SonioxLivePreviewPosition; soniox_live_preview_cursor_offset_px?: number; soniox_live_preview_custom_x_px?: number; soniox_live_preview_custom_y_px?: number; soniox_live_preview_size?: SonioxLivePreviewSize; soniox_live_preview_custom_width_px?: number; soniox_live_preview_custom_height_px?: number; soniox_live_preview_theme?: SonioxLivePreviewTheme; soniox_live_preview_opacity_percent?: number; soniox_live_preview_font_color?: string; soniox_live_preview_interim_font_color?: string; soniox_live_preview_accent_color?: string; soniox_live_preview_interim_opacity_percent?: number;
+error_feedback_enabled?: boolean; recording_overlay_custom_enabled?: boolean; recording_overlay_show_drag_grip?: boolean; recording_overlay_theme?: RecordingOverlayTheme; recording_overlay_background_mode?: RecordingOverlayBackgroundMode; recording_overlay_material_mode?: RecordingOverlayMaterialMode; recording_overlay_centerpiece_mode?: RecordingOverlayCenterpieceMode; recording_overlay_animated_border_mode?: RecordingOverlayAnimatedBorderMode; recording_overlay_show_status_icon?: boolean; recording_overlay_status_icon_style?: RecordingOverlayStatusIconStyle;
+/**
+ * Keeps the cancel button clickable but draws nothing in its place.
+ */
+recording_overlay_cancel_button_invisible?: boolean; recording_overlay_show_cancel_button?: boolean; recording_overlay_bar_count?: number; recording_overlay_width_px?: number; recording_overlay_bar_width_px?: number; recording_overlay_bar_style?: RecordingOverlayBarStyle; recording_overlay_accent_color?: string; recording_overlay_status_icon_color?: string; recording_overlay_cancel_icon_color?: string; recording_overlay_surface_base_color?: string; recording_overlay_body_background_color?: string; recording_overlay_audio_reactive_scale?: boolean; recording_overlay_audio_reactive_scale_max_percent?: number; recording_overlay_voice_sensitivity_percent?: number; recording_overlay_animation_softness_percent?: number; recording_overlay_depth_parallax_percent?: number; recording_overlay_opacity_percent?: number; recording_overlay_silence_fade?: boolean; recording_overlay_silence_opacity_percent?: number; recording_overlay_decapitalize_indicator_mode?: RecordingOverlayDecapitalizeIndicatorMode; recording_overlay_decapitalize_indicator_custom_text?: string; recording_overlay_decapitalize_indicator_font_family?: string; recording_overlay_decapitalize_indicator_font_size_px?: number; recording_overlay_decapitalize_indicator_color?: string; recording_overlay_user_presets?: RecordingOverlayUserPreset[]; soniox_live_preview_enabled?: boolean; soniox_live_preview_position?: SonioxLivePreviewPosition; soniox_live_preview_cursor_offset_px?: number; soniox_live_preview_custom_x_px?: number; soniox_live_preview_custom_y_px?: number; soniox_live_preview_size?: SonioxLivePreviewSize; soniox_live_preview_custom_width_px?: number; soniox_live_preview_custom_height_px?: number; soniox_live_preview_theme?: SonioxLivePreviewTheme; soniox_live_preview_opacity_percent?: number; soniox_live_preview_font_color?: string; soniox_live_preview_interim_font_color?: string; soniox_live_preview_accent_color?: string; soniox_live_preview_interim_opacity_percent?: number;
 /**
  * Model IDs whose native streaming output is pasted incrementally while recording.
  * Only committed chunks are ever sent to the active application.
@@ -4871,19 +4907,32 @@ export type PreviewOutputModeStatePayload = { active: boolean; recording: boolea
  * Used as a parameter struct for update_transcription_profile to reduce argument count.
  */
 export type ProfileLlmSettings = { enabled: boolean; promptOverride: string | null; modelOverride: string | null }
-export type RecordingOverlayAnimatedBorderMode = "none" | "shimmer_edge" | "traveling_highlight" | "breathing_contour"
-export type RecordingOverlayAppearancePayload = { custom_enabled: boolean; theme: string; background_mode: string; material_mode: string; centerpiece_mode: string; animated_border_mode: string; accent_color: string; status_icon_color: string; cancel_icon_color: string; surface_base_color: string; body_background_color: string; show_status_icon: boolean; show_cancel_button: boolean; bar_count: number; bar_width_px: number; bar_style: string; show_drag_grip: boolean; audio_reactive_scale: boolean; audio_reactive_scale_max_percent: number; voice_sensitivity_percent: number; animation_softness_percent: number; depth_parallax_percent: number; opacity_percent: number; silence_fade: boolean; silence_opacity_percent: number; decapitalize_indicator_mode: string; decapitalize_indicator_custom_text: string; decapitalize_indicator_font_family: string; decapitalize_indicator_font_size_px: number; decapitalize_indicator_color: string; frame_width_px: number; frame_height_px: number }
+export type RecordingOverlayAnimatedBorderMode = "none" | "shimmer_edge" | "traveling_highlight" | "breathing_contour" | "spectrum_edge"
+export type RecordingOverlayAppearancePayload = { custom_enabled: boolean; theme: string; background_mode: string; material_mode: string; centerpiece_mode: string; animated_border_mode: string; accent_color: string; status_icon_color: string; cancel_icon_color: string; surface_base_color: string; body_background_color: string; show_status_icon: boolean; status_icon_style: string; show_cancel_button: boolean; cancel_button_invisible: boolean; bar_count: number; bar_width_px: number; bar_style: string; show_drag_grip: boolean; audio_reactive_scale: boolean; audio_reactive_scale_max_percent: number; voice_sensitivity_percent: number; animation_softness_percent: number; depth_parallax_percent: number; opacity_percent: number; silence_fade: boolean; silence_opacity_percent: number; decapitalize_indicator_mode: string; decapitalize_indicator_custom_text: string; decapitalize_indicator_font_family: string; decapitalize_indicator_font_size_px: number; decapitalize_indicator_color: string; frame_width_px: number; frame_height_px: number }
 /**
  * A complete appearance update, excluding visibility, mode, and window position.
+ * User presets store it too, so a field added later needs a serde default.
  */
-export type RecordingOverlayAppearanceSettings = { recording_overlay_theme: RecordingOverlayTheme; recording_overlay_show_cancel_button: boolean; recording_overlay_width_px: number; recording_overlay_status_icon_color: string; recording_overlay_cancel_icon_color: string; recording_overlay_decapitalize_indicator_mode: RecordingOverlayDecapitalizeIndicatorMode; recording_overlay_decapitalize_indicator_custom_text: string; recording_overlay_decapitalize_indicator_font_family: string; recording_overlay_decapitalize_indicator_font_size_px: number; recording_overlay_decapitalize_indicator_color: string; recording_overlay_background_mode: RecordingOverlayBackgroundMode; recording_overlay_material_mode: RecordingOverlayMaterialMode; recording_overlay_centerpiece_mode: RecordingOverlayCenterpieceMode; recording_overlay_animated_border_mode: RecordingOverlayAnimatedBorderMode; recording_overlay_surface_base_color: string; recording_overlay_body_background_color: string; recording_overlay_show_status_icon: boolean; recording_overlay_bar_count: number; recording_overlay_bar_width_px: number; recording_overlay_bar_style: RecordingOverlayBarStyle; recording_overlay_accent_color: string; recording_overlay_show_drag_grip: boolean; recording_overlay_audio_reactive_scale: boolean; recording_overlay_audio_reactive_scale_max_percent: number; recording_overlay_voice_sensitivity_percent: number; recording_overlay_animation_softness_percent: number; recording_overlay_depth_parallax_percent: number; recording_overlay_opacity_percent: number; recording_overlay_silence_fade: boolean; recording_overlay_silence_opacity_percent: number }
-export type RecordingOverlayBackgroundMode = "none" | "mist" | "petals_haze" | "soft_glow_field" | "stardust" | "silk_fog" | "firefly_veil" | "rose_sparks"
-export type RecordingOverlayBarStyle = "solid" | "capsule" | "glow" | "prism" | "radar" | "shards" | "retro" | "needles" | "orbit" | "aurora" | "bloom_bounce" | "pulse_rings" | "fireflies" | "helix" | "constellation" | "petals" | "petal_rain" | "daisy" | "lotus" | "garden_sway" | "matrix" | "skyline" | "comet" | "tuner" | "ember" | "hologram" | "vinyl" | "morse" | "crown"
-export type RecordingOverlayCenterpieceMode = "none" | "halo_core" | "aurora_ribbon" | "orbital_beads" | "bloom_heart" | "signal_crown"
+export type RecordingOverlayAppearanceSettings = { recording_overlay_theme: RecordingOverlayTheme; recording_overlay_show_cancel_button: boolean; recording_overlay_width_px: number; recording_overlay_status_icon_color: string; recording_overlay_cancel_icon_color: string; recording_overlay_decapitalize_indicator_mode: RecordingOverlayDecapitalizeIndicatorMode; recording_overlay_decapitalize_indicator_custom_text: string; recording_overlay_decapitalize_indicator_font_family: string; recording_overlay_decapitalize_indicator_font_size_px: number; recording_overlay_decapitalize_indicator_color: string; recording_overlay_background_mode: RecordingOverlayBackgroundMode; recording_overlay_material_mode: RecordingOverlayMaterialMode; recording_overlay_centerpiece_mode: RecordingOverlayCenterpieceMode; recording_overlay_animated_border_mode: RecordingOverlayAnimatedBorderMode; recording_overlay_surface_base_color: string; recording_overlay_body_background_color: string; recording_overlay_show_status_icon: boolean; recording_overlay_status_icon_style?: RecordingOverlayStatusIconStyle;
+/**
+ * Keeps the cancel button clickable but draws nothing in its place.
+ */
+recording_overlay_cancel_button_invisible?: boolean; recording_overlay_bar_count: number; recording_overlay_bar_width_px: number; recording_overlay_bar_style: RecordingOverlayBarStyle; recording_overlay_accent_color: string; recording_overlay_show_drag_grip: boolean; recording_overlay_audio_reactive_scale: boolean; recording_overlay_audio_reactive_scale_max_percent: number; recording_overlay_voice_sensitivity_percent: number; recording_overlay_animation_softness_percent: number; recording_overlay_depth_parallax_percent: number; recording_overlay_opacity_percent: number; recording_overlay_silence_fade: boolean; recording_overlay_silence_opacity_percent: number }
+export type RecordingOverlayBackgroundMode = "none" | "mist" | "petals_haze" | "soft_glow_field" | "stardust" | "silk_fog" | "firefly_veil" | "rose_sparks" | "horizon_grid" | "starfield_warp" | "tunnel_rings" | "galaxy_spiral" | "dot_swell"
+export type RecordingOverlayBarStyle = "solid" | "capsule" | "glow" | "prism" | "radar" | "shards" | "retro" | "needles" | "orbit" | "aurora" | "bloom_bounce" | "pulse_rings" | "fireflies" | "helix" | "constellation" | "petals" | "petal_rain" | "daisy" | "lotus" | "garden_sway" | "matrix" | "skyline" | "comet" | "tuner" | "ember" | "hologram" | "vinyl" | "morse" | "crown" | "wave_line" | "mirror" | "dot_matrix" | "spectrum" | "liquid" | "pillars" | "orbs" | "cubes" | "ridgeline" | "carousel" | "twist_ribbon"
+export type RecordingOverlayCenterpieceMode = "none" | "halo_core" | "aurora_ribbon" | "orbital_beads" | "bloom_heart" | "signal_crown" | "gyroscope" | "holo_globe" | "ringed_planet" | "plasma_orb"
 export type RecordingOverlayCustomPositionPayload = { x_px: number; y_px: number }
 export type RecordingOverlayDecapitalizeIndicatorMode = "text" | "custom" | "hidden"
-export type RecordingOverlayMaterialMode = "liquid_glass" | "pearl" | "velvet_neon" | "frost" | "candy_chrome"
+export type RecordingOverlayMaterialMode = "liquid_glass" | "pearl" | "velvet_neon" | "frost" | "candy_chrome" | "graphite" | "obsidian" | "gradient_mesh" | "porcelain" | "clay" | "keycap"
+/**
+ * How the status icon is framed. `Auto` picks a frame that suits the material.
+ */
+export type RecordingOverlayStatusIconStyle = "auto" | "capsule" | "bare" | "ring" | "tile" | "dot" | "orb" | "coin"
 export type RecordingOverlayTheme = "classic" | "minimal" | "glass"
+/**
+ * A named recording overlay look saved by the user.
+ */
+export type RecordingOverlayUserPreset = { id: string; name: string; appearance: RecordingOverlayAppearanceSettings }
 export type RecordingRetentionPeriod = "never" | "preserve_limit" | "days_3" | "weeks_2" | "months_3"
 export type RegenerateTtsHistoryRequest = { id: number;
 /**

@@ -1,10 +1,13 @@
 import React from "react";
 import {
+  mixRecordingOverlayHexColors,
   normalizeRecordingOverlayBarStyle,
   normalizeRecordingOverlayColor,
   recordingOverlayHexToRgba,
+  shiftRecordingOverlayHue,
   type RecordingOverlayBarStyle,
 } from "./recordingOverlayAppearance";
+import "./RecordingOverlayDepthLayers.css";
 
 interface RecordingOverlayBarsProps {
   levels: number[];
@@ -44,6 +47,12 @@ function pulseOffset(level: number, index: number): number {
   return Math.sin((level * 4.5) + index * 0.7) * 1.2;
 }
 
+/** How far a pillar's side face recedes: half its width, at least 2px. */
+function pillarDepthPx(width: number): number {
+  return Math.max(2, Math.round(width / 2));
+}
+
+// Keep the lane widths in sync with `recording_overlay_default_width` in overlay.rs.
 function laneWidthForStyle(
   style: RecordingOverlayBarStyle,
   effectiveWidth: number,
@@ -60,6 +69,11 @@ function laneWidthForStyle(
     case "tuner":
     case "morse":
       return Math.max(effectiveWidth + 2, 8);
+    case "pillars":
+      return effectiveWidth + pillarDepthPx(effectiveWidth);
+    case "orbs":
+    case "cubes":
+      return Math.max(effectiveWidth + 4, 8);
     case "constellation":
     case "fireflies":
     case "helix":
@@ -87,11 +101,771 @@ function isCenterAlignedStyle(style: RecordingOverlayBarStyle): boolean {
     case "pulse_rings":
     case "radar":
     case "vinyl":
+    case "mirror":
+    case "dot_matrix":
+    case "spectrum":
       return true;
     default:
       return false;
   }
 }
+
+/**
+ * Eases displayed levels toward the latest input every frame, so a continuous
+ * line does not jump between audio level updates.
+ */
+function useSmoothedLevels(
+  levels: number[],
+  enabled: boolean,
+  timeConstantMs: number,
+): number[] {
+  const [smoothed, setSmoothed] = React.useState(levels);
+  const currentRef = React.useRef(levels);
+
+  React.useEffect(() => {
+    if (!enabled) {
+      currentRef.current = levels;
+      return;
+    }
+    let frameId = 0;
+    let lastTime = performance.now();
+    const step = (now: number) => {
+      const elapsed = Math.min(64, now - lastTime);
+      lastTime = now;
+      const blend = 1 - Math.exp(-elapsed / timeConstantMs);
+      let moving = false;
+      const next = levels.map((target, index) => {
+        const from = currentRef.current[index] ?? 0;
+        const delta = clampUnit(target) - from;
+        if (Math.abs(delta) > 0.002) {
+          moving = true;
+        }
+        return from + delta * blend;
+      });
+      currentRef.current = next;
+      setSmoothed(next);
+      frameId = moving ? window.requestAnimationFrame(step) : 0;
+    };
+    frameId = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [enabled, levels, timeConstantMs]);
+
+  return enabled ? smoothed : levels;
+}
+
+/** Catmull-Rom spline through the points, written as cubic Bezier segments. */
+function smoothPath(points: Array<[number, number]>): string {
+  const format = (value: number) => value.toFixed(2);
+  let path = `M ${format(points[0][0])} ${format(points[0][1])}`;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const [x0, y0] = points[index - 1] ?? points[index];
+    const [x1, y1] = points[index];
+    const [x2, y2] = points[index + 1];
+    const [x3, y3] = points[index + 2] ?? points[index + 1];
+    path += ` C ${format(x1 + (x2 - x0) / 6)} ${format(y1 + (y2 - y0) / 6)}, ${format(x2 - (x3 - x1) / 6)} ${format(y2 - (y3 - y1) / 6)}, ${format(x2)} ${format(y2)}`;
+  }
+  return path;
+}
+
+interface RecordingOverlayWaveLineProps {
+  levels: number[];
+  widthPx: number;
+  heightPx: number;
+  strokeWidthPx: number;
+  accent: string;
+  animated: boolean;
+  softness: number;
+}
+
+const RecordingOverlayWaveLine: React.FC<RecordingOverlayWaveLineProps> = ({
+  levels,
+  widthPx,
+  heightPx,
+  strokeWidthPx,
+  accent,
+  animated,
+  softness,
+}) => {
+  const gradientId = `recording-overlay-wave-${React.useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const displayed = useSmoothedLevels(levels, animated, 45 + softness * 110);
+  const secondary = shiftRecordingOverlayHue(accent, 48);
+  const mid = heightPx / 2;
+  const amplitude = Math.max(2, mid - strokeWidthPx - 1);
+  const count = displayed.length;
+  // Neighbouring points swing to opposite sides, and an envelope keeps the
+  // ends calm, so the spline reads as one wave instead of a row of peaks.
+  const primaryPoints: Array<[number, number]> = [[0, mid]];
+  displayed.forEach((level, index) => {
+    const position = (index + 1) / (count + 1);
+    const envelope = 0.35 + 0.65 * Math.sin(position * Math.PI);
+    const lift = Math.max(0.06, Math.pow(clampUnit(level), 0.75)) * amplitude * envelope;
+    primaryPoints.push([position * widthPx, mid + (index % 2 === 0 ? -lift : lift)]);
+  });
+  primaryPoints.push([widthPx, mid]);
+  const echoPoints = primaryPoints.map(
+    ([x, y]): [number, number] => [x, mid - (y - mid) * 0.55],
+  );
+  const primaryPath = smoothPath(primaryPoints);
+  const echoPath = smoothPath(echoPoints);
+  const stroke = `url(#${gradientId})`;
+
+  return (
+    <svg
+      width={widthPx}
+      height={heightPx}
+      viewBox={`0 0 ${widthPx} ${heightPx}`}
+      style={{ display: "block", overflow: "visible" }}
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id={gradientId} gradientUnits="userSpaceOnUse" x1={0} y1={0} x2={widthPx} y2={0}>
+          <stop offset="0%" stopColor={accent} stopOpacity={0.2} />
+          <stop offset="22%" stopColor={accent} />
+          <stop offset="78%" stopColor={secondary} />
+          <stop offset="100%" stopColor={secondary} stopOpacity={0.2} />
+        </linearGradient>
+      </defs>
+      <path d={echoPath} fill="none" stroke={stroke} strokeWidth={Math.max(1, strokeWidthPx * 0.7)} strokeLinecap="round" opacity={0.42} />
+      <path d={primaryPath} fill="none" stroke={stroke} strokeWidth={strokeWidthPx * 2.4} strokeLinecap="round" opacity={0.2} style={{ filter: "blur(2px)" }} />
+      <path d={primaryPath} fill="none" stroke={stroke} strokeWidth={strokeWidthPx} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+};
+
+interface RecordingOverlayLiquidProps {
+  levels: number[];
+  widthPx: number;
+  heightPx: number;
+  blobWidthPx: number;
+  accent: string;
+  animated: boolean;
+  softness: number;
+}
+
+/**
+ * Drops on a thin stream that swell with each level. A blur plus an alpha
+ * threshold merges neighbours into one liquid shape.
+ */
+const RecordingOverlayLiquid: React.FC<RecordingOverlayLiquidProps> = ({
+  levels,
+  widthPx,
+  heightPx,
+  blobWidthPx,
+  accent,
+  animated,
+  softness,
+}) => {
+  const id = `recording-overlay-liquid-${React.useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const displayed = useSmoothedLevels(levels, animated, 60 + softness * 120);
+  const secondary = shiftRecordingOverlayHue(accent, 32);
+  const mid = heightPx / 2;
+  const radius = Math.max(2, blobWidthPx / 2);
+  const streamHeight = Math.max(3, radius * 1.3);
+  const blur = Math.max(1.4, radius * 0.6);
+  const lane = blobWidthPx + BAR_GAP_PX;
+  const shapes = (
+    <>
+      <rect
+        x={radius * 0.5}
+        y={mid - streamHeight / 2}
+        width={Math.max(0, widthPx - radius)}
+        height={streamHeight}
+        rx={streamHeight / 2}
+      />
+      {displayed.map((rawLevel, index) => {
+        const level = Math.pow(clampUnit(rawLevel), 0.8);
+        return (
+          <ellipse
+            key={index}
+            cx={index * lane + blobWidthPx / 2}
+            cy={mid}
+            rx={radius * (1 + level * 0.35)}
+            ry={radius + level * Math.max(0, mid - radius - 1)}
+          />
+        );
+      })}
+    </>
+  );
+
+  return (
+    <svg
+      width={widthPx}
+      height={heightPx}
+      viewBox={`0 0 ${widthPx} ${heightPx}`}
+      style={{ display: "block", overflow: "visible" }}
+      aria-hidden="true"
+    >
+      <defs>
+        <filter id={`${id}-goo`} x="-20%" y="-40%" width="140%" height="180%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation={blur} />
+          <feColorMatrix mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" />
+        </filter>
+        <linearGradient id={`${id}-fill`} gradientUnits="userSpaceOnUse" x1={0} y1={0} x2={widthPx} y2={0}>
+          <stop offset="0%" stopColor={accent} />
+          <stop offset="100%" stopColor={secondary} />
+        </linearGradient>
+        <linearGradient id={`${id}-shine`} gradientUnits="userSpaceOnUse" x1={0} y1={0} x2={0} y2={heightPx}>
+          <stop offset="0%" stopColor="#ffffff" stopOpacity={0.7} />
+          <stop offset="42%" stopColor="#ffffff" stopOpacity={0} />
+        </linearGradient>
+        {/* The merged shape as a mask, so the gloss keeps its soft gradient. */}
+        <mask id={`${id}-shape`}>
+          <g filter={`url(#${id}-goo)`} fill="#ffffff">
+            {shapes}
+          </g>
+        </mask>
+      </defs>
+      <g filter={`url(#${id}-goo)`} fill={`url(#${id}-fill)`}>
+        {shapes}
+      </g>
+      <rect
+        x={0}
+        y={0}
+        width={widthPx}
+        height={heightPx}
+        fill={`url(#${id}-shine)`}
+        mask={`url(#${id}-shape)`}
+        opacity={0.55}
+      />
+    </svg>
+  );
+};
+
+/** Camera tilt for the cubes: how much of the top face shows. */
+const CUBE_ELEVATION_SIN = 0.42;
+const CUBE_ELEVATION_COS = Math.sqrt(1 - CUBE_ELEVATION_SIN * CUBE_ELEVATION_SIN);
+/** Key light from the upper front left, as a ground-plane direction. */
+const CUBE_LIGHT_X = -0.62;
+const CUBE_LIGHT_Z = -0.78;
+
+function initialCubeAngle(index: number): number {
+  return 0.35 + index * 0.61;
+}
+
+function shadeRecordingOverlayColor(color: string, brightness: number): string {
+  return brightness <= 1
+    ? mixRecordingOverlayHexColors(color, "#000000", 1 - Math.max(0, brightness))
+    : mixRecordingOverlayHexColors(color, "#ffffff", Math.min(1, brightness - 1));
+}
+
+interface RecordingOverlayCubesProps {
+  levels: number[];
+  laneWidthPx: number;
+  heightPx: number;
+  accent: string;
+  animated: boolean;
+  softness: number;
+}
+
+/**
+ * Flat-shaded cubes that turn on their axis and grow into towers with the
+ * voice. Each frame projects the corners orthographically and lights every
+ * face from its normal, so the 3D look costs a handful of SVG polygons.
+ */
+const RecordingOverlayCubes: React.FC<RecordingOverlayCubesProps> = ({
+  levels,
+  laneWidthPx,
+  heightPx,
+  accent,
+  animated,
+  softness,
+}) => {
+  const id = `recording-overlay-cubes-${React.useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const [reducedMotion] = React.useState(
+    () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+  );
+  const spinning = animated && !reducedMotion;
+  const levelsRef = React.useRef(levels);
+  React.useEffect(() => {
+    levelsRef.current = levels;
+  }, [levels]);
+  const motionRef = React.useRef({
+    angles: levels.map((_, index) => initialCubeAngle(index)),
+    heights: levels.map(clampUnit),
+  });
+  const [motion, setMotion] = React.useState(motionRef.current);
+
+  React.useEffect(() => {
+    if (!spinning) {
+      return;
+    }
+    let frameId = 0;
+    let lastTime = performance.now();
+    const timeConstantMs = 70 + softness * 130;
+    const step = (now: number) => {
+      const elapsedMs = Math.min(64, now - lastTime);
+      lastTime = now;
+      const blend = 1 - Math.exp(-elapsedMs / timeConstantMs);
+      const previous = motionRef.current;
+      const heights = levelsRef.current.map((target, index) => {
+        const from = previous.heights[index] ?? 0;
+        return from + (clampUnit(target) - from) * blend;
+      });
+      // A slow idle turn that speeds up with the voice.
+      const angles = heights.map((height, index) => {
+        const from = previous.angles[index] ?? initialCubeAngle(index);
+        return (from + (elapsedMs / 1000) * (0.3 + height * 2.8)) % (Math.PI * 2);
+      });
+      motionRef.current = { angles, heights };
+      setMotion(motionRef.current);
+      frameId = window.requestAnimationFrame(step);
+    };
+    frameId = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [spinning, softness]);
+
+  const angles = spinning ? motion.angles : levels.map((_, index) => initialCubeAngle(index));
+  const heights = spinning ? motion.heights : levels.map(clampUnit);
+  const count = levels.length;
+  const widthPx = count * laneWidthPx + Math.max(0, count - 1) * BAR_GAP_PX;
+  const radius = laneWidthPx / 2;
+  const k = CUBE_ELEVATION_SIN;
+  const c = CUBE_ELEVATION_COS;
+  const groundY = heightPx - 1 - radius * k;
+  const edge = radius * Math.SQRT2;
+  const minHeight = edge * 0.82;
+  const maxHeight = Math.max(minHeight, (heightPx - 1 - 2 * radius * k) / c);
+  const format = (value: number) => value.toFixed(2);
+
+  return (
+    <svg
+      width={widthPx}
+      height={heightPx}
+      viewBox={`0 0 ${widthPx} ${heightPx}`}
+      style={{ display: "block", overflow: "visible" }}
+      aria-hidden="true"
+    >
+      <defs>
+        <radialGradient id={`${id}-shadow`}>
+          <stop offset="0%" stopColor="#000000" stopOpacity={0.5} />
+          <stop offset="100%" stopColor="#000000" stopOpacity={0} />
+        </radialGradient>
+      </defs>
+      {heights.map((rawHeight, index) => {
+        const position = count > 1 ? index / (count - 1) : 0.5;
+        const color = shiftRecordingOverlayHue(accent, (position - 0.5) * 48);
+        const centerX = index * (laneWidthPx + BAR_GAP_PX) + laneWidthPx / 2;
+        const towerHeight = minHeight + Math.pow(rawHeight, 0.8) * (maxHeight - minHeight);
+        const turn = ((angles[index] ?? 0) % (Math.PI / 2) + Math.PI / 2) % (Math.PI / 2);
+        const corners = [0, 1, 2, 3].map((corner) => {
+          const angle = turn + Math.PI / 4 + corner * (Math.PI / 2);
+          return { angle, x: radius * Math.cos(angle), z: radius * Math.sin(angle) };
+        });
+        const project = (x: number, z: number, y: number) =>
+          `${format(centerX + x)},${format(groundY - y * c - z * k)}`;
+        let front = 0;
+        corners.forEach((corner, cornerIndex) => {
+          if (corner.z < corners[front].z) front = cornerIndex;
+        });
+        const frontCorner = corners[front];
+        const faces = [corners[(front + 3) % 4], corners[(front + 1) % 4]].map((neighbor, side) => {
+          // The face normal points between the front corner and its neighbour.
+          const normalAngle = frontCorner.angle + (side === 0 ? -1 : 1) * (Math.PI / 4);
+          const facing =
+            Math.cos(normalAngle) * CUBE_LIGHT_X + Math.sin(normalAngle) * CUBE_LIGHT_Z;
+          return {
+            points: [
+              project(frontCorner.x, frontCorner.z, 0),
+              project(neighbor.x, neighbor.z, 0),
+              project(neighbor.x, neighbor.z, towerHeight),
+              project(frontCorner.x, frontCorner.z, towerHeight),
+            ].join(" "),
+            fill: shadeRecordingOverlayColor(color, 0.38 + Math.max(0, facing) * 0.74),
+          };
+        });
+        const top = corners.map((corner) => project(corner.x, corner.z, towerHeight)).join(" ");
+        return (
+          <g key={index}>
+            {/* The key light sits front left, so the shadow falls back right. */}
+            <ellipse
+              cx={centerX + radius * 0.35}
+              cy={groundY - radius * k * 0.2}
+              rx={radius * 1.15}
+              ry={Math.max(1.2, radius * k * 1.15)}
+              fill={`url(#${id}-shadow)`}
+            />
+            {faces.map((face, faceIndex) => (
+              <polygon key={faceIndex} points={face.points} fill={face.fill} />
+            ))}
+            <polygon
+              points={top}
+              fill={shadeRecordingOverlayColor(color, 1.32 + rawHeight * 0.18)}
+              stroke="rgba(255,255,255,0.55)"
+              strokeWidth={0.6}
+              strokeLinejoin="round"
+            />
+            {/* A thin rim light on the leading vertical edge. */}
+            <line
+              x1={centerX + frontCorner.x}
+              y1={groundY - frontCorner.z * k}
+              x2={centerX + frontCorner.x}
+              y2={groundY - towerHeight * c - frontCorner.z * k}
+              stroke="rgba(255,255,255,0.32)"
+              strokeWidth={0.6}
+            />
+          </g>
+        );
+      })}
+    </svg>
+  );
+};
+
+function usePrefersReducedMotion(): boolean {
+  const [reducedMotion] = React.useState(
+    () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+  );
+  return reducedMotion;
+}
+
+/** History rows behind the live front ridge; one more fades out at the back. */
+const RIDGE_HISTORY_ROWS = 6;
+/**
+ * A row recedes one step per sample, and its transition lasts exactly one
+ * sample, so the terrain glides back at a steady speed.
+ */
+const RIDGE_SAMPLE_MS = 120;
+/** Perspective divisor added per row: a row at depth d is drawn at 1 / (1 + d * step). */
+const RIDGE_DEPTH_STEP = 0.34;
+
+interface RidgeShape {
+  line: string;
+  area: string;
+}
+
+/** One ridge in depth-0 coordinates; depth is applied later as a transform. */
+function ridgeShape(
+  levels: number[],
+  widthPx: number,
+  baseY: number,
+  amplitude: number,
+): RidgeShape {
+  const count = levels.length;
+  const points: Array<[number, number]> = [[0, baseY]];
+  levels.forEach((level, index) => {
+    const position = (index + 1) / (count + 1);
+    const envelope = 0.3 + 0.7 * Math.sin(position * Math.PI);
+    const lift = Math.max(0.05, Math.pow(clampUnit(level), 0.8)) * amplitude * envelope;
+    points.push([position * widthPx, baseY - lift]);
+  });
+  points.push([widthPx, baseY]);
+  const line = smoothPath(points);
+  return { line, area: `${line} L ${widthPx} ${baseY + 1} L 0 ${baseY + 1} Z` };
+}
+
+interface RecordingOverlayRidgelineProps {
+  levels: number[];
+  widthPx: number;
+  heightPx: number;
+  strokeWidthPx: number;
+  accent: string;
+  animated: boolean;
+  softness: number;
+}
+
+/**
+ * The last second of speech as a terrain of ridges receding to a vanishing
+ * point. Each sampled ridge is built once in flat coordinates; after that only
+ * the transform and opacity of its group change, and a CSS transition carries
+ * it one row back per sample. The live front ridge is the only path redrawn as
+ * the voice changes. Dark fills hide the ridges behind, painter's style.
+ */
+const RecordingOverlayRidgeline: React.FC<RecordingOverlayRidgelineProps> = ({
+  levels,
+  widthPx,
+  heightPx,
+  strokeWidthPx,
+  accent,
+  animated,
+  softness,
+}) => {
+  const reducedMotion = usePrefersReducedMotion();
+  const moving = animated && !reducedMotion;
+  const displayed = useSmoothedLevels(levels, moving, 40 + softness * 90);
+  const displayedRef = React.useRef(displayed);
+  React.useEffect(() => {
+    displayedRef.current = displayed;
+  }, [displayed]);
+  const nextIdRef = React.useRef(0);
+  const [history, setHistory] = React.useState<Array<{ id: number; shape: RidgeShape }>>([]);
+
+  const baseY = heightPx - 1;
+  const amplitude = (heightPx - 2) * 0.78;
+
+  React.useEffect(() => {
+    setHistory([]);
+    if (!moving) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      const shape = ridgeShape(displayedRef.current, widthPx, baseY, amplitude);
+      const snapshot = { id: nextIdRef.current, shape };
+      nextIdRef.current += 1;
+      setHistory((previous) => [snapshot, ...previous].slice(0, RIDGE_HISTORY_ROWS + 1));
+    }, RIDGE_SAMPLE_MS);
+    return () => window.clearInterval(timer);
+  }, [moving, widthPx, baseY, amplitude]);
+
+  // Without motion, a still landscape: each row repeats the voice shifted by
+  // one lane, so the ridges do not line up into a single wall.
+  const rows = moving
+    ? history.map((entry, index) => ({ key: `ridge-${entry.id}`, depth: index + 1, shape: entry.shape }))
+    : Array.from({ length: RIDGE_HISTORY_ROWS }, (_, index) => ({
+        key: `still-${index}`,
+        depth: index + 1,
+        shape: ridgeShape(
+          displayed.map((_, lane) => displayed[(lane + index + 1) % displayed.length] * 0.85),
+          widthPx,
+          baseY,
+          amplitude,
+        ),
+      }));
+  const front = ridgeShape(displayed, widthPx, baseY, amplitude);
+  const vanishX = widthPx / 2;
+  const vanishY = heightPx * 0.06;
+  const secondary = shiftRecordingOverlayHue(accent, 40);
+  const fill = recordingOverlayHexToRgba(mixRecordingOverlayHexColors(accent, "#000000", 0.82), 0.92);
+  const rowTransition = moving
+    ? `transform ${RIDGE_SAMPLE_MS}ms linear, opacity ${RIDGE_SAMPLE_MS}ms linear`
+    : "none";
+
+  return (
+    <svg
+      width={widthPx}
+      height={heightPx}
+      viewBox={`0 0 ${widthPx} ${heightPx}`}
+      style={{ display: "block", overflow: "visible" }}
+      aria-hidden="true"
+    >
+      {rows
+        .slice()
+        .reverse()
+        .map((row) => {
+          const scale = 1 / (1 + row.depth * RIDGE_DEPTH_STEP);
+          const fade = Math.max(0, 1 - row.depth / (RIDGE_HISTORY_ROWS + 1));
+          return (
+            <g
+              key={row.key}
+              className={moving ? "rod-ridge__row" : undefined}
+              style={{
+                transform: `translate(${(vanishX * (1 - scale)).toFixed(2)}px, ${(vanishY * (1 - scale)).toFixed(2)}px) scale(${scale.toFixed(4)})`,
+                opacity: 0.25 + fade * 0.7,
+                transition: rowTransition,
+              }}
+            >
+              <path d={row.shape.area} fill={fill} />
+              <path
+                d={row.shape.line}
+                fill="none"
+                stroke={mixRecordingOverlayHexColors(accent, secondary, row.depth / RIDGE_HISTORY_ROWS)}
+                strokeWidth={strokeWidthPx}
+                strokeLinejoin="round"
+                strokeOpacity={fade}
+              />
+            </g>
+          );
+        })}
+      <path d={front.area} fill={fill} />
+      <path d={front.line} fill="none" stroke={accent} strokeWidth={strokeWidthPx * 2.6} strokeLinecap="round" opacity={0.22} />
+      <path
+        d={front.line}
+        fill="none"
+        stroke={mixRecordingOverlayHexColors(accent, "#ffffff", 0.25)}
+        strokeWidth={strokeWidthPx}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+};
+
+interface RecordingOverlayCarouselProps {
+  levels: number[];
+  widthPx: number;
+  heightPx: number;
+  barWidthPx: number;
+  accent: string;
+  transition: string;
+  animated: boolean;
+}
+
+/** One turn of the carousel; each CSS sweep covers half of it. */
+const CAROUSEL_TURN_S = 9;
+/** Bar scale at the back and front of the ring; the midpoint is the side scale. */
+const CAROUSEL_FAR_SCALE = 0.58;
+const CAROUSEL_NEAR_SCALE = 1.06;
+
+/**
+ * Bars standing on a turning ring, seen from a little above. Two eased
+ * half-turn sweeps a quarter turn apart trace each bar's circle: one moves it
+ * sideways, the other carries depth (scale, lift, and dimming). Both are plain
+ * CSS animations on the compositor; the voice only changes each bar's height.
+ */
+const RecordingOverlayCarousel: React.FC<RecordingOverlayCarouselProps> = ({
+  levels,
+  widthPx,
+  heightPx,
+  barWidthPx,
+  accent,
+  transition,
+  animated,
+}) => {
+  const count = levels.length;
+  const sideScale = (CAROUSEL_FAR_SCALE + CAROUSEL_NEAR_SCALE) / 2;
+  const radius = Math.max(4, (widthPx - barWidthPx) / 2);
+  const tilt = Math.max(3, Math.round(heightPx * 0.2));
+  const barHeight = (heightPx - 2) / CAROUSEL_NEAR_SCALE;
+  const halfTurn = CAROUSEL_TURN_S / 2;
+
+  return (
+    <div
+      className={`rod-carousel${animated ? "" : " rod-carousel--still"}`}
+      style={{ width: `${widthPx}px`, height: `${heightPx}px` }}
+      aria-hidden="true"
+    >
+      <div
+        className="rod-carousel__floor"
+        style={{
+          width: `${radius * 2}px`,
+          height: `${tilt}px`,
+          borderColor: recordingOverlayHexToRgba(accent, 0.35),
+          background: `radial-gradient(closest-side, ${recordingOverlayHexToRgba(accent, 0.18)}, ${recordingOverlayHexToRgba(accent, 0)})`,
+        }}
+      />
+      {levels.map((rawLevel, index) => {
+        const level = clampUnit(rawLevel);
+        const phase = index / count;
+        const color = shiftRecordingOverlayHue(accent, (phase - 0.5) * 60);
+        // The resting pose of the still variant is the same circle, frozen.
+        const angle = phase * Math.PI * 2;
+        const depth = Math.cos(angle);
+        const restScale = sideScale + depth * (CAROUSEL_NEAR_SCALE - sideScale);
+        return (
+          <div
+            key={index}
+            className="rod-carousel__orbit"
+            style={{
+              height: `${tilt}px`,
+              "--rod-duration": `${halfTurn}s`,
+              "--rod-delay": `${-(phase + 0.25) * CAROUSEL_TURN_S}s`,
+              "--rod-rest": `translateY(${(-(1 - depth) / 2) * 100}%) scale(${restScale})`,
+              "--rod-rest-opacity": `${0.3 + ((depth + 1) / 2) * 0.7}`,
+            } as React.CSSProperties}
+          >
+            <div
+              className="rod-carousel__sweep"
+              style={{
+                width: `${radius / sideScale}px`,
+                "--rod-duration": `${halfTurn}s`,
+                "--rod-delay": `${-phase * CAROUSEL_TURN_S}s`,
+                "--rod-rest": `translateX(${-Math.cos(angle - Math.PI / 2) * 100}%)`,
+              } as React.CSSProperties}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  left: `${-barWidthPx / 2}px`,
+                  bottom: 0,
+                  width: `${barWidthPx}px`,
+                  height: `${barHeight}px`,
+                  borderRadius: `${Math.min(3, barWidthPx / 2)}px ${Math.min(3, barWidthPx / 2)}px 1px 1px`,
+                  background: `linear-gradient(90deg, ${mixRecordingOverlayHexColors(color, "#ffffff", 0.35)} 0%, ${color} 45%, ${mixRecordingOverlayHexColors(color, "#000000", 0.45)} 100%)`,
+                  boxShadow: `0 0 5px ${recordingOverlayHexToRgba(color, 0.4)}`,
+                  transformOrigin: "50% 100%",
+                  transform: `scaleY(${0.12 + Math.pow(level, 0.75) * 0.88})`,
+                  transition,
+                }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+/** One full twist of the ribbon, and how many twists fit along its length. */
+const RIBBON_TWIST_S = 3.4;
+const RIBBON_TWISTS_ALONG = 1.25;
+
+interface RecordingOverlayTwistRibbonProps {
+  levels: number[];
+  widthPx: number;
+  heightPx: number;
+  accent: string;
+  transition: string;
+  animated: boolean;
+}
+
+/**
+ * A ribbon twisting along its length. Each slice turns with rotateX and no
+ * perspective, which projects exactly as a cosine squash, and later slices lag
+ * behind, so the twist travels along the band. Front and back faces are
+ * separate layers with hidden backfaces, so the ribbon shows two colors as it
+ * turns over. The voice widens each slice; nothing runs on the main thread.
+ */
+const RecordingOverlayTwistRibbon: React.FC<RecordingOverlayTwistRibbonProps> = ({
+  levels,
+  widthPx,
+  heightPx,
+  accent,
+  transition,
+  animated,
+}) => {
+  const count = levels.length;
+  const slices = Math.max(10, Math.min(28, count * 2));
+  const sliceWidth = widthPx / slices;
+  const secondary = shiftRecordingOverlayHue(accent, 150);
+  const frontFace = `linear-gradient(180deg, ${mixRecordingOverlayHexColors(accent, "#ffffff", 0.55)} 0%, ${accent} 46%, ${mixRecordingOverlayHexColors(accent, "#000000", 0.4)} 100%)`;
+  const backFace = `linear-gradient(180deg, ${mixRecordingOverlayHexColors(secondary, "#000000", 0.55)} 0%, ${mixRecordingOverlayHexColors(secondary, "#000000", 0.2)} 60%, ${mixRecordingOverlayHexColors(secondary, "#ffffff", 0.25)} 100%)`;
+
+  return (
+    <div
+      className={`rod-ribbon${animated ? "" : " rod-ribbon--still"}`}
+      style={{ width: `${widthPx}px`, height: `${heightPx}px` }}
+      aria-hidden="true"
+    >
+      {Array.from({ length: slices }, (_, slice) => {
+        // Sample the levels at the slice center, blending neighbouring lanes.
+        const at = count > 1 ? (slice / (slices - 1)) * (count - 1) : 0;
+        const lower = Math.floor(at);
+        const upper = Math.min(count - 1, lower + 1);
+        const level = clampUnit(
+          (levels[lower] ?? 0) * (1 - (at - lower)) + (levels[upper] ?? 0) * (at - lower),
+        );
+        const envelope = 0.55 + 0.45 * Math.sin(((slice + 0.5) / slices) * Math.PI);
+        const phase = (slice / slices) * RIBBON_TWISTS_ALONG;
+        const restDegrees = phase * 360;
+        const faceStyle = (offsetDegrees: number) =>
+          ({
+            "--rod-duration": `${RIBBON_TWIST_S}s`,
+            "--rod-delay": `${-phase * RIBBON_TWIST_S}s`,
+            "--rod-rest": `rotateX(${restDegrees + offsetDegrees}deg)`,
+          }) as React.CSSProperties;
+        return (
+          <div
+            key={slice}
+            className="rod-ribbon__slice"
+            style={{
+              left: `${slice * sliceWidth}px`,
+              width: `${sliceWidth + 0.6}px`,
+              transform: `scaleY(${(0.2 + Math.pow(level, 0.8) * 0.8) * envelope})`,
+              transition,
+            }}
+          >
+            <div
+              className="rod-ribbon__face rod-ribbon__face--front"
+              style={{ ...faceStyle(0), background: frontFace }}
+            />
+            <div
+              className="rod-ribbon__face rod-ribbon__face--back"
+              style={{ ...faceStyle(180), background: backFace }}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 export const RecordingOverlayBars: React.FC<RecordingOverlayBarsProps> = ({
   levels,
@@ -116,6 +890,91 @@ export const RecordingOverlayBars: React.FC<RecordingOverlayBarsProps> = ({
     : "none";
   const laneWidth = laneWidthForStyle(normalizedStyle, effectiveWidth);
   const alignItems = isCenterAlignedStyle(normalizedStyle) ? "center" : "flex-end";
+  const mirrorSecondary = shiftRecordingOverlayHue(accent, 36);
+  const trackWidth = effectiveCount * effectiveWidth + (effectiveCount - 1) * BAR_GAP_PX;
+
+  if (normalizedStyle === "ridgeline") {
+    return (
+      <RecordingOverlayRidgeline
+        levels={levels.slice(0, effectiveCount)}
+        widthPx={trackWidth}
+        heightPx={maxHeightPx + 4}
+        strokeWidthPx={Math.max(1.2, Math.min(2.2, effectiveWidth * 0.4))}
+        accent={accent}
+        animated={animated}
+        softness={softness}
+      />
+    );
+  }
+
+  if (normalizedStyle === "carousel") {
+    return (
+      <RecordingOverlayCarousel
+        levels={levels.slice(0, effectiveCount)}
+        widthPx={trackWidth}
+        heightPx={maxHeightPx + 4}
+        barWidthPx={effectiveWidth}
+        accent={accent}
+        transition={transition}
+        animated={animated}
+      />
+    );
+  }
+
+  if (normalizedStyle === "twist_ribbon") {
+    return (
+      <RecordingOverlayTwistRibbon
+        levels={levels.slice(0, effectiveCount)}
+        widthPx={trackWidth}
+        heightPx={maxHeightPx + 4}
+        accent={accent}
+        transition={transition}
+        animated={animated}
+      />
+    );
+  }
+
+  if (normalizedStyle === "cubes") {
+    return (
+      <RecordingOverlayCubes
+        levels={levels.slice(0, effectiveCount)}
+        laneWidthPx={laneWidth}
+        heightPx={maxHeightPx + 4}
+        accent={accent}
+        animated={animated}
+        softness={softness}
+      />
+    );
+  }
+
+  if (normalizedStyle === "liquid") {
+    return (
+      <RecordingOverlayLiquid
+        levels={levels.slice(0, effectiveCount)}
+        widthPx={effectiveCount * effectiveWidth + (effectiveCount - 1) * BAR_GAP_PX}
+        heightPx={maxHeightPx + 4}
+        blobWidthPx={effectiveWidth}
+        accent={accent}
+        animated={animated}
+        softness={softness}
+      />
+    );
+  }
+
+  if (normalizedStyle === "wave_line") {
+    // Same track width as the bars, so the window and preview sizing still fit.
+    return (
+      <RecordingOverlayWaveLine
+        levels={levels.slice(0, effectiveCount)}
+        widthPx={effectiveCount * effectiveWidth + (effectiveCount - 1) * BAR_GAP_PX}
+        heightPx={maxHeightPx + 4}
+        strokeWidthPx={Math.max(1.5, Math.min(3, effectiveWidth * 0.55))}
+        accent={accent}
+        animated={animated}
+        softness={softness}
+      />
+    );
+  }
 
   return (
     <div
@@ -132,6 +991,135 @@ export const RecordingOverlayBars: React.FC<RecordingOverlayBarsProps> = ({
         const easedLevel = easeOutCubic(level);
         const height = barHeightFromLevel(level, maxHeightPx);
         const opacity = Math.max(0.24, Math.min(1, level * 1.75));
+
+        if (normalizedStyle === "pillars") {
+          // Three faces of a block in oblique projection: the side face is
+          // sheared up and back, the top face sheared sideways. Only transforms
+          // change with the level, so the compositor animates them.
+          const depth = laneWidth - effectiveWidth;
+          const trackHeight = maxHeightPx + 4;
+          const columnHeight = trackHeight - depth;
+          const rise = 2 + Math.pow(level, 0.75) * (columnHeight - 2);
+          const position = effectiveCount > 1 ? index / (effectiveCount - 1) : 0.5;
+          const color = shiftRecordingOverlayHue(accent, (position - 0.5) * 28);
+          const face: React.CSSProperties = {
+            position: "absolute",
+            bottom: 0,
+            transformOrigin: "0 100%",
+            transition,
+          };
+          return (
+            <div
+              key={index}
+              style={{
+                width: `${laneWidth}px`,
+                height: `${trackHeight}px`,
+                position: "relative",
+              }}
+            >
+              <div
+                style={{
+                  ...face,
+                  left: `${effectiveWidth - 0.5}px`,
+                  width: `${depth + 0.5}px`,
+                  height: `${columnHeight}px`,
+                  background: `linear-gradient(180deg, ${mixRecordingOverlayHexColors(color, "#000000", 0.36)}, ${mixRecordingOverlayHexColors(color, "#000000", 0.66)})`,
+                  transform: `skewY(-45deg) scaleY(${rise / columnHeight})`,
+                }}
+              />
+              <div
+                style={{
+                  ...face,
+                  left: 0,
+                  width: `${effectiveWidth}px`,
+                  height: `${columnHeight}px`,
+                  background: `linear-gradient(180deg, ${mixRecordingOverlayHexColors(color, "#ffffff", 0.24)} 0%, ${color} 42%, ${mixRecordingOverlayHexColors(color, "#000000", 0.32)} 100%)`,
+                  boxShadow: "inset 1px 0 0 rgba(255,255,255,0.22)",
+                  transform: `scaleY(${rise / columnHeight})`,
+                }}
+              />
+              <div
+                style={{
+                  ...face,
+                  left: 0,
+                  width: `${effectiveWidth}px`,
+                  height: `${depth}px`,
+                  background: `linear-gradient(90deg, ${mixRecordingOverlayHexColors(color, "#ffffff", 0.66)}, ${mixRecordingOverlayHexColors(color, "#ffffff", 0.4)})`,
+                  transform: `translateY(${-(rise - 0.5)}px) skewX(-45deg)`,
+                }}
+              />
+              {/* The lid lights up on loud syllables. */}
+              <div
+                style={{
+                  ...face,
+                  left: 0,
+                  width: `${effectiveWidth}px`,
+                  height: `${depth}px`,
+                  background: "rgba(255,255,255,0.9)",
+                  boxShadow: `0 0 6px ${recordingOverlayHexToRgba(color, 0.9)}`,
+                  opacity: Math.max(0, level - 0.55) * 1.6,
+                  transform: `translateY(${-(rise - 0.5)}px) skewX(-45deg)`,
+                }}
+              />
+            </div>
+          );
+        }
+
+        if (normalizedStyle === "orbs") {
+          // Glossy marbles over their own contact shadows. They squash at
+          // rest and stretch as they jump; the shadow shrinks and fades below.
+          const trackHeight = maxHeightPx + 4;
+          const diameter = Math.max(6, Math.min(laneWidth - 1, trackHeight * 0.6));
+          const travel = Math.max(0, trackHeight - diameter - 4);
+          const lift = Math.pow(level, 0.8);
+          const position = effectiveCount > 1 ? index / (effectiveCount - 1) : 0.5;
+          const color = shiftRecordingOverlayHue(accent, (position - 0.5) * 36);
+          const left = (laneWidth - diameter) / 2;
+          return (
+            <div
+              key={index}
+              style={{
+                width: `${laneWidth}px`,
+                height: `${trackHeight}px`,
+                position: "relative",
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  left: `${left - diameter * 0.15}px`,
+                  bottom: "0.5px",
+                  width: `${diameter * 1.3}px`,
+                  height: "4px",
+                  borderRadius: "999px",
+                  background: `radial-gradient(closest-side, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 70%), radial-gradient(closest-side, ${recordingOverlayHexToRgba(color, 0.5)} 0%, ${recordingOverlayHexToRgba(color, 0)} 100%)`,
+                  opacity: 1 - lift * 0.65,
+                  transform: `scaleX(${1 - lift * 0.45})`,
+                  transition,
+                }}
+              />
+              <div
+                style={{
+                  position: "absolute",
+                  left: `${left}px`,
+                  bottom: "2px",
+                  width: `${diameter}px`,
+                  height: `${diameter}px`,
+                  borderRadius: "50%",
+                  background: [
+                    "radial-gradient(circle at 33% 27%, rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.5) 9%, rgba(255,255,255,0) 22%)",
+                    `radial-gradient(circle at 50% 108%, ${recordingOverlayHexToRgba(mixRecordingOverlayHexColors(color, "#ffffff", 0.4), 0.7)} 0%, ${recordingOverlayHexToRgba(color, 0)} 42%)`,
+                    `radial-gradient(circle at 38% 32%, ${mixRecordingOverlayHexColors(color, "#ffffff", 0.42)} 0%, ${color} 44%, ${mixRecordingOverlayHexColors(color, "#000000", 0.62)} 100%)`,
+                  ].join(", "),
+                  boxShadow: `0 0 5px ${recordingOverlayHexToRgba(color, 0.35)}`,
+                  transformOrigin: "50% 100%",
+                  transform: `translateY(${-lift * travel}px) scale(${1.1 - lift * 0.16}, ${0.9 + lift * 0.16})`,
+                  transition,
+                }}
+              />
+            </div>
+          );
+        }
 
         if (normalizedStyle === "bloom_bounce") {
           const blossomSize = Math.max(8, laneWidth - 4);
@@ -195,6 +1183,90 @@ export const RecordingOverlayBars: React.FC<RecordingOverlayBarsProps> = ({
                   transition,
                 }}
               />
+            </div>
+          );
+        }
+
+        if (normalizedStyle === "mirror") {
+          // Silence shrinks every bar to a dot; color sweeps across the row.
+          const color = mixRecordingOverlayHexColors(
+            accent,
+            mirrorSecondary,
+            effectiveCount > 1 ? index / (effectiveCount - 1) : 0,
+          );
+          return (
+            <div
+              key={index}
+              style={{
+                width: `${effectiveWidth}px`,
+                height: `${Math.max(effectiveWidth, 3 + Math.pow(level, 0.8) * (maxHeightPx - 3))}px`,
+                borderRadius: "999px",
+                background: recordingOverlayHexToRgba(color, 0.95),
+                opacity: Math.max(0.5, Math.min(1, 0.5 + level)),
+                transition,
+              }}
+            />
+          );
+        }
+
+        if (normalizedStyle === "spectrum") {
+          // The hue walks across the row, splitting the accent like a prism.
+          const position = effectiveCount > 1 ? index / (effectiveCount - 1) : 0;
+          const color = shiftRecordingOverlayHue(accent, position * 220 - 40);
+          return (
+            <div
+              key={index}
+              style={{
+                width: `${effectiveWidth}px`,
+                height: `${Math.max(effectiveWidth, 3 + Math.pow(level, 0.8) * (maxHeightPx - 3))}px`,
+                borderRadius: "999px",
+                background: `linear-gradient(180deg, ${mixRecordingOverlayHexColors(color, "#ffffff", 0.3)}, ${color})`,
+                boxShadow: `0 0 8px ${recordingOverlayHexToRgba(color, 0.35)}`,
+                opacity: Math.max(0.55, Math.min(1, 0.55 + level)),
+                transition,
+              }}
+            />
+          );
+        }
+
+        if (normalizedStyle === "dot_matrix") {
+          const rows = 5;
+          const gapPx = 1.25;
+          const dotPx = Math.max(2, Math.min(effectiveWidth, (maxHeightPx - (rows - 1) * gapPx) / rows));
+          const spread = level * ((rows - 1) / 2 + 0.6);
+          return (
+            <div
+              key={index}
+              style={{
+                width: `${effectiveWidth}px`,
+                height: `${maxHeightPx}px`,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: `${gapPx}px`,
+              }}
+            >
+              {Array.from({ length: rows }, (_, row) => {
+                const distance = Math.abs(row - (rows - 1) / 2);
+                const lit = distance <= spread;
+                return (
+                  <span
+                    key={row}
+                    style={{
+                      width: `${dotPx}px`,
+                      height: `${dotPx}px`,
+                      borderRadius: "999px",
+                      background: !lit
+                        ? recordingOverlayHexToRgba(accent, 0.12)
+                        : distance === 0
+                          ? recordingOverlayHexToRgba(accent, 0.55 + Math.min(1, level * 2) * 0.45)
+                          : recordingOverlayHexToRgba(accent, 0.92),
+                      transition,
+                    }}
+                  />
+                );
+              })}
             </div>
           );
         }

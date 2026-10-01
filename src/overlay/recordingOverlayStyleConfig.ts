@@ -1,6 +1,6 @@
 import type {
-  AppSettings,
   RecordingOverlayAnimatedBorderMode,
+  RecordingOverlayAppearanceSettings,
   RecordingOverlayBackgroundMode,
   RecordingOverlayBarStyle,
   RecordingOverlayCenterpieceMode,
@@ -14,6 +14,8 @@ import {
   normalizeRecordingOverlayCenterpieceMode,
   normalizeRecordingOverlayColor,
   normalizeRecordingOverlayMaterialMode,
+  normalizeRecordingOverlayStatusIconStyle,
+  type RecordingOverlayStatusIconStyle,
 } from "./recordingOverlayAppearance";
 
 export interface RecordingOverlayStyleConfig {
@@ -25,6 +27,7 @@ export interface RecordingOverlayStyleConfig {
   surfaceBaseColor: string;
   bodyBackgroundColor: string;
   showStatusIcon: boolean;
+  statusIconStyle: RecordingOverlayStatusIconStyle;
   barCount: number;
   barWidthPx: number;
   barStyle: RecordingOverlayBarStyle;
@@ -39,6 +42,7 @@ export interface RecordingOverlayStyleConfig {
   silenceFade: boolean;
   silenceOpacityPercent: number;
   showCancelButton: boolean;
+  cancelButtonInvisible: boolean;
   widthPx: number;
   statusIconColor: string;
   cancelIconColor: string;
@@ -53,8 +57,30 @@ export interface RecordingOverlayStylePreset {
   id: string;
   name: string;
   description: string;
+  /**
+   * Modern and 3D depth presets are listed in their own groups, before the
+   * original packs, which have no collection.
+   */
+  collection?: "modern" | "depth";
   config: Partial<RecordingOverlayStyleConfig>;
 }
+
+/**
+ * Fields built-in presets never set. Applying a built-in preset keeps the
+ * user's values for them; saved user presets restore them.
+ */
+export const RECORDING_OVERLAY_PRESET_PRESERVED_FIELDS = [
+  "showCancelButton",
+  "cancelButtonInvisible",
+  "widthPx",
+  "statusIconColor",
+  "cancelIconColor",
+  "decapitalizeIndicatorMode",
+  "decapitalizeIndicatorCustomText",
+  "decapitalizeIndicatorFontFamily",
+  "decapitalizeIndicatorFontSizePx",
+  "decapitalizeIndicatorColor",
+] as const satisfies ReadonlyArray<keyof RecordingOverlayStyleConfig>;
 
 export const RECORDING_OVERLAY_INDICATOR_FONT_FAMILIES = [
   "Segoe UI", "Segoe UI Emoji", "Bahnschrift", "Arial", "Verdana", "Tahoma",
@@ -62,6 +88,12 @@ export const RECORDING_OVERLAY_INDICATOR_FONT_FAMILIES = [
 ] as const;
 
 const STYLE_CODE_PREFIX = "aivo-overlay:";
+const STYLE_CODE_VERSION = 4;
+/** The version that added each later field. Older complete codes may omit them. */
+const STYLE_FIELD_ADDED_IN_VERSION: Partial<Record<keyof RecordingOverlayStyleConfig, number>> = {
+  statusIconStyle: 3,
+  cancelButtonInvisible: 4,
+};
 
 export const DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG: RecordingOverlayStyleConfig = {
   theme: "classic",
@@ -72,6 +104,7 @@ export const DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG: RecordingOverlayStyleConfig
   surfaceBaseColor: "#101216",
   bodyBackgroundColor: "#101216",
   showStatusIcon: true,
+  statusIconStyle: "auto",
   barCount: 9,
   barWidthPx: 6,
   barStyle: "solid",
@@ -86,6 +119,7 @@ export const DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG: RecordingOverlayStyleConfig
   silenceFade: false,
   silenceOpacityPercent: 58,
   showCancelButton: true,
+  cancelButtonInvisible: false,
   widthPx: 172,
   statusIconColor: "#faa2ca",
   cancelIconColor: "#faa2ca",
@@ -96,7 +130,630 @@ export const DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG: RecordingOverlayStyleConfig
   decapitalizeIndicatorColor: "#72f29a",
 };
 
+/** Shared calm defaults: no ambient layers, no scaling, a gentle silence fade. */
+const MODERN_PRESET_BASE: Partial<RecordingOverlayStyleConfig> = {
+  theme: "classic",
+  backgroundMode: "none",
+  centerpieceMode: "none",
+  animatedBorderMode: "none",
+  showStatusIcon: true,
+  barCount: 12,
+  barWidthPx: 3,
+  showDragGrip: false,
+  audioReactiveScale: false,
+  audioReactiveScaleMaxPercent: 6,
+  voiceSensitivityPercent: 55,
+  animationSoftnessPercent: 50,
+  depthParallaxPercent: 0,
+  opacityPercent: 100,
+  silenceFade: true,
+  silenceOpacityPercent: 78,
+};
+
 export const RECORDING_OVERLAY_STYLE_PRESETS: RecordingOverlayStylePreset[] = [
+  {
+    id: "modern_graphite",
+    name: "Graphite",
+    description: "Matte graphite capsule with crisp mirrored bars. Quiet and neutral.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "graphite",
+      surfaceBaseColor: "#141518",
+      bodyBackgroundColor: "#16171a",
+      barStyle: "mirror",
+      barCount: 13,
+      accentColor: "#e8eaee",
+    },
+  },
+  {
+    id: "modern_obsidian_wave",
+    name: "Obsidian Wave",
+    description: "Pure black capsule with a smooth, layered voice wave.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "obsidian",
+      surfaceBaseColor: "#050506",
+      bodyBackgroundColor: "#0a0a0c",
+      barStyle: "wave_line",
+      accentColor: "#8fa3ff",
+    },
+  },
+  {
+    id: "modern_spectrum",
+    name: "Spectrum",
+    description: "A slow spectrum edge turns around a black capsule, like a modern voice assistant.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      statusIconStyle: "ring",
+      materialMode: "obsidian",
+      animatedBorderMode: "spectrum_edge",
+      surfaceBaseColor: "#050506",
+      bodyBackgroundColor: "#0a0a0c",
+      barStyle: "wave_line",
+      accentColor: "#a184ff",
+    },
+  },
+  {
+    id: "modern_dot_matrix",
+    name: "Dot Matrix",
+    description: "Monochrome dot-matrix meter on a matte graphite tile.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      statusIconStyle: "dot",
+      theme: "minimal",
+      materialMode: "graphite",
+      surfaceBaseColor: "#0e0e0f",
+      bodyBackgroundColor: "#111113",
+      barStyle: "dot_matrix",
+      barCount: 14,
+      accentColor: "#f2f2f2",
+    },
+  },
+  {
+    id: "modern_signal_red",
+    name: "Signal Red",
+    description: "Black dot-matrix meter with a single red signal color.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "obsidian",
+      surfaceBaseColor: "#050506",
+      bodyBackgroundColor: "#0a0a0c",
+      barStyle: "dot_matrix",
+      accentColor: "#ff453a",
+    },
+  },
+  {
+    id: "modern_mint_mesh",
+    name: "Mint Mesh",
+    description: "Soft teal gradient mesh with mirrored bars fading into blue.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "gradient_mesh",
+      surfaceBaseColor: "#0a1213",
+      bodyBackgroundColor: "#0e1718",
+      barStyle: "mirror",
+      barCount: 11,
+      accentColor: "#5eead4",
+    },
+  },
+  {
+    id: "modern_sunset_mesh",
+    name: "Sunset Mesh",
+    description: "Warm gradient mesh with a peach-to-gold wave.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "gradient_mesh",
+      surfaceBaseColor: "#140e0d",
+      bodyBackgroundColor: "#1a1211",
+      barStyle: "wave_line",
+      accentColor: "#ff9f6e",
+    },
+  },
+  {
+    id: "modern_ice_line",
+    name: "Ice Line",
+    description: "Cool blue mirrored bars with one light tracing the edge.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "graphite",
+      animatedBorderMode: "traveling_highlight",
+      surfaceBaseColor: "#101318",
+      bodyBackgroundColor: "#12161c",
+      barStyle: "mirror",
+      barCount: 13,
+      accentColor: "#9ccbff",
+      animationSoftnessPercent: 62,
+    },
+  },
+  {
+    id: "modern_porcelain",
+    name: "Porcelain",
+    description: "A light porcelain pill with crisp ink bars. Calm and bright.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "porcelain",
+      surfaceBaseColor: "#ffffff",
+      bodyBackgroundColor: "#f4f4f6",
+      barStyle: "mirror",
+      barCount: 13,
+      accentColor: "#1d1d1f",
+    },
+  },
+  {
+    id: "modern_paper_wave",
+    name: "Paper Wave",
+    description: "Warm paper surface with a cobalt voice wave and a thin ring around the icon.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "porcelain",
+      statusIconStyle: "ring",
+      surfaceBaseColor: "#fbf8f4",
+      bodyBackgroundColor: "#f3ece4",
+      barStyle: "wave_line",
+      accentColor: "#3b5bff",
+    },
+  },
+  {
+    id: "modern_e_ink",
+    name: "E-Ink",
+    description: "Monochrome dot matrix printed on light paper.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      theme: "minimal",
+      materialMode: "porcelain",
+      surfaceBaseColor: "#f7f7f5",
+      bodyBackgroundColor: "#ecebe6",
+      barStyle: "dot_matrix",
+      barCount: 14,
+      accentColor: "#141414",
+    },
+  },
+  {
+    id: "modern_prism_voice",
+    name: "Prism Voice",
+    description: "Black capsule with glowing bars that fan out across the spectrum.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "obsidian",
+      statusIconStyle: "ring",
+      surfaceBaseColor: "#050506",
+      bodyBackgroundColor: "#0a0a0c",
+      barStyle: "spectrum",
+      barCount: 14,
+      accentColor: "#ff4d8d",
+    },
+  },
+  {
+    id: "modern_daylight_prism",
+    name: "Daylight Prism",
+    description: "Spectrum bars on a light porcelain pill.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "porcelain",
+      surfaceBaseColor: "#ffffff",
+      bodyBackgroundColor: "#f2f2f7",
+      barStyle: "spectrum",
+      barCount: 14,
+      accentColor: "#7c5cff",
+    },
+  },
+  {
+    id: "modern_mercury",
+    name: "Mercury",
+    description: "Liquid chrome drops that swell and merge as you speak.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "obsidian",
+      surfaceBaseColor: "#050506",
+      bodyBackgroundColor: "#0b0b0d",
+      barStyle: "liquid",
+      barCount: 10,
+      barWidthPx: 5,
+      accentColor: "#d6dbe3",
+      animationSoftnessPercent: 62,
+    },
+  },
+  {
+    id: "modern_lava_lamp",
+    name: "Lava Lamp",
+    description: "Warm liquid drops in a glowing gradient mesh, with the icon on a soft tile.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "gradient_mesh",
+      statusIconStyle: "tile",
+      surfaceBaseColor: "#100807",
+      bodyBackgroundColor: "#160c0a",
+      barStyle: "liquid",
+      barCount: 9,
+      barWidthPx: 6,
+      accentColor: "#ff5e3a",
+      animationSoftnessPercent: 70,
+    },
+  },
+  {
+    id: "modern_aqua_drop",
+    name: "Aqua Drop",
+    description: "Cyan liquid on matte graphite, framed by a pulsing ring.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "graphite",
+      statusIconStyle: "ring",
+      surfaceBaseColor: "#0c1215",
+      bodyBackgroundColor: "#0f171b",
+      barStyle: "liquid",
+      barCount: 11,
+      barWidthPx: 4,
+      accentColor: "#22d3ee",
+    },
+  },
+  {
+    id: "modern_acid_drop",
+    name: "Acid Drop",
+    description: "Acid-lime liquid on pure black with a softly breathing edge.",
+    collection: "modern",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "obsidian",
+      animatedBorderMode: "breathing_contour",
+      surfaceBaseColor: "#050506",
+      bodyBackgroundColor: "#09090a",
+      barStyle: "liquid",
+      barCount: 10,
+      barWidthPx: 5,
+      accentColor: "#b4ff39",
+    },
+  },
+  {
+    id: "depth_synthwave",
+    name: "Synthwave '84",
+    description: "Neon pillars on a sunset grid that runs straight at you.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "obsidian",
+      backgroundMode: "horizon_grid",
+      animatedBorderMode: "traveling_highlight",
+      statusIconStyle: "coin",
+      surfaceBaseColor: "#0b0618",
+      bodyBackgroundColor: "#120a26",
+      barStyle: "pillars",
+      barCount: 11,
+      barWidthPx: 5,
+      accentColor: "#ff3cac",
+    },
+  },
+  {
+    id: "depth_miami_drive",
+    name: "Miami Drive",
+    description: "A cyan wave racing over a chrome-sun horizon.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "gradient_mesh",
+      backgroundMode: "horizon_grid",
+      statusIconStyle: "ring",
+      surfaceBaseColor: "#06101a",
+      bodyBackgroundColor: "#0a1624",
+      barStyle: "wave_line",
+      barCount: 12,
+      barWidthPx: 4,
+      accentColor: "#2de2e6",
+    },
+  },
+  {
+    id: "depth_hyperdrive",
+    name: "Hyperdrive",
+    description: "Crystal cubes spinning while the stars streak past at warp speed.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "obsidian",
+      backgroundMode: "starfield_warp",
+      statusIconStyle: "orb",
+      surfaceBaseColor: "#04060c",
+      bodyBackgroundColor: "#070b16",
+      barStyle: "cubes",
+      barCount: 9,
+      barWidthPx: 6,
+      accentColor: "#5ad7ff",
+    },
+  },
+  {
+    id: "depth_wormhole",
+    name: "Wormhole",
+    description: "Glass marbles bouncing at the mouth of a tunnel of light.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "gradient_mesh",
+      backgroundMode: "tunnel_rings",
+      statusIconStyle: "orb",
+      surfaceBaseColor: "#0a0618",
+      bodyBackgroundColor: "#0d0720",
+      barStyle: "orbs",
+      barCount: 9,
+      barWidthPx: 6,
+      accentColor: "#a66bff",
+    },
+  },
+  {
+    id: "depth_neon_tunnel",
+    name: "Neon Tunnel",
+    description: "Cubes turning inside a rushing tunnel, framed by a spectrum edge.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "obsidian",
+      backgroundMode: "tunnel_rings",
+      animatedBorderMode: "spectrum_edge",
+      statusIconStyle: "coin",
+      surfaceBaseColor: "#060508",
+      bodyBackgroundColor: "#0b0910",
+      barStyle: "cubes",
+      barCount: 10,
+      barWidthPx: 5,
+      accentColor: "#ff4d8d",
+    },
+  },
+  {
+    id: "depth_isometric_city",
+    name: "Isometric City",
+    description: "A tiny skyline of lit blocks that rises with every word.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "graphite",
+      statusIconStyle: "tile",
+      surfaceBaseColor: "#0b1220",
+      bodyBackgroundColor: "#0f1724",
+      barStyle: "pillars",
+      barCount: 14,
+      barWidthPx: 6,
+      accentColor: "#3ba8ff",
+    },
+  },
+  {
+    id: "depth_gyroscope",
+    name: "Gyroscope",
+    description: "Gimbal rings turning on three axes around a glowing core.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "obsidian",
+      centerpieceMode: "gyroscope",
+      statusIconStyle: "ring",
+      surfaceBaseColor: "#07070b",
+      bodyBackgroundColor: "#0a0a10",
+      barStyle: "mirror",
+      barCount: 12,
+      barWidthPx: 3,
+      accentColor: "#c7b6ff",
+      depthParallaxPercent: 35,
+    },
+  },
+  {
+    id: "depth_holo_globe",
+    name: "Holo Globe",
+    description: "A wireframe planet turns under a scanning beam, a satellite in orbit.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "graphite",
+      centerpieceMode: "holo_globe",
+      statusIconStyle: "dot",
+      surfaceBaseColor: "#041009",
+      bodyBackgroundColor: "#06120f",
+      barStyle: "dot_matrix",
+      barCount: 14,
+      barWidthPx: 3,
+      accentColor: "#35ffb8",
+      depthParallaxPercent: 35,
+    },
+  },
+  {
+    id: "depth_claymation",
+    name: "Claymation",
+    description: "Soft lavender clay with squishy marbles. Pleasantly tactile.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "clay",
+      surfaceBaseColor: "#d9cfff",
+      bodyBackgroundColor: "#b7a4ff",
+      barStyle: "orbs",
+      barCount: 9,
+      barWidthPx: 6,
+      accentColor: "#6a3dff",
+    },
+  },
+  {
+    id: "depth_bubblegum_blocks",
+    name: "Bubblegum Blocks",
+    description: "Pink clay with chunky 3D blocks, like a toy synthesizer.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "clay",
+      surfaceBaseColor: "#ffd9e6",
+      bodyBackgroundColor: "#ffb3cf",
+      barStyle: "pillars",
+      barCount: 10,
+      barWidthPx: 6,
+      accentColor: "#ff3d7f",
+    },
+  },
+  {
+    id: "depth_mechanical_key",
+    name: "Mechanical Key",
+    description: "A raised keycap with amber backlight spilling out from under it.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "keycap",
+      surfaceBaseColor: "#22252d",
+      bodyBackgroundColor: "#2a2e37",
+      barStyle: "cubes",
+      barCount: 8,
+      barWidthPx: 6,
+      accentColor: "#ffb22e",
+    },
+  },
+  {
+    id: "depth_retro_keyboard",
+    name: "Retro Keyboard",
+    description: "A beige vintage keycap with orange blocks. Very 1984 office.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "keycap",
+      surfaceBaseColor: "#f1ebdc",
+      bodyBackgroundColor: "#e9e2d0",
+      barStyle: "pillars",
+      barCount: 10,
+      barWidthPx: 5,
+      accentColor: "#e2572b",
+    },
+  },
+  {
+    id: "depth_marble_run",
+    name: "Marble Run",
+    description: "Glossy marbles hopping across white porcelain.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "porcelain",
+      statusIconStyle: "orb",
+      surfaceBaseColor: "#ffffff",
+      bodyBackgroundColor: "#f3f1ee",
+      barStyle: "orbs",
+      barCount: 10,
+      barWidthPx: 6,
+      accentColor: "#ff5a36",
+    },
+  },
+  {
+    id: "depth_pulsar_ridge",
+    name: "Pulsar Ridge",
+    description: "The last second of your voice as ridgelines fading into the dark.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "obsidian",
+      statusIconStyle: "bare",
+      surfaceBaseColor: "#050505",
+      bodyBackgroundColor: "#08080a",
+      barStyle: "ridgeline",
+      barCount: 14,
+      barWidthPx: 4,
+      accentColor: "#f2f2f2",
+    },
+  },
+  {
+    id: "depth_saturn",
+    name: "Saturn",
+    description: "A golden ringed planet behind a carousel of bars turning in orbit.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "obsidian",
+      centerpieceMode: "ringed_planet",
+      statusIconStyle: "coin",
+      surfaceBaseColor: "#07060a",
+      bodyBackgroundColor: "#0c0a10",
+      barStyle: "carousel",
+      barCount: 12,
+      barWidthPx: 3,
+      accentColor: "#ffc46b",
+      depthParallaxPercent: 35,
+    },
+  },
+  {
+    id: "depth_plasma_core",
+    name: "Plasma Core",
+    description: "Colored light swirling inside a glass sphere, a thin wave across it.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "gradient_mesh",
+      centerpieceMode: "plasma_orb",
+      statusIconStyle: "orb",
+      surfaceBaseColor: "#08061a",
+      bodyBackgroundColor: "#0c0a22",
+      barStyle: "wave_line",
+      barCount: 12,
+      barWidthPx: 4,
+      accentColor: "#8b5cff",
+      depthParallaxPercent: 30,
+    },
+  },
+  {
+    id: "depth_andromeda",
+    name: "Andromeda",
+    description: "A twisting ribbon in front of a slowly turning spiral galaxy.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "obsidian",
+      backgroundMode: "galaxy_spiral",
+      statusIconStyle: "ring",
+      surfaceBaseColor: "#05040c",
+      bodyBackgroundColor: "#080614",
+      barStyle: "twist_ribbon",
+      barCount: 12,
+      barWidthPx: 5,
+      accentColor: "#b48cff",
+    },
+  },
+  {
+    id: "depth_ocean_swell",
+    name: "Ocean Swell",
+    description: "Marbles riding a swell of glowing dots that rolls toward you.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "graphite",
+      backgroundMode: "dot_swell",
+      statusIconStyle: "orb",
+      surfaceBaseColor: "#03101a",
+      bodyBackgroundColor: "#061722",
+      barStyle: "orbs",
+      barCount: 9,
+      barWidthPx: 6,
+      accentColor: "#2de2e6",
+    },
+  },
+  {
+    id: "depth_paper_ribbon",
+    name: "Paper Ribbon",
+    description: "A coral ribbon turning over and over on white porcelain.",
+    collection: "depth",
+    config: {
+      ...MODERN_PRESET_BASE,
+      materialMode: "porcelain",
+      surfaceBaseColor: "#ffffff",
+      bodyBackgroundColor: "#f3f1ee",
+      barStyle: "twist_ribbon",
+      barCount: 10,
+      barWidthPx: 5,
+      accentColor: "#ff5a36",
+    },
+  },
   {
     id: "broadcast_glow",
     name: "Broadcast Glow",
@@ -666,6 +1323,9 @@ export function normalizeRecordingOverlayStyleConfig(
         : typeof raw.show_status_icon === "boolean"
           ? raw.show_status_icon
         : DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG.showStatusIcon,
+    statusIconStyle: normalizeRecordingOverlayStatusIconStyle(
+      typeof raw.statusIconStyle === "string" ? raw.statusIconStyle : undefined,
+    ),
     barCount: clampInteger(
       raw.barCount ?? raw.bar_count,
       3,
@@ -748,6 +1408,8 @@ export function normalizeRecordingOverlayStyleConfig(
       DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG.silenceOpacityPercent,
     ),
     showCancelButton: typeof raw.showCancelButton === "boolean" ? raw.showCancelButton : true,
+    cancelButtonInvisible:
+      typeof raw.cancelButtonInvisible === "boolean" ? raw.cancelButtonInvisible : false,
     widthPx: clampInteger(raw.widthPx, 172, 420, 172),
     statusIconColor: normalizeRecordingOverlayColor(raw.statusIconColor as string | undefined, "#faa2ca"),
     cancelIconColor: normalizeRecordingOverlayColor(raw.cancelIconColor as string | undefined, "#faa2ca"),
@@ -763,8 +1425,9 @@ export function normalizeRecordingOverlayStyleConfig(
   };
 }
 
+/** Reads the appearance from app settings or from a saved user preset. */
 export function getRecordingOverlayStyleConfigFromSettings(
-  settings: AppSettings | null,
+  settings: Partial<RecordingOverlayAppearanceSettings> | null,
 ): RecordingOverlayStyleConfig {
   if (!settings) {
     return DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG;
@@ -783,6 +1446,7 @@ export function getRecordingOverlayStyleConfigFromSettings(
       (settings as any).recording_overlay_body_background_color ??
       DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG.bodyBackgroundColor,
     showStatusIcon: settings.recording_overlay_show_status_icon,
+    statusIconStyle: (settings as any).recording_overlay_status_icon_style,
     barCount: settings.recording_overlay_bar_count,
     barWidthPx: settings.recording_overlay_bar_width_px,
     barStyle: settings.recording_overlay_bar_style,
@@ -800,6 +1464,7 @@ export function getRecordingOverlayStyleConfigFromSettings(
     silenceFade: settings.recording_overlay_silence_fade,
     silenceOpacityPercent: settings.recording_overlay_silence_opacity_percent,
     showCancelButton: settings.recording_overlay_show_cancel_button,
+    cancelButtonInvisible: (settings as any).recording_overlay_cancel_button_invisible,
     widthPx: settings.recording_overlay_width_px,
     statusIconColor: settings.recording_overlay_status_icon_color,
     cancelIconColor: settings.recording_overlay_cancel_icon_color,
@@ -811,13 +1476,31 @@ export function getRecordingOverlayStyleConfigFromSettings(
   });
 }
 
+/**
+ * The look a built-in preset produces: its own fields over the defaults, with
+ * the user's values kept for the fields presets never set.
+ */
+export function resolveRecordingOverlayPresetConfig(
+  preset: RecordingOverlayStylePreset,
+  current: RecordingOverlayStyleConfig,
+): RecordingOverlayStyleConfig {
+  const preserved = Object.fromEntries(
+    RECORDING_OVERLAY_PRESET_PRESERVED_FIELDS.map((key) => [key, current[key]]),
+  );
+  return normalizeRecordingOverlayStyleConfig({
+    ...DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG,
+    ...preserved,
+    ...preset.config,
+  });
+}
+
 export function serializeRecordingOverlayStyleConfig(
   config: RecordingOverlayStyleConfig,
 ): string {
   const normalized = normalizeRecordingOverlayStyleConfig(config);
   return JSON.stringify(
     {
-      version: 2,
+      version: STYLE_CODE_VERSION,
       style: normalized,
     },
     null,
@@ -856,8 +1539,8 @@ export function parseRecordingOverlayStyleConfig(
 
   const payload = parsed as Record<string, unknown>;
   const wrapped = "style" in payload || "version" in payload;
-  if (wrapped && payload.version !== 1 && payload.version !== 2) {
-    throw new Error("Unsupported overlay style version. Supported versions are 1 and 2.");
+  if (wrapped && ![1, 2, 3, 4].includes(payload.version as number)) {
+    throw new Error("Unsupported overlay style version. Supported versions are 1 to 4.");
   }
   if (wrapped && Object.keys(payload).some((key) => key !== "version" && key !== "style")) {
     throw new Error("Style code contains unknown envelope fields.");
@@ -880,9 +1563,21 @@ export function parseRecordingOverlayStyleConfig(
   if (Object.keys(canonical).length === 0) {
     throw new Error("Style must contain at least one appearance field.");
   }
-  if (payload.version === 2) {
-    const missing = fields.filter((key) => !(key in canonical));
+  if (wrapped && typeof payload.version === "number" && payload.version >= 2) {
+    const version = payload.version;
+    const addedLater = (key: string) =>
+      (STYLE_FIELD_ADDED_IN_VERSION[key as keyof RecordingOverlayStyleConfig] ?? 0) > version;
+    const missing = fields.filter((key) => !(key in canonical) && !addedLater(key));
     if (missing.length) throw new Error(`Missing style fields: ${missing.join(", ")}.`);
+    // A complete code from before a field existed describes a look without
+    // it; the default reproduces how that look rendered (an Auto icon frame,
+    // a visible cancel button).
+    for (const key of fields) {
+      if (!(key in canonical) && addedLater(key)) {
+        canonical[key] =
+          DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG[key as keyof RecordingOverlayStyleConfig];
+      }
+    }
   }
   const normalized = normalizeRecordingOverlayStyleConfig({ ...defaults, ...canonical });
   for (const [key, value] of Object.entries(canonical)) {
@@ -911,6 +1606,7 @@ export const RECORDING_OVERLAY_STYLE_SETTING_ENTRIES = (
   return [
     ["recording_overlay_theme", normalized.theme],
     ["recording_overlay_show_cancel_button", normalized.showCancelButton],
+    ["recording_overlay_cancel_button_invisible", normalized.cancelButtonInvisible],
     ["recording_overlay_width_px", normalized.widthPx],
     ["recording_overlay_status_icon_color", normalized.statusIconColor],
     ["recording_overlay_cancel_icon_color", normalized.cancelIconColor],
@@ -926,6 +1622,7 @@ export const RECORDING_OVERLAY_STYLE_SETTING_ENTRIES = (
     ["recording_overlay_surface_base_color", normalized.surfaceBaseColor],
     ["recording_overlay_body_background_color", normalized.bodyBackgroundColor],
     ["recording_overlay_show_status_icon", normalized.showStatusIcon],
+    ["recording_overlay_status_icon_style", normalized.statusIconStyle],
     ["recording_overlay_bar_count", normalized.barCount],
     ["recording_overlay_bar_width_px", normalized.barWidthPx],
     ["recording_overlay_bar_style", normalized.barStyle],

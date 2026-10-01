@@ -2951,6 +2951,11 @@ pub enum RecordingOverlayBackgroundMode {
     SilkFog,
     FireflyVeil,
     RoseSparks,
+    HorizonGrid,
+    StarfieldWarp,
+    TunnelRings,
+    GalaxySpiral,
+    DotSwell,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -2961,6 +2966,12 @@ pub enum RecordingOverlayMaterialMode {
     VelvetNeon,
     Frost,
     CandyChrome,
+    Graphite,
+    Obsidian,
+    GradientMesh,
+    Porcelain,
+    Clay,
+    Keycap,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -2972,6 +2983,10 @@ pub enum RecordingOverlayCenterpieceMode {
     OrbitalBeads,
     BloomHeart,
     SignalCrown,
+    Gyroscope,
+    HoloGlobe,
+    RingedPlanet,
+    PlasmaOrb,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -2981,6 +2996,21 @@ pub enum RecordingOverlayAnimatedBorderMode {
     ShimmerEdge,
     TravelingHighlight,
     BreathingContour,
+    SpectrumEdge,
+}
+
+/// How the status icon is framed. `Auto` picks a frame that suits the material.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayStatusIconStyle {
+    Auto,
+    Capsule,
+    Bare,
+    Ring,
+    Tile,
+    Dot,
+    Orb,
+    Coin,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -3015,6 +3045,17 @@ pub enum RecordingOverlayBarStyle {
     Vinyl,
     Morse,
     Crown,
+    WaveLine,
+    Mirror,
+    DotMatrix,
+    Spectrum,
+    Liquid,
+    Pillars,
+    Orbs,
+    Cubes,
+    Ridgeline,
+    Carousel,
+    TwistRibbon,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -3023,6 +3064,110 @@ pub enum RecordingOverlayDecapitalizeIndicatorMode {
     Text,
     Custom,
     Hidden,
+}
+
+/// A complete appearance update, excluding visibility, mode, and window position.
+/// User presets store it too, so a field added later needs a serde default.
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+#[serde(deny_unknown_fields)]
+pub struct RecordingOverlayAppearanceSettings {
+    pub recording_overlay_theme: RecordingOverlayTheme,
+    pub recording_overlay_show_cancel_button: bool,
+    pub recording_overlay_width_px: u16,
+    pub recording_overlay_status_icon_color: String,
+    pub recording_overlay_cancel_icon_color: String,
+    pub recording_overlay_decapitalize_indicator_mode: RecordingOverlayDecapitalizeIndicatorMode,
+    pub recording_overlay_decapitalize_indicator_custom_text: String,
+    pub recording_overlay_decapitalize_indicator_font_family: String,
+    pub recording_overlay_decapitalize_indicator_font_size_px: u8,
+    pub recording_overlay_decapitalize_indicator_color: String,
+    pub recording_overlay_background_mode: RecordingOverlayBackgroundMode,
+    pub recording_overlay_material_mode: RecordingOverlayMaterialMode,
+    pub recording_overlay_centerpiece_mode: RecordingOverlayCenterpieceMode,
+    pub recording_overlay_animated_border_mode: RecordingOverlayAnimatedBorderMode,
+    pub recording_overlay_surface_base_color: String,
+    pub recording_overlay_body_background_color: String,
+    pub recording_overlay_show_status_icon: bool,
+    #[serde(default = "default_recording_overlay_status_icon_style")]
+    pub recording_overlay_status_icon_style: RecordingOverlayStatusIconStyle,
+    /// Keeps the cancel button clickable but draws nothing in its place.
+    #[serde(default)]
+    pub recording_overlay_cancel_button_invisible: bool,
+    pub recording_overlay_bar_count: u8,
+    pub recording_overlay_bar_width_px: u8,
+    pub recording_overlay_bar_style: RecordingOverlayBarStyle,
+    pub recording_overlay_accent_color: String,
+    pub recording_overlay_show_drag_grip: bool,
+    pub recording_overlay_audio_reactive_scale: bool,
+    pub recording_overlay_audio_reactive_scale_max_percent: u8,
+    pub recording_overlay_voice_sensitivity_percent: u8,
+    pub recording_overlay_animation_softness_percent: u8,
+    pub recording_overlay_depth_parallax_percent: u8,
+    pub recording_overlay_opacity_percent: u8,
+    pub recording_overlay_silence_fade: bool,
+    pub recording_overlay_silence_opacity_percent: u8,
+}
+
+impl RecordingOverlayAppearanceSettings {
+    pub fn from_settings(settings: &AppSettings) -> Self {
+        Self {
+            recording_overlay_theme: settings.recording_overlay_theme,
+            recording_overlay_show_cancel_button: settings.recording_overlay_show_cancel_button,
+            recording_overlay_width_px: settings.recording_overlay_width_px,
+            recording_overlay_status_icon_color: settings.recording_overlay_status_icon_color.clone(),
+            recording_overlay_cancel_icon_color: settings.recording_overlay_cancel_icon_color.clone(),
+            recording_overlay_decapitalize_indicator_mode: settings
+                .recording_overlay_decapitalize_indicator_mode,
+            recording_overlay_decapitalize_indicator_custom_text: settings
+                .recording_overlay_decapitalize_indicator_custom_text
+                .clone(),
+            recording_overlay_decapitalize_indicator_font_family: settings
+                .recording_overlay_decapitalize_indicator_font_family
+                .clone(),
+            recording_overlay_decapitalize_indicator_font_size_px: settings
+                .recording_overlay_decapitalize_indicator_font_size_px,
+            recording_overlay_decapitalize_indicator_color: settings
+                .recording_overlay_decapitalize_indicator_color
+                .clone(),
+            recording_overlay_background_mode: settings.recording_overlay_background_mode,
+            recording_overlay_material_mode: settings.recording_overlay_material_mode,
+            recording_overlay_centerpiece_mode: settings.recording_overlay_centerpiece_mode,
+            recording_overlay_animated_border_mode: settings.recording_overlay_animated_border_mode,
+            recording_overlay_surface_base_color: settings.recording_overlay_surface_base_color.clone(),
+            recording_overlay_body_background_color: settings
+                .recording_overlay_body_background_color
+                .clone(),
+            recording_overlay_show_status_icon: settings.recording_overlay_show_status_icon,
+            recording_overlay_status_icon_style: settings.recording_overlay_status_icon_style,
+            recording_overlay_cancel_button_invisible: settings
+                .recording_overlay_cancel_button_invisible,
+            recording_overlay_bar_count: settings.recording_overlay_bar_count,
+            recording_overlay_bar_width_px: settings.recording_overlay_bar_width_px,
+            recording_overlay_bar_style: settings.recording_overlay_bar_style,
+            recording_overlay_accent_color: settings.recording_overlay_accent_color.clone(),
+            recording_overlay_show_drag_grip: settings.recording_overlay_show_drag_grip,
+            recording_overlay_audio_reactive_scale: settings.recording_overlay_audio_reactive_scale,
+            recording_overlay_audio_reactive_scale_max_percent: settings
+                .recording_overlay_audio_reactive_scale_max_percent,
+            recording_overlay_voice_sensitivity_percent: settings
+                .recording_overlay_voice_sensitivity_percent,
+            recording_overlay_animation_softness_percent: settings
+                .recording_overlay_animation_softness_percent,
+            recording_overlay_depth_parallax_percent: settings.recording_overlay_depth_parallax_percent,
+            recording_overlay_opacity_percent: settings.recording_overlay_opacity_percent,
+            recording_overlay_silence_fade: settings.recording_overlay_silence_fade,
+            recording_overlay_silence_opacity_percent: settings
+                .recording_overlay_silence_opacity_percent,
+        }
+    }
+}
+
+/// A named recording overlay look saved by the user.
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct RecordingOverlayUserPreset {
+    pub id: String,
+    pub name: String,
+    pub appearance: RecordingOverlayAppearanceSettings,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -3664,6 +3809,11 @@ pub struct AppSettings {
     pub recording_overlay_animated_border_mode: RecordingOverlayAnimatedBorderMode,
     #[serde(default = "default_true")]
     pub recording_overlay_show_status_icon: bool,
+    #[serde(default = "default_recording_overlay_status_icon_style")]
+    pub recording_overlay_status_icon_style: RecordingOverlayStatusIconStyle,
+    /// Keeps the cancel button clickable but draws nothing in its place.
+    #[serde(default)]
+    pub recording_overlay_cancel_button_invisible: bool,
     #[serde(default = "default_true")]
     pub recording_overlay_show_cancel_button: bool,
     #[serde(default = "default_recording_overlay_bar_count")]
@@ -3710,6 +3860,8 @@ pub struct AppSettings {
     pub recording_overlay_decapitalize_indicator_font_size_px: u8,
     #[serde(default = "default_recording_overlay_decapitalize_indicator_color")]
     pub recording_overlay_decapitalize_indicator_color: String,
+    #[serde(default)]
+    pub recording_overlay_user_presets: Vec<RecordingOverlayUserPreset>,
     #[serde(default = "default_soniox_live_preview_enabled")]
     pub soniox_live_preview_enabled: bool,
     #[serde(default = "default_soniox_live_preview_position")]
@@ -4505,6 +4657,10 @@ fn default_recording_overlay_centerpiece_mode() -> RecordingOverlayCenterpieceMo
 
 fn default_recording_overlay_animated_border_mode() -> RecordingOverlayAnimatedBorderMode {
     RecordingOverlayAnimatedBorderMode::None
+}
+
+fn default_recording_overlay_status_icon_style() -> RecordingOverlayStatusIconStyle {
+    RecordingOverlayStatusIconStyle::Auto
 }
 
 fn default_recording_overlay_bar_count() -> u8 {
@@ -5904,6 +6060,8 @@ pub fn get_default_settings() -> AppSettings {
         recording_overlay_centerpiece_mode: default_recording_overlay_centerpiece_mode(),
         recording_overlay_animated_border_mode: default_recording_overlay_animated_border_mode(),
         recording_overlay_show_status_icon: default_true(),
+        recording_overlay_status_icon_style: default_recording_overlay_status_icon_style(),
+        recording_overlay_cancel_button_invisible: false,
         recording_overlay_show_cancel_button: default_true(),
         recording_overlay_bar_count: default_recording_overlay_bar_count(),
         recording_overlay_width_px: default_recording_overlay_width_px(),
@@ -5936,6 +6094,7 @@ pub fn get_default_settings() -> AppSettings {
             default_recording_overlay_decapitalize_indicator_font_size_px(),
         recording_overlay_decapitalize_indicator_color:
             default_recording_overlay_decapitalize_indicator_color(),
+        recording_overlay_user_presets: Vec::new(),
         soniox_live_preview_enabled: default_soniox_live_preview_enabled(),
         soniox_live_preview_position: default_soniox_live_preview_position(),
         soniox_live_preview_cursor_offset_px: default_soniox_live_preview_cursor_offset_px(),

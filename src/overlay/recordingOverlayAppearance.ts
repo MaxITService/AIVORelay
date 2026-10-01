@@ -6,7 +6,13 @@ export type RecordingOverlayMaterialMode =
   | "pearl"
   | "velvet_neon"
   | "frost"
-  | "candy_chrome";
+  | "candy_chrome"
+  | "graphite"
+  | "obsidian"
+  | "gradient_mesh"
+  | "porcelain"
+  | "clay"
+  | "keycap";
 export type RecordingOverlayBackgroundMode =
   | "none"
   | "mist"
@@ -15,19 +21,38 @@ export type RecordingOverlayBackgroundMode =
   | "stardust"
   | "silk_fog"
   | "firefly_veil"
-  | "rose_sparks";
+  | "rose_sparks"
+  | "horizon_grid"
+  | "starfield_warp"
+  | "tunnel_rings"
+  | "galaxy_spiral"
+  | "dot_swell";
 export type RecordingOverlayCenterpieceMode =
   | "none"
   | "halo_core"
   | "aurora_ribbon"
   | "orbital_beads"
   | "bloom_heart"
-  | "signal_crown";
+  | "signal_crown"
+  | "gyroscope"
+  | "holo_globe"
+  | "ringed_planet"
+  | "plasma_orb";
 export type RecordingOverlayAnimatedBorderMode =
   | "none"
   | "shimmer_edge"
   | "traveling_highlight"
-  | "breathing_contour";
+  | "breathing_contour"
+  | "spectrum_edge";
+export type RecordingOverlayStatusIconStyle =
+  | "auto"
+  | "capsule"
+  | "bare"
+  | "ring"
+  | "tile"
+  | "dot"
+  | "orb"
+  | "coin";
 export type RecordingOverlayBarStyle =
   | "aurora"
   | "bloom_bounce"
@@ -57,7 +82,18 @@ export type RecordingOverlayBarStyle =
   | "glow"
   | "prism"
   | "tuner"
-  | "vinyl";
+  | "vinyl"
+  | "wave_line"
+  | "mirror"
+  | "dot_matrix"
+  | "spectrum"
+  | "liquid"
+  | "pillars"
+  | "orbs"
+  | "cubes"
+  | "ridgeline"
+  | "carousel"
+  | "twist_ribbon";
 
 export const LEGACY_RECORDING_OVERLAY_BAR_STYLES: RecordingOverlayBarStyle[] = [
   "solid",
@@ -88,7 +124,7 @@ export function recordingOverlayHexToRgba(hex: string, alpha: number): string {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
-function mixRecordingOverlayHexColors(
+export function mixRecordingOverlayHexColors(
   first: string,
   second: string,
   secondWeight: number,
@@ -110,6 +146,44 @@ function mixRecordingOverlayHexColors(
   return `#${mixChannel(aRed, bRed)}${mixChannel(aGreen, bGreen)}${mixChannel(aBlue, bBlue)}`;
 }
 
+/** Rotates the hue of a hex color, keeping its saturation and lightness. */
+export function shiftRecordingOverlayHue(hex: string, degrees: number): string {
+  const normalized = normalizeRecordingOverlayColor(hex);
+  const red = Number.parseInt(normalized.slice(1, 3), 16) / 255;
+  const green = Number.parseInt(normalized.slice(3, 5), 16) / 255;
+  const blue = Number.parseInt(normalized.slice(5, 7), 16) / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const lightness = (max + min) / 2;
+  const delta = max - min;
+  if (delta === 0) {
+    return normalized;
+  }
+  const saturation = delta / (1 - Math.abs(2 * lightness - 1));
+  let hue =
+    max === red
+      ? ((green - blue) / delta) % 6
+      : max === green
+        ? (blue - red) / delta + 2
+        : (red - green) / delta + 4;
+  hue = (((hue * 60 + degrees) % 360) + 360) % 360;
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const x = chroma * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = lightness - chroma / 2;
+  const [r, g, b] =
+    hue < 60 ? [chroma, x, 0]
+    : hue < 120 ? [x, chroma, 0]
+    : hue < 180 ? [0, chroma, x]
+    : hue < 240 ? [0, x, chroma]
+    : hue < 300 ? [x, 0, chroma]
+    : [chroma, 0, x];
+  const channel = (value: number) =>
+    Math.round(Math.max(0, Math.min(1, value + m)) * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${channel(r)}${channel(g)}${channel(b)}`;
+}
+
 export function normalizeRecordingOverlayBackgroundMode(
   value: string | undefined,
 ): RecordingOverlayBackgroundMode {
@@ -128,6 +202,16 @@ export function normalizeRecordingOverlayBackgroundMode(
       return "firefly_veil";
     case "rose_sparks":
       return "rose_sparks";
+    case "horizon_grid":
+      return "horizon_grid";
+    case "starfield_warp":
+      return "starfield_warp";
+    case "tunnel_rings":
+      return "tunnel_rings";
+    case "galaxy_spiral":
+      return "galaxy_spiral";
+    case "dot_swell":
+      return "dot_swell";
     default:
       return "none";
   }
@@ -145,6 +229,18 @@ export function normalizeRecordingOverlayMaterialMode(
       return "frost";
     case "candy_chrome":
       return "candy_chrome";
+    case "graphite":
+      return "graphite";
+    case "obsidian":
+      return "obsidian";
+    case "gradient_mesh":
+      return "gradient_mesh";
+    case "porcelain":
+      return "porcelain";
+    case "clay":
+      return "clay";
+    case "keycap":
+      return "keycap";
     case "liquid_glass":
     default:
       return "liquid_glass";
@@ -165,6 +261,14 @@ export function normalizeRecordingOverlayCenterpieceMode(
       return "bloom_heart";
     case "signal_crown":
       return "signal_crown";
+    case "gyroscope":
+      return "gyroscope";
+    case "holo_globe":
+      return "holo_globe";
+    case "ringed_planet":
+      return "ringed_planet";
+    case "plasma_orb":
+      return "plasma_orb";
     default:
       return "none";
   }
@@ -180,10 +284,68 @@ export function normalizeRecordingOverlayAnimatedBorderMode(
       return "traveling_highlight";
     case "breathing_contour":
       return "breathing_contour";
+    case "spectrum_edge":
+      return "spectrum_edge";
     default:
       return "none";
   }
 }
+
+export function normalizeRecordingOverlayStatusIconStyle(
+  value: string | undefined,
+): RecordingOverlayStatusIconStyle {
+  switch (value) {
+    case "capsule":
+      return "capsule";
+    case "bare":
+      return "bare";
+    case "ring":
+      return "ring";
+    case "tile":
+      return "tile";
+    case "dot":
+      return "dot";
+    case "orb":
+      return "orb";
+    case "coin":
+      return "coin";
+    default:
+      return "auto";
+  }
+}
+
+/**
+ * The frame actually drawn. Auto keeps the glass capsule on the original
+ * materials and drops it on the flat modern ones, where it looks dated. The
+ * dimensional materials get a frame with matching volume.
+ */
+export function resolveRecordingOverlayStatusIconStyle(
+  style: RecordingOverlayStatusIconStyle,
+  materialMode: RecordingOverlayMaterialMode,
+): Exclude<RecordingOverlayStatusIconStyle, "auto"> {
+  if (style !== "auto") return style;
+  if (materialMode === "clay") return "orb";
+  if (materialMode === "keycap") return "tile";
+  return materialMode === "graphite" ||
+    materialMode === "obsidian" ||
+    materialMode === "gradient_mesh" ||
+    materialMode === "porcelain"
+    ? "bare"
+    : "capsule";
+}
+
+/** WCAG relative luminance of a hex color, from 0 (black) to 1 (white). */
+export function recordingOverlayRelativeLuminance(hex: string): number {
+  const normalized = normalizeRecordingOverlayColor(hex);
+  const channel = (offset: number) => {
+    const value = Number.parseInt(normalized.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+}
+
+/** Dark text for surfaces too light for the default white. */
+const DARK_INK = "rgba(24, 26, 32, 0.86)";
 
 export function getRecordingOverlaySurfaceStyle(
   theme: RecordingOverlayTheme,
@@ -242,6 +404,44 @@ export function getRecordingOverlaySurfaceStyle(
     "--recording-overlay-bar-width": `${Math.max(2, Math.min(12, Math.round(barWidthPx)))}px`,
   } as CSSProperties;
 
+  const flatMaterialLayers = (
+    sheenTopAlpha: number,
+    grainOpacity: number,
+  ): CSSProperties =>
+    ({
+      "--recording-overlay-accent-glow": "rgba(0, 0, 0, 0)",
+      "--recording-overlay-accent-glow-strong": "rgba(0, 0, 0, 0)",
+      "--recording-overlay-sheen": "rgba(0, 0, 0, 0)",
+      "--recording-overlay-sheen-top-alpha": String(sheenTopAlpha),
+      "--recording-overlay-grain-opacity": String(grainOpacity),
+      "--recording-overlay-vignette-opacity": "0",
+    }) as CSSProperties;
+  const meshSecondaryColor = shiftRecordingOverlayHue(accent, 42);
+  // Porcelain is always light; the body color only tints it.
+  const porcelainBodyColor = mixRecordingOverlayHexColors(
+    "#f6f6f8",
+    normalizedBodyBackgroundColor,
+    0.1,
+  );
+  const porcelainTopColor = mixRecordingOverlayHexColors(porcelainBodyColor, "#ffffff", 0.6);
+  const porcelainBottomColor = mixRecordingOverlayHexColors(porcelainBodyColor, "#000000", 0.05);
+  // Clay is a soft pastel of the body color with a hint of the accent; its
+  // shadows take the same hue, as light bounced off colored clay would.
+  const clayToneColor = mixRecordingOverlayHexColors(
+    mixRecordingOverlayHexColors(normalizedBodyBackgroundColor, "#ffffff", 0.5),
+    accent,
+    0.1,
+  );
+  const clayTopColor = mixRecordingOverlayHexColors(clayToneColor, "#ffffff", 0.35);
+  const clayBottomColor = mixRecordingOverlayHexColors(clayToneColor, "#000000", 0.1);
+  const clayShadeColor = mixRecordingOverlayHexColors(clayToneColor, "#000000", 0.55);
+  const clayIsLight = recordingOverlayRelativeLuminance(clayToneColor) > 0.4;
+  // A keycap: the body color is the cap, a darker wall shows below it, and
+  // the accent leaks out underneath like a keyboard backlight.
+  const keycapTopColor = mixRecordingOverlayHexColors(normalizedBodyBackgroundColor, "#ffffff", 0.08);
+  const keycapWallColor = mixRecordingOverlayHexColors(normalizedBodyBackgroundColor, "#000000", 0.45);
+  const keycapIsLight = recordingOverlayRelativeLuminance(normalizedBodyBackgroundColor) > 0.4;
+
   const materialByMode: Record<RecordingOverlayMaterialMode, CSSProperties> = {
     liquid_glass: {
       "--recording-overlay-accent-glow": baseGlow,
@@ -267,6 +467,24 @@ export function getRecordingOverlaySurfaceStyle(
       "--recording-overlay-accent-glow": recordingOverlayHexToRgba(accent, 0.22),
       "--recording-overlay-accent-glow-strong": recordingOverlayHexToRgba(accent, 0.36),
       "--recording-overlay-sheen": recordingOverlayHexToRgba(accent, 0.2),
+    } as CSSProperties,
+    // The modern materials drop the accent haze, sheen, and grain so the
+    // surface reads as one clean, flat object.
+    graphite: flatMaterialLayers(0.05, 0),
+    obsidian: flatMaterialLayers(0.04, 0),
+    gradient_mesh: flatMaterialLayers(0.06, 0.16),
+    porcelain: {
+      ...flatMaterialLayers(0, 0),
+      // Text drawn on the surface switches to dark ink.
+      "--recording-overlay-ink": DARK_INK,
+    } as CSSProperties,
+    clay: {
+      ...flatMaterialLayers(0, 0),
+      ...(clayIsLight ? { "--recording-overlay-ink": DARK_INK } : {}),
+    } as CSSProperties,
+    keycap: {
+      ...flatMaterialLayers(0, 0),
+      ...(keycapIsLight ? { "--recording-overlay-ink": DARK_INK } : {}),
     } as CSSProperties,
   };
 
@@ -338,6 +556,72 @@ export function getRecordingOverlaySurfaceStyle(
       ),
       border: `1px solid ${recordingOverlayHexToRgba(accent, 0.3)}`,
       boxShadow: `inset 0 1px 0 rgba(255,255,255,0.18), 0 12px 28px rgba(0,0,0,0.32), 0 0 24px ${recordingOverlayHexToRgba(accent, 0.18)}`,
+    },
+    // Shadows stay tight: the overlay window only leaves a few pixels around the frame.
+    graphite: {
+      background: stackSurfaceLayers(
+        `linear-gradient(180deg, ${recordingOverlayHexToRgba(bodyHighlightColor, 0.94 * surfaceOpacity)} 0%, ${recordingOverlayHexToRgba(normalizedBodyBackgroundColor, 0.97 * surfaceOpacity)} 55%, ${recordingOverlayHexToRgba(bodyDeepColor, 0.98 * surfaceOpacity)} 100%)`,
+      ),
+      border: "1px solid rgba(255,255,255,0.09)",
+      boxShadow:
+        "inset 0 1px 0 rgba(255,255,255,0.07), 0 1px 2px rgba(0,0,0,0.42), 0 3px 8px rgba(0,0,0,0.28)",
+      backdropFilter: "none",
+      WebkitBackdropFilter: "none",
+    },
+    obsidian: {
+      background: stackSurfaceLayers(
+        `linear-gradient(180deg, rgba(255,255,255,${0.05 * surfaceOpacity}) 0%, rgba(255,255,255,0) 48%), linear-gradient(180deg, ${recordingOverlayHexToRgba(bodyDeepColor, 0.98 * surfaceOpacity)} 0%, ${recordingOverlayHexToRgba(bodyEdgeColor, surfaceOpacity)} 100%)`,
+      ),
+      border: "1px solid rgba(255,255,255,0.07)",
+      boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.5)",
+      backdropFilter: "none",
+      WebkitBackdropFilter: "none",
+    },
+    gradient_mesh: {
+      background: stackSurfaceLayers(
+        `radial-gradient(120% 160% at 0% 0%, ${recordingOverlayHexToRgba(accent, 0.34 * surfaceOpacity)} 0%, rgba(0,0,0,0) 58%), radial-gradient(120% 160% at 100% 100%, ${recordingOverlayHexToRgba(meshSecondaryColor, 0.3 * surfaceOpacity)} 0%, rgba(0,0,0,0) 62%), linear-gradient(180deg, ${recordingOverlayHexToRgba(bodyHighlightColor, 0.92 * surfaceOpacity)} 0%, ${recordingOverlayHexToRgba(bodyDeepColor, 0.97 * surfaceOpacity)} 100%)`,
+      ),
+      border: "1px solid rgba(255,255,255,0.1)",
+      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px rgba(0,0,0,0.38)",
+      backdropFilter: "none",
+      WebkitBackdropFilter: "none",
+    },
+    porcelain: {
+      background: stackSurfaceLayers(
+        `linear-gradient(180deg, ${recordingOverlayHexToRgba(porcelainTopColor, 0.97 * surfaceOpacity)} 0%, ${recordingOverlayHexToRgba(porcelainBodyColor, 0.97 * surfaceOpacity)} 58%, ${recordingOverlayHexToRgba(porcelainBottomColor, 0.98 * surfaceOpacity)} 100%)`,
+        porcelainBodyColor,
+      ),
+      border: "1px solid rgba(20,22,30,0.1)",
+      boxShadow:
+        "inset 0 1px 0 rgba(255,255,255,0.95), inset 0 -1px 0 rgba(20,22,30,0.05), 0 1px 2px rgba(0,0,0,0.2), 0 3px 8px rgba(0,0,0,0.16)",
+      backdropFilter: "none",
+      WebkitBackdropFilter: "none",
+    },
+    // Volume comes from light: a broad highlight upper left, a soft inner
+    // shade lower right, and a hue-tinted shadow under the slab.
+    clay: {
+      background: stackSurfaceLayers(
+        `radial-gradient(140% 130% at 26% 0%, rgba(255,255,255,${0.42 * surfaceOpacity}) 0%, rgba(255,255,255,0) 56%), linear-gradient(180deg, ${recordingOverlayHexToRgba(clayTopColor, 0.98 * surfaceOpacity)} 0%, ${recordingOverlayHexToRgba(clayToneColor, 0.98 * surfaceOpacity)} 52%, ${recordingOverlayHexToRgba(clayBottomColor, surfaceOpacity)} 100%)`,
+        clayToneColor,
+      ),
+      border: "1px solid rgba(255,255,255,0.3)",
+      // Half the 36px frame height: a full pill that the animated border can trace.
+      borderRadius: "18px",
+      boxShadow: `inset 2px 2px 3px rgba(255,255,255,0.55), inset -2px -3px 6px ${recordingOverlayHexToRgba(clayShadeColor, 0.3)}, 0 2px 3px ${recordingOverlayHexToRgba(clayShadeColor, 0.32)}, 0 4px 9px ${recordingOverlayHexToRgba(clayShadeColor, 0.28)}`,
+      backdropFilter: "none",
+      WebkitBackdropFilter: "none",
+    },
+    // The 3px wall is a hard offset shadow, so the cap reads as a raised key.
+    keycap: {
+      background: stackSurfaceLayers(
+        `linear-gradient(180deg, rgba(0,0,0,${0.12 * surfaceOpacity}) 0%, rgba(0,0,0,0) 38%, rgba(255,255,255,${0.05 * surfaceOpacity}) 100%), linear-gradient(180deg, ${recordingOverlayHexToRgba(keycapTopColor, 0.98 * surfaceOpacity)} 0%, ${recordingOverlayHexToRgba(normalizedBodyBackgroundColor, surfaceOpacity)} 100%)`,
+        normalizedBodyBackgroundColor,
+      ),
+      border: `1px solid ${recordingOverlayHexToRgba(keycapWallColor, 0.9)}`,
+      borderRadius: "11px",
+      boxShadow: `inset 0 1px 0 rgba(255,255,255,${keycapIsLight ? 0.7 : 0.14}), inset 0 -2px 0 rgba(0,0,0,0.14), 0 3px 0 ${keycapWallColor}, 0 3px 9px ${recordingOverlayHexToRgba(accent, 0.38)}, 0 5px 6px rgba(0,0,0,0.4)`,
+      backdropFilter: "none",
+      WebkitBackdropFilter: "none",
     },
   };
 
@@ -470,6 +754,28 @@ export function normalizeRecordingOverlayBarStyle(
       return "tuner";
     case "vinyl":
       return "vinyl";
+    case "wave_line":
+      return "wave_line";
+    case "mirror":
+      return "mirror";
+    case "dot_matrix":
+      return "dot_matrix";
+    case "spectrum":
+      return "spectrum";
+    case "liquid":
+      return "liquid";
+    case "pillars":
+      return "pillars";
+    case "orbs":
+      return "orbs";
+    case "cubes":
+      return "cubes";
+    case "ridgeline":
+      return "ridgeline";
+    case "carousel":
+      return "carousel";
+    case "twist_ribbon":
+      return "twist_ribbon";
     default:
       return "solid";
   }

@@ -27,11 +27,14 @@ import {
   normalizeRecordingOverlayCenterpieceMode,
   normalizeRecordingOverlayColor,
   normalizeRecordingOverlayMaterialMode,
+  normalizeRecordingOverlayStatusIconStyle,
+  resolveRecordingOverlayStatusIconStyle,
   type RecordingOverlayAnimatedBorderMode,
   type RecordingOverlayBarStyle,
   type RecordingOverlayBackgroundMode,
   type RecordingOverlayCenterpieceMode,
   type RecordingOverlayMaterialMode,
+  type RecordingOverlayStatusIconStyle,
   type RecordingOverlayTheme,
 } from "./recordingOverlayAppearance";
 import {
@@ -41,6 +44,10 @@ import {
 import { RecordingOverlayBars } from "./RecordingOverlayBars";
 import { RecordingOverlayBackground } from "./RecordingOverlayBackground";
 import { RecordingOverlayCenterpiece } from "./RecordingOverlayCenterpiece";
+import {
+  RecordingOverlayStatusIcon,
+  type RecordingOverlayStatusIconTone,
+} from "./RecordingOverlayStatusIcon";
 import { getRecordingOverlayMotionStyle } from "./recordingOverlayMotion";
 import {
   ExtendedOverlayState,
@@ -64,7 +71,9 @@ type RecordingOverlayAppearanceState = RecordingOverlayAppearancePayload & {
   cancel_icon_color: string;
   surface_base_color: string;
   body_background_color: string;
+  status_icon_style: string;
   show_cancel_button: boolean;
+  cancel_button_invisible: boolean;
   decapitalize_indicator_mode: string;
   decapitalize_indicator_custom_text: string;
   decapitalize_indicator_font_family: string;
@@ -127,7 +136,9 @@ const DEFAULT_OVERLAY_APPEARANCE: RecordingOverlayAppearanceState = {
   surface_base_color: "#101216",
   body_background_color: "#101216",
   show_status_icon: true,
+  status_icon_style: "auto",
   show_cancel_button: true,
+  cancel_button_invisible: false,
   bar_count: 9,
   bar_width_px: 6,
   bar_style: "solid",
@@ -553,10 +564,14 @@ const RecordingOverlay: React.FC = () => {
           typeof data.show_status_icon === "boolean"
             ? data.show_status_icon
             : DEFAULT_OVERLAY_APPEARANCE.show_status_icon,
+        status_icon_style: normalizeRecordingOverlayStatusIconStyle(
+          data.status_icon_style,
+        ),
         show_cancel_button:
           typeof data.show_cancel_button === "boolean"
             ? data.show_cancel_button
             : DEFAULT_OVERLAY_APPEARANCE.show_cancel_button,
+        cancel_button_invisible: data.cancel_button_invisible === true,
         bar_count:
           typeof data.bar_count === "number"
             ? Math.max(3, Math.min(16, Math.round(data.bar_count)))
@@ -1074,14 +1089,14 @@ const RecordingOverlay: React.FC = () => {
     }
   };
 
-  const iconStateClass =
+  const statusIconTone: RecordingOverlayStatusIconTone =
     state === "error"
-      ? "is-error"
+      ? "error"
       : state === "recording"
-        ? "is-recording"
-        : state === "sending" || state === "thinking" || state === "finalizing"
-          ? "is-busy"
-          : "is-idle";
+        ? "recording"
+        : state === "profile_switch" || state === "microphone_switch"
+          ? "idle"
+          : "busy";
   const overlayStateClass =
     state === "recording"
       ? "overlay-state-recording"
@@ -1295,9 +1310,17 @@ const RecordingOverlay: React.FC = () => {
           !customOverlayEnabled ? (
             getIcon()
           ) : (
-            <div className={`overlay-icon-wrap ${iconStateClass}`}>
+            <RecordingOverlayStatusIcon
+              frame={resolveRecordingOverlayStatusIconStyle(
+                appearance.status_icon_style as RecordingOverlayStatusIconStyle,
+                materialMode,
+              )}
+              tone={statusIconTone}
+              accentColor={appearance.accent_color}
+              iconColor={statusIconColor}
+            >
               {getIcon()}
-            </div>
+            </RecordingOverlayStatusIcon>
           )
         ) : null}
       </div>
@@ -1416,7 +1439,9 @@ const RecordingOverlay: React.FC = () => {
           appearance.show_cancel_button && (
             <button
               type="button"
-              className={`cancel-button ${customOverlayEnabled ? "" : "cancel-button-legacy"}`}
+              className={`cancel-button ${customOverlayEnabled ? "" : "cancel-button-legacy"} ${
+                appearance.cancel_button_invisible ? "cancel-button--invisible" : ""
+              }`}
               onClick={() => {
                 commands.cancelOperation();
               }}

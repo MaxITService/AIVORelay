@@ -3,6 +3,7 @@ import {
   normalizeRecordingOverlayAnimatedBorderMode,
   normalizeRecordingOverlayColor,
   recordingOverlayHexToRgba,
+  shiftRecordingOverlayHue,
   type RecordingOverlayAnimatedBorderMode,
 } from "./recordingOverlayAppearance";
 import "./RecordingOverlayAnimatedBorder.css";
@@ -55,6 +56,17 @@ const ANIMATED_BORDER_MOTION: Record<ActiveAnimatedBorderMode, AnimatedBorderMot
     easing: "ease-in-out",
     cycleMs: [2400, 1600],
     rate: [0.85, 0.9],
+  },
+  // Turns the registered `--rob-spectrum-angle` property, so the crisp edge and
+  // its glow share one rotation.
+  spectrum_edge: {
+    keyframes: [
+      { "--rob-spectrum-angle": "0deg" },
+      { "--rob-spectrum-angle": "360deg" },
+    ],
+    easing: "linear",
+    cycleMs: [3600, 2800],
+    rate: [0.55, 1.6],
   },
 };
 
@@ -189,6 +201,39 @@ export const RecordingOverlayAnimatedBorder: React.FC<
       >
         <div className="recording-overlay-border-glow" style={glowStyle} />
         <div className="recording-overlay-border-ring" ref={setAnimatedNode} />
+      </div>
+    );
+  }
+
+  if (normalizedMode === "spectrum_edge") {
+    const spectrum = [0, 70, 160, 250].map((degrees) =>
+      shiftRecordingOverlayHue(accent, degrees),
+    );
+    Object.assign(layerStyle, {
+      opacity: 0.85 + (energy * 0.15),
+      "--rob-spectrum": `conic-gradient(from var(--rob-spectrum-angle, 0deg), ${spectrum.join(", ")}, ${spectrum[0]})`,
+    });
+    return (
+      <div
+        aria-hidden="true"
+        className="recording-overlay-border"
+        data-mode={normalizedMode}
+        style={layerStyle}
+        ref={setAnimatedNode}
+      >
+        <div
+          className="recording-overlay-border-spectrum-glow"
+          style={{ ...glowStyle, opacity: 0.3 + (energy * 0.5) }}
+        >
+          <div
+            className="recording-overlay-border-ring"
+            style={{ "--rob-thickness": "3px" } as React.CSSProperties}
+          />
+        </div>
+        <div
+          className="recording-overlay-border-ring"
+          style={{ "--rob-thickness": "1.5px" } as React.CSSProperties}
+        />
       </div>
     );
   }

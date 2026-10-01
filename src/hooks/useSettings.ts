@@ -20,6 +20,8 @@ interface UseSettingsReturn {
     options?: { throwOnError?: boolean },
   ) => Promise<void>;
   applyRecordingOverlayStyle: (config: RecordingOverlayStyleConfig) => Promise<void>;
+  saveRecordingOverlayUserPreset: (name: string) => Promise<void>;
+  deleteRecordingOverlayUserPreset: (id: string) => Promise<void>;
   resetSetting: (key: keyof Settings) => Promise<void>;
   refreshSettings: () => Promise<void>;
   refreshAudioDevices: () => Promise<void>;
@@ -91,6 +93,8 @@ export const useSettings = (): UseSettingsReturn => {
     postProcessModelOptions: store.postProcessModelOptions,
     updateSetting: store.updateSetting,
     applyRecordingOverlayStyle: store.applyRecordingOverlayStyle,
+    saveRecordingOverlayUserPreset: store.saveRecordingOverlayUserPreset,
+    deleteRecordingOverlayUserPreset: store.deleteRecordingOverlayUserPreset,
     resetSetting: store.resetSetting,
     refreshSettings: store.refreshSettings,
     refreshAudioDevices: store.refreshAudioDevices,

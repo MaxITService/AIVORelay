@@ -56,6 +56,25 @@
   background-repeat: repeat-x;
 }
 
+/* Registered so the Web Animations API can interpolate the angle. */
+@property --rob-spectrum-angle {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 0deg;
+}
+
+.recording-overlay-border[data-mode="spectrum_edge"] .recording-overlay-border-ring {
+  background-image: var(--rob-spectrum);
+}
+
+/* Blurring the masked band lets the colors bleed softly into the frame. */
+.recording-overlay-border-spectrum-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  filter: blur(4px);
+}
+
 .recording-overlay-border-svg {
   position: absolute;
   inset: 1px;

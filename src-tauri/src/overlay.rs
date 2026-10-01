@@ -5,8 +5,9 @@ use crate::settings;
 use crate::settings::{
     OverlayPosition, RecordingOverlayAnimatedBorderMode, RecordingOverlayBackgroundMode,
     RecordingOverlayBarStyle, RecordingOverlayCenterpieceMode,
-    RecordingOverlayDecapitalizeIndicatorMode, RecordingOverlayMaterialMode, RecordingOverlayTheme,
-    SonioxLivePreviewPosition, SonioxLivePreviewSize, SonioxLivePreviewTheme,
+    RecordingOverlayDecapitalizeIndicatorMode, RecordingOverlayMaterialMode,
+    RecordingOverlayStatusIconStyle, RecordingOverlayTheme, SonioxLivePreviewPosition,
+    SonioxLivePreviewSize, SonioxLivePreviewTheme,
 };
 use serde::Serialize;
 use specta::Type;
@@ -202,7 +203,9 @@ pub struct RecordingOverlayAppearancePayload {
     surface_base_color: String,
     body_background_color: String,
     show_status_icon: bool,
+    status_icon_style: String,
     show_cancel_button: bool,
+    cancel_button_invisible: bool,
     bar_count: u8,
     bar_width_px: u8,
     bar_style: String,
@@ -765,6 +768,11 @@ fn recording_overlay_background_mode_key(mode: RecordingOverlayBackgroundMode) -
         RecordingOverlayBackgroundMode::SilkFog => "silk_fog",
         RecordingOverlayBackgroundMode::FireflyVeil => "firefly_veil",
         RecordingOverlayBackgroundMode::RoseSparks => "rose_sparks",
+        RecordingOverlayBackgroundMode::HorizonGrid => "horizon_grid",
+        RecordingOverlayBackgroundMode::StarfieldWarp => "starfield_warp",
+        RecordingOverlayBackgroundMode::TunnelRings => "tunnel_rings",
+        RecordingOverlayBackgroundMode::GalaxySpiral => "galaxy_spiral",
+        RecordingOverlayBackgroundMode::DotSwell => "dot_swell",
         RecordingOverlayBackgroundMode::None => "none",
     }
 }
@@ -776,6 +784,12 @@ fn recording_overlay_material_mode_key(mode: RecordingOverlayMaterialMode) -> &'
         RecordingOverlayMaterialMode::VelvetNeon => "velvet_neon",
         RecordingOverlayMaterialMode::Frost => "frost",
         RecordingOverlayMaterialMode::CandyChrome => "candy_chrome",
+        RecordingOverlayMaterialMode::Graphite => "graphite",
+        RecordingOverlayMaterialMode::Obsidian => "obsidian",
+        RecordingOverlayMaterialMode::GradientMesh => "gradient_mesh",
+        RecordingOverlayMaterialMode::Porcelain => "porcelain",
+        RecordingOverlayMaterialMode::Clay => "clay",
+        RecordingOverlayMaterialMode::Keycap => "keycap",
     }
 }
 
@@ -786,7 +800,26 @@ fn recording_overlay_centerpiece_mode_key(mode: RecordingOverlayCenterpieceMode)
         RecordingOverlayCenterpieceMode::OrbitalBeads => "orbital_beads",
         RecordingOverlayCenterpieceMode::BloomHeart => "bloom_heart",
         RecordingOverlayCenterpieceMode::SignalCrown => "signal_crown",
+        RecordingOverlayCenterpieceMode::Gyroscope => "gyroscope",
+        RecordingOverlayCenterpieceMode::HoloGlobe => "holo_globe",
+        RecordingOverlayCenterpieceMode::RingedPlanet => "ringed_planet",
+        RecordingOverlayCenterpieceMode::PlasmaOrb => "plasma_orb",
         RecordingOverlayCenterpieceMode::None => "none",
+    }
+}
+
+fn recording_overlay_status_icon_style_key(
+    style: RecordingOverlayStatusIconStyle,
+) -> &'static str {
+    match style {
+        RecordingOverlayStatusIconStyle::Auto => "auto",
+        RecordingOverlayStatusIconStyle::Capsule => "capsule",
+        RecordingOverlayStatusIconStyle::Bare => "bare",
+        RecordingOverlayStatusIconStyle::Ring => "ring",
+        RecordingOverlayStatusIconStyle::Tile => "tile",
+        RecordingOverlayStatusIconStyle::Dot => "dot",
+        RecordingOverlayStatusIconStyle::Orb => "orb",
+        RecordingOverlayStatusIconStyle::Coin => "coin",
     }
 }
 
@@ -797,6 +830,7 @@ fn recording_overlay_animated_border_mode_key(
         RecordingOverlayAnimatedBorderMode::ShimmerEdge => "shimmer_edge",
         RecordingOverlayAnimatedBorderMode::TravelingHighlight => "traveling_highlight",
         RecordingOverlayAnimatedBorderMode::BreathingContour => "breathing_contour",
+        RecordingOverlayAnimatedBorderMode::SpectrumEdge => "spectrum_edge",
         RecordingOverlayAnimatedBorderMode::None => "none",
     }
 }
@@ -832,6 +866,17 @@ fn recording_overlay_bar_style_key(style: RecordingOverlayBarStyle) -> &'static 
         RecordingOverlayBarStyle::Skyline => "skyline",
         RecordingOverlayBarStyle::Tuner => "tuner",
         RecordingOverlayBarStyle::Vinyl => "vinyl",
+        RecordingOverlayBarStyle::WaveLine => "wave_line",
+        RecordingOverlayBarStyle::Mirror => "mirror",
+        RecordingOverlayBarStyle::DotMatrix => "dot_matrix",
+        RecordingOverlayBarStyle::Spectrum => "spectrum",
+        RecordingOverlayBarStyle::Liquid => "liquid",
+        RecordingOverlayBarStyle::Pillars => "pillars",
+        RecordingOverlayBarStyle::Orbs => "orbs",
+        RecordingOverlayBarStyle::Cubes => "cubes",
+        RecordingOverlayBarStyle::Ridgeline => "ridgeline",
+        RecordingOverlayBarStyle::Carousel => "carousel",
+        RecordingOverlayBarStyle::TwistRibbon => "twist_ribbon",
     }
 }
 
@@ -875,7 +920,12 @@ fn build_recording_overlay_appearance_payload(
         surface_base_color: settings.recording_overlay_surface_base_color,
         body_background_color: settings.recording_overlay_body_background_color,
         show_status_icon: settings.recording_overlay_show_status_icon,
+        status_icon_style: recording_overlay_status_icon_style_key(
+            settings.recording_overlay_status_icon_style,
+        )
+        .to_string(),
         show_cancel_button: settings.recording_overlay_show_cancel_button,
+        cancel_button_invisible: settings.recording_overlay_cancel_button_invisible,
         bar_count: settings.recording_overlay_bar_count.clamp(3, 16),
         bar_width_px: settings.recording_overlay_bar_width_px.clamp(2, 12),
         bar_style: recording_overlay_bar_style_key(settings.recording_overlay_bar_style)
@@ -1533,6 +1583,13 @@ fn recording_overlay_default_width(app_handle: &AppHandle) -> f64 {
         RecordingOverlayBarStyle::Orbit
         | RecordingOverlayBarStyle::Tuner
         | RecordingOverlayBarStyle::Morse => base_bar_width + 2.0,
+        // A pillar adds its receding side face, half as deep as it is wide.
+        RecordingOverlayBarStyle::Pillars => {
+            base_bar_width + (base_bar_width / 2.0).round().max(2.0)
+        }
+        RecordingOverlayBarStyle::Orbs | RecordingOverlayBarStyle::Cubes => {
+            (base_bar_width + 4.0).max(8.0)
+        }
         _ => base_bar_width,
     };
     let bar_gap_count = if bar_count > 1.0 {
@@ -1588,7 +1645,9 @@ fn recording_overlay_window_padding(
         RecordingOverlayBarStyle::Aurora
         | RecordingOverlayBarStyle::Glow
         | RecordingOverlayBarStyle::Comet
-        | RecordingOverlayBarStyle::Ember => 6.0,
+        | RecordingOverlayBarStyle::Ember
+        | RecordingOverlayBarStyle::WaveLine
+        | RecordingOverlayBarStyle::Spectrum => 6.0,
         RecordingOverlayBarStyle::BloomBounce
         | RecordingOverlayBarStyle::Daisy
         | RecordingOverlayBarStyle::Lotus
@@ -1607,12 +1666,17 @@ fn recording_overlay_window_padding(
         RecordingOverlayCenterpieceMode::OrbitalBeads
         | RecordingOverlayCenterpieceMode::HaloCore
         | RecordingOverlayCenterpieceMode::BloomHeart
-        | RecordingOverlayCenterpieceMode::SignalCrown => 6.0,
+        | RecordingOverlayCenterpieceMode::SignalCrown
+        | RecordingOverlayCenterpieceMode::Gyroscope
+        | RecordingOverlayCenterpieceMode::HoloGlobe
+        | RecordingOverlayCenterpieceMode::RingedPlanet
+        | RecordingOverlayCenterpieceMode::PlasmaOrb => 6.0,
         RecordingOverlayCenterpieceMode::None => 0.0,
     };
 
     let border_padding = match settings.recording_overlay_animated_border_mode {
-        RecordingOverlayAnimatedBorderMode::TravelingHighlight => 6.0,
+        RecordingOverlayAnimatedBorderMode::TravelingHighlight
+        | RecordingOverlayAnimatedBorderMode::SpectrumEdge => 6.0,
         RecordingOverlayAnimatedBorderMode::BreathingContour => 5.0,
         RecordingOverlayAnimatedBorderMode::ShimmerEdge => 4.0,
         RecordingOverlayAnimatedBorderMode::None => 0.0,
@@ -1625,12 +1689,24 @@ fn recording_overlay_window_padding(
         RecordingOverlayBackgroundMode::PetalsHaze
         | RecordingOverlayBackgroundMode::Stardust
         | RecordingOverlayBackgroundMode::FireflyVeil
-        | RecordingOverlayBackgroundMode::RoseSparks => 4.0,
+        | RecordingOverlayBackgroundMode::RoseSparks
+        | RecordingOverlayBackgroundMode::HorizonGrid
+        | RecordingOverlayBackgroundMode::StarfieldWarp
+        | RecordingOverlayBackgroundMode::TunnelRings
+        | RecordingOverlayBackgroundMode::GalaxySpiral
+        | RecordingOverlayBackgroundMode::DotSwell => 4.0,
         RecordingOverlayBackgroundMode::None => 0.0,
     };
 
     let material_padding = match settings.recording_overlay_material_mode {
-        RecordingOverlayMaterialMode::VelvetNeon | RecordingOverlayMaterialMode::CandyChrome => 5.0,
+        // The keycap wall and the clay drop shadow sit below the frame.
+        RecordingOverlayMaterialMode::Clay | RecordingOverlayMaterialMode::Keycap => 6.0,
+        RecordingOverlayMaterialMode::VelvetNeon
+        | RecordingOverlayMaterialMode::CandyChrome
+        | RecordingOverlayMaterialMode::Graphite
+        | RecordingOverlayMaterialMode::Obsidian
+        | RecordingOverlayMaterialMode::GradientMesh
+        | RecordingOverlayMaterialMode::Porcelain => 5.0,
         RecordingOverlayMaterialMode::LiquidGlass
         | RecordingOverlayMaterialMode::Pearl
         | RecordingOverlayMaterialMode::Frost => 3.0,

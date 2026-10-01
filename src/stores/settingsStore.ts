@@ -60,6 +60,8 @@ interface SettingsStore {
     options?: { throwOnError?: boolean },
   ) => Promise<void>;
   applyRecordingOverlayStyle: (config: RecordingOverlayStyleConfig) => Promise<void>;
+  saveRecordingOverlayUserPreset: (name: string) => Promise<void>;
+  deleteRecordingOverlayUserPreset: (id: string) => Promise<void>;
   resetSetting: (key: keyof Settings) => Promise<void>;
   refreshSettings: () => Promise<void>;
   refreshAudioDevices: () => Promise<void>;
@@ -765,8 +767,16 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
 ) => commands.changeRecordingOverlayAnimatedBorderModeSetting(String(value));
 (settingUpdaters as any).recording_overlay_show_status_icon = (value: any) =>
   commands.changeRecordingOverlayShowStatusIconSetting(Boolean(value));
+(settingUpdaters as any).recording_overlay_status_icon_style = (value: any) =>
+  invoke("change_recording_overlay_status_icon_style_setting", {
+    style: String(value),
+  });
 (settingUpdaters as any).recording_overlay_show_cancel_button = (value: any) =>
   invoke("change_recording_overlay_show_cancel_button_setting", {
+    enabled: Boolean(value),
+  });
+(settingUpdaters as any).recording_overlay_cancel_button_invisible = (value: any) =>
+  invoke("change_recording_overlay_cancel_button_invisible_setting", {
     enabled: Boolean(value),
   });
 (settingUpdaters as any).recording_overlay_bar_count = (value: any) =>
@@ -1339,6 +1349,45 @@ export const useSettingsStore = create<SettingsStore>()(
         });
       } finally {
         setUpdating("recording_overlay_appearance", false);
+      }
+    },
+
+    saveRecordingOverlayUserPreset: async (name) => {
+      const { setUpdating } = get();
+      setUpdating("recording_overlay_user_presets", true);
+      try {
+        // Queued after pending appearance writes, so the snapshot includes them.
+        const saved = await persistSettingInOrder(() => invoke<Settings>(
+          "save_recording_overlay_user_preset",
+          { name },
+        ));
+        set((state) => state.settings ? {
+          settings: {
+            ...state.settings,
+            recording_overlay_user_presets: saved.recording_overlay_user_presets,
+          },
+        } : state);
+      } finally {
+        setUpdating("recording_overlay_user_presets", false);
+      }
+    },
+
+    deleteRecordingOverlayUserPreset: async (id) => {
+      const { setUpdating } = get();
+      setUpdating("recording_overlay_user_presets", true);
+      try {
+        const saved = await persistSettingInOrder(() => invoke<Settings>(
+          "delete_recording_overlay_user_preset",
+          { id },
+        ));
+        set((state) => state.settings ? {
+          settings: {
+            ...state.settings,
+            recording_overlay_user_presets: saved.recording_overlay_user_presets,
+          },
+        } : state);
+      } finally {
+        setUpdating("recording_overlay_user_presets", false);
       }
     },
 

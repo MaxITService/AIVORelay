@@ -1,10 +1,11 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Trash2, TriangleAlert } from "lucide-react";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { Dropdown } from "../../ui/Dropdown";
+import { ConfirmationModal } from "../../ui/ConfirmationModal";
 import { Slider } from "../../ui/Slider";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { useSettings } from "../../../hooks/useSettings";
@@ -19,6 +20,7 @@ import type {
   RecordingOverlayCenterpieceMode,
   RecordingOverlayMaterialMode,
   RecordingOverlayTheme,
+  RecordingOverlayUserPreset,
 } from "@/bindings";
 import { commands } from "@/bindings";
 import {
@@ -30,6 +32,8 @@ import {
   normalizeRecordingOverlayCenterpieceMode,
   normalizeRecordingOverlayColor,
   normalizeRecordingOverlayMaterialMode,
+  normalizeRecordingOverlayStatusIconStyle,
+  type RecordingOverlayStatusIconStyle,
 } from "../../../overlay/recordingOverlayAppearance";
 import {
   DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG,
@@ -37,9 +41,10 @@ import {
   parseRecordingOverlayStyleConfig,
   RECORDING_OVERLAY_STYLE_PRESETS,
   RECORDING_OVERLAY_INDICATOR_FONT_FAMILIES,
-  RECORDING_OVERLAY_STYLE_SETTING_ENTRIES,
+  resolveRecordingOverlayPresetConfig,
   serializeRecordingOverlayStyleConfig,
   type RecordingOverlayStyleConfig,
+  type RecordingOverlayStylePreset,
 } from "../../../overlay/recordingOverlayStyleConfig";
 
 type PreviewState = "recording" | "silence" | "arming" | "transcribing" | "error";
@@ -53,7 +58,8 @@ type OverlaySliderDraftKey =
   | "recording_overlay_animation_softness_percent"
   | "recording_overlay_depth_parallax_percent"
   | "recording_overlay_opacity_percent"
-  | "recording_overlay_silence_opacity_percent";
+  | "recording_overlay_silence_opacity_percent"
+  | "recording_overlay_decapitalize_indicator_font_size_px";
 
 type OverlaySliderDrafts = Record<OverlaySliderDraftKey, number>;
 
@@ -75,7 +81,7 @@ const openDecapitalizeFeatureSettings = () => {
 const CUSTOM_OVERLAY_SETTING_KEYS = new Set([
   "recording_overlay_material_mode", "recording_overlay_background_mode",
   "recording_overlay_centerpiece_mode", "recording_overlay_animated_border_mode",
-  "recording_overlay_audio_reactive_scale", "recording_overlay_audio_reactive_scale_max_percent",
+  "recording_overlay_status_icon_style", "recording_overlay_audio_reactive_scale", "recording_overlay_audio_reactive_scale_max_percent",
   "recording_overlay_voice_sensitivity_percent", "recording_overlay_animation_softness_percent",
   "recording_overlay_depth_parallax_percent", "recording_overlay_opacity_percent",
   "recording_overlay_silence_fade", "recording_overlay_silence_opacity_percent",
@@ -117,6 +123,11 @@ const BACKGROUND_MODE_OPTIONS: Array<{
     labelKey: "fireflyVeil",
   },
   { value: "rose_sparks", label: "Rose Sparks", labelKey: "roseSparks" },
+  { value: "horizon_grid", label: "Horizon Grid (3D)", labelKey: "horizonGrid" },
+  { value: "starfield_warp", label: "Warp Stars (3D)", labelKey: "starfieldWarp" },
+  { value: "tunnel_rings", label: "Tunnel (3D)", labelKey: "tunnelRings" },
+  { value: "galaxy_spiral", label: "Spiral Galaxy (3D)", labelKey: "galaxySpiral" },
+  { value: "dot_swell", label: "Dot Swell (3D)", labelKey: "dotSwell" },
 ];
 
 const MATERIAL_MODE_OPTIONS: Array<{
@@ -141,6 +152,16 @@ const MATERIAL_MODE_OPTIONS: Array<{
     label: "Candy Chrome",
     labelKey: "candyChrome",
   },
+  { value: "graphite", label: "Graphite", labelKey: "graphite" },
+  { value: "obsidian", label: "Obsidian", labelKey: "obsidian" },
+  {
+    value: "gradient_mesh",
+    label: "Gradient Mesh",
+    labelKey: "gradientMesh",
+  },
+  { value: "porcelain", label: "Porcelain", labelKey: "porcelain" },
+  { value: "clay", label: "Clay (soft 3D)", labelKey: "clay" },
+  { value: "keycap", label: "Keycap (3D)", labelKey: "keycap" },
 ];
 
 const CENTERPIECE_MODE_OPTIONS: Array<{
@@ -166,6 +187,24 @@ const CENTERPIECE_MODE_OPTIONS: Array<{
     label: "Signal Crown",
     labelKey: "signalCrown",
   },
+  { value: "gyroscope", label: "Gyroscope (3D)", labelKey: "gyroscope" },
+  { value: "holo_globe", label: "Holo Globe (3D)", labelKey: "holoGlobe" },
+  { value: "ringed_planet", label: "Ringed Planet (3D)", labelKey: "ringedPlanet" },
+  { value: "plasma_orb", label: "Plasma Orb (3D)", labelKey: "plasmaOrb" },
+];
+
+const STATUS_ICON_STYLE_OPTIONS: Array<{
+  value: RecordingOverlayStatusIconStyle;
+  label: string;
+}> = [
+  { value: "auto", label: "Auto (match material)" },
+  { value: "capsule", label: "Glass Capsule" },
+  { value: "bare", label: "Clean" },
+  { value: "ring", label: "Ring" },
+  { value: "tile", label: "Tile" },
+  { value: "dot", label: "Live Dot" },
+  { value: "orb", label: "Glass Orb (3D)" },
+  { value: "coin", label: "Flipping Coin (3D)" },
 ];
 
 const ANIMATED_BORDER_MODE_OPTIONS: Array<{
@@ -188,6 +227,11 @@ const ANIMATED_BORDER_MODE_OPTIONS: Array<{
     value: "breathing_contour",
     label: "Breathing Contour",
     labelKey: "breathingContour",
+  },
+  {
+    value: "spectrum_edge",
+    label: "Spectrum Edge",
+    labelKey: "spectrumEdge",
   },
 ];
 
@@ -249,6 +293,17 @@ const BAR_STYLE_OPTIONS: Array<{
   { value: "prism", label: "Prism", labelKey: "prism" },
   { value: "tuner", label: "Tuner", labelKey: "tuner" },
   { value: "vinyl", label: "Vinyl", labelKey: "vinyl" },
+  { value: "wave_line", label: "Wave Line", labelKey: "waveLine" },
+  { value: "mirror", label: "Mirror", labelKey: "mirror" },
+  { value: "dot_matrix", label: "Dot Matrix", labelKey: "dotMatrix" },
+  { value: "spectrum", label: "Spectrum", labelKey: "spectrum" },
+  { value: "liquid", label: "Liquid", labelKey: "liquid" },
+  { value: "pillars", label: "3D Pillars", labelKey: "pillars" },
+  { value: "orbs", label: "3D Marbles", labelKey: "orbs" },
+  { value: "cubes", label: "3D Spinning Cubes", labelKey: "cubes" },
+  { value: "ridgeline", label: "3D Ridgeline", labelKey: "ridgeline" },
+  { value: "carousel", label: "3D Carousel", labelKey: "carousel" },
+  { value: "twist_ribbon", label: "3D Twisted Ribbon", labelKey: "twistRibbon" },
 ];
 
 const PREVIEW_STATES: Array<{
@@ -273,6 +328,8 @@ const DECAPITALIZE_INDICATOR_MODE_OPTIONS = [
   { value: "hidden", label: "Hidden" },
 ] as const;
 
+const PRESETS_TOOLBAR_STICKY_TOP_PX = 12;
+
 function findScrollableAncestor(element: HTMLElement | null): HTMLElement | null {
   let current = element?.parentElement ?? null;
   while (current) {
@@ -289,9 +346,104 @@ function findScrollableAncestor(element: HTMLElement | null): HTMLElement | null
   return null;
 }
 
+/** A titled card that groups related overlay controls. */
+const OverlaySettingsSection: React.FC<{
+  title: string;
+  description: string;
+  note?: string | null;
+  children: React.ReactNode;
+}> = ({ title, description, note, children }) => (
+  <section className="mx-3 my-4 rounded-xl border border-white/[0.07] bg-white/[0.02]">
+    <div className="px-6 pt-4 pb-1">
+      <h3 className="text-xs font-bold uppercase tracking-widest text-[#ff8ebb]">
+        {title}
+      </h3>
+      <p className="mt-1 text-xs leading-relaxed text-[#a0a0a0]">{description}</p>
+      {note && <p className="mt-1 text-xs leading-relaxed text-[#ffb6cf]">{note}</p>}
+    </div>
+    <div className="divide-y divide-white/[0.05]">{children}</div>
+  </section>
+);
+
+/** Controls that only the custom renderer uses; dimmed in classic mode. */
+const CustomOverlayOnly: React.FC<{
+  enabled: boolean;
+  busy: boolean;
+  reason: string;
+  children: React.ReactNode;
+}> = ({ enabled, busy, reason, children }) => (
+  <fieldset
+    disabled={!enabled || busy}
+    title={enabled ? undefined : reason}
+    className={`min-w-0 border-0 p-0 m-0 divide-y divide-white/[0.05]${enabled ? "" : " opacity-45"}`}
+  >
+    {children}
+  </fieldset>
+);
+
+/** Compact recording-state preview used by preset cards. */
+const StylePresetPreview: React.FC<{ config: RecordingOverlayStyleConfig }> = ({
+  config,
+}) => (
+  <RecordingOverlayPreview
+    customEnabled={true}
+    theme={config.theme}
+    accentColor={config.accentColor}
+    surfaceBaseColor={config.surfaceBaseColor}
+    bodyBackgroundColor={config.bodyBackgroundColor}
+    materialMode={config.materialMode}
+    showStatusIcon={config.showStatusIcon}
+    statusIconStyle={config.statusIconStyle}
+    showCancelButton={config.showCancelButton}
+    cancelButtonInvisible={config.cancelButtonInvisible}
+    statusIconColor={config.statusIconColor}
+    cancelIconColor={config.cancelIconColor}
+    minimumWidthPx={config.widthPx}
+    backgroundMode={config.backgroundMode}
+    centerpieceMode={config.centerpieceMode}
+    animatedBorderMode={config.animatedBorderMode}
+    barCount={config.barCount}
+    barWidthPx={config.barWidthPx}
+    barStyle={config.barStyle}
+    showDragGrip={config.showDragGrip}
+    state="recording"
+    audioReactiveScale={config.audioReactiveScale}
+    audioReactiveScaleMaxPercent={config.audioReactiveScaleMaxPercent}
+    voiceSensitivityPercent={config.voiceSensitivityPercent}
+    animationSoftnessPercent={config.animationSoftnessPercent}
+    depthParallaxPercent={config.depthParallaxPercent}
+    opacityPercent={config.opacityPercent}
+    silenceFade={config.silenceFade}
+    silenceOpacityPercent={config.silenceOpacityPercent}
+    decapIndicatorMode="hidden"
+    decapIndicatorFontFamily="Segoe UI"
+    decapIndicatorFontSizePx={11}
+    decapIndicatorColor="#72f29a"
+    maxPreviewWidthPx={248}
+  />
+);
+
+const MODERN_RECORDING_OVERLAY_PRESETS = RECORDING_OVERLAY_STYLE_PRESETS.filter(
+  (preset) => preset.collection === "modern",
+);
+const DEPTH_RECORDING_OVERLAY_PRESETS = RECORDING_OVERLAY_STYLE_PRESETS.filter(
+  (preset) => preset.collection === "depth",
+);
+const ORIGINAL_RECORDING_OVERLAY_PRESETS = RECORDING_OVERLAY_STYLE_PRESETS.filter(
+  (preset) => preset.collection === undefined,
+);
+
 export const RecordingOverlaySettings: React.FC = () => {
   const { t } = useTranslation();
-  const { settings, updateSetting: persistSetting, applyRecordingOverlayStyle, isUpdating, refreshSettings } = useSettings();
+  const {
+    settings,
+    updateSetting: persistSetting,
+    applyRecordingOverlayStyle,
+    saveRecordingOverlayUserPreset,
+    deleteRecordingOverlayUserPreset,
+    isUpdating,
+    refreshSettings,
+  } = useSettings();
   const appearanceOperationRef = React.useRef(false);
   const [showAppInPreview, setShowAppInPreview] = React.useState(false);
   const [previewState, setPreviewState] = React.useState<PreviewState>("recording");
@@ -316,10 +468,16 @@ export const RecordingOverlaySettings: React.FC = () => {
   const [isApplyingPreset, setIsApplyingPreset] = React.useState(false);
   const [isApplyingStyleCode, setIsApplyingStyleCode] = React.useState(false);
   const [arePresetsExpanded, setArePresetsExpanded] = React.useState(true);
+  const presetsToolbarRef = React.useRef<HTMLDivElement | null>(null);
+  const presetsToolbarSentinelRef = React.useRef<HTMLDivElement | null>(null);
+  const [isPresetsToolbarStuck, setIsPresetsToolbarStuck] = React.useState(false);
   const [isRecordingOverlayCollapsed, setIsRecordingOverlayCollapsed] =
     React.useState(false);
   const [styleCodeDraft, setStyleCodeDraft] = React.useState("");
   const [styleToolsStatus, setStyleToolsStatus] = React.useState<string | null>(null);
+  const [userPresetName, setUserPresetName] = React.useState("");
+  const [pendingDeleteUserPreset, setPendingDeleteUserPreset] =
+    React.useState<RecordingOverlayUserPreset | null>(null);
 
   React.useEffect(() => {
     try {
@@ -345,7 +503,45 @@ export const RecordingOverlaySettings: React.FC = () => {
     } catch {
       // UI preference only; ignoring storage errors preserves the toggle behavior.
     }
+    if (!expanded) {
+      // Collapsing from the floating button shrinks the list under the reader;
+      // bring the toolbar back so they stay at the presets.
+      window.requestAnimationFrame(() => {
+        presetsToolbarRef.current?.scrollIntoView({ block: "nearest" });
+      });
+    }
   }, [arePresetsExpanded]);
+
+  // While the packs are open the toolbar sticks to the top of the scroll area;
+  // the sentinel above it tells us when it is stuck so it can shrink to a pill.
+  React.useEffect(() => {
+    const sentinel = presetsToolbarSentinelRef.current;
+    if (
+      !arePresetsExpanded ||
+      isRecordingOverlayCollapsed ||
+      !sentinel ||
+      typeof IntersectionObserver === "undefined"
+    ) {
+      setIsPresetsToolbarStuck(false);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const stickyTop = entry.rootBounds?.top ?? 0;
+        setIsPresetsToolbarStuck(
+          !entry.isIntersecting && entry.boundingClientRect.top < stickyTop,
+        );
+      },
+      {
+        root: findScrollableAncestor(sentinel),
+        // Matches the toolbar's `top-3` sticky offset.
+        rootMargin: `-${PRESETS_TOOLBAR_STICKY_TOP_PX}px 0px 0px 0px`,
+      },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [arePresetsExpanded, isRecordingOverlayCollapsed]);
 
   const updateRecordingOverlayCollapsed = React.useCallback((collapsed: boolean) => {
     setIsRecordingOverlayCollapsed(collapsed);
@@ -380,9 +576,14 @@ export const RecordingOverlaySettings: React.FC = () => {
   const showStatusIcon = Boolean(
     (settings as any)?.recording_overlay_show_status_icon ?? true,
   );
+  const statusIconStyle = normalizeRecordingOverlayStatusIconStyle(
+    (settings as any)?.recording_overlay_status_icon_style,
+  );
   const showCancelButton = Boolean(
     (settings as any)?.recording_overlay_show_cancel_button ?? true,
   );
+  const cancelButtonInvisible =
+    (settings as any)?.recording_overlay_cancel_button_invisible === true;
   const rawBarCount = Number((settings as any)?.recording_overlay_bar_count ?? 9);
   const rawBarWidthPx = Number(
     (settings as any)?.recording_overlay_bar_width_px ?? 6,
@@ -515,6 +716,13 @@ export const RecordingOverlaySettings: React.FC = () => {
       option.label,
     ),
   }));
+  const statusIconStyleOptions = STATUS_ICON_STYLE_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(
+      `settings.userInterface.recordingOverlay.statusIconStyle.options.${option.value}`,
+      option.label,
+    ),
+  }));
   const animatedBorderModeOptions = ANIMATED_BORDER_MODE_OPTIONS.map((option) => ({
     value: option.value,
     label: t(
@@ -531,7 +739,10 @@ export const RecordingOverlaySettings: React.FC = () => {
   }));
   const decapIndicatorModeOptions = DECAPITALIZE_INDICATOR_MODE_OPTIONS.map((option) => ({
     value: option.value,
-    label: option.label,
+    label: t(
+      `settings.userInterface.recordingOverlay.decapIndicator.mode.options.${option.value}`,
+      option.label,
+    ),
   }));
   const decapIndicatorFontOptions = RECORDING_OVERLAY_INDICATOR_FONT_FAMILIES.map((fontFamily) => ({
     value: fontFamily,
@@ -544,12 +755,12 @@ export const RecordingOverlaySettings: React.FC = () => {
   const appearanceBusy = isResettingAppearance || isResettingPosition ||
     isApplyingPreset || isApplyingStyleCode ||
     isUpdating("recording_overlay_appearance") ||
-    isUpdating("recording_overlay_custom_enabled") ||
-    RECORDING_OVERLAY_STYLE_SETTING_ENTRIES(currentStyleConfig).some(([key]) => isUpdating(key));
+    isUpdating("recording_overlay_custom_enabled");
+  // Single-field saves are queued in order by the store, so they neither lock
+  // the section nor wait for each other.
   const updateSetting = React.useCallback<typeof persistSetting>(async (key, value) => {
     if (appearanceOperationRef.current || isUpdating("recording_overlay_appearance") ||
       isUpdating("recording_overlay_custom_enabled") ||
-      RECORDING_OVERLAY_STYLE_SETTING_ENTRIES(currentStyleConfig).some(([name]) => isUpdating(name)) ||
       (!customOverlayEnabled && CUSTOM_OVERLAY_SETTING_KEYS.has(String(key)))) return;
     setStyleToolsStatus(null);
     try {
@@ -557,24 +768,42 @@ export const RecordingOverlaySettings: React.FC = () => {
     } catch (error) {
       setStyleToolsStatus(`Could not save overlay setting: ${String(error)}`);
     }
-  }, [persistSetting, isUpdating, currentStyleConfig, customOverlayEnabled]);
+  }, [persistSetting, isUpdating, customOverlayEnabled]);
   const currentStyleCode = React.useMemo(
     () => serializeRecordingOverlayStyleConfig(currentStyleConfig),
     [currentStyleConfig],
   );
   const appliedPresetId = React.useMemo(() => {
     for (const preset of RECORDING_OVERLAY_STYLE_PRESETS) {
-      const presetStyleCode = serializeRecordingOverlayStyleConfig({
-        ...DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG,
-        ...preset.config,
-      });
+      const presetStyleCode = serializeRecordingOverlayStyleConfig(
+        resolveRecordingOverlayPresetConfig(preset, currentStyleConfig),
+      );
       if (presetStyleCode === currentStyleCode) {
         return preset.id;
       }
     }
 
     return null;
-  }, [currentStyleCode]);
+  }, [currentStyleCode, currentStyleConfig]);
+  const userPresets = React.useMemo(
+    () =>
+      (settings?.recording_overlay_user_presets ?? []).map((preset) => {
+        const config = getRecordingOverlayStyleConfigFromSettings(preset.appearance);
+        return {
+          preset,
+          config,
+          isApplied: serializeRecordingOverlayStyleConfig(config) === currentStyleCode,
+        };
+      }),
+    [settings?.recording_overlay_user_presets, currentStyleCode],
+  );
+  const userPresetsBusy = isUpdating("recording_overlay_user_presets");
+  const matchingUserPreset = React.useMemo(() => {
+    const name = userPresetName.trim().toLowerCase();
+    return name
+      ? userPresets.find(({ preset }) => preset.name.toLowerCase() === name)?.preset ?? null
+      : null;
+  }, [userPresetName, userPresets]);
   const sliderDraftSource = React.useMemo<OverlaySliderDrafts>(
     () => ({
       recording_overlay_bar_count: Math.max(3, Math.min(16, Math.round(barCount))),
@@ -604,6 +833,10 @@ export const RecordingOverlaySettings: React.FC = () => {
         20,
         Math.min(100, Math.round(silenceOpacityPercent)),
       ),
+      recording_overlay_decapitalize_indicator_font_size_px: Math.max(
+        6,
+        Math.min(48, Math.round(decapIndicatorFontSizePx)),
+      ),
     }),
     [
       audioReactiveScaleMaxPercent,
@@ -611,6 +844,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       barCount,
       barWidthPx,
       clampedOverlayWidthPx,
+      decapIndicatorFontSizePx,
       depthParallaxPercent,
       opacityPercent,
       silenceOpacityPercent,
@@ -763,13 +997,22 @@ export const RecordingOverlaySettings: React.FC = () => {
 
   const commitSliderDraft = React.useCallback(
     async (key: OverlaySliderDraftKey, value: number) => {
+      const savedValue = sliderDraftSource[key];
+      const restoreDraft = () =>
+        setSliderDrafts((current) => ({ ...current, [key]: savedValue }));
       if (appearanceOperationRef.current || isUpdating("recording_overlay_appearance") ||
-        (!customOverlayEnabled && CUSTOM_OVERLAY_SETTING_KEYS.has(key))) return;
+        (!customOverlayEnabled && CUSTOM_OVERLAY_SETTING_KEYS.has(key))) {
+        restoreDraft();
+        return;
+      }
+      const nextValue = Math.round(value);
+      // Blur after a drag or key commit reports the value that is already saved.
+      if (nextValue === savedValue) return;
       setStyleToolsStatus(null);
       try {
-        await persistSetting(key, Math.round(value), { throwOnError: true });
+        await persistSetting(key, nextValue, { throwOnError: true });
       } catch (error) {
-        setSliderDrafts(sliderDraftSource);
+        restoreDraft();
         setStyleToolsStatus(`Could not save overlay setting: ${String(error)}`);
       }
     },
@@ -805,6 +1048,8 @@ export const RecordingOverlaySettings: React.FC = () => {
           RESET_RECORDING_OVERLAY_STYLE_CONFIG.opacityPercent,
         recording_overlay_silence_opacity_percent:
           RESET_RECORDING_OVERLAY_STYLE_CONFIG.silenceOpacityPercent,
+        recording_overlay_decapitalize_indicator_font_size_px:
+          RESET_RECORDING_OVERLAY_STYLE_CONFIG.decapitalizeIndicatorFontSizePx,
       });
       setStyleToolsStatus(
         t(
@@ -874,6 +1119,149 @@ export const RecordingOverlaySettings: React.FC = () => {
       setIsApplyingPreset(false);
     }
   };
+
+  const handleSaveUserPreset = async () => {
+    const name = userPresetName.trim();
+    if (!name || userPresetsBusy || appearanceBusy || appearanceOperationRef.current) {
+      return;
+    }
+
+    setStyleToolsStatus(null);
+    try {
+      await saveRecordingOverlayUserPreset(name);
+      setUserPresetName("");
+      setStyleToolsStatus(
+        t(
+          "settings.userInterface.recordingOverlay.presets.user.saved",
+          "Preset “{{name}}” saved.",
+          { name },
+        ),
+      );
+    } catch (error) {
+      console.error("Failed to save recording overlay preset:", error);
+      setStyleToolsStatus(
+        t(
+          "settings.userInterface.recordingOverlay.presets.user.saveError",
+          "Could not save preset: {{error}}",
+          { error: String(error) },
+        ),
+      );
+    }
+  };
+
+  const handleDeleteUserPreset = async () => {
+    const preset = pendingDeleteUserPreset;
+    setPendingDeleteUserPreset(null);
+    if (!preset || userPresetsBusy) {
+      return;
+    }
+
+    setStyleToolsStatus(null);
+    try {
+      await deleteRecordingOverlayUserPreset(preset.id);
+      setStyleToolsStatus(
+        t(
+          "settings.userInterface.recordingOverlay.presets.user.deleted",
+          "Preset “{{name}}” deleted.",
+          { name: preset.name },
+        ),
+      );
+    } catch (error) {
+      console.error("Failed to delete recording overlay preset:", error);
+      setStyleToolsStatus(
+        t(
+          "settings.userInterface.recordingOverlay.presets.user.deleteError",
+          "Could not delete preset: {{error}}",
+          { error: String(error) },
+        ),
+      );
+    }
+  };
+
+  const renderPresetCardHeader = (
+    name: string,
+    description: string | null,
+    isApplied: boolean,
+  ) => (
+    <div className="mb-3 flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <div className="truncate text-sm font-semibold text-[#f2f2f2]">{name}</div>
+        {description && (
+          <div className="mt-1 text-xs leading-relaxed text-[#9d9d9d]">
+            {description}
+          </div>
+        )}
+      </div>
+      <span
+        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] ${
+          isApplied
+            ? "border border-[#ff92c1]/60 bg-[#ff5fa4]/20 text-[#ffd6e8]"
+            : "border border-[#4a4a4a] bg-[#232323] text-[#ff8ebb]"
+        }`}
+      >
+        {isApplied
+          ? t(
+              "settings.userInterface.recordingOverlay.presets.active",
+              "Applied",
+            )
+          : t(
+              "settings.userInterface.recordingOverlay.presets.applyCta",
+              "Apply",
+            )}
+      </span>
+    </div>
+  );
+
+  const presetCardClassName = (isApplied: boolean) =>
+    `w-full rounded-xl border p-3 text-left transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-45 ${
+      isApplied
+        ? "border-[#ff78b4] bg-[#20161c]"
+        : "border-[#323232] bg-[#191919] hover:border-[#4a4a4a] hover:bg-[#202020]"
+    }`;
+
+  const presetCardStyle = (isApplied: boolean): React.CSSProperties | undefined =>
+    isApplied
+      ? {
+          background:
+            "linear-gradient(180deg, rgba(255,120,180,0.12), rgba(255,120,180,0.04))",
+          boxShadow:
+            "0 0 0 1px rgba(255,120,180,0.22), 0 18px 38px rgba(0,0,0,0.22)",
+        }
+      : undefined;
+
+  const renderPresetGroup = (
+    title: string,
+    presets: RecordingOverlayStylePreset[],
+  ) => (
+    <div className="space-y-2">
+      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[#ff8ebb]">
+        {title}
+      </div>
+      <div className="grid gap-3 xl:grid-cols-2">
+        {presets.map((preset) => {
+          const presetConfig = resolveRecordingOverlayPresetConfig(
+            preset,
+            currentStyleConfig,
+          );
+          const isApplied = preset.id === appliedPresetId;
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => void handleApplyPreset(presetConfig)}
+              aria-pressed={isApplied}
+              disabled={!customOverlayEnabled || appearanceBusy}
+              className={presetCardClassName(isApplied)}
+              style={presetCardStyle(isApplied)}
+            >
+              {renderPresetCardHeader(preset.name, preset.description, isApplied)}
+              <StylePresetPreview config={presetConfig} />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   const handleCopyStyleCode = async () => {
     try {
@@ -974,7 +1362,9 @@ export const RecordingOverlaySettings: React.FC = () => {
         bodyBackgroundColor={bodyBackgroundColor}
         materialMode={materialMode}
         showStatusIcon={showStatusIcon}
+        statusIconStyle={statusIconStyle}
         showCancelButton={showCancelButton}
+        cancelButtonInvisible={cancelButtonInvisible}
         backgroundMode={backgroundMode}
         centerpieceMode={centerpieceMode}
         animatedBorderMode={animatedBorderMode}
@@ -1006,7 +1396,9 @@ export const RecordingOverlaySettings: React.FC = () => {
         }
         decapIndicatorCustomText={decapIndicatorCustomText}
         decapIndicatorFontFamily={decapIndicatorFontFamily}
-        decapIndicatorFontSizePx={decapIndicatorFontSizePx}
+        decapIndicatorFontSizePx={
+          sliderDrafts.recording_overlay_decapitalize_indicator_font_size_px
+        }
         decapIndicatorColor={decapIndicatorColor}
         minimumWidthPx={sliderDrafts.recording_overlay_width_px}
         showAppChip={showAppInPreview}
@@ -1213,9 +1605,23 @@ export const RecordingOverlaySettings: React.FC = () => {
         layout="stacked"
         grouped={true}
       >
+        <div ref={presetsToolbarSentinelRef} className="h-0" aria-hidden="true" />
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#2f2f2f] bg-[#171717] px-3 py-2">
-            <div className="text-xs text-[#a7a7a7]">
+          <div
+            ref={presetsToolbarRef}
+            className={`flex scroll-mt-3 flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 transition-colors duration-150 ${
+              arePresetsExpanded ? "sticky top-3 z-30" : ""
+            } ${
+              isPresetsToolbarStuck
+                ? "pointer-events-none border-transparent bg-transparent"
+                : "border-[#2f2f2f] bg-[#171717]"
+            }`}
+          >
+            <div
+              className={`text-xs text-[#a7a7a7] ${
+                isPresetsToolbarStuck ? "invisible" : ""
+              }`}
+            >
               {t(
                 "settings.userInterface.recordingOverlay.presets.memoryHint",
                 "Collapse preset packs to unload the preview cards and save memory.",
@@ -1224,7 +1630,11 @@ export const RecordingOverlaySettings: React.FC = () => {
             <button
               type="button"
               onClick={togglePresetsExpanded}
-              className="rounded-md border border-[#3f3f3f] bg-[#202020] px-3 py-1.5 text-xs font-medium text-[#ededed] transition-colors hover:bg-[#2b2b2b]"
+              className={
+                isPresetsToolbarStuck
+                  ? "pointer-events-auto ml-auto rounded-full border border-[#ff4d8d]/40 bg-[#161616]/95 px-3 py-1.5 text-xs font-medium text-[#ffd6e5] shadow-[0_12px_28px_rgba(0,0,0,0.42)] backdrop-blur-md transition-colors hover:border-[#ff4d8d]/60 hover:bg-[#202020]"
+                  : "ml-auto rounded-md border border-[#3f3f3f] bg-[#202020] px-3 py-1.5 text-xs font-medium text-[#ededed] transition-colors hover:bg-[#2b2b2b]"
+              }
             >
               {arePresetsExpanded
                 ? t(
@@ -1237,108 +1647,128 @@ export const RecordingOverlaySettings: React.FC = () => {
                   )}
             </button>
           </div>
-          {arePresetsExpanded && (
-            <div className="grid gap-3 xl:grid-cols-2">
-              {RECORDING_OVERLAY_STYLE_PRESETS.map((preset) => {
-                const presetConfig = {
-                  ...DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG,
-                  ...preset.config,
-                };
-                const isApplied = preset.id === appliedPresetId;
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => void handleApplyPreset(presetConfig)}
-                    aria-pressed={isApplied}
-                    disabled={!customOverlayEnabled || appearanceBusy}
-                    className={`rounded-xl border p-3 text-left transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-45 ${
-                      isApplied
-                        ? "border-[#ff78b4] bg-[#20161c]"
-                        : "border-[#323232] bg-[#191919] hover:border-[#4a4a4a] hover:bg-[#202020]"
-                    }`}
-                    style={
-                      isApplied
-                        ? {
-                            background:
-                              "linear-gradient(180deg, rgba(255,120,180,0.12), rgba(255,120,180,0.04))",
-                            boxShadow:
-                              "0 0 0 1px rgba(255,120,180,0.22), 0 18px 38px rgba(0,0,0,0.22)",
-                          }
-                        : undefined
-                    }
-                  >
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-[#f2f2f2]">
-                          {preset.name}
-                        </div>
-                        <div className="mt-1 text-xs leading-relaxed text-[#9d9d9d]">
-                          {preset.description}
-                        </div>
-                      </div>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] ${
-                          isApplied
-                            ? "border border-[#ff92c1]/60 bg-[#ff5fa4]/20 text-[#ffd6e8]"
-                            : "border border-[#4a4a4a] bg-[#232323] text-[#ff8ebb]"
-                        }`}
-                      >
-                        {isApplied
-                          ? t(
-                              "settings.userInterface.recordingOverlay.presets.active",
-                              "Applied",
-                            )
-                          : t(
-                              "settings.userInterface.recordingOverlay.presets.applyCta",
-                              "Apply",
-                            )}
-                      </span>
-                    </div>
-                    <RecordingOverlayPreview
-                      customEnabled={true}
-                      theme={presetConfig.theme}
-                      accentColor={presetConfig.accentColor}
-                      surfaceBaseColor={presetConfig.surfaceBaseColor}
-                      bodyBackgroundColor={presetConfig.bodyBackgroundColor}
-                      materialMode={presetConfig.materialMode}
-                      showStatusIcon={presetConfig.showStatusIcon}
-                      showCancelButton={presetConfig.showCancelButton}
-                      statusIconColor={presetConfig.statusIconColor}
-                      cancelIconColor={presetConfig.cancelIconColor}
-                      minimumWidthPx={presetConfig.widthPx}
-                      backgroundMode={presetConfig.backgroundMode}
-                      centerpieceMode={presetConfig.centerpieceMode}
-                      animatedBorderMode={presetConfig.animatedBorderMode}
-                      barCount={presetConfig.barCount}
-                      barWidthPx={presetConfig.barWidthPx}
-                      barStyle={presetConfig.barStyle}
-                      showDragGrip={presetConfig.showDragGrip}
-                      state="recording"
-                      audioReactiveScale={presetConfig.audioReactiveScale}
-                      audioReactiveScaleMaxPercent={
-                        presetConfig.audioReactiveScaleMaxPercent
-                      }
-                      voiceSensitivityPercent={
-                        presetConfig.voiceSensitivityPercent
-                      }
-                      animationSoftnessPercent={
-                        presetConfig.animationSoftnessPercent
-                      }
-                      depthParallaxPercent={presetConfig.depthParallaxPercent}
-                      opacityPercent={presetConfig.opacityPercent}
-                      silenceFade={presetConfig.silenceFade}
-                      silenceOpacityPercent={presetConfig.silenceOpacityPercent}
-                      decapIndicatorMode="hidden"
-                      decapIndicatorFontFamily="Segoe UI"
-                      decapIndicatorFontSizePx={11}
-                      decapIndicatorColor="#72f29a"
-                      maxPreviewWidthPx={248}
-                    />
-                  </button>
-                );
-              })}
+          <div className="space-y-3 rounded-lg border border-[#2f2f2f] bg-[#151515] p-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[#ff8ebb]">
+                {t(
+                  "settings.userInterface.recordingOverlay.presets.user.title",
+                  "My Presets",
+                )}
+              </div>
+              <div className="mt-1 text-xs leading-relaxed text-[#9d9d9d]">
+                {t(
+                  "settings.userInterface.recordingOverlay.presets.user.description",
+                  "Save the current look, including width, icon colors, and the decapitalize indicator, and bring it back in one click.",
+                )}
+              </div>
             </div>
+            <form
+              className="flex flex-wrap items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleSaveUserPreset();
+              }}
+            >
+              <input
+                type="text"
+                value={userPresetName}
+                maxLength={40}
+                onChange={(event) => setUserPresetName(event.target.value)}
+                placeholder={t(
+                  "settings.userInterface.recordingOverlay.presets.user.namePlaceholder",
+                  "Preset name",
+                )}
+                aria-label={t(
+                  "settings.userInterface.recordingOverlay.presets.user.nameLabel",
+                  "New preset name",
+                )}
+                className="min-w-0 flex-1 rounded-md border border-[#3c3c3c] bg-[#111111] px-3 py-2 text-sm text-[#f5f5f5] placeholder:text-[#777777] disabled:opacity-40"
+              />
+              <button
+                type="submit"
+                disabled={!userPresetName.trim() || userPresetsBusy || appearanceBusy}
+                className="rounded-md border border-[#5a2c40] bg-[#ff4d8d]/15 px-3 py-2 text-xs font-medium text-[#ffd6e5] transition-colors hover:bg-[#ff4d8d]/22 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                {matchingUserPreset
+                  ? t(
+                      "settings.userInterface.recordingOverlay.presets.user.update",
+                      "Update “{{name}}”",
+                      { name: matchingUserPreset.name },
+                    )
+                  : t(
+                      "settings.userInterface.recordingOverlay.presets.user.save",
+                      "Save Current Look",
+                    )}
+              </button>
+            </form>
+            {userPresets.length === 0 ? (
+              <div className="text-xs text-[#8a8a8a]">
+                {t(
+                  "settings.userInterface.recordingOverlay.presets.user.empty",
+                  "No saved presets yet.",
+                )}
+              </div>
+            ) : arePresetsExpanded ? (
+              <div className="grid gap-3 xl:grid-cols-2">
+                {userPresets.map(({ preset, config, isApplied }) => (
+                  <div key={preset.id} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => void handleApplyPreset(config)}
+                      aria-pressed={isApplied}
+                      disabled={!customOverlayEnabled || appearanceBusy}
+                      className={`${presetCardClassName(isApplied)} pr-10`}
+                      style={presetCardStyle(isApplied)}
+                    >
+                      {renderPresetCardHeader(preset.name, null, isApplied)}
+                      <StylePresetPreview config={config} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingDeleteUserPreset(preset)}
+                      disabled={userPresetsBusy}
+                      aria-label={t(
+                        "settings.userInterface.recordingOverlay.presets.user.deleteLabel",
+                        "Delete preset {{name}}",
+                        { name: preset.name },
+                      )}
+                      title={t(
+                        "settings.userInterface.recordingOverlay.presets.user.delete",
+                        "Delete preset",
+                      )}
+                      className="absolute right-2 top-2 rounded-md p-1.5 text-[#9d9d9d] transition-colors hover:bg-white/10 hover:text-[#ffd6e5] disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          {arePresetsExpanded && (
+            <>
+              {renderPresetGroup(
+                t(
+                  "settings.userInterface.recordingOverlay.presets.modernTitle",
+                  "Modern",
+                ),
+                MODERN_RECORDING_OVERLAY_PRESETS,
+              )}
+              {renderPresetGroup(
+                t(
+                  "settings.userInterface.recordingOverlay.presets.depthTitle",
+                  "3D Depth",
+                ),
+                DEPTH_RECORDING_OVERLAY_PRESETS,
+              )}
+              {renderPresetGroup(
+                t(
+                  "settings.userInterface.recordingOverlay.presets.originalTitle",
+                  "Original Packs",
+                ),
+                ORIGINAL_RECORDING_OVERLAY_PRESETS,
+              )}
+            </>
           )}
         </div>
       </SettingContainer>
@@ -1363,13 +1793,13 @@ export const RecordingOverlaySettings: React.FC = () => {
           <p>
             {t(
               "settings.userInterface.recordingOverlay.help.grouping",
-              "Think in this order: Layout sets the silhouette, Style sets the core look, Atmosphere adds decorative layers, and Motion controls how the overlay behaves while you speak.",
+              "The controls are grouped into cards: Shape, Surface, Visualizer, Atmosphere, and Motion. Work from top to bottom, or start from a preset and adjust.",
             )}
           </p>
           <p>
             {t(
               "settings.userInterface.recordingOverlay.help.sliders",
-              "Slider drags now update the page preview immediately and commit to the live overlay when you release them.",
+              "Sliders update the preview while you drag and apply to the live overlay when you let go.",
             )}
           </p>
         </div>
@@ -1527,138 +1957,39 @@ export const RecordingOverlaySettings: React.FC = () => {
         </div>
 
         <div className="order-5">
-      <SettingContainer
+      <OverlaySettingsSection
         title={t(
-          "settings.userInterface.recordingOverlay.theme.title",
-          "Overlay Theme",
+          "settings.userInterface.recordingOverlay.sections.shape.title",
+          "Shape",
         )}
         description={t(
-          "settings.userInterface.recordingOverlay.theme.description",
-          "Change the surface style of the recording overlay.",
+          "settings.userInterface.recordingOverlay.sections.shape.description",
+          "How wide the overlay is and what sits on its sides: the status icon on the left and the cancel button on the right.",
+        )}
+      >
+      <Slider
+        label={t(
+          "settings.userInterface.recordingOverlay.overlayWidth.title",
+          "Overlay Width",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.overlayWidth.description",
+          "The smallest width of the overlay. It grows on its own when the visualizer needs more room. Built-in presets keep your width.",
         )}
         descriptionMode="tooltip"
         grouped={true}
-      >
-        <Dropdown
-          options={themeOptions}
-          selectedValue={overlayTheme}
-          onSelect={(value) =>
-            void updateSetting("recording_overlay_theme" as any, value as any)
-          }
-          disabled={isUpdating("recording_overlay_theme")}
-        />
-      </SettingContainer>
-
-      <fieldset disabled={!customOverlayEnabled || appearanceBusy}
-        title={customOverlayEnabled ? undefined : customOverlayDisabledReason}
-        className={
-          customOverlayEnabled
-            ? "min-w-0 border-0 p-0 m-0"
-            : "min-w-0 border-0 p-0 m-0 opacity-45"
+        min={172}
+        max={420}
+        step={1}
+        value={sliderDrafts.recording_overlay_width_px}
+        formatValue={(value) => `${Math.round(value)} px`}
+        onChange={(value) =>
+          updateSliderDraft("recording_overlay_width_px", value)
         }
-      >
-      <SettingContainer
-        title={t(
-          "settings.userInterface.recordingOverlay.materialMode.title",
-          "Material Mode",
-        )}
-        description={t(
-          "settings.userInterface.recordingOverlay.materialMode.description",
-          "Choose the premium material treatment for the overlay surface.",
-        )}
-        descriptionMode="tooltip"
-        grouped={true}
-      >
-        <Dropdown
-          options={materialModeOptions}
-          selectedValue={materialMode}
-          onSelect={(value) =>
-            void updateSetting("recording_overlay_material_mode" as any, value as any)
-          }
-          disabled={
-            isUpdating("recording_overlay_material_mode") || !customOverlayEnabled
-          }
-        />
-      </SettingContainer>
-
-      <SettingContainer
-        title={t(
-          "settings.userInterface.recordingOverlay.backgroundMode.title",
-          "Background Mode",
-        )}
-        description={t(
-          "settings.userInterface.recordingOverlay.backgroundMode.description",
-          "Add a decorative ambient background behind the visualizer.",
-        )}
-        descriptionMode="tooltip"
-        grouped={true}
-      >
-        <Dropdown
-          options={backgroundModeOptions}
-          selectedValue={backgroundMode}
-          onSelect={(value) =>
-            void updateSetting(
-              "recording_overlay_background_mode" as any,
-              value as any,
-            )
-          }
-          disabled={
-            isUpdating("recording_overlay_background_mode") || !customOverlayEnabled
-          }
-        />
-      </SettingContainer>
-
-      <SettingContainer
-        title={t(
-          "settings.userInterface.recordingOverlay.centerpieceMode.title",
-          "Centerpiece Mode",
-        )}
-        description={t(
-          "settings.userInterface.recordingOverlay.centerpieceMode.description",
-          "Add a living focal motif at the heart of the overlay.",
-        )}
-        descriptionMode="tooltip"
-        grouped={true}
-      >
-        <Dropdown
-          options={centerpieceModeOptions}
-          selectedValue={centerpieceMode}
-          onSelect={(value) =>
-            void updateSetting("recording_overlay_centerpiece_mode" as any, value as any)
-          }
-          disabled={
-            isUpdating("recording_overlay_centerpiece_mode") || !customOverlayEnabled
-          }
-        />
-      </SettingContainer>
-
-      <SettingContainer
-        title={t(
-          "settings.userInterface.recordingOverlay.animatedBorderMode.title",
-          "Animated Border",
-        )}
-        description={t(
-          "settings.userInterface.recordingOverlay.animatedBorderMode.description",
-          "Give the overlay edge a subtle premium motion treatment.",
-        )}
-        descriptionMode="tooltip"
-        grouped={true}
-      >
-        <Dropdown
-          options={animatedBorderModeOptions}
-          selectedValue={animatedBorderMode}
-          onSelect={(value) =>
-            void updateSetting(
-              "recording_overlay_animated_border_mode" as any,
-              value as any,
-            )
-          }
-          disabled={
-            isUpdating("recording_overlay_animated_border_mode") || !customOverlayEnabled
-          }
-        />
-      </SettingContainer>
-      </fieldset>
+        onChangeComplete={(value) =>
+          void commitSliderDraft("recording_overlay_width_px", value)
+        }
+      />
 
       <ToggleSwitch
         checked={showStatusIcon}
@@ -1675,30 +2006,52 @@ export const RecordingOverlaySettings: React.FC = () => {
         )}
         description={t(
           "settings.userInterface.recordingOverlay.statusIcon.description",
-          "Show the microphone, processing, and error icon on the left side of the overlay.",
+          "Show the icon on the left: the ear while recording, a processing icon while your speech is handled, and a cross on errors.",
         )}
         descriptionMode="tooltip"
         grouped={true}
       />
 
-      <ToggleSwitch
-        checked={showCancelButton}
-        onChange={(enabled) =>
-          void updateSetting(
-            "recording_overlay_show_cancel_button" as any,
-            enabled as any,
-          )
-        }
-        isUpdating={isUpdating("recording_overlay_show_cancel_button")}
-        label="Show Cancel Button"
-        description="Show the X/cancel action on the right side of the recording overlay."
+      <CustomOverlayOnly
+        enabled={customOverlayEnabled}
+        busy={appearanceBusy}
+        reason={customOverlayDisabledReason}
+      >
+      <SettingContainer
+        title={t(
+          "settings.userInterface.recordingOverlay.statusIconStyle.title",
+          "Status Icon Style",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.statusIconStyle.description",
+          "What surrounds the status icon. Auto keeps the glass capsule on the original materials and shows a clean icon on the flat modern ones. Live Dot replaces the icon with a pulsing dot.",
+        )}
         descriptionMode="tooltip"
         grouped={true}
-      />
+      >
+        <Dropdown
+          options={statusIconStyleOptions}
+          selectedValue={statusIconStyle}
+          onSelect={(value) =>
+            void updateSetting(
+              "recording_overlay_status_icon_style" as any,
+              value as any,
+            )
+          }
+          disabled={!customOverlayEnabled || !showStatusIcon}
+        />
+      </SettingContainer>
+      </CustomOverlayOnly>
 
       <SettingContainer
-        title="Status Icon Color"
-        description="Color of the left-side status icon."
+        title={t(
+          "settings.userInterface.recordingOverlay.statusIconColor.title",
+          "Status Icon Color",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.statusIconColor.description",
+          "Color of the icon on the left. Built-in presets keep your choice.",
+        )}
         descriptionMode="tooltip"
         grouped={true}
       >
@@ -1712,7 +2065,6 @@ export const RecordingOverlaySettings: React.FC = () => {
                 event.target.value as any,
               )
             }
-            disabled={isUpdating("recording_overlay_status_icon_color")}
             className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
           />
           <span className="text-xs font-mono text-[#a0a0a0]">
@@ -1721,9 +2073,74 @@ export const RecordingOverlaySettings: React.FC = () => {
         </div>
       </SettingContainer>
 
+      <ToggleSwitch
+        checked={showCancelButton}
+        onChange={(enabled) =>
+          void updateSetting(
+            "recording_overlay_show_cancel_button" as any,
+            enabled as any,
+          )
+        }
+        isUpdating={isUpdating("recording_overlay_show_cancel_button")}
+        label={t(
+          "settings.userInterface.recordingOverlay.showCancelButton.label",
+          "Show Cancel Button",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.showCancelButton.description",
+          "Show the × button on the right. Clicking it cancels the recording.",
+        )}
+        descriptionMode="tooltip"
+        grouped={true}
+      />
+
+      <div>
+      <ToggleSwitch
+        checked={cancelButtonInvisible}
+        onChange={(enabled) =>
+          void updateSetting(
+            "recording_overlay_cancel_button_invisible" as any,
+            enabled as any,
+          )
+        }
+        isUpdating={isUpdating("recording_overlay_cancel_button_invisible")}
+        disabled={!showCancelButton}
+        label={t(
+          "settings.userInterface.recordingOverlay.cancelButtonInvisible.label",
+          "Invisible Cancel Button",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.cancelButtonInvisible.description",
+          "Hide the × but keep its spot working: clicking the right end of the overlay still cancels the recording. The preview marks the spot with a dashed circle.",
+        )}
+        descriptionMode="tooltip"
+        grouped={true}
+      />
+      {showCancelButton && cancelButtonInvisible && (
+        <div
+          role="note"
+          className="mx-4 mb-3 flex items-start gap-2 rounded-lg border border-[#ff4d4d]/35 bg-[#ff4d4d]/10 px-3 py-2 text-xs leading-relaxed text-[#ff8080]"
+        >
+          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>
+            {t(
+              "settings.userInterface.recordingOverlay.cancelButtonInvisible.warning",
+              "Blind mode: the × is gone, so you cancel by feel. Click the empty spot at the right end of the overlay.",
+            )}
+          </span>
+        </div>
+      )}
+      </div>
+
       <SettingContainer
-        title="Cancel Button Icon Color"
-        description="Color of the right-side cancel/X icon."
+        title={t(
+          "settings.userInterface.recordingOverlay.cancelIconColor.title",
+          "Cancel Button Icon Color",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.cancelIconColor.description",
+          "Color of the × on the cancel button. Built-in presets keep your choice.",
+        )}
         descriptionMode="tooltip"
         grouped={true}
       >
@@ -1737,7 +2154,6 @@ export const RecordingOverlaySettings: React.FC = () => {
                 event.target.value as any,
               )
             }
-            disabled={isUpdating("recording_overlay_cancel_icon_color")}
             className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
           />
           <span className="text-xs font-mono text-[#a0a0a0]">
@@ -1745,168 +2161,193 @@ export const RecordingOverlaySettings: React.FC = () => {
           </span>
         </div>
       </SettingContainer>
+      </OverlaySettingsSection>
 
-      <section
-        id="recording-overlay-decapitalize-indicator"
-        tabIndex={-1}
-        className="mx-3 my-4 rounded-xl border border-[#ff4d8d]/20 bg-[#ff4d8d]/[0.04] outline-none focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/35"
+      <OverlaySettingsSection
+        title={t(
+          "settings.userInterface.recordingOverlay.sections.surface.title",
+          "Surface",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.sections.surface.description",
+          "What the overlay is made of and how it is colored.",
+        )}
       >
-        <div className="px-6 pt-4 pb-1">
-          <h3 className="text-xs font-bold uppercase tracking-widest text-[#ff8ebb]">
-            Decapitalize Indicator
-          </h3>
-          <p className="mt-1 text-xs leading-relaxed text-[#a0a0a0]">
-            The chip shown on the recording overlay while decapitalization is
-            armed. The feature itself is configured under{" "}
-            <button
-              type="button"
-              onClick={openDecapitalizeFeatureSettings}
-              className="font-medium text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
-            >
-              Text Replacement → Decapitalize After Manual Edit
-            </button>
-            .
-          </p>
-        </div>
-        <div className="divide-y divide-white/[0.05]">
-        <ToggleSwitch
-          checked={showDecapIndicatorInPreview}
-          onChange={setShowDecapIndicatorInPreview}
-          label="Show Decapitalize Indicator In Preview"
-          description="Only affects this settings-page preview. Preset cards never show the decapitalize indicator."
-          descriptionMode="tooltip"
-          grouped={true}
-        />
-        <SettingContainer
-          title="Decapitalize Indicator Mode"
-          description="Show the standard label, a custom emoji/text badge, or hide the decapitalize indicator completely."
-          descriptionMode="tooltip"
-          grouped={true}
-        >
-          <Dropdown
-            options={decapIndicatorModeOptions}
-            selectedValue={decapIndicatorMode}
-            onSelect={(value) =>
-              void updateSetting(
-                "recording_overlay_decapitalize_indicator_mode" as any,
-                value as any,
-              )
-            }
-            disabled={isUpdating("recording_overlay_decapitalize_indicator_mode")}
-          />
-        </SettingContainer>
-
       <SettingContainer
-        title="Decapitalize Indicator Font"
-        description="Choose a Windows font family for the decapitalize indicator badge."
+        title={t(
+          "settings.userInterface.recordingOverlay.theme.title",
+          "Overlay Theme",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.theme.description",
+          "The overall shape. Classic is soft and rounded, Minimal is flatter with smaller corners, and Glass adds a see-through accent tint.",
+        )}
         descriptionMode="tooltip"
         grouped={true}
       >
         <Dropdown
-          options={decapIndicatorFontOptions}
-          selectedValue={decapIndicatorFontFamily}
+          options={themeOptions}
+          selectedValue={overlayTheme}
           onSelect={(value) =>
-            void updateSetting(
-              "recording_overlay_decapitalize_indicator_font_family" as any,
-              value as any,
-            )
+            void updateSetting("recording_overlay_theme" as any, value as any)
+          }
+          disabled={isUpdating("recording_overlay_theme")}
+        />
+      </SettingContainer>
+
+      <CustomOverlayOnly
+        enabled={customOverlayEnabled}
+        busy={appearanceBusy}
+        reason={customOverlayDisabledReason}
+      >
+      <SettingContainer
+        title={t(
+          "settings.userInterface.recordingOverlay.materialMode.title",
+          "Material Mode",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.materialMode.description",
+          "What the surface is made of. The original materials glow and shimmer; Graphite, Obsidian, Gradient Mesh, and Porcelain are flat and modern.",
+        )}
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <Dropdown
+          options={materialModeOptions}
+          selectedValue={materialMode}
+          onSelect={(value) =>
+            void updateSetting("recording_overlay_material_mode" as any, value as any)
           }
           disabled={
-            isUpdating("recording_overlay_decapitalize_indicator_font_family") ||
-            decapIndicatorMode === "hidden"
+            isUpdating("recording_overlay_material_mode") || !customOverlayEnabled
           }
         />
       </SettingContainer>
 
       <Slider
-        label="Decapitalize Indicator Size"
-        description="Adjust the size of the decapitalize indicator text or emoji."
+        label={t(
+          "settings.userInterface.recordingOverlay.opacity.title",
+          "Overlay Opacity",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.opacity.description",
+          "How solid the overlay is. At 100% nothing behind it shows through.",
+        )}
         descriptionMode="tooltip"
         grouped={true}
-        min={6}
-        max={48}
+        min={20}
+        max={100}
         step={1}
-        value={Math.max(6, Math.min(48, Math.round(decapIndicatorFontSizePx)))}
-        formatValue={(value) => `${Math.round(value)} px`}
+        value={sliderDrafts.recording_overlay_opacity_percent}
+        formatValue={(value) => `${Math.round(value)} %`}
         onChange={(value) =>
-          void updateSetting(
-            "recording_overlay_decapitalize_indicator_font_size_px" as any,
-            Math.round(value) as any,
-          )
+          updateSliderDraft("recording_overlay_opacity_percent", value)
         }
-        disabled={
-          isUpdating("recording_overlay_decapitalize_indicator_font_size_px") ||
-          decapIndicatorMode === "hidden"
+        onChangeComplete={(value) =>
+          void commitSliderDraft("recording_overlay_opacity_percent", value)
         }
       />
-
-      {decapIndicatorMode === "custom" && (
-        <SettingContainer
-          title="Custom Indicator Text / Emoji"
-          description="Enter any short text, emoji, or both. The badge stays centered above the overlay."
-          descriptionMode="tooltip"
-          grouped={true}
-        >
-          <div className="space-y-3">
-            <input
-              type="text"
-              value={decapIndicatorCustomText}
-              maxLength={24}
-              onChange={(event) =>
-                void updateSetting(
-                  "recording_overlay_decapitalize_indicator_custom_text" as any,
-                  event.target.value as any,
-                )
-              }
-              disabled={isUpdating("recording_overlay_decapitalize_indicator_custom_text")}
-              placeholder="eg. a, Aa, ✍️, lower"
-              className="w-full rounded-md border border-[#3c3c3c] bg-[#111111] px-3 py-2 text-sm text-[#f5f5f5] placeholder:text-[#777777] disabled:opacity-40"
-            />
-            <div
-              className="rounded-md border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-center"
-              style={{
-                color: decapIndicatorColor,
-                fontFamily: `${decapIndicatorFontFamily}, "Segoe UI Emoji", sans-serif`,
-                fontSize: `${Math.max(6, Math.min(48, Math.round(decapIndicatorFontSizePx)))}px`,
-                fontWeight: 600,
-              }}
-            >
-              {decapIndicatorCustomText.trim() || "Decapitalization"}
-            </div>
-          </div>
-        </SettingContainer>
-      )}
+      </CustomOverlayOnly>
 
       <SettingContainer
-        title="Decapitalize Indicator Color"
-        description="Color of the decapitalize badge text or emoji."
+        title={t(
+          "settings.userInterface.recordingOverlay.bodyBackgroundColor.title",
+          "Body Background Color",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.bodyBackgroundColor.description",
+          "The main color of the overlay. The theme and material add light and shade on top of it. Porcelain is always light and only takes a hint of this color.",
+        )}
         descriptionMode="tooltip"
         grouped={true}
       >
         <div className="flex items-center gap-3">
           <input
             type="color"
-            value={decapIndicatorColor}
+            value={bodyBackgroundColor}
             onChange={(event) =>
               void updateSetting(
-                "recording_overlay_decapitalize_indicator_color" as any,
+                "recording_overlay_body_background_color" as any,
                 event.target.value as any,
               )
-            }
-            disabled={
-              isUpdating("recording_overlay_decapitalize_indicator_color") ||
-              decapIndicatorMode === "hidden"
             }
             className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
           />
           <span className="text-xs font-mono text-[#a0a0a0]">
-            {decapIndicatorColor}
+            {bodyBackgroundColor}
           </span>
         </div>
       </SettingContainer>
-        </div>
-      </section>
 
+      <SettingContainer
+        title={t(
+          "settings.userInterface.recordingOverlay.surfaceBaseColor.title",
+          "Surface Tint",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.surfaceBaseColor.description",
+          "A color that shows through the body from underneath. It is most visible at lower opacity and is handy for warming up or cooling down the surface.",
+        )}
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={surfaceBaseColor}
+            onChange={(event) =>
+              void updateSetting(
+                "recording_overlay_surface_base_color" as any,
+                event.target.value as any,
+              )
+            }
+            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
+          />
+          <span className="text-xs font-mono text-[#a0a0a0]">
+            {surfaceBaseColor}
+          </span>
+        </div>
+      </SettingContainer>
+
+      <SettingContainer
+        title={t(
+          "settings.userInterface.recordingOverlay.accentColor.title",
+          "Overlay Accent Color",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.accentColor.description",
+          "Color of the visualizer, glows, and hover highlights.",
+        )}
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={accentColor}
+            onChange={(event) =>
+              void updateSetting(
+                "recording_overlay_accent_color" as any,
+                event.target.value as any,
+              )
+            }
+            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
+          />
+          <span className="text-xs font-mono text-[#a0a0a0]">{accentColor}</span>
+        </div>
+      </SettingContainer>
+      </OverlaySettingsSection>
+
+      <OverlaySettingsSection
+        title={t(
+          "settings.userInterface.recordingOverlay.sections.visualizer.title",
+          "Visualizer",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.sections.visualizer.description",
+          "The part that moves while you speak.",
+        )}
+      >
       <SettingContainer
         title={t(
           "settings.userInterface.recordingOverlay.barStyle.title",
@@ -1914,7 +2355,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         )}
         description={t(
           "settings.userInterface.recordingOverlay.barStyle.description",
-          "Choose how recording activity is visualized.",
+          "How your voice is drawn: bars, waves, dots, liquid, and more. Classic mode offers a shorter list.",
         )}
         descriptionMode="tooltip"
         grouped={true}
@@ -1942,7 +2383,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         )}
         description={t(
           "settings.userInterface.recordingOverlay.barCount.description",
-          "Choose how many animated elements are shown while recording.",
+          "How many bars, dots, or drops are drawn.",
         )}
         descriptionMode="tooltip"
         grouped={true}
@@ -1957,32 +2398,6 @@ export const RecordingOverlaySettings: React.FC = () => {
         onChangeComplete={(value) =>
           void commitSliderDraft("recording_overlay_bar_count", value)
         }
-        disabled={isUpdating("recording_overlay_bar_count")}
-      />
-
-      <Slider
-        label={t(
-          "settings.userInterface.recordingOverlay.overlayWidth.title",
-          "Overlay Width",
-        )}
-        description={t(
-          "settings.userInterface.recordingOverlay.overlayWidth.description",
-          "Choose the base width of the recording overlay. It can still expand if the current visualizer needs more room.",
-        )}
-        descriptionMode="tooltip"
-        grouped={true}
-        min={172}
-        max={420}
-        step={1}
-        value={sliderDrafts.recording_overlay_width_px}
-        formatValue={(value) => `${Math.round(value)} px`}
-        onChange={(value) =>
-          updateSliderDraft("recording_overlay_width_px", value)
-        }
-        onChangeComplete={(value) =>
-          void commitSliderDraft("recording_overlay_width_px", value)
-        }
-        disabled={isUpdating("recording_overlay_width_px")}
       />
 
       <Slider
@@ -1992,7 +2407,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         )}
         description={t(
           "settings.userInterface.recordingOverlay.barWidth.description",
-          "Adjust the size or thickness of the recording visualizer elements.",
+          "How thick each bar, dot, or drop is. Thicker elements also make the overlay wider.",
         )}
         descriptionMode="tooltip"
         grouped={true}
@@ -2007,113 +2422,149 @@ export const RecordingOverlaySettings: React.FC = () => {
         onChangeComplete={(value) =>
           void commitSliderDraft("recording_overlay_bar_width_px", value)
         }
-        disabled={isUpdating("recording_overlay_bar_width_px")}
       />
+      </OverlaySettingsSection>
 
-      <SettingContainer
+      <OverlaySettingsSection
         title={t(
-          "settings.userInterface.recordingOverlay.bodyBackgroundColor.title",
-          "Body Background Color",
+          "settings.userInterface.recordingOverlay.sections.atmosphere.title",
+          "Atmosphere",
         )}
         description={t(
-          "settings.userInterface.recordingOverlay.bodyBackgroundColor.description",
-          "Adjust the true background color of the overlay body beneath the material and glow layers.",
+          "settings.userInterface.recordingOverlay.sections.atmosphere.description",
+          "Optional decoration around the visualizer. Leave it off for a clean look.",
+        )}
+        note={customOverlayEnabled ? null : customOverlayDisabledReason}
+      >
+      <CustomOverlayOnly
+        enabled={customOverlayEnabled}
+        busy={appearanceBusy}
+        reason={customOverlayDisabledReason}
+      >
+      <SettingContainer
+        title={t(
+          "settings.userInterface.recordingOverlay.backgroundMode.title",
+          "Background Mode",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.backgroundMode.description",
+          "A soft animated layer behind the visualizer, such as mist or sparks.",
         )}
         descriptionMode="tooltip"
         grouped={true}
       >
-        <div className="flex items-center gap-3">
-          <input
-            type="color"
-            value={bodyBackgroundColor}
-            onChange={(event) =>
-              void updateSetting(
-                "recording_overlay_body_background_color" as any,
-                event.target.value as any,
-              )
-            }
-            disabled={isUpdating("recording_overlay_body_background_color")}
-            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
-          />
-          <span className="text-xs font-mono text-[#a0a0a0]">
-            {bodyBackgroundColor}
-          </span>
-        </div>
+        <Dropdown
+          options={backgroundModeOptions}
+          selectedValue={backgroundMode}
+          onSelect={(value) =>
+            void updateSetting(
+              "recording_overlay_background_mode" as any,
+              value as any,
+            )
+          }
+          disabled={
+            isUpdating("recording_overlay_background_mode") || !customOverlayEnabled
+          }
+        />
       </SettingContainer>
 
       <SettingContainer
         title={t(
-          "settings.userInterface.recordingOverlay.surfaceBaseColor.title",
-          "Surface Tint",
+          "settings.userInterface.recordingOverlay.centerpieceMode.title",
+          "Centerpiece Mode",
         )}
         description={t(
-          "settings.userInterface.recordingOverlay.surfaceBaseColor.description",
-          "Adjust the tint and glow layered over the body background. Use Body Background Color for the actual base fill.",
+          "settings.userInterface.recordingOverlay.centerpieceMode.description",
+          "A decorative shape that glows in the middle of the overlay, behind the visualizer.",
         )}
         descriptionMode="tooltip"
         grouped={true}
       >
-        <div className="flex items-center gap-3">
-          <input
-            type="color"
-            value={surfaceBaseColor}
-            onChange={(event) =>
-              void updateSetting(
-                "recording_overlay_surface_base_color" as any,
-                event.target.value as any,
-              )
-            }
-            disabled={isUpdating("recording_overlay_surface_base_color")}
-            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
-          />
-          <span className="text-xs font-mono text-[#a0a0a0]">
-            {surfaceBaseColor}
-          </span>
-        </div>
+        <Dropdown
+          options={centerpieceModeOptions}
+          selectedValue={centerpieceMode}
+          onSelect={(value) =>
+            void updateSetting("recording_overlay_centerpiece_mode" as any, value as any)
+          }
+          disabled={
+            isUpdating("recording_overlay_centerpiece_mode") || !customOverlayEnabled
+          }
+        />
       </SettingContainer>
 
       <SettingContainer
         title={t(
-          "settings.userInterface.recordingOverlay.accentColor.title",
-          "Overlay Accent Color",
+          "settings.userInterface.recordingOverlay.animatedBorderMode.title",
+          "Animated Border",
         )}
         description={t(
-          "settings.userInterface.recordingOverlay.accentColor.description",
-          "Pick the accent color used for the recording visualizer and hover accents.",
+          "settings.userInterface.recordingOverlay.animatedBorderMode.description",
+          "Light that moves along the edge of the overlay.",
         )}
         descriptionMode="tooltip"
         grouped={true}
       >
-        <div className="flex items-center gap-3">
-          <input
-            type="color"
-            value={accentColor}
-            onChange={(event) =>
-              void updateSetting(
-                "recording_overlay_accent_color" as any,
-                event.target.value as any,
-              )
-            }
-            disabled={isUpdating("recording_overlay_accent_color")}
-            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
-          />
-          <span className="text-xs font-mono text-[#a0a0a0]">{accentColor}</span>
-        </div>
+        <Dropdown
+          options={animatedBorderModeOptions}
+          selectedValue={animatedBorderMode}
+          onSelect={(value) =>
+            void updateSetting(
+              "recording_overlay_animated_border_mode" as any,
+              value as any,
+            )
+          }
+          disabled={
+            isUpdating("recording_overlay_animated_border_mode") || !customOverlayEnabled
+          }
+        />
       </SettingContainer>
 
-        </div>
+      <Slider
+        label={t(
+          "settings.userInterface.recordingOverlay.depthParallax.title",
+          "Depth Parallax",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.depthParallax.description",
+          "How far the background and centerpiece drift to create depth. Needs an ambient background or a centerpiece.",
+        )}
+        descriptionMode="tooltip"
+        grouped={true}
+        min={0}
+        max={100}
+        step={1}
+        value={sliderDrafts.recording_overlay_depth_parallax_percent}
+        formatValue={(value) => `${Math.round(value)} %`}
+        onChange={(value) =>
+          updateSliderDraft("recording_overlay_depth_parallax_percent", value)
+        }
+        onChangeComplete={(value) =>
+          void commitSliderDraft(
+            "recording_overlay_depth_parallax_percent",
+            value,
+          )
+        }
+        disabled={backgroundMode === "none" && centerpieceMode === "none"}
+      />
+      </CustomOverlayOnly>
+      </OverlaySettingsSection>
 
-        <div
-          className="order-6"
-          title={customOverlayEnabled ? undefined : customOverlayDisabledReason}
-        >
-          <fieldset disabled={!customOverlayEnabled || appearanceBusy}
-            className={
-              customOverlayEnabled
-                ? "min-w-0 border-0 p-0 m-0"
-                : "min-w-0 border-0 p-0 m-0 opacity-45"
-            }
-          >
+      <OverlaySettingsSection
+        title={t(
+          "settings.userInterface.recordingOverlay.sections.motion.title",
+          "Motion",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.sections.motion.description",
+          "How the overlay reacts to your voice and to pauses.",
+        )}
+        note={customOverlayEnabled ? null : customOverlayDisabledReason}
+      >
+      <CustomOverlayOnly
+        enabled={customOverlayEnabled}
+        busy={appearanceBusy}
+        reason={customOverlayDisabledReason}
+      >
       <ToggleSwitch
         checked={audioReactiveScale}
         onChange={(enabled) =>
@@ -2129,7 +2580,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         )}
         description={t(
           "settings.userInterface.recordingOverlay.audioReactiveScale.description",
-          "Make the overlay subtly expand with stronger voice input.",
+          "The whole overlay grows slightly when you speak louder.",
         )}
         descriptionMode="tooltip"
         grouped={true}
@@ -2142,7 +2593,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         )}
         description={t(
           "settings.userInterface.recordingOverlay.audioReactiveScaleAmount.description",
-          "Choose the maximum growth amount when you speak loudly.",
+          "How much the overlay can grow when you are loudest.",
         )}
         descriptionMode="tooltip"
         grouped={true}
@@ -2163,10 +2614,7 @@ export const RecordingOverlaySettings: React.FC = () => {
             value,
           )
         }
-        disabled={
-          isUpdating("recording_overlay_audio_reactive_scale_max_percent") ||
-          !audioReactiveScale
-        }
+        disabled={!audioReactiveScale}
       />
 
       <Slider
@@ -2176,7 +2624,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         )}
         description={t(
           "settings.userInterface.recordingOverlay.voiceSensitivity.description",
-          "Choose how easily the overlay reacts to quieter speech. Higher values wake up sooner; lower values wait for stronger voice input.",
+          "How quiet speech can be and still count as voice for scaling and fading. Higher values react to softer speech.",
         )}
         descriptionMode="tooltip"
         grouped={true}
@@ -2194,10 +2642,7 @@ export const RecordingOverlaySettings: React.FC = () => {
             value,
           )
         }
-        disabled={
-          isUpdating("recording_overlay_voice_sensitivity_percent") ||
-          (!audioReactiveScale && !silenceFade)
-        }
+        disabled={!audioReactiveScale && !silenceFade}
       />
 
       <Slider
@@ -2207,7 +2652,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         )}
         description={t(
           "settings.userInterface.recordingOverlay.animationSoftness.description",
-          "Make the overlay calmer and smoother, or snappier and more alive.",
+          "Low values feel snappy and lively, high values feel smooth and calm.",
         )}
         descriptionMode="tooltip"
         grouped={true}
@@ -2225,35 +2670,6 @@ export const RecordingOverlaySettings: React.FC = () => {
             value,
           )
         }
-        disabled={isUpdating("recording_overlay_animation_softness_percent")}
-      />
-
-      <Slider
-        label={t(
-          "settings.userInterface.recordingOverlay.depthParallax.title",
-          "Depth Parallax",
-        )}
-        description={t(
-          "settings.userInterface.recordingOverlay.depthParallax.description",
-          "Let different visual layers drift at slightly different depths.",
-        )}
-        descriptionMode="tooltip"
-        grouped={true}
-        min={0}
-        max={100}
-        step={1}
-        value={sliderDrafts.recording_overlay_depth_parallax_percent}
-        formatValue={(value) => `${Math.round(value)} %`}
-        onChange={(value) =>
-          updateSliderDraft("recording_overlay_depth_parallax_percent", value)
-        }
-        onChangeComplete={(value) =>
-          void commitSliderDraft(
-            "recording_overlay_depth_parallax_percent",
-            value,
-          )
-        }
-        disabled={isUpdating("recording_overlay_depth_parallax_percent")}
       />
 
       <ToggleSwitch
@@ -2271,35 +2687,10 @@ export const RecordingOverlaySettings: React.FC = () => {
         )}
         description={t(
           "settings.userInterface.recordingOverlay.silenceFade.description",
-          "Make the overlay quieter during pauses and wake instantly when speech returns.",
+          "Make the overlay more transparent during pauses. It comes back as soon as you speak.",
         )}
         descriptionMode="tooltip"
         grouped={true}
-      />
-
-      <Slider
-        label={t(
-          "settings.userInterface.recordingOverlay.opacity.title",
-          "Overlay Opacity",
-        )}
-        description={t(
-          "settings.userInterface.recordingOverlay.opacity.description",
-          "Set the base transparency of the recording overlay.",
-        )}
-        descriptionMode="tooltip"
-        grouped={true}
-        min={20}
-        max={100}
-        step={1}
-        value={sliderDrafts.recording_overlay_opacity_percent}
-        formatValue={(value) => `${Math.round(value)} %`}
-        onChange={(value) =>
-          updateSliderDraft("recording_overlay_opacity_percent", value)
-        }
-        onChangeComplete={(value) =>
-          void commitSliderDraft("recording_overlay_opacity_percent", value)
-        }
-        disabled={isUpdating("recording_overlay_opacity_percent")}
       />
 
       <Slider
@@ -2309,7 +2700,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         )}
         description={t(
           "settings.userInterface.recordingOverlay.silenceOpacity.description",
-          "Set how visible the overlay stays while you are quiet.",
+          "How visible the overlay stays during pauses. Needs Fade When Quiet.",
         )}
         descriptionMode="tooltip"
         grouped={true}
@@ -2327,16 +2718,244 @@ export const RecordingOverlaySettings: React.FC = () => {
             value,
           )
         }
-        disabled={
-          isUpdating("recording_overlay_silence_opacity_percent") ||
-          !silenceFade
-        }
+        disabled={!silenceFade}
       />
-          </fieldset>
+      </CustomOverlayOnly>
+      </OverlaySettingsSection>
+
+      <section
+        id="recording-overlay-decapitalize-indicator"
+        tabIndex={-1}
+        className="mx-3 my-4 rounded-xl border border-[#ff4d8d]/20 bg-[#ff4d8d]/[0.04] outline-none focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/35"
+      >
+        <div className="px-6 pt-4 pb-1">
+          <h3 className="text-xs font-bold uppercase tracking-widest text-[#ff8ebb]">
+            {t(
+              "settings.userInterface.recordingOverlay.decapIndicator.title",
+              "Decapitalize Indicator",
+            )}
+          </h3>
+          <p className="mt-1 text-xs leading-relaxed text-[#a0a0a0]">
+            {t(
+              "settings.userInterface.recordingOverlay.decapIndicator.descriptionBeforeLink",
+              "The chip shown on the recording overlay while decapitalization is armed. The feature itself is set up in",
+            )}{" "}
+            <button
+              type="button"
+              onClick={openDecapitalizeFeatureSettings}
+              className="font-medium text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
+            >
+              {t(
+                "settings.userInterface.recordingOverlay.decapIndicator.featureLink",
+                "Text Processing → Decapitalize After Manual Edit",
+              )}
+            </button>
+            .
+          </p>
+        </div>
+        <div className="divide-y divide-white/[0.05]">
+        <ToggleSwitch
+          checked={showDecapIndicatorInPreview}
+          onChange={setShowDecapIndicatorInPreview}
+          label={t(
+            "settings.userInterface.recordingOverlay.decapIndicator.showInPreview.label",
+            "Show Decapitalize Indicator In Preview",
+          )}
+          description={t(
+            "settings.userInterface.recordingOverlay.decapIndicator.showInPreview.description",
+            "Only affects the preview on this page. Preset cards never show the indicator.",
+          )}
+          descriptionMode="tooltip"
+          grouped={true}
+        />
+        <SettingContainer
+          title={t(
+            "settings.userInterface.recordingOverlay.decapIndicator.mode.title",
+            "Decapitalize Indicator Mode",
+          )}
+          description={t(
+            "settings.userInterface.recordingOverlay.decapIndicator.mode.description",
+            "Show the standard label, your own text or emoji, or nothing at all.",
+          )}
+          descriptionMode="tooltip"
+          grouped={true}
+        >
+          <Dropdown
+            options={decapIndicatorModeOptions}
+            selectedValue={decapIndicatorMode}
+            onSelect={(value) =>
+              void updateSetting(
+                "recording_overlay_decapitalize_indicator_mode" as any,
+                value as any,
+              )
+            }
+            disabled={isUpdating("recording_overlay_decapitalize_indicator_mode")}
+          />
+        </SettingContainer>
+
+      <SettingContainer
+        title={t(
+          "settings.userInterface.recordingOverlay.decapIndicator.font.title",
+          "Decapitalize Indicator Font",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.decapIndicator.font.description",
+          "Font of the indicator chip.",
+        )}
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <Dropdown
+          options={decapIndicatorFontOptions}
+          selectedValue={decapIndicatorFontFamily}
+          onSelect={(value) =>
+            void updateSetting(
+              "recording_overlay_decapitalize_indicator_font_family" as any,
+              value as any,
+            )
+          }
+          disabled={
+            isUpdating("recording_overlay_decapitalize_indicator_font_family") ||
+            decapIndicatorMode === "hidden"
+          }
+        />
+      </SettingContainer>
+
+      <Slider
+        label={t(
+          "settings.userInterface.recordingOverlay.decapIndicator.size.title",
+          "Decapitalize Indicator Size",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.decapIndicator.size.description",
+          "Size of the indicator text or emoji.",
+        )}
+        descriptionMode="tooltip"
+        grouped={true}
+        min={6}
+        max={48}
+        step={1}
+        value={sliderDrafts.recording_overlay_decapitalize_indicator_font_size_px}
+        formatValue={(value) => `${Math.round(value)} px`}
+        onChange={(value) =>
+          updateSliderDraft(
+            "recording_overlay_decapitalize_indicator_font_size_px",
+            value,
+          )
+        }
+        onChangeComplete={(value) =>
+          void commitSliderDraft(
+            "recording_overlay_decapitalize_indicator_font_size_px",
+            value,
+          )
+        }
+        disabled={decapIndicatorMode === "hidden"}
+      />
+
+      {decapIndicatorMode === "custom" && (
+        <SettingContainer
+          title={t(
+            "settings.userInterface.recordingOverlay.decapIndicator.customText.title",
+            "Custom Indicator Text / Emoji",
+          )}
+          description={t(
+            "settings.userInterface.recordingOverlay.decapIndicator.customText.description",
+            "Any short text, emoji, or both, up to 24 characters. The chip stays centered above the overlay.",
+          )}
+          descriptionMode="tooltip"
+          grouped={true}
+        >
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={decapIndicatorCustomText}
+              maxLength={24}
+              onChange={(event) =>
+                void updateSetting(
+                  "recording_overlay_decapitalize_indicator_custom_text" as any,
+                  event.target.value as any,
+                )
+              }
+              placeholder={t(
+                "settings.userInterface.recordingOverlay.decapIndicator.customText.placeholder",
+                "eg. a, Aa, ✍️, lower",
+              )}
+              className="w-full rounded-md border border-[#3c3c3c] bg-[#111111] px-3 py-2 text-sm text-[#f5f5f5] placeholder:text-[#777777] disabled:opacity-40"
+            />
+            <div
+              className="rounded-md border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-center"
+              style={{
+                color: decapIndicatorColor,
+                fontFamily: `${decapIndicatorFontFamily}, "Segoe UI Emoji", sans-serif`,
+                fontSize: `${sliderDrafts.recording_overlay_decapitalize_indicator_font_size_px}px`,
+                fontWeight: 600,
+              }}
+            >
+              {decapIndicatorCustomText.trim() || "Decapitalization"}
+            </div>
+          </div>
+        </SettingContainer>
+      )}
+
+      <SettingContainer
+        title={t(
+          "settings.userInterface.recordingOverlay.decapIndicator.color.title",
+          "Decapitalize Indicator Color",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.decapIndicator.color.description",
+          "Color of the indicator text or emoji.",
+        )}
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={decapIndicatorColor}
+            onChange={(event) =>
+              void updateSetting(
+                "recording_overlay_decapitalize_indicator_color" as any,
+                event.target.value as any,
+              )
+            }
+            disabled={decapIndicatorMode === "hidden"}
+            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
+          />
+          <span className="text-xs font-mono text-[#a0a0a0]">
+            {decapIndicatorColor}
+          </span>
+        </div>
+      </SettingContainer>
+        </div>
+      </section>
         </div>
       </fieldset>
     </SettingsGroup>
     {!isRecordingOverlayCollapsed && floatingPreview}
+    <ConfirmationModal
+      isOpen={pendingDeleteUserPreset !== null}
+      onClose={() => setPendingDeleteUserPreset(null)}
+      onConfirm={() => void handleDeleteUserPreset()}
+      title={t(
+        "settings.userInterface.recordingOverlay.presets.user.deleteConfirmTitle",
+        "Delete preset?",
+      )}
+      message={t(
+        "settings.userInterface.recordingOverlay.presets.user.deleteConfirmMessage",
+        "Delete the saved preset “{{name}}”? This cannot be undone.",
+        { name: pendingDeleteUserPreset?.name ?? "" },
+      )}
+      confirmText={t(
+        "settings.userInterface.recordingOverlay.presets.user.deleteConfirm",
+        "Delete",
+      )}
+      cancelText={t(
+        "settings.userInterface.recordingOverlay.presets.user.cancel",
+        "Cancel",
+      )}
+      variant="danger"
+    />
     </>
   );
 };
