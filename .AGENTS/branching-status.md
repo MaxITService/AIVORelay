@@ -6,10 +6,10 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## release/microsoft-store
 
-Last synced commit from `main`: `1fae3dc9` — chore: bump version to 1.0.43.
+Last synced commit from `main`: `d4b43e77` — feat: refine overlay appearance and local TTS consent.
 Maintenance rule: after a successful `main` -> `release/microsoft-store` propagation, update this main-copy cursor and the `release/microsoft-store` worktree copy together.
 Note: the cursor always points to the last propagated `main` state reflected in branch content, not to a docs-only cursor-update commit itself.
-Alignment note: `release/microsoft-store` has been reviewed through the cursor above. Shared runtime and applicable user/CLI documentation are aligned; intentional differences remain for Microsoft Store-specific docs, config, workflow, updater, and AVX2 files. `Cargo.lock` is updated locally.
+Alignment note: runtime reviewed and propagated through the cursor above; subsequent `8498faaa` (test(gemini): synchronize mocked session timers) was reviewed and excluded as test-only. Test changes, test-support refactors, testing docs, promo screenshots, and main-only upstream notes are excluded. The approved Soniox CLI example is propagated; earlier documentation differences remain outside this sync. Store config, workflows, updater, and AVX2 rules are preserved. `Cargo.lock` was regenerated locally and verified with `cargo metadata --locked`; builds/tests were not run.
 Sync rule: for this branch, source commits come from `main` only.
 Propagation scope rule: for Microsoft Store Edition propagation, bring over the intended `main` commit set in order unless a commit is store-incompatible. Default exclusions are self-update/auto-update changes and AVX512-only changes; AVX2 is allowed.
 
