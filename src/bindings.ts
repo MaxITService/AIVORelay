@@ -205,6 +205,14 @@ async changeErrorFeedbackEnabledSetting(enabled: boolean) : Promise<Result<null,
     else return { status: "error", error: e  as any };
 }
 },
+async applyRecordingOverlayAppearance(appearance: RecordingOverlayAppearanceSettings) : Promise<Result<AppSettings, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("apply_recording_overlay_appearance", { appearance }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeRecordingOverlayCustomEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_custom_enabled_setting", { enabled }) };
@@ -4868,6 +4876,10 @@ export type PreviewOutputModeStatePayload = { active: boolean; recording: boolea
 export type ProfileLlmSettings = { enabled: boolean; promptOverride: string | null; modelOverride: string | null }
 export type RecordingOverlayAnimatedBorderMode = "none" | "shimmer_edge" | "traveling_highlight" | "breathing_contour"
 export type RecordingOverlayAppearancePayload = { custom_enabled: boolean; theme: string; background_mode: string; material_mode: string; centerpiece_mode: string; animated_border_mode: string; accent_color: string; status_icon_color: string; cancel_icon_color: string; surface_base_color: string; body_background_color: string; show_status_icon: boolean; show_cancel_button: boolean; bar_count: number; bar_width_px: number; bar_style: string; show_drag_grip: boolean; audio_reactive_scale: boolean; audio_reactive_scale_max_percent: number; voice_sensitivity_percent: number; animation_softness_percent: number; depth_parallax_percent: number; opacity_percent: number; silence_fade: boolean; silence_opacity_percent: number; decapitalize_indicator_mode: string; decapitalize_indicator_custom_text: string; decapitalize_indicator_font_family: string; decapitalize_indicator_font_size_px: number; decapitalize_indicator_color: string; frame_width_px: number; frame_height_px: number }
+/**
+ * A complete appearance update, excluding visibility, mode, and window position.
+ */
+export type RecordingOverlayAppearanceSettings = { recording_overlay_theme: RecordingOverlayTheme; recording_overlay_show_cancel_button: boolean; recording_overlay_width_px: number; recording_overlay_status_icon_color: string; recording_overlay_cancel_icon_color: string; recording_overlay_decapitalize_indicator_mode: RecordingOverlayDecapitalizeIndicatorMode; recording_overlay_decapitalize_indicator_custom_text: string; recording_overlay_decapitalize_indicator_font_family: string; recording_overlay_decapitalize_indicator_font_size_px: number; recording_overlay_decapitalize_indicator_color: string; recording_overlay_background_mode: RecordingOverlayBackgroundMode; recording_overlay_material_mode: RecordingOverlayMaterialMode; recording_overlay_centerpiece_mode: RecordingOverlayCenterpieceMode; recording_overlay_animated_border_mode: RecordingOverlayAnimatedBorderMode; recording_overlay_surface_base_color: string; recording_overlay_body_background_color: string; recording_overlay_show_status_icon: boolean; recording_overlay_bar_count: number; recording_overlay_bar_width_px: number; recording_overlay_bar_style: RecordingOverlayBarStyle; recording_overlay_accent_color: string; recording_overlay_show_drag_grip: boolean; recording_overlay_audio_reactive_scale: boolean; recording_overlay_audio_reactive_scale_max_percent: number; recording_overlay_voice_sensitivity_percent: number; recording_overlay_animation_softness_percent: number; recording_overlay_depth_parallax_percent: number; recording_overlay_opacity_percent: number; recording_overlay_silence_fade: boolean; recording_overlay_silence_opacity_percent: number }
 export type RecordingOverlayBackgroundMode = "none" | "mist" | "petals_haze" | "soft_glow_field" | "stardust" | "silk_fog" | "firefly_veil" | "rose_sparks"
 export type RecordingOverlayBarStyle = "solid" | "capsule" | "glow" | "prism" | "radar" | "shards" | "retro" | "needles" | "orbit" | "aurora" | "bloom_bounce" | "pulse_rings" | "fireflies" | "helix" | "constellation" | "petals" | "petal_rain" | "daisy" | "lotus" | "garden_sway" | "matrix" | "skyline" | "comet" | "tuner" | "ember" | "hologram" | "vinyl" | "morse" | "crown"
 export type RecordingOverlayCenterpieceMode = "none" | "halo_core" | "aurora_ribbon" | "orbital_beads" | "bloom_heart" | "signal_crown"

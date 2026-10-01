@@ -100,6 +100,57 @@ mod tests {
     }
 
     #[test]
+    fn empty_provider_responses_preserve_the_http_status() {
+        assert_eq!(
+            parse_provider_error(b" \r\n\t ", StatusCode::UNAUTHORIZED),
+            "HTTP 401"
+        );
+        assert_eq!(
+            parse_provider_error(b"{}", StatusCode::SERVICE_UNAVAILABLE),
+            "HTTP 503"
+        );
+    }
+
+    #[test]
+    fn nested_provider_details_take_precedence_over_generic_gateway_errors() {
+        let payload = json!({
+            "error": { "message": "Model is unavailable", "code": "model_not_found" },
+            "message": "Gateway request failed",
+            "code": "gateway_error"
+        });
+
+        assert_eq!(
+            parse_provider_error_value(&payload, "HTTP 502"),
+            "Model is unavailable (code: model_not_found)"
+        );
+    }
+
+    #[test]
+    fn provider_messages_strip_control_characters_but_keep_readable_layout() {
+        let payload = json!({ "message": " \u{0000}Retry\u{0007}\n\tafter 30 seconds\r " });
+
+        assert_eq!(
+            parse_provider_error_value(&payload, "HTTP 429"),
+            "Retry\n\tafter 30 seconds"
+        );
+    }
+
+    #[test]
+    fn unicode_provider_errors_are_bounded_without_splitting_characters() {
+        let message = "界".repeat(2_000);
+        assert_eq!(
+            parse_provider_error_value(&json!({ "message": &message }), "HTTP 500"),
+            message
+        );
+
+        let oversized = format!("{}界", message);
+        assert_eq!(
+            parse_provider_error_value(&json!({ "message": oversized }), "HTTP 500"),
+            format!("{}…", message)
+        );
+    }
+
+    #[test]
     fn websocket_errors_use_the_same_shape() {
         let payload = json!({
             "type": "error",

@@ -70,6 +70,56 @@ Run it with:
 
 Update this section every time new tests are added.
 
+### Frontend audio loading and capture-region recovery (2026-09-30)
+
+- `src/lib/utils/ttsPlaybackEffects.test.ts` covers HTTP errors, rejected
+  network requests, oversized audio rejected before body loading/decoding,
+  and cancellation while decoding is pending. Requests are mocked and
+  cancellation uses controlled promises rather than timing delays.
+- `src/region-capture/geometry.test.ts` also covers keeping a saved selection
+  inside a smaller display without modifying the saved input object.
+
+Run with:
+
+`bun test ./src/lib/utils/ttsPlaybackEffects.test.ts ./src/region-capture/geometry.test.ts`
+
+### Gemini Live mocked transport, insertion, and cutoff (2026-09-30)
+
+- `managers::gemini_realtime::network_tests` drives the production Google and
+  Vercel connection/setup helpers and WebSocket loop with in-memory transports
+  and Tokio's paused clock. It covers handshake construction, connection and
+  setup failures, audio framing, setup acknowledgement, provider/read/write
+  errors, malformed frames, cancellation, normal finalization, revised final
+  text, repeated completion markers, session time limits, and final-transcript
+  grace periods.
+- The same subset exercises the production stream processor, output deadline,
+  and operation-delivery guard with a simulated insertion sink. Early-finish
+  tests cover configured insertion timing, abort-and-join cleanup, partial-text
+  preservation, errors without output, and overlapping detached/new sessions.
+  Matching-session tests verify that an old finish cannot detach a newer
+  recording or clear its buffered audio.
+- `managers::gemini_output_window::tests` covers exact deadline boundaries,
+  queued delivery checks, Unicode separators, and per-recording isolation.
+- `soniox_stream_processor::tests::gemini_cutoff_` covers buffered tail flushing,
+  optional final spaces, existing whitespace, empty output, and punctuation.
+- `actions::stt_workflow_tests::gemini_hotkey_cutoff_` covers eligibility and
+  configured-delay bounds. The adjacent detached-delivery test covers the
+  explicit background-finalization exemption from foreground ownership checks.
+- Tests use fake credentials and no external network, microphone, real
+  clipboard, or desktop windows.
+
+Run the focused batch through the checked-in harness:
+
+```powershell
+.\test-local.ps1 -LibOnly -Filter @(
+    'managers::gemini_realtime::'
+    'managers::gemini_output_window::'
+    'soniox_stream_processor::tests::gemini_cutoff_'
+    'actions::stt_workflow_tests::gemini_hotkey_cutoff_'
+    'actions::stt_workflow_tests::detached_gemini_delivery_'
+)
+```
+
 ### Text replacement JSON transfer and escape handling (2026-08-21)
 
 - `src/components/settings/text-replacement/textReplacementRuleTransfer.test.ts`

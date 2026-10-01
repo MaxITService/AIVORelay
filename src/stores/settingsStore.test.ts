@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import type { AppSettings } from "@/bindings";
 import { useSettingsStore } from "./settingsStore";
+import {
+  DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG,
+  RECORDING_OVERLAY_STYLE_SETTING_ENTRIES,
+} from "@/overlay/recordingOverlayStyleConfig";
 
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 const originalState = useSettingsStore.getState();
@@ -24,6 +28,59 @@ function settings(): AppSettings {
     ],
   } as AppSettings;
 }
+
+test("appearance is saved in one call and does not overwrite concurrent unrelated state", async () => {
+  const backend = deferred();
+  const started = deferred();
+  const style = { ...DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG, widthPx: 320 };
+  const appearance = Object.fromEntries(RECORDING_OVERLAY_STYLE_SETTING_ENTRIES(style));
+  const calls: Array<{ command: string; args: Record<string, unknown> }> = [];
+  invokeBackend = (command, args) => {
+    calls.push({ command, args });
+    started.resolve();
+    return backend.promise;
+  };
+  const change = useSettingsStore.getState().applyRecordingOverlayStyle(style);
+  await started.promise;
+  expect(useSettingsStore.getState().isUpdating.recording_overlay_appearance).toBe(true);
+  expect(useSettingsStore.getState().settings?.recording_overlay_width_px).toBeUndefined();
+  useSettingsStore.getState().setSettings({ ...settings(), active_profile_id: "profile-b" });
+  backend.resolve({ ...settings(), ...appearance });
+  await change;
+  expect(calls).toEqual([{ command: "apply_recording_overlay_appearance", args: { appearance } }]);
+  expect(useSettingsStore.getState().settings?.active_profile_id).toBe("profile-b");
+  expect(useSettingsStore.getState().settings?.recording_overlay_width_px).toBe(320);
+  expect(useSettingsStore.getState().isUpdating.recording_overlay_appearance).toBe(false);
+});
+
+test("failed appearance save rejects without partial frontend changes and releases its busy state", async () => {
+  invokeBackend = async () => { throw new Error("disk full"); };
+  const original = useSettingsStore.getState().settings;
+  await expect(useSettingsStore.getState().applyRecordingOverlayStyle(DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG))
+    .rejects.toThrow("disk full");
+  expect(useSettingsStore.getState().settings).toEqual(original);
+  expect(useSettingsStore.getState().isUpdating.recording_overlay_appearance).toBe(false);
+});
+
+test("appearance and mode edits cannot interleave with an active appearance save", async () => {
+  const backend = deferred();
+  const started = deferred();
+  const calls: string[] = [];
+  invokeBackend = (command) => { calls.push(command); started.resolve(); return backend.promise; };
+  const change = useSettingsStore.getState().applyRecordingOverlayStyle(DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG);
+  await started.promise;
+  const rejected = useSettingsStore.getState().applyRecordingOverlayStyle(DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG);
+  await expect(rejected).rejects.toThrow("already in progress");
+  for (const [key, value] of [["recording_overlay_width_px", 300], ["recording_overlay_custom_enabled", false]] as const) {
+    await expect(useSettingsStore.getState().updateSetting(key, value, { throwOnError: true }))
+      .rejects.toThrow("Wait for the overlay appearance update");
+  }
+  backend.resolve({ ...settings(), ...Object.fromEntries(
+    RECORDING_OVERLAY_STYLE_SETTING_ENTRIES(DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG),
+  ) });
+  await change;
+  expect(calls).toEqual(["apply_recording_overlay_appearance"]);
+});
 
 beforeEach(() => {
   invokeBackend = async () => undefined;

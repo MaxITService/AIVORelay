@@ -121,3 +121,38 @@ test("intentional pauses and faster playback retain their exact join", async () 
   expect(starts[1]).toBeCloseTo(0.245, 10);
   expect(rates).toEqual([2, 2]);
 });
+
+test("half-speed playback doubles chunk duration without adding join silence", async () => {
+  const { starts, rates } = await scheduleChunks(0.51, 0, 0.5);
+  expect(starts[0]).toBeCloseTo(0.02, 10);
+  expect(starts[1]).toBeCloseTo(0.52, 10);
+  expect(rates).toEqual([0.5, 0.5]);
+});
+
+test("four-times playback preserves joins when decoding finishes within the startup margin", async () => {
+  const { starts, rates } = await scheduleChunks(0.08, 0, 4);
+  expect(starts[1]).toBeCloseTo(0.0825, 10);
+  expect(rates).toEqual([4, 4]);
+});
+
+test("half-speed playback preserves the requested pause in wall-clock milliseconds", async () => {
+  const { starts, rates } = await scheduleChunks(0.66, 150, 0.5);
+  expect(starts[1]).toBeCloseTo(0.67, 10);
+  expect(rates).toEqual([0.5, 0.5]);
+});
+
+test("a long intentional pause does not acquire an extra startup margin", async () => {
+  const { starts } = await scheduleChunks(0.56, 300);
+  expect(starts[1]).toBeCloseTo(0.57, 10);
+});
+
+test("negative pause values cannot overlap adjacent chunks", async () => {
+  const { starts } = await scheduleChunks(0.26, -100);
+  expect(starts[1]).toBeCloseTo(0.27, 10);
+});
+
+test("a long decoding underrun reschedules from the current audio clock", async () => {
+  const { starts } = await scheduleChunks(1);
+  expect(starts[0]).toBeCloseTo(0.02, 10);
+  expect(starts[1]).toBeCloseTo(1.02, 10);
+});

@@ -3869,6 +3869,37 @@ fn prepared_transcribe_start_for_binding(
     }
 }
 
+pub(crate) fn gemini_stream_operation_allows_delivery(
+    background_finalization: bool,
+    is_current: impl FnOnce() -> bool,
+    was_cancelled: impl FnOnce() -> bool,
+) -> bool {
+    background_finalization || (is_current() && !was_cancelled())
+}
+
+fn gemini_early_finalization_delay(
+    settings: &AppSettings,
+    is_gemini_live_provider: bool,
+    preview_output_only_enabled: bool,
+    invoked_from_realtime_error: bool,
+    invoked_from_gemini_time_limit: bool,
+    binding_id: &str,
+) -> Option<Duration> {
+    if is_gemini_live_provider
+        && settings.gemini_live_early_finalization_enabled
+        && !preview_output_only_enabled
+        && !invoked_from_realtime_error
+        && !invoked_from_gemini_time_limit
+        && binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+    {
+        Some(Duration::from_millis(u64::from(
+            settings.gemini_live_early_finalization_delay_ms.clamp(100, 5000),
+        )))
+    } else {
+        None
+    }
+}
+
 fn should_release_vercel_gemini_after_streamed_output(
     is_gemini_live_provider: bool,
     provider_preset: &str,
@@ -3904,6 +3935,8 @@ fn can_background_vercel_gemini_finalization(
 mod stt_workflow_tests {
     use super::{
         preview_transcribe_start_from_snapshot, resolve_active_app_window_title,
+        gemini_stream_operation_allows_delivery,
+        gemini_early_finalization_delay,
         settings_with_model_override_for_binding,
         should_release_vercel_gemini_after_streamed_output, LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
     };
@@ -3977,6 +4010,50 @@ mod stt_workflow_tests {
                 unsafe_case.5,
             ));
         }
+    }
+
+    #[test]
+    fn detached_gemini_delivery_does_not_query_the_successor_operation() {
+        let lookups = Cell::new(0);
+        assert!(gemini_stream_operation_allows_delivery(
+            true,
+            || { lookups.set(lookups.get() + 1); false },
+            || { lookups.set(lookups.get() + 1); true },
+        ));
+        assert_eq!(lookups.get(), 0);
+        assert!(!gemini_stream_operation_allows_delivery(
+            false, || false, || panic!("stale operation must short-circuit cancellation lookup"),
+        ));
+    }
+
+    #[test]
+    fn gemini_hotkey_cutoff_respects_configured_delay_and_safety_bounds() {
+        let mut settings = get_default_settings();
+        settings.gemini_live_early_finalization_enabled = true;
+        for (configured, expected) in [(0, 100), (99, 100), (100, 100), (500, 500), (5000, 5000), (u32::MAX, 5000)] {
+            settings.gemini_live_early_finalization_delay_ms = configured;
+            assert_eq!(
+                gemini_early_finalization_delay(&settings, true, false, false, false, "transcribe"),
+                Some(std::time::Duration::from_millis(expected)),
+            );
+        }
+    }
+
+    #[test]
+    fn gemini_hotkey_cutoff_is_excluded_from_preview_errors_time_limit_and_live_monitor() {
+        let mut settings = get_default_settings();
+        settings.gemini_live_early_finalization_enabled = true;
+        for (provider, preview, error, time_limit, binding) in [
+            (false, false, false, false, "transcribe"),
+            (true, true, false, false, "transcribe"),
+            (true, false, true, false, "transcribe"),
+            (true, false, false, true, "transcribe"),
+            (true, false, false, false, LIVE_SOUND_TRANSCRIPTION_BINDING_ID),
+        ] {
+            assert!(gemini_early_finalization_delay(&settings, provider, preview, error, time_limit, binding).is_none());
+        }
+        settings.gemini_live_early_finalization_enabled = false;
+        assert!(gemini_early_finalization_delay(&settings, true, false, false, false, "transcribe").is_none());
     }
 
     #[test]
@@ -7884,10 +7961,11 @@ impl ShortcutAction for TranscribeAction {
                                             gemini_background_finalization_can_deliver(
                                                 operation_stamp.operation_id,
                                             );
-                                        if !background_finalization
-                                            && (!operation_stamp.is_current(&ah_for_clip)
-                                                || operation_stamp.was_cancelled(&ah_for_clip))
-                                        {
+                                        if !gemini_stream_operation_allows_delivery(
+                                            background_finalization,
+                                            || operation_stamp.is_current(&ah_for_clip),
+                                            || operation_stamp.was_cancelled(&ah_for_clip),
+                                        ) {
                                             debug!(
                                                 "Skipping queued Gemini 3.5 Transcribe Live chunk for stale or cancelled operation {}",
                                                 operation_stamp.operation_id
@@ -8054,23 +8132,21 @@ impl ShortcutAction for TranscribeAction {
             };
             let operation_stamp = stop_context.operation_stamp();
             let recording_operation_id = stop_context.operation_id;
-            let early_gemini_deadline = if is_gemini_live_provider
-                && recording_settings.gemini_live_early_finalization_enabled
-                && !preview_output_only_enabled
-                && !invoked_from_realtime_error
-                && !invoked_from_gemini_time_limit
-                && binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID
-            {
+            let early_gemini_deadline = gemini_early_finalization_delay(
+                &recording_settings,
+                is_gemini_live_provider,
+                preview_output_only_enabled,
+                invoked_from_realtime_error,
+                invoked_from_gemini_time_limit,
+                &binding_id,
+            ).and_then(|delay| {
                 gemini_realtime_manager.output_window(recording_operation_id).map(|window| {
-                    let delay = recording_settings.gemini_live_early_finalization_delay_ms.clamp(100, 5000);
-                    let deadline = Instant::now() + Duration::from_millis(u64::from(delay));
+                    let deadline = Instant::now() + delay;
                     window.finish_at(deadline);
-                    info!("Gemini early finalization armed (operation={}, delay_ms={})", recording_operation_id, delay);
+                    info!("Gemini early finalization armed (operation={}, delay_ms={})", recording_operation_id, delay.as_millis());
                     deadline
                 })
-            } else {
-                None
-            };
+            });
             // Live mode already streamed text while recording.
             // On stop, show explicit finalizing state unless instant-stop is enabled.
             if live_instant_stop && !preview_output_only_enabled {

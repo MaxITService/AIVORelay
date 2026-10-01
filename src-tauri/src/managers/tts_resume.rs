@@ -1951,6 +1951,153 @@ mod tests {
     }
 
     #[test]
+    fn rejected_out_of_order_segment_preserves_the_committed_audio_prefix() {
+        let directory = temp_directory("reject-out-of-order");
+        fs::create_dir(&directory).unwrap();
+        let output = directory.join("voice.wav");
+        let mut workspace = ResumeWorkspace::open_for_output(
+            &output, "signature".to_string(), 2, ResumeOrigin::Manual,
+        ).unwrap();
+        workspace.append_segment(1, &[1, 0, 2, 0]).unwrap();
+
+        assert!(workspace.append_segment(3, &[9, 0]).is_err());
+        assert_eq!(workspace.completed_chunks(), 1);
+        assert_eq!(workspace.committed_bytes(), 4);
+        assert_eq!(fs::read(workspace.raw_path()).unwrap(), vec![1, 0, 2, 0]);
+
+        workspace.append_segment(2, &[3, 0]).unwrap();
+        assert_eq!(workspace.completed_chunks(), 2);
+        assert_eq!(fs::read(workspace.raw_path()).unwrap(), vec![1, 0, 2, 0, 3, 0]);
+        workspace.discard();
+        fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn invalid_pcm_segments_leave_resume_state_unchanged() {
+        let directory = temp_directory("reject-invalid-pcm");
+        fs::create_dir(&directory).unwrap();
+        let output = directory.join("voice.wav");
+        let mut workspace = ResumeWorkspace::open_for_output(
+            &output, "signature".to_string(), 1, ResumeOrigin::Manual,
+        ).unwrap();
+
+        assert!(workspace.append_segment(1, &[]).is_err());
+        assert!(workspace.append_segment(1, &[1, 0, 2]).is_err());
+        assert_eq!(workspace.completed_chunks(), 0);
+        assert_eq!(workspace.committed_bytes(), 0);
+        assert!(fs::read(workspace.raw_path()).unwrap().is_empty());
+
+        workspace.append_segment(1, &[1, 0]).unwrap();
+        assert!(workspace.append_segment(2, &[2, 0]).is_err());
+        assert_eq!(workspace.completed_chunks(), 1);
+        assert_eq!(fs::read(workspace.raw_path()).unwrap(), vec![1, 0]);
+        workspace.discard();
+        fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn corrupt_latest_checkpoint_recovers_the_previous_verified_audio_prefix() {
+        let directory = temp_directory("corrupt-latest-slot");
+        fs::create_dir(&directory).unwrap();
+        let output = directory.join("voice.wav");
+        let mut workspace = ResumeWorkspace::open_for_output(
+            &output, "signature".to_string(), 2, ResumeOrigin::Manual,
+        ).unwrap();
+        workspace.append_segment(1, &[1, 0, 2, 0]).unwrap();
+        workspace.append_segment(2, &[3, 0]).unwrap();
+        drop(workspace);
+        fs::write(output_workspace_root(&output).join(CHECKPOINT_SLOTS[0]), b"{truncated").unwrap();
+
+        let mut recovered = ResumeWorkspace::open_for_output(
+            &output, "signature".to_string(), 2, ResumeOrigin::Manual,
+        ).unwrap();
+        assert_eq!(recovered.completed_chunks(), 1);
+        assert_eq!(recovered.committed_bytes(), 4);
+        assert_eq!(fs::read(recovered.raw_path()).unwrap(), vec![1, 0, 2, 0]);
+
+        recovered.append_segment(2, &[4, 0]).unwrap();
+        assert_eq!(fs::read(recovered.raw_path()).unwrap(), vec![1, 0, 2, 0, 4, 0]);
+        recovered.discard();
+        fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn corrupted_pcm_is_refused_before_a_fresh_conversion_can_start() {
+        let directory = temp_directory("corrupt-pcm");
+        fs::create_dir(&directory).unwrap();
+        let output = directory.join("voice.wav");
+        let mut workspace = ResumeWorkspace::open_for_output(
+            &output, "signature".to_string(), 1, ResumeOrigin::Manual,
+        ).unwrap();
+        workspace.append_segment(1, &[1, 0]).unwrap();
+        let raw_path = workspace.raw_path().to_path_buf();
+        drop(workspace);
+        fs::write(&raw_path, [9, 0]).unwrap();
+
+        let error = ResumeWorkspace::open_for_output(
+            &output, "signature".to_string(), 1, ResumeOrigin::Manual,
+        ).err().expect("Corrupted PCM must not be resumed");
+        assert!(error.to_string().contains("corrupt"));
+
+        let recovered = ResumeWorkspace::open_for_output(
+            &output, "signature".to_string(), 1, ResumeOrigin::Manual,
+        ).unwrap();
+        assert_eq!(recovered.completed_chunks(), 0);
+        assert!(fs::read(recovered.raw_path()).unwrap().is_empty());
+        recovered.discard();
+        fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn changed_synthesis_signature_cannot_reuse_audio_from_the_previous_voice() {
+        let directory = temp_directory("changed-signature");
+        fs::create_dir(&directory).unwrap();
+        let output = directory.join("voice.wav");
+        let mut workspace = ResumeWorkspace::open_for_output(
+            &output, "original-voice".to_string(), 1, ResumeOrigin::Manual,
+        ).unwrap();
+        workspace.append_segment(1, &[1, 0]).unwrap();
+        drop(workspace);
+
+        let mut changed = ResumeWorkspace::open_for_output(
+            &output, "changed-voice".to_string(), 1, ResumeOrigin::Manual,
+        ).unwrap();
+        assert_eq!(changed.completed_chunks(), 0);
+        assert_eq!(changed.committed_bytes(), 0);
+        changed.append_segment(1, &[2, 0]).unwrap();
+        assert_eq!(fs::read(changed.raw_path()).unwrap(), vec![2, 0]);
+        changed.discard();
+        fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn reopening_discards_partial_encoding_while_retaining_verified_pcm_and_final_output() {
+        let directory = temp_directory("partial-encoding");
+        fs::create_dir(&directory).unwrap();
+        let output = directory.join("voice.wav");
+        let mut workspace = ResumeWorkspace::open_for_output(
+            &output, "signature".to_string(), 1, ResumeOrigin::Manual,
+        ).unwrap();
+        workspace.append_segment(1, &[1, 0]).unwrap();
+        let encoded = workspace.encoded_partial_path();
+        drop(workspace);
+        fs::write(&encoded, b"incomplete encoding").unwrap();
+        fs::write(&output, b"existing final audio").unwrap();
+
+        let recovered = ResumeWorkspace::open_for_output(
+            &output, "signature".to_string(), 1, ResumeOrigin::Manual,
+        ).unwrap();
+        assert!(!encoded.exists());
+        assert_eq!(recovered.completed_chunks(), 1);
+        assert_eq!(fs::read(recovered.raw_path()).unwrap(), vec![1, 0]);
+        assert_eq!(fs::read(&output).unwrap(), b"existing final audio");
+        recovered.discard();
+        assert_eq!(fs::read(&output).unwrap(), b"existing final audio");
+        fs::remove_file(output).unwrap();
+        fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
     fn synthesis_signature_ignores_retry_and_output_encoding_settings() {
         let chunks = vec![TtsChunk {
             index: 1,

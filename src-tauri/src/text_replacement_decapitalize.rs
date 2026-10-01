@@ -222,6 +222,64 @@ mod tests {
     }
 
     #[test]
+    fn realtime_trigger_expires_only_after_its_exact_deadline() {
+        let now = Instant::now();
+        let mut state = DecapitalizeState::default();
+        state.arm_after_edit(100, false, now);
+        let deadline = now + Duration::from_millis(100);
+
+        assert!(state.is_trigger_pending(ApplyMode::RealtimeChunk, deadline));
+        assert!(!state.is_trigger_pending(ApplyMode::RealtimeChunk, deadline + Duration::from_nanos(1)));
+        assert!(state.realtime_trigger_until.is_none());
+    }
+
+    #[test]
+    fn standard_output_latch_survives_a_slow_transcription_after_realtime_timeout() {
+        let now = Instant::now();
+        let mut state = DecapitalizeState::default();
+        state.arm_after_edit(100, true, now);
+        let final_output_time = now + Duration::from_secs(30);
+
+        assert!(!state.is_trigger_pending(ApplyMode::RealtimeChunk, final_output_time));
+        assert!(state.is_trigger_pending(ApplyMode::StandardOutput, final_output_time));
+        state.consume(ApplyMode::StandardOutput);
+        assert!(!state.any_trigger_armed(final_output_time));
+    }
+
+    #[test]
+    fn consuming_a_realtime_chunk_preserves_the_independent_standard_output_latch() {
+        let now = Instant::now();
+        let mut state = DecapitalizeState::default();
+        state.begin_standard_monitor(500, now);
+        state.arm_after_edit(100, true, now);
+
+        state.consume(ApplyMode::RealtimeChunk);
+        assert!(!state.is_trigger_pending(ApplyMode::RealtimeChunk, now));
+        assert!(state.is_trigger_pending(ApplyMode::StandardOutput, now));
+        assert_eq!(state.standard_monitor_until, Some(now + Duration::from_millis(500)));
+
+        state.consume(ApplyMode::StandardOutput);
+        assert!(!state.standard_output_armed);
+        assert!(state.standard_monitor_until.is_none());
+    }
+
+    #[test]
+    fn an_edit_after_the_monitor_window_cannot_arm_delayed_standard_output() {
+        let now = Instant::now();
+        let mut state = DecapitalizeState::default();
+        state.begin_standard_monitor(100, now);
+        let edit_time = now + Duration::from_millis(101);
+        state.arm_after_edit(50, false, edit_time);
+
+        assert!(state.is_trigger_pending(ApplyMode::RealtimeChunk, edit_time));
+        assert!(!state.standard_output_armed);
+        assert!(state.standard_monitor_until.is_none());
+        assert!(!state.is_trigger_pending(
+            ApplyMode::StandardOutput, edit_time + Duration::from_millis(51)
+        ));
+    }
+
+    #[test]
     fn arm_after_edit_sets_realtime_deadline_and_optionally_standard_output() {
         let now = Instant::now();
         let mut state = DecapitalizeState::default();

@@ -156,6 +156,55 @@ it("aborts activation when state changes while prepare is awaiting model selecti
   expect(token).toBeNull();
 });
 
+it("preserves a newer download intent when an older activation check finishes late", async () => {
+  await beginModelDownloadActivationIntent("older-model");
+
+  let resolveOlderSnapshot!: (value: Result<string, string>) => void;
+  mockCurrentModel = () =>
+    new Promise((resolve) => {
+      resolveOlderSnapshot = resolve;
+    });
+
+  const olderPreparation = prepareModelDownloadAutoActivation("older-model");
+
+  setMockSelection("manually-selected-model", "local");
+  await beginModelDownloadActivationIntent("newer-model");
+
+  // This no longer matches the older intent's snapshot. Its delayed check must
+  // not invalidate the newer request when it notices the selection change.
+  resolveOlderSnapshot({ status: "ok", data: "manually-selected-model" });
+  expect(await olderPreparation).toBeNull();
+
+  const newerToken = await prepareModelDownloadAutoActivation("newer-model");
+  expect(newerToken).not.toBeNull();
+  expect(consumeModelDownloadAutoActivation("newer-model", newerToken!)).toBe(true);
+});
+
+it("rejects a prepared token as soon as a newer download starts capturing its selection", async () => {
+  await beginModelDownloadActivationIntent("older-model");
+  const olderToken = await prepareModelDownloadAutoActivation("older-model");
+  expect(olderToken).not.toBeNull();
+
+  let resolveNewerSnapshot!: (value: Result<string, string>) => void;
+  mockCurrentModel = () =>
+    new Promise((resolve) => {
+      resolveNewerSnapshot = resolve;
+    });
+
+  const newerIntent = beginModelDownloadActivationIntent("newer-model");
+
+  // The newer snapshot is still pending, but the old token is already stale.
+  expect(consumeModelDownloadAutoActivation("older-model", olderToken!)).toBe(false);
+
+  resolveNewerSnapshot({ status: "ok", data: "base-model" });
+  await newerIntent;
+  setMockSelection("base-model", "local");
+
+  const newerToken = await prepareModelDownloadAutoActivation("newer-model");
+  expect(newerToken).not.toBeNull();
+  expect(consumeModelDownloadAutoActivation("newer-model", newerToken!)).toBe(true);
+});
+
 it("enforces one-time token consumption preventing duplicate activation dispatches", async () => {
   await beginModelDownloadActivationIntent("target-model");
 

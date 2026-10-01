@@ -388,4 +388,65 @@ mod tests {
             "late words. "
         );
     }
+
+    #[test]
+    fn gemini_cutoff_adds_one_space_after_confirmed_insertion() {
+        let mut processor = SonioxStreamProcessor::default();
+        let inserted = processor.push_chunk("Already inserted.");
+        assert_eq!(inserted, "Already inserted.");
+        processor.record_output_ending(inserted.chars().last());
+        let tail = processor.flush_with_trailing_space();
+        assert_eq!(tail, " ");
+        processor.record_output_ending(tail.chars().last());
+        assert_eq!(processor.flush_with_trailing_space(), "");
+    }
+
+    #[test]
+    fn gemini_cutoff_does_not_add_space_when_nothing_was_inserted() {
+        let mut processor = SonioxStreamProcessor::default();
+        assert_eq!(processor.flush_with_trailing_space(), "");
+        assert_eq!(processor.flush_without_standalone_whitespace(), "");
+    }
+
+    #[test]
+    fn gemini_cutoff_preserves_existing_unicode_whitespace_without_an_extra_space() {
+        for ending in [' ', '\n', '\t', '\u{2003}'] {
+            let mut processor = SonioxStreamProcessor::default();
+            processor.record_output_ending(Some(ending));
+            assert_eq!(processor.flush_with_trailing_space(), "");
+            processor.pending_raw = format!("tail{ending}");
+            assert_eq!(processor.flush_with_trailing_space(), format!("tail{ending}"));
+        }
+    }
+
+    #[test]
+    fn gemini_cutoff_flushes_buffered_tail_once_with_or_without_final_separator() {
+        for append_space in [false, true] {
+            let mut processor = SonioxStreamProcessor::default();
+            processor.stable_tail_words = 3;
+            assert_eq!(processor.push_chunk("First four words arrive"), "First ");
+            let tail = if append_space { processor.flush_with_trailing_space() }
+                else { processor.flush_without_standalone_whitespace() };
+            assert_eq!(tail, if append_space { "four words arrive " } else { "four words arrive" });
+            processor.record_output_ending(tail.chars().last());
+            assert_eq!(processor.flush(), "");
+        }
+    }
+
+    #[test]
+    fn gemini_cutoff_without_separator_discards_all_standalone_unicode_whitespace() {
+        let mut processor = SonioxStreamProcessor::default();
+        processor.pending_raw = " \t\n\u{2003}".to_string();
+        assert_eq!(processor.flush_without_standalone_whitespace(), "");
+        assert_eq!(processor.flush_without_standalone_whitespace(), "");
+    }
+
+    #[test]
+    fn gemini_cutoff_treats_pending_punctuation_as_text() {
+        let mut processor = SonioxStreamProcessor::default();
+        processor.pending_raw = "…".to_string();
+        assert_eq!(processor.flush_without_standalone_whitespace(), "…");
+        processor.pending_raw = "!".to_string();
+        assert_eq!(processor.flush_with_trailing_space(), "! ");
+    }
 }

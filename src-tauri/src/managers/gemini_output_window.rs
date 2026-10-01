@@ -94,4 +94,54 @@ mod tests {
         let new = GeminiOutputWindow::default();
         assert_eq!(new.accept_chunk("New field".into()), "New field");
     }
+
+    #[test]
+    fn grace_period_keeps_unicode_separators_and_consumes_them_only_once() {
+        let window = GeminiOutputWindow::default();
+        let now = Instant::now();
+        window.finish_at(now + Duration::from_secs(1));
+        assert_eq!(window.accept_chunk_at("\t".into(), now), "");
+        assert_eq!(window.accept_chunk_at("\u{2003}\n".into(), now), "");
+        assert_eq!(window.accept_chunk_at("Привет!".into(), now), "\t\u{2003}\nПривет!");
+        assert_eq!(window.accept_chunk_at("Next".into(), now), "Next");
+    }
+
+    #[test]
+    fn last_nanosecond_is_deliverable_but_exact_cutoff_and_later_are_blocked() {
+        let window = GeminiOutputWindow::default();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        window.finish_at(deadline);
+        let before = deadline - Duration::from_nanos(1);
+        assert!(window.allows_delivery_at(before));
+        assert_eq!(window.accept_chunk_at("last accepted".into(), before), "last accepted");
+        for late in [deadline, deadline + Duration::from_secs(1)] {
+            assert!(!window.allows_delivery_at(late));
+            assert_eq!(window.accept_chunk_at("late revision".into(), late), "");
+            assert_eq!(window.accept_chunk_at(" ".into(), late), "");
+        }
+    }
+
+    #[test]
+    fn buffered_separator_dies_with_old_window_after_cutoff() {
+        let old = GeminiOutputWindow::default();
+        let new = GeminiOutputWindow::default();
+        let now = Instant::now();
+        let deadline = now + Duration::from_millis(500);
+        old.finish_at(deadline);
+        assert_eq!(old.accept_chunk_at(" ".into(), now), "");
+        assert_eq!(old.accept_chunk_at("late text".into(), deadline), "");
+        assert_eq!(new.accept_chunk_at("new target".into(), deadline), "new target");
+        assert_eq!(old.accept_chunk_at("still late".into(), deadline + Duration::from_secs(10)), "");
+    }
+
+    #[test]
+    fn punctuation_is_real_output_and_receives_held_separator_during_grace() {
+        let window = GeminiOutputWindow::default();
+        let now = Instant::now();
+        window.finish_at(now + Duration::from_secs(1));
+        assert_eq!(window.accept_chunk_at(" ".into(), now), "");
+        assert_eq!(window.accept_chunk_at("…".into(), now), " …");
+        assert_eq!(window.accept_chunk_at(String::new(), now), "");
+        assert_eq!(window.accept_chunk_at("!".into(), now), "!");
+    }
 }

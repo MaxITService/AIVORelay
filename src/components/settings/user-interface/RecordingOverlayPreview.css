@@ -1,0 +1,79 @@
+.recording-overlay-preview-arming {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 24px;
+  overflow: hidden;
+}
+
+.recording-overlay-preview-arming span {
+  height: 8px;
+  border-radius: 999px;
+  opacity: 0.28;
+  animation: recording-overlay-preview-arming-pulse 900ms ease-in-out infinite;
+}
+
+@keyframes recording-overlay-preview-arming-pulse {
+  0%, 100% {
+    transform: scaleY(0.5);
+    opacity: 0.22;
+  }
+  50% {
+    transform: scaleY(1.65);
+    opacity: 0.68;
+  }
+}
+
+.recording-overlay-preview-chip {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  background: rgba(15, 12, 22, 0.72);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  line-height: 1.2;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  user-select: none;
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  white-space: nowrap;
+  z-index: 10;
+}
+
+.recording-overlay-preview-app {
+  color: rgba(224, 231, 255, 0.92);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 9.5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recording-overlay-preview-separator {
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recording-overlay-preview *,
+  .recording-overlay-preview *::before,
+  .recording-overlay-preview *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .recording-overlay-preview-arming span {
+    opacity: 0.45;
+  }
+}

@@ -36,12 +36,13 @@ import {
   getRecordingOverlayStyleConfigFromSettings,
   parseRecordingOverlayStyleConfig,
   RECORDING_OVERLAY_STYLE_PRESETS,
+  RECORDING_OVERLAY_INDICATOR_FONT_FAMILIES,
   RECORDING_OVERLAY_STYLE_SETTING_ENTRIES,
   serializeRecordingOverlayStyleConfig,
   type RecordingOverlayStyleConfig,
 } from "../../../overlay/recordingOverlayStyleConfig";
 
-type PreviewState = "recording" | "transcribing" | "error";
+type PreviewState = "recording" | "silence" | "arming" | "transcribing" | "error";
 
 type OverlaySliderDraftKey =
   | "recording_overlay_bar_count"
@@ -70,6 +71,15 @@ const openDecapitalizeFeatureSettings = () => {
     updateHash: false,
   });
 };
+
+const CUSTOM_OVERLAY_SETTING_KEYS = new Set([
+  "recording_overlay_material_mode", "recording_overlay_background_mode",
+  "recording_overlay_centerpiece_mode", "recording_overlay_animated_border_mode",
+  "recording_overlay_audio_reactive_scale", "recording_overlay_audio_reactive_scale_max_percent",
+  "recording_overlay_voice_sensitivity_percent", "recording_overlay_animation_softness_percent",
+  "recording_overlay_depth_parallax_percent", "recording_overlay_opacity_percent",
+  "recording_overlay_silence_fade", "recording_overlay_silence_opacity_percent",
+]);
 
 const RECORDING_OVERLAY_SETTINGS_COLLAPSED_KEY =
   "aivorelay.userInterface.recordingOverlay.collapsed";
@@ -247,6 +257,8 @@ const PREVIEW_STATES: Array<{
   labelKey: string;
 }> = [
   { value: "recording", label: "Recording", labelKey: "recording" },
+  { value: "silence", label: "Silence", labelKey: "silence" },
+  { value: "arming", label: "Starting capture", labelKey: "arming" },
   {
     value: "transcribing",
     label: "Processing",
@@ -259,20 +271,6 @@ const DECAPITALIZE_INDICATOR_MODE_OPTIONS = [
   { value: "text", label: "Default Text" },
   { value: "custom", label: "Custom Text / Emoji" },
   { value: "hidden", label: "Hidden" },
-] as const;
-
-const WINDOWS_FONT_FAMILY_OPTIONS = [
-  "Segoe UI",
-  "Segoe UI Emoji",
-  "Bahnschrift",
-  "Arial",
-  "Verdana",
-  "Tahoma",
-  "Trebuchet MS",
-  "Georgia",
-  "Times New Roman",
-  "Consolas",
-  "Cascadia Mono",
 ] as const;
 
 function findScrollableAncestor(element: HTMLElement | null): HTMLElement | null {
@@ -293,7 +291,9 @@ function findScrollableAncestor(element: HTMLElement | null): HTMLElement | null
 
 export const RecordingOverlaySettings: React.FC = () => {
   const { t } = useTranslation();
-  const { settings, updateSetting, isUpdating, refreshSettings } = useSettings();
+  const { settings, updateSetting: persistSetting, applyRecordingOverlayStyle, isUpdating, refreshSettings } = useSettings();
+  const appearanceOperationRef = React.useRef(false);
+  const [showAppInPreview, setShowAppInPreview] = React.useState(false);
   const [previewState, setPreviewState] = React.useState<PreviewState>("recording");
   const [showDecapIndicatorInPreview, setShowDecapIndicatorInPreview] =
     React.useState(false);
@@ -533,7 +533,7 @@ export const RecordingOverlaySettings: React.FC = () => {
     value: option.value,
     label: option.label,
   }));
-  const decapIndicatorFontOptions = WINDOWS_FONT_FAMILY_OPTIONS.map((fontFamily) => ({
+  const decapIndicatorFontOptions = RECORDING_OVERLAY_INDICATOR_FONT_FAMILIES.map((fontFamily) => ({
     value: fontFamily,
     label: fontFamily,
   }));
@@ -541,6 +541,23 @@ export const RecordingOverlaySettings: React.FC = () => {
     () => getRecordingOverlayStyleConfigFromSettings(settings),
     [settings],
   );
+  const appearanceBusy = isResettingAppearance || isResettingPosition ||
+    isApplyingPreset || isApplyingStyleCode ||
+    isUpdating("recording_overlay_appearance") ||
+    isUpdating("recording_overlay_custom_enabled") ||
+    RECORDING_OVERLAY_STYLE_SETTING_ENTRIES(currentStyleConfig).some(([key]) => isUpdating(key));
+  const updateSetting = React.useCallback<typeof persistSetting>(async (key, value) => {
+    if (appearanceOperationRef.current || isUpdating("recording_overlay_appearance") ||
+      isUpdating("recording_overlay_custom_enabled") ||
+      RECORDING_OVERLAY_STYLE_SETTING_ENTRIES(currentStyleConfig).some(([name]) => isUpdating(name)) ||
+      (!customOverlayEnabled && CUSTOM_OVERLAY_SETTING_KEYS.has(String(key)))) return;
+    setStyleToolsStatus(null);
+    try {
+      await persistSetting(key, value, { throwOnError: true });
+    } catch (error) {
+      setStyleToolsStatus(`Could not save overlay setting: ${String(error)}`);
+    }
+  }, [persistSetting, isUpdating, currentStyleConfig, customOverlayEnabled]);
   const currentStyleCode = React.useMemo(
     () => serializeRecordingOverlayStyleConfig(currentStyleConfig),
     [currentStyleConfig],
@@ -746,29 +763,31 @@ export const RecordingOverlaySettings: React.FC = () => {
 
   const commitSliderDraft = React.useCallback(
     async (key: OverlaySliderDraftKey, value: number) => {
-      await updateSetting(key as any, Math.round(value) as any);
-    },
-    [updateSetting],
-  );
-
-  const applyStyleConfig = React.useCallback(
-    async (config: RecordingOverlayStyleConfig) => {
-      for (const [key, value] of RECORDING_OVERLAY_STYLE_SETTING_ENTRIES(config)) {
-        await updateSetting(key as any, value as any);
+      if (appearanceOperationRef.current || isUpdating("recording_overlay_appearance") ||
+        (!customOverlayEnabled && CUSTOM_OVERLAY_SETTING_KEYS.has(key))) return;
+      setStyleToolsStatus(null);
+      try {
+        await persistSetting(key, Math.round(value), { throwOnError: true });
+      } catch (error) {
+        setSliderDrafts(sliderDraftSource);
+        setStyleToolsStatus(`Could not save overlay setting: ${String(error)}`);
       }
     },
-    [updateSetting],
+    [persistSetting, isUpdating, sliderDraftSource, customOverlayEnabled],
   );
 
+  const applyStyleConfig = applyRecordingOverlayStyle;
+
   const handleResetAppearance = async () => {
-    if (isResettingAppearance) {
+    if (appearanceBusy || appearanceOperationRef.current) {
       return;
     }
 
+    appearanceOperationRef.current = true;
+    setStyleToolsStatus(null);
     setIsResettingAppearance(true);
     try {
       await applyStyleConfig(RESET_RECORDING_OVERLAY_STYLE_CONFIG);
-      await updateSetting("recording_overlay_width_px" as any, 172 as any);
       setSliderDrafts({
         ...sliderDraftSource,
         recording_overlay_bar_count: RESET_RECORDING_OVERLAY_STYLE_CONFIG.barCount,
@@ -795,16 +814,20 @@ export const RecordingOverlaySettings: React.FC = () => {
       );
     } catch (error) {
       console.error("Failed to reset recording overlay appearance:", error);
+      setStyleToolsStatus(`Could not reset overlay appearance: ${String(error)}`);
     } finally {
+      appearanceOperationRef.current = false;
       setIsResettingAppearance(false);
     }
   };
 
   const handleResetPosition = async () => {
-    if (isResettingPosition) {
+    if (appearanceBusy || appearanceOperationRef.current) {
       return;
     }
 
+    appearanceOperationRef.current = true;
+    setStyleToolsStatus(null);
     setIsResettingPosition(true);
     try {
       const result = await commands.resetRecordingOverlayManualPosition();
@@ -812,18 +835,22 @@ export const RecordingOverlaySettings: React.FC = () => {
         throw new Error(String(result.error));
       }
       await refreshSettings();
+      setStyleToolsStatus("Overlay position reset.");
     } catch (error) {
       console.error("Failed to reset recording overlay position:", error);
+      setStyleToolsStatus(`Could not reset overlay position: ${String(error)}`);
     } finally {
+      appearanceOperationRef.current = false;
       setIsResettingPosition(false);
     }
   };
 
   const handleApplyPreset = async (config: RecordingOverlayStyleConfig) => {
-    if (isApplyingPreset) {
+    if (!customOverlayEnabled || appearanceBusy || appearanceOperationRef.current) {
       return;
     }
 
+    appearanceOperationRef.current = true;
     setStyleToolsStatus(null);
     setIsApplyingPreset(true);
     try {
@@ -843,6 +870,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         ),
       );
     } finally {
+      appearanceOperationRef.current = false;
       setIsApplyingPreset(false);
     }
   };
@@ -889,14 +917,15 @@ export const RecordingOverlaySettings: React.FC = () => {
   };
 
   const handleApplyStyleCode = async () => {
-    if (isApplyingStyleCode) {
+    if (!customOverlayEnabled || appearanceBusy || appearanceOperationRef.current) {
       return;
     }
 
+    appearanceOperationRef.current = true;
     setStyleToolsStatus(null);
     setIsApplyingStyleCode(true);
     try {
-      const parsed = parseRecordingOverlayStyleConfig(styleCodeDraft);
+      const parsed = parseRecordingOverlayStyleConfig(styleCodeDraft, currentStyleConfig);
       await applyStyleConfig(parsed);
       setStyleToolsStatus(
         t(
@@ -915,6 +944,7 @@ export const RecordingOverlaySettings: React.FC = () => {
             ),
       );
     } finally {
+      appearanceOperationRef.current = false;
       setIsApplyingStyleCode(false);
     }
   };
@@ -972,17 +1002,14 @@ export const RecordingOverlaySettings: React.FC = () => {
           sliderDrafts.recording_overlay_silence_opacity_percent
         }
         decapIndicatorMode={
-          showDecapIndicatorInPreview
-            ? decapIndicatorMode === "hidden"
-              ? "text"
-              : decapIndicatorMode
-            : "hidden"
+          showDecapIndicatorInPreview ? decapIndicatorMode : "hidden"
         }
         decapIndicatorCustomText={decapIndicatorCustomText}
         decapIndicatorFontFamily={decapIndicatorFontFamily}
         decapIndicatorFontSizePx={decapIndicatorFontSizePx}
         decapIndicatorColor={decapIndicatorColor}
         minimumWidthPx={sliderDrafts.recording_overlay_width_px}
+        showAppChip={showAppInPreview}
         maxPreviewWidthPx={360}
       />
     </div>
@@ -1072,7 +1099,12 @@ export const RecordingOverlaySettings: React.FC = () => {
       )}
       onCollapsedChange={updateRecordingOverlayCollapsed}
     >
-      <div className="flex flex-col divide-y divide-white/[0.05]">
+      {styleToolsStatus && (
+        <div role="status" aria-live="polite" className="px-4 py-3 text-xs text-[#ffb6cf]">
+          {styleToolsStatus}
+        </div>
+      )}
+      <fieldset disabled={appearanceBusy} aria-busy={appearanceBusy} className="min-w-0 border-0 p-0 m-0 flex flex-col divide-y divide-white/[0.05]">
         <div className="order-1">
       <SettingContainer
         title={t(
@@ -1097,6 +1129,7 @@ export const RecordingOverlaySettings: React.FC = () => {
                   key={option.value}
                   type="button"
                   onClick={() => setPreviewState(option.value)}
+                  aria-pressed={selected}
                   className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
                     selected
                       ? "border-[#ff4d8d] bg-[#ff4d8d]/15 text-[#ff8ebb]"
@@ -1108,6 +1141,14 @@ export const RecordingOverlaySettings: React.FC = () => {
               );
             })}
           </div>
+          <ToggleSwitch
+            checked={showAppInPreview}
+            onChange={setShowAppInPreview}
+            label="Show application chip in preview"
+            description="Shows a sample application name in this preview only."
+            descriptionMode="tooltip"
+            grouped={true}
+          />
           <div className="rounded-lg border border-dashed border-[#3a3a3a] bg-[#181818] px-3 py-2 text-xs leading-relaxed text-[#a8a8a8] xl:hidden">
             Preview docks in the empty left gutter when there is enough room.
             On narrower windows it collapses into a floating button that opens
@@ -1121,21 +1162,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       <ToggleSwitch
         checked={customOverlayEnabled}
         onChange={(enabled) =>
-          void (async () => {
-            if (!enabled) {
-              const legacyBarStyle = normalizeLegacyRecordingOverlayBarStyle(barStyle);
-              if (legacyBarStyle !== barStyle) {
-                await updateSetting(
-                  "recording_overlay_bar_style" as any,
-                  legacyBarStyle as any,
-                );
-              }
-            }
-            await updateSetting(
-              "recording_overlay_custom_enabled" as any,
-              enabled as any,
-            );
-          })()
+          void updateSetting("recording_overlay_custom_enabled", enabled)
         }
         isUpdating={isUpdating("recording_overlay_custom_enabled")}
         label={t(
@@ -1166,11 +1193,11 @@ export const RecordingOverlaySettings: React.FC = () => {
           className="order-3"
           title={customOverlayEnabled ? undefined : customOverlayDisabledReason}
         >
-          <div
+          <fieldset disabled={!customOverlayEnabled || appearanceBusy}
             className={
               customOverlayEnabled
-                ? undefined
-                : "pointer-events-none select-none opacity-45"
+                ? "min-w-0 border-0 p-0 m-0"
+                : "min-w-0 border-0 p-0 m-0 opacity-45"
             }
           >
       <SettingContainer
@@ -1224,7 +1251,7 @@ export const RecordingOverlaySettings: React.FC = () => {
                     type="button"
                     onClick={() => void handleApplyPreset(presetConfig)}
                     aria-pressed={isApplied}
-                    disabled={isApplyingPreset}
+                    disabled={!customOverlayEnabled || appearanceBusy}
                     className={`rounded-xl border p-3 text-left transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-45 ${
                       isApplied
                         ? "border-[#ff78b4] bg-[#20161c]"
@@ -1272,13 +1299,14 @@ export const RecordingOverlaySettings: React.FC = () => {
                       customEnabled={true}
                       theme={presetConfig.theme}
                       accentColor={presetConfig.accentColor}
-                      statusIconColor="#faa2ca"
-                      cancelIconColor="#faa2ca"
                       surfaceBaseColor={presetConfig.surfaceBaseColor}
                       bodyBackgroundColor={presetConfig.bodyBackgroundColor}
                       materialMode={presetConfig.materialMode}
                       showStatusIcon={presetConfig.showStatusIcon}
-                      showCancelButton={true}
+                      showCancelButton={presetConfig.showCancelButton}
+                      statusIconColor={presetConfig.statusIconColor}
+                      cancelIconColor={presetConfig.cancelIconColor}
+                      minimumWidthPx={presetConfig.widthPx}
                       backgroundMode={presetConfig.backgroundMode}
                       centerpieceMode={presetConfig.centerpieceMode}
                       animatedBorderMode={presetConfig.animatedBorderMode}
@@ -1312,12 +1340,9 @@ export const RecordingOverlaySettings: React.FC = () => {
               })}
             </div>
           )}
-          {styleToolsStatus && (
-            <div className="text-xs text-[#ffb6cf]">{styleToolsStatus}</div>
-          )}
         </div>
       </SettingContainer>
-          </div>
+          </fieldset>
         </div>
 
         <div className="order-4">
@@ -1355,11 +1380,11 @@ export const RecordingOverlaySettings: React.FC = () => {
           className="order-8"
           title={customOverlayEnabled ? undefined : customOverlayDisabledReason}
         >
-          <div
+          <fieldset disabled={!customOverlayEnabled || appearanceBusy}
             className={
               customOverlayEnabled
-                ? undefined
-                : "pointer-events-none select-none opacity-45"
+                ? "min-w-0 border-0 p-0 m-0"
+                : "min-w-0 border-0 p-0 m-0 opacity-45"
             }
           >
       <SettingContainer
@@ -1385,6 +1410,7 @@ export const RecordingOverlaySettings: React.FC = () => {
             </div>
             <textarea
               readOnly
+              aria-label="Current overlay style code"
               value={currentStyleCode}
               className="min-h-[88px] w-full rounded-lg border border-[#353535] bg-[#141414] px-3 py-2 text-xs leading-relaxed text-[#d6d6d6] outline-none"
             />
@@ -1411,6 +1437,7 @@ export const RecordingOverlaySettings: React.FC = () => {
             </div>
             <textarea
               value={styleCodeDraft}
+              aria-label="Import overlay style code"
               onChange={(event) => setStyleCodeDraft(event.target.value)}
               placeholder={t(
                 "settings.userInterface.recordingOverlay.styleCode.importPlaceholder",
@@ -1432,7 +1459,7 @@ export const RecordingOverlaySettings: React.FC = () => {
               <button
                 type="button"
                 onClick={() => void handleApplyStyleCode()}
-                disabled={isApplyingStyleCode || !styleCodeDraft.trim()}
+                disabled={!customOverlayEnabled || appearanceBusy || !styleCodeDraft.trim()}
                 className="rounded-md border border-[#5a2c40] bg-[#ff4d8d]/15 px-3 py-2 text-xs font-medium text-[#ffd6e5] transition-colors hover:bg-[#ff4d8d]/22 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 {t(
@@ -1444,7 +1471,7 @@ export const RecordingOverlaySettings: React.FC = () => {
           </div>
         </div>
       </SettingContainer>
-          </div>
+          </fieldset>
         </div>
 
         <div className="order-0">
@@ -1464,7 +1491,7 @@ export const RecordingOverlaySettings: React.FC = () => {
           <button
             type="button"
             onClick={() => void handleResetAppearance()}
-            disabled={isResettingAppearance}
+            disabled={appearanceBusy}
             title={t(
               "settings.userInterface.recordingOverlay.reset.appearanceTooltip",
               "This resets the current overlay look. For the most default/basic variant, turn off Custom Overlay.",
@@ -1482,7 +1509,7 @@ export const RecordingOverlaySettings: React.FC = () => {
           <button
             type="button"
             onClick={() => void handleResetPosition()}
-            disabled={isResettingPosition || !hasManualPosition}
+            disabled={appearanceBusy || !hasManualPosition}
             className="inline-flex items-center gap-2 rounded-md border border-[#3c3c3c] bg-[#202020] px-3 py-2 text-xs font-medium text-[#e5e5e5] transition-colors hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-45"
           >
             <RotateCcw className="h-3.5 w-3.5" />
@@ -1522,12 +1549,12 @@ export const RecordingOverlaySettings: React.FC = () => {
         />
       </SettingContainer>
 
-      <div
+      <fieldset disabled={!customOverlayEnabled || appearanceBusy}
         title={customOverlayEnabled ? undefined : customOverlayDisabledReason}
         className={
           customOverlayEnabled
-            ? undefined
-            : "pointer-events-none select-none opacity-45"
+            ? "min-w-0 border-0 p-0 m-0"
+            : "min-w-0 border-0 p-0 m-0 opacity-45"
         }
       >
       <SettingContainer
@@ -1631,7 +1658,7 @@ export const RecordingOverlaySettings: React.FC = () => {
           }
         />
       </SettingContainer>
-      </div>
+      </fieldset>
 
       <ToggleSwitch
         checked={showStatusIcon}
@@ -2080,11 +2107,11 @@ export const RecordingOverlaySettings: React.FC = () => {
           className="order-6"
           title={customOverlayEnabled ? undefined : customOverlayDisabledReason}
         >
-          <div
+          <fieldset disabled={!customOverlayEnabled || appearanceBusy}
             className={
               customOverlayEnabled
-                ? undefined
-                : "pointer-events-none select-none opacity-45"
+                ? "min-w-0 border-0 p-0 m-0"
+                : "min-w-0 border-0 p-0 m-0 opacity-45"
             }
           >
       <ToggleSwitch
@@ -2305,9 +2332,9 @@ export const RecordingOverlaySettings: React.FC = () => {
           !silenceFade
         }
       />
-          </div>
+          </fieldset>
         </div>
-      </div>
+      </fieldset>
     </SettingsGroup>
     {!isRecordingOverlayCollapsed && floatingPreview}
     </>

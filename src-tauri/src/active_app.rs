@@ -303,6 +303,77 @@ mod tests {
     }
 
     #[test]
+    fn equally_specific_profile_rules_keep_the_first_profile_selected() {
+        let profiles = vec![
+            profile("first", &["exe:code.exe"]),
+            profile("second", &["exe:code.exe"]),
+        ];
+
+        assert_eq!(automatic_profile_id_for_context(&profiles, &context()), Some("first"));
+    }
+
+    #[test]
+    fn a_profiles_best_matching_rule_is_not_replaced_by_its_later_generic_rule() {
+        let profiles = vec![
+            profile("path-specific", &[r"path:C:\Program Files\Microsoft VS Code\Code.exe", "title:code"]),
+            profile("executable", &["exe:code.exe"]),
+        ];
+
+        assert_eq!(
+            automatic_profile_id_for_context(&profiles, &context()),
+            Some("path-specific")
+        );
+    }
+
+    #[test]
+    fn executable_rules_do_not_match_unrelated_processes_with_similar_names() {
+        let snapshot = ActiveAppContext {
+            process_name: "decode.exe".to_string(),
+            ..ActiveAppContext::default()
+        };
+
+        assert!(automatic_rule_match_score("exe:code", &snapshot).is_none());
+        assert!(automatic_rule_match_score("exe:code.exe", &snapshot).is_none());
+        assert!(automatic_rule_match_score("exe:*code.exe", &snapshot).is_some());
+    }
+
+    #[test]
+    fn title_rules_match_unicode_case_and_single_character_wildcards() {
+        let snapshot = ActiveAppContext {
+            window_title: "ЗАМЕТКИ — Проект Я".to_string(),
+            ..ActiveAppContext::default()
+        };
+
+        assert!(automatic_rule_match_score("title:заметки*проект ?", &snapshot).is_some());
+        assert!(automatic_rule_match_score("title:заметки*проект ??", &snapshot).is_none());
+    }
+
+    #[test]
+    fn path_rules_normalize_case_slashes_and_surrounding_whitespace() {
+        let snapshot = ActiveAppContext {
+            executable_path: r"C:\Программы\Редактор\EDITOR.EXE".to_string(),
+            ..ActiveAppContext::default()
+        };
+
+        assert!(automatic_rule_match_score(
+            "  PATH: c:/программы/редактор/editor.exe  ", &snapshot
+        ).is_some());
+        assert!(automatic_rule_match_score(
+            "path:c:/программы/другой/editor.exe", &snapshot
+        ).is_none());
+    }
+
+    #[test]
+    fn unavailable_foreground_context_cannot_activate_a_wildcard_profile() {
+        let profiles = vec![profile("wildcard", &["exe:*", "title:*", "path:*", "*"])];
+
+        assert_eq!(
+            automatic_profile_id_for_context(&profiles, &ActiveAppContext::default()),
+            None
+        );
+    }
+
+    #[test]
     fn process_rules_accept_optional_exe_suffix_and_ignore_case() {
         let context = context();
         assert!(automatic_rule_match_score("exe:CODE", &context).is_some());

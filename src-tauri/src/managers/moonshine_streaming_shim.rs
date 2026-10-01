@@ -39,6 +39,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn append_only_moonshine_overrides_stable_prefix_without_changing_other_stream_tuning() {
+        let options = configure_stream_options(
+            MOONSHINE_STREAMING_ARCHITECTURE,
+            CommittedTextSink::IrreversibleAppendOnly,
+            StreamOptions {
+                commit_policy: CommitPolicy::StablePrefix,
+                stable_prefix_agreement_n: 8,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(options.commit_policy, CommitPolicy::OnFinalize);
+        assert_eq!(options.stable_prefix_agreement_n, 8);
+    }
+
+    #[test]
+    fn replaceable_moonshine_preview_preserves_an_explicit_finalize_only_policy() {
+        let options = configure_stream_options(
+            MOONSHINE_STREAMING_ARCHITECTURE,
+            CommittedTextSink::ReplaceablePreview,
+            StreamOptions {
+                commit_policy: CommitPolicy::OnFinalize,
+                stable_prefix_agreement_n: 16,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(options.commit_policy, CommitPolicy::OnFinalize);
+        assert_eq!(options.stable_prefix_agreement_n, 16);
+    }
+
+    #[test]
     fn moonshine_defers_commits_for_irreversible_output() {
         let options = configure_stream_options(
             MOONSHINE_STREAMING_ARCHITECTURE,
