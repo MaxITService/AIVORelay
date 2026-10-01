@@ -5,6 +5,9 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
+- Save your own named overlay presets and share the complete appearance through style codes. Previously shared codes still import.
+- Give the overlay a new look with 3D-style animated bars, backgrounds, centerpieces, and materials.
+- Choose new status icon frames and optionally make the cancel button invisible while keeping it clickable.
 - Overlay presets, reset, and imported styles now save the complete appearance together and report any saving errors.
 - Preview the overlay while capture starts, during silence, or with an application name. Previews also respect reduced-motion settings.
 - Before installing a local speech model, you can review its download sources, installation details, and component licenses, then confirm that you have read them.
