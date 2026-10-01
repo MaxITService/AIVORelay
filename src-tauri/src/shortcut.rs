@@ -18,10 +18,12 @@ use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
     self, get_settings, AutoSubmitKey, ClipboardHandling, LLMPrompt, NativeStreamingLatencyPreset,
     OutputWhitespaceMode, OverlayPosition, PasteMethod, RecordingOverlayAnimatedBorderMode,
-    RecordingOverlayBackgroundMode, RecordingOverlayBarStyle, RecordingOverlayCenterpieceMode,
-    RecordingOverlayDecapitalizeIndicatorMode, RecordingOverlayMaterialMode, RecordingOverlayTheme,
-    RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition, SonioxLivePreviewSize,
-    SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
+    RecordingOverlayAppearanceSettings, RecordingOverlayBackgroundMode, RecordingOverlayBarStyle,
+    RecordingOverlayCenterpieceMode, RecordingOverlayDecapitalizeIndicatorMode,
+    RecordingOverlayMaterialMode, RecordingOverlayStatusIconStyle, RecordingOverlayTheme,
+    RecordingOverlayUserPreset, RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition,
+    SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider,
+    APPLE_INTELLIGENCE_PROVIDER_ID,
     DEEPGRAM_DEFAULT_ENDPOINTING_MS, DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS,
     DEEPGRAM_DEFAULT_MODEL, SONIOX_DEFAULT_ENDPOINT_SENSITIVITY,
     SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS,
@@ -1460,42 +1462,6 @@ pub fn change_error_feedback_enabled_setting(app: AppHandle, enabled: bool) -> R
     Ok(())
 }
 
-/// A complete appearance update, excluding visibility, mode, and window position.
-#[derive(Deserialize, Type)]
-#[serde(deny_unknown_fields)]
-pub struct RecordingOverlayAppearanceSettings {
-    pub recording_overlay_theme: RecordingOverlayTheme,
-    pub recording_overlay_show_cancel_button: bool,
-    pub recording_overlay_width_px: u16,
-    pub recording_overlay_status_icon_color: String,
-    pub recording_overlay_cancel_icon_color: String,
-    pub recording_overlay_decapitalize_indicator_mode: RecordingOverlayDecapitalizeIndicatorMode,
-    pub recording_overlay_decapitalize_indicator_custom_text: String,
-    pub recording_overlay_decapitalize_indicator_font_family: String,
-    pub recording_overlay_decapitalize_indicator_font_size_px: u8,
-    pub recording_overlay_decapitalize_indicator_color: String,
-    pub recording_overlay_background_mode: RecordingOverlayBackgroundMode,
-    pub recording_overlay_material_mode: RecordingOverlayMaterialMode,
-    pub recording_overlay_centerpiece_mode: RecordingOverlayCenterpieceMode,
-    pub recording_overlay_animated_border_mode: RecordingOverlayAnimatedBorderMode,
-    pub recording_overlay_surface_base_color: String,
-    pub recording_overlay_body_background_color: String,
-    pub recording_overlay_show_status_icon: bool,
-    pub recording_overlay_bar_count: u8,
-    pub recording_overlay_bar_width_px: u8,
-    pub recording_overlay_bar_style: RecordingOverlayBarStyle,
-    pub recording_overlay_accent_color: String,
-    pub recording_overlay_show_drag_grip: bool,
-    pub recording_overlay_audio_reactive_scale: bool,
-    pub recording_overlay_audio_reactive_scale_max_percent: u8,
-    pub recording_overlay_voice_sensitivity_percent: u8,
-    pub recording_overlay_animation_softness_percent: u8,
-    pub recording_overlay_depth_parallax_percent: u8,
-    pub recording_overlay_opacity_percent: u8,
-    pub recording_overlay_silence_fade: bool,
-    pub recording_overlay_silence_opacity_percent: u8,
-}
-
 #[tauri::command]
 #[specta::specta]
 pub fn apply_recording_overlay_appearance(
@@ -1603,6 +1569,9 @@ pub fn apply_recording_overlay_appearance(
     settings.recording_overlay_surface_base_color = surface_base_color;
     settings.recording_overlay_body_background_color = body_background_color;
     settings.recording_overlay_show_status_icon = appearance.recording_overlay_show_status_icon;
+    settings.recording_overlay_status_icon_style = appearance.recording_overlay_status_icon_style;
+    settings.recording_overlay_cancel_button_invisible =
+        appearance.recording_overlay_cancel_button_invisible;
     settings.recording_overlay_bar_count = appearance.recording_overlay_bar_count;
     settings.recording_overlay_bar_width_px = appearance.recording_overlay_bar_width_px;
     settings.recording_overlay_bar_style = appearance.recording_overlay_bar_style;
@@ -1618,6 +1587,92 @@ pub fn apply_recording_overlay_appearance(
     settings.recording_overlay_silence_opacity_percent = appearance.recording_overlay_silence_opacity_percent;
     settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
+    Ok(settings::get_settings(&app))
+}
+
+const RECORDING_OVERLAY_USER_PRESET_MAX_COUNT: usize = 48;
+const RECORDING_OVERLAY_USER_PRESET_MAX_NAME_CHARS: usize = 40;
+
+/// Saves `appearance` under `name`. A preset with the same name, ignoring case,
+/// is updated in place and keeps its id.
+fn upsert_recording_overlay_user_preset(
+    presets: &mut Vec<RecordingOverlayUserPreset>,
+    name: &str,
+    appearance: RecordingOverlayAppearanceSettings,
+    now_ms: i64,
+) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Enter a preset name".to_string());
+    }
+    if name.chars().count() > RECORDING_OVERLAY_USER_PRESET_MAX_NAME_CHARS
+        || name.contains(['\r', '\n'])
+    {
+        return Err(format!(
+            "Preset name must be a single line of at most {RECORDING_OVERLAY_USER_PRESET_MAX_NAME_CHARS} characters"
+        ));
+    }
+    let key = name.to_lowercase();
+    if let Some(existing) = presets
+        .iter_mut()
+        .find(|preset| preset.name.to_lowercase() == key)
+    {
+        existing.name = name.to_string();
+        existing.appearance = appearance;
+        return Ok(());
+    }
+    if presets.len() >= RECORDING_OVERLAY_USER_PRESET_MAX_COUNT {
+        return Err(format!(
+            "You can save up to {RECORDING_OVERLAY_USER_PRESET_MAX_COUNT} presets; delete one first"
+        ));
+    }
+    let mut id = format!("user-{now_ms}");
+    let mut suffix = 1;
+    while presets.iter().any(|preset| preset.id == id) {
+        id = format!("user-{now_ms}-{suffix}");
+        suffix += 1;
+    }
+    presets.push(RecordingOverlayUserPreset {
+        id,
+        name: name.to_string(),
+        appearance,
+    });
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn save_recording_overlay_user_preset(
+    app: AppHandle,
+    name: String,
+) -> Result<settings::AppSettings, String> {
+    let mut settings = settings::get_settings(&app);
+    let appearance = RecordingOverlayAppearanceSettings::from_settings(&settings);
+    upsert_recording_overlay_user_preset(
+        &mut settings.recording_overlay_user_presets,
+        &name,
+        appearance,
+        chrono::Utc::now().timestamp_millis(),
+    )?;
+    settings::write_settings_checked(&app, settings)?;
+    Ok(settings::get_settings(&app))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn delete_recording_overlay_user_preset(
+    app: AppHandle,
+    id: String,
+) -> Result<settings::AppSettings, String> {
+    let mut settings = settings::get_settings(&app);
+    let count = settings.recording_overlay_user_presets.len();
+    settings
+        .recording_overlay_user_presets
+        .retain(|preset| preset.id != id);
+    if settings.recording_overlay_user_presets.len() == count {
+        return Err("Preset not found".to_string());
+    }
+    settings::write_settings_checked(&app, settings)?;
     Ok(settings::get_settings(&app))
 }
 
@@ -1683,6 +1738,11 @@ pub fn change_recording_overlay_background_mode_setting(
         "silk_fog" => RecordingOverlayBackgroundMode::SilkFog,
         "firefly_veil" => RecordingOverlayBackgroundMode::FireflyVeil,
         "rose_sparks" => RecordingOverlayBackgroundMode::RoseSparks,
+        "horizon_grid" => RecordingOverlayBackgroundMode::HorizonGrid,
+        "starfield_warp" => RecordingOverlayBackgroundMode::StarfieldWarp,
+        "tunnel_rings" => RecordingOverlayBackgroundMode::TunnelRings,
+        "galaxy_spiral" => RecordingOverlayBackgroundMode::GalaxySpiral,
+        "dot_swell" => RecordingOverlayBackgroundMode::DotSwell,
         _ => RecordingOverlayBackgroundMode::None,
     };
     settings::write_settings_checked(&app, settings)?;
@@ -1702,6 +1762,12 @@ pub fn change_recording_overlay_material_mode_setting(
         "velvet_neon" => RecordingOverlayMaterialMode::VelvetNeon,
         "frost" => RecordingOverlayMaterialMode::Frost,
         "candy_chrome" => RecordingOverlayMaterialMode::CandyChrome,
+        "graphite" => RecordingOverlayMaterialMode::Graphite,
+        "obsidian" => RecordingOverlayMaterialMode::Obsidian,
+        "gradient_mesh" => RecordingOverlayMaterialMode::GradientMesh,
+        "porcelain" => RecordingOverlayMaterialMode::Porcelain,
+        "clay" => RecordingOverlayMaterialMode::Clay,
+        "keycap" => RecordingOverlayMaterialMode::Keycap,
         _ => RecordingOverlayMaterialMode::LiquidGlass,
     };
     settings::write_settings_checked(&app, settings)?;
@@ -1722,6 +1788,10 @@ pub fn change_recording_overlay_centerpiece_mode_setting(
         "orbital_beads" => RecordingOverlayCenterpieceMode::OrbitalBeads,
         "bloom_heart" => RecordingOverlayCenterpieceMode::BloomHeart,
         "signal_crown" => RecordingOverlayCenterpieceMode::SignalCrown,
+        "gyroscope" => RecordingOverlayCenterpieceMode::Gyroscope,
+        "holo_globe" => RecordingOverlayCenterpieceMode::HoloGlobe,
+        "ringed_planet" => RecordingOverlayCenterpieceMode::RingedPlanet,
+        "plasma_orb" => RecordingOverlayCenterpieceMode::PlasmaOrb,
         _ => RecordingOverlayCenterpieceMode::None,
     };
     settings::write_settings_checked(&app, settings)?;
@@ -1740,7 +1810,30 @@ pub fn change_recording_overlay_animated_border_mode_setting(
         "shimmer_edge" => RecordingOverlayAnimatedBorderMode::ShimmerEdge,
         "traveling_highlight" => RecordingOverlayAnimatedBorderMode::TravelingHighlight,
         "breathing_contour" => RecordingOverlayAnimatedBorderMode::BreathingContour,
+        "spectrum_edge" => RecordingOverlayAnimatedBorderMode::SpectrumEdge,
         _ => RecordingOverlayAnimatedBorderMode::None,
+    };
+    settings::write_settings_checked(&app, settings)?;
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_status_icon_style_setting(
+    app: AppHandle,
+    style: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_status_icon_style = match style.as_str() {
+        "capsule" => RecordingOverlayStatusIconStyle::Capsule,
+        "bare" => RecordingOverlayStatusIconStyle::Bare,
+        "ring" => RecordingOverlayStatusIconStyle::Ring,
+        "tile" => RecordingOverlayStatusIconStyle::Tile,
+        "dot" => RecordingOverlayStatusIconStyle::Dot,
+        "orb" => RecordingOverlayStatusIconStyle::Orb,
+        "coin" => RecordingOverlayStatusIconStyle::Coin,
+        _ => RecordingOverlayStatusIconStyle::Auto,
     };
     settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
@@ -1768,6 +1861,19 @@ pub fn change_recording_overlay_show_cancel_button_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_show_cancel_button = enabled;
+    settings::write_settings_checked(&app, settings)?;
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_cancel_button_invisible_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_cancel_button_invisible = enabled;
     settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
@@ -1843,6 +1949,17 @@ pub fn change_recording_overlay_bar_style_setting(
         "solid" => RecordingOverlayBarStyle::Solid,
         "tuner" => RecordingOverlayBarStyle::Tuner,
         "vinyl" => RecordingOverlayBarStyle::Vinyl,
+        "wave_line" => RecordingOverlayBarStyle::WaveLine,
+        "mirror" => RecordingOverlayBarStyle::Mirror,
+        "dot_matrix" => RecordingOverlayBarStyle::DotMatrix,
+        "spectrum" => RecordingOverlayBarStyle::Spectrum,
+        "liquid" => RecordingOverlayBarStyle::Liquid,
+        "pillars" => RecordingOverlayBarStyle::Pillars,
+        "orbs" => RecordingOverlayBarStyle::Orbs,
+        "cubes" => RecordingOverlayBarStyle::Cubes,
+        "ridgeline" => RecordingOverlayBarStyle::Ridgeline,
+        "carousel" => RecordingOverlayBarStyle::Carousel,
+        "twist_ribbon" => RecordingOverlayBarStyle::TwistRibbon,
         other => {
             warn!(
                 "Invalid recording overlay bar style '{}', defaulting to solid",
@@ -7644,4 +7761,195 @@ pub fn change_lazy_stream_close_setting(app: AppHandle, enabled: bool) -> Result
     settings.lazy_stream_close = enabled;
     settings::write_settings(&app, settings);
     Ok(())
+}
+
+#[cfg(test)]
+mod recording_overlay_user_preset_tests {
+    use super::{
+        upsert_recording_overlay_user_preset, RECORDING_OVERLAY_USER_PRESET_MAX_COUNT,
+    };
+    use crate::settings::{
+        get_default_settings, RecordingOverlayAppearanceSettings, RecordingOverlayBarStyle,
+        RecordingOverlayStatusIconStyle, RecordingOverlayUserPreset,
+    };
+
+    fn appearance(bar_style: RecordingOverlayBarStyle) -> RecordingOverlayAppearanceSettings {
+        let mut settings = get_default_settings();
+        settings.recording_overlay_bar_style = bar_style;
+        settings.recording_overlay_decapitalize_indicator_custom_text = "✍️".to_string();
+        RecordingOverlayAppearanceSettings::from_settings(&settings)
+    }
+
+    #[test]
+    fn saving_snapshots_the_complete_appearance_under_a_trimmed_name() {
+        let mut presets = Vec::new();
+        upsert_recording_overlay_user_preset(
+            &mut presets,
+            "  Night  ",
+            appearance(RecordingOverlayBarStyle::WaveLine),
+            1_000,
+        )
+        .unwrap();
+
+        assert_eq!(presets.len(), 1);
+        assert_eq!(presets[0].id, "user-1000");
+        assert_eq!(presets[0].name, "Night");
+        assert_eq!(
+            presets[0].appearance.recording_overlay_bar_style,
+            RecordingOverlayBarStyle::WaveLine
+        );
+        assert_eq!(
+            presets[0]
+                .appearance
+                .recording_overlay_decapitalize_indicator_custom_text,
+            "✍️"
+        );
+    }
+
+    #[test]
+    fn presets_saved_without_a_status_icon_style_load_with_auto() {
+        let preset = RecordingOverlayUserPreset {
+            id: "user-1".to_string(),
+            name: "Old".to_string(),
+            appearance: appearance(RecordingOverlayBarStyle::Solid),
+        };
+        let mut json = serde_json::to_value(&preset).unwrap();
+        json["appearance"]
+            .as_object_mut()
+            .unwrap()
+            .remove("recording_overlay_status_icon_style");
+
+        let loaded: RecordingOverlayUserPreset = serde_json::from_value(json).unwrap();
+
+        assert_eq!(
+            loaded.appearance.recording_overlay_status_icon_style,
+            RecordingOverlayStatusIconStyle::Auto
+        );
+    }
+
+    #[test]
+    fn presets_saved_without_the_invisible_cancel_flag_keep_the_button_visible() {
+        let preset = RecordingOverlayUserPreset {
+            id: "user-1".to_string(),
+            name: "Old".to_string(),
+            appearance: appearance(RecordingOverlayBarStyle::Solid),
+        };
+        let mut json = serde_json::to_value(&preset).unwrap();
+        json["appearance"]
+            .as_object_mut()
+            .unwrap()
+            .remove("recording_overlay_cancel_button_invisible");
+
+        let loaded: RecordingOverlayUserPreset = serde_json::from_value(json).unwrap();
+
+        assert!(!loaded.appearance.recording_overlay_cancel_button_invisible);
+    }
+
+    #[test]
+    fn saving_an_existing_name_updates_that_preset_and_keeps_its_id() {
+        let mut presets = Vec::new();
+        upsert_recording_overlay_user_preset(
+            &mut presets,
+            "Night",
+            appearance(RecordingOverlayBarStyle::Solid),
+            1_000,
+        )
+        .unwrap();
+        upsert_recording_overlay_user_preset(
+            &mut presets,
+            "night",
+            appearance(RecordingOverlayBarStyle::Mirror),
+            2_000,
+        )
+        .unwrap();
+
+        assert_eq!(presets.len(), 1);
+        assert_eq!(presets[0].id, "user-1000");
+        assert_eq!(presets[0].name, "night");
+        assert_eq!(
+            presets[0].appearance.recording_overlay_bar_style,
+            RecordingOverlayBarStyle::Mirror
+        );
+    }
+
+    #[test]
+    fn new_presets_get_unique_ids_within_the_same_millisecond() {
+        let mut presets = Vec::new();
+        for name in ["One", "Two", "Three"] {
+            upsert_recording_overlay_user_preset(
+                &mut presets,
+                name,
+                appearance(RecordingOverlayBarStyle::Solid),
+                5,
+            )
+            .unwrap();
+        }
+        let ids: Vec<_> = presets.iter().map(|preset| preset.id.as_str()).collect();
+        assert_eq!(ids, ["user-5", "user-5-1", "user-5-2"]);
+    }
+
+    #[test]
+    fn invalid_names_and_a_full_list_are_rejected_without_changes() {
+        let mut presets = Vec::new();
+        let long_name = "x".repeat(41);
+        for name in ["", "   ", "two\nlines", long_name.as_str()] {
+            assert!(upsert_recording_overlay_user_preset(
+                &mut presets,
+                name,
+                appearance(RecordingOverlayBarStyle::Solid),
+                1,
+            )
+            .is_err());
+        }
+        assert!(presets.is_empty());
+
+        let mut full: Vec<RecordingOverlayUserPreset> = (0..RECORDING_OVERLAY_USER_PRESET_MAX_COUNT)
+            .map(|index| RecordingOverlayUserPreset {
+                id: format!("user-{index}"),
+                name: format!("Preset {index}"),
+                appearance: appearance(RecordingOverlayBarStyle::Solid),
+            })
+            .collect();
+        assert!(upsert_recording_overlay_user_preset(
+            &mut full,
+            "One more",
+            appearance(RecordingOverlayBarStyle::Solid),
+            1,
+        )
+        .is_err());
+        assert_eq!(full.len(), RECORDING_OVERLAY_USER_PRESET_MAX_COUNT);
+        // Updating an existing preset still works when the list is full.
+        upsert_recording_overlay_user_preset(
+            &mut full,
+            "preset 0",
+            appearance(RecordingOverlayBarStyle::DotMatrix),
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            full[0].appearance.recording_overlay_bar_style,
+            RecordingOverlayBarStyle::DotMatrix
+        );
+    }
+
+    #[test]
+    fn stored_presets_round_trip_through_settings_json() {
+        let mut settings = get_default_settings();
+        upsert_recording_overlay_user_preset(
+            &mut settings.recording_overlay_user_presets,
+            "Night",
+            appearance(RecordingOverlayBarStyle::DotMatrix),
+            7,
+        )
+        .unwrap();
+        let value = serde_json::to_value(&settings).unwrap();
+        let restored: crate::settings::AppSettings = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.recording_overlay_user_presets.len(), 1);
+        assert_eq!(
+            restored.recording_overlay_user_presets[0]
+                .appearance
+                .recording_overlay_bar_style,
+            RecordingOverlayBarStyle::DotMatrix
+        );
+    }
 }

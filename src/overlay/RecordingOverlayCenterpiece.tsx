@@ -1,10 +1,13 @@
 import React from "react";
 import {
+  mixRecordingOverlayHexColors,
   normalizeRecordingOverlayCenterpieceMode,
   normalizeRecordingOverlayColor,
   recordingOverlayHexToRgba,
+  shiftRecordingOverlayHue,
   type RecordingOverlayCenterpieceMode,
 } from "./recordingOverlayAppearance";
+import "./RecordingOverlayDepthLayers.css";
 
 interface RecordingOverlayCenterpieceProps {
   mode: RecordingOverlayCenterpieceMode;
@@ -19,6 +22,45 @@ function clampUnit(value: number): number {
     return 0;
   }
   return Math.max(0, Math.min(1, value));
+}
+
+/** Gimbal tilt, turn period, and phase; the rest pose is used without motion. */
+const GYRO_GIMBALS = [
+  { tilt: 0, hue: 0, duration: 3.6, delay: 0, rest: 0.55 },
+  { tilt: 62, hue: 55, duration: 5.4, delay: 1.1, rest: -0.3 },
+  { tilt: -58, hue: -40, duration: 7.2, delay: 2.9, rest: 0.85 },
+];
+
+/** Parallels of the globe, seen from a little above: centre, width, height in %. */
+const GLOBE_PARALLELS = [-62, -32, 0, 32, 62].map((latitude) => {
+  const radians = (latitude * Math.PI) / 180;
+  const width = Math.cos(radians) * 100;
+  return { y: 50 - Math.sin(radians) * 47, width, height: width * 0.32 };
+});
+const GLOBE_MERIDIAN_COUNT = 4;
+const GLOBE_TURN_S = 9;
+
+function fraction(value: number): number {
+  return value - Math.floor(value);
+}
+
+/** Ice and rock in the planet's ring, in a -50..50 box, spread by Weyl sequences. */
+const PLANET_RING_DUST = Array.from({ length: 40 }, (_, index) => {
+  const radius = 26 + fraction(index * 0.7548777) * 21;
+  const angle = fraction(index * 0.618034) * Math.PI * 2;
+  return {
+    x: Math.cos(angle) * radius,
+    y: Math.sin(angle) * radius,
+    size: 0.7 + fraction(index * 0.4142136) * 0.9,
+  };
+});
+
+function ringShades(color: string): React.CSSProperties {
+  return {
+    "--rod-ring-near": recordingOverlayHexToRgba(mixRecordingOverlayHexColors(color, "#ffffff", 0.45), 0.95),
+    "--rod-ring-mid": recordingOverlayHexToRgba(color, 0.55),
+    "--rod-ring-far": recordingOverlayHexToRgba(color, 0.18),
+  } as React.CSSProperties;
 }
 
 function averageEnergy(levels: number[]): number {
@@ -239,6 +281,180 @@ export const RecordingOverlayCenterpiece: React.FC<
             </g>
           ))}
         </svg>
+      </div>
+    );
+  }
+
+
+  if (
+    normalizedMode === "gyroscope" ||
+    normalizedMode === "holo_globe" ||
+    normalizedMode === "ringed_planet" ||
+    normalizedMode === "plasma_orb"
+  ) {
+    const coreStyle = {
+      "--rod-core-light": mixRecordingOverlayHexColors(accent, "#ffffff", 0.55),
+      "--rod-core": accent,
+      "--rod-core-deep": mixRecordingOverlayHexColors(accent, "#000000", 0.6),
+      "--rod-core-glow": recordingOverlayHexToRgba(accent, 0.5),
+      ...ringShades(accent),
+    } as React.CSSProperties;
+    const placement: React.CSSProperties = {
+      transform: `translate(calc(-50% + ${driftX}px), calc(-50% + ${driftY}px)) scale(${0.9 + energy * 0.2})`,
+      transition: `transform ${transitionMs}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+    };
+
+    if (normalizedMode === "gyroscope") {
+      return (
+        <div aria-hidden="true" style={shellStyle}>
+          <div className="rod-gyro" style={{ ...coreStyle, ...placement }}>
+            <div className="rod-gyro__axle" />
+            {GYRO_GIMBALS.map((gimbal, index) => (
+              <div
+                key={index}
+                className="rod-gyro__gimbal"
+                style={{ transform: `rotate(${gimbal.tilt}deg)` }}
+              >
+                <div
+                  className="rod-gyro__ring"
+                  style={{
+                    ...ringShades(shiftRecordingOverlayHue(accent, gimbal.hue)),
+                    "--rod-duration": `${gimbal.duration}s`,
+                    "--rod-delay": `${-gimbal.delay}s`,
+                    transform: `scaleX(${gimbal.rest})`,
+                  } as React.CSSProperties}
+                />
+              </div>
+            ))}
+            <div className="rod-gyro__core" />
+          </div>
+        </div>
+      );
+    }
+
+    if (normalizedMode === "ringed_planet") {
+      // The ring is drawn twice: the copy behind the planet keeps only its far
+      // half, the copy in front only its near half. Both copies turn in step,
+      // so the planet occludes the ring correctly without any depth sorting.
+      const ringHalf = (half: "far" | "near") => (
+        <div className="rod-planet__tilt">
+          <div className={`rod-planet__half rod-planet__half--${half}`}>
+            <div className="rod-planet__band" />
+            <svg className="rod-planet__dust" viewBox="-50 -50 100 100">
+              {PLANET_RING_DUST.map((dust, index) => (
+                <circle
+                  key={index}
+                  cx={dust.x.toFixed(2)}
+                  cy={dust.y.toFixed(2)}
+                  r={dust.size.toFixed(2)}
+                  style={{ fill: "var(--rod-ring-near)" }}
+                />
+              ))}
+            </svg>
+          </div>
+        </div>
+      );
+      const bandLight = mixRecordingOverlayHexColors(accent, "#ffffff", 0.45);
+      return (
+        <div aria-hidden="true" style={shellStyle}>
+          <div
+            className="rod-planet"
+            style={{
+              ...coreStyle,
+              ...placement,
+              "--rod-ring-light": recordingOverlayHexToRgba(bandLight, 0.75),
+              "--rod-ring-dark": recordingOverlayHexToRgba(accent, 0.28),
+              "--rod-band-light": mixRecordingOverlayHexColors(accent, "#ffffff", 0.3),
+              "--rod-band-dark": mixRecordingOverlayHexColors(accent, "#000000", 0.25),
+            } as React.CSSProperties}
+          >
+            {ringHalf("far")}
+            <div className="rod-planet__body" />
+            {ringHalf("near")}
+          </div>
+        </div>
+      );
+    }
+
+    if (normalizedMode === "plasma_orb") {
+      return (
+        <div aria-hidden="true" style={shellStyle}>
+          <div
+            className="rod-plasma"
+            style={{
+              ...coreStyle,
+              ...placement,
+              "--rod-plasma-a": recordingOverlayHexToRgba(accent, 0.95),
+              "--rod-plasma-b": recordingOverlayHexToRgba(shiftRecordingOverlayHue(accent, 70), 0.9),
+              "--rod-plasma-c": recordingOverlayHexToRgba(shiftRecordingOverlayHue(accent, -60), 0.9),
+            } as React.CSSProperties}
+          >
+            <div
+              className="rod-plasma__glow"
+              style={{
+                opacity: 0.35 + energy * 0.65,
+                transition: `opacity ${transitionMs}ms ease-out`,
+              }}
+            />
+            <div className="rod-plasma__sphere">
+              <div className="rod-plasma__swirl rod-plasma__swirl--a" />
+              <div className="rod-plasma__swirl rod-plasma__swirl--b" />
+              <div className="rod-plasma__shade" />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div aria-hidden="true" style={shellStyle}>
+        <div
+          className="rod-globe"
+          style={{
+            ...coreStyle,
+            ...placement,
+            "--rod-globe-fill": recordingOverlayHexToRgba(accent, 0.07),
+            "--rod-globe-rim": recordingOverlayHexToRgba(accent, 0.34),
+            "--rod-scan": recordingOverlayHexToRgba(mixRecordingOverlayHexColors(accent, "#ffffff", 0.5), 0.5),
+          } as React.CSSProperties}
+        >
+          <div className="rod-globe__body">
+            {GLOBE_PARALLELS.map((parallel) => (
+              <div
+                key={parallel.y}
+                className="rod-globe__parallel"
+                style={{
+                  left: `${(100 - parallel.width) / 2}%`,
+                  width: `${parallel.width}%`,
+                  top: `${parallel.y - parallel.height / 2}%`,
+                  height: `${parallel.height}%`,
+                }}
+              />
+            ))}
+            {Array.from({ length: GLOBE_MERIDIAN_COUNT }, (_, index) => {
+              // Each ellipse is a full great circle, so four of them spaced an
+              // eighth of a turn apart draw eight meridians.
+              const phase = index / (GLOBE_MERIDIAN_COUNT * 2);
+              return (
+                <div
+                  key={index}
+                  className="rod-globe__meridian"
+                  style={{
+                    "--rod-duration": `${GLOBE_TURN_S}s`,
+                    "--rod-delay": `${-phase * GLOBE_TURN_S}s`,
+                    transform: `scaleX(${Math.cos(phase * Math.PI * 2)})`,
+                  } as React.CSSProperties}
+                />
+              );
+            })}
+            <div className="rod-globe__scan" />
+          </div>
+          <div className="rod-globe__orbit">
+            <div className="rod-globe__orbit-x">
+              <div className="rod-globe__satellite" />
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

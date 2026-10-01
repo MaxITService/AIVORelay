@@ -16,12 +16,15 @@ import {
   normalizeRecordingOverlayCenterpieceMode,
   normalizeRecordingOverlayColor,
   normalizeRecordingOverlayMaterialMode,
+  normalizeRecordingOverlayStatusIconStyle,
   recordingOverlayHexToRgba,
+  resolveRecordingOverlayStatusIconStyle,
   type RecordingOverlayAnimatedBorderMode,
   type RecordingOverlayBarStyle,
   type RecordingOverlayBackgroundMode,
   type RecordingOverlayCenterpieceMode,
   type RecordingOverlayMaterialMode,
+  type RecordingOverlayStatusIconStyle,
   type RecordingOverlayTheme,
 } from "../../../overlay/recordingOverlayAppearance";
 import { RecordingOverlayBars } from "../../../overlay/RecordingOverlayBars";
@@ -31,6 +34,7 @@ import {
 } from "../../../overlay/RecordingOverlayAnimatedBorder";
 import { RecordingOverlayBackground } from "../../../overlay/RecordingOverlayBackground";
 import { RecordingOverlayCenterpiece } from "../../../overlay/RecordingOverlayCenterpiece";
+import { RecordingOverlayStatusIcon } from "../../../overlay/RecordingOverlayStatusIcon";
 import { getRecordingOverlayMotionStyle } from "../../../overlay/recordingOverlayMotion";
 
 type PreviewState = "recording" | "silence" | "arming" | "transcribing" | "error";
@@ -45,7 +49,10 @@ interface RecordingOverlayPreviewProps {
   bodyBackgroundColor: string;
   materialMode: RecordingOverlayMaterialMode;
   showStatusIcon: boolean;
+  statusIconStyle?: RecordingOverlayStatusIconStyle;
   showCancelButton?: boolean;
+  /** Shows only a dashed outline where the invisible button still takes clicks. */
+  cancelButtonInvisible?: boolean;
   backgroundMode: RecordingOverlayBackgroundMode;
   centerpieceMode: RecordingOverlayCenterpieceMode;
   animatedBorderMode: RecordingOverlayAnimatedBorderMode;
@@ -93,7 +100,9 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
   bodyBackgroundColor,
   materialMode,
   showStatusIcon,
+  statusIconStyle = "auto",
   showCancelButton = true,
+  cancelButtonInvisible = false,
   backgroundMode,
   centerpieceMode,
   animatedBorderMode,
@@ -244,6 +253,10 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
           normalizedBarStyle === "tuner" ||
           normalizedBarStyle === "morse"
         ? Math.max(effectiveBarWidth + 2, 8)
+      : normalizedBarStyle === "pillars"
+        ? effectiveBarWidth + Math.max(2, Math.round(effectiveBarWidth / 2))
+      : normalizedBarStyle === "orbs" || normalizedBarStyle === "cubes"
+        ? Math.max(effectiveBarWidth + 4, 8)
         : effectiveBarWidth;
   const barTrackWidth =
     effectiveBarCount * laneWidth + (effectiveBarCount - 1) * 3;
@@ -268,10 +281,6 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
   const previewFrameHeight = overlayHeight * previewScale;
   const gripColor = recordingOverlayHexToRgba(normalizedAccent, 0.34);
   const cancelHover = recordingOverlayHexToRgba(normalizedAccent, 0.22);
-  const stageGlow = recordingOverlayHexToRgba(normalizedAccent, 0.16);
-  const stageGlowStrong = recordingOverlayHexToRgba(normalizedAccent, 0.22);
-  const iconShellBorder = recordingOverlayHexToRgba(normalizedAccent, 0.18);
-  const iconHalo = recordingOverlayHexToRgba(normalizedAccent, 0.28);
   const motionStyle = useMemo(
     () =>
       getRecordingOverlayMotionStyle({
@@ -324,7 +333,6 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
       onPointerLeave={() => setIsHovered(false)}
       style={{
         background: `
-          radial-gradient(circle at 18% 22%, ${stageGlowStrong} 0%, rgba(0,0,0,0) 34%),
           radial-gradient(circle at 82% 18%, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0) 26%),
           linear-gradient(180deg, #202020 0%, #121212 100%)
         `,
@@ -340,19 +348,6 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
           backgroundSize: "22px 22px",
           maskImage: "linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0.12))",
           opacity: 0.26,
-          pointerEvents: "none",
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          width: "62%",
-          height: "62%",
-          borderRadius: "999px",
-          background: `radial-gradient(circle, ${stageGlow} 0%, rgba(0,0,0,0) 72%)`,
-          filter: "blur(18px)",
-          opacity: 0.85,
-          transform: "translateY(8px)",
           pointerEvents: "none",
         }}
       />
@@ -535,59 +530,38 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
                   <TranscriptionIcon color={normalizedStatusIconColor} />
                 )
               ) : (
-                <div
-                  style={{
-                    position: "relative",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: "24px",
-                    height: "24px",
-                    borderRadius: "999px",
-                    border: `1px solid ${state === "error" ? "rgba(255,123,123,0.18)" : iconShellBorder}`,
-                    background:
-                      state === "error"
-                        ? "linear-gradient(180deg, rgba(255,123,123,0.14) 0%, rgba(255,70,70,0.04) 100%)"
-                        : "linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%), rgba(255,255,255,0.03)",
-                    boxShadow:
-                      "inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1px rgba(0,0,0,0.06)",
-                  }}
+                <RecordingOverlayStatusIcon
+                  frame={resolveRecordingOverlayStatusIconStyle(
+                    normalizeRecordingOverlayStatusIconStyle(statusIconStyle),
+                    effectiveMaterialMode,
+                  )}
+                  tone={
+                    isCaptureState
+                      ? "recording"
+                      : state === "error"
+                        ? "error"
+                        : "busy"
+                  }
+                  accentColor={normalizedAccent}
+                  iconColor={normalizedStatusIconColor}
                 >
-                  <div
-                    style={{
-                      position: "absolute",
-                      inset: "-6px",
-                      borderRadius: "999px",
-                      background:
-                        state === "error"
-                          ? "radial-gradient(circle, rgba(255,107,107,0.26) 0%, rgba(0,0,0,0) 68%)"
-                          : `radial-gradient(circle, ${iconHalo} 0%, rgba(0,0,0,0) 68%)`,
-                      opacity:
-                        isCaptureState
-                          ? 0.76
-                          : state === "error"
-                            ? 0.8
-                            : 0.5,
-                    }}
-                  />
-                  <div style={{ position: "relative", zIndex: 1 }}>
-                    {isCaptureState ? (
-                      <MicrophoneIcon color={normalizedStatusIconColor} />
-                    ) : state === "error" ? (
-                      <span
-                        style={{
-                          color: normalizedStatusIconColor,
-                          fontSize: "16px",
-                          lineHeight: 1,
-                        }}
-                      >
-                        ❌
-                      </span>
-                    ) : (
-                      <TranscriptionIcon color={normalizedStatusIconColor} />
-                    )}
-                  </div>
-                </div>
+                  {isCaptureState ? (
+                    <MicrophoneIcon color={normalizedStatusIconColor} />
+                  ) : state === "error" ? (
+                    <span
+                      className="overlay-icon-emoji"
+                      style={{
+                        color: normalizedStatusIconColor,
+                        fontSize: "16px",
+                        lineHeight: 1,
+                      }}
+                    >
+                      ❌
+                    </span>
+                  ) : (
+                    <TranscriptionIcon color={normalizedStatusIconColor} />
+                  )}
+                </RecordingOverlayStatusIcon>
               ) : null}
             </div>
 
@@ -652,7 +626,7 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
                 />
               )}
               {state === "transcribing" && (
-                <div className="text-xs text-white">Transcribing...</div>
+                <div className="text-xs" style={{ color: "var(--recording-overlay-ink, #fff)" }}>Transcribing...</div>
               )}
               {state === "error" && (
                 <div className="min-w-0">
@@ -670,7 +644,17 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
               className="flex items-center justify-end"
               style={{ position: "relative", zIndex: 1 }}
             >
-              {isCaptureState && showCancelButton && (
+              {isCaptureState && showCancelButton && cancelButtonInvisible && (
+                <div
+                  style={{
+                    width: "24px",
+                    height: "24px",
+                    borderRadius: "999px",
+                    border: "1px dashed rgba(255,107,107,0.6)",
+                  }}
+                />
+              )}
+              {isCaptureState && showCancelButton && !cancelButtonInvisible && (
                 <div
                   style={{
                     width: "24px",

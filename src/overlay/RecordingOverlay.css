@@ -62,7 +62,7 @@ body,
   background:
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.12) 0%,
+      rgba(255, 255, 255, var(--recording-overlay-sheen-top-alpha, 0.12)) 0%,
       rgba(255, 255, 255, 0) 22%
     ),
     linear-gradient(
@@ -91,7 +91,7 @@ body,
       rgba(0, 0, 0, 0.18) 0%,
       rgba(0, 0, 0, 0) 46%
     );
-  opacity: 0.9;
+  opacity: var(--recording-overlay-vignette-opacity, 0.9);
   pointer-events: none;
   z-index: 0;
 }
@@ -128,7 +128,7 @@ body,
   background-position:
     0 0,
     7px 5px;
-  opacity: 0.3;
+  opacity: var(--recording-overlay-grain-opacity, 0.3);
   mix-blend-mode: screen;
   pointer-events: none;
   z-index: 0;
@@ -246,68 +246,6 @@ body,
   z-index: 1;
 }
 
-.recording-overlay.recording-overlay-custom .overlay-icon-wrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 999px;
-  background:
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.08) 0%,
-      rgba(255, 255, 255, 0) 100%
-    ),
-    rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 0 0 1px rgba(0, 0, 0, 0.06);
-}
-
-.recording-overlay.recording-overlay-custom .overlay-icon-wrap::before {
-  content: "";
-  position: absolute;
-  inset: -6px;
-  border-radius: inherit;
-  background: radial-gradient(
-    circle,
-    var(--recording-overlay-accent-glow-strong) 0%,
-    rgba(0, 0, 0, 0) 68%
-  );
-  opacity: 0.75;
-  pointer-events: none;
-}
-
-.recording-overlay.recording-overlay-custom .overlay-icon-wrap.is-busy::before {
-  opacity: 0.55;
-}
-
-.recording-overlay.recording-overlay-custom .overlay-icon-wrap.is-idle::before {
-  opacity: 0.4;
-}
-
-.recording-overlay.recording-overlay-custom .overlay-icon-wrap.is-error {
-  background: linear-gradient(
-    180deg,
-    rgba(255, 123, 123, 0.14) 0%,
-    rgba(255, 70, 70, 0.04) 100%
-  );
-  border-color: rgba(255, 123, 123, 0.18);
-}
-
-.recording-overlay.recording-overlay-custom
-  .overlay-icon-wrap.is-error::before {
-  background: radial-gradient(
-    circle,
-    rgba(255, 107, 107, 0.26) 0%,
-    rgba(0, 0, 0, 0) 68%
-  );
-  opacity: 0.8;
-}
-
 .recording-overlay.recording-overlay-custom .overlay-middle,
 .recording-overlay.recording-overlay-legacy .overlay-middle {
   display: flex;
@@ -403,7 +341,7 @@ body,
 
 .recording-overlay.recording-overlay-custom .transcribing-text,
 .recording-overlay.recording-overlay-legacy .transcribing-text {
-  color: white;
+  color: var(--recording-overlay-ink, white);
   font-size: 12px;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -448,7 +386,7 @@ body,
 
 .recording-overlay.recording-overlay-custom .microphone-switch-name,
 .recording-overlay.recording-overlay-legacy .microphone-switch-name {
-  color: white;
+  color: var(--recording-overlay-ink, white);
   font-size: 10px;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -618,11 +556,16 @@ body,
   transform: scale(0.95);
 }
 
+/* Draws nothing, but the spot still takes clicks and cancels. */
+.recording-overlay .cancel-button.cancel-button--invisible {
+  opacity: 0;
+}
+
 /* Extended overlay states (plus_overlay_state) */
 
 .recording-overlay.recording-overlay-custom .sending-text,
 .recording-overlay.recording-overlay-legacy .sending-text {
-  color: white;
+  color: var(--recording-overlay-ink, white);
   font-size: 12px;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -636,7 +579,7 @@ body,
 
 .recording-overlay.recording-overlay-custom .thinking-text,
 .recording-overlay.recording-overlay-legacy .thinking-text {
-  color: white;
+  color: var(--recording-overlay-ink, white);
   font-size: 12px;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;

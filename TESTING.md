@@ -70,6 +70,30 @@ Run it with:
 
 Update this section every time new tests are added.
 
+### Recording overlay presets (2026-10-01)
+
+- `shortcut::recording_overlay_user_preset_tests` covers saving a complete
+  appearance snapshot under a trimmed name, updating a same-name preset in
+  place, unique ids within one millisecond, rejecting empty, long, or multi-line
+  names and a full list, and the settings JSON round trip. Presets saved before
+  the status icon frame setting existed load with the Auto frame, and presets
+  saved before the invisible cancel button existed keep the button visible.
+- `src/overlay/recordingOverlayStyleConfig.test.ts` also covers built-in
+  presets: every preset value survives normalization, unset fields return to
+  defaults, the user's width, cancel button, icon colors, and decapitalize
+  indicator are kept, and preset ids are unique. It checks that version 4 style
+  codes round-trip, version 2 codes without the icon frame import with Auto,
+  version 3 codes without the invisible cancel flag keep the button visible, and
+  Auto picks the capsule, the bare icon, or a 3D frame (orb on Clay, tile on
+  Keycap) by material.
+
+Run with:
+
+```powershell
+.\test-local.ps1 -LibOnly -Filter @('shortcut::recording_overlay_user_preset_tests')
+bun test ./src/overlay/recordingOverlayStyleConfig.test.ts
+```
+
 ### Frontend audio loading and capture-region recovery (2026-09-30)
 
 - `src/lib/utils/ttsPlaybackEffects.test.ts` covers HTTP errors, rejected

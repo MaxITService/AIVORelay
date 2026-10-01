@@ -1655,13 +1655,35 @@
           "applyCta": "Apply",
           "memoryHint": "Collapse preset packs to unload the preview cards and save memory.",
           "collapse": "Collapse Presets",
-          "expand": "Expand Presets"
+          "expand": "Expand Presets",
+          "modernTitle": "Modern",
+          "depthTitle": "3D Depth",
+          "originalTitle": "Original Packs",
+          "user": {
+            "title": "My Presets",
+            "description": "Save the current look, including width, icon colors, and the decapitalize indicator, and bring it back in one click.",
+            "namePlaceholder": "Preset name",
+            "nameLabel": "New preset name",
+            "save": "Save Current Look",
+            "update": "Update “{{name}}”",
+            "empty": "No saved presets yet.",
+            "saved": "Preset “{{name}}” saved.",
+            "saveError": "Could not save preset: {{error}}",
+            "deleted": "Preset “{{name}}” deleted.",
+            "deleteError": "Could not delete preset: {{error}}",
+            "deleteLabel": "Delete preset {{name}}",
+            "delete": "Delete preset",
+            "deleteConfirmTitle": "Delete preset?",
+            "deleteConfirmMessage": "Delete the saved preset “{{name}}”? This cannot be undone.",
+            "deleteConfirm": "Delete",
+            "cancel": "Cancel"
+          }
         },
         "help": {
           "title": "How To Use These Controls",
           "presetsFirst": "Start with Preset Packs if you want a fast direction, then shape the result with the controls below.",
-          "grouping": "Think in this order: Layout sets the silhouette, Style sets the core look, Atmosphere adds decorative layers, and Motion controls how the overlay behaves while you speak.",
-          "sliders": "Slider drags now update the page preview immediately and commit to the live overlay when you release them."
+          "grouping": "The controls are grouped into cards: Shape, Surface, Visualizer, Atmosphere, and Motion. Work from top to bottom, or start from a preset and adjust.",
+          "sliders": "Sliders update the preview while you drag and apply to the live overlay when you let go."
         },
         "styleCode": {
           "title": "Share Style",
@@ -1694,7 +1716,7 @@
         },
         "theme": {
           "title": "Overlay Theme",
-          "description": "Change the surface style of the recording overlay.",
+          "description": "The overall shape. Classic is soft and rounded, Minimal is flatter with smaller corners, and Glass adds a see-through accent tint.",
           "options": {
             "classic": "Classic",
             "minimal": "Minimal",
@@ -1703,18 +1725,24 @@
         },
         "materialMode": {
           "title": "Material Mode",
-          "description": "Choose the base material treatment used for the overlay shell.",
+          "description": "What the surface is made of. The original materials glow and shimmer; Graphite, Obsidian, Gradient Mesh, and Porcelain are flat and modern; Clay and Keycap have real volume.",
           "options": {
             "liquidGlass": "Liquid Glass",
             "pearl": "Pearl",
             "velvetNeon": "Velvet Neon",
             "frost": "Frost",
-            "candyChrome": "Candy Chrome"
+            "candyChrome": "Candy Chrome",
+            "graphite": "Graphite",
+            "obsidian": "Obsidian",
+            "gradientMesh": "Gradient Mesh",
+            "porcelain": "Porcelain (light)",
+            "clay": "Clay (soft 3D)",
+            "keycap": "Keycap (3D)"
           }
         },
         "backgroundMode": {
           "title": "Ambient Background",
-          "description": "Add decorative atmosphere behind the main visualizer.",
+          "description": "A soft animated layer behind the visualizer, such as mist or sparks. The 3D layers add depth: a synthwave horizon, warp stars, a tunnel of light, a turning galaxy, or a rolling swell of dots.",
           "options": {
             "none": "None",
             "mist": "Mist",
@@ -1723,38 +1751,62 @@
             "stardust": "Stardust",
             "silkFog": "Silk Fog",
             "fireflyVeil": "Firefly Veil",
-            "roseSparks": "Rose Sparks"
+            "roseSparks": "Rose Sparks",
+            "horizonGrid": "Horizon Grid (3D)",
+            "starfieldWarp": "Warp Stars (3D)",
+            "tunnelRings": "Tunnel (3D)",
+            "galaxySpiral": "Spiral Galaxy (3D)",
+            "dotSwell": "Dot Swell (3D)"
           }
         },
         "centerpieceMode": {
           "title": "Centerpiece",
-          "description": "Add a decorative focal layer in the center of the overlay.",
+          "description": "A decorative shape that glows in the middle of the overlay, behind the visualizer. Gyroscope, Holo Globe, Ringed Planet, and Plasma Orb turn in 3D.",
           "options": {
             "none": "None",
             "haloCore": "Halo Core",
             "auroraRibbon": "Aurora Ribbon",
             "orbitalBeads": "Orbital Beads",
             "bloomHeart": "Bloom Heart",
-            "signalCrown": "Signal Crown"
+            "signalCrown": "Signal Crown",
+            "gyroscope": "Gyroscope (3D)",
+            "holoGlobe": "Holo Globe (3D)",
+            "ringedPlanet": "Ringed Planet (3D)",
+            "plasmaOrb": "Plasma Orb (3D)"
           }
         },
         "animatedBorderMode": {
           "title": "Animated Border",
-          "description": "Add motion around the edge of the overlay frame.",
+          "description": "Light that moves along the edge of the overlay.",
           "options": {
             "none": "None",
             "shimmerEdge": "Shimmer Edge",
             "travelingHighlight": "Traveling Highlight",
-            "breathingContour": "Breathing Contour"
+            "breathingContour": "Breathing Contour",
+            "spectrumEdge": "Spectrum Edge"
           }
         },
         "statusIcon": {
           "label": "Show Status Icon",
-          "description": "Show the microphone, processing, and error icon on the left side of the overlay."
+          "description": "Show the icon on the left: the ear while recording, a processing icon while your speech is handled, and a cross on errors."
+        },
+        "statusIconStyle": {
+          "title": "Status Icon Style",
+          "description": "What surrounds the status icon. Auto keeps the glass capsule on the original materials, shows a clean icon on the flat modern ones, and picks a 3D frame for Clay and Keycap. Live Dot replaces the icon with a pulsing dot.",
+          "options": {
+            "auto": "Auto (match material)",
+            "capsule": "Glass Capsule",
+            "bare": "Clean",
+            "ring": "Ring",
+            "tile": "Tile",
+            "dot": "Live Dot",
+            "orb": "Glass Orb (3D)",
+            "coin": "Flipping Coin (3D)"
+          }
         },
         "barStyle": {
           "title": "Visualizer Style",
-          "description": "Choose how recording activity is visualized.",
+          "description": "How your voice is drawn: bars, waves, dots, liquid, 3D shapes, and more. Classic mode offers a shorter list.",
           "options": {
             "aurora": "Aurora",
             "bloomBounce": "Bloom Bounce",
@@ -1784,64 +1836,149 @@
             "glow": "Glow",
             "prism": "Prism",
             "tuner": "Tuner",
-            "vinyl": "Vinyl"
+            "vinyl": "Vinyl",
+            "waveLine": "Wave Line",
+            "mirror": "Mirror",
+            "dotMatrix": "Dot Matrix",
+            "spectrum": "Spectrum",
+            "liquid": "Liquid",
+            "pillars": "3D Pillars",
+            "orbs": "3D Marbles",
+            "cubes": "3D Spinning Cubes",
+            "ridgeline": "3D Ridgeline (voice history)",
+            "carousel": "3D Carousel",
+            "twistRibbon": "3D Twisted Ribbon"
           }
         },
         "barCount": {
           "title": "Visualizer Count",
-          "description": "Choose how many animated elements are shown while recording."
+          "description": "How many bars, dots, or drops are drawn."
         },
         "overlayWidth": {
           "title": "Overlay Width",
-          "description": "Choose the base width of the recording overlay. It can still expand if the current visualizer needs more room."
+          "description": "The smallest width of the overlay. It grows on its own when the visualizer needs more room. Built-in presets keep your width."
         },
         "barWidth": {
           "title": "Visualizer Size",
-          "description": "Adjust the size or thickness of the recording visualizer elements."
+          "description": "How thick each bar, dot, or drop is. Thicker elements also make the overlay wider."
         },
         "accentColor": {
           "title": "Overlay Accent Color",
-          "description": "Pick the accent color used for the recording visualizer and hover accents."
+          "description": "Color of the visualizer, glows, and hover highlights."
         },
         "bodyBackgroundColor": {
           "title": "Body Background Color",
-          "description": "Adjust the true background color of the overlay body beneath the material and glow layers."
+          "description": "The main color of the overlay. The theme and material add light and shade on top of it. Porcelain is always light and only takes a hint of this color."
         },
         "surfaceBaseColor": {
           "title": "Surface Tint",
-          "description": "Adjust the tint and glow layered over the body background. Use Body Background Color for the actual base fill."
+          "description": "A color that shows through the body from underneath. It is most visible at lower opacity and is handy for warming up or cooling down the surface."
         },
         "audioReactiveScale": {
           "label": "Voice-Reactive Scale",
-          "description": "Make the overlay subtly expand with stronger voice input."
+          "description": "The whole overlay grows slightly when you speak louder."
         },
         "audioReactiveScaleAmount": {
           "title": "Scale Strength",
-          "description": "Choose the maximum growth amount when you speak loudly."
+          "description": "How much the overlay can grow when you are loudest."
         },
         "voiceSensitivity": {
           "title": "Voice Sensitivity",
-          "description": "Choose how easily the overlay reacts to quieter speech. Higher values wake up sooner; lower values wait for stronger voice input."
+          "description": "How quiet speech can be and still count as voice for scaling and fading. Higher values react to softer speech."
         },
         "animationSoftness": {
           "title": "Animation Softness",
-          "description": "Make the overlay calmer and smoother, or snappier and more alive."
+          "description": "Low values feel snappy and lively, high values feel smooth and calm."
         },
         "depthParallax": {
           "title": "Depth Parallax",
-          "description": "Adjust how much decorative layers drift to create a sense of depth."
+          "description": "How far the background and centerpiece drift to create depth. Needs an ambient background or a centerpiece."
         },
         "opacity": {
           "title": "Overlay Opacity",
-          "description": "Set the base transparency of the recording overlay. At 100%, the surface becomes fully opaque."
+          "description": "How solid the overlay is. At 100% nothing behind it shows through."
         },
         "silenceFade": {
           "label": "Fade When Quiet",
-          "description": "Make the overlay more transparent during pauses. Turn this off to keep opacity constant."
+          "description": "Make the overlay more transparent during pauses. It comes back as soon as you speak."
         },
         "silenceOpacity": {
           "title": "Quiet Opacity",
-          "description": "Only used when Fade When Quiet is enabled. Sets how visible the overlay stays while you are quiet."
+          "description": "How visible the overlay stays during pauses. Needs Fade When Quiet."
+        },
+        "sections": {
+          "shape": {
+            "title": "Shape",
+            "description": "How wide the overlay is and what sits on its sides: the status icon on the left and the cancel button on the right."
+          },
+          "surface": {
+            "title": "Surface",
+            "description": "What the overlay is made of and how it is colored."
+          },
+          "visualizer": {
+            "title": "Visualizer",
+            "description": "The part that moves while you speak."
+          },
+          "atmosphere": {
+            "title": "Atmosphere",
+            "description": "Optional decoration around the visualizer. Leave it off for a clean look."
+          },
+          "motion": {
+            "title": "Motion",
+            "description": "How the overlay reacts to your voice and to pauses."
+          }
+        },
+        "statusIconColor": {
+          "title": "Status Icon Color",
+          "description": "Color of the icon on the left. Built-in presets keep your choice."
+        },
+        "showCancelButton": {
+          "label": "Show Cancel Button",
+          "description": "Show the × button on the right. Clicking it cancels the recording."
+        },
+        "cancelButtonInvisible": {
+          "label": "Invisible Cancel Button",
+          "description": "Hide the × but keep its spot working: clicking the right end of the overlay still cancels the recording. The preview marks the spot with a dashed circle.",
+          "warning": "Blind mode: the × is gone, so you cancel by feel. Click the empty spot at the right end of the overlay."
+        },
+        "cancelIconColor": {
+          "title": "Cancel Button Icon Color",
+          "description": "Color of the × on the cancel button. Built-in presets keep your choice."
+        },
+        "decapIndicator": {
+          "title": "Decapitalize Indicator",
+          "descriptionBeforeLink": "The chip shown on the recording overlay while decapitalization is armed. The feature itself is set up in",
+          "featureLink": "Text Processing → Decapitalize After Manual Edit",
+          "showInPreview": {
+            "label": "Show Decapitalize Indicator In Preview",
+            "description": "Only affects the preview on this page. Preset cards never show the indicator."
+          },
+          "mode": {
+            "title": "Decapitalize Indicator Mode",
+            "description": "Show the standard label, your own text or emoji, or nothing at all.",
+            "options": {
+              "text": "Default Text",
+              "custom": "Custom Text / Emoji",
+              "hidden": "Hidden"
+            }
+          },
+          "font": {
+            "title": "Decapitalize Indicator Font",
+            "description": "Font of the indicator chip."
+          },
+          "size": {
+            "title": "Decapitalize Indicator Size",
+            "description": "Size of the indicator text or emoji."
+          },
+          "customText": {
+            "title": "Custom Indicator Text / Emoji",
+            "description": "Any short text, emoji, or both, up to 24 characters. The chip stays centered above the overlay.",
+            "placeholder": "eg. a, Aa, ✍️, lower"
+          },
+          "color": {
+            "title": "Decapitalize Indicator Color",
+            "description": "Color of the indicator text or emoji."
+          }
         }
       }
     },
