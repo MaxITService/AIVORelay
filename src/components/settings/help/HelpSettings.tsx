@@ -63,11 +63,13 @@ const SMART_HELP_ACTIONS = [
 ] as const;
 
 const WHATS_NEW_ITEMS = [
-  "help.whatsNew.items.textFileActions",
-  "help.whatsNew.items.trayIcon",
-  "help.whatsNew.items.settingsScroll",
-  "help.whatsNew.items.recordingCleanup",
-  "help.whatsNew.items.historyCopy",
+  "help.whatsNew.items.overlayAppearance",
+  "help.whatsNew.items.overlayPreview",
+  "help.whatsNew.items.localTtsInstall",
+  "help.whatsNew.items.sonioxTts",
+  "help.whatsNew.items.textCleanup",
+  "help.whatsNew.items.localRecording",
+  "help.whatsNew.items.upstreamFixes",
 ] as const;
 
 export const HelpSettings: React.FC = () => {
