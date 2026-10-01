@@ -13,6 +13,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-10-02 | `release/microsoft-store` | `2a495378` | chore: bump version to 1.0.45 | `7818782c` | chore: bump version to 1.0.45 | Overlay presets, icon frames and 3D styles propagated; main-only docs and standalone frontend tests excluded; 1.0.44 highlights retained in 1.0.45; Store lock package version updated independently; no local build/tests |
 | 2026-10-01 | `release/microsoft-store` | `d4b43e77` | feat: refine overlay appearance and local TTS consent | `b5eff6fd` | feat: refine overlay appearance and local TTS consent | 3 runtime commits propagated today; Soniox v2, startup/text fixes, overlay and TTS consent; tests/test-support refactors, testing docs and promo excluded; reviewed test-only 8498faaa; Store lock metadata verified; no build/tests |
 | 2026-09-25 | `release/microsoft-store` | `1fae3dc9` | chore: bump version to 1.0.43 | `d36e0669` | chore: bump version to 1.0.43 | 4 runtime/UI commits propagated; main-only upstream log and release body excluded; Store notes adapted; lock version updated |
 | 2026-09-19 | `release/microsoft-store` | `d2021f7b` | chore: bump version to 1.0.42 | `2e512d12` | chore: bump version to 1.0.42 | 8 runtime/UI commits propagated; main-only `.AGENTS/code-notes.md` excluded from 2 commits; lib.rs window-builder conflict resolved to main's create_main_window; Store notes adapted; lock version refreshed |
@@ -22,7 +23,6 @@ Rules:
 | 2026-09-16 | `release/microsoft-store` | `2aaf46d4` | chore: bump version to 1.0.38 | `583e9146` | chore: bump version to 1.0.38 | 77 runtime/UI/test and release commits propagated; main-only docs, updater, and intermediate 1.0.37 bump excluded; Store notes adapted; lock regenerated |
 | 2026-09-06 | `release/microsoft-store` | `d18bfba8` | fix(copy): generalize realtime audio warning | `9da95e55` | fix(copy): generalize realtime audio warning | copy-only change propagated cleanly |
 | 2026-09-06 | `release/microsoft-store` | `0ca930c0` | Revert "feat(text-replacement): add quick literal replacement dialog" | `d47dd52b` | Revert "feat(text-replacement): add quick literal replacement dialog" | Quick Replacement removed from runtime, Help, search, and release notes; later features preserved |
-| 2026-09-06 | `release/microsoft-store` | `7545d18a` | feat(tray): add opt-in speech-only mode command | `dcac80bc` | feat(tray): add opt-in speech-only mode command | optional certificate guide and tray command propagated manually; Store release text adapted |
 
 Entry template:
 
