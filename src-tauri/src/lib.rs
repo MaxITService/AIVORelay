@@ -1280,6 +1280,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_auto_position_allow_reserved_areas_setting,
         shortcut::change_error_overlay_auto_hide_ms_setting,
         shortcut::change_error_feedback_enabled_setting,
+        shortcut::apply_recording_overlay_appearance,
         shortcut::change_recording_overlay_custom_enabled_setting,
         shortcut::change_recording_overlay_show_drag_grip_setting,
         shortcut::change_recording_overlay_theme_setting,

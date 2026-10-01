@@ -38,6 +38,15 @@ export interface RecordingOverlayStyleConfig {
   opacityPercent: number;
   silenceFade: boolean;
   silenceOpacityPercent: number;
+  showCancelButton: boolean;
+  widthPx: number;
+  statusIconColor: string;
+  cancelIconColor: string;
+  decapitalizeIndicatorMode: "text" | "custom" | "hidden";
+  decapitalizeIndicatorCustomText: string;
+  decapitalizeIndicatorFontFamily: string;
+  decapitalizeIndicatorFontSizePx: number;
+  decapitalizeIndicatorColor: string;
 }
 
 export interface RecordingOverlayStylePreset {
@@ -46,6 +55,11 @@ export interface RecordingOverlayStylePreset {
   description: string;
   config: Partial<RecordingOverlayStyleConfig>;
 }
+
+export const RECORDING_OVERLAY_INDICATOR_FONT_FAMILIES = [
+  "Segoe UI", "Segoe UI Emoji", "Bahnschrift", "Arial", "Verdana", "Tahoma",
+  "Trebuchet MS", "Georgia", "Times New Roman", "Consolas", "Cascadia Mono",
+] as const;
 
 const STYLE_CODE_PREFIX = "aivo-overlay:";
 
@@ -71,6 +85,15 @@ export const DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG: RecordingOverlayStyleConfig
   opacityPercent: 100,
   silenceFade: false,
   silenceOpacityPercent: 58,
+  showCancelButton: true,
+  widthPx: 172,
+  statusIconColor: "#faa2ca",
+  cancelIconColor: "#faa2ca",
+  decapitalizeIndicatorMode: "text",
+  decapitalizeIndicatorCustomText: "",
+  decapitalizeIndicatorFontFamily: "Segoe UI",
+  decapitalizeIndicatorFontSizePx: 11,
+  decapitalizeIndicatorColor: "#72f29a",
 };
 
 export const RECORDING_OVERLAY_STYLE_PRESETS: RecordingOverlayStylePreset[] = [
@@ -586,7 +609,11 @@ export function normalizeRecordingOverlayStyleConfig(
   value: Partial<RecordingOverlayStyleConfig> | Record<string, unknown> | null | undefined,
 ): RecordingOverlayStyleConfig {
   const source = value ?? {};
-  const raw = source as Record<string, unknown>;
+  const raw = { ...source } as Record<string, unknown>;
+  for (const key of Object.keys(DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG)) {
+    const alias = key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+    if (raw[key] === undefined && raw[alias] !== undefined) raw[key] = raw[alias];
+  }
   return {
     theme: normalizeTheme(raw.theme),
     backgroundMode: normalizeRecordingOverlayBackgroundMode(
@@ -720,6 +747,19 @@ export function normalizeRecordingOverlayStyleConfig(
       100,
       DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG.silenceOpacityPercent,
     ),
+    showCancelButton: typeof raw.showCancelButton === "boolean" ? raw.showCancelButton : true,
+    widthPx: clampInteger(raw.widthPx, 172, 420, 172),
+    statusIconColor: normalizeRecordingOverlayColor(raw.statusIconColor as string | undefined, "#faa2ca"),
+    cancelIconColor: normalizeRecordingOverlayColor(raw.cancelIconColor as string | undefined, "#faa2ca"),
+    decapitalizeIndicatorMode: raw.decapitalizeIndicatorMode === "custom" || raw.decapitalizeIndicatorMode === "hidden"
+      ? raw.decapitalizeIndicatorMode : "text",
+    decapitalizeIndicatorCustomText: typeof raw.decapitalizeIndicatorCustomText === "string"
+      ? Array.from(raw.decapitalizeIndicatorCustomText.replace(/[\r\n]/g, " ").trim()).slice(0, 24).join("") : "",
+    decapitalizeIndicatorFontFamily: RECORDING_OVERLAY_INDICATOR_FONT_FAMILIES.find(
+      (font) => font === raw.decapitalizeIndicatorFontFamily,
+    ) ?? "Segoe UI",
+    decapitalizeIndicatorFontSizePx: clampInteger(raw.decapitalizeIndicatorFontSizePx, 6, 48, 11),
+    decapitalizeIndicatorColor: normalizeRecordingOverlayColor(raw.decapitalizeIndicatorColor as string | undefined, "#72f29a"),
   };
 }
 
@@ -759,6 +799,15 @@ export function getRecordingOverlayStyleConfigFromSettings(
     opacityPercent: settings.recording_overlay_opacity_percent,
     silenceFade: settings.recording_overlay_silence_fade,
     silenceOpacityPercent: settings.recording_overlay_silence_opacity_percent,
+    showCancelButton: settings.recording_overlay_show_cancel_button,
+    widthPx: settings.recording_overlay_width_px,
+    statusIconColor: settings.recording_overlay_status_icon_color,
+    cancelIconColor: settings.recording_overlay_cancel_icon_color,
+    decapitalizeIndicatorMode: settings.recording_overlay_decapitalize_indicator_mode,
+    decapitalizeIndicatorCustomText: settings.recording_overlay_decapitalize_indicator_custom_text,
+    decapitalizeIndicatorFontFamily: settings.recording_overlay_decapitalize_indicator_font_family,
+    decapitalizeIndicatorFontSizePx: settings.recording_overlay_decapitalize_indicator_font_size_px,
+    decapitalizeIndicatorColor: settings.recording_overlay_decapitalize_indicator_color,
   });
 }
 
@@ -768,7 +817,7 @@ export function serializeRecordingOverlayStyleConfig(
   const normalized = normalizeRecordingOverlayStyleConfig(config);
   return JSON.stringify(
     {
-      version: 1,
+      version: 2,
       style: normalized,
     },
     null,
@@ -778,6 +827,7 @@ export function serializeRecordingOverlayStyleConfig(
 
 export function parseRecordingOverlayStyleConfig(
   input: string,
+  defaults: RecordingOverlayStyleConfig = DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG,
 ): RecordingOverlayStyleConfig {
   const trimmed = input.trim();
   if (!trimmed) {
@@ -786,7 +836,11 @@ export function parseRecordingOverlayStyleConfig(
 
   let rawPayload = trimmed;
   if (trimmed.startsWith(STYLE_CODE_PREFIX)) {
-    rawPayload = fromBase64Utf8(trimmed.slice(STYLE_CODE_PREFIX.length));
+    try {
+      rawPayload = fromBase64Utf8(trimmed.slice(STYLE_CODE_PREFIX.length));
+    } catch {
+      throw new Error("Style code contains invalid encoded data.");
+    }
   }
 
   let parsed: unknown;
@@ -796,17 +850,58 @@ export function parseRecordingOverlayStyleConfig(
     throw new Error("Style code is not valid JSON or Aivo overlay code.");
   }
 
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error("Style code payload is invalid.");
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Style code payload must be an object.");
   }
 
-  const parsedRecord = parsed as Record<string, unknown>;
-  const style =
-    typeof parsedRecord.style === "object" && parsedRecord.style
-      ? (parsedRecord.style as Record<string, unknown>)
-      : parsedRecord;
-
-  return normalizeRecordingOverlayStyleConfig(style);
+  const payload = parsed as Record<string, unknown>;
+  const wrapped = "style" in payload || "version" in payload;
+  if (wrapped && payload.version !== 1 && payload.version !== 2) {
+    throw new Error("Unsupported overlay style version. Supported versions are 1 and 2.");
+  }
+  if (wrapped && Object.keys(payload).some((key) => key !== "version" && key !== "style")) {
+    throw new Error("Style code contains unknown envelope fields.");
+  }
+  const source = wrapped ? payload.style : payload;
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    throw new Error("Style must be an object.");
+  }
+  const fields = Object.keys(DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG);
+  const aliases = new Map(fields.map((key) => [
+    key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`), key,
+  ]));
+  const canonical: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(source)) {
+    const key = fields.includes(name) ? name : aliases.get(name);
+    if (!key) throw new Error(`Unknown style field: ${name}.`);
+    if (key in canonical) throw new Error(`Duplicate style field: ${key}.`);
+    canonical[key] = value;
+  }
+  if (Object.keys(canonical).length === 0) {
+    throw new Error("Style must contain at least one appearance field.");
+  }
+  if (payload.version === 2) {
+    const missing = fields.filter((key) => !(key in canonical));
+    if (missing.length) throw new Error(`Missing style fields: ${missing.join(", ")}.`);
+  }
+  const normalized = normalizeRecordingOverlayStyleConfig({ ...defaults, ...canonical });
+  for (const [key, value] of Object.entries(canonical)) {
+    const expected = normalized[key as keyof RecordingOverlayStyleConfig];
+    if (typeof value !== typeof expected) {
+      throw new Error(`Invalid ${key}: expected ${typeof expected}.`);
+    }
+    if (typeof value === "number" && (!Number.isInteger(value) || value !== expected)) {
+      throw new Error(`Invalid ${key}: use a whole number within the supported range.`);
+    }
+    if (typeof value === "string" && key.endsWith("Color")) {
+      if (!/^#[0-9a-f]{6}$/i.test(value.trim())) {
+        throw new Error(`Invalid ${key}: use a six-digit hex color such as #ff4d8d.`);
+      }
+    } else if (typeof value === "string" && value !== expected) {
+      throw new Error(`Invalid ${key}: unsupported or malformed value.`);
+    }
+  }
+  return normalized;
 }
 
 export const RECORDING_OVERLAY_STYLE_SETTING_ENTRIES = (
@@ -815,6 +910,15 @@ export const RECORDING_OVERLAY_STYLE_SETTING_ENTRIES = (
   const normalized = normalizeRecordingOverlayStyleConfig(config);
   return [
     ["recording_overlay_theme", normalized.theme],
+    ["recording_overlay_show_cancel_button", normalized.showCancelButton],
+    ["recording_overlay_width_px", normalized.widthPx],
+    ["recording_overlay_status_icon_color", normalized.statusIconColor],
+    ["recording_overlay_cancel_icon_color", normalized.cancelIconColor],
+    ["recording_overlay_decapitalize_indicator_mode", normalized.decapitalizeIndicatorMode],
+    ["recording_overlay_decapitalize_indicator_custom_text", normalized.decapitalizeIndicatorCustomText],
+    ["recording_overlay_decapitalize_indicator_font_family", normalized.decapitalizeIndicatorFontFamily],
+    ["recording_overlay_decapitalize_indicator_font_size_px", normalized.decapitalizeIndicatorFontSizePx],
+    ["recording_overlay_decapitalize_indicator_color", normalized.decapitalizeIndicatorColor],
     ["recording_overlay_background_mode", normalized.backgroundMode],
     ["recording_overlay_material_mode", normalized.materialMode],
     ["recording_overlay_centerpiece_mode", normalized.centerpieceMode],

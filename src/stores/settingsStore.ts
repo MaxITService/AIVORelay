@@ -7,6 +7,11 @@ import type {
   VadBackend,
 } from "@/bindings";
 import { commands } from "@/bindings";
+import {
+  RECORDING_OVERLAY_STYLE_SETTING_ENTRIES,
+  DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG,
+  type RecordingOverlayStyleConfig,
+} from "@/overlay/recordingOverlayStyleConfig";
 import { invoke } from "@tauri-apps/api/core";
 import { invalidateModelDownloadActivationIntent } from "@/lib/modelDownloadActivation";
 import { getActiveProfilePostProcessingEnabled } from "@/lib/postProcessingAvailability";
@@ -54,6 +59,7 @@ interface SettingsStore {
     value: Settings[K],
     options?: { throwOnError?: boolean },
   ) => Promise<void>;
+  applyRecordingOverlayStyle: (config: RecordingOverlayStyleConfig) => Promise<void>;
   resetSetting: (key: keyof Settings) => Promise<void>;
   refreshSettings: () => Promise<void>;
   refreshAudioDevices: () => Promise<void>;
@@ -1214,8 +1220,18 @@ export const useSettingsStore = create<SettingsStore>()(
       value: Settings[K],
       options?: { throwOnError?: boolean },
     ) => {
-      const { setUpdating } = get();
       const updateKey = String(key);
+      if (get().isUpdating.recording_overlay_appearance && (
+        updateKey === "recording_overlay_custom_enabled" ||
+        RECORDING_OVERLAY_STYLE_SETTING_ENTRIES(DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG)
+          .some(([appearanceKey]) => appearanceKey === updateKey)
+      )) {
+        if (options?.throwOnError) {
+          throw new Error("Wait for the overlay appearance update to finish.");
+        }
+        return;
+      }
+      const { setUpdating } = get();
       const originalValue = get().settings?.[key];
       const updatesActiveProfilePostProcessing = key === "post_process_enabled";
       const targetProfileId = get().settings?.active_profile_id || "default";
@@ -1299,6 +1315,30 @@ export const useSettingsStore = create<SettingsStore>()(
         }
       } finally {
         setUpdating(updateKey, false);
+      }
+    },
+
+    applyRecordingOverlayStyle: async (config) => {
+      if (get().isUpdating.recording_overlay_appearance) {
+        throw new Error("An overlay appearance update is already in progress.");
+      }
+      const entries = RECORDING_OVERLAY_STYLE_SETTING_ENTRIES(config);
+      const { setUpdating } = get();
+      setUpdating("recording_overlay_appearance", true);
+      try {
+        const saved = await persistSettingInOrder(() => invoke<Settings>(
+          "apply_recording_overlay_appearance",
+          { appearance: Object.fromEntries(entries) },
+        ));
+        set((state) => {
+          if (!state.settings) return state;
+          const appearance = Object.fromEntries(entries.map(([key]) => [
+            key, saved[key as keyof Settings],
+          ]));
+          return { settings: { ...state.settings, ...appearance } };
+        });
+      } finally {
+        setUpdating("recording_overlay_appearance", false);
       }
     },
 

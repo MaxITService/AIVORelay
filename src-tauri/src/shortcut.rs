@@ -1460,6 +1460,167 @@ pub fn change_error_feedback_enabled_setting(app: AppHandle, enabled: bool) -> R
     Ok(())
 }
 
+/// A complete appearance update, excluding visibility, mode, and window position.
+#[derive(Deserialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct RecordingOverlayAppearanceSettings {
+    pub recording_overlay_theme: RecordingOverlayTheme,
+    pub recording_overlay_show_cancel_button: bool,
+    pub recording_overlay_width_px: u16,
+    pub recording_overlay_status_icon_color: String,
+    pub recording_overlay_cancel_icon_color: String,
+    pub recording_overlay_decapitalize_indicator_mode: RecordingOverlayDecapitalizeIndicatorMode,
+    pub recording_overlay_decapitalize_indicator_custom_text: String,
+    pub recording_overlay_decapitalize_indicator_font_family: String,
+    pub recording_overlay_decapitalize_indicator_font_size_px: u8,
+    pub recording_overlay_decapitalize_indicator_color: String,
+    pub recording_overlay_background_mode: RecordingOverlayBackgroundMode,
+    pub recording_overlay_material_mode: RecordingOverlayMaterialMode,
+    pub recording_overlay_centerpiece_mode: RecordingOverlayCenterpieceMode,
+    pub recording_overlay_animated_border_mode: RecordingOverlayAnimatedBorderMode,
+    pub recording_overlay_surface_base_color: String,
+    pub recording_overlay_body_background_color: String,
+    pub recording_overlay_show_status_icon: bool,
+    pub recording_overlay_bar_count: u8,
+    pub recording_overlay_bar_width_px: u8,
+    pub recording_overlay_bar_style: RecordingOverlayBarStyle,
+    pub recording_overlay_accent_color: String,
+    pub recording_overlay_show_drag_grip: bool,
+    pub recording_overlay_audio_reactive_scale: bool,
+    pub recording_overlay_audio_reactive_scale_max_percent: u8,
+    pub recording_overlay_voice_sensitivity_percent: u8,
+    pub recording_overlay_animation_softness_percent: u8,
+    pub recording_overlay_depth_parallax_percent: u8,
+    pub recording_overlay_opacity_percent: u8,
+    pub recording_overlay_silence_fade: bool,
+    pub recording_overlay_silence_opacity_percent: u8,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn apply_recording_overlay_appearance(
+    app: AppHandle,
+    appearance: RecordingOverlayAppearanceSettings,
+) -> Result<settings::AppSettings, String> {
+    if !(172..=420).contains(&appearance.recording_overlay_width_px) {
+        return Err("Invalid width_px: expected 172–420".to_string());
+    }
+    let status_icon_color = appearance.recording_overlay_status_icon_color.trim().to_ascii_lowercase();
+    if status_icon_color.len() != 7
+        || !status_icon_color.starts_with('#')
+        || !status_icon_color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("Invalid status_icon_color: expected a six-digit hex color".to_string());
+    }
+    let cancel_icon_color = appearance.recording_overlay_cancel_icon_color.trim().to_ascii_lowercase();
+    if cancel_icon_color.len() != 7
+        || !cancel_icon_color.starts_with('#')
+        || !cancel_icon_color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("Invalid cancel_icon_color: expected a six-digit hex color".to_string());
+    }
+    if !(6..=48).contains(&appearance.recording_overlay_decapitalize_indicator_font_size_px) {
+        return Err("Invalid decapitalize_indicator_font_size_px: expected 6–48".to_string());
+    }
+    let decapitalize_indicator_color = appearance.recording_overlay_decapitalize_indicator_color.trim().to_ascii_lowercase();
+    if decapitalize_indicator_color.len() != 7
+        || !decapitalize_indicator_color.starts_with('#')
+        || !decapitalize_indicator_color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("Invalid decapitalize_indicator_color: expected a six-digit hex color".to_string());
+    }
+    let surface_base_color = appearance.recording_overlay_surface_base_color.trim().to_ascii_lowercase();
+    if surface_base_color.len() != 7
+        || !surface_base_color.starts_with('#')
+        || !surface_base_color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("Invalid surface_base_color: expected a six-digit hex color".to_string());
+    }
+    let body_background_color = appearance.recording_overlay_body_background_color.trim().to_ascii_lowercase();
+    if body_background_color.len() != 7
+        || !body_background_color.starts_with('#')
+        || !body_background_color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("Invalid body_background_color: expected a six-digit hex color".to_string());
+    }
+    if !(3..=16).contains(&appearance.recording_overlay_bar_count) {
+        return Err("Invalid bar_count: expected 3–16".to_string());
+    }
+    if !(2..=12).contains(&appearance.recording_overlay_bar_width_px) {
+        return Err("Invalid bar_width_px: expected 2–12".to_string());
+    }
+    let accent_color = appearance.recording_overlay_accent_color.trim().to_ascii_lowercase();
+    if accent_color.len() != 7
+        || !accent_color.starts_with('#')
+        || !accent_color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("Invalid accent_color: expected a six-digit hex color".to_string());
+    }
+    if !(0..=24).contains(&appearance.recording_overlay_audio_reactive_scale_max_percent) {
+        return Err("Invalid audio_reactive_scale_max_percent: expected 0–24".to_string());
+    }
+    if !(0..=100).contains(&appearance.recording_overlay_voice_sensitivity_percent) {
+        return Err("Invalid voice_sensitivity_percent: expected 0–100".to_string());
+    }
+    if !(0..=100).contains(&appearance.recording_overlay_animation_softness_percent) {
+        return Err("Invalid animation_softness_percent: expected 0–100".to_string());
+    }
+    if !(0..=100).contains(&appearance.recording_overlay_depth_parallax_percent) {
+        return Err("Invalid depth_parallax_percent: expected 0–100".to_string());
+    }
+    if !(20..=100).contains(&appearance.recording_overlay_opacity_percent) {
+        return Err("Invalid opacity_percent: expected 20–100".to_string());
+    }
+    if !(20..=100).contains(&appearance.recording_overlay_silence_opacity_percent) {
+        return Err("Invalid silence_opacity_percent: expected 20–100".to_string());
+    }
+    if appearance.recording_overlay_decapitalize_indicator_custom_text.chars().count()
+        > RECORDING_OVERLAY_DECAPITALIZE_INDICATOR_MAX_TEXT_CHARS
+        || appearance.recording_overlay_decapitalize_indicator_custom_text.contains(['\r', '\n'])
+    {
+        return Err("Indicator text must be a single line of at most 24 characters".to_string());
+    }
+    if !RECORDING_OVERLAY_SYSTEM_FONT_FAMILIES.contains(
+        &appearance.recording_overlay_decapitalize_indicator_font_family.as_str(),
+    ) {
+        return Err("Unsupported indicator font family".to_string());
+    }
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_theme = appearance.recording_overlay_theme;
+    settings.recording_overlay_show_cancel_button = appearance.recording_overlay_show_cancel_button;
+    settings.recording_overlay_width_px = appearance.recording_overlay_width_px;
+    settings.recording_overlay_status_icon_color = status_icon_color;
+    settings.recording_overlay_cancel_icon_color = cancel_icon_color;
+    settings.recording_overlay_decapitalize_indicator_mode = appearance.recording_overlay_decapitalize_indicator_mode;
+    settings.recording_overlay_decapitalize_indicator_custom_text = appearance.recording_overlay_decapitalize_indicator_custom_text;
+    settings.recording_overlay_decapitalize_indicator_font_family = appearance.recording_overlay_decapitalize_indicator_font_family;
+    settings.recording_overlay_decapitalize_indicator_font_size_px = appearance.recording_overlay_decapitalize_indicator_font_size_px;
+    settings.recording_overlay_decapitalize_indicator_color = decapitalize_indicator_color;
+    settings.recording_overlay_background_mode = appearance.recording_overlay_background_mode;
+    settings.recording_overlay_material_mode = appearance.recording_overlay_material_mode;
+    settings.recording_overlay_centerpiece_mode = appearance.recording_overlay_centerpiece_mode;
+    settings.recording_overlay_animated_border_mode = appearance.recording_overlay_animated_border_mode;
+    settings.recording_overlay_surface_base_color = surface_base_color;
+    settings.recording_overlay_body_background_color = body_background_color;
+    settings.recording_overlay_show_status_icon = appearance.recording_overlay_show_status_icon;
+    settings.recording_overlay_bar_count = appearance.recording_overlay_bar_count;
+    settings.recording_overlay_bar_width_px = appearance.recording_overlay_bar_width_px;
+    settings.recording_overlay_bar_style = appearance.recording_overlay_bar_style;
+    settings.recording_overlay_accent_color = accent_color;
+    settings.recording_overlay_show_drag_grip = appearance.recording_overlay_show_drag_grip;
+    settings.recording_overlay_audio_reactive_scale = appearance.recording_overlay_audio_reactive_scale;
+    settings.recording_overlay_audio_reactive_scale_max_percent = appearance.recording_overlay_audio_reactive_scale_max_percent;
+    settings.recording_overlay_voice_sensitivity_percent = appearance.recording_overlay_voice_sensitivity_percent;
+    settings.recording_overlay_animation_softness_percent = appearance.recording_overlay_animation_softness_percent;
+    settings.recording_overlay_depth_parallax_percent = appearance.recording_overlay_depth_parallax_percent;
+    settings.recording_overlay_opacity_percent = appearance.recording_overlay_opacity_percent;
+    settings.recording_overlay_silence_fade = appearance.recording_overlay_silence_fade;
+    settings.recording_overlay_silence_opacity_percent = appearance.recording_overlay_silence_opacity_percent;
+    settings::write_settings_checked(&app, settings)?;
+    refresh_recording_overlay_window(&app);
+    Ok(settings::get_settings(&app))
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn change_recording_overlay_custom_enabled_setting(
@@ -1468,7 +1629,7 @@ pub fn change_recording_overlay_custom_enabled_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_custom_enabled = enabled;
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1481,7 +1642,7 @@ pub fn change_recording_overlay_show_drag_grip_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_show_drag_grip = enabled;
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1502,7 +1663,7 @@ pub fn change_recording_overlay_theme_setting(app: AppHandle, theme: String) -> 
             RecordingOverlayTheme::Classic
         }
     };
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1524,7 +1685,7 @@ pub fn change_recording_overlay_background_mode_setting(
         "rose_sparks" => RecordingOverlayBackgroundMode::RoseSparks,
         _ => RecordingOverlayBackgroundMode::None,
     };
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1543,7 +1704,7 @@ pub fn change_recording_overlay_material_mode_setting(
         "candy_chrome" => RecordingOverlayMaterialMode::CandyChrome,
         _ => RecordingOverlayMaterialMode::LiquidGlass,
     };
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1563,7 +1724,7 @@ pub fn change_recording_overlay_centerpiece_mode_setting(
         "signal_crown" => RecordingOverlayCenterpieceMode::SignalCrown,
         _ => RecordingOverlayCenterpieceMode::None,
     };
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1581,7 +1742,7 @@ pub fn change_recording_overlay_animated_border_mode_setting(
         "breathing_contour" => RecordingOverlayAnimatedBorderMode::BreathingContour,
         _ => RecordingOverlayAnimatedBorderMode::None,
     };
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1594,7 +1755,7 @@ pub fn change_recording_overlay_show_status_icon_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_show_status_icon = enabled;
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1607,7 +1768,7 @@ pub fn change_recording_overlay_show_cancel_button_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_show_cancel_button = enabled;
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1617,7 +1778,7 @@ pub fn change_recording_overlay_show_cancel_button_setting(
 pub fn change_recording_overlay_bar_count_setting(app: AppHandle, count: u8) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_bar_count = clamp_recording_overlay_bar_count(count);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1627,7 +1788,7 @@ pub fn change_recording_overlay_bar_count_setting(app: AppHandle, count: u8) -> 
 pub fn change_recording_overlay_width_setting(app: AppHandle, width_px: u16) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_width_px = clamp_recording_overlay_width_px(width_px);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1640,7 +1801,7 @@ pub fn change_recording_overlay_bar_width_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_bar_width_px = clamp_recording_overlay_bar_width_px(width_px);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1690,7 +1851,7 @@ pub fn change_recording_overlay_bar_style_setting(
             RecordingOverlayBarStyle::Solid
         }
     };
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1703,7 +1864,7 @@ pub fn change_recording_overlay_accent_color_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_accent_color = normalize_recording_overlay_color(&color);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1719,7 +1880,7 @@ pub fn change_recording_overlay_status_icon_color_setting(
         &color,
         RECORDING_OVERLAY_STATUS_ICON_DEFAULT_COLOR,
     );
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1735,7 +1896,7 @@ pub fn change_recording_overlay_cancel_icon_color_setting(
         &color,
         RECORDING_OVERLAY_CANCEL_ICON_DEFAULT_COLOR,
     );
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1748,7 +1909,7 @@ pub fn change_recording_overlay_surface_base_color_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_surface_base_color = normalize_recording_overlay_color(&color);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1761,7 +1922,7 @@ pub fn change_recording_overlay_body_background_color_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_body_background_color = normalize_recording_overlay_color(&color);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1785,7 +1946,7 @@ pub fn change_recording_overlay_decapitalize_indicator_mode_setting(
             RecordingOverlayDecapitalizeIndicatorMode::Text
         }
     };
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1799,7 +1960,7 @@ pub fn change_recording_overlay_decapitalize_indicator_custom_text_setting(
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_decapitalize_indicator_custom_text =
         sanitize_recording_overlay_indicator_text(&text);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1813,7 +1974,7 @@ pub fn change_recording_overlay_decapitalize_indicator_font_family_setting(
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_decapitalize_indicator_font_family =
         normalize_recording_overlay_font_family(&font_family);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1827,7 +1988,7 @@ pub fn change_recording_overlay_decapitalize_indicator_font_size_setting(
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_decapitalize_indicator_font_size_px =
         clamp_recording_overlay_decapitalize_indicator_font_size_px(size_px);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1844,7 +2005,7 @@ pub fn change_recording_overlay_decapitalize_indicator_color_setting(
             &color,
             RECORDING_OVERLAY_DECAPITALIZE_INDICATOR_DEFAULT_COLOR,
         );
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1857,7 +2018,7 @@ pub fn change_recording_overlay_audio_reactive_scale_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_audio_reactive_scale = enabled;
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1871,7 +2032,7 @@ pub fn change_recording_overlay_audio_reactive_scale_max_percent_setting(
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_audio_reactive_scale_max_percent =
         clamp_recording_overlay_audio_reactive_scale_max_percent(value);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1885,7 +2046,7 @@ pub fn change_recording_overlay_voice_sensitivity_percent_setting(
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_voice_sensitivity_percent =
         clamp_recording_overlay_voice_sensitivity_percent(value);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1899,7 +2060,7 @@ pub fn change_recording_overlay_animation_softness_percent_setting(
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_animation_softness_percent =
         clamp_recording_overlay_animation_softness_percent(value);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1913,7 +2074,7 @@ pub fn change_recording_overlay_depth_parallax_percent_setting(
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_depth_parallax_percent =
         clamp_recording_overlay_depth_parallax_percent(value);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1926,7 +2087,7 @@ pub fn change_recording_overlay_opacity_percent_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_opacity_percent = clamp_recording_overlay_opacity_percent(value);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1939,7 +2100,7 @@ pub fn change_recording_overlay_silence_fade_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_silence_fade = enabled;
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }
@@ -1953,7 +2114,7 @@ pub fn change_recording_overlay_silence_opacity_percent_setting(
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_silence_opacity_percent =
         clamp_recording_overlay_silence_opacity_percent(value);
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
     refresh_recording_overlay_window(&app);
     Ok(())
 }

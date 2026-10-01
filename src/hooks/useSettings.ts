@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import type { RecordingOverlayStyleConfig } from "../overlay/recordingOverlayStyleConfig";
 import { useSettingsStore } from "../stores/settingsStore";
 import type { AppSettings as Settings, AudioDevice } from "@/bindings";
 
@@ -18,6 +19,7 @@ interface UseSettingsReturn {
     value: Settings[K],
     options?: { throwOnError?: boolean },
   ) => Promise<void>;
+  applyRecordingOverlayStyle: (config: RecordingOverlayStyleConfig) => Promise<void>;
   resetSetting: (key: keyof Settings) => Promise<void>;
   refreshSettings: () => Promise<void>;
   refreshAudioDevices: () => Promise<void>;
@@ -88,6 +90,7 @@ export const useSettings = (): UseSettingsReturn => {
     audioFeedbackEnabled: store.settings?.audio_feedback || false,
     postProcessModelOptions: store.postProcessModelOptions,
     updateSetting: store.updateSetting,
+    applyRecordingOverlayStyle: store.applyRecordingOverlayStyle,
     resetSetting: store.resetSetting,
     refreshSettings: store.refreshSettings,
     refreshAudioDevices: store.refreshAudioDevices,

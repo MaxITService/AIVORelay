@@ -14,6 +14,7 @@ interface RecordingOverlayAnimatedBorderProps {
   animationSoftnessPercent?: number;
   /** Corner radius of the overlay frame, so the traveling light follows its outline. */
   frameRadiusPx?: number;
+  animated?: boolean;
 }
 
 type ActiveAnimatedBorderMode = Exclude<RecordingOverlayAnimatedBorderMode, "none">;
@@ -101,6 +102,7 @@ export const RecordingOverlayAnimatedBorder: React.FC<
   levels,
   animationSoftnessPercent = 55,
   frameRadiusPx = 18,
+  animated = true,
 }) => {
   const normalizedMode = normalizeRecordingOverlayAnimatedBorderMode(mode);
   const motion =
@@ -124,7 +126,7 @@ export const RecordingOverlayAnimatedBorder: React.FC<
 
   useEffect(() => {
     const node = animatedNodeRef.current;
-    if (!motion || !node || typeof node.animate !== "function") {
+    if (!animated || !motion || !node || typeof node.animate !== "function") {
       return;
     }
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
@@ -141,7 +143,7 @@ export const RecordingOverlayAnimatedBorder: React.FC<
       animation.cancel();
       animationRef.current = null;
     };
-  }, [motion, cycleMs]);
+  }, [animated, motion, cycleMs]);
 
   useEffect(() => {
     const animation = animationRef.current;

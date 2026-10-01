@@ -1762,10 +1762,14 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   );
   const [localTtsBusy, setLocalTtsBusy] = useState(false);
   const [localInstallConsent, setLocalInstallConsent] = useState<
-    Record<LocalTtsKind, { sourceTrusted: boolean; riskAcknowledged: boolean }>
+    Record<LocalTtsKind, {
+      sourceTrusted: boolean;
+      riskAcknowledged: boolean;
+      licensesAcknowledged: boolean;
+    }>
   >({
-    qwen: { sourceTrusted: false, riskAcknowledged: false },
-    kokoro: { sourceTrusted: false, riskAcknowledged: false },
+    qwen: { sourceTrusted: false, riskAcknowledged: false, licensesAcknowledged: false },
+    kokoro: { sourceTrusted: false, riskAcknowledged: false, licensesAcknowledged: false },
   });
   const [windowsCatalog, setWindowsCatalog] =
     useState<WindowsVoiceCatalog | null>(null);
@@ -2658,6 +2662,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         [installKind]: {
           sourceTrusted: false,
           riskAcknowledged: false,
+          licensesAcknowledged: false,
         },
       }));
     } catch (error) {
@@ -2671,7 +2676,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   };
 
   const updateLocalInstallConsent = (
-    field: "sourceTrusted" | "riskAcknowledged",
+    field: "sourceTrusted" | "riskAcknowledged" | "licensesAcknowledged",
     value: boolean,
   ) => {
     setLocalInstallConsent((current) => ({
@@ -2710,6 +2715,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         [activeLocalKind]: {
           sourceTrusted: false,
           riskAcknowledged: false,
+          licensesAcknowledged: false,
         },
       }));
       await refreshLocalTtsStatus();
@@ -4356,12 +4362,30 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 {!localTtsStatus?.installed && !localTtsStatus?.installing && (
                   <div className="space-y-3 rounded-lg border border-amber-300/25 bg-amber-300/[0.07] p-3">
                     <p className="text-xs leading-relaxed text-amber-100/90">
-                      {t("textToSpeech.local.downloadWarning", {
-                        author:
-                          localTtsStatus?.model_author ??
-                          localInstallMetadata.author,
+                      {t("textToSpeech.local.downloadWarning")}
+                    </p>
+                    <p className="text-xs leading-relaxed text-text/70">
+                      {t(`textToSpeech.local.downloadDetails.${activeLocalKind}`)}
+                    </p>
+                    <p className="text-xs leading-relaxed text-text/70">
+                      {t("textToSpeech.local.installationDetails", {
+                        modelDirectory: activeLocalKind === "qwen" ? "model-cache" : "model",
                       })}
                     </p>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                      <span className="text-text/70">{t("textToSpeech.local.runtimeLicenses")}</span>
+                      {localInstallMetadata.runtimeLicenses.map(([label, href]) => (
+                        <a
+                          key={href}
+                          className="text-[#d7b9ff] underline underline-offset-4"
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {label}
+                        </a>
+                      ))}
+                    </div>
                     <label className="flex cursor-pointer items-start gap-3 text-xs leading-relaxed text-text/80">
                       <input
                         className="mt-0.5 h-4 w-4 shrink-0 accent-[#a66cff]"
@@ -4375,11 +4399,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                         }
                       />
                       <span>
-                        {t("textToSpeech.local.trustSource", {
-                          author:
-                            localTtsStatus?.model_author ??
-                            localInstallMetadata.author,
-                        })}
+                        {t("textToSpeech.local.trustSource")}
                       </span>
                     </label>
                     <label className="flex cursor-pointer items-start gap-3 text-xs leading-relaxed text-text/80">
@@ -4396,6 +4416,20 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                       />
                       <span>{t("textToSpeech.local.understandRisks")}</span>
                     </label>
+                    <label className="flex cursor-pointer items-start gap-3 text-xs leading-relaxed text-text/80">
+                      <input
+                        className="mt-0.5 h-4 w-4 shrink-0 accent-[#a66cff]"
+                        type="checkbox"
+                        checked={activeLocalInstallConsent.licensesAcknowledged}
+                        onChange={(event) =>
+                          updateLocalInstallConsent(
+                            "licensesAcknowledged",
+                            event.target.checked,
+                          )
+                        }
+                      />
+                      <span>{t("textToSpeech.local.licensesAcknowledged")}</span>
+                    </label>
                   </div>
                 )}
 
@@ -4409,7 +4443,8 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                             : !localTtsStatus?.install_root
                               ? t("textToSpeech.local.pathUnavailable")
                               : !activeLocalInstallConsent.sourceTrusted ||
-                                  !activeLocalInstallConsent.riskAcknowledged
+                                  !activeLocalInstallConsent.riskAcknowledged ||
+                                  !activeLocalInstallConsent.licensesAcknowledged
                                 ? t("textToSpeech.local.acceptWarningsFirst")
                                 : null
                         }
@@ -4420,7 +4455,8 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                             localTtsBusy ||
                             !localTtsStatus?.install_root ||
                             !activeLocalInstallConsent.sourceTrusted ||
-                            !activeLocalInstallConsent.riskAcknowledged
+                            !activeLocalInstallConsent.riskAcknowledged ||
+                            !activeLocalInstallConsent.licensesAcknowledged
                           }
                           onClick={() => void installLocalTts()}
                         >

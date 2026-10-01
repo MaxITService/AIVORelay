@@ -318,6 +318,11 @@ export const SONIOX_LANGUAGE_OPTIONS = [
   ["cy", "Welsh"],
 ] as const;
 
+const LOCAL_TTS_SHARED_RUNTIME_LICENSES = [
+  ["uv (MIT)", "https://github.com/astral-sh/uv/blob/0.11.16/LICENSE-MIT"],
+  ["Python", "https://github.com/python/cpython/blob/v3.12.8/LICENSE"],
+] as const;
+
 export const LOCAL_TTS_INSTALL_METADATA = {
   qwen: {
     author: "Qwen Team (Alibaba Cloud)",
@@ -327,6 +332,13 @@ export const LOCAL_TTS_INSTALL_METADATA = {
     licenseUrl:
       "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice/blob/85e237c12c027371202489a0ec509ded67b5e4b5/README.md",
     estimatedInstallBytes: 16 * 1024 ** 3,
+    runtimeLicenses: [
+      ...LOCAL_TTS_SHARED_RUNTIME_LICENSES,
+      ["qwen-tts", "https://pypi.org/project/qwen-tts/0.1.1/"],
+      ["PyTorch", "https://github.com/pytorch/pytorch/blob/v2.10.0/LICENSE"],
+      ["torchaudio", "https://github.com/pytorch/audio/blob/v2.10.0/LICENSE"],
+      ["NVIDIA CUDA", "https://docs.nvidia.com/cuda/eula/index.html"],
+    ],
   },
   kokoro: {
     author: "k2-fsa (sherpa-onnx), based on hexgrad Kokoro-82M",
@@ -335,5 +347,10 @@ export const LOCAL_TTS_INSTALL_METADATA = {
     licenseUrl:
       "https://huggingface.co/csukuangfj/kokoro-int8-multi-lang-v1_1/blob/main/LICENSE",
     estimatedInstallBytes: 2 * 1024 ** 3,
+    runtimeLicenses: [
+      ...LOCAL_TTS_SHARED_RUNTIME_LICENSES,
+      ["sherpa-onnx", "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.4/LICENSE"],
+      ["eSpeak NG (GPL)", "https://github.com/espeak-ng/espeak-ng/blob/master/COPYING"],
+    ],
   },
 } as const;
