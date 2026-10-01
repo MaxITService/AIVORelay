@@ -143,6 +143,10 @@ impl TestSession {
     }
 
     async fn pending(&mut self) {
+        // Let the timer driver process this instant before inspecting session state.
+        let now = tokio::time::Instant::now();
+        tokio::time::sleep_until(now).await;
+        assert_eq!(tokio::time::Instant::now(), now, "timer barrier advanced virtual time");
         assert!(futures::poll!(self.task.as_mut()).is_pending(), "session ended unexpectedly");
     }
 
@@ -167,10 +171,13 @@ impl TestSession {
     }
 
     async fn result(&mut self) -> Result<()> {
-        match futures::poll!(self.task.as_mut()) {
-            Poll::Ready(result) => result,
-            Poll::Pending => panic!("expected session to finish without waiting"),
-        }
+        let now = tokio::time::Instant::now();
+        // Await scheduler progress, with a short virtual-time guard against hangs.
+        // A successful result must still occur at the exact instant under test.
+        let result = tokio::time::timeout(Duration::from_millis(1), self.task.as_mut())
+            .await.expect("session did not finish within one virtual millisecond");
+        assert_eq!(tokio::time::Instant::now(), now, "session finished after the expected virtual instant");
+        result
     }
 
     fn sent_json(&self) -> Vec<Value> {
@@ -181,10 +188,9 @@ impl TestSession {
 }
 
 fn run_test(test: impl Future<Output = ()>) {
-    tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap().block_on(async {
-        tokio::time::pause();
-        test.await;
-    });
+    // Freeze the clock before the timer driver establishes its millisecond origin.
+    tokio::runtime::Builder::new_current_thread().enable_time().start_paused(true)
+        .build().unwrap().block_on(test);
 }
 
 #[test]
