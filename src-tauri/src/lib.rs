@@ -1970,6 +1970,7 @@ pub fn run(cli_args: CliArgs) {
                 }
 
                 managers::transcription::init_transcribe_backend();
+                managers::transcription::report_compute_devices();
                 let model_manager = Arc::new(
                     ModelManager::new(&app_handle).expect("Failed to initialize model manager"),
                 );
@@ -2027,6 +2028,7 @@ pub fn run(cli_args: CliArgs) {
                 // Metal/Vulkan backend and probes devices. Preserve the background
                 // pre-warm for Local, but do not pay that cost for remote STT.
                 std::thread::spawn(|| {
+                    crate::managers::transcription::report_compute_devices();
                     let _ = crate::managers::transcription::get_available_accelerators();
                 });
             } else {

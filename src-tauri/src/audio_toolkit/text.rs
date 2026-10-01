@@ -313,7 +313,7 @@ fn gated_filler_words_for_language(lang: &str) -> &'static [&'static str] {
     let base_lang = lang.split(&['-', '_'][..]).next().unwrap_or(lang);
 
     match base_lang {
-        "en" => &["um", "ah", "eh", "ha"],
+        "en" => &["um", "ah", "eh"],
         "de" => &["äh", "ähm"],
         "fr" => &["euh"],
         _ => &[],
@@ -371,6 +371,44 @@ fn collapse_stutters(text: &str) -> String {
     result.join(" ")
 }
 
+/// Whether the next word would open a sentence.
+fn opens_sentence(kept: &str) -> bool {
+    kept.trim_end()
+        .chars()
+        .next_back()
+        .is_none_or(|c| matches!(c, '.' | '!' | '?' | '…'))
+}
+
+fn push_restoring_capital(kept: &mut String, segment: &str, capital_owed: &mut bool) {
+    if *capital_owed {
+        if let Some((index, first)) = segment.char_indices().find(|(_, c)| c.is_alphanumeric()) {
+            *capital_owed = false;
+            kept.push_str(&segment[..index]);
+            kept.extend(first.to_uppercase());
+            kept.push_str(&segment[index + first.len_utf8()..]);
+            return;
+        }
+    }
+    kept.push_str(segment);
+}
+
+/// A capitalized sentence-opening filler passes its capital to the next word.
+fn remove_filler_matches(text: &str, pattern: &Regex) -> String {
+    let mut kept = String::with_capacity(text.len());
+    let mut resume = 0;
+    let mut capital_owed = false;
+
+    for filler in pattern.find_iter(text) {
+        push_restoring_capital(&mut kept, &text[resume..filler.start()], &mut capital_owed);
+        let capitalized = filler.as_str().starts_with(char::is_uppercase);
+        capital_owed |= capitalized && opens_sentence(&kept);
+        resume = filler.end();
+    }
+    push_restoring_capital(&mut kept, &text[resume..], &mut capital_owed);
+
+    kept
+}
+
 /// Remove filler words when the opt-in setting is enabled.
 ///
 /// A custom list is an explicit override and replaces both built-in tiers.
@@ -405,7 +443,7 @@ pub fn remove_filler_words(
 
     let mut filtered = text.to_string();
     for pattern in &filler_patterns {
-        filtered = pattern.replace_all(&filtered, "").to_string();
+        filtered = remove_filler_matches(&filtered, pattern);
     }
 
     filtered
@@ -628,7 +666,7 @@ mod tests {
     fn test_filter_filler_words_case_insensitive() {
         let text = "UM this is UH a test";
         let result = filter_transcription_output(text, "en", &None);
-        assert_eq!(result, "this is a test");
+        assert_eq!(result, "This is a test");
     }
 
     #[test]
@@ -670,7 +708,50 @@ mod tests {
     fn test_filter_combined() {
         let text = "  Um, so [AUDIO] I was, uh, thinking (pause) about this  ";
         let result = filter_transcription_output(text, "en", &None);
-        assert_eq!(result, "so I was, thinking about this");
+        assert_eq!(result, "So I was, thinking about this");
+    }
+
+    #[test]
+    fn test_filter_preserves_ha_names() {
+        for text in ["Ha Long Bay is beautiful.", "Ha Noi is the capital.", "ha ha"] {
+            assert_eq!(filter_transcription_output(text, "en", &None), text);
+        }
+    }
+
+    #[test]
+    fn test_filter_restores_sentence_capitals() {
+        for (text, expected) in [
+            (
+                "Um, so I think we should ship it.",
+                "So I think we should ship it.",
+            ),
+            ("That works. Um, let me check.", "That works. Let me check."),
+            ("He said, Um, not today.", "He said, not today."),
+            ("um, so I think", "so I think"),
+            ("Um, uh, let's go.", "Let's go."),
+            ("Um, über alles.", "Über alles."),
+            ("Um, 42 things.", "42 things."),
+        ] {
+            assert_eq!(filter_transcription_output(text, "en", &None), expected);
+        }
+    }
+
+    #[test]
+    fn test_filter_custom_fillers_restore_capitals_only_when_enabled() {
+        let fillers = Some(vec!["maybe".to_string()]);
+        assert_eq!(
+            filter_transcription_output("Maybe, this works.", "en", &fillers),
+            "This works."
+        );
+        assert_eq!(
+            remove_filler_words(
+                "Maybe, this works.",
+                &OutputLanguageEvidence::Unknown,
+                &fillers,
+                false,
+            ),
+            "Maybe, this works."
+        );
     }
 
     #[test]

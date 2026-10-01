@@ -6,6 +6,31 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-09-30):
+- Refreshed `upstream/main` and reviewed the complete six-commit linear corridor
+  after `8f9cf53c` through `29bd2c0d`; there are no merges. The safe review
+  cursor is now `29bd2c0d`.
+- Integrated five items on 2026-10-01 as `fix: adapt upstream
+  text, recording, and startup fixes`: preserve English Ha names (`8ef8dd43`),
+  restore sentence capitals after filler removal (`eb49dc02`), pin transcribe.cpp
+  to exact `0.2.4` (`2d526b15`), reject invalid/unavailable local recording
+  selections (`eea1f5f4`), and report compute devices from Local background
+  prewarm instead of backend initialization (`29bd2c0d`).
+- Retained opt-in/language-safe/custom filler filtering, independent
+  decapitalization, profile-resolved settings, download-on-use catalog models,
+  loaded matching models, remote-provider deferral, initialization error caching,
+  CLI device behavior, x64 dynamic backends, and ARM64 static CPU packaging.
+- `f5c27e69` is already covered on Windows by the fork's parser-based Tauri
+  validation, engine-switch clearing, and registration compatibility checks.
+- Reviewed official `0.2.4` crate sources: Rust wrapper source, sys bindings,
+  sys build script, and top-level CMake configuration are unchanged; native ggml
+  moves to `0.25.3`. Cargo.lock was regenerated locally and changes only the two
+  transcribe-cpp package versions/checksums. Added text regressions; user chose
+  to handle builds/tests. No app console is attached, so compilation is unverified.
+- Existing and concurrent unrelated work remains outside this intake. Older
+  table entries were retained because automatic approval review rejected trimming
+  them as a loss of project history.
+
 Audit note (2026-09-25):
 - Reviewed the complete six-commit corridor after `05e0aedd` through upstream
   HEAD `8f9cf53c`; there are no merge commits. The safe review cursor is now
@@ -224,6 +249,11 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-10-01 | 2026-09-28 | `29bd2c0d` | fix: list compute devices off the startup path (#2160) | fix: adapt upstream text, recording, and startup fixes | Local background reporting; cached init and remote deferral retained |
+| 2026-10-01 | 2026-09-27 | `eea1f5f4` | fix: don't start recording when no model can transcribe it (#2161) | fix: adapt upstream text, recording, and startup fixes | rejects empty/unknown/missing custom selections; catalog download-on-use retained |
+| 2026-10-01 | 2026-09-27 | `eb49dc02` | fix: keep the sentence capital after removing a leading filler (#2157) | fix: adapt upstream text, recording, and startup fixes | language-safe/custom filler adaptation with text regressions |
+| 2026-10-01 | 2026-09-28 | `2d526b15` | bump to transcribe-cpp-0.2.4 (#2147) | fix: adapt upstream text, recording, and startup fixes | exact pins; lock regenerated locally; native build/runtime unverified |
+| 2026-10-01 | 2026-09-27 | `8ef8dd43` | fix: stop removing "Ha" as an English filler word (#2156) | fix: adapt upstream text, recording, and startup fixes | removed built-in ha only; custom overrides retained |
 | 2026-09-25 | 2026-09-19 | `dc5bdc9d` | fix: unload model after recordings with no audio (#2106) | fix: adapt upstream recording, shortcut, and history fixes | local-only operation guard; immediate setting only; no wait for in-flight model loads |
 | 2026-09-25 | 2026-09-19 | `a6eed754` | fix(shortcut): reject unknown reset binding IDs (#2033) | fix: adapt upstream recording, shortcut, and history fixes | preserved fork binding mutation flow; unknown ID now returns an error |
 | 2026-09-25 | 2026-09-19 | `496a80cc` | fix(history): show copy success only after clipboard write (#2011) | fix: adapt upstream recording, shortcut, and history fixes | awaited clipboard result; translated error across fork locales |
