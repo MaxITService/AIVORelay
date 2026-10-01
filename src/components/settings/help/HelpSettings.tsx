@@ -63,6 +63,9 @@ const SMART_HELP_ACTIONS = [
 ] as const;
 
 const WHATS_NEW_ITEMS = [
+  "help.whatsNew.items.overlayUserPresets",
+  "help.whatsNew.items.overlayDepth",
+  "help.whatsNew.items.overlayControls",
   "help.whatsNew.items.overlayAppearance",
   "help.whatsNew.items.overlayPreview",
   "help.whatsNew.items.localTtsInstall",

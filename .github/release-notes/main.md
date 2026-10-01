@@ -5,6 +5,9 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
+- Save your own named overlay presets and share the complete appearance through style codes. Previously shared codes still import.
+- Give the overlay a new look with 3D-style animated bars, backgrounds, centerpieces, and materials.
+- Choose new status icon frames and optionally make the cancel button invisible while keeping it clickable.
 - Overlay presets, reset, and imported styles now save the complete appearance together and report any saving errors.
 - Preview the overlay while capture starts, during silence, or with an application name. Previews also respect reduced-motion settings.
 - Before installing a local speech model, you can review its download sources, installation details, and component licenses, then confirm that you have read them.
@@ -16,6 +19,6 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 ---
 
 **Notice:**
-The [Microsoft Store Edition](https://github.com/MaxITService/AIVORelay/releases/tag/v1.0.44-store) is also available for this version. It targets Windows x64 and requires an AVX2-capable processor.
+The [Microsoft Store Edition](https://github.com/MaxITService/AIVORelay/releases/tag/v1.0.45-store) is also available for this version. It targets Windows x64 and requires an AVX2-capable processor.
 
 Optional: Windows users can install AivoRelay's self-signed root certificate to trust GitHub builds from Max IT Service. AivoRelay also works without it, but Windows may show publisher or SmartScreen warnings. See the [certificate installation guide](https://github.com/MaxITService/AIVORelay/blob/main/docs/WINDOWS-CERTIFICATE-INSTALLATION.md).
