@@ -103,8 +103,13 @@ const selectStyles: StylesConfig<
       color: "#ff6b9d",
     },
   }),
-  menu: (provided) => ({
+  // Enter animation only: react-select unmounts the menu immediately on close.
+  menu: (provided, state) => ({
     ...provided,
+    "--app-popover-shift": state.placement === "top" ? "6px" : "-6px",
+    transformOrigin: state.placement === "top" ? "bottom center" : "top center",
+    animation:
+      "app-popover-in var(--motion-popover-enter-duration) var(--motion-ease-out)",
     zIndex: 9999,
     backgroundColor: "rgba(37, 37, 37, 0.98)",
     backdropFilter: "blur(12px) saturate(150%)",

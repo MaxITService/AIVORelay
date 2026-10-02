@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { usePresence } from "@/hooks/usePresence";
 
 export interface DropdownOption {
   value: string;
@@ -97,9 +98,11 @@ export const Dropdown: React.FC<DropdownProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const menuPresence = usePresence(isOpen && !disabled);
+
   useLayoutEffect(() => {
+    // Keep the last position while closed so the exit animation stays anchored.
     if (!isOpen) {
-      setMenuStyle(null);
       return;
     }
 
@@ -265,15 +268,16 @@ export const Dropdown: React.FC<DropdownProps> = ({
           />
         </svg>
       </button>
-      {isOpen &&
-        !disabled &&
+      {menuPresence.isMounted &&
         createPortal(
           <div
             id={listboxId}
             ref={listRef}
             role="listbox"
             aria-labelledby={triggerId}
-            className="fixed z-[9998] overflow-y-auto rounded-lg border border-[#3c3c3c] bg-[#252525]/98 p-1 shadow-[0_12px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+            data-state={menuPresence.state}
+            data-placement={menuStyle?.bottom !== undefined ? "top" : "bottom"}
+            className="app-popover fixed z-[9998] overflow-y-auto rounded-lg border border-[#3c3c3c] bg-[#252525]/98 p-1 shadow-[0_12px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl"
             style={
               menuStyle ?? {
                 top: 0,

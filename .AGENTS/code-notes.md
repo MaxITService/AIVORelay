@@ -74,6 +74,9 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/soniox-live-preview/SonioxLivePreview.tsx` | Live preview window UI, drag grip, edge resize handles, persisted geometry, preview delete actions. |
 | `src/lib/utils/previewHotkeys.ts` | Preview hotkeys logic. |
 | `src/components/ui/HotkeyCapture.tsx` | Reusable hotkey field backed by the same browser keyboard-capture hook as Tauri/rdev global shortcuts. |
+| `src/components/ui/Collapse.tsx` | Shared animated height disclosure for expandable sections; clips only while animating so popups inside open sections are not cut off. |
+| `src/hooks/usePresence.ts` | Keeps floating menus mounted while their `.app-popover` exit animation plays. |
+| `src/lib/motion.ts` | Disclosure/popover timings mirrored by the `--motion-*` tokens in `App.css`; native `<details>` use the same tokens via `::details-content`. |
 | `src/hooks/useKeyboardCapture.ts` | Shared DOM keyboard-event collection and normalization for browser-captured shortcut and feature-local hotkey fields. |
 | `src/components/hotkey-sidebar/HotkeySidebar.tsx` | Keyboard-accessible right-side assigned-hotkey guide, including enabled Decapitalize monitor keys. |
 | `src/lib/hotkeyGuide.ts` | Frontend adapter for the shared hotkey-guide manifest, including feature-local synthetic guide entries. |

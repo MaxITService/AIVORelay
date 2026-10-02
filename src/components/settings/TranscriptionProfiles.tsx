@@ -34,6 +34,7 @@ import { Badge } from "../ui/Badge";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { TriStateToggle, type TriStateValue } from "../ui/TriStateToggle";
 import { Tooltip } from "../ui/Tooltip";
+import { Collapse } from "../ui/Collapse";
 import { HandyShortcut } from "./HandyShortcut";
 import { ModelSelect } from "./PostProcessingSettingsApi/ModelSelect";
 import { ResetButton } from "../ui/ResetButton";
@@ -1063,7 +1064,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
       </div>
 
       {/* Expanded content */}
-      {isExpanded && (
+      <Collapse open={isExpanded}>
         <div className="px-4 pb-4 pt-3 border-t border-mid-gray/20 space-y-3">
           {/* Cycle & Push-to-Talk Controls */}
           <div className="grid gap-3 lg:grid-cols-3 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
@@ -1110,7 +1111,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   {t("settings.general.pushToTalk.description")}
                 </span>
               </div>
-              {showShortcutMoreOptions && (
+              <Collapse open={showShortcutMoreOptions}>
                 <div className="mt-3 pt-3 border-t border-mid-gray/15">
                   <div className="flex items-start gap-2">
                     <ToggleSwitch
@@ -1134,7 +1135,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                     </div>
                   </div>
                 </div>
-              )}
+              </Collapse>
             </div>
 
             <div className="min-w-0">
@@ -1945,7 +1946,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
               </div>
           </details>
         </div>
-      )}
+      </Collapse>
     </div>
   );
 };
@@ -2792,7 +2793,7 @@ export const TranscriptionProfiles: React.FC = () => {
             </div>
 
             {/* Expanded content - Global settings */}
-            {isExpanded("default") && (
+            <Collapse open={isExpanded("default")}>
               <div className="px-4 pb-4 pt-3 border-t border-mid-gray/20 space-y-3">
                 {/* Push-to-Talk + Output to Preview — matches ProfileCard box style */}
                 <div className="grid gap-3 lg:grid-cols-2 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
@@ -2830,7 +2831,7 @@ export const TranscriptionProfiles: React.FC = () => {
                         {t("settings.general.pushToTalk.description")}
                       </span>
                     </div>
-                    {showDefaultShortcutMoreOptions && (
+                    <Collapse open={showDefaultShortcutMoreOptions}>
                       <div className="mt-3 pt-3 border-t border-mid-gray/15">
                         <div className="flex items-start gap-2">
                           <ToggleSwitch
@@ -2862,7 +2863,7 @@ export const TranscriptionProfiles: React.FC = () => {
                           </div>
                         </div>
                       </div>
-                    )}
+                    </Collapse>
                   </div>
 
                   <div className="min-w-0">
@@ -3254,7 +3255,7 @@ export const TranscriptionProfiles: React.FC = () => {
                   </div>
                 </details>
               </div>
-            )}
+            </Collapse>
           </div>
 
           {/* Custom Profiles */}

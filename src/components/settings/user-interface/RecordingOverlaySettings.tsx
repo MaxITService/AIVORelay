@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { RotateCcw, Trash2, TriangleAlert } from "lucide-react";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
+import { Collapse } from "../../ui/Collapse";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { Dropdown } from "../../ui/Dropdown";
 import { ConfirmationModal } from "../../ui/ConfirmationModal";
@@ -1745,8 +1746,8 @@ export const RecordingOverlaySettings: React.FC = () => {
               </div>
             ) : null}
           </div>
-          {arePresetsExpanded && (
-            <>
+          <Collapse open={arePresetsExpanded} className="-mt-3">
+            <div className="space-y-3 pt-3">
               {renderPresetGroup(
                 t(
                   "settings.userInterface.recordingOverlay.presets.modernTitle",
@@ -1768,8 +1769,8 @@ export const RecordingOverlaySettings: React.FC = () => {
                 ),
                 ORIGINAL_RECORDING_OVERLAY_PRESETS,
               )}
-            </>
-          )}
+            </div>
+          </Collapse>
         </div>
       </SettingContainer>
           </fieldset>

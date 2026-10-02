@@ -13,6 +13,7 @@ import { ApiKeyField } from "../PostProcessingSettingsApi/ApiKeyField";
 import { ModelSelect } from "../PostProcessingSettingsApi/ModelSelect";
 import { ResetButton } from "../../ui/ResetButton";
 import { TellMeMore } from "../../ui/TellMeMore";
+import { Collapse } from "../../ui/Collapse";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { useVoiceCommandProviderState } from "./useVoiceCommandProviderState";
 import { sessionToast as toast } from "@/lib/sessionToast";
@@ -165,7 +166,7 @@ function VoiceCommandCard({
             </span>
           </button>
 
-          {isExecutionOpen && (
+          <Collapse open={isExecutionOpen}>
             <div className="execution-options-content">
               <div className="execution-option-row">
                 <span>
@@ -248,7 +249,7 @@ function VoiceCommandCard({
                 />
               </div>
             </div>
-          )}
+          </Collapse>
         </div>
 
         <div className="voice-command-actions">
@@ -584,7 +585,7 @@ export default function VoiceCommandSettings() {
                 </span>
               </button>
 
-              {isLlmSettingsOpen && (
+              <Collapse open={isLlmSettingsOpen}>
                 <div className="llm-api-content">
                   <div className="setting-row llm-api-row llm-api-row-provider">
                     <div className="setting-label">
@@ -799,7 +800,7 @@ export default function VoiceCommandSettings() {
                     />
                   </div>
                 </div>
-              )}
+              </Collapse>
             </div>
           )}
 
@@ -1021,7 +1022,7 @@ export default function VoiceCommandSettings() {
               </span>
             </button>
 
-            {isFuzzyMatchingOpen && (
+            <Collapse open={isFuzzyMatchingOpen}>
               <div className="fuzzy-matching-content">
                 <TellMeMore
                   title={t(
@@ -1242,7 +1243,7 @@ export default function VoiceCommandSettings() {
                   />
                 </div>
               </div>
-            )}
+            </Collapse>
           </div>
 
           <div className="setting-row">

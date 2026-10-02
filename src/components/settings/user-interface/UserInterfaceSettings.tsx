@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
+import { Collapse } from "../../ui/Collapse";
 import { HandyShortcut } from "../HandyShortcut";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { Dropdown } from "../../ui/Dropdown";
@@ -590,7 +591,7 @@ export const UserInterfaceSettings: React.FC = () => {
                 />
               </svg>
             </button>
-            {previewActionsExpanded && (
+            <Collapse open={previewActionsExpanded}>
             <div className="mt-3 w-full space-y-3">
               {PREVIEW_ACTION_BUTTON_CONFIGS.map((config) => {
                 const hotkeyRaw = String((settings as any)?.[config.hotkeyKey] ?? "");
@@ -653,7 +654,7 @@ export const UserInterfaceSettings: React.FC = () => {
                 );
               })}
             </div>
-            )}
+            </Collapse>
             </div>
           <SettingContainer
             title="Ctrl+Backspace Deletes Last Word"

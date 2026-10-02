@@ -87,8 +87,101 @@ body,
     var(--color-accent-primary) 35%,
     var(--color-text) 65%
   );
+
+  /* Disclosure / popover motion (keep in sync with src/lib/motion.ts) */
+  --motion-collapse-duration: 220ms;
+  --motion-popover-enter-duration: 160ms;
+  --motion-popover-exit-duration: 120ms;
+  --motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-collapse-duration: 0ms;
+    --motion-popover-enter-duration: 0ms;
+    --motion-popover-exit-duration: 0ms;
+  }
+}
+
+/* ============================================
+   Disclosure & Popover Motion
+   ============================================ */
+
+/* Height collapse used by <Collapse>; it sets a height-scaled --app-collapse-duration. */
+.app-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows
+      var(--app-collapse-duration, var(--motion-collapse-duration))
+      var(--motion-ease-in-out),
+    opacity var(--app-collapse-duration, var(--motion-collapse-duration))
+      var(--motion-ease-in-out);
+}
+
+.app-collapse[data-state="open"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.app-collapse__clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-collapse[data-settled] > .app-collapse__clip {
+  overflow: visible;
+}
+
+/* Native <details> disclosures share the same height motion. */
+@supports selector(::details-content) and (block-size: calc-size(auto, size)) {
+  details::details-content {
+    block-size: 0;
+    overflow-y: clip;
+    transition:
+      block-size var(--motion-collapse-duration) var(--motion-ease-in-out),
+      content-visibility var(--motion-collapse-duration) allow-discrete;
+  }
+
+  details[open]::details-content {
+    block-size: calc-size(auto, size);
+  }
+}
+
+/* Floating menus: fade + short slide from the anchor side. */
+@keyframes app-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--app-popover-shift)) scale(0.98);
+  }
+}
+
+@keyframes app-popover-out {
+  to {
+    opacity: 0;
+    transform: translateY(var(--app-popover-shift)) scale(0.98);
+  }
+}
+
+.app-popover {
+  --app-popover-shift: -6px;
+  transform-origin: top center;
+  animation: app-popover-in var(--motion-popover-enter-duration)
+    var(--motion-ease-out);
+}
+
+.app-popover[data-placement="top"] {
+  --app-popover-shift: 6px;
+  transform-origin: bottom center;
+}
+
+.app-popover[data-state="closed"] {
+  pointer-events: none;
+  animation: app-popover-out var(--motion-popover-exit-duration) ease-in
+    forwards;
+}
 /* ============================================
    Liquid Glass Effects (Apple Style)
    ============================================ */

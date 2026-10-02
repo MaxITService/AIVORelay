@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AppSettings } from "@/bindings";
+import { usePresence } from "@/hooks/usePresence";
 import type { SettingsSearchEntry } from "./settingsSearchTypes";
 import {
   findNormalizedMatchRange,
@@ -176,6 +177,17 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
   ]);
 
   const showResults = isFocused && normalizedQuery.length > 0;
+  const resultsPresence = usePresence(showResults);
+  // Keep the last visible results while the popup fades out after the query is cleared.
+  const shownSearchRef = useRef({ results, query, normalizedQuery });
+  if (showResults) {
+    shownSearchRef.current = { results, query, normalizedQuery };
+  }
+  const {
+    results: shownResults,
+    query: shownQuery,
+    normalizedQuery: shownNormalizedQuery,
+  } = shownSearchRef.current;
 
   useEffect(() => {
     setActiveIndex(0);
@@ -321,15 +333,16 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
         )}
       </div>
 
-      {showResults && (
+      {resultsPresence.isMounted && (
         <div
           id="global-settings-search-results"
+          data-state={resultsPresence.state}
           role="listbox"
           aria-label={t("settingsSearch.results", "Settings search results")}
-          className="absolute left-0 top-full mt-1 max-h-96 w-96 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-[#3b3b3b] bg-[#171717] p-1 shadow-2xl"
+          className="app-popover absolute left-0 top-full mt-1 max-h-96 w-96 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-[#3b3b3b] bg-[#171717] p-1 shadow-2xl"
         >
-          {results.length > 0 ? (
-            results.map((result, index) => {
+          {shownResults.length > 0 ? (
+            shownResults.map((result, index) => {
               const {
                 entry,
                 label,
@@ -341,7 +354,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
               } = result;
               const startsSection =
                 index === 0 ||
-                results[index - 1].entry.section !== entry.section;
+                shownResults[index - 1].entry.section !== entry.section;
 
               return (
                 <React.Fragment key={entry.id}>
@@ -350,7 +363,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
                       role="presentation"
                       className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-[#707070]"
                     >
-                      <HighlightMatch text={sectionLabel} query={query} />
+                      <HighlightMatch text={sectionLabel} query={shownQuery} />
                     </div>
                   )}
                   <button
@@ -368,31 +381,31 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
                     } ${isAvailable ? "" : "cursor-not-allowed opacity-65"}`}
                   >
                     <span className="block text-sm text-[#f0f0f0]">
-                      <HighlightMatch text={sectionLabel} query={query} />
+                      <HighlightMatch text={sectionLabel} query={shownQuery} />
                       {groupLabel && (
                         <>
                           <span aria-hidden="true" className="px-1.5 text-[#626262]">
                             →
                           </span>
-                          <HighlightMatch text={groupLabel} query={query} />
+                          <HighlightMatch text={groupLabel} query={shownQuery} />
                         </>
                       )}
                       <span aria-hidden="true" className="px-1.5 text-[#626262]">
                         →
                       </span>
-                      <HighlightMatch text={label} query={query} />
+                      <HighlightMatch text={label} query={shownQuery} />
                     </span>
                     {matchedTerm &&
-                      !normalizeSearchText(label).includes(normalizedQuery) &&
+                      !normalizeSearchText(label).includes(shownNormalizedQuery) &&
                       !normalizeSearchText(sectionLabel).includes(
-                        normalizedQuery,
+                        shownNormalizedQuery,
                       ) &&
                       !normalizeSearchText(groupLabel).includes(
-                        normalizedQuery,
+                        shownNormalizedQuery,
                       ) && (
                         <span className="mt-1 block text-[11px] text-[#858585]">
                           {t("settingsSearch.matched", "Matched")}: {" "}
-                          <HighlightMatch text={matchedTerm} query={query} />
+                          <HighlightMatch text={matchedTerm} query={shownQuery} />
                         </span>
                       )}
                     {!isAvailable && unavailableReason && (
@@ -420,7 +433,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
                 className="mt-2 text-left text-xs font-medium text-[#ff8ebb] hover:text-[#ffc0d5] focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/60"
               >
                 {t("settingsSearch.searchHelp", "Search Help for “{{query}}”", {
-                  query: query.trim(),
+                  query: shownQuery.trim(),
                 })}
               </button>
             </div>

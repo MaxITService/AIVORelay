@@ -11,6 +11,7 @@ import ModelDropdown from "./ModelDropdown";
 import DownloadProgressDisplay from "./DownloadProgressDisplay";
 import { isMoonshineStreamingModel } from "./nativeStreamingModel";
 import { useSettings } from "../../hooks/useSettings";
+import { usePresence } from "../../hooks/usePresence";
 import {
   beginModelDownloadActivationIntent,
   cancelModelDownloadActivationIntent,
@@ -67,6 +68,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     Map<string, DownloadProgress>
   >(new Map());
   const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const modelDropdownPresence = usePresence(showModelDropdown);
   const [downloadStats, setDownloadStats] = useState<
     Map<string, DownloadStats>
   >(new Map());
@@ -616,8 +618,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         />
 
         {/* Model Dropdown */}
-        {showModelDropdown && (
+        {modelDropdownPresence.isMounted && (
           <ModelDropdown
+            presenceState={modelDropdownPresence.state}
             models={models}
             currentModelId={currentModelId}
             downloadProgress={modelDownloadProgress}

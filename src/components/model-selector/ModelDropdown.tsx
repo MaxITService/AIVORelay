@@ -28,6 +28,7 @@ interface ModelDropdownProps {
   currentProvider?: string;
   remoteApiLabel?: string;
   onRemoteProviderSelect?: (provider: string) => void;
+  presenceState?: "open" | "closed";
 }
 
 const ModelDropdown: React.FC<ModelDropdownProps> = ({
@@ -42,6 +43,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
   currentProvider = "local",
   remoteApiLabel = "Remote API Interfaces",
   onRemoteProviderSelect,
+  presenceState = "open",
 }) => {
   const isRemoteProvider =
     currentProvider === "remote_openai_compatible" ||
@@ -100,7 +102,11 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
   };
 
   return (
-    <div className="absolute bottom-full left-0 mb-2 w-64 max-h-[calc(100vh-4rem)] overflow-y-auto bg-background border border-mid-gray/20 rounded-lg shadow-lg py-2 z-50">
+    <div
+      data-state={presenceState}
+      data-placement="top"
+      className="app-popover absolute bottom-full left-0 mb-2 w-64 max-h-[calc(100vh-4rem)] overflow-y-auto bg-background border border-mid-gray/20 rounded-lg shadow-lg py-2 z-50"
+    >
       {/* Remote STT Options */}
       {onRemoteProviderSelect && (
         <div>

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { ChevronDown, ChevronUp, Info } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Collapse } from "./Collapse";
 
 interface TellMeMoreProps {
   title?: string;
@@ -49,11 +50,11 @@ export const TellMeMore: React.FC<TellMeMoreProps> = ({
         )}
       </button>
       
-      {isOpen && (
-        <div className="px-4 pb-4 pt-1 text-sm text-text/90 leading-relaxed border-t border-mid-gray/20 animate-in slide-in-from-top-2 duration-200">
+      <Collapse open={isOpen}>
+        <div className="px-4 pb-4 pt-1 text-sm text-text/90 leading-relaxed border-t border-mid-gray/20">
           {children}
         </div>
-      )}
+      </Collapse>
     </div>
   );
 };

@@ -7,6 +7,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { commands } from "@/bindings";
 import { Button } from "../../ui/Button";
+import { Collapse } from "../../ui/Collapse";
 import { Dropdown } from "../../ui/Dropdown";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { SettingsGroup } from "../../ui/SettingsGroup";
@@ -843,13 +844,13 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
             className={`text-[#666] transition-transform duration-200 ${showWhatIsThis ? "rotate-180" : ""}`}
           />
         </button>
-        {showWhatIsThis && (
+        <Collapse open={showWhatIsThis}>
           <div id={whatIsThisContentId} className="px-4 pb-4">
             <p className="text-[13px] text-[#9a9a9a] leading-relaxed whitespace-pre-line">
               {t("settings.liveSoundTranscription.whatIsThis.content")}
             </p>
           </div>
-        )}
+        </Collapse>
       </div>
       <SettingsGroup
         title={t("settings.liveSoundTranscription.title")}
