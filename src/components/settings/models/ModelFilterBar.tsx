@@ -4,6 +4,7 @@ import { Search, X, ChevronDown, RotateCcw } from "lucide-react";
 import type { ModelInfo } from "@/bindings";
 import { Input } from "../../ui/Input";
 import { Button } from "../../ui/Button";
+import { usePresence } from "@/hooks/usePresence";
 import { getLocalizedLanguageLabel } from "./ModelMetadataPanel";
 import {
   SIZE_RANGES,
@@ -130,6 +131,7 @@ const LanguageDropdown: React.FC<{
   const [open, setOpen] = useState(false);
   const [langSearch, setLangSearch] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const menuPresence = usePresence(open);
 
   // Close on outside click
   useEffect(() => {
@@ -173,8 +175,11 @@ const LanguageDropdown: React.FC<{
         />
       </button>
 
-      {open && (
-        <div className="absolute left-0 top-full z-50 mt-1.5 w-64 rounded-lg border border-[#3d3d3d] bg-[#1a1a1a] shadow-xl shadow-black/50 overflow-hidden">
+      {menuPresence.isMounted && (
+        <div
+          data-state={menuPresence.state}
+          className="app-popover absolute left-0 top-full z-50 mt-1.5 w-64 rounded-lg border border-[#3d3d3d] bg-[#1a1a1a] shadow-xl shadow-black/50 overflow-hidden"
+        >
           {/* Search within languages */}
           <div className="p-2 border-b border-[#2d2d2d]">
             <input

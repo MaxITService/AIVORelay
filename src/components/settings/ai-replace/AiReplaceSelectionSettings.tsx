@@ -12,6 +12,7 @@ import { SettingsGroup } from "../../ui/SettingsGroup";
 import { Textarea } from "../../ui/Textarea";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { TellMeMore } from "../../ui/TellMeMore";
+import { Collapse } from "../../ui/Collapse";
 import { LlmConfigSection } from "../PostProcessingSettingsApi/LlmConfigSection";
 import { useAiReplaceProviderState } from "../post-processing/useAiReplaceProviderState";
 
@@ -123,7 +124,7 @@ const PromptPairHelp: React.FC<{ mode: PromptHelpMode }> = ({ mode }) => {
         />
         {t("settings.aiReplace.promptHelp.toggleLabel")}
       </button>
-      {isOpen && (
+      <Collapse open={isOpen}>
         <div className="mt-2 space-y-1">
           <p className="text-xs text-[#8f8f8f]">{modeNote}</p>
           <Var
@@ -146,7 +147,7 @@ const PromptPairHelp: React.FC<{ mode: PromptHelpMode }> = ({ mode }) => {
             {modeExample}
           </ExamplePrompt>
         </div>
-      )}
+      </Collapse>
     </div>
   );
 };

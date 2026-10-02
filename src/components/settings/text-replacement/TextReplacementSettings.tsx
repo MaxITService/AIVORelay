@@ -32,6 +32,7 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { CustomWords } from "@/components/settings/CustomWords";
 import { Slider } from "@/components/ui/Slider";
 import { TellMeMore } from "@/components/ui/TellMeMore";
+import { Collapse } from "@/components/ui/Collapse";
 import { HotkeyCapture } from "@/components/ui/HotkeyCapture";
 import { formatKeyCombination, type OSType } from "@/lib/utils/keyboard";
 import { getShortcutAnchorId } from "@/lib/shortcutAnchors";
@@ -1243,7 +1244,7 @@ export const TextReplacementSettings: React.FC = () => {
             )}
           </button>
 
-          {showHelp && (
+          <Collapse open={showHelp}>
             <div className="mt-3 p-4 bg-[#1a1a1a] rounded-lg border border-[#333333] text-sm">
               <h4 className="font-medium text-[#f5f5f5] mb-2">
                 {t(
@@ -1381,7 +1382,7 @@ export const TextReplacementSettings: React.FC = () => {
                 </p>
               </div>
             </div>
-          )}
+          </Collapse>
         </div>
 
         {/* Rule transfer */}

@@ -1,5 +1,6 @@
 import React from "react";
 import { ChevronDown } from "lucide-react";
+import { Collapse } from "./Collapse";
 
 interface SettingsGroupProps {
   id?: string;
@@ -46,7 +47,7 @@ export const SettingsGroup: React.FC<SettingsGroupProps> = ({
   }, [collapsed, isCollapsed, onCollapsedChange]);
 
   return (
-    <div id={id} tabIndex={id ? -1 : undefined} className="space-y-4 outline-none">
+    <div id={id} tabIndex={id ? -1 : undefined} className="outline-none">
       {title && (
         <div className="px-1 pt-2">
           {isCollapsible ? (
@@ -92,17 +93,16 @@ export const SettingsGroup: React.FC<SettingsGroupProps> = ({
           )}
         </div>
       )}
-      {!isCollapsed && (
-        <div
-          id={contentId}
-          className="glass-panel-subtle rounded-xl overflow-visible border border-white/[0.03]"
-        >
-          <div className="divide-y divide-white/[0.05]">
-            {help}
-            {children}
+      <Collapse open={!isCollapsed} id={contentId}>
+        <div className={title ? "pt-4" : undefined}>
+          <div className="glass-panel-subtle rounded-xl overflow-visible border border-white/[0.03]">
+            <div className="divide-y divide-white/[0.05]">
+              {help}
+              {children}
+            </div>
           </div>
         </div>
-      )}
+      </Collapse>
     </div>
   );
 };

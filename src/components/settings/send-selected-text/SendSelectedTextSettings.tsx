@@ -43,6 +43,7 @@ import {
 import { useSettings } from "@/hooks/useSettings";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { Button } from "../../ui/Button";
+import { Collapse } from "../../ui/Collapse";
 import { Input } from "../../ui/Input";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { HandyShortcut } from "../HandyShortcut";
@@ -458,7 +459,7 @@ function PresetCard({
         </div>
       </header>
 
-      {expanded && (
+      <Collapse open={expanded}>
         <div className="sst-preset-body">
           <div className="sst-form-grid two">
             <label className="sst-field">
@@ -830,7 +831,7 @@ function PresetCard({
             </Button>
           </footer>
         </div>
-      )}
+      </Collapse>
     </article>
   );
 }

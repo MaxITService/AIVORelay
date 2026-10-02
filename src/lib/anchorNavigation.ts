@@ -1,3 +1,5 @@
+import { COLLAPSE_MAX_DURATION_MS, prefersReducedMotion } from "./motion";
+
 const ANCHOR_HIGHLIGHT_CLASS = "settings-anchor-highlight";
 const ANCHOR_HIGHLIGHT_DURATION_MS = 1800;
 
@@ -5,10 +7,6 @@ let activeAnchor: HTMLElement | null = null;
 let highlightTimer: number | null = null;
 let navigationGeneration = 0;
 let pendingRevealTimer: number | null = null;
-
-const prefersReducedMotion = (): boolean =>
-  typeof window !== "undefined" &&
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const highlightAnchor = (anchor: HTMLElement): void => {
   if (activeAnchor && activeAnchor !== anchor) {
@@ -124,17 +122,28 @@ export const navigateToSettingsAnchor = ({
         return;
       }
 
-      if (target && target !== expansionTarget) {
-        target
-          .querySelector<HTMLButtonElement>(COLLAPSED_TOGGLE_SELECTOR)
-          ?.click();
-      }
+      const targetToggle =
+        target && target !== expansionTarget
+          ? target.querySelector<HTMLButtonElement>(COLLAPSED_TOGGLE_SELECTOR)
+          : null;
+      targetToggle?.click();
 
       const destination =
         target ??
         expansionTarget ??
         (fallbackId ? document.getElementById(fallbackId) : null);
-      if (destination) scrollAndFocusAnchor(destination, block, isCurrent);
+      if (!destination) return;
+
+      // Let expand animations finish so the scroll lands on the final layout.
+      if (collapsedToggle || targetToggle) {
+        pendingRevealTimer = window.setTimeout(() => {
+          pendingRevealTimer = null;
+          scrollAndFocusAnchor(destination, block, isCurrent);
+        }, prefersReducedMotion() ? 0 : COLLAPSE_MAX_DURATION_MS);
+        return;
+      }
+
+      scrollAndFocusAnchor(destination, block, isCurrent);
     };
 
     window.requestAnimationFrame(() => {

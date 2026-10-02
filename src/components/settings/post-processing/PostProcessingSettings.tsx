@@ -8,6 +8,7 @@ import { SettingsGroup } from "../../ui/SettingsGroup";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { Button } from "../../ui/Button";
+import { Collapse } from "../../ui/Collapse";
 import { ResetButton } from "../../ui/ResetButton";
 import { Input } from "../../ui/Input";
 import { Dropdown } from "../../ui/Dropdown";
@@ -433,7 +434,7 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
                       />
                     </div>
                   </button>
-                  {expanded && renderLogDetails(item)}
+                  <Collapse open={expanded}>{renderLogDetails(item)}</Collapse>
                 </div>
               );
             })}

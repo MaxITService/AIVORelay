@@ -8,3 +8,4 @@ export { TextDisplay } from "./TextDisplay";
 export { Textarea } from "./Textarea";
 export { ConfirmationModal } from "./ConfirmationModal";
 export { Tooltip } from "./Tooltip";
+export { Collapse } from "./Collapse";
