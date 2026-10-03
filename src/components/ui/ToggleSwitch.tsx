@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { SettingContainer } from "./SettingContainer";
+import "./ToggleSwitch.css";
 
 interface ToggleSwitchProps {
   checked: boolean;
@@ -26,20 +27,53 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
   tooltipPosition = "top",
   ariaLabel,
 }) => {
+  // Visual interactivity ignores the short async isUpdating phase to avoid
+  // cursor/hover flicker after each click; the input itself stays disabled.
+  const isInteractive = !disabled;
+  // Press state drives the thumb "stretch" effect
+  const [isPressed, setIsPressed] = useState(false);
+  // Incrementing key remounts the pulse element to replay its animation
+  const [pulseKey, setPulseKey] = useState(0);
+
+  const press = () => {
+    if (isInteractive && !isUpdating) setIsPressed(true);
+  };
+  const release = () => setIsPressed(false);
+
   const toggleElement = (
     <label
-      className={`inline-flex items-center relative ${disabled || isUpdating ? "cursor-not-allowed" : "cursor-pointer"}`}
+      className={`aivo-toggle inline-flex items-center relative ${isInteractive ? "cursor-pointer" : "cursor-not-allowed"}`}
+      data-checked={checked}
+      data-pressed={isPressed && isInteractive}
+      data-interactive={isInteractive}
+      onPointerDown={press}
+      onPointerUp={release}
+      onPointerLeave={release}
+      onPointerCancel={release}
     >
       <input
         type="checkbox"
         value=""
-        className="sr-only peer"
+        className="aivo-toggle__input sr-only"
         checked={checked}
         disabled={disabled || isUpdating}
-        onChange={(e) => onChange(e.target.checked)}
+        onChange={(e) => {
+          if (e.target.checked) setPulseKey((k) => k + 1);
+          onChange(e.target.checked);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === " ") press();
+        }}
+        onKeyUp={release}
+        onBlur={release}
         aria-label={ariaLabel || label}
       />
-      <div className={`relative w-11 h-6 ${checked ? 'bg-[#9b5de5]' : 'bg-[#333333]'} peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[#9b5de5]/40 rounded-full peer transition-all duration-200 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all after:shadow-[0_2px_4px_rgba(0,0,0,0.4)] peer-disabled:opacity-40`}></div>
+      <span className="aivo-toggle__track" aria-hidden="true">
+        {pulseKey > 0 && (
+          <span key={pulseKey} className="aivo-toggle__pulse" />
+        )}
+        <span className="aivo-toggle__thumb" />
+      </span>
       {isUpdating && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="w-4 h-4 border-2 border-logo-primary border-t-transparent rounded-full animate-spin"></div>

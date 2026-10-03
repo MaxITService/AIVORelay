@@ -1,0 +1,133 @@
+/* Springy toggle switch: press-stretch thumb, overshoot travel, pulse ring on enable. */
+
+.aivo-toggle {
+  --aivo-toggle-accent: #9b5de5;
+  --aivo-toggle-off: #333333;
+  --aivo-toggle-thumb: 20px;
+  --aivo-toggle-thumb-stretched: 26px;
+  --aivo-toggle-travel: 20px;
+  --aivo-toggle-dir: 1;
+  --aivo-toggle-spring: cubic-bezier(0.34, 1.35, 0.64, 1);
+}
+
+[dir="rtl"] .aivo-toggle {
+  --aivo-toggle-dir: -1;
+}
+
+.aivo-toggle__track {
+  position: relative;
+  display: block;
+  width: 44px;
+  height: 24px;
+  border-radius: 9999px;
+  background-color: var(--aivo-toggle-off);
+  transition:
+    background-color 260ms ease,
+    box-shadow 200ms ease,
+    opacity 200ms ease;
+}
+
+.aivo-toggle[data-checked="true"] .aivo-toggle__track {
+  background-color: var(--aivo-toggle-accent);
+}
+
+.aivo-toggle__input:focus-visible + .aivo-toggle__track {
+  box-shadow: 0 0 0 2px rgba(155, 93, 229, 0.4);
+}
+
+.aivo-toggle[data-interactive="false"] .aivo-toggle__track {
+  opacity: 0.4;
+}
+
+/* Thumb */
+.aivo-toggle__thumb {
+  position: absolute;
+  top: 2px;
+  inset-inline-start: 2px;
+  width: var(--aivo-toggle-thumb);
+  height: var(--aivo-toggle-thumb);
+  border-radius: 9999px;
+  background-color: #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+  transform: translateX(0);
+  scale: 1;
+  transition:
+    transform 420ms var(--aivo-toggle-spring),
+    width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    scale 180ms ease,
+    box-shadow 200ms ease;
+  will-change: transform, width;
+}
+
+.aivo-toggle[data-checked="true"] .aivo-toggle__thumb {
+  transform: translateX(calc(var(--aivo-toggle-travel) * var(--aivo-toggle-dir)));
+}
+
+/* Hover: slight lift (only when interactive and not being pressed) */
+.aivo-toggle[data-interactive="true"]:not([data-pressed="true"]):hover
+  .aivo-toggle__thumb {
+  scale: 1.08;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
+}
+
+/* Pressed: stretch toward the travel direction */
+.aivo-toggle[data-pressed="true"] .aivo-toggle__thumb {
+  width: var(--aivo-toggle-thumb-stretched);
+}
+
+/* When checked, keep the far edge anchored while stretching back */
+.aivo-toggle[data-pressed="true"][data-checked="true"] .aivo-toggle__thumb {
+  transform: translateX(
+    calc(
+      (
+          var(--aivo-toggle-travel) -
+            (var(--aivo-toggle-thumb-stretched) - var(--aivo-toggle-thumb))
+        ) *
+        var(--aivo-toggle-dir)
+    )
+  );
+}
+
+/* Pulse ring fired when the switch gets turned on */
+.aivo-toggle__pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  pointer-events: none;
+  animation: aivo-toggle-pulse 560ms ease-out forwards;
+}
+
+@keyframes aivo-toggle-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(155, 93, 229, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 9px rgba(155, 93, 229, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aivo-toggle__track,
+  .aivo-toggle__thumb {
+    transition: none;
+  }
+
+  .aivo-toggle__pulse {
+    display: none;
+  }
+
+  .aivo-toggle[data-pressed="true"] .aivo-toggle__thumb {
+    width: var(--aivo-toggle-thumb);
+  }
+
+  .aivo-toggle[data-pressed="true"][data-checked="true"] .aivo-toggle__thumb {
+    transform: translateX(
+      calc(var(--aivo-toggle-travel) * var(--aivo-toggle-dir))
+    );
+  }
+
+  .aivo-toggle[data-interactive="true"]:not([data-pressed="true"]):hover
+    .aivo-toggle__thumb {
+    scale: 1;
+  }
+}
