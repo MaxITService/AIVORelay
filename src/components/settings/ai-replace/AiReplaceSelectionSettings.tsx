@@ -286,6 +286,7 @@ export const AiReplaceSelectionSettings: React.FC = () => {
             </SettingContainer>
             <PromptPairHelp mode="quick-tap" />
             <SettingContainer
+              id="settings-ai-replace-quick-tap-threshold"
               title={t("settings.aiReplace.quickTap.threshold.title")}
               description={t("settings.aiReplace.quickTap.threshold.description")}
               descriptionMode="tooltip"
