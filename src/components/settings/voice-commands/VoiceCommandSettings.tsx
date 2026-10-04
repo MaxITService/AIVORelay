@@ -502,7 +502,7 @@ export default function VoiceCommandSettings() {
 
           <div className="setting-row">
             <div className="setting-label">
-              <span>{t("voiceCommands.llmFallback", "LLM Fallback")}</span>
+              <span id="settings-voice-command-llm-fallback" tabIndex={-1}>{t("voiceCommands.llmFallback", "LLM Fallback")}</span>
               <span className="setting-sublabel">
                 {t(
                   "voiceCommands.llmFallbackDesc",
