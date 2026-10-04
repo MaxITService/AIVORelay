@@ -50,6 +50,7 @@ export const RecordingRetentionPeriodSelector: React.FC<RecordingRetentionPeriod
 
     return (
       <SettingContainer
+        id="settings-recording-retention"
         title={t("settings.history.recordingRetention.title")}
         description={t("settings.history.recordingRetention.description")}
         descriptionMode={descriptionMode}
