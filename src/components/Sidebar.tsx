@@ -12,6 +12,7 @@ import { type } from "@tauri-apps/plugin-os";
 import HandyTextLogo from "./icons/HandyTextLogo";
 import SpeechProcessingIcon from "./icons/SpeechProcessingIcon";
 import { useSettings } from "../hooks/useSettings";
+import { useDragReorder } from "../hooks/useDragReorder";
 import { navigateToSettingsAnchor } from "../lib/anchorNavigation";
 import { SettingsSearch } from "./settings/SettingsSearch";
 import { SETTINGS_SEARCH_ENTRIES } from "./settings/settingsSearchCatalog";
@@ -37,6 +38,7 @@ import {
   HelpSettings,
 } from "./settings";
 import "./SidebarIconMotion.css";
+import "./SidebarDrag.css";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
 
@@ -186,7 +188,6 @@ const ICON_MOTION_EXTRAS: Partial<Record<SidebarSection, React.ReactNode>> = {
 };
 
 const SIDEBAR_ORDER_KEY = "sidebar-section-order";
-const DRAG_THRESHOLD_PX = 5;
 
 function loadSavedOrder(available: string[]): string[] {
   try {
@@ -270,182 +271,125 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [availableSections]);
 
-  // ── Pointer-based drag state ─────────────────────────────────────────────
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [hoverTargetId, setHoverTargetId] = useState<string | null>(null);
-  // Ref mirrors hoverTargetId so pointer callbacks always see the latest value
-  // (state updates are async — closures would read stale values)
-  const hoverTargetRef = useRef<string | null>(null);
-
-  // Pointer drag bookkeeping (mutable, survives re-renders)
-  const dragRef = useRef<{
-    active: boolean;
-    id: string;
-    startY: number;
-    pointerId: number;
-    movedPastThreshold: boolean;
-  } | null>(null);
-
   const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Visual (preview) order during drag
-  const visualOrder = useMemo(() => {
-    if (!draggingId || !hoverTargetId || draggingId === hoverTargetId)
-      return order;
-    const result = [...order];
-    const fromIdx = result.indexOf(draggingId);
-    const toIdx = result.indexOf(hoverTargetId);
-    if (fromIdx === -1 || toIdx === -1) return order;
-    result.splice(fromIdx, 1);
-    result.splice(toIdx, 0, draggingId);
-    return result;
-  }, [order, draggingId, hoverTargetId]);
+  // ── Drag to reorder ──────────────────────────────────────────────────────
+  // The drag preview moves items with transforms only, so the rendered order
+  // stays the saved order until the drop commits a new one.
+  const visualOrder = order;
 
-  // ── FLIP animation ──────────────────────────────────────────────────────
-  const prevPositions = useRef<Map<string, number>>(new Map());
-  const flipNeeded = useRef(false);
-
-  const capturePositions = useCallback(() => {
-    itemRefs.current.forEach((el, id) => {
-      prevPositions.current.set(id, el.getBoundingClientRect().top);
-    });
+  const commitOrder = useCallback((next: string[]) => {
+    setOrder(next);
+    try {
+      localStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
   }, []);
 
-  useLayoutEffect(() => {
-    if (!flipNeeded.current) return;
-    flipNeeded.current = false;
-
-    itemRefs.current.forEach((el, id) => {
-      if (id === draggingId) return;
-      const prev = prevPositions.current.get(id);
-      if (prev === undefined) return;
-      const current = el.getBoundingClientRect().top;
-      const diff = prev - current;
-      if (Math.abs(diff) < 1) return;
-
-      el.style.transition = "none";
-      el.style.transform = `translateY(${diff}px)`;
-
-      requestAnimationFrame(() => {
-        el.style.transition =
-          "transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1)";
-        el.style.transform = "translateY(0px)";
-        el.addEventListener(
-          "transitionend",
-          () => {
-            el.style.transition = "";
-            el.style.transform = "";
-          },
-          { once: true },
-        );
-      });
-    });
+  const drag = useDragReorder({
+    order,
+    itemRefs,
+    scrollRef,
+    onReorder: commitOrder,
+    onActivate: (id) => onSectionChange(id as SidebarSection),
   });
 
-  // ── Pointer event helpers ────────────────────────────────────────────────
-  // Determine which sidebar item the pointer is currently over
-  const hitTest = useCallback(
-    (clientY: number): string | null => {
-      for (const [id, el] of itemRefs.current) {
-        const rect = el.getBoundingClientRect();
-        if (clientY >= rect.top && clientY <= rect.bottom) return id;
-      }
-      return null;
-    },
-    [],
-  );
+  // ── Sliding active indicator ────────────────────────────────────────────
+  const navListRef = useRef<HTMLDivElement>(null);
+  const indicatorRef = useRef<HTMLDivElement>(null);
+  const indicatorBarRef = useRef<HTMLDivElement>(null);
+  const indicatorTopRef = useRef<number | null>(null);
+  const barAnimationRef = useRef<Animation | null>(null);
 
-  const finalizeDrag = useCallback(() => {
-    const drag = dragRef.current;
-    if (!drag) return;
+  const updateIndicator = useCallback(
+    (animate: boolean) => {
+      const indicator = indicatorRef.current;
+      if (!indicator) return;
 
-    const target = hoverTargetRef.current;
-    if (drag.active && target && drag.id !== target) {
-      // Commit the reorder
-      setOrder((prev) => {
-        const result = [...prev];
-        const fromIdx = result.indexOf(drag.id);
-        const toIdx = result.indexOf(target);
-        if (fromIdx === -1 || toIdx === -1) return prev;
-        result.splice(fromIdx, 1);
-        result.splice(toIdx, 0, drag.id);
-        try {
-          localStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify(result));
-        } catch {
-          /* ignore */
-        }
-        return result;
-      });
-    }
-
-    dragRef.current = null;
-    hoverTargetRef.current = null;
-    setDraggingId(null);
-    setHoverTargetId(null);
-  }, []);
-
-  const onPointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>, id: string) => {
-      if (e.button !== 0) return; // left button only
-      dragRef.current = {
-        active: false,
-        id,
-        startY: e.clientY,
-        pointerId: e.pointerId,
-        movedPastThreshold: false,
-      };
-      // Capture so we get move/up even outside the element
-      (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
-    },
-    [],
-  );
-
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-
-      if (!drag.movedPastThreshold) {
-        if (Math.abs(e.clientY - drag.startY) < DRAG_THRESHOLD_PX) return;
-        drag.movedPastThreshold = true;
-        drag.active = true;
-        setDraggingId(drag.id);
-      }
-
-      const target = hitTest(e.clientY);
-      if (target && target !== hoverTargetRef.current && target !== drag.id) {
-        capturePositions();
-        flipNeeded.current = true;
-        hoverTargetRef.current = target;
-        setHoverTargetId(target);
-      }
-    },
-    [hitTest, capturePositions],
-  );
-
-  const onPointerUp = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      (e.currentTarget as HTMLDivElement).releasePointerCapture(drag.pointerId);
-
-      if (!drag.movedPastThreshold) {
-        // It was a click, not a drag — navigate
-        dragRef.current = null;
-        onSectionChange(drag.id as SidebarSection);
+      const activeEl = itemRefs.current.get(activeSection);
+      if (!activeEl) {
+        indicator.style.opacity = "0";
+        indicatorTopRef.current = null;
         return;
       }
 
-      finalizeDrag();
+      // Layout position (ignores transient FLIP transforms on items)
+      const top = activeEl.offsetTop;
+      const height = activeEl.offsetHeight;
+      const prevTop = indicatorTopRef.current;
+      if (!animate && top === prevTop && indicator.style.height === `${height}px`) {
+        return; // geometry unchanged; do not interrupt a running glide
+      }
+      const shouldAnimate = animate && prevTop !== null;
+
+      if (!shouldAnimate) {
+        // Jump without transition (first paint, resizes)
+        indicator.style.transition = "none";
+      }
+      indicator.style.transform = `translateY(${top}px)`;
+      indicator.style.height = `${height}px`;
+      indicator.style.opacity = "1";
+      if (!shouldAnimate) {
+        void indicator.offsetHeight; // force reflow before restoring transitions
+        indicator.style.transition = "";
+      }
+      indicatorTopRef.current = top;
+
+      // Liquid stretch of the accent bar, proportional to travel distance
+      const distance = prevTop === null ? 0 : Math.abs(top - prevTop);
+      const bar = indicatorBarRef.current;
+      const reduceMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      if (
+        shouldAnimate &&
+        distance > 1 &&
+        bar &&
+        typeof bar.animate === "function" &&
+        !reduceMotion
+      ) {
+        const stretch = Math.min(1 + distance / 100, 2.6);
+        barAnimationRef.current?.cancel();
+        barAnimationRef.current = bar.animate(
+          [
+            { transform: "scale(1, 1)" },
+            { transform: `scale(0.7, ${stretch})`, offset: 0.3 },
+            { transform: "scale(1.15, 0.85)", offset: 0.72 },
+            { transform: "scale(1, 1)" },
+          ],
+          { duration: 520, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+        );
+      }
     },
-    [finalizeDrag, onSectionChange],
+    [activeSection],
   );
+
+  // Re-measure on section change and on any order change (drag preview, commit)
+  useLayoutEffect(() => {
+    updateIndicator(true);
+  }, [updateIndicator, visualOrder]);
+
+  // Keep the indicator aligned if the list itself resizes. Uses a ref so the
+  // observer is not re-created (and does not fire) on every section change.
+  const updateIndicatorRef = useRef(updateIndicator);
+  updateIndicatorRef.current = updateIndicator;
+  useEffect(() => {
+    const list = navListRef.current;
+    if (!list || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() =>
+      updateIndicatorRef.current(false),
+    );
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, []);
 
   // ── Hover icon motion ───────────────────────────────────────────────────
   // Plays the icon's own motion (SidebarIconMotion.css) once per hover. It
   // always runs to completion, and re-entering mid-motion does not restart it.
   const playIconMotion = useCallback((item: HTMLElement) => {
-    if (dragRef.current?.active) return;
+    if (drag.isDragging()) return;
     const icon = item.querySelector<HTMLElement>(".sidebar-icon-motion");
     const svg = icon?.querySelector("svg");
     if (!icon || !svg || icon.dataset.motion) return;
@@ -457,7 +401,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     void Promise.allSettled(animations.map((a) => a.finished)).then(() => {
       delete icon.dataset.motion;
     });
-  }, []);
+  }, [drag]);
 
   return (
     <div className="adobe-sidebar flex flex-col w-56 h-full items-center px-3 py-4">
@@ -481,16 +425,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
       />
 
       {/* Navigation Items — scrollable */}
-      <div className="flex-1 w-full min-h-0 overflow-y-auto">
-        <div className="flex flex-col w-full gap-1">
+      <div ref={scrollRef} className="flex-1 w-full min-h-0 overflow-y-auto">
+        <div
+          ref={navListRef}
+          className="sidebar-nav-list has-sliding-indicator relative flex flex-col w-full gap-1"
+        >
+          {/* Shared active indicator; clipped layer prevents scroll overflow */}
+          <div className="sidebar-indicator-layer" aria-hidden="true">
+            <div ref={indicatorRef} className="sidebar-indicator">
+              <div ref={indicatorBarRef} className="sidebar-indicator__bar" />
+            </div>
+          </div>
           {visualOrder.map((id) => {
             const section = SECTIONS_CONFIG[id as SidebarSection];
             if (!section) return null;
 
             const Icon: React.ComponentType<IconProps> = section.icon;
             const isActive = activeSection === id;
-            const isDragging = draggingId === id;
-            const isDropTarget = hoverTargetId === id && !isDragging;
 
             return (
               <div
@@ -504,9 +455,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   else itemRefs.current.delete(id);
                 }}
                 onPointerEnter={(e) => playIconMotion(e.currentTarget)}
-                onPointerDown={(e) => onPointerDown(e, id)}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
+                onPointerDown={(e) => drag.onPointerDown(e, id)}
+                onPointerMove={drag.onPointerMove}
+                onPointerUp={drag.onPointerUp}
+                onPointerCancel={drag.onPointerCancel}
+                onLostPointerCapture={drag.onPointerCancel}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
@@ -515,15 +468,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }}
                 className={`adobe-sidebar-item flex gap-3 items-center w-full select-none hover:cursor-grab focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#ff4d8d]/70 ${
                   isActive ? "active" : ""
-                } ${isDragging ? "opacity-40 cursor-grabbing" : ""} ${
-                  isDropTarget
-                    ? "outline outline-1 outline-[#ff4d8d]/40 rounded"
-                    : ""
                 }`}
               >
                 {/* Icon */}
                 <div
-                  className={`sidebar-icon-motion shrink-0 transition-all duration-200 ${
+                  className={`sidebar-item-icon sidebar-icon-motion shrink-0 transition-all duration-200 ${
                     isActive
                       ? "text-[#ff4d8d] drop-shadow-[0_0_6px_rgba(255,77,141,0.5)]"
                       : "text-[#b8b8b8]"
