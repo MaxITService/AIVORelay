@@ -202,6 +202,7 @@ export const DebugSettings: React.FC = () => {
 
       <SettingsGroup title={t("settings.debug.tools.title")}>
         <SettingContainer
+          id="settings-first-start-wizard"
           title={t("settings.debug.firstStartWizard.title")}
           description={t("settings.debug.firstStartWizard.description")}
           descriptionMode="inline"
