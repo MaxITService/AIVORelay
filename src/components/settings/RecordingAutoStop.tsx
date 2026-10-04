@@ -55,6 +55,7 @@ export const RecordingAutoStop: React.FC<RecordingAutoStopProps> = ({
       {enabled && (
         <div className="pl-4 ml-6 border-l-2 border-surface-highlight py-2 space-y-4 relative -top-2">
           <SettingContainer
+            id="settings-recording-auto-stop-timeout"
             title={t("settings.advanced.autoStop.timeoutTitle")}
             description={t("settings.advanced.autoStop.timeoutDescription")}
             descriptionMode={descriptionMode}
