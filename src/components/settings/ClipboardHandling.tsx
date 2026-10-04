@@ -92,6 +92,7 @@ export const ClipboardHandlingSetting: React.FC<ClipboardHandlingProps> =
     return (
       <>
         <SettingContainer
+          id="settings-clipboard-after-paste"
           title={t("settings.advanced.clipboardHandling.title")}
           description={t("settings.advanced.clipboardHandling.description")}
           descriptionMode={descriptionMode}
