@@ -110,6 +110,7 @@ export const DebugSettings: React.FC = () => {
           </div>
         )}
         <ToggleSwitch
+          id="settings-transcription-text-logging"
           checked={logTranscriptionText}
           onChange={handleTranscriptionLoggingToggle}
           isUpdating={isUpdating("log_transcription_text")}
