@@ -10,7 +10,7 @@ import { useTranslation } from "react-i18next";
 import { Cog, FlaskConical, Globe, History, Info, Sparkles, Wand2, Terminal, FileAudio, FileVolume2, Replace, Mic, Palette, Cpu, Radio, TextSelect, CircleHelp, Send } from "lucide-react";
 import { type } from "@tauri-apps/plugin-os";
 import HandyTextLogo from "./icons/HandyTextLogo";
-import HandyHand from "./icons/HandyHand";
+import SpeechProcessingIcon from "./icons/SpeechProcessingIcon";
 import { useSettings } from "../hooks/useSettings";
 import { navigateToSettingsAnchor } from "../lib/anchorNavigation";
 import { SettingsSearch } from "./settings/SettingsSearch";
@@ -60,7 +60,7 @@ const isWindows = type() === "windows";
 export const SECTIONS_CONFIG = {
   general: {
     labelKey: "sidebar.general",
-    icon: HandyHand,
+    icon: Mic,
     component: GeneralSettings,
     enabled: () => true,
   },
@@ -126,7 +126,7 @@ export const SECTIONS_CONFIG = {
   },
   audioProcessing: {
     labelKey: "sidebar.audioProcessing",
-    icon: Mic,
+    icon: SpeechProcessingIcon,
     component: AudioProcessingSettings,
     enabled: () => true,
   },

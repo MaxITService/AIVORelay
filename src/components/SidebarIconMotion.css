@@ -8,6 +8,11 @@
  * follows its icon. Lengths inside icons are 24x24 viewBox units.
  */
 
+/* Slowdown applied to every duration and delay below (1 = 0.3-0.56 s per motion) */
+.sidebar-icon-motion {
+  --sim-time-scale: 4;
+}
+
 .sidebar-icon-motion svg * {
   transform-box: view-box;
 }
@@ -63,26 +68,20 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* General: the hand waves from the wrist */
-  .sidebar-icon-motion[data-motion="play"] > svg:not(.lucide) {
-    transform-origin: 55% 92%;
-    animation: sim-hand-wave 1080ms cubic-bezier(0.45, 0, 0.55, 1);
-  }
-
   /* Models: the core pulses and the pins push out with the surge */
   .sidebar-icon-motion[data-motion="play"] .lucide-cpu rect:nth-of-type(2) {
     transform-box: fill-box;
     transform-origin: center;
-    animation: sim-core-pulse 840ms cubic-bezier(0.45, 0, 0.55, 1);
+    animation: sim-core-pulse calc(420ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-cpu path {
-    animation: sim-cpu-pin 640ms cubic-bezier(0.45, 0, 0.55, 1) 240ms both;
+    animation: sim-cpu-pin calc(320ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1) calc(120ms * var(--sim-time-scale)) both;
   }
 
   /* Advanced: the gear turns one spoke (it repeats every 120deg) and springs into place */
   .sidebar-icon-motion[data-motion="play"] .lucide-cog {
-    animation: sim-cog-turn 1040ms linear;
+    animation: sim-cog-turn calc(520ms * var(--sim-time-scale)) linear;
   }
 
   /* Post-processing: the big star squeezes and flares, the small ones twinkle after it */
@@ -92,160 +91,197 @@
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-sparkles path:nth-child(1) {
-    animation: sim-sparkle-star 880ms cubic-bezier(0.45, 0, 0.55, 1);
+    animation: sim-sparkle-star calc(440ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-sparkles path:nth-child(n + 2) {
-    animation: sim-twinkle 680ms cubic-bezier(0.45, 0, 0.55, 1) 160ms both;
+    animation: sim-twinkle calc(340ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1) calc(80ms * var(--sim-time-scale)) both;
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-sparkles circle {
-    animation: sim-twinkle 680ms cubic-bezier(0.45, 0, 0.55, 1) 320ms both;
+    animation: sim-twinkle calc(340ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1) calc(160ms * var(--sim-time-scale)) both;
   }
 
   /* AI Replace: the wand flicks from the handle and its sparks twinkle in turn */
   .sidebar-icon-motion[data-motion="play"] .lucide-wand-sparkles path:nth-child(-n + 2) {
     transform-origin: 3px 21px;
-    animation: sim-wand-flick 920ms cubic-bezier(0.45, 0, 0.55, 1);
+    animation: sim-wand-flick calc(460ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-wand-sparkles path:nth-child(n + 3) {
     transform-box: fill-box;
     transform-origin: center;
-    animation: sim-twinkle 640ms cubic-bezier(0.45, 0, 0.55, 1) 120ms both;
+    animation: sim-twinkle calc(320ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1) calc(60ms * var(--sim-time-scale)) both;
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-wand-sparkles path:nth-child(3),
   .sidebar-icon-motion[data-motion="play"] .lucide-wand-sparkles path:nth-child(6) {
-    animation-delay: 240ms;
+    animation-delay: calc(120ms * var(--sim-time-scale));
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-wand-sparkles path:nth-child(4),
   .sidebar-icon-motion[data-motion="play"] .lucide-wand-sparkles path:nth-child(7) {
-    animation-delay: 360ms;
+    animation-delay: calc(180ms * var(--sim-time-scale));
   }
 
   /* Send: the plane flies off along its nose and glides back in from the opposite side */
   .sidebar-icon-motion[data-motion="play"] .lucide-send path {
-    animation: sim-send-fly 1080ms linear;
+    animation: sim-send-fly calc(540ms * var(--sim-time-scale)) linear;
   }
 
   /* Voice commands: the prompt nudges forward and the cursor blinks */
   .sidebar-icon-motion[data-motion="play"] .lucide-terminal path:nth-child(2) {
-    animation: sim-terminal-prompt 840ms cubic-bezier(0.45, 0, 0.55, 1);
+    animation: sim-terminal-prompt calc(420ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-terminal path:nth-child(1) {
-    animation: sim-terminal-cursor 920ms linear;
+    animation: sim-terminal-cursor calc(460ms * var(--sim-time-scale)) linear;
   }
 
   /* Browser connector: the meridian rolls over the edge and comes round again */
   .sidebar-icon-motion[data-motion="play"] .lucide-globe path:nth-child(2) {
     transform-box: fill-box;
     transform-origin: center;
-    animation: sim-globe-spin 1040ms linear;
+    animation: sim-globe-spin calc(520ms * var(--sim-time-scale)) linear;
   }
 
   /* Text replacement: the two boxes trade places and spring back */
   .sidebar-icon-motion[data-motion="play"] .lucide-replace path:nth-child(-n + 4),
   .sidebar-icon-motion[data-motion="play"] .lucide-replace rect {
-    animation: sim-replace-swap 1120ms linear;
+    animation: sim-replace-swap calc(560ms * var(--sim-time-scale)) linear;
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-replace path:nth-child(n + 5) {
-    animation: sim-replace-arrow 1120ms cubic-bezier(0.45, 0, 0.55, 1);
+    animation: sim-replace-arrow calc(560ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
   }
 
   /* User interface: the palette tilts and its paint dots pop one after another */
   .sidebar-icon-motion[data-motion="play"] .lucide-palette {
     transform-origin: 50% 60%;
-    animation: sim-palette-tilt 1000ms cubic-bezier(0.45, 0, 0.55, 1);
+    animation: sim-palette-tilt calc(500ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-palette circle {
     transform-box: fill-box;
     transform-origin: center;
-    animation: sim-dot-pop 520ms cubic-bezier(0.45, 0, 0.55, 1) both;
+    animation: sim-dot-pop calc(260ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1) both;
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-palette circle:nth-child(4) {
-    animation-delay: 80ms;
+    animation-delay: calc(40ms * var(--sim-time-scale));
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-palette circle:nth-child(5) {
-    animation-delay: 200ms;
+    animation-delay: calc(100ms * var(--sim-time-scale));
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-palette circle:nth-child(2) {
-    animation-delay: 320ms;
+    animation-delay: calc(160ms * var(--sim-time-scale));
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-palette circle:nth-child(3) {
-    animation-delay: 440ms;
+    animation-delay: calc(220ms * var(--sim-time-scale));
   }
 
   /* History: the hands rewind a full turn while the arrow kicks back */
   .sidebar-icon-motion[data-motion="play"] .lucide-history path:nth-child(3) {
     transform-origin: 12px 12px;
-    animation: sim-history-hands 1120ms linear;
+    animation: sim-history-hands calc(560ms * var(--sim-time-scale)) linear;
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-history path:nth-child(-n + 2) {
     transform-origin: 12px 12px;
-    animation: sim-history-arc 1120ms cubic-bezier(0.45, 0, 0.55, 1);
+    animation: sim-history-arc calc(560ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
   }
 
-  /* Audio processing: the microphone sways on its stand */
+  /* Speech / Mic: the microphone sways on its stand */
   .sidebar-icon-motion[data-motion="play"] .lucide-mic {
     transform-origin: 50% 92%;
-    animation: sim-mic-sway 1080ms cubic-bezier(0.45, 0, 0.55, 1);
+    animation: sim-mic-sway calc(540ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  /* Speech processing: a pulse runs round the chip's pins while the mic speaks */
+  .sidebar-icon-motion[data-motion="play"] .speech-processing-icon__pin {
+    animation: sim-pin-flash calc(240ms * var(--sim-time-scale)) ease-in-out both;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .speech-processing-icon__pin:nth-child(2) {
+    animation-delay: calc(35ms * var(--sim-time-scale));
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .speech-processing-icon__pin:nth-child(3) {
+    animation-delay: calc(70ms * var(--sim-time-scale));
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .speech-processing-icon__pin:nth-child(4) {
+    animation-delay: calc(105ms * var(--sim-time-scale));
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .speech-processing-icon__pin:nth-child(5) {
+    animation-delay: calc(140ms * var(--sim-time-scale));
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .speech-processing-icon__pin:nth-child(6) {
+    animation-delay: calc(175ms * var(--sim-time-scale));
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .speech-processing-icon__pin:nth-child(7) {
+    animation-delay: calc(210ms * var(--sim-time-scale));
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .speech-processing-icon__pin:nth-child(8) {
+    animation-delay: calc(245ms * var(--sim-time-scale));
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .speech-processing-icon__mic {
+    animation: sim-mic-speak calc(460ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
   }
 
   /* Debug: the liquid sloshes and bubbles rise to the surface */
   .sidebar-icon-motion[data-motion="play"] .lucide-flask-conical path:nth-child(2) {
     transform-box: fill-box;
     transform-origin: center;
-    animation: sim-flask-slosh 1000ms cubic-bezier(0.45, 0, 0.55, 1);
+    animation: sim-flask-slosh calc(500ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
   }
 
   .sidebar-icon-motion[data-motion="play"] .sidebar-icon-bubble {
     transform-box: fill-box;
     transform-origin: center;
-    animation: sim-flask-bubble 640ms cubic-bezier(0.33, 0, 0.67, 1) both;
+    animation: sim-flask-bubble calc(320ms * var(--sim-time-scale)) cubic-bezier(0.33, 0, 0.67, 1) both;
   }
 
   .sidebar-icon-motion[data-motion="play"] .sidebar-icon-bubble:nth-child(2) {
-    animation-delay: 180ms;
+    animation-delay: calc(90ms * var(--sim-time-scale));
   }
 
   .sidebar-icon-motion[data-motion="play"] .sidebar-icon-bubble:nth-child(3) {
-    animation-delay: 340ms;
+    animation-delay: calc(170ms * var(--sim-time-scale));
   }
 
   /* Live sound transcription: the waves ripple outward from the source */
   .sidebar-icon-motion[data-motion="play"] .lucide-radio path {
-    animation: sim-wave-out 760ms linear 80ms both;
+    animation: sim-wave-out calc(380ms * var(--sim-time-scale)) linear calc(40ms * var(--sim-time-scale)) both;
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-radio path:nth-child(2),
   .sidebar-icon-motion[data-motion="play"] .lucide-radio path:nth-child(3) {
-    animation-delay: 240ms;
+    animation-delay: calc(120ms * var(--sim-time-scale));
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-radio circle,
   .sidebar-icon-motion[data-motion="play"] .lucide-file-volume-2 path:nth-child(3) {
     transform-box: fill-box;
     transform-origin: center;
-    animation: sim-core-pulse 720ms cubic-bezier(0.45, 0, 0.55, 1);
+    animation: sim-core-pulse calc(360ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
   }
 
   /* Transcribe file: the sound waves inside the page ripple outward */
   .sidebar-icon-motion[data-motion="play"] .lucide-file-volume-2 path:nth-child(4) {
-    animation: sim-wave-out 760ms linear 80ms both;
+    animation: sim-wave-out calc(380ms * var(--sim-time-scale)) linear calc(40ms * var(--sim-time-scale)) both;
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-file-volume-2 path:nth-child(5) {
-    animation: sim-wave-out 760ms linear 240ms both;
+    animation: sim-wave-out calc(380ms * var(--sim-time-scale)) linear calc(120ms * var(--sim-time-scale)) both;
   }
 
   /* Text to speech: a reading pass runs down the selected lines */
@@ -253,59 +289,38 @@
   .sidebar-icon-motion[data-motion="play"] .lucide-text-select path:nth-child(12),
   .sidebar-icon-motion[data-motion="play"] .lucide-text-select path:nth-child(13) {
     transform-origin: 7px 12px;
-    animation: sim-text-scan 680ms cubic-bezier(0.45, 0, 0.55, 1) both;
+    animation: sim-text-scan calc(340ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1) both;
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-text-select path:nth-child(11) {
-    animation-delay: 140ms;
+    animation-delay: calc(70ms * var(--sim-time-scale));
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-text-select path:nth-child(12) {
-    animation-delay: 280ms;
+    animation-delay: calc(140ms * var(--sim-time-scale));
   }
 
   /* TTS files: the headphones bob to the beat */
   .sidebar-icon-motion[data-motion="play"] .lucide-file-audio path:nth-child(3) {
     transform-box: fill-box;
     transform-origin: 50% 100%;
-    animation: sim-headphones-bob 920ms cubic-bezier(0.45, 0, 0.55, 1);
+    animation: sim-headphones-bob calc(460ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
   }
 
   /* Help: the question mark tilts its head around the dot */
   .sidebar-icon-motion[data-motion="play"] .lucide-circle-question-mark path {
     transform-origin: 12px 17px;
-    animation: sim-help-tilt 1000ms cubic-bezier(0.45, 0, 0.55, 1);
+    animation: sim-help-tilt calc(500ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
   }
 
   /* About: the stem crouches and the dot hops */
   .sidebar-icon-motion[data-motion="play"] .lucide-info path:nth-child(2) {
     transform-origin: 12px 16px;
-    animation: sim-info-stem 920ms cubic-bezier(0.45, 0, 0.55, 1);
+    animation: sim-info-stem calc(460ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
   }
 
   .sidebar-icon-motion[data-motion="play"] .lucide-info path:nth-child(3) {
-    animation: sim-info-dot 920ms cubic-bezier(0.45, 0, 0.55, 1);
-  }
-}
-
-@keyframes sim-hand-wave {
-  0% {
-    transform: rotate(0deg);
-  }
-  18% {
-    transform: rotate(-14deg);
-  }
-  40% {
-    transform: rotate(11deg);
-  }
-  62% {
-    transform: rotate(-6deg);
-  }
-  82% {
-    transform: rotate(2deg);
-  }
-  100% {
-    transform: rotate(0deg);
+    animation: sim-info-dot calc(460ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
   }
 }
 
@@ -576,6 +591,31 @@
   }
   100% {
     transform: rotate(0deg);
+  }
+}
+
+@keyframes sim-mic-speak {
+  0% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-0.8px);
+  }
+  60% {
+    transform: translateY(0.25px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes sim-pin-flash {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.15;
   }
 }
 
