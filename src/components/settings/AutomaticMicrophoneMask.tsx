@@ -70,6 +70,7 @@ export const AutomaticMicrophoneMask: React.FC<
       />
 
       <SettingContainer
+        id="settings-microphone-name-mask"
         title={t("settings.sound.microphone.autoSelectMask.title")}
         description={t("settings.sound.microphone.autoSelectMask.description")}
         descriptionMode={descriptionMode}
