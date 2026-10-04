@@ -15,8 +15,8 @@
   },
   "tray": {
     "settings": "Settings...",
-    "settingsRequiresWebview": "Switch to full interface and restart",
-    "enterSpeechOnlyMode": "Restart in speech-only mode",
+    "settingsRequiresWebview": "Restart with full interface",
+    "enterSpeechOnlyMode": "Restart in dictation-only mode (less RAM)",
     "checkUpdates": "Check for Updates...",
     "copyLastTranscript": "Copy Last Transcript",
     "model": "Model",
@@ -2531,22 +2531,22 @@
     "advanced": {
       "title": "Advanced",
       "neverLaunchWebview": {
-        "groupTitle": "Speech-only low-memory mode",
-        "label": "Start without WebView (speech only)",
-        "description": "Beta: Only normal and profile-specific dictation shortcuts, AI Replace Selection, audio input, automatic application-aware profiles, Cancel, and the native tray remain available. The Settings window, recording overlay and Live Preview, Voice Activation Button, TTS and Speak Selected Text, Voice Commands, Browser Connector actions, Live Monitor and Live Sound, file transcription, History, update checks, and every other WebView-based feature or unsupported shortcut will not work until you restore the full interface and restart.",
+        "groupTitle": "Dictation-only mode (less RAM)",
+        "label": "Start in dictation-only mode (less RAM)",
+        "description": "Beta: Uses less RAM by running without the full interface. Dictation shortcuts, AI Replace Selection, automatic application-aware profiles, and the native tray remain available. Settings, overlays, TTS, Voice Commands, Browser Connector, Live Monitor, file transcription, History, update checks, and other interface-based features require restarting with the full interface.",
         "trayIndicatorHint": "For a visible recording indicator in this mode, use tray icon blinking.",
         "trayIndicatorLink": "Configure the tray recording indicator",
-        "showInTray": "Show speech-only mode in the tray menu",
-        "showInTrayDescription": "Add a tray command for entering speech-only mode. The command for leaving speech-only mode is always available while that mode is active.",
+        "showInTray": "Show dictation-only mode in the tray menu",
+        "showInTrayDescription": "Add a tray command to restart in dictation-only mode and use less RAM. The command to restart with the full interface is always available while this mode is active.",
         "warningTitle": "A restart is required",
         "warning": "Only Transcribe, profile-specific transcription, AI Replace Selection, and Cancel shortcuts remain active. Automatic application-aware profiles continue to work. TTS, Voice Commands, Live Monitor, Connector workflows, UI overlays, and all other complex features are disabled.",
-        "recovery": "To restore the full interface, double-click the tray icon or choose Switch to full interface and restart from its menu. The app will restart.",
-        "restart": "Restart in speech-only mode",
+        "recovery": "To restore the full interface, double-click the tray icon or choose Restart with full interface from its menu. The app will restart.",
+        "restart": "Restart in dictation-only mode (less RAM)",
         "footerReturn": "Return to low-memory mode",
-        "footerReturnDescription": "Restart without WebView and keep only speech transcription features active.",
+        "footerReturnDescription": "Restart without the full interface to use less RAM. Dictation and AI Replace Selection remain available.",
         "restoredToastTitle": "Full interface restored",
-        "restoredToastDescription": "Opening the full interface from the tray exits speech-only mode. During this recovery session, use Return to low-memory mode in the footer to switch back.",
-        "restartError": "Could not restart in low-memory mode"
+        "restoredToastDescription": "Opening the full interface from the tray exits dictation-only mode. During this recovery session, use Return to low-memory mode in the footer to switch back.",
+        "restartError": "Could not restart in dictation-only mode"
       },
       "muteWhileRecording": {
         "label": "Mute While Recording",
