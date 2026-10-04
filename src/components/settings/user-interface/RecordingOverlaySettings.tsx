@@ -2613,6 +2613,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       />
 
       <Slider
+        id="settings-overlay-scale-strength"
         label={t(
           "settings.userInterface.recordingOverlay.audioReactiveScaleAmount.title",
           "Scale Strength",
