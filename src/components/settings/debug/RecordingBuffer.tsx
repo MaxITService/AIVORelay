@@ -18,6 +18,7 @@ export const RecordingBuffer: React.FC<RecordingBufferProps> = ({
 
   return (
     <Slider
+      id="settings-extra-recording-buffer"
       value={value}
       onChange={(nextValue) =>
         updateSetting("extra_recording_buffer_ms" as any, nextValue as any)
