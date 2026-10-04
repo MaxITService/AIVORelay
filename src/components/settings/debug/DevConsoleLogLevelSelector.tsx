@@ -82,6 +82,7 @@ export const DevConsoleLogLevelSelector: React.FC<
 
   return (
     <SettingContainer
+      id="settings-dev-console-log-level"
       title={
         <div>
           <div>{t("settings.debug.devConsoleLogLevel.title")}</div>
