@@ -1545,7 +1545,7 @@ export default function SendSelectedTextSettings() {
         <div className="space-y-4">
           <section className="sst-options-bar">
             <div>
-              <h2>History and error overlay</h2>
+              <h2 id="settings-selected-text-history-options" tabIndex={-1}>History and error overlay</h2>
               <p>These settings apply to every preset.</p>
             </div>
             <label>
