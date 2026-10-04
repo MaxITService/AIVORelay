@@ -378,6 +378,7 @@ export const AiReplaceSelectionSettings: React.FC = () => {
           </div>
         </SettingContainer>
         <ToggleSwitch
+          id="settings-ai-replace-restore-on-error"
           label={t("settings.aiReplace.withSelection.restoreOnError.label")}
           description={t("settings.aiReplace.withSelection.restoreOnError.description")}
           descriptionMode="tooltip"
