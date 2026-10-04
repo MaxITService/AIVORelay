@@ -1212,6 +1212,7 @@ export const TextReplacementSettings: React.FC = () => {
         {getActiveProfilePostProcessingEnabled(settings) && (
           <div className="px-4 py-3 border-t border-white/[0.05]">
             <ToggleSwitch
+              id="settings-text-replacement-before-llm"
               checked={settings?.text_replacements_before_llm ?? false}
               onChange={(enabled) =>
                 updateSetting("text_replacements_before_llm", enabled)
