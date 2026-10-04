@@ -546,6 +546,110 @@ body,
 }
 
 /* ============================================
+   Scroll Edge Fade
+   ============================================ */
+
+/* A .scroll-fade wrapper fogs the top or bottom edge of its
+   .scroll-fade__viewport child only while more content lies past that edge.
+   The fog is an overlay that repaints the wrapper's own opaque background, not
+   a mask on the viewport, so fixed-position dialogs rendered inside stay
+   unclipped and anything with a positive z-index (sticky toolbars) stays sharp.
+   Each fade eases in over the first --scroll-fade-size of travel away from its
+   edge. The scrollbar gutter is left clear. Engines without scroll-driven
+   animations keep hard edges.
+
+   Without overflow the timeline goes inactive, but a fade animation that had
+   already finished keeps its final value, so a long page scrolled down and then
+   swapped for a short one would stay fogged. --scroll-fade-active gates both
+   fades: its range ends past 100%, so it never finishes and drops back to 0
+   whenever the timeline is inactive. */
+@property --scroll-fade-active {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --scroll-fade-top {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --scroll-fade-bottom {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@keyframes scroll-fade-active {
+  from,
+  to {
+    --scroll-fade-active: 1;
+  }
+}
+
+@keyframes scroll-fade-top {
+  from {
+    --scroll-fade-top: 0;
+  }
+  to {
+    --scroll-fade-top: 1;
+  }
+}
+
+@keyframes scroll-fade-bottom {
+  from {
+    --scroll-fade-bottom: 1;
+  }
+  to {
+    --scroll-fade-bottom: 0;
+  }
+}
+
+@supports (animation-timeline: scroll()) and (timeline-scope: none) {
+  .scroll-fade {
+    --scroll-fade-size: 40px;
+    /* Matches the ::-webkit-scrollbar width. */
+    --scroll-fade-gutter: 14px;
+    position: relative;
+    timeline-scope: --scroll-fade-timeline;
+  }
+
+  .scroll-fade__viewport {
+    scroll-timeline: --scroll-fade-timeline y;
+  }
+
+  .scroll-fade::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: inherit;
+    mask-image: linear-gradient(
+      to bottom,
+      rgb(0 0 0 / calc(var(--scroll-fade-active) * var(--scroll-fade-top))) 0,
+      transparent var(--scroll-fade-size),
+      transparent calc(100% - var(--scroll-fade-size)),
+      rgb(0 0 0 / calc(var(--scroll-fade-active) * var(--scroll-fade-bottom)))
+        100%
+    );
+    mask-size: calc(100% - var(--scroll-fade-gutter)) 100%;
+    mask-repeat: no-repeat;
+
+    /* Longhands only: the animation shorthand resets the timeline and range. */
+    animation-name: scroll-fade-active, scroll-fade-top, scroll-fade-bottom;
+    animation-duration: auto;
+    animation-timing-function: linear;
+    animation-fill-mode: both;
+    animation-timeline: --scroll-fade-timeline;
+    animation-range:
+      0 calc(100% + 1px),
+      0 var(--scroll-fade-size),
+      calc(100% - var(--scroll-fade-size)) 100%;
+  }
+}
+
+/* ============================================
    Animations
    ============================================ */
 
