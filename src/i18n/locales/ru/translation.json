@@ -81,6 +81,7 @@
       "ttsApiKey": "Выбранный провайдер TTS не использует API-ключ."
     },
     "items": {
+      "preview-draft-opacity": "Непрозрачность черновика Live Preview",
       "preview-accent-color": "Акцентный цвет Live Preview",
       "preview-draft-color": "Цвет черновика Live Preview",
       "preview-confirmed-color": "Цвет подтверждённого текста",

@@ -1392,6 +1392,7 @@ export const UserInterfaceSettings: React.FC = () => {
             </div>
           </SettingContainer>
           <Slider
+            id="settings-preview-draft-opacity"
             label="Live Draft Opacity"
             description="How faded the Live Draft text appears before it becomes confirmed."
             descriptionMode="inline"
