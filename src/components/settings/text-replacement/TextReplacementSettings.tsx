@@ -2117,6 +2117,7 @@ export const TextReplacementSettings: React.FC = () => {
       >
         <div className="px-4 py-3">
           <ToggleSwitch
+            id="settings-leading-space-remove"
             checked={leadingWhitespaceMode === "remove_if_present"}
             onChange={(enabled) =>
               setLeadingWhitespaceMode(enabled ? "remove_if_present" : "preserve")
