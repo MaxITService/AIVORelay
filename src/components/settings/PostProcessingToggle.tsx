@@ -33,6 +33,7 @@ export const PostProcessingToggle: React.FC<PostProcessingToggleProps> =
 
     return (
       <ToggleSwitch
+        id="settings-llm-postprocessing-enabled"
         checked={enabled}
         onChange={(enabled) => updateSetting("post_process_enabled", enabled)}
         isUpdating={isUpdating("post_process_enabled")}

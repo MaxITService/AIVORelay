@@ -82,6 +82,7 @@
       "ttsApiKey": "The selected TTS provider does not use an API key."
     },
     "items": {
+      "llm-postprocessing-enabled": "Enable LLM post-processing for active profile",
       "voice-button-single-click-close": "Close voice button with one click",
       "voice-button-always-on-top": "Show AOT Toggle in Button Window",
       "preview-custom-height": "Custom Height (px)",

@@ -82,6 +82,7 @@
       "ttsApiKey": "Выбранный провайдер TTS не использует API-ключ."
     },
     "items": {
+      "llm-postprocessing-enabled": "Включить LLM-постобработку для активного профиля",
       "voice-button-single-click-close": "Закрывать голосовую кнопку одним нажатием",
       "voice-button-always-on-top": "Показывать переключатель «Поверх окон» в голосовой кнопке",
       "preview-custom-height": "Своя высота (пиксели)",
