@@ -1517,6 +1517,7 @@ export const BrowserConnectorSettings: React.FC = () => {
         </SettingContainer>
 
         <SettingContainer
+          id="settings-connector-port"
           title={t("settings.browserConnector.connection.port.title")}
           description={t("settings.browserConnector.connection.port.description")}
           descriptionMode="tooltip"
