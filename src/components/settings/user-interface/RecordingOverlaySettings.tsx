@@ -2239,6 +2239,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       </SettingContainer>
 
       <Slider
+        id="settings-overlay-opacity"
         label={t(
           "settings.userInterface.recordingOverlay.opacity.title",
           "Overlay Opacity",
