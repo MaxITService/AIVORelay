@@ -97,6 +97,7 @@ export const ShowTrayIcon: React.FC<ShowTrayIconProps> = React.memo(
                 />
 
                 <ToggleSwitch
+                  id="settings-tray-blink-recording"
                   checked={trayIconBlinkOnRecording}
                   onChange={(enabled) =>
                     updateSetting("tray_icon_blink_on_recording", enabled)
