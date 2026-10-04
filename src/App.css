@@ -209,6 +209,56 @@ body,
     inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
+/* Cursor spotlight on settings cards (SettingsGroup): the card border lights up
+   near the pointer, also while it approaches from outside. useCardSpotlight
+   writes the position to --card-spotlight-x/y and sets data-active on the layer. */
+.settings-card {
+  position: relative;
+  isolation: isolate;
+}
+
+/* Covers the border box; the mask keeps only the 1px border band visible, same
+   as the overlay border ring. The glow falls off along a smoothstep curve so
+   neither its center nor its outer edge reads as a hard ring. */
+.settings-card__spotlight {
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  padding: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 480ms var(--motion-ease-in-out);
+  background: radial-gradient(
+    320px circle at var(--card-spotlight-x, 50%) var(--card-spotlight-y, 50%),
+    rgba(255, 150, 195, 0.07) 0px,
+    rgba(255, 150, 195, 0.065) 24px,
+    rgba(255, 150, 195, 0.052) 48px,
+    rgba(255, 150, 195, 0.035) 72px,
+    rgba(255, 150, 195, 0.018) 96px,
+    rgba(255, 150, 195, 0.005) 120px,
+    rgba(255, 150, 195, 0) 144px
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+.settings-card__spotlight[data-active] {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-card__spotlight {
+    transition: none;
+  }
+}
+
 .model-filter-panel-active {
   background: linear-gradient(
     180deg,

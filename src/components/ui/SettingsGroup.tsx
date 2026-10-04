@@ -1,5 +1,6 @@
 import React from "react";
 import { ChevronDown } from "lucide-react";
+import { useCardSpotlight } from "@/hooks/useCardSpotlight";
 import { Collapse } from "./Collapse";
 
 interface SettingsGroupProps {
@@ -45,6 +46,8 @@ export const SettingsGroup: React.FC<SettingsGroupProps> = ({
     }
     onCollapsedChange?.(nextCollapsed);
   }, [collapsed, isCollapsed, onCollapsedChange]);
+
+  const spotlightRef = useCardSpotlight();
 
   return (
     <div id={id} tabIndex={id ? -1 : undefined} className="outline-none">
@@ -95,7 +98,12 @@ export const SettingsGroup: React.FC<SettingsGroupProps> = ({
       )}
       <Collapse open={!isCollapsed} id={contentId}>
         <div className={title ? "pt-4" : undefined}>
-          <div className="glass-panel-subtle rounded-xl overflow-visible border border-white/[0.03]">
+          <div className="settings-card glass-panel-subtle rounded-xl overflow-visible border border-white/[0.03]">
+            <span
+              ref={spotlightRef}
+              className="settings-card__spotlight"
+              aria-hidden="true"
+            />
             <div className="divide-y divide-white/[0.05]">
               {help}
               {children}
