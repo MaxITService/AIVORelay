@@ -2052,6 +2052,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       </CustomOverlayOnly>
 
       <SettingContainer
+        id="settings-overlay-status-icon-color"
         title={t(
           "settings.userInterface.recordingOverlay.statusIconColor.title",
           "Status Icon Color",
