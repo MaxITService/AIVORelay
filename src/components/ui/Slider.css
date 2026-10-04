@@ -1,0 +1,178 @@
+/* Juicy slider: custom thumb with hover halo, squash on grab, springy release,
+   glowing fill while dragging, and a value label that pops on discrete steps. */
+
+.aivo-slider {
+  --aivo-slider-accent: #ff4d8d;
+  --aivo-slider-thumb: 16px;
+  --aivo-slider-spring: cubic-bezier(0.34, 1.7, 0.64, 1);
+}
+
+/* Thumb (Chromium / WebView2 / WebKit) */
+.aivo-slider__input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--aivo-slider-thumb);
+  height: var(--aivo-slider-thumb);
+  border-radius: 9999px;
+  background-color: var(--aivo-slider-accent);
+  border: 2px solid #ffffff;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.5),
+    0 0 0 0 rgba(255, 77, 141, 0);
+  transform: scale(1);
+  transition:
+    transform 320ms var(--aivo-slider-spring),
+    box-shadow 220ms ease;
+  cursor: grab;
+}
+
+/* Thumb (Firefox) */
+.aivo-slider__input::-moz-range-thumb {
+  width: var(--aivo-slider-thumb);
+  height: var(--aivo-slider-thumb);
+  box-sizing: border-box;
+  border-radius: 9999px;
+  background-color: var(--aivo-slider-accent);
+  border: 2px solid #ffffff;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.5),
+    0 0 0 0 rgba(255, 77, 141, 0);
+  transform: scale(1);
+  transition:
+    transform 320ms var(--aivo-slider-spring),
+    box-shadow 220ms ease;
+  cursor: grab;
+}
+
+/* Hover: grow slightly and show a soft halo ring */
+.aivo-slider__input:not(:disabled):hover::-webkit-slider-thumb {
+  transform: scale(1.2);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.5),
+    0 0 0 6px rgba(255, 77, 141, 0.18);
+}
+
+.aivo-slider__input:not(:disabled):hover::-moz-range-thumb {
+  transform: scale(1.2);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.5),
+    0 0 0 6px rgba(255, 77, 141, 0.18);
+}
+
+/* Grabbed: fast squash (wider than tall) with a stronger halo */
+.aivo-slider[data-active="true"] .aivo-slider__input::-webkit-slider-thumb {
+  transform: scale(1.32, 1.08);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.55),
+    0 0 0 8px rgba(255, 77, 141, 0.24);
+  transition:
+    transform 90ms ease-out,
+    box-shadow 120ms ease-out;
+  cursor: grabbing;
+}
+
+.aivo-slider[data-active="true"] .aivo-slider__input::-moz-range-thumb {
+  transform: scale(1.32, 1.08);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.55),
+    0 0 0 8px rgba(255, 77, 141, 0.24);
+  transition:
+    transform 90ms ease-out,
+    box-shadow 120ms ease-out;
+  cursor: grabbing;
+}
+
+.aivo-slider__input:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
+}
+
+.aivo-slider__input:disabled::-moz-range-thumb {
+  cursor: not-allowed;
+}
+
+/* Glow layer under the filled part of the track */
+.aivo-slider__glow {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 8px;
+  translate: 0 -50%;
+  border-radius: 9999px;
+  pointer-events: none;
+  box-shadow: 0 0 12px 1px rgba(255, 77, 141, 0.55);
+  opacity: 0;
+  transition: opacity 260ms ease;
+}
+
+.aivo-slider[data-active="true"] .aivo-slider__glow {
+  opacity: 1;
+  transition: opacity 120ms ease-out;
+}
+
+/* Value label: enlarged while dragging, springs back on release */
+.aivo-slider__value {
+  display: inline-block;
+  transform-origin: 100% 50%;
+  scale: 1;
+  transition:
+    scale 320ms var(--aivo-slider-spring),
+    text-shadow 220ms ease;
+}
+
+.aivo-slider[data-active="true"] .aivo-slider__value {
+  scale: 1.12;
+  text-shadow: 0 0 8px rgba(255, 77, 141, 0.45);
+  transition:
+    scale 120ms ease-out,
+    text-shadow 120ms ease-out;
+}
+
+/* Pop for discrete changes (keyboard steps) */
+.aivo-slider__value--pop {
+  animation: aivo-slider-value-pop 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes aivo-slider-value-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aivo-slider__input::-webkit-slider-thumb,
+  .aivo-slider[data-active="true"] .aivo-slider__input::-webkit-slider-thumb {
+    transition: none;
+    transform: none;
+  }
+
+  .aivo-slider__input::-moz-range-thumb,
+  .aivo-slider[data-active="true"] .aivo-slider__input::-moz-range-thumb {
+    transition: none;
+    transform: none;
+  }
+
+  .aivo-slider__input:not(:disabled):hover::-webkit-slider-thumb {
+    transform: none;
+  }
+
+  .aivo-slider__input:not(:disabled):hover::-moz-range-thumb {
+    transform: none;
+  }
+
+  .aivo-slider__glow,
+  .aivo-slider__value,
+  .aivo-slider[data-active="true"] .aivo-slider__value {
+    transition: none;
+    scale: 1;
+  }
+
+  .aivo-slider__value--pop {
+    animation: none;
+  }
+}

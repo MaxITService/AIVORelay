@@ -4,10 +4,9 @@ import type { TFunction } from "i18next";
 import { AudioPlayer, AudioPlayerGroup } from "../../ui/AudioPlayer";
 import { Button } from "../../ui/Button";
 import { ConfirmationModal } from "../../ui/ConfirmationModal";
+import { CopyFeedbackIcon } from "../../ui/CopyFeedbackIcon";
 import {
-  Copy,
   Star,
-  Check,
   Trash2,
   FolderOpen,
   Wand2,
@@ -1260,6 +1259,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
 }) => {
   const { t, i18n } = useTranslation();
   const [showCopied, setShowCopied] = useState(false);
+  const [copyBurst, setCopyBurst] = useState(0);
   const copyFeedbackTimeoutRef = useRef<number | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [playableAudio, setPlayableAudio] = useState<{
@@ -1358,6 +1358,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
       window.clearTimeout(copyFeedbackTimeoutRef.current);
     }
     setShowCopied(true);
+    setCopyBurst((burst) => burst + 1);
     copyFeedbackTimeoutRef.current = window.setTimeout(() => {
       setShowCopied(false);
       copyFeedbackTimeoutRef.current = null;
@@ -1415,11 +1416,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
             disabled={!hasDisplayText || retrying}
             title={t("settings.history.copyToClipboard")}
           >
-            {showCopied ? (
-              <Check width={16} height={16} />
-            ) : (
-              <Copy width={16} height={16} />
-            )}
+            <CopyFeedbackIcon copied={showCopied} burstKey={copyBurst} />
           </IconButton>
           <IconButton
             onClick={onToggleSaved}
