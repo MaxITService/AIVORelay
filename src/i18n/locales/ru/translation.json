@@ -82,6 +82,7 @@
       "ttsApiKey": "Выбранный провайдер TTS не использует API-ключ."
     },
     "items": {
+      "voice-command-presets": "Готовые команды",
       "voice-command-llm-fallback": "LLM для подбора команды",
       "voice-command-enabled": "Включить голосовые команды",
       "llm-postprocessing-enabled": "Включить LLM-постобработку для активного профиля",

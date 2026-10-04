@@ -806,7 +806,7 @@ export default function VoiceCommandSettings() {
 
           <div className="voice-commands-list">
             <div className="list-header">
-              <h4>
+              <h4 id="settings-voice-command-presets" tabIndex={-1}>
                 {t("voiceCommands.predefinedCommands", "Predefined Commands")}
               </h4>
               <button className="btn-add" onClick={handleAddCommand}>
