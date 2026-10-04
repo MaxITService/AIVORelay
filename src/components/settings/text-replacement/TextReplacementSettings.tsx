@@ -2225,6 +2225,7 @@ export const TextReplacementSettings: React.FC = () => {
 
         <div className="px-4 py-3 border-t border-white/[0.05]">
           <ToggleSwitch
+            id="settings-soniox-chunk-safety-buffer"
             checked={settings?.soniox_realtime_keep_safety_buffer_enabled ?? false}
             onChange={(enabled) =>
               updateSetting("soniox_realtime_keep_safety_buffer_enabled", enabled)
