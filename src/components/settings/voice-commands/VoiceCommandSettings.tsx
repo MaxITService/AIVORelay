@@ -1290,7 +1290,7 @@ export default function VoiceCommandSettings() {
           {/* Execution Log Section */}
           <div className="execution-log-section">
             <div className="log-header">
-              <h4>{t("voiceCommands.executionLog", "Execution Log")}</h4>
+              <h4 id="settings-voice-command-log" tabIndex={-1}>{t("voiceCommands.executionLog", "Execution Log")}</h4>
               <div className="log-actions">
                 <button
                   className="btn-log-action"
