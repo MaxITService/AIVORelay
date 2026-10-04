@@ -18,6 +18,7 @@ export const PauseMediaWhileRecording: React.FC<PauseMediaWhileRecordingTogglePr
 
     return (
       <ToggleSwitch
+        id="settings-pause-media-while-recording"
         checked={pauseEnabled}
         onChange={(enabled) =>
           updateSetting("pause_media_while_recording" as any, enabled as any)
