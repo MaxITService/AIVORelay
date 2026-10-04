@@ -33,6 +33,7 @@ export const ConvertLfToCrlfSetting: React.FC<ConvertLfToCrlfSettingProps> =
 
     return (
       <ToggleSwitch
+        id="settings-windows-line-endings"
         checked={convertLfToCrlf}
         onChange={(enabled) => updateSetting("convert_lf_to_crlf" as any, enabled)}
         isUpdating={isUpdating("convert_lf_to_crlf")}
