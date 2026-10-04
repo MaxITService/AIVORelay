@@ -17,6 +17,7 @@ export const MuteWhileRecording: React.FC<MuteWhileRecordingToggleProps> =
 
     return (
       <ToggleSwitch
+        id="settings-mute-while-recording"
         checked={muteEnabled}
         onChange={(enabled) => updateSetting("mute_while_recording", enabled)}
         isUpdating={isUpdating("mute_while_recording")}
