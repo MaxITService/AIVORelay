@@ -2674,6 +2674,32 @@
           "label": "Show Recording Overlay Drag Grip",
           "description": "Show a small top handle on hover so you can drag the recording overlay during a session without leaving the grip visible all the time.",
           "help": "Tip: move the pointer over the overlay to reveal the grip, then drag from the top center."
+        },
+        "animation": {
+          "none": "None"
+        },
+        "entranceAnimation": {
+          "label": "Overlay Entrance Animation",
+          "description": "How the recording and error overlays appear.",
+          "options": {
+            "spring": "Spring pop",
+            "blur": "Blur in",
+            "rise": "Rise",
+            "island": "Island expand",
+            "jelly": "Jelly",
+            "portal": "Portal"
+          }
+        },
+        "exitAnimation": {
+          "label": "Overlay Exit Animation",
+          "description": "How the recording and error overlays disappear. Animated exits keep the overlay on screen a little longer: about a quarter of a second, or about 0.9 seconds for Portal.",
+          "options": {
+            "shrink": "Shrink",
+            "blur": "Blur out",
+            "island": "Island collapse",
+            "drop": "Drop",
+            "portal": "Portal"
+          }
         }
       },
       "pasteMethod": {

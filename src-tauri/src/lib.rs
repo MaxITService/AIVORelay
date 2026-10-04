@@ -1285,6 +1285,8 @@ pub fn run(cli_args: CliArgs) {
         shortcut::delete_recording_overlay_user_preset,
         shortcut::change_recording_overlay_custom_enabled_setting,
         shortcut::change_recording_overlay_show_drag_grip_setting,
+        shortcut::change_recording_overlay_entrance_animation_setting,
+        shortcut::change_recording_overlay_exit_animation_setting,
         shortcut::change_recording_overlay_theme_setting,
         shortcut::change_recording_overlay_background_mode_setting,
         shortcut::change_recording_overlay_material_mode_setting,

@@ -754,6 +754,10 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_recording_overlay_show_drag_grip_setting", {
     enabled: value,
   });
+(settingUpdaters as any).recording_overlay_entrance_animation = (value: any) =>
+  commands.changeRecordingOverlayEntranceAnimationSetting(String(value));
+(settingUpdaters as any).recording_overlay_exit_animation = (value: any) =>
+  commands.changeRecordingOverlayExitAnimationSetting(String(value));
 (settingUpdaters as any).recording_overlay_theme = (value: any) =>
   commands.changeRecordingOverlayThemeSetting(String(value));
 (settingUpdaters as any).recording_overlay_background_mode = (value: any) =>

@@ -210,6 +210,8 @@ pub struct RecordingOverlayAppearancePayload {
     bar_width_px: u8,
     bar_style: String,
     show_drag_grip: bool,
+    entrance_animation: String,
+    exit_animation: String,
     audio_reactive_scale: bool,
     audio_reactive_scale_max_percent: u8,
     voice_sensitivity_percent: u8,
@@ -835,6 +837,35 @@ fn recording_overlay_animated_border_mode_key(
     }
 }
 
+fn recording_overlay_entrance_animation_key(
+    animation: settings::RecordingOverlayEntranceAnimation,
+) -> &'static str {
+    use settings::RecordingOverlayEntranceAnimation as Entrance;
+    match animation {
+        Entrance::None => "none",
+        Entrance::Spring => "spring",
+        Entrance::Blur => "blur",
+        Entrance::Rise => "rise",
+        Entrance::Island => "island",
+        Entrance::Jelly => "jelly",
+        Entrance::Portal => "portal",
+    }
+}
+
+fn recording_overlay_exit_animation_key(
+    animation: settings::RecordingOverlayExitAnimation,
+) -> &'static str {
+    use settings::RecordingOverlayExitAnimation as Exit;
+    match animation {
+        Exit::None => "none",
+        Exit::Shrink => "shrink",
+        Exit::Blur => "blur",
+        Exit::Island => "island",
+        Exit::Drop => "drop",
+        Exit::Portal => "portal",
+    }
+}
+
 fn recording_overlay_bar_style_key(style: RecordingOverlayBarStyle) -> &'static str {
     match style {
         RecordingOverlayBarStyle::Aurora => "aurora",
@@ -931,6 +962,14 @@ fn build_recording_overlay_appearance_payload(
         bar_style: recording_overlay_bar_style_key(settings.recording_overlay_bar_style)
             .to_string(),
         show_drag_grip: settings.recording_overlay_show_drag_grip,
+        entrance_animation: recording_overlay_entrance_animation_key(
+            settings.recording_overlay_entrance_animation,
+        )
+        .to_string(),
+        exit_animation: recording_overlay_exit_animation_key(
+            settings.recording_overlay_exit_animation,
+        )
+        .to_string(),
         audio_reactive_scale: settings.recording_overlay_audio_reactive_scale,
         audio_reactive_scale_max_percent: settings
             .recording_overlay_audio_reactive_scale_max_percent
@@ -1520,6 +1559,8 @@ pub fn show_positioned_recording_overlay_window(app_handle: &AppHandle) {
     }
 
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+        // Supersede any exit animation still waiting to hide the window.
+        mark_recording_overlay_window_shown();
         let metrics =
             recording_overlay_geometry_metrics(app_handle, current_recording_overlay_layout());
         let preserve_visible_position = current_recording_overlay_layout()
@@ -1722,6 +1763,17 @@ fn recording_overlay_window_padding(
         RecordingOverlayLayout::Default => 4.0,
     };
 
+    // The portal animations draw a tilted, glowing ring above the frame's top edge.
+    let animation_padding = if settings.recording_overlay_entrance_animation
+        == settings::RecordingOverlayEntranceAnimation::Portal
+        || settings.recording_overlay_exit_animation
+            == settings::RecordingOverlayExitAnimation::Portal
+    {
+        22.0
+    } else {
+        0.0
+    };
+
     // Keep extra transparent room around overlays that scale or glow so the
     // visible frame can grow inside the window without clipping.
     (reactive_padding
@@ -1730,6 +1782,7 @@ fn recording_overlay_window_padding(
         .max(border_padding)
         .max(ambient_padding)
         .max(material_padding)
+        .max(animation_padding)
         + parallax_padding
         + layout_padding)
         .ceil()
@@ -2489,16 +2542,96 @@ pub fn update_overlay_position(app_handle: &AppHandle) {
     apply_recording_overlay_layout(app_handle, metrics);
 }
 
-/// Hides the recording overlay window.
+const NO_PENDING_RECORDING_OVERLAY_EXIT: u64 = u64::MAX;
+
+/// How long the window stays up after `hide-overlay` so the exit animation can
+/// finish. Must cover the matching animation in RecordingOverlay.css.
+pub(crate) fn recording_overlay_exit_hide_delay_ms(
+    animation: settings::RecordingOverlayExitAnimation,
+) -> u64 {
+    use settings::RecordingOverlayExitAnimation as Exit;
+    match animation {
+        Exit::None => 0,
+        Exit::Shrink | Exit::Blur | Exit::Island | Exit::Drop => 260,
+        Exit::Portal => 910,
+    }
+}
+
+/// Bumped on every show/hide of the recording overlay window so a delayed
+/// exit-animation hide can tell that a newer presentation took over.
+static RECORDING_OVERLAY_VISIBILITY_EPOCH: AtomicU64 = AtomicU64::new(0);
+/// Epoch whose exit animation is still playing, if any.
+static RECORDING_OVERLAY_PENDING_EXIT_EPOCH: AtomicU64 =
+    AtomicU64::new(NO_PENDING_RECORDING_OVERLAY_EXIT);
+/// Tracked here instead of querying the window: `is_visible()` blocks on the
+/// UI thread, and hide is called from workers that may hold session locks.
+static RECORDING_OVERLAY_WINDOW_SHOWN: AtomicBool = AtomicBool::new(false);
+
+fn mark_recording_overlay_window_shown() {
+    RECORDING_OVERLAY_VISIBILITY_EPOCH.fetch_add(1, Ordering::SeqCst);
+    RECORDING_OVERLAY_WINDOW_SHOWN.store(true, Ordering::SeqCst);
+}
+
+fn mark_recording_overlay_window_hidden() -> u64 {
+    RECORDING_OVERLAY_WINDOW_SHOWN.store(false, Ordering::SeqCst);
+    RECORDING_OVERLAY_VISIBILITY_EPOCH.fetch_add(1, Ordering::SeqCst) + 1
+}
+
+/// Hides the recording overlay window, letting the selected exit animation play first.
 pub fn hide_recording_overlay(app_handle: &AppHandle) {
     // Always hide the overlay regardless of settings - if setting was changed while recording,
     // we still want to hide it properly
-    if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        // Emit event to trigger fade-out animation
-        let _ = overlay_window.emit("hide-overlay", ());
+    let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") else {
+        return;
+    };
+
+    let exit_delay_ms = recording_overlay_exit_hide_delay_ms(
+        settings::get_settings(app_handle).recording_overlay_exit_animation,
+    );
+    let animate_exit = exit_delay_ms > 0;
+
+    // Repeated hides during one exit must not restart it or extend the delay.
+    if animate_exit
+        && RECORDING_OVERLAY_PENDING_EXIT_EPOCH.load(Ordering::SeqCst)
+            == RECORDING_OVERLAY_VISIBILITY_EPOCH.load(Ordering::SeqCst)
+    {
+        return;
+    }
+
+    // Emit event to trigger the exit animation
+    let _ = overlay_window.emit("hide-overlay", ());
+    let was_shown = RECORDING_OVERLAY_WINDOW_SHOWN.load(Ordering::SeqCst);
+    let epoch = mark_recording_overlay_window_hidden();
+
+    if !animate_exit || !was_shown {
         // Hide immediately for faster stop/finalization response.
         let _ = overlay_window.hide();
+        return;
     }
+
+    RECORDING_OVERLAY_PENDING_EXIT_EPOCH.store(epoch, Ordering::SeqCst);
+    let app_clone = app_handle.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(exit_delay_ms));
+        let app_for_hide = app_clone.clone();
+        // Check and hide on the UI thread, where shows also run, so a new
+        // presentation cannot slip in between the check and the hide.
+        if let Err(error) = app_clone.run_on_main_thread(move || {
+            if RECORDING_OVERLAY_VISIBILITY_EPOCH.load(Ordering::SeqCst) == epoch {
+                if let Some(window) = app_for_hide.get_webview_window("recording_overlay") {
+                    let _ = window.hide();
+                }
+            }
+            let _ = RECORDING_OVERLAY_PENDING_EXIT_EPOCH.compare_exchange(
+                epoch,
+                NO_PENDING_RECORDING_OVERLAY_EXIT,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            );
+        }) {
+            log::warn!("Failed to queue delayed recording overlay hide: {error}");
+        }
+    });
 }
 
 /// Immediately hides the recording overlay window (no animation delay).
@@ -2506,6 +2639,7 @@ pub fn hide_recording_overlay(app_handle: &AppHandle) {
 /// Useful when the next operation is a screen capture, so we don't accidentally capture the overlay.
 pub fn hide_recording_overlay_immediately(app_handle: &AppHandle) {
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+        mark_recording_overlay_window_hidden();
         let _ = overlay_window.hide();
     }
 }

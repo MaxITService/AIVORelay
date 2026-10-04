@@ -1704,6 +1704,51 @@ pub fn change_recording_overlay_show_drag_grip_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_recording_overlay_entrance_animation_setting(
+    app: AppHandle,
+    animation: String,
+) -> Result<(), String> {
+    use settings::RecordingOverlayEntranceAnimation as Entrance;
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_entrance_animation = match animation.as_str() {
+        "none" => Entrance::None,
+        "spring" => Entrance::Spring,
+        "blur" => Entrance::Blur,
+        "rise" => Entrance::Rise,
+        "island" => Entrance::Island,
+        "jelly" => Entrance::Jelly,
+        "portal" => Entrance::Portal,
+        other => return Err(format!("Invalid overlay entrance animation: {other}")),
+    };
+    settings::write_settings_checked(&app, settings)?;
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_exit_animation_setting(
+    app: AppHandle,
+    animation: String,
+) -> Result<(), String> {
+    use settings::RecordingOverlayExitAnimation as Exit;
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_exit_animation = match animation.as_str() {
+        "none" => Exit::None,
+        "shrink" => Exit::Shrink,
+        "blur" => Exit::Blur,
+        "island" => Exit::Island,
+        "drop" => Exit::Drop,
+        "portal" => Exit::Portal,
+        other => return Err(format!("Invalid overlay exit animation: {other}")),
+    };
+    settings::write_settings_checked(&app, settings)?;
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_recording_overlay_theme_setting(app: AppHandle, theme: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_theme = match theme.as_str() {

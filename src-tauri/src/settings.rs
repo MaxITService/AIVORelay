@@ -3015,6 +3015,29 @@ pub enum RecordingOverlayStatusIconStyle {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayEntranceAnimation {
+    None,
+    Spring,
+    Blur,
+    Rise,
+    Island,
+    Jelly,
+    Portal,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayExitAnimation {
+    None,
+    Shrink,
+    Blur,
+    Island,
+    Drop,
+    Portal,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
 pub enum RecordingOverlayBarStyle {
     Solid,
     Capsule,
@@ -3797,6 +3820,10 @@ pub struct AppSettings {
     pub recording_overlay_custom_enabled: bool,
     #[serde(default)]
     pub recording_overlay_show_drag_grip: bool,
+    #[serde(default = "default_recording_overlay_entrance_animation")]
+    pub recording_overlay_entrance_animation: RecordingOverlayEntranceAnimation,
+    #[serde(default = "default_recording_overlay_exit_animation")]
+    pub recording_overlay_exit_animation: RecordingOverlayExitAnimation,
     #[serde(default = "default_recording_overlay_theme")]
     pub recording_overlay_theme: RecordingOverlayTheme,
     #[serde(default = "default_recording_overlay_background_mode")]
@@ -4677,6 +4704,14 @@ fn default_recording_overlay_bar_width_px() -> u8 {
 
 fn default_recording_overlay_bar_style() -> RecordingOverlayBarStyle {
     RecordingOverlayBarStyle::Solid
+}
+
+fn default_recording_overlay_entrance_animation() -> RecordingOverlayEntranceAnimation {
+    RecordingOverlayEntranceAnimation::Spring
+}
+
+fn default_recording_overlay_exit_animation() -> RecordingOverlayExitAnimation {
+    RecordingOverlayExitAnimation::None
 }
 
 fn default_recording_overlay_accent_color() -> String {
@@ -6054,6 +6089,8 @@ pub fn get_default_settings() -> AppSettings {
         error_feedback_enabled: default_true(),
         recording_overlay_custom_enabled: false,
         recording_overlay_show_drag_grip: true,
+        recording_overlay_entrance_animation: default_recording_overlay_entrance_animation(),
+        recording_overlay_exit_animation: default_recording_overlay_exit_animation(),
         recording_overlay_theme: default_recording_overlay_theme(),
         recording_overlay_background_mode: default_recording_overlay_background_mode(),
         recording_overlay_material_mode: default_recording_overlay_material_mode(),

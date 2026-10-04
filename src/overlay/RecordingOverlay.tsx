@@ -2,7 +2,8 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { Check, Copy } from "lucide-react";
@@ -42,6 +43,10 @@ import {
   resolveRecordingOverlayFrameRadiusPx,
 } from "./RecordingOverlayAnimatedBorder";
 import { RecordingOverlayBars } from "./RecordingOverlayBars";
+import {
+  RecordingOverlayPortal,
+  overlayPortalTiltPx,
+} from "./RecordingOverlayPortal";
 import { RecordingOverlayBackground } from "./RecordingOverlayBackground";
 import { RecordingOverlayCenterpiece } from "./RecordingOverlayCenterpiece";
 import {
@@ -118,6 +123,72 @@ function compactActiveAppName(rawName: string): string {
   return rawName.trim().replace(/\.exe$/i, "");
 }
 
+const OVERLAY_ENTRANCE_ANIMATIONS = [
+  "none",
+  "spring",
+  "blur",
+  "rise",
+  "island",
+  "jelly",
+  "portal",
+] as const;
+const OVERLAY_EXIT_ANIMATIONS = [
+  "none",
+  "shrink",
+  "blur",
+  "island",
+  "drop",
+  "portal",
+] as const;
+
+function normalizeOverlayAnimation<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  return typeof value === "string" && allowed.includes(value as T)
+    ? (value as T)
+    : fallback;
+}
+
+/**
+ * How long the window stays up after a hide. Mirrors
+ * recording_overlay_exit_hide_delay_ms (overlay.rs); a rewound entrance must
+ * finish within it.
+ */
+function overlayExitWindowHideMs(exitAnimation: string): number {
+  if (exitAnimation === "none") {
+    return 0;
+  }
+  return exitAnimation === "portal" ? 910 : 260;
+}
+
+/** The entrance or exit animation still playing on the overlay frame, if any. */
+function findRunningOverlayMotion(
+  root: HTMLElement | null,
+  prefix: "overlay-enter-" | "overlay-exit-",
+): CSSAnimation | undefined {
+  return root
+    ?.getAnimations()
+    .find(
+      (animation): animation is CSSAnimation =>
+        animation instanceof CSSAnimation &&
+        animation.animationName.startsWith(prefix) &&
+        animation.playState === "running",
+    );
+}
+
+/** The portal rings' own open/close animations; their sparks are left alone. */
+function findRunningOverlayPortalAnimations(): Animation[] {
+  return Array.from(
+    document.querySelectorAll<SVGSVGElement>(".overlay-portal"),
+  ).flatMap((ring) =>
+    ring
+      .getAnimations()
+      .filter((animation) => animation.playState === "running"),
+  );
+}
+
 type OverlayErrorCopy = {
   title: string;
   hint: string;
@@ -143,6 +214,8 @@ const DEFAULT_OVERLAY_APPEARANCE: RecordingOverlayAppearanceState = {
   bar_width_px: 6,
   bar_style: "solid",
   show_drag_grip: true,
+  entrance_animation: "spring",
+  exit_animation: "none",
   audio_reactive_scale: false,
   audio_reactive_scale_max_percent: 12,
   voice_sensitivity_percent: 50,
@@ -457,6 +530,30 @@ function getOverlayErrorTooltip(
 const RecordingOverlay: React.FC = () => {
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
+  // Mirrors isVisible synchronously for event handlers registered once.
+  const isVisibleRef = useRef(false);
+  const [activeExitAnimation, setActiveExitAnimation] = useState<
+    string | null
+  >(null);
+  // An interrupted entrance or exit plays back from its current frame instead
+  // of jumping to the next animation. While the exit runs backwards the frame is
+  // visible again and must not replay its entrance.
+  const [exitRewinding, setExitRewinding] = useState(false);
+  const [entranceRewinding, setEntranceRewinding] = useState(false);
+  const [entranceSkipped, setEntranceSkipped] = useState(false);
+  const overlayMotionTokenRef = useRef(0);
+  // Visibility a flip is heading to; that change keeps the running portal.
+  const overlayMotionFlipRef = useRef<boolean | null>(null);
+  const exitAnimationRef = useRef<string>(
+    DEFAULT_OVERLAY_APPEARANCE.exit_animation,
+  );
+  const overlayRootRef = useRef<HTMLDivElement>(null);
+  const [overlayPortal, setOverlayPortal] = useState<{
+    direction: "in" | "out";
+    key: number;
+    frameHeight: number;
+  } | null>(null);
+  const overlayPortalKeyRef = useRef(0);
   const [state, setState] = useState<ExtendedOverlayState>("recording");
   const [captureReady, setCaptureReady] = useState(false);
   const recordingSessionIdRef = useRef<number | null>(null);
@@ -587,6 +684,16 @@ const RecordingOverlay: React.FC = () => {
             : typeof data.showDragGrip === "boolean"
               ? data.showDragGrip
               : DEFAULT_OVERLAY_APPEARANCE.show_drag_grip,
+        entrance_animation: normalizeOverlayAnimation(
+          data.entrance_animation,
+          OVERLAY_ENTRANCE_ANIMATIONS,
+          "spring",
+        ),
+        exit_animation: normalizeOverlayAnimation(
+          data.exit_animation,
+          OVERLAY_EXIT_ANIMATIONS,
+          "none",
+        ),
         audio_reactive_scale:
           typeof data.audio_reactive_scale === "boolean"
             ? data.audio_reactive_scale
@@ -757,6 +864,154 @@ const RecordingOverlay: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    exitAnimationRef.current = appearance.exit_animation;
+  }, [appearance.exit_animation]);
+
+  const startOverlayPortal = (direction: "in" | "out") => {
+    overlayPortalKeyRef.current += 1;
+    setOverlayPortal({
+      direction,
+      key: overlayPortalKeyRef.current,
+      frameHeight:
+        overlayRootRef.current?.offsetHeight || appearance.frame_height_px,
+    });
+  };
+
+  const finishOverlayPortal = (key: number) => {
+    setOverlayPortal((current) => (current?.key === key ? null : current));
+  };
+
+  // Turns the frame's running animation, and the portal that goes with it,
+  // around from the current frame. Called from the once-registered listeners,
+  // so it only touches refs and state setters.
+  const flipOverlayMotion = (
+    animation: CSSAnimation,
+    playbackRate: number,
+    nextVisible: boolean,
+    onRewound: () => void,
+  ) => {
+    const token = ++overlayMotionTokenRef.current;
+    const portalKey = overlayPortalKeyRef.current;
+    overlayMotionFlipRef.current = nextVisible;
+    animation.playbackRate = playbackRate;
+    findRunningOverlayPortalAnimations().forEach((ring) => {
+      ring.playbackRate = playbackRate;
+    });
+    if (playbackRate < 0) {
+      animation.finished.then(
+        () => {
+          if (overlayMotionTokenRef.current === token) {
+            onRewound();
+            finishOverlayPortal(portalKey);
+          }
+        },
+        () => {},
+      );
+    }
+  };
+
+  const presentOverlay = () => {
+    if (!isVisibleRef.current) {
+      const root = overlayRootRef.current;
+      const exit = findRunningOverlayMotion(root, "overlay-exit-");
+      const entrance = findRunningOverlayMotion(root, "overlay-enter-");
+      setEntranceRewinding(false);
+      setExitRewinding(Boolean(exit));
+      if (exit) {
+        // Come back up out of the exit instead of replaying the entrance.
+        setEntranceSkipped(true);
+        flipOverlayMotion(exit, -1, true, () => {
+          setActiveExitAnimation(null);
+          setExitRewinding(false);
+        });
+      } else if (entrance && entrance.playbackRate < 0) {
+        flipOverlayMotion(entrance, 1, true, () => {});
+      }
+    }
+    isVisibleRef.current = true;
+    setIsVisible(true);
+  };
+
+  const concealOverlay = () => {
+    // Only a visible overlay starts an exit; a repeated hide keeps the one
+    // already playing.
+    if (isVisibleRef.current) {
+      const exitAnimation = exitAnimationRef.current;
+      const root = overlayRootRef.current;
+      const rewindingExit = findRunningOverlayMotion(root, "overlay-exit-");
+      const entrance = findRunningOverlayMotion(root, "overlay-enter-");
+      const windowHideMs = overlayExitWindowHideMs(exitAnimation);
+      const rewindEntrance = !rewindingExit && !!entrance && windowHideMs > 0;
+      setExitRewinding(false);
+      setEntranceRewinding(rewindEntrance);
+      if (rewindingExit) {
+        // Fall again from wherever the rewind got to.
+        flipOverlayMotion(rewindingExit, 1, false, () => {});
+      } else if (entrance && rewindEntrance) {
+        // Rewind the entrance, fast enough to finish before the window hides.
+        const elapsedMs = Number(entrance.currentTime ?? 0);
+        flipOverlayMotion(
+          entrance,
+          -Math.max(1, elapsedMs / (windowHideMs * 0.85)),
+          false,
+          () => setEntranceRewinding(false),
+        );
+      } else {
+        setActiveExitAnimation(exitAnimation === "none" ? null : exitAnimation);
+      }
+    }
+    setEntranceSkipped(false);
+    isVisibleRef.current = false;
+    setIsVisible(false);
+  };
+
+  // Only visibility changes open a portal; appearance updates must not replay it.
+  useLayoutEffect(() => {
+    // A flipped animation keeps its portal, now running the other way.
+    const flipped = overlayMotionFlipRef.current === isVisible;
+    overlayMotionFlipRef.current = null;
+    if (flipped) {
+      return;
+    }
+    if (isVisible) {
+      setActiveExitAnimation(null);
+      if (appearance.entrance_animation === "portal") {
+        startOverlayPortal("in");
+      } else {
+        setOverlayPortal(null);
+      }
+    } else if (activeExitAnimation === "portal") {
+      startOverlayPortal("out");
+    } else {
+      setOverlayPortal(null);
+    }
+  }, [isVisible]);
+
+  // An error usually replaces an already visible overlay, so the entrance
+  // class is still applied and would not replay on its own. A running entrance
+  // or rewinding exit already brings the frame in.
+  const isErrorState = state === "error";
+  useLayoutEffect(() => {
+    const root = overlayRootRef.current;
+    if (
+      !isErrorState ||
+      !root ||
+      findRunningOverlayMotion(root, "overlay-enter-") ||
+      findRunningOverlayMotion(root, "overlay-exit-")
+    ) {
+      return;
+    }
+    // A frame brought back by a rewound exit has no entrance class yet.
+    setEntranceSkipped(false);
+    root.style.animationName = "none";
+    void root.offsetWidth;
+    root.style.animationName = "";
+    if (appearance.entrance_animation === "portal") {
+      startOverlayPortal("in");
+    }
+  }, [isErrorState]);
+
+  useEffect(() => {
     let cleanup: (() => void) | undefined;
 
     const setupEventListeners = async () => {
@@ -840,7 +1095,7 @@ const RecordingOverlay: React.FC = () => {
           setErrorRetryAvailable(false);
           setRepasteShortcutLabel(null);
         }
-        setIsVisible(true);
+        presentOverlay();
       });
 
       const unlistenMessageOverlay = await listen<{
@@ -872,14 +1127,14 @@ const RecordingOverlay: React.FC = () => {
         setErrorCopied(false);
         setErrorRetryAvailable(false);
         setRepasteShortcutLabel(null);
-        setIsVisible(true);
+        presentOverlay();
       });
 
       // Listen for hide-overlay event from Rust
       const unlistenHide = await listen("hide-overlay", () => {
         overlayPresentationSequenceRef.current += 1;
         recordingSessionIdRef.current = null;
-        setIsVisible(false);
+        concealOverlay();
         setCaptureReady(false);
         setDecapIndicatorEligible(false);
         setDecapIndicatorArmed(false);
@@ -976,7 +1231,8 @@ const RecordingOverlay: React.FC = () => {
     };
   }, [decapIndicatorEligible, isVisible, state]);
 
-  if (!isVisible) return null;
+  // Stay mounted while an exit or a rewinding entrance plays out.
+  if (!isVisible && !activeExitAnimation && !entranceRewinding) return null;
 
   const overlayTheme = appearance.theme as RecordingOverlayTheme;
   const backgroundMode =
@@ -1200,19 +1456,56 @@ const RecordingOverlay: React.FC = () => {
         })
       : null;
 
+  // A rewinding animation keeps its class so the running animation survives.
+  const entranceAnimationClass =
+    ((isVisible && !entranceSkipped) || entranceRewinding) &&
+    appearance.entrance_animation !== "none"
+      ? `overlay-enter overlay-enter-${appearance.entrance_animation}`
+      : "";
+  const exitAnimationClass =
+    activeExitAnimation && (!isVisible || exitRewinding)
+      ? `overlay-exit overlay-exit-${activeExitAnimation}`
+      : "";
+
   return (
     <div
-      className={`recording-overlay ${customOverlayEnabled ? "recording-overlay-custom" : "recording-overlay-legacy"} ${overlayStateClass} ${captureArming ? "overlay-capture-arming" : ""} ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""} ${state === "microphone_switch" ? "overlay-microphone-switch" : ""}`}
+      ref={overlayRootRef}
+      onAnimationEnd={(event) => {
+        if (event.target !== event.currentTarget) {
+          return;
+        }
+        if (event.animationName.startsWith("overlay-exit-")) {
+          setActiveExitAnimation(null);
+          setExitRewinding(false);
+        } else if (event.animationName.startsWith("overlay-enter-")) {
+          setEntranceRewinding(false);
+        }
+      }}
+      className={`recording-overlay ${customOverlayEnabled ? "recording-overlay-custom" : "recording-overlay-legacy"} ${overlayStateClass} ${captureArming ? "overlay-capture-arming" : ""} ${isVisible ? "fade-in" : ""} ${entranceAnimationClass} ${exitAnimationClass} ${state === "error" ? "overlay-error" : ""} ${state === "microphone_switch" ? "overlay-microphone-switch" : ""}`}
       style={{
         ...resolvedSurfaceStyle,
         ...(customOverlayEnabled ? motionStyle : {}),
         ...(state === "error" ? errorSurfaceStyle : {}),
         width: `${appearance.frame_width_px}px`,
         minHeight: `${appearance.frame_height_px}px`,
+        ...({
+          "--overlay-portal-tilt": `${overlayPortalTiltPx(appearance.frame_width_px).toFixed(2)}px`,
+        } as React.CSSProperties),
       }}
     >
       {customOverlayEnabled && <div className="recording-overlay-sheen" />}
       {customOverlayEnabled && <div className="recording-overlay-vignette" />}
+      {overlayPortal &&
+        createPortal(
+          <RecordingOverlayPortal
+            key={overlayPortal.key}
+            direction={overlayPortal.direction}
+            frameWidth={appearance.frame_width_px}
+            frameHeight={overlayPortal.frameHeight}
+            onDone={() => finishOverlayPortal(overlayPortal.key)}
+          />,
+          document.body,
+        )}
       {customOverlayEnabled && <div className="recording-overlay-core-glow" />}
       {customOverlayEnabled && <div className="recording-overlay-grain" />}
 
