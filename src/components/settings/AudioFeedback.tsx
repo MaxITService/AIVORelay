@@ -27,6 +27,7 @@ export const AudioFeedback: React.FC<AudioFeedbackProps> = React.memo(
           </p>
         </div>
         <ToggleSwitch
+          id="settings-recording-feedback"
           checked={audioFeedbackEnabled}
           onChange={(enabled) => updateSetting("audio_feedback", enabled)}
           isUpdating={isUpdating("audio_feedback")}
