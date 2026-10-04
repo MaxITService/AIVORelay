@@ -56,6 +56,7 @@ export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
 
     return (
       <SettingContainer
+        id="settings-microphone-device"
         title={titleOverride ?? t("settings.sound.microphone.title")}
         description={
           descriptionOverride ?? t("settings.sound.microphone.description")
