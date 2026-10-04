@@ -506,6 +506,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
         </div>
 
         <SettingContainer
+          id="settings-overlay-entrance-animation"
           title={t(
             "settings.advanced.overlay.entranceAnimation.label",
             "Overlay Entrance Animation",
