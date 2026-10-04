@@ -853,6 +853,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
         </Collapse>
       </div>
       <SettingsGroup
+        id="settings-live-session"
         title={t("settings.liveSoundTranscription.title")}
         description={t("settings.liveSoundTranscription.description")}
       >
