@@ -1,0 +1,54 @@
+/*
+ * Sidebar drag-to-reorder visuals (driven by useDragReorder).
+ *
+ * The scroll container carries data-reorder-drag during a drag and while
+ * items settle; the dragged item carries data-drag-state="lifted", then
+ * "settling" while it glides into its slot.
+ */
+
+/* The dragged item floats above its neighbours, also while it settles. */
+.adobe-sidebar [data-reorder-drag] .adobe-sidebar-item[data-drag-state] {
+  z-index: 2;
+}
+
+/*
+ * Lifted look without scaling: the list fills its scroll container, so a
+ * wider item would be clipped and could show a horizontal scrollbar.
+ */
+.adobe-sidebar [data-reorder-drag] .adobe-sidebar-item[data-drag-state="lifted"] {
+  cursor: grabbing;
+  background: #2a2a31;
+  box-shadow:
+    0 12px 26px rgba(0, 0, 0, 0.6),
+    0 3px 8px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 1px rgba(255, 77, 141, 0.5);
+}
+
+.adobe-sidebar [data-reorder-drag] .adobe-sidebar-item.active[data-drag-state="lifted"] {
+  background:
+    linear-gradient(90deg, rgba(255, 77, 141, 0.2) 0%, rgba(155, 93, 229, 0.12) 100%),
+    #2a2a31;
+}
+
+/*
+ * A shared sliding active indicator (when the list has one) cannot follow an
+ * item that is moved by transforms, so it steps aside during the drag and the
+ * active item shows its own highlight instead; both cross-fade back after.
+ */
+.adobe-sidebar .sidebar-indicator-layer {
+  transition: opacity 160ms ease;
+}
+
+.adobe-sidebar [data-reorder-drag] .sidebar-indicator-layer {
+  opacity: 0;
+}
+
+.adobe-sidebar [data-reorder-drag] .adobe-sidebar-item.active:not([data-drag-state="lifted"]) {
+  background: linear-gradient(90deg,
+      rgba(255, 77, 141, 0.15) 0%,
+      rgba(155, 93, 229, 0.08) 100%);
+}
+
+.adobe-sidebar [data-reorder-drag] .adobe-sidebar-item.active:not([data-drag-state="lifted"])::before {
+  height: 60%;
+}

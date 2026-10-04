@@ -342,6 +342,81 @@ body,
   height: 60%;
 }
 
+/* Sliding active indicator: one shared highlight glides between items */
+.sidebar-nav-list.has-sliding-indicator .adobe-sidebar-item.active {
+  background: transparent;
+}
+
+.sidebar-nav-list.has-sliding-indicator .adobe-sidebar-item.active::before {
+  height: 0;
+}
+
+.sidebar-indicator-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sidebar-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-radius: 6px;
+  background: linear-gradient(90deg,
+      rgba(255, 77, 141, 0.15) 0%,
+      rgba(155, 93, 229, 0.08) 100%);
+  opacity: 0;
+  transition:
+    transform 480ms cubic-bezier(0.34, 1.25, 0.64, 1),
+    height 260ms ease,
+    opacity 200ms ease;
+  will-change: transform;
+}
+
+.sidebar-indicator__bar {
+  position: absolute;
+  left: 0;
+  top: 20%;
+  width: 3px;
+  height: 60%;
+  background: linear-gradient(180deg,
+      var(--color-accent-primary) 0%,
+      var(--color-accent-secondary) 100%);
+  border-radius: 0 2px 2px 0;
+  box-shadow: 0 0 6px rgba(255, 77, 141, 0.35);
+  transform-origin: center;
+}
+
+/* Icon pop when a section becomes active */
+.adobe-sidebar-item.active .sidebar-item-icon {
+  animation: sidebar-icon-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes sidebar-icon-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.22);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-indicator {
+    transition: none;
+  }
+
+  .adobe-sidebar-item.active .sidebar-item-icon {
+    animation: none;
+  }
+}
+
 /* ============================================
    Premium Buttons
    ============================================ */
