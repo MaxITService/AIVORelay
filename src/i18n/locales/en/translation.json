@@ -82,6 +82,7 @@
       "ttsApiKey": "The selected TTS provider does not use an API key."
     },
     "items": {
+      "preview-custom-y": "Custom Y (px)",
       "preview-custom-x": "Custom X (px)",
       "session-toast-history": "Session notification history",
       "llm-benchmark": "LLM Benchmark",
