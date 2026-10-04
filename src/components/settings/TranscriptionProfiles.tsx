@@ -2994,7 +2994,7 @@ export const TranscriptionProfiles: React.FC = () => {
                   )}
 
                   {supportsTranslation && (
-                    <div className="space-y-2 min-w-0">
+                    <div id="settings-translate-to-english" tabIndex={-1} className="space-y-2 min-w-0">
                       <label className="text-xs font-semibold text-text/70">
                         {t("settings.transcriptionProfiles.translateToEnglish")}
                       </label>
