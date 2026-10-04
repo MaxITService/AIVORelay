@@ -265,6 +265,49 @@ impl DeepgramRealtimeManager {
         Ok(url.to_string())
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn transcribe_history_replay(
+        &self,
+        samples: &[f32],
+        api_key: &str,
+        model: &str,
+        options: DeepgramRealtimeOptions,
+        replay: &Arc<super::history_replay::HistoryReplay>,
+        timeout_ms: u32,
+    ) -> Result<String> {
+        if api_key.trim().is_empty() {
+            return Err(anyhow!("Deepgram API key is missing"));
+        }
+        let model = Self::normalize_model(model);
+        let mut request = Self::build_ws_url(&model, &options)?.into_client_request()
+            .map_err(|error| anyhow!("Failed to create Deepgram request: {}", error))?;
+        request.headers_mut().insert(
+            "Authorization", format!("Token {}", api_key.trim()).parse()
+                .map_err(|error| anyhow!("Invalid Deepgram auth header: {}", error))?,
+        );
+        let (stream, _) = timeout(
+            Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS), connect_async(request),
+        ).await
+            .map_err(|_| anyhow!("Timed out while connecting to Deepgram WebSocket"))?
+            .map_err(|error| anyhow!("Failed to connect to Deepgram WebSocket: {}", error))?;
+        let (write, mut read) = stream.split();
+        let mut write = super::history_replay::ReplaySink::new(write, replay, 16_000);
+        let (audio_tx, audio_rx) = mpsc::channel(1);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let final_text = Arc::new(Mutex::new(String::new()));
+        let drive = Self::run_session_loop(
+            &mut write, &mut read, audio_rx, control_rx, Arc::clone(&final_text),
+            options.keepalive_interval_seconds.clamp(MIN_KEEPALIVE_INTERVAL_SECONDS, MAX_KEEPALIVE_INTERVAL_SECONDS),
+            self.app_handle.clone(), super::history_replay::HISTORY_REPLAY_BINDING.to_string(),
+            None, options.diarize, Some(Arc::new(|_| {})),
+        );
+        replay.run_audio(
+            samples, audio_tx, frame_16khz_mono_to_pcm_s16le_bytes,
+            || control_tx.send(ControlMessage::Finish).map_err(|_| anyhow!("Deepgram Live session closed")),
+            drive, final_text, timeout_ms,
+        ).await
+    }
+
     pub fn start_session(
         &self,
         binding_id: &str,
@@ -639,7 +682,9 @@ impl DeepgramRealtimeManager {
                                     );
                                 }
 
-                                if binding_id != crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                                if binding_id != crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+                                    && binding_id != super::history_replay::HISTORY_REPLAY_BINDING
+                                {
                                     let mut preview_final_text = crate::overlay::get_soniox_live_preview_state().final_text;
                                     if !chunk_text.is_empty() {
                                         if !preview_final_text.is_empty() {

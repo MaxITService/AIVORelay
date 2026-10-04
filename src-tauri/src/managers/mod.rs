@@ -7,6 +7,7 @@ pub mod gemini_realtime;
 pub(crate) mod gemini_output_window;
 pub mod gguf_meta;
 pub mod history;
+pub(crate) mod history_replay;
 pub mod key_listener;
 pub mod live_sound_audio;
 pub mod live_sound_transcription;

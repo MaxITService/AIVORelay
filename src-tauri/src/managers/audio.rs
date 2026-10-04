@@ -626,6 +626,8 @@ impl RecordingReadiness {
     }
 }
 
+type LiveHistoryAudio = Arc<Mutex<Vec<f32>>>;
+
 #[derive(Clone)]
 pub struct AudioRecordingManager {
     /// Never assign through this directly — route every write through
@@ -643,6 +645,8 @@ pub struct AudioRecordingManager {
     cancel_generation: Arc<AtomicU64>,
     active_selection: Arc<Mutex<Option<ActiveRecorderSelection>>>,
     stream_frame_callback: Arc<Mutex<Option<StreamFrameCallback>>>,
+    // Keep the exact enhanced live stream, including pauses removed by VAD.
+    live_history_audio: Arc<Mutex<Option<LiveHistoryAudio>>>,
     /// Lock-free mirror of "is the state in {Recording, Stopping}",
     /// maintained by `set_state()`. The hot-path `is_recording()` reads THIS
     /// instead of the std `state` mutex, so a UI poll can no longer deadlock
@@ -679,6 +683,7 @@ impl AudioRecordingManager {
             cancel_generation: Arc::new(AtomicU64::new(0)),
             active_selection: Arc::new(Mutex::new(None)),
             stream_frame_callback: Arc::new(Mutex::new(None)),
+            live_history_audio: Arc::new(Mutex::new(None)),
             recording_active: Arc::new(AtomicBool::new(false)),
             capture_generation: Arc::new(AtomicU64::new(0)),
             cached_device: Arc::new(Mutex::new(None)),
@@ -1525,6 +1530,12 @@ impl AudioRecordingManager {
                     Vec::new()
                 };
 
+                let live_audio = self.live_history_audio.lock().unwrap().take();
+                let samples = if let Some(audio) = &live_audio {
+                    std::mem::take(&mut *audio.lock().unwrap())
+                } else {
+                    samples
+                };
                 self.finish_capture_stop();
 
                 if self.was_cancelled_since(cancel_generation) {
@@ -1535,7 +1546,7 @@ impl AudioRecordingManager {
                 // Pad if very short
                 let s_len = samples.len();
                 // debug!("Got {} samples", s_len);
-                if s_len < WHISPER_SAMPLE_RATE && s_len > 0 {
+                if live_audio.is_none() && s_len < WHISPER_SAMPLE_RATE && s_len > 0 {
                     let mut padded = samples;
                     padded.resize(WHISPER_SAMPLE_RATE * 5 / 4, 0.0);
                     Some(padded)
@@ -1679,7 +1690,21 @@ impl AudioRecordingManager {
         }
     }
 
+    pub fn capture_stream_audio_for_history(&self, callback: StreamFrameCallback) -> StreamFrameCallback {
+        let audio = Arc::new(Mutex::new(Vec::new()));
+        *self.live_history_audio.lock().unwrap() = Some(Arc::clone(&audio));
+        Arc::new(move |frame| {
+            audio.lock().unwrap().extend_from_slice(&frame);
+            callback(frame);
+        })
+    }
+
+    pub fn set_history_stream_frame_callback(&self, callback: StreamFrameCallback) {
+        self.set_stream_frame_callback(self.capture_stream_audio_for_history(callback));
+    }
+
     pub fn clear_stream_frame_callback(&self) {
+        self.live_history_audio.lock().unwrap().take();
         if let Ok(mut guard) = self.stream_frame_callback.lock() {
             *guard = None;
         }

@@ -292,43 +292,11 @@ impl SonioxRealtimeManager {
         }
     }
 
-    pub fn start_session(
-        &self,
-        binding_id: &str,
+    fn build_start_payload(
         api_key: &str,
-        model: &str,
+        model: String,
         options: SonioxRealtimeOptions,
-        on_final_chunk: Option<FinalChunkCallback>,
-    ) -> Result<()> {
-        if api_key.trim().is_empty() {
-            return Err(anyhow!("Soniox API key is missing"));
-        }
-
-        let model = Self::normalize_model_for_realtime(model);
-        if !Self::is_realtime_model(&model) {
-            return Err(anyhow!(
-                "Soniox live mode requires a real-time model (stt-rt-*)"
-            ));
-        }
-
-        let mut active_session_guard = self.active_session.lock();
-        if active_session_guard.is_some() {
-            return Err(anyhow!(
-                "Soniox live session is already active for this profile"
-            ));
-        }
-
-        {
-            let mut params_guard = self.session_params.lock();
-            *params_guard = Some(SessionParams {
-                binding_id: binding_id.to_string(),
-                api_key: api_key.to_string(),
-                model: model.to_string(),
-                options: options.clone(),
-                on_final_chunk: on_final_chunk.clone(),
-            });
-        }
-
+    ) -> Result<(String, u32, bool)> {
         let SonioxRealtimeOptions {
             language_hints,
             language_hints_strict,
@@ -372,6 +340,92 @@ impl SonioxRealtimeManager {
 
         let start_payload = serde_json::to_string(&start_request)
             .map_err(|e| anyhow!("Failed to build Soniox start payload: {}", e))?;
+
+        Ok((start_payload, keepalive_interval_seconds, show_preview))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn transcribe_history_replay(
+        &self,
+        samples: &[f32],
+        api_key: &str,
+        model: &str,
+        options: SonioxRealtimeOptions,
+        replay: &Arc<super::history_replay::HistoryReplay>,
+        timeout_ms: u32,
+    ) -> Result<String> {
+        if api_key.trim().is_empty() {
+            return Err(anyhow!("Soniox API key is missing"));
+        }
+        let model = Self::normalize_model_for_realtime(model);
+        if !Self::is_realtime_model(&model) {
+            return Err(anyhow!("Soniox live mode requires a real-time model (stt-rt-*)"));
+        }
+        let (start_payload, keepalive_interval_seconds, _) =
+            Self::build_start_payload(api_key, model, options)?;
+        let (stream, _) = timeout(
+            Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS), connect_async(SONIOX_WS_URL),
+        ).await
+            .map_err(|_| anyhow!("Timed out while connecting to Soniox WebSocket"))?
+            .map_err(|error| anyhow!("Failed to connect to Soniox WebSocket: {}", error))?;
+        let (write, mut read) = stream.split();
+        let mut write = super::history_replay::ReplaySink::new(write, replay, 16_000);
+        write.send(Message::Text(start_payload.into())).await?;
+        let (audio_tx, audio_rx) = mpsc::channel(1);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let final_text = Arc::new(Mutex::new(String::new()));
+        let drive = Self::run_session_loop(
+            &mut write, &mut read, audio_rx, control_rx, Arc::clone(&final_text),
+            keepalive_interval_seconds, self.app_handle.clone(),
+            super::history_replay::HISTORY_REPLAY_BINDING.to_string(),
+            None, false, Some(Arc::new(|_| {})),
+        );
+        replay.run_audio(
+            samples, audio_tx, frame_16khz_mono_to_pcm_s16le_bytes,
+            || control_tx.send(ControlMessage::Finish).map_err(|_| anyhow!("Soniox Live session closed")),
+            drive, final_text, timeout_ms,
+        ).await
+    }
+
+    pub fn start_session(
+        &self,
+        binding_id: &str,
+        api_key: &str,
+        model: &str,
+        options: SonioxRealtimeOptions,
+        on_final_chunk: Option<FinalChunkCallback>,
+    ) -> Result<()> {
+        if api_key.trim().is_empty() {
+            return Err(anyhow!("Soniox API key is missing"));
+        }
+
+        let model = Self::normalize_model_for_realtime(model);
+        if !Self::is_realtime_model(&model) {
+            return Err(anyhow!(
+                "Soniox live mode requires a real-time model (stt-rt-*)"
+            ));
+        }
+
+        let mut active_session_guard = self.active_session.lock();
+        if active_session_guard.is_some() {
+            return Err(anyhow!(
+                "Soniox live session is already active for this profile"
+            ));
+        }
+
+        {
+            let mut params_guard = self.session_params.lock();
+            *params_guard = Some(SessionParams {
+                binding_id: binding_id.to_string(),
+                api_key: api_key.to_string(),
+                model: model.to_string(),
+                options: options.clone(),
+                on_final_chunk: on_final_chunk.clone(),
+            });
+        }
+
+        let (start_payload, keepalive_interval_seconds, show_preview) =
+            Self::build_start_payload(api_key, model, options)?;
 
         let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_QUEUE_CAPACITY);
         let (control_tx, control_rx) = mpsc::unbounded_channel::<ControlMessage>();

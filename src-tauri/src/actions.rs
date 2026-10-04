@@ -2130,7 +2130,7 @@ fn start_recording_with_feedback_with_settings(
             TranscriptionProvider::RemoteSoniox => {
                 let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
                 soniox_live_manager.cancel();
-                rm.set_stream_frame_callback(Arc::new(move |frame| {
+                rm.set_history_stream_frame_callback(Arc::new(move |frame| {
                     soniox_live_manager.push_audio_frame(frame);
                 }));
             }
@@ -2138,7 +2138,7 @@ fn start_recording_with_feedback_with_settings(
                 let deepgram_live_manager =
                     Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
                 deepgram_live_manager.cancel();
-                rm.set_stream_frame_callback(Arc::new(move |frame| {
+                rm.set_history_stream_frame_callback(Arc::new(move |frame| {
                     deepgram_live_manager.push_audio_frame(frame);
                 }));
             }
@@ -2148,7 +2148,7 @@ fn start_recording_with_feedback_with_settings(
                 let openai_realtime_whisper_manager =
                     Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
                 openai_realtime_whisper_manager.cancel();
-                rm.set_stream_frame_callback(Arc::new(move |frame| {
+                rm.set_history_stream_frame_callback(Arc::new(move |frame| {
                     openai_realtime_whisper_manager.push_audio_frame(frame);
                 }));
             }
@@ -2158,9 +2158,9 @@ fn start_recording_with_feedback_with_settings(
                 let gemini_realtime_manager =
                     Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
                 gemini_realtime_manager.prepare_session(Some(operation_id));
-                gemini_stream_callback = Some(Arc::new(move |frame| {
+                gemini_stream_callback = Some(rm.capture_stream_audio_for_history(Arc::new(move |frame| {
                     gemini_realtime_manager.push_audio_frame_for_operation(Some(operation_id), frame);
-                }));
+                })));
             }
             _ => {}
         }
@@ -6409,7 +6409,7 @@ fn build_gemini_realtime_options(
     }
 }
 
-fn should_use_live_streaming(settings: &AppSettings) -> bool {
+pub(crate) fn should_use_live_streaming(settings: &AppSettings) -> bool {
     match settings.transcription_provider {
         TranscriptionProvider::RemoteSoniox => {
             settings.soniox_live_enabled
@@ -6425,6 +6425,66 @@ fn should_use_live_streaming(settings: &AppSettings) -> bool {
         }
         _ => false,
     }
+}
+
+pub(crate) fn settings_for_history_transcription(settings: AppSettings) -> AppSettings {
+    settings_with_model_override_for_binding(settings, "transcribe")
+}
+
+pub(crate) async fn perform_history_live_transcription(
+    app: &AppHandle,
+    samples: &[f32],
+    settings: &AppSettings,
+    replay: &Arc<crate::managers::history_replay::HistoryReplay>,
+) -> Result<String, String> {
+    let profile = resolve_profile_for_binding(settings, "transcribe");
+    let language = profile.map(|profile| profile.language.as_str())
+        .unwrap_or(settings.selected_language.as_str());
+    let result = match settings.transcription_provider {
+        TranscriptionProvider::RemoteSoniox => {
+            #[cfg(target_os = "windows")]
+            let api_key = crate::secure_keys::get_soniox_api_key();
+            #[cfg(not(target_os = "windows"))]
+            let api_key = String::new();
+            let options = build_soniox_realtime_options(settings, language, profile, "transcribe");
+            app.state::<Arc<SonioxRealtimeManager>>().transcribe_history_replay(
+                samples, &api_key, &settings.soniox_model, options, replay,
+                settings.soniox_live_finalize_timeout_ms,
+            ).await
+        }
+        TranscriptionProvider::RemoteDeepgram => {
+            #[cfg(target_os = "windows")]
+            let api_key = crate::secure_keys::get_deepgram_api_key();
+            #[cfg(not(target_os = "windows"))]
+            let api_key = String::new();
+            let options = build_deepgram_realtime_options(settings, language, "transcribe");
+            app.state::<Arc<DeepgramRealtimeManager>>().transcribe_history_replay(
+                samples, &api_key, &settings.deepgram_model, options, replay,
+                settings.deepgram_live_finalize_timeout_ms,
+            ).await
+        }
+        TranscriptionProvider::RemoteOpenAiCompatible => {
+            let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
+                .map_err(|error| error.to_string())?;
+            if should_use_gemini_realtime_live(settings) {
+                let options = build_gemini_realtime_options(settings, profile);
+                app.state::<Arc<GeminiRealtimeManager>>().transcribe_history_replay(
+                    samples, &api_key, options, replay,
+                ).await
+            } else {
+                let prompt = crate::settings::resolve_stt_prompt(
+                    profile, &settings.transcription_prompts, &settings.remote_stt.model_id,
+                );
+                let options = build_openai_realtime_whisper_options(settings, language, prompt);
+                app.state::<Arc<OpenAiRealtimeWhisperManager>>().transcribe_history_replay(
+                    samples, &api_key, options, replay,
+                ).await
+            }
+        }
+        _ => return Err("Live streaming is not enabled for this provider".to_string()),
+    };
+    result.map(|text| apply_profile_output_filters(settings, text, Some(&settings.active_profile_id)))
+        .map_err(|error| error.to_string())
 }
 
 fn should_use_soniox_optimized_delivery(

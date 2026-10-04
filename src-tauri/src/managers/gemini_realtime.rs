@@ -283,6 +283,70 @@ impl GeminiRealtimeManager {
             || model.eq_ignore_ascii_case(GEMINI_LIVE_GOOGLE_DEFAULT_MODEL)
     }
 
+    pub(crate) async fn transcribe_history_replay(
+        &self,
+        samples: &[f32],
+        api_key: &str,
+        options: GeminiRealtimeOptions,
+        replay: &Arc<super::history_replay::HistoryReplay>,
+    ) -> Result<String> {
+        if api_key.trim().is_empty() {
+            return Err(anyhow!("Gemini 3.5 Transcribe Live API key is missing"));
+        }
+        if let Some(error) = options.validation_error.as_deref() {
+            return Err(anyhow!(error.to_string()));
+        }
+        let transport = match options.preset.as_str() {
+            REMOTE_STT_PRESET_GOOGLE => GeminiLiveTransport::GoogleDirect,
+            REMOTE_STT_PRESET_VERCEL => GeminiLiveTransport::VercelGateway,
+            _ => return Err(anyhow!("Gemini Live requires the Vercel or Google connection route")),
+        };
+        let expected_model = match transport {
+            GeminiLiveTransport::GoogleDirect => GEMINI_LIVE_GOOGLE_DEFAULT_MODEL,
+            GeminiLiveTransport::VercelGateway => GEMINI_LIVE_DEFAULT_MODEL,
+        };
+        if !options.model.trim().eq_ignore_ascii_case(expected_model) {
+            return Err(anyhow!("This Gemini Live route requires model '{}'", expected_model));
+        }
+        crate::gemini_config::validate_vocabulary(&options.custom_vocabulary)
+            .map_err(|error| anyhow!(error))?;
+        if options.language.as_deref().is_some_and(|language| {
+            !crate::gemini_config::is_supported_exact_locale(language)
+        }) {
+            return Err(anyhow!("Gemini Live requires an exact supported language locale"));
+        }
+        if samples.len() > GEMINI_LIVE_SAFE_FINALIZE_SECS as usize * 16_000 {
+            return Err(anyhow!("This recording exceeds the Gemini Live session limit of {} seconds", GEMINI_LIVE_SAFE_FINALIZE_SECS));
+        }
+        let stream = connect_live_socket(transport, &options.model, api_key, |request| async move {
+            connect_async(request).await.map(|(stream, _)| stream)
+        }).await?;
+        let (write, mut read) = stream.split();
+        let mut write = super::history_replay::ReplaySink::new(write, replay, 16_000);
+        send_live_setup(&mut write, transport, &options).await?;
+        let (audio_tx, audio_rx) = mpsc::channel(1);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let final_text = Arc::new(Mutex::new(String::new()));
+        let drive = Self::drive_session_loop(
+            &mut write, &mut read, audio_rx, control_rx, Arc::clone(&final_text),
+            super::history_replay::HISTORY_REPLAY_BINDING.to_string(),
+            Some(Arc::new(|_| {})), transport, options,
+            Duration::from_secs(GEMINI_LIVE_SAFE_FINALIZE_SECS),
+            Arc::new(Mutex::new(None)),
+            SessionEvents {
+                live_text: Box::new(|_| {}),
+                setup_complete: Box::new(|| {}),
+                time_limit_stop: Box::new(|| {}),
+                time_limit_completed: Box::new(|_| {}),
+            },
+        );
+        replay.run_audio(
+            samples, audio_tx, frame_16khz_mono_to_pcm_s16le_bytes,
+            || control_tx.send(ControlMessage::Finish).map_err(|_| anyhow!("Gemini Live session closed")),
+            drive, final_text, GEMINI_LIVE_FINALIZE_TIMEOUT_MS,
+        ).await
+    }
+
     fn start_error(&self, message: impl Into<String>) -> anyhow::Error {
         let message = message.into();
         crate::managers::remote_stt::record_external_remote_stt_debug(
