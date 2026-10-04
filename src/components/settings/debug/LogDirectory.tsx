@@ -52,6 +52,7 @@ export const LogDirectory: React.FC<LogDirectoryProps> = ({
 
   return (
     <SettingContainer
+      id="settings-log-directory"
       title={t("settings.debug.logDirectory.title")}
       description={t("settings.debug.logDirectory.description")}
       descriptionMode={descriptionMode}
