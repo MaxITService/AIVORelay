@@ -1821,6 +1821,7 @@ export const RecordingOverlaySettings: React.FC = () => {
             }
           >
       <SettingContainer
+        id="settings-overlay-style-code"
         title={t(
           "settings.userInterface.recordingOverlay.styleCode.title",
           "Share Style",
