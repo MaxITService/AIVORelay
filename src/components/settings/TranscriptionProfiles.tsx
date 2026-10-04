@@ -2683,6 +2683,7 @@ export const TranscriptionProfiles: React.FC = () => {
       </SettingContainer>
 
       <SettingContainer
+        id="settings-manage-profiles"
         title={t("settings.transcriptionProfiles.existingProfiles")}
         description=""
         descriptionMode="inline"
