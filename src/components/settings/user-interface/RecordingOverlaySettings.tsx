@@ -1553,6 +1553,7 @@ export const RecordingOverlaySettings: React.FC = () => {
 
         <div className="order-2">
       <ToggleSwitch
+        id="settings-overlay-custom"
         checked={customOverlayEnabled}
         onChange={(enabled) =>
           void updateSetting("recording_overlay_custom_enabled", enabled)
