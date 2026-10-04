@@ -1334,6 +1334,7 @@ export const UserInterfaceSettings: React.FC = () => {
             </div>
           </SettingContainer>
           <SettingContainer
+            id="settings-preview-draft-color"
             title="Live Draft Color"
             description="Color of text that is still being refined and may change."
             descriptionMode="inline"
