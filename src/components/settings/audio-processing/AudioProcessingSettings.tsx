@@ -40,7 +40,7 @@ export const AudioProcessingSettings: React.FC = () => {
         <VadBackendSelector grouped={true} />
 
         {/* VAD Threshold */}
-        <div className="px-4 py-4 border-t border-white/[0.05]">
+        <div id="settings-vad-sensitivity" tabIndex={-1} className="px-4 py-4 border-t border-white/[0.05] outline-none">
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm text-[#f5f5f5]">
               {t("audioProcessing.vadThreshold", "Voice Detection Sensitivity")}
