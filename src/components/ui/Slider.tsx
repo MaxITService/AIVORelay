@@ -2,6 +2,7 @@ import React from "react";
 import { SettingContainer } from "./SettingContainer";
 
 interface SliderProps {
+  id?: string;
   value: number;
   onChange: (value: number) => void;
   onChangeComplete?: (value: number) => void;
@@ -18,6 +19,7 @@ interface SliderProps {
 }
 
 export const Slider: React.FC<SliderProps> = ({
+  id,
   value,
   onChange,
   onChangeComplete,
@@ -83,6 +85,7 @@ export const Slider: React.FC<SliderProps> = ({
 
   return (
     <SettingContainer
+      id={id}
       title={label}
       description={description}
       descriptionMode={descriptionMode}

@@ -3,6 +3,7 @@ import { SettingContainer } from "./SettingContainer";
 import "./ToggleSwitch.css";
 
 interface ToggleSwitchProps {
+  id?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
@@ -16,6 +17,7 @@ interface ToggleSwitchProps {
 }
 
 export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
+  id,
   checked,
   onChange,
   disabled = false,
@@ -42,6 +44,8 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
 
   const toggleElement = (
     <label
+      id={!label && !description ? id : undefined}
+      tabIndex={!label && !description && id ? -1 : undefined}
       className={`aivo-toggle inline-flex items-center relative ${isInteractive ? "cursor-pointer" : "cursor-not-allowed"}`}
       data-checked={checked}
       data-pressed={isPressed && isInteractive}
@@ -89,6 +93,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
 
   return (
     <SettingContainer
+      id={id}
       title={label || ""}
       description={description || ""}
       descriptionMode={descriptionMode}
