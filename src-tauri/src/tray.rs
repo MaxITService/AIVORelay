@@ -801,7 +801,7 @@ fn build_tray_menu(
     let version_i = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
     let settings_label = if inputs.webviews_disabled {
         if strings.settings_requires_webview.is_empty() {
-            "Switch to full interface and restart"
+            "Restart with full interface"
         } else {
             &strings.settings_requires_webview
         }
@@ -819,7 +819,7 @@ fn build_tray_menu(
         app,
         "enter_speech_only_mode",
         if strings.enter_speech_only_mode.is_empty() {
-            "Restart in speech-only mode"
+            "Restart in dictation-only mode (less RAM)"
         } else {
             &strings.enter_speech_only_mode
         },
