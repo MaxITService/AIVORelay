@@ -461,6 +461,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
         </SettingContainer>
 
         <ToggleSwitch
+          id="settings-overlay-reserved-areas"
           checked={autoPositionAllowReservedAreas}
           onChange={(enabled) =>
             void updateSetting(
