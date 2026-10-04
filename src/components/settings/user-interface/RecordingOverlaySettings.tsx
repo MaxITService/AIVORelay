@@ -2645,6 +2645,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       />
 
       <Slider
+        id="settings-overlay-voice-sensitivity"
         label={t(
           "settings.userInterface.recordingOverlay.voiceSensitivity.title",
           "Voice Sensitivity",
