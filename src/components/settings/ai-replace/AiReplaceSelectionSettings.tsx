@@ -207,6 +207,7 @@ export const AiReplaceSelectionSettings: React.FC = () => {
 
       {/* ── No Selection Mode ── */}
       <SettingsGroup
+        id="settings-ai-replace-no-selection"
         title={t("settings.aiReplace.noSelection.title")}
         description={t("settings.aiReplace.noSelection.description")}
       >
