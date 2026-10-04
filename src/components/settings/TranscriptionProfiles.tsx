@@ -3315,6 +3315,8 @@ export const TranscriptionProfiles: React.FC = () => {
 
       {/* Application-Aware Profiles Settings */}
       <details
+        id="settings-automatic-app-profiles"
+        tabIndex={-1}
         open={automaticAppsExpanded}
         onToggle={handleAutomaticAppsDisclosureToggle}
         className="group glass-panel-subtle rounded-xl overflow-visible border border-white/[0.08] transition-colors open:border-purple-500/30"
