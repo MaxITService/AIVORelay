@@ -817,7 +817,7 @@ export const PostProcessingSettings: React.FC = () => {
         </div>
       </TellMeMore>
 
-      <SettingsGroup title={t("settings.postProcessing.prompts.title")}>
+      <SettingsGroup id="settings-postprocess-prompts" title={t("settings.postProcessing.prompts.title")}>
         <PostProcessingToggle descriptionMode="inline" grouped={true} />
         <PostProcessingSettingsPrompts />
       </SettingsGroup>
