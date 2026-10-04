@@ -18,6 +18,7 @@ export const UpdateChecksToggle: React.FC<UpdateChecksToggleProps> = ({
 
   return (
     <ToggleSwitch
+      id="settings-update-checks"
       checked={updateChecksEnabled}
       onChange={(enabled) => updateSetting("update_checks_enabled", enabled)}
       isUpdating={isUpdating("update_checks_enabled")}
