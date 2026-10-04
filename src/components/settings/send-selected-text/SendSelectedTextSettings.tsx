@@ -1071,7 +1071,7 @@ function HelpView() {
         <div className="sst-help-heading">
           <Settings2 size={18} />
           <div>
-            <h2>Variables</h2>
+            <h2 id="settings-selected-text-variables" tabIndex={-1}>Variables</h2>
             <p>Placeholders are replaced only after the file has been saved.</p>
           </div>
         </div>

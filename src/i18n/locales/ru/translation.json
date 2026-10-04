@@ -82,6 +82,7 @@
       "ttsApiKey": "Выбранный провайдер TTS не использует API-ключ."
     },
     "items": {
+      "selected-text-variables": "Переменные отправки выделенного текста",
       "selected-text-history-options": "История и оверлей ошибок отправки выделенного текста",
       "selected-text-presets": "Пресеты отправки выделенного текста",
       "selected-text-history": "История отправки выделенного текста",
