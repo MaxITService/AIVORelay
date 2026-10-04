@@ -1714,6 +1714,7 @@ export const TranscribeFileSettings: React.FC = () => {
           </div>
         </details>
         <WorkflowStageHeader
+          id="settings-file-transcription-input"
           step={1}
           title={t("transcribeFile.stages.file", "File")}
         />
