@@ -2025,6 +2025,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         reason={customOverlayDisabledReason}
       >
       <SettingContainer
+        id="settings-overlay-status-icon-style"
         title={t(
           "settings.userInterface.recordingOverlay.statusIconStyle.title",
           "Status Icon Style",
