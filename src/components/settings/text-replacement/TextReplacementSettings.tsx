@@ -1942,6 +1942,7 @@ export const TextReplacementSettings: React.FC = () => {
         {/* Zero-Width Character Filter */}
         <div className="px-4 py-3 border-t border-white/[0.05]">
           <ToggleSwitch
+            id="settings-invisible-character-filter"
             checked={settings?.zero_width_filter_enabled ?? true}
             onChange={(enabled) =>
               updateSetting("zero_width_filter_enabled", enabled)
