@@ -2144,6 +2144,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       </div>
 
       <SettingContainer
+        id="settings-overlay-cancel-color"
         title={t(
           "settings.userInterface.recordingOverlay.cancelIconColor.title",
           "Cancel Button Icon Color",
