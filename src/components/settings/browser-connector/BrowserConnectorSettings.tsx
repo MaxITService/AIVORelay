@@ -1656,6 +1656,7 @@ export const BrowserConnectorSettings: React.FC = () => {
           </SettingContainer>
 
           <SettingContainer
+            id="settings-connector-cors-origin"
             title={t("settings.browserConnector.connection.cors.title")}
             description={t("settings.browserConnector.connection.cors.description")}
             descriptionMode="tooltip"
