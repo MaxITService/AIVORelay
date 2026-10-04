@@ -1637,6 +1637,7 @@ export const UserInterfaceSettings: React.FC = () => {
             }
           />
           <SettingContainer
+            id="settings-preview-sliding-lm-prompt"
             title="Sliding LM Prompt"
             description="Available variables: ${stable_context}, ${editable_tail}, ${new_chunk}, ${current_preview}, ${deterministic_notes}, ${language}, ${profile_name}, ${current_app}."
             descriptionMode="inline"

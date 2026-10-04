@@ -81,6 +81,7 @@
       "ttsApiKey": "The selected TTS provider does not use an API key."
     },
     "items": {
+      "preview-sliding-lm-prompt": "Sliding LM Prompt",
       "preview-sliding-lm-tail": "Sliding LM Editable Tail",
       "preview-sliding-lm": "Sliding LM Window",
       "preview-legacy-overlap": "Legacy Chunk Overlap",
