@@ -2367,6 +2367,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         )}
       >
       <SettingContainer
+        id="settings-overlay-visualizer-style"
         title={t(
           "settings.userInterface.recordingOverlay.barStyle.title",
           "Visualizer Style",
