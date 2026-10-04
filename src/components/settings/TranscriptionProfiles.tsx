@@ -3467,6 +3467,7 @@ export const TranscriptionProfiles: React.FC = () => {
       <SettingsGroup>
         {/* Create new profile */}
         <SettingContainer
+          id="settings-create-profile"
         title={t("settings.transcriptionProfiles.createNew")}
         description={t("settings.transcriptionProfiles.createNewDescription")}
         descriptionMode="inline"
