@@ -1495,6 +1495,7 @@ export const UserInterfaceSettings: React.FC = () => {
             disabled={!sonioxLivePreviewEnabled}
           >
           <SettingContainer
+            id="settings-preview-legacy-updates"
             title="Enable Legacy Local Preview Updates"
             description="Use the old local auto-flush path to process repeated audio chunks while recording continues. Prefer native streaming models/providers when possible."
             descriptionMode="inline"
