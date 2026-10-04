@@ -1804,6 +1804,7 @@ export const UserInterfaceSettings: React.FC = () => {
           grouped={true}
         />
         <ToggleSwitch
+          id="settings-remember-window-position"
           checked={getSetting("remember_window_position") ?? false}
           onChange={(enabled) => updateSetting("remember_window_position", enabled)}
           isUpdating={isUpdating("remember_window_position")}
