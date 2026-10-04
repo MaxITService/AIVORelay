@@ -947,6 +947,7 @@ export const UserInterfaceSettings: React.FC = () => {
                 </div>
               </SettingContainer>
               <SettingContainer
+                id="settings-preview-custom-y"
                 title="Custom Y (px)"
                 description="Absolute Y screen coordinate of preview window."
                 descriptionMode="inline"
