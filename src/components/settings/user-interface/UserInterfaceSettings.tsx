@@ -1778,6 +1778,7 @@ export const UserInterfaceSettings: React.FC = () => {
             )}
           </div>
           <SettingContainer
+            id="settings-voice-button-always-on-top"
             title="Show AOT Toggle in Button Window"
             description="Show the bottom always-on-top control inside the floating voice button window."
             descriptionMode="inline"
