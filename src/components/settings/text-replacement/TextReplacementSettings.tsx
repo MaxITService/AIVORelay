@@ -2205,6 +2205,7 @@ export const TextReplacementSettings: React.FC = () => {
       >
         <div className="px-4 py-3">
           <ToggleSwitch
+            id="settings-soniox-chunk-correction"
             checked={settings?.soniox_realtime_fuzzy_correction_enabled ?? false}
             onChange={(enabled) =>
               updateSetting("soniox_realtime_fuzzy_correction_enabled", enabled)
