@@ -2265,6 +2265,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       </CustomOverlayOnly>
 
       <SettingContainer
+        id="settings-overlay-body-color"
         title={t(
           "settings.userInterface.recordingOverlay.bodyBackgroundColor.title",
           "Body Background Color",
