@@ -2396,6 +2396,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       </SettingContainer>
 
       <Slider
+        id="settings-overlay-visualizer-count"
         label={t(
           "settings.userInterface.recordingOverlay.barCount.title",
           "Visualizer Count",
