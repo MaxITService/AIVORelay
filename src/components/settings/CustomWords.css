@@ -1,0 +1,149 @@
+/* Custom word chips: the × turns on hover, removed chips pop with a small
+   burst. Enter, slide, shake and highlight motion runs from CustomWords.tsx. */
+
+.aivo-word-chip {
+  --aivo-word-chip-danger: #ff4757;
+  --aivo-word-chip-alt: #ff4d8d;
+  --aivo-word-chip-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  display: flex;
+}
+
+.aivo-word-chip__body {
+  display: flex;
+}
+
+.aivo-word-chip__x {
+  flex-shrink: 0;
+  rotate: 0deg;
+  transition:
+    rotate 360ms var(--aivo-word-chip-spring),
+    color 160ms ease;
+}
+
+.aivo-word-chip__button:hover .aivo-word-chip__x,
+.aivo-word-chip__button:focus-visible .aivo-word-chip__x,
+.aivo-word-chip--popping .aivo-word-chip__x {
+  rotate: 90deg;
+  color: var(--aivo-word-chip-danger);
+}
+
+/* Removed chip: a detached copy that pops in place while neighbors slide */
+.aivo-word-chip--popping {
+  position: absolute;
+  z-index: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.aivo-word-chip__burst {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.aivo-word-chip__flash {
+  position: absolute;
+  left: -5px;
+  top: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle,
+    #ffffff 0%,
+    rgba(255, 170, 180, 0.9) 45%,
+    rgba(255, 71, 87, 0) 72%
+  );
+  opacity: 0;
+  animation: aivo-word-chip-flash 300ms ease-out
+    var(--aivo-word-chip-burst-delay) forwards;
+}
+
+@keyframes aivo-word-chip-flash {
+  0% {
+    opacity: 1;
+    scale: 0.4;
+  }
+  40% {
+    opacity: 1;
+    scale: 1.6;
+  }
+  100% {
+    opacity: 0;
+    scale: 2.2;
+  }
+}
+
+.aivo-word-chip__ring {
+  position: absolute;
+  left: -11px;
+  top: -11px;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  border: 1.5px solid var(--aivo-word-chip-danger);
+  opacity: 0;
+  animation: aivo-word-chip-ring 460ms cubic-bezier(0.22, 1, 0.36, 1)
+    var(--aivo-word-chip-burst-delay) forwards;
+}
+
+@keyframes aivo-word-chip-ring {
+  0% {
+    opacity: 0.9;
+    scale: 0.3;
+  }
+  100% {
+    opacity: 0;
+    scale: 1.7;
+  }
+}
+
+.aivo-word-chip__spark {
+  position: absolute;
+  left: -1.5px;
+  top: -1.5px;
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  background-color: var(--aivo-word-chip-danger);
+  opacity: 0;
+  animation: aivo-word-chip-spark 440ms cubic-bezier(0.22, 1, 0.36, 1)
+    var(--aivo-word-chip-burst-delay) forwards;
+}
+
+.aivo-word-chip__spark[data-alt="true"] {
+  background-color: var(--aivo-word-chip-alt);
+}
+
+@keyframes aivo-word-chip-spark {
+  0% {
+    opacity: 1;
+    transform: rotate(var(--aivo-word-chip-spark-angle)) translateX(4px)
+      scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--aivo-word-chip-spark-angle)) translateX(15px)
+      scale(0.2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aivo-word-chip__x {
+    transition: color 160ms ease;
+  }
+
+  .aivo-word-chip__button:hover .aivo-word-chip__x,
+  .aivo-word-chip__button:focus-visible .aivo-word-chip__x,
+  .aivo-word-chip--popping .aivo-word-chip__x {
+    rotate: 0deg;
+  }
+
+  .aivo-word-chip__burst {
+    display: none;
+  }
+}
