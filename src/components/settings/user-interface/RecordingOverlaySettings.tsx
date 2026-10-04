@@ -2702,6 +2702,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       />
 
       <ToggleSwitch
+        id="settings-overlay-silence-fade"
         checked={silenceFade}
         onChange={(enabled) =>
           void updateSetting(
