@@ -81,6 +81,7 @@
       "ttsApiKey": "Выбранный провайдер TTS не использует API-ключ."
     },
     "items": {
+      "preview-legacy-period": "Период обновления старого режима",
       "preview-legacy-updates": "Включить старый режим локальных обновлений превью",
       "preview-draft-opacity": "Непрозрачность черновика Live Preview",
       "preview-accent-color": "Акцентный цвет Live Preview",
