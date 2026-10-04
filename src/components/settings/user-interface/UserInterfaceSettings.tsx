@@ -680,6 +680,7 @@ export const UserInterfaceSettings: React.FC = () => {
             />
           </SettingContainer>
           <SettingContainer
+            id="settings-preview-delete-character"
             title="Backspace Deletes Last Character"
             description="When the preview window is focused, plain Backspace removes the last character from the finalized preview text, without stopping the active recording."
             descriptionMode="inline"
