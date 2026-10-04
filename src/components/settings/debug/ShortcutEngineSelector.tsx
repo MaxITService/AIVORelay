@@ -146,6 +146,7 @@ export const ShortcutEngineSelector: React.FC = () => {
       {/* Visual separator from preceding items */}
       <div className="h-px bg-white/[0.05] mx-6 mt-2 mb-4" />
       <SettingContainer
+        id="settings-shortcut-engine"
         title={t("settings.debug.shortcutEngine.title")}
         description={
           <span className="text-gray-400">
