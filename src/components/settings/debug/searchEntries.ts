@@ -5,4 +5,5 @@ export const debugSearchEntries = [
   { id: "debug", section: "debug", labelKey: "settingsSearch.items.debug", fallbackLabel: "Debug and logs", keywords: ["debug", "logs", "diagnostics", "troubleshoot", "логи", "диагностика"] },
   { id: "settings-directory", section: "debug", anchor: "settings-settings-directory", labelKey: "settings.debug.settingsDirectoryTitle", fallbackLabel: "Settings Directory", keywords: ["settings folder","configuration file","settings.json","папка настроек","файл настроек"] },
   { id: "log-directory", section: "debug", anchor: "settings-log-directory", labelKey: "settings.debug.logDirectory.title", fallbackLabel: "Log Directory", keywords: ["log folder","diagnostic files","папка логов","файлы журналов"] },
+  { id: "log-level", section: "debug", anchor: "settings-log-level", labelKey: "settings.debug.logLevel.title", fallbackLabel: "Log Level", keywords: ["logging level","verbosity","debug log","trace","уровень логов","подробность журналов"] },
 ] as const satisfies readonly SettingsSearchEntry[];

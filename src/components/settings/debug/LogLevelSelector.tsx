@@ -38,6 +38,7 @@ export const LogLevelSelector: React.FC<LogLevelSelectorProps> = ({
 
   return (
     <SettingContainer
+      id="settings-log-level"
       title={t("settings.debug.logLevel.title")}
       description={t("settings.debug.logLevel.description")}
       descriptionMode={descriptionMode}
