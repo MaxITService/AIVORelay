@@ -861,6 +861,7 @@ export const UserInterfaceSettings: React.FC = () => {
           {sonioxLivePreviewPosition === "custom_xy" && (
             <>
               <SettingContainer
+                id="settings-preview-custom-x"
                 title="Custom X (px)"
                 description="Absolute X screen coordinate of preview window."
                 descriptionMode="inline"
