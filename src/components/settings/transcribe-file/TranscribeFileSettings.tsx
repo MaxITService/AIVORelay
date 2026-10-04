@@ -2342,6 +2342,7 @@ export const TranscribeFileSettings: React.FC = () => {
 
           </div>
         <WorkflowStageHeader
+          id="settings-file-transcription-result"
           step={3}
           title={t("transcribeFile.stages.result", "Result")}
         />
