@@ -2214,6 +2214,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         reason={customOverlayDisabledReason}
       >
       <SettingContainer
+        id="settings-overlay-material"
         title={t(
           "settings.userInterface.recordingOverlay.materialMode.title",
           "Material Mode",
