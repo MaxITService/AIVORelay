@@ -113,6 +113,69 @@ impl OpenAiRealtimeWhisperManager {
         Ok(())
     }
 
+    pub(crate) async fn transcribe_history_replay(
+        &self,
+        samples: &[f32],
+        api_key: &str,
+        options: OpenAiRealtimeWhisperOptions,
+        replay: &Arc<super::history_replay::HistoryReplay>,
+    ) -> Result<String> {
+        if api_key.trim().is_empty() {
+            return Err(anyhow!("OpenAI API key is missing"));
+        }
+        if !Self::is_realtime_model(&options.model) {
+            return Err(anyhow!("This model is not supported by the OpenAI live-transcription adapter"));
+        }
+        let mut request = Self::build_realtime_ws_url()
+            .into_client_request()
+            .map_err(|e| anyhow!("Failed to create OpenAI Realtime Whisper request: {}", e))?;
+        request.headers_mut().insert(
+            "Authorization",
+            format!("Bearer {}", api_key.trim())
+                .parse()
+                .map_err(|e| anyhow!("Invalid OpenAI auth header: {}", e))?,
+        );
+        request.headers_mut().insert(
+            "OpenAI-Safety-Identifier",
+            "aivorelay-remote-stt"
+                .parse()
+                .map_err(|e| anyhow!("Invalid OpenAI safety identifier header: {}", e))?,
+        );
+
+        let (stream, _) = timeout(
+            Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS),
+            connect_async(request),
+        )
+        .await
+        .map_err(|_| anyhow!("Timed out while connecting to OpenAI Realtime Whisper"))?
+        .map_err(|e| anyhow!("Failed to connect to OpenAI Realtime Whisper: {}", e))?;
+        let (write, mut read) = stream.split();
+        let mut write = super::history_replay::ReplaySink::new(write, replay, 24_000);
+
+        write
+            .send(Message::Text(
+                Self::build_session_update_payload(&options)
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .map_err(|e| anyhow!("Failed to send OpenAI transcription session update: {}", e))?;
+
+        let (audio_tx, audio_rx) = mpsc::channel(1);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let final_text = Arc::new(Mutex::new(String::new()));
+        let drive = Self::run_session_loop(
+            &mut write, &mut read, audio_rx, control_rx, Arc::clone(&final_text),
+            self.app_handle.clone(), super::history_replay::HISTORY_REPLAY_BINDING.to_string(),
+            None, Self::live_commit_interval_ms_for_delay(options.delay), Some(Arc::new(|_| {})),
+        );
+        replay.run_audio(
+            samples, audio_tx, resample_16khz_f32_to_24khz_pcm16,
+            || control_tx.send(ControlMessage::Finish).map_err(|_| anyhow!("OpenAI Live session closed")),
+            drive, final_text, crate::actions::OPENAI_REALTIME_WHISPER_LIVE_FINALIZE_TIMEOUT_MS,
+        ).await
+    }
+
     pub fn start_session(
         &self,
         binding_id: &str,
@@ -690,7 +753,7 @@ impl OpenAiRealtimeWhisperManager {
                                     preview_interim,
                                     Vec::new(),
                                 );
-                            } else {
+                            } else if binding_id != super::history_replay::HISTORY_REPLAY_BINDING {
                                 let preview_final_text = crate::overlay::get_soniox_live_preview_state().final_text;
                                 crate::overlay::emit_soniox_live_preview_update(
                                     &app_handle,
@@ -753,7 +816,7 @@ impl OpenAiRealtimeWhisperManager {
                                     String::new(),
                                     Vec::new(),
                                 );
-                            } else {
+                            } else if binding_id != super::history_replay::HISTORY_REPLAY_BINDING {
                                 let preview_final_text = crate::overlay::get_soniox_live_preview_state().final_text;
                                 let next_preview_final = if preview_final_text.trim().is_empty() {
                                     transcript.clone()

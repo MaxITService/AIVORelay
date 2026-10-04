@@ -1726,6 +1726,7 @@ pub fn run(cli_args: CliArgs) {
         commands::history::delete_history_entry,
         commands::history::delete_all_history_entries,
         commands::history::retry_history_entry_transcription,
+        commands::history::cancel_history_entry_transcription,
         commands::history::update_history_limit,
         commands::history::update_recording_retention_period,
         commands::connector::connector_get_status,

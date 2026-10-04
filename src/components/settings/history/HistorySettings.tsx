@@ -32,6 +32,13 @@ import { reconcileHistoryPage } from "./historyPage";
 
 const PAGE_SIZE = 30;
 
+interface HistoryReplayProgress {
+  id: number;
+  sent_seconds: number;
+  duration_seconds: number;
+  phase: "connecting" | "sending" | "finalizing" | "processing";
+}
+
 type HistoryDeleteFailureReason =
   | "file_in_use"
   | "file_locked"
@@ -1262,6 +1269,10 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   const [copyBurst, setCopyBurst] = useState(0);
   const copyFeedbackTimeoutRef = useRef<number | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [replayProgress, setReplayProgress] = useState<HistoryReplayProgress | null>(null);
+  const [stoppingReplay, setStoppingReplay] = useState(false);
+  const retryInFlightRef = useRef(false);
+  const retryMountedRef = useRef(true);
   const [playableAudio, setPlayableAudio] = useState<{
     url: string;
     durationSeconds: number;
@@ -1275,6 +1286,16 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   const hasAudioReference =
     !isAiReplace && entry.file_name.trim().length > 0;
   const hasPlayableAudio = playableAudio !== null;
+
+  useEffect(() => {
+    retryMountedRef.current = true;
+    return () => {
+      retryMountedRef.current = false;
+      if (retryInFlightRef.current) {
+        void invoke("cancel_history_entry_transcription", { id: entry.id }).catch(console.error);
+      }
+    };
+  }, [entry.id]);
 
   useEffect(() => {
     return () => {
@@ -1377,14 +1398,59 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   };
 
   const handleRetranscribe = async () => {
+    if (!retryMountedRef.current || retryInFlightRef.current) {
+      return;
+    }
+    retryInFlightRef.current = true;
+    let unlisten: (() => void) | undefined;
     try {
       setRetrying(true);
+      setReplayProgress(null);
+      setStoppingReplay(false);
+      // Subscribe before invoking so the initial connecting event is not lost.
+      unlisten = await listen<HistoryReplayProgress>("history-replay-progress", ({ payload }) => {
+        if (payload.id === entry.id) {
+          if (!retryMountedRef.current) {
+            // Unmount may have cancelled before the backend registered its replay.
+            void invoke("cancel_history_entry_transcription", { id: entry.id }).catch(console.error);
+            return;
+          }
+          setReplayProgress(payload);
+        }
+      });
+      if (!retryMountedRef.current) {
+        return;
+      }
       await retryTranscription(entry.id);
     } catch (error) {
-      console.error("Failed to re-transcribe:", error);
-      toast.error(t("settings.history.retranscribeError"));
+      if (!retryMountedRef.current) {
+        return;
+      }
+      if (String(error) === "History replay cancelled") {
+        toast.info(t("settings.history.liveReplay.cancelled"));
+      } else {
+        console.error("Failed to re-transcribe:", error);
+        toast.error(t("settings.history.retranscribeError"));
+      }
     } finally {
-      setRetrying(false);
+      unlisten?.();
+      retryInFlightRef.current = false;
+      if (retryMountedRef.current) {
+        setRetrying(false);
+        setReplayProgress(null);
+        setStoppingReplay(false);
+      }
+    }
+  };
+
+  const handleStopReplay = async () => {
+    setStoppingReplay(true);
+    try {
+      await invoke("cancel_history_entry_transcription", { id: entry.id });
+    } catch (error) {
+      console.error("Failed to stop history replay:", error);
+      setStoppingReplay(false);
+      toast.error(t("settings.history.liveReplay.stopError"));
     }
   };
 
@@ -1460,6 +1526,31 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
           </IconButton>
         </div>
       </div>
+
+      {retrying && replayProgress && (
+        <div className="rounded-md border border-mid-gray/30 px-3 py-2 flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs flex flex-col gap-1">
+              <span>{t("settings.history.liveReplay.progress", {
+                sent: replayProgress.sent_seconds.toLocaleString(i18n.language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+                total: replayProgress.duration_seconds.toLocaleString(i18n.language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+              })}</span>
+              <span className="text-text/60">
+                {t(`settings.history.liveReplay.${replayProgress.phase}`)}
+              </span>
+            </div>
+            <Button variant="secondary" size="sm" onClick={handleStopReplay} disabled={stoppingReplay}>
+              {t(stoppingReplay ? "settings.history.liveReplay.stopping" : "settings.history.liveReplay.stop")}
+            </Button>
+          </div>
+          <progress
+            className="w-full h-1 accent-logo-primary"
+            aria-label={t("settings.history.liveReplay.label")}
+            value={replayProgress.sent_seconds}
+            max={replayProgress.duration_seconds}
+          />
+        </div>
+      )}
 
       {isAiReplace ? (
         // AI Replace Entry Display

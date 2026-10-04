@@ -3533,6 +3533,18 @@
       },
       "retranscribe": "Re-transcribe",
       "retranscribeError": "Failed to re-transcribe. Please try again.",
+      "liveReplay": {
+        "label": "Live re-transcription audio upload",
+        "progress": "Sent {{sent}} of {{total}} seconds",
+        "connecting": "Connecting to the live model…",
+        "sending": "Replaying audio at normal speed (1×)",
+        "finalizing": "Audio sent. Waiting for the final transcript…",
+        "processing": "Processing the transcript…",
+        "stop": "Stop",
+        "stopping": "Stopping…",
+        "cancelled": "Re-transcription stopped. The original text was kept.",
+        "stopError": "Failed to stop re-transcription. Please try again."
+      },
       "transcribing": "Transcribing...",
       "transcriptionFailed": "Transcription failed. You can re-transcribe using the retry icon.",
       "shortcut": {
