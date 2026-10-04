@@ -2106,6 +2106,7 @@ export const RecordingOverlaySettings: React.FC = () => {
 
       <div>
       <ToggleSwitch
+        id="settings-overlay-invisible-cancel"
         checked={cancelButtonInvisible}
         onChange={(enabled) =>
           void updateSetting(
