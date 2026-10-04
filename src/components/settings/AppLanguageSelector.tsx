@@ -30,6 +30,7 @@ export const AppLanguageSelector: React.FC<AppLanguageSelectorProps> =
 
     return (
       <SettingContainer
+        id="settings-application-language"
         title={t("appLanguage.title")}
         description={t("appLanguage.description")}
         descriptionMode={descriptionMode}
