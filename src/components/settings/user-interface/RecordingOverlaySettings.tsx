@@ -2674,6 +2674,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       />
 
       <Slider
+        id="settings-overlay-animation-softness"
         label={t(
           "settings.userInterface.recordingOverlay.animationSoftness.title",
           "Animation Softness",
