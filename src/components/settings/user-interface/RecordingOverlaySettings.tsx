@@ -2083,6 +2083,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       </SettingContainer>
 
       <ToggleSwitch
+        id="settings-overlay-cancel-button"
         checked={showCancelButton}
         onChange={(enabled) =>
           void updateSetting(
