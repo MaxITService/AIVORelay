@@ -61,6 +61,7 @@ export const ModelUnloadTimeoutSetting: React.FC<ModelUnloadTimeoutProps> = ({
 
   return (
     <SettingContainer
+      id="settings-model-unload"
       title={t("settings.advanced.modelUnload.title")}
       description={t("settings.advanced.modelUnload.description")}
       descriptionMode={descriptionMode}
