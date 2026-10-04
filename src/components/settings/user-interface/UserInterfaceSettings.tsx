@@ -1149,6 +1149,7 @@ export const UserInterfaceSettings: React.FC = () => {
                 </div>
               </SettingContainer>
               <SettingContainer
+                id="settings-preview-custom-height"
                 title="Custom Height (px)"
                 description="Manual window height in pixels."
                 descriptionMode="inline"

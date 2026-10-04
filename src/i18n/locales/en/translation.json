@@ -82,6 +82,7 @@
       "ttsApiKey": "The selected TTS provider does not use an API key."
     },
     "items": {
+      "preview-custom-height": "Custom Height (px)",
       "preview-custom-width": "Custom Width (px)",
       "preview-custom-y": "Custom Y (px)",
       "preview-custom-x": "Custom X (px)",
