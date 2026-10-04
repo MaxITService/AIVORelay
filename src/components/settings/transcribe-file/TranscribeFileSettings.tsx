@@ -21,9 +21,7 @@ import { stat } from "@tauri-apps/plugin-fs";
 import {
   commands,
   DeepgramFileTranscriptionOptions,
-  FileTranscriptionChunkTraceEntry as BindingChunkingTraceEntry,
   ModelInfo,
-  OutputFormat,
   SonioxFileTranscriptionOptions,
 } from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
@@ -38,6 +36,7 @@ import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { SttModelSelector } from "@/components/settings/SttModelSelector";
 import {
   useTranscribeFileStore,
+  type FileTranscriptionRequest,
   type SelectedFile,
 } from "@/stores/transcribeFileStore";
 import { useNavigationStore } from "@/stores/navigationStore";
@@ -98,38 +97,11 @@ type SpeakerNameSetProfile = {
   speaker_names: string[];
 };
 
-type ChunkingTraceEntry = {
-  chunkIndex: number;
-  startSecs: number;
-  endSecs: number;
-  durationSecs: number;
-  reason: string;
-};
-
-type RawChunkingTraceEntry = Partial<BindingChunkingTraceEntry> & {
-  chunk_index?: number;
-  start_secs?: number;
-  end_secs?: number;
-  duration_secs?: number;
-};
-
 type FileTranscriptionRecordingState = {
   isRecording: boolean;
   recordingUsesLocalModel: boolean;
   fileTranscriptionUsesLocalModel: boolean;
   blocksFileTranscription: boolean;
-};
-
-type FileTranscriptionRequest = {
-  filePath: string;
-  profileId: string | null;
-  saveToFile: boolean;
-  outputFormat: OutputFormat;
-  modelOverride: string | null;
-  customWordsEnabledOverride: boolean | null;
-  sonioxOptionsOverride: SonioxFileTranscriptionOptions | null;
-  deepgramOptionsOverride: DeepgramFileTranscriptionOptions | null;
-  retryableRemoteApi: boolean;
 };
 
 type WorkflowStageHeaderProps = {
@@ -228,60 +200,6 @@ const formatChunkTraceTime = (seconds: number): string => {
     .padStart(5, "0")}`;
 };
 
-const normalizeFiniteNumber = (...values: unknown[]): number | null => {
-  for (const value of values) {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-  }
-  return null;
-};
-
-const normalizeChunkingTrace = (value: unknown): ChunkingTraceEntry[] => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.flatMap((rawEntry) => {
-    const entry = rawEntry as RawChunkingTraceEntry;
-    const chunkIndex = normalizeFiniteNumber(
-      entry.chunkIndex,
-      entry.chunk_index,
-    );
-    const startSecs = normalizeFiniteNumber(entry.startSecs, entry.start_secs);
-    const endSecs = normalizeFiniteNumber(entry.endSecs, entry.end_secs);
-    const durationSecs = normalizeFiniteNumber(
-      entry.durationSecs,
-      entry.duration_secs,
-      startSecs != null && endSecs != null ? endSecs - startSecs : null,
-    );
-    const reason =
-      typeof entry.reason === "string" && entry.reason.trim().length > 0
-        ? entry.reason
-        : null;
-
-    if (
-      chunkIndex == null ||
-      startSecs == null ||
-      endSecs == null ||
-      durationSecs == null ||
-      reason == null
-    ) {
-      return [];
-    }
-
-    return [
-      {
-        chunkIndex,
-        startSecs,
-        endSecs,
-        durationSecs,
-        reason,
-      },
-    ];
-  });
-};
-
 const loadAudioDuration = async (audioUrl: string): Promise<number | null> =>
   new Promise((resolve) => {
     const audio = document.createElement("audio");
@@ -311,11 +229,6 @@ const loadAudioDuration = async (audioUrl: string): Promise<number | null> =>
     audio.onerror = () => cleanupAndFinish(null);
     audio.src = audioUrl;
   });
-
-const isCancellationMessage = (value: unknown): boolean => {
-  const normalized = String(value ?? "").toLowerCase();
-  return normalized.includes("cancelled") || normalized.includes("canceled");
-};
 
 const cleanupPreparedPreviewAsset = async (
   selectedFile: SelectedFile | null,
@@ -388,7 +301,15 @@ export const TranscribeFileSettings: React.FC = () => {
     customWordsEnabledOverride,
     transcriptionResult,
     savedFilePath,
-    isTranscribing,
+    transcriptionPhase,
+    transcriptionRequest,
+    isTranscriptionCommandPending,
+    isCancellationCommandPending,
+    cancelRequestedAt,
+    infoMessage: transcriptionInfoMessage,
+    infoMessageKey,
+    chunkingTrace,
+    fileRetryRequest,
     error,
     speakerArtifactPath,
     speakerProvider,
@@ -399,22 +320,26 @@ export const TranscribeFileSettings: React.FC = () => {
     setOutputFormat,
     setCustomWordsEnabledOverride,
     setTranscriptionResult,
-    setSavedFilePath,
-    setIsTranscribing,
     setError,
-    setSpeakerSession,
+    startTranscription,
+    cancelTranscription,
     clearSpeakerSession: clearSpeakerSessionStore,
     updateSpeakerCardName,
     applySpeakerCardNames,
     setIsReapplyingSpeakerNames,
     activateModelUiConfig,
   } = useTranscribeFileStore();
+  const isTranscribing = transcriptionPhase === "transcribing";
+  const isCancellingTranscription = transcriptionPhase === "cancelling";
+  const infoMessage =
+    transcriptionPhase === "cancelled" && infoMessageKey
+      ? t(infoMessageKey)
+      : transcriptionInfoMessage;
   const [isRecording, setIsRecording] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [pendingFileReceives, setPendingFileReceives] = useState(0);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
-  const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [sonioxLanguageHintsInput, setSonioxLanguageHintsInput] = useState("");
   const [sonioxEnableSpeakerDiarization, setSonioxEnableSpeakerDiarization] =
     useState(true);
@@ -433,21 +358,11 @@ export const TranscribeFileSettings: React.FC = () => {
     useState(false);
   const [showDurationLimitWarningDialog, setShowDurationLimitWarningDialog] =
     useState(false);
-  const [isCancellingTranscription, setIsCancellingTranscription] =
-    useState(false);
-  const [isTranscriptionCommandPending, setIsTranscriptionCommandPending] =
-    useState(false);
-  const [cancelRequestedAt, setCancelRequestedAt] = useState<number | null>(
-    null,
-  );
   const [cancelElapsedSeconds, setCancelElapsedSeconds] = useState(0);
-  const [chunkingTrace, setChunkingTrace] = useState<ChunkingTraceEntry[]>([]);
   const [
     recordingBlocksFileTranscription,
     setRecordingBlocksFileTranscription,
   ] = useState(false);
-  const [fileRetryRequest, setFileRetryRequest] =
-    useState<FileTranscriptionRequest | null>(null);
   const [geminiVocabularyDraft, setGeminiVocabularyDraft] = useState("");
   const parsedSonioxLanguageHintsInput = useMemo(
     () => parseAndNormalizeSonioxLanguageHints(sonioxLanguageHintsInput),
@@ -460,7 +375,6 @@ export const TranscribeFileSettings: React.FC = () => {
   const selectedFileRef = useRef<SelectedFile | null>(selectedFile);
   const fileSelectionGenerationRef = useRef(0);
   const speakerReapplyGenerationRef = useRef(0);
-  const transcriptionRunIdRef = useRef(0);
   const fileSelection = ((settings as any)?.file_transcription_model_selection ??
     globalSttSelection(settings)) as SttModelSelection;
   const fileSelectionKey = sttSelectionKey(fileSelection);
@@ -611,35 +525,12 @@ export const TranscribeFileSettings: React.FC = () => {
     clearSpeakerSessionStore();
   }, [clearSpeakerSessionStore, invalidateSpeakerNameReapply]);
 
-  const cancelTranscriptionForFileChange = useCallback(async () => {
-    if (!isTranscribing && !isTranscriptionCommandPending) return;
-
-    transcriptionRunIdRef.current += 1;
-    setIsCancellingTranscription(true);
-    setCancelRequestedAt(Date.now());
-    setCancelElapsedSeconds(0);
-    setIsTranscribing(false);
-
-    try {
-      await invoke("cancel_file_transcription");
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setIsCancellingTranscription(false);
-    }
-  }, [
-    isTranscribing,
-    isTranscriptionCommandPending,
-    setError,
-    setIsTranscribing,
-  ]);
-
   const replaceSelectedFile = useCallback(
     async (
       nextFile: SelectedFile | null,
       selectionGeneration: number,
     ): Promise<boolean> => {
-      await cancelTranscriptionForFileChange();
+      await cancelTranscription();
 
       if (selectionGeneration !== fileSelectionGenerationRef.current) {
         await cleanupPreparedPreviewAsset(nextFile);
@@ -657,7 +548,7 @@ export const TranscribeFileSettings: React.FC = () => {
       return true;
     },
     [
-      cancelTranscriptionForFileChange,
+      cancelTranscription,
       invalidateSpeakerNameReapply,
       setSelectedFile,
     ],
@@ -698,20 +589,11 @@ export const TranscribeFileSettings: React.FC = () => {
     if (!didReplace) {
       return;
     }
-    setTranscriptionResult("");
-    setSavedFilePath(null);
-    setInfoMessage(null);
-    setChunkingTrace([]);
     setShowDurationLimitWarningDialog(false);
-    setError(null);
-    setFileRetryRequest(null);
     clearSpeakerSession();
   }, [
     clearSpeakerSession,
     replaceSelectedFile,
-    setError,
-    setSavedFilePath,
-    setTranscriptionResult,
   ]);
 
   const updateFileChunkingMode = useCallback(
@@ -879,13 +761,7 @@ export const TranscribeFileSettings: React.FC = () => {
   }, [savedDeepgramFileDiarize, globalDeepgramFileMultichannel]);
 
   useEffect(() => {
-    if (!isTranscribing) {
-      setIsCancellingTranscription(false);
-    }
-  }, [isTranscribing]);
-
-  useEffect(() => {
-    if (!cancelRequestedAt || !isTranscriptionCommandPending) {
+    if (cancelRequestedAt == null || transcriptionPhase !== "cancelling") {
       setCancelElapsedSeconds(0);
       return;
     }
@@ -899,7 +775,7 @@ export const TranscribeFileSettings: React.FC = () => {
     updateElapsed();
     const interval = window.setInterval(updateElapsed, 1000);
     return () => window.clearInterval(interval);
-  }, [cancelRequestedAt, isTranscriptionCommandPending]);
+  }, [cancelRequestedAt, transcriptionPhase]);
 
   // Listen for Tauri file drop events
   useEffect(() => {
@@ -931,13 +807,7 @@ export const TranscribeFileSettings: React.FC = () => {
           if (!didReplace) {
             return;
           }
-          setTranscriptionResult("");
-          setSavedFilePath(null);
-          setInfoMessage(null);
-          setChunkingTrace([]);
           setShowDurationLimitWarningDialog(false);
-          setError(null);
-          setFileRetryRequest(null);
           clearSpeakerSession();
         }
       }
@@ -950,9 +820,6 @@ export const TranscribeFileSettings: React.FC = () => {
     clearSpeakerSession,
     receiveSelectedFile,
     setError,
-    setSavedFilePath,
-    setChunkingTrace,
-    setTranscriptionResult,
     t,
   ]);
 
@@ -1126,18 +993,20 @@ export const TranscribeFileSettings: React.FC = () => {
   const canTranscribe =
     !isTranscribing &&
     !isTranscriptionCommandPending &&
+    !isCancellationCommandPending &&
     !recordingBlocksFileTranscription &&
     !isGeminiLiveFileUnsupported &&
     !selectedFileExceedsGeminiLimit &&
     !selectedFileExceedsGoogleInlineLimit &&
     !geminiCompatibilityError;
   const isFinalizingCancelledTranscription =
-    isTranscriptionCommandPending && !isTranscribing;
+    transcriptionPhase === "cancelling";
   const activeFileTranscriptionModelId = fileSelection.model_id;
   const activeFileTranscriptionModel = availableModels.find(
     (model) => model.id === activeFileTranscriptionModelId,
   );
   const cancelWaitModelLabel =
+    transcriptionRequest?.modelLabel ||
     activeFileTranscriptionModel?.name ||
     activeFileTranscriptionModelId ||
     t("transcribeFile.localModelLabel", "Local model");
@@ -1312,13 +1181,7 @@ export const TranscribeFileSettings: React.FC = () => {
         if (!didReplace) {
           return;
         }
-        setTranscriptionResult("");
-        setSavedFilePath(null);
-        setInfoMessage(null);
-        setChunkingTrace([]);
         setShowDurationLimitWarningDialog(false);
-        setError(null);
-        setFileRetryRequest(null);
         clearSpeakerSession();
       }
     } catch (err) {
@@ -1329,7 +1192,7 @@ export const TranscribeFileSettings: React.FC = () => {
 
   // Transcribe the selected file
   const handleTranscribe = async () => {
-    if (!selectedFile) return;
+    if (!selectedFile || !canTranscribe) return;
     if (isGeminiLiveFileUnsupported) return;
     if (selectedFileExceedsGoogleInlineLimit) {
       setError(googleInlineLimitExceededMessage);
@@ -1389,6 +1252,7 @@ export const TranscribeFileSettings: React.FC = () => {
       saveToFile: outputMode === "file",
       outputFormat,
       modelOverride: null,
+      modelLabel: activeFileTranscriptionModel?.name || activeFileTranscriptionModelId || null,
       customWordsEnabledOverride,
       sonioxOptionsOverride,
       deepgramOptionsOverride,
@@ -1401,99 +1265,17 @@ export const TranscribeFileSettings: React.FC = () => {
     request = buildFileTranscriptionRequest(),
   ) => {
     if (isGeminiLiveFileUnsupported) {
-      setIsTranscribing(false);
       return;
     }
     if (selectedFileExceedsGoogleInlineLimit) {
       setError(googleInlineLimitExceededMessage);
-      setIsTranscribing(false);
       return;
     }
-    if (!request) {
-      setIsTranscribing(false);
+    if (!request || !canTranscribe) {
       return;
     }
-
-    const runId = transcriptionRunIdRef.current + 1;
-    transcriptionRunIdRef.current = runId;
-    const isCurrentRun = () => transcriptionRunIdRef.current === runId;
-
-    setIsTranscribing(true);
-    setIsTranscriptionCommandPending(true);
-    setIsCancellingTranscription(false);
-    setCancelRequestedAt(null);
-    setCancelElapsedSeconds(0);
-    setError(null);
-    setFileRetryRequest(null);
-    setTranscriptionResult("");
-    setSavedFilePath(null);
-    setInfoMessage(null);
-    setChunkingTrace([]);
-    clearSpeakerSession();
-
-    try {
-      const result = await commands.transcribeAudioFile(
-        request.filePath,
-        request.profileId,
-        request.saveToFile,
-        request.outputFormat,
-        request.modelOverride,
-        request.customWordsEnabledOverride,
-        request.sonioxOptionsOverride,
-        request.deepgramOptionsOverride,
-      );
-
-      if (!isCurrentRun()) {
-        return;
-      }
-
-      if (result.status === "ok") {
-        const data = result.data as typeof result.data & {
-          chunking_trace?: RawChunkingTraceEntry[] | null;
-        };
-        setTranscriptionResult(data.text);
-        setInfoMessage(data.info_message ?? null);
-        setChunkingTrace(normalizeChunkingTrace(data.chunking_trace));
-        setFileRetryRequest(null);
-        setSpeakerSession(data.speaker_session ?? null);
-        if (data.saved_file_path) {
-          setSavedFilePath(data.saved_file_path);
-        }
-      } else if (isCancellationMessage(result.error)) {
-        clearSpeakerSession();
-        setError(null);
-        setFileRetryRequest(null);
-        setInfoMessage(t("transcribeFile.cancelled"));
-        setChunkingTrace([]);
-      } else {
-        clearSpeakerSession();
-        setChunkingTrace([]);
-        setFileRetryRequest(request.retryableRemoteApi ? request : null);
-        setError(result.error);
-      }
-    } catch (err) {
-      if (!isCurrentRun()) {
-        return;
-      }
-
-      clearSpeakerSession();
-      if (isCancellationMessage(err)) {
-        setError(null);
-        setFileRetryRequest(null);
-        setInfoMessage(t("transcribeFile.cancelled"));
-        setChunkingTrace([]);
-      } else {
-        setChunkingTrace([]);
-        setFileRetryRequest(request.retryableRemoteApi ? request : null);
-        setError(String(err));
-      }
-    } finally {
-      setIsTranscriptionCommandPending(false);
-      setCancelRequestedAt(null);
-      if (isCurrentRun()) {
-        setIsTranscribing(false);
-      }
-    }
+    invalidateSpeakerNameReapply();
+    await startTranscription(request);
   };
 
   const handleCancelTranscription = async () => {
@@ -1501,27 +1283,8 @@ export const TranscribeFileSettings: React.FC = () => {
       return;
     }
 
-    setError(null);
-    setIsCancellingTranscription(true);
-    setCancelRequestedAt(Date.now());
-    setCancelElapsedSeconds(0);
-    transcriptionRunIdRef.current += 1;
-    setTranscriptionResult("");
-    setSavedFilePath(null);
-    setFileRetryRequest(null);
-    clearSpeakerSession();
-    setChunkingTrace([]);
-    setInfoMessage(null);
-    setIsTranscribing(false);
-
-    try {
-      await invoke("cancel_file_transcription");
-      setInfoMessage(t("transcribeFile.cancelled"));
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setIsCancellingTranscription(false);
-    }
+    invalidateSpeakerNameReapply();
+    await cancelTranscription();
   };
 
   const handleReapplySpeakerNames = async () => {
@@ -1792,7 +1555,7 @@ export const TranscribeFileSettings: React.FC = () => {
             selection={fileSelection}
             localModels={availableModels}
             onChange={changeFileModelSelection}
-            disabled={isTranscribing || isTranscriptionCommandPending}
+            disabled={isTranscribing || isFinalizingCancelledTranscription}
           />
         </div>
 
