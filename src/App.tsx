@@ -636,10 +636,10 @@ function App() {
           onSearchHelp={openHelpSearch}
         />
         {/* Scrollable content area with gradient background */}
-        <div className="min-h-0 flex-1 flex flex-col overflow-hidden bg-gradient-to-br from-[#121212] via-[#161616] to-[#0f0f0f]">
+        <div className="scroll-fade min-h-0 flex-1 flex flex-col overflow-hidden bg-gradient-to-br from-[#121212] via-[#161616] to-[#0f0f0f]">
           <div
             ref={settingsScrollRef}
-            className="min-h-0 flex-1 overflow-y-auto"
+            className="scroll-fade__viewport min-h-0 flex-1 overflow-y-auto"
             onScroll={(event) => {
               if (pendingScrollRestore.current !== null) return;
               settingsScrollPositions.current[currentSection] = event.currentTarget.scrollTop;
