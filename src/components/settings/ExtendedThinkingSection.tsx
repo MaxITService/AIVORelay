@@ -48,6 +48,7 @@ export const ExtendedThinkingSection: React.FC<ExtendedThinkingSectionProps> = (
     <div className="space-y-2">
       {/* Extended Thinking Toggle */}
       <SettingContainer
+        id={`${settingPrefix}-thinking`}
         title={t("settings.extendedThinking.title")}
         description={t("settings.extendedThinking.description")}
         descriptionMode="tooltip"
