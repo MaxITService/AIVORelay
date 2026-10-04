@@ -81,6 +81,7 @@
       "ttsApiKey": "The selected TTS provider does not use an API key."
     },
     "items": {
+      "preview-delete-word": "Ctrl+Backspace Deletes Last Word",
       "preview-enabled": "Live Preview Window",
       "microphone": "Microphone and dictation shortcut",
       "profiles": "Transcription profiles",

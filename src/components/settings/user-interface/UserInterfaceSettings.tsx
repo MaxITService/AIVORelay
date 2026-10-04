@@ -658,6 +658,7 @@ export const UserInterfaceSettings: React.FC = () => {
             </Collapse>
             </div>
           <SettingContainer
+            id="settings-preview-delete-word"
             title="Ctrl+Backspace Deletes Last Word"
             description="When the preview window itself is focused, Ctrl+Backspace deletes the last word from preview text. This does not work from other windows."
             descriptionMode="inline"
