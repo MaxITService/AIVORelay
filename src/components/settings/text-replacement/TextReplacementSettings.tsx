@@ -2108,6 +2108,7 @@ export const TextReplacementSettings: React.FC = () => {
       </SettingsGroup>
 
       <SettingsGroup
+        id="settings-output-whitespace"
         title={t("textReplacement.outputWhitespaceTitle", "Output Whitespace")}
         description={t(
           "textReplacement.outputWhitespaceDescription",
