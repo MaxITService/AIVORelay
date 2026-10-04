@@ -57,6 +57,7 @@ export const ShowTrayIcon: React.FC<ShowTrayIconProps> = React.memo(
         {showTrayIcon && (
           <>
             <ToggleSwitch
+              id="settings-tray-blinking"
               checked={trayIconBlinkingEnabled}
               onChange={(enabled) => void changeTrayIconBlinking(enabled)}
               isUpdating={isUpdating("tray_icon_blinking_enabled")}
