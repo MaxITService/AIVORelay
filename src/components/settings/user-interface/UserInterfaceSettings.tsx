@@ -748,6 +748,7 @@ export const UserInterfaceSettings: React.FC = () => {
             </TellMeMore>
             </div>
           <SettingContainer
+            id="settings-preview-position"
             title="Live Preview Position"
             description="Choose where to place the live preview window."
             descriptionMode="inline"
