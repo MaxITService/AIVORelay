@@ -1152,6 +1152,7 @@ export const BrowserConnectorSettings: React.FC = () => {
 
       {/* Feature 3: Send Transcription + Screenshot to Extension */}
       <SettingsGroup 
+        id="settings-connector-screenshot"
         title={t("settings.general.shortcut.bindings.send_screenshot_to_extension.name")}
         description={t("settings.general.shortcut.bindings.send_screenshot_to_extension.userStory")}
       >
