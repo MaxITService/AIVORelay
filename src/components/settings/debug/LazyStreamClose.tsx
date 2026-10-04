@@ -17,6 +17,7 @@ export const LazyStreamClose: React.FC<LazyStreamCloseProps> = React.memo(
 
     return (
       <ToggleSwitch
+        id="settings-keep-microphone-open"
         checked={enabled}
         onChange={(nextEnabled) =>
           updateSetting("lazy_stream_close" as any, nextEnabled as any)
