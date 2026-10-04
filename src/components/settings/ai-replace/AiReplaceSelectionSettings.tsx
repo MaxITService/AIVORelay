@@ -324,6 +324,7 @@ export const AiReplaceSelectionSettings: React.FC = () => {
 
       {/* ── With Selection Mode ── */}
       <SettingsGroup
+        id="settings-ai-replace-selection-prompts"
         title={t("settings.aiReplace.withSelection.title")}
         description={t("settings.aiReplace.withSelection.description")}
       >
