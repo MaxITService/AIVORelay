@@ -217,6 +217,7 @@ export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
           )}
 
           <SettingContainer
+            id={`${apiKeyFeature}-llm-model`}
             title={t("settings.postProcessing.api.model.title")}
             description={
               state.isAppleProvider
