@@ -116,6 +116,7 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
   return (
     <>
       <SettingContainer
+        id="settings-whisper-acceleration"
         title={t("settings.advanced.acceleration.whisper.title")}
         description={t("settings.advanced.acceleration.whisper.description")}
         descriptionMode={descriptionMode}
