@@ -57,6 +57,7 @@ export const SettingsGroup: React.FC<SettingsGroupProps> = ({
             <button
               type="button"
               data-testid={toggleTestId}
+              data-settings-search-reveal-for={id}
               onClick={toggleCollapsed}
               className="flex w-full items-start justify-between gap-3 rounded-lg px-1 py-1 text-left transition-colors hover:bg-white/[0.03] focus:outline-none focus:ring-2 focus:ring-[#ff4d8d]/35"
               aria-expanded={!isCollapsed}

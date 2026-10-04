@@ -51,9 +51,14 @@ export const scrollAndFocusAnchor = (
   });
 };
 
-/** Collapsed section toggles; dropdown triggers also carry aria-expanded but must not be opened. */
+/** Only reveal the disclosure belonging to the requested anchor. */
 const COLLAPSED_TOGGLE_SELECTOR =
-  'button[aria-expanded="false"]:not([aria-haspopup])';
+  'button[data-settings-search-reveal-for][aria-expanded="false"]';
+
+const findCollapsedToggle = (anchor: HTMLElement): HTMLButtonElement | undefined =>
+  Array.from(
+    anchor.querySelectorAll<HTMLButtonElement>(COLLAPSED_TOGGLE_SELECTOR),
+  ).find((button) => button.dataset.settingsSearchRevealFor === anchor.id);
 
 interface NavigateToSettingsAnchorOptions {
   activateSection: () => void;
@@ -124,9 +129,7 @@ export const navigateToSettingsAnchor = ({
         : null;
     const collapsedToggle =
       explicitRevealButton ??
-      expansionTarget?.querySelector<HTMLButtonElement>(
-        COLLAPSED_TOGGLE_SELECTOR,
-      );
+      (expansionTarget ? findCollapsedToggle(expansionTarget) : undefined);
     collapsedToggle?.click();
 
     let targetAttempts = 0;
@@ -143,7 +146,7 @@ export const navigateToSettingsAnchor = ({
 
       const targetToggle =
         target && target !== expansionTarget
-          ? target.querySelector<HTMLButtonElement>(COLLAPSED_TOGGLE_SELECTOR)
+          ? findCollapsedToggle(target)
           : null;
       targetToggle?.click();
 
