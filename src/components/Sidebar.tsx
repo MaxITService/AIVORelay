@@ -36,6 +36,7 @@ import {
   TtsFileOperationsSettings,
   HelpSettings,
 } from "./settings";
+import "./SidebarIconMotion.css";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
 
@@ -172,6 +173,17 @@ export const SECTIONS_CONFIG = {
     enabled: () => true,
   },
 } as const satisfies Record<string, SectionConfig>;
+
+// Extra SVG parts that some hover motions need (hidden until they play)
+const ICON_MOTION_EXTRAS: Partial<Record<SidebarSection, React.ReactNode>> = {
+  debug: (
+    <g key="motion-extras" fill="currentColor" stroke="none">
+      <circle className="sidebar-icon-bubble" cx="9.5" cy="19.5" r="1" />
+      <circle className="sidebar-icon-bubble" cx="14.2" cy="18.8" r="0.85" />
+      <circle className="sidebar-icon-bubble" cx="12" cy="20.2" r="0.75" />
+    </g>
+  ),
+};
 
 const SIDEBAR_ORDER_KEY = "sidebar-section-order";
 const DRAG_THRESHOLD_PX = 5;
@@ -429,6 +441,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
     [finalizeDrag, onSectionChange],
   );
 
+  // ── Hover icon motion ───────────────────────────────────────────────────
+  // Plays the icon's own motion (SidebarIconMotion.css) once per hover. It
+  // always runs to completion, and re-entering mid-motion does not restart it.
+  const playIconMotion = useCallback((item: HTMLElement) => {
+    if (dragRef.current?.active) return;
+    const icon = item.querySelector<HTMLElement>(".sidebar-icon-motion");
+    const svg = icon?.querySelector("svg");
+    if (!icon || !svg || icon.dataset.motion) return;
+    if (typeof svg.getAnimations !== "function") return;
+
+    icon.dataset.motion = "play";
+    // Reading the animations flushes styles, so the new ones are included
+    const animations = svg.getAnimations({ subtree: true });
+    void Promise.allSettled(animations.map((a) => a.finished)).then(() => {
+      delete icon.dataset.motion;
+    });
+  }, []);
+
   return (
     <div className="adobe-sidebar flex flex-col w-56 h-full items-center px-3 py-4">
       {/* Logo — fixed at top */}
@@ -457,7 +487,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const section = SECTIONS_CONFIG[id as SidebarSection];
             if (!section) return null;
 
-            const Icon = section.icon;
+            const Icon: React.ComponentType<IconProps> = section.icon;
             const isActive = activeSection === id;
             const isDragging = draggingId === id;
             const isDropTarget = hoverTargetId === id && !isDragging;
@@ -473,6 +503,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   if (el) itemRefs.current.set(id, el);
                   else itemRefs.current.delete(id);
                 }}
+                onPointerEnter={(e) => playIconMotion(e.currentTarget)}
                 onPointerDown={(e) => onPointerDown(e, id)}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
@@ -492,13 +523,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               >
                 {/* Icon */}
                 <div
-                  className={`shrink-0 transition-all duration-200 ${
+                  className={`sidebar-icon-motion shrink-0 transition-all duration-200 ${
                     isActive
                       ? "text-[#ff4d8d] drop-shadow-[0_0_6px_rgba(255,77,141,0.5)]"
                       : "text-[#b8b8b8]"
                   }`}
                 >
-                  <Icon width={20} height={20} />
+                  <Icon width={20} height={20} aria-hidden="true">
+                    {ICON_MOTION_EXTRAS[id as SidebarSection]}
+                  </Icon>
                 </div>
 
                 {/* Label */}
