@@ -1796,6 +1796,7 @@ export const UserInterfaceSettings: React.FC = () => {
             />
           </SettingContainer>
           <SettingContainer
+            id="settings-voice-button-single-click-close"
             title="Pressing x once, not twice closes the window"
             description="When enabled, one click on the x button closes the floating voice button window."
             descriptionMode="inline"
