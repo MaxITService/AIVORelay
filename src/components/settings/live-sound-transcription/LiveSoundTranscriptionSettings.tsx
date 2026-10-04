@@ -1328,6 +1328,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
 
       {providerSupportsDiarization && (
         <SettingsGroup
+          id="settings-live-endpoint-settings"
           title={t("settings.liveSoundTranscription.sessionOverrides.title")}
           description={t("settings.liveSoundTranscription.sessionOverrides.description")}
         >
