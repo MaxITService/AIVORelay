@@ -2016,6 +2016,7 @@ export const TextReplacementSettings: React.FC = () => {
 
       {/* Fuzzy Word Correction Group */}
       <SettingsGroup
+        id="settings-fuzzy-word-correction"
         title={t("textReplacement.fuzzyWordCorrectionTitle", "Fuzzy Word Correction")}
         description={t(
           "textReplacement.fuzzyWordCorrectionDescription",
