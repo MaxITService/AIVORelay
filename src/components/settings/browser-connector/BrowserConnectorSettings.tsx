@@ -1002,6 +1002,7 @@ export const BrowserConnectorSettings: React.FC = () => {
 
       {/* Feature 2: Send Transcription + Selection to Extension */}
       <SettingsGroup 
+        id="settings-connector-selection"
         title={t("settings.general.shortcut.bindings.send_to_extension_with_selection.name")}
         description={t("settings.general.shortcut.bindings.send_to_extension_with_selection.userStory")}
       >
