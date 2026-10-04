@@ -117,6 +117,7 @@ export const ShowTrayIcon: React.FC<ShowTrayIconProps> = React.memo(
                 />
 
                 <Slider
+                  id="settings-tray-blink-frequency"
                   value={trayIconBlinkFrequencyHz}
                   onChange={(val) =>
                     updateSetting("tray_icon_blink_frequency_hz", val)
