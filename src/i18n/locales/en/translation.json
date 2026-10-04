@@ -82,6 +82,7 @@
       "ttsApiKey": "The selected TTS provider does not use an API key."
     },
     "items": {
+      "selected-text-history": "Send Selected Text execution history",
       "voice-command-log": "Execution Log",
       "voice-command-presets": "Predefined Commands",
       "voice-command-llm-fallback": "LLM Fallback",

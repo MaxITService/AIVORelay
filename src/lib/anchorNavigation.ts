@@ -105,15 +105,28 @@ export const navigateToSettingsAnchor = ({
     const expansionTarget = expandId
       ? document.getElementById(expandId)
       : null;
+    if (expandId && !expansionTarget && attempts < 20) {
+      attempts += 1;
+      pendingRevealTimer = window.setTimeout(revealAnchor, 50);
+      return;
+    }
+
     const collapsedDetails =
       expansionTarget instanceof HTMLDetailsElement && !expansionTarget.open
         ? expansionTarget
         : null;
     if (collapsedDetails) collapsedDetails.open = true;
 
-    const collapsedToggle = expansionTarget?.querySelector<HTMLButtonElement>(
-      COLLAPSED_TOGGLE_SELECTOR,
-    );
+    const explicitRevealButton =
+      expansionTarget instanceof HTMLButtonElement &&
+      expansionTarget.dataset.settingsSearchReveal === "true"
+        ? expansionTarget
+        : null;
+    const collapsedToggle =
+      explicitRevealButton ??
+      expansionTarget?.querySelector<HTMLButtonElement>(
+        COLLAPSED_TOGGLE_SELECTOR,
+      );
     collapsedToggle?.click();
 
     let targetAttempts = 0;

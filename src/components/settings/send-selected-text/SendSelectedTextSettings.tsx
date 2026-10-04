@@ -861,7 +861,7 @@ function HistoryView({
     <div className="space-y-3">
       <div className="sst-toolbar">
         <div>
-          <h2>Execution history</h2>
+          <h2 id="settings-selected-text-history" tabIndex={-1}>Execution history</h2>
           <p>Selected text, saved path, command output, and complete errors.</p>
         </div>
         <div className="flex gap-2">
@@ -1530,6 +1530,8 @@ export default function SendSelectedTextSettings() {
           <button
             type="button"
             key={id}
+            id={`settings-selected-text-${id}-tab`}
+            data-settings-search-reveal="true"
             className={tab === id ? "active" : ""}
             onClick={() => setTab(id)}
           >
