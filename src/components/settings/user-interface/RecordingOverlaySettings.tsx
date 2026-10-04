@@ -2544,6 +2544,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       </SettingContainer>
 
       <Slider
+        id="settings-overlay-depth-parallax"
         label={t(
           "settings.userInterface.recordingOverlay.depthParallax.title",
           "Depth Parallax",
