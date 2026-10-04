@@ -130,8 +130,8 @@ export const navigateToSettingsAnchor = ({
 
       const destination =
         target ??
-        expansionTarget ??
-        (fallbackId ? document.getElementById(fallbackId) : null);
+        (fallbackId ? document.getElementById(fallbackId) : null) ??
+        expansionTarget;
       if (!destination) return;
 
       // Let expand animations finish so the scroll lands on the final layout.
