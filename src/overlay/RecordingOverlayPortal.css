@@ -1,0 +1,146 @@
+/*
+ * Portal rings for the "portal" overlay entrance/exit. Timelines line up with
+ * overlay-enter-portal / overlay-exit-portal in RecordingOverlay.css:
+ * open -> frame passes through -> close.
+ */
+.overlay-portal {
+  position: fixed;
+  left: 50%;
+  translate: -50% -50%;
+  overflow: visible;
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* The whole ring paints behind the (positioned) overlay frame, its near arc again above it. */
+.overlay-portal--back {
+  z-index: -1;
+}
+
+.overlay-portal--front {
+  z-index: 20;
+}
+
+.overlay-portal--in {
+  animation: overlay-portal-in 1000ms linear forwards;
+}
+
+.overlay-portal--out {
+  animation: overlay-portal-out 850ms linear forwards;
+}
+
+@keyframes overlay-portal-in {
+  0% {
+    opacity: 0;
+    scale: 0.02 0.2;
+    filter: brightness(2.4);
+    animation-timing-function: cubic-bezier(0.16, 1.1, 0.3, 1);
+  }
+  3% {
+    opacity: 1;
+  }
+  30% {
+    scale: 1;
+    filter: brightness(1.25);
+  }
+  38% {
+    filter: brightness(1);
+  }
+  66% {
+    opacity: 1;
+    scale: 1;
+    filter: brightness(1);
+    animation-timing-function: cubic-bezier(0.55, 0, 0.75, 0.4);
+  }
+  92% {
+    opacity: 1;
+    scale: 0.03 0.3;
+    filter: brightness(2.2);
+  }
+  100% {
+    opacity: 0;
+    scale: 0 0.2;
+    filter: brightness(1);
+  }
+}
+
+@keyframes overlay-portal-out {
+  0% {
+    opacity: 0;
+    scale: 0.02 0.2;
+    filter: brightness(2.4);
+    animation-timing-function: cubic-bezier(0.16, 1.1, 0.3, 1);
+  }
+  3% {
+    opacity: 1;
+  }
+  30% {
+    scale: 1;
+    filter: brightness(1.25);
+  }
+  38% {
+    filter: brightness(1);
+  }
+  66% {
+    opacity: 1;
+    scale: 1;
+    filter: brightness(1);
+    animation-timing-function: cubic-bezier(0.55, 0, 0.75, 0.4);
+  }
+  92% {
+    opacity: 1;
+    scale: 0.03 0.3;
+    filter: brightness(2.2);
+  }
+  100% {
+    opacity: 0;
+    scale: 0 0.2;
+    filter: brightness(1);
+  }
+}
+
+/* Opening burst: each spark flies from near the centre out to the rim. */
+.overlay-portal-spark {
+  opacity: 0;
+  animation: overlay-portal-spark var(--spark-duration) cubic-bezier(0.15, 0.7, 0.3, 1)
+    var(--spark-delay) both;
+}
+
+/* The tail shortens as the spark slows down; its head sits at the local origin. */
+.overlay-portal-spark-tail {
+  transform-origin: 0 0;
+  animation: overlay-portal-spark-tail var(--spark-duration) cubic-bezier(0.3, 0.6, 0.4, 1)
+    var(--spark-delay) both;
+}
+
+@keyframes overlay-portal-spark {
+  0% {
+    opacity: 0;
+    translate: var(--spark-x0) var(--spark-y0);
+  }
+  10% {
+    opacity: 1;
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    translate: var(--spark-x1) var(--spark-y1);
+  }
+}
+
+@keyframes overlay-portal-spark-tail {
+  from {
+    scale: 1;
+  }
+  to {
+    scale: 0.2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay-portal {
+    display: none;
+  }
+}

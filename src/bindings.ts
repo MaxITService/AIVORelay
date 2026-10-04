@@ -245,6 +245,22 @@ async changeRecordingOverlayShowDragGripSetting(enabled: boolean) : Promise<Resu
     else return { status: "error", error: e  as any };
 }
 },
+async changeRecordingOverlayEntranceAnimationSetting(animation: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_entrance_animation_setting", { animation }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayExitAnimationSetting(animation: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_exit_animation_setting", { animation }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeRecordingOverlayThemeSetting(theme: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_theme_setting", { theme }) };
@@ -4305,7 +4321,7 @@ error_overlay_auto_hide_ms?: number;
 /**
  * Show runtime errors in the recording overlay.
  */
-error_feedback_enabled?: boolean; recording_overlay_custom_enabled?: boolean; recording_overlay_show_drag_grip?: boolean; recording_overlay_theme?: RecordingOverlayTheme; recording_overlay_background_mode?: RecordingOverlayBackgroundMode; recording_overlay_material_mode?: RecordingOverlayMaterialMode; recording_overlay_centerpiece_mode?: RecordingOverlayCenterpieceMode; recording_overlay_animated_border_mode?: RecordingOverlayAnimatedBorderMode; recording_overlay_show_status_icon?: boolean; recording_overlay_status_icon_style?: RecordingOverlayStatusIconStyle;
+error_feedback_enabled?: boolean; recording_overlay_custom_enabled?: boolean; recording_overlay_show_drag_grip?: boolean; recording_overlay_entrance_animation?: RecordingOverlayEntranceAnimation; recording_overlay_exit_animation?: RecordingOverlayExitAnimation; recording_overlay_theme?: RecordingOverlayTheme; recording_overlay_background_mode?: RecordingOverlayBackgroundMode; recording_overlay_material_mode?: RecordingOverlayMaterialMode; recording_overlay_centerpiece_mode?: RecordingOverlayCenterpieceMode; recording_overlay_animated_border_mode?: RecordingOverlayAnimatedBorderMode; recording_overlay_show_status_icon?: boolean; recording_overlay_status_icon_style?: RecordingOverlayStatusIconStyle;
 /**
  * Keeps the cancel button clickable but draws nothing in its place.
  */
@@ -4911,7 +4927,7 @@ export type PreviewOutputModeStatePayload = { active: boolean; recording: boolea
  */
 export type ProfileLlmSettings = { enabled: boolean; promptOverride: string | null; modelOverride: string | null }
 export type RecordingOverlayAnimatedBorderMode = "none" | "shimmer_edge" | "traveling_highlight" | "breathing_contour" | "spectrum_edge"
-export type RecordingOverlayAppearancePayload = { custom_enabled: boolean; theme: string; background_mode: string; material_mode: string; centerpiece_mode: string; animated_border_mode: string; accent_color: string; status_icon_color: string; cancel_icon_color: string; surface_base_color: string; body_background_color: string; show_status_icon: boolean; status_icon_style: string; show_cancel_button: boolean; cancel_button_invisible: boolean; bar_count: number; bar_width_px: number; bar_style: string; show_drag_grip: boolean; audio_reactive_scale: boolean; audio_reactive_scale_max_percent: number; voice_sensitivity_percent: number; animation_softness_percent: number; depth_parallax_percent: number; opacity_percent: number; silence_fade: boolean; silence_opacity_percent: number; decapitalize_indicator_mode: string; decapitalize_indicator_custom_text: string; decapitalize_indicator_font_family: string; decapitalize_indicator_font_size_px: number; decapitalize_indicator_color: string; frame_width_px: number; frame_height_px: number }
+export type RecordingOverlayAppearancePayload = { custom_enabled: boolean; theme: string; background_mode: string; material_mode: string; centerpiece_mode: string; animated_border_mode: string; accent_color: string; status_icon_color: string; cancel_icon_color: string; surface_base_color: string; body_background_color: string; show_status_icon: boolean; status_icon_style: string; show_cancel_button: boolean; cancel_button_invisible: boolean; bar_count: number; bar_width_px: number; bar_style: string; show_drag_grip: boolean; entrance_animation: string; exit_animation: string; audio_reactive_scale: boolean; audio_reactive_scale_max_percent: number; voice_sensitivity_percent: number; animation_softness_percent: number; depth_parallax_percent: number; opacity_percent: number; silence_fade: boolean; silence_opacity_percent: number; decapitalize_indicator_mode: string; decapitalize_indicator_custom_text: string; decapitalize_indicator_font_family: string; decapitalize_indicator_font_size_px: number; decapitalize_indicator_color: string; frame_width_px: number; frame_height_px: number }
 /**
  * A complete appearance update, excluding visibility, mode, and window position.
  * User presets store it too, so a field added later needs a serde default.
@@ -4926,6 +4942,8 @@ export type RecordingOverlayBarStyle = "solid" | "capsule" | "glow" | "prism" | 
 export type RecordingOverlayCenterpieceMode = "none" | "halo_core" | "aurora_ribbon" | "orbital_beads" | "bloom_heart" | "signal_crown" | "gyroscope" | "holo_globe" | "ringed_planet" | "plasma_orb"
 export type RecordingOverlayCustomPositionPayload = { x_px: number; y_px: number }
 export type RecordingOverlayDecapitalizeIndicatorMode = "text" | "custom" | "hidden"
+export type RecordingOverlayEntranceAnimation = "none" | "spring" | "blur" | "rise" | "island" | "jelly" | "portal"
+export type RecordingOverlayExitAnimation = "none" | "shrink" | "blur" | "island" | "drop" | "portal"
 export type RecordingOverlayMaterialMode = "liquid_glass" | "pearl" | "velvet_neon" | "frost" | "candy_chrome" | "graphite" | "obsidian" | "gradient_mesh" | "porcelain" | "clay" | "keycap"
 /**
  * How the status icon is framed. `Auto` picks a frame that suits the material.

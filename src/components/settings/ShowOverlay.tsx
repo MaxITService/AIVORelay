@@ -139,6 +139,29 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
     const recordingOverlayShowDragGrip = Boolean(
       (settings as any)?.recording_overlay_show_drag_grip ?? true,
     );
+    const recordingOverlayEntranceAnimation = String(
+      (settings as any)?.recording_overlay_entrance_animation ?? "spring",
+    );
+    const recordingOverlayExitAnimation = String(
+      (settings as any)?.recording_overlay_exit_animation ?? "none",
+    );
+    const entranceAnimationOptions = [
+      { value: "none", label: t("settings.advanced.overlay.animation.none", "None") },
+      { value: "spring", label: t("settings.advanced.overlay.entranceAnimation.options.spring", "Spring pop") },
+      { value: "blur", label: t("settings.advanced.overlay.entranceAnimation.options.blur", "Blur in") },
+      { value: "rise", label: t("settings.advanced.overlay.entranceAnimation.options.rise", "Rise") },
+      { value: "island", label: t("settings.advanced.overlay.entranceAnimation.options.island", "Island expand") },
+      { value: "jelly", label: t("settings.advanced.overlay.entranceAnimation.options.jelly", "Jelly") },
+      { value: "portal", label: t("settings.advanced.overlay.entranceAnimation.options.portal", "Portal") },
+    ];
+    const exitAnimationOptions = [
+      { value: "none", label: t("settings.advanced.overlay.animation.none", "None") },
+      { value: "shrink", label: t("settings.advanced.overlay.exitAnimation.options.shrink", "Shrink") },
+      { value: "blur", label: t("settings.advanced.overlay.exitAnimation.options.blur", "Blur out") },
+      { value: "island", label: t("settings.advanced.overlay.exitAnimation.options.island", "Island collapse") },
+      { value: "drop", label: t("settings.advanced.overlay.exitAnimation.options.drop", "Drop") },
+      { value: "portal", label: t("settings.advanced.overlay.exitAnimation.options.portal", "Portal") },
+    ];
     const errorOverlayAutoHideMs = Number(
       settings?.error_overlay_auto_hide_ms ?? 3500,
     );
@@ -476,6 +499,62 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
           descriptionMode={descriptionMode}
           grouped={grouped}
         />
+
+        <SettingContainer
+          title={t(
+            "settings.advanced.overlay.entranceAnimation.label",
+            "Overlay Entrance Animation",
+          )}
+          description={t(
+            "settings.advanced.overlay.entranceAnimation.description",
+            "How the recording and error overlays appear.",
+          )}
+          descriptionMode={descriptionMode}
+          grouped={grouped}
+        >
+          <Dropdown
+            options={entranceAnimationOptions}
+            selectedValue={recordingOverlayEntranceAnimation}
+            onSelect={(value) =>
+              void updateSetting(
+                "recording_overlay_entrance_animation" as any,
+                value as any,
+              )
+            }
+            disabled={
+              !recordingOverlayEnabled ||
+              isUpdating("recording_overlay_entrance_animation")
+            }
+          />
+        </SettingContainer>
+
+        <SettingContainer
+          title={t(
+            "settings.advanced.overlay.exitAnimation.label",
+            "Overlay Exit Animation",
+          )}
+          description={t(
+            "settings.advanced.overlay.exitAnimation.description",
+            "How the recording and error overlays disappear. Animated exits keep the overlay on screen a little longer: about a quarter of a second, or about 0.9 seconds for Portal.",
+          )}
+          descriptionMode={descriptionMode}
+          grouped={grouped}
+        >
+          <Dropdown
+            options={exitAnimationOptions}
+            selectedValue={recordingOverlayExitAnimation}
+            onSelect={(value) =>
+              void updateSetting(
+                "recording_overlay_exit_animation" as any,
+                value as any,
+              )
+            }
+            disabled={
+              !recordingOverlayEnabled ||
+              isUpdating("recording_overlay_exit_animation")
+            }
+          />
+        </SettingContainer>
         <p className="px-6 text-xs text-text/60 -mt-2 mb-2">
           {t(
             "settings.advanced.overlay.dragGrip.help",

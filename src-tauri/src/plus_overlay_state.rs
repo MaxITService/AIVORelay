@@ -94,13 +94,16 @@ pub(crate) fn schedule_recording_overlay_auto_hide<F>(
             if let Some(window) = app.get_webview_window("recording_overlay") {
                 let _ = window.emit("hide-overlay", ());
             }
+            // Leave room for the selected exit animation.
+            let hide_delay_ms = overlay::recording_overlay_exit_hide_delay_ms(
+                crate::settings::get_settings(app).recording_overlay_exit_animation,
+            )
+            .max(300);
             let app_clone = app.clone();
             std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(300));
+                std::thread::sleep(std::time::Duration::from_millis(hide_delay_ms));
                 run_recording_overlay_update(&app_clone, expected_generation, move |app| {
-                    if let Some(window) = app.get_webview_window("recording_overlay") {
-                        let _ = window.hide();
-                    }
+                    overlay::hide_recording_overlay_immediately(app);
                     after_hide(app);
                 });
             });

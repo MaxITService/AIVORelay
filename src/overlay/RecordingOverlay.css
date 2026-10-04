@@ -339,6 +339,315 @@ body,
   opacity: 1;
 }
 
+/*
+ * Entrance/exit motion. Uses the individual `scale`/`translate` properties so it
+ * composes with the audio-reactive transform. Overshoots stay within the ~4px
+ * transparent window padding. Exits must finish within
+ * RECORDING_OVERLAY_EXIT_HIDE_DELAY_MS (overlay.rs).
+ */
+.recording-overlay.overlay-enter-spring {
+  animation: overlay-enter-spring 360ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.recording-overlay.overlay-enter-blur {
+  animation: overlay-enter-blur 340ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.recording-overlay.overlay-enter-rise {
+  animation: overlay-enter-rise 420ms cubic-bezier(0.34, 1.4, 0.64, 1) backwards;
+}
+
+.recording-overlay.overlay-enter-island {
+  animation: overlay-enter-island 460ms cubic-bezier(0.2, 0.9, 0.3, 1) backwards;
+}
+
+.recording-overlay.overlay-enter-jelly {
+  animation: overlay-enter-jelly 560ms ease-out backwards;
+}
+
+.recording-overlay.overlay-enter-portal {
+  animation: overlay-enter-portal 1000ms linear backwards;
+}
+
+.recording-overlay.overlay-exit {
+  pointer-events: none;
+}
+
+.recording-overlay.overlay-exit-portal {
+  animation: overlay-exit-portal 850ms linear forwards;
+}
+
+.recording-overlay.overlay-exit-shrink {
+  animation: overlay-exit-shrink 200ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.recording-overlay.overlay-exit-blur {
+  animation: overlay-exit-blur 220ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.recording-overlay.overlay-exit-island {
+  animation: overlay-exit-island 240ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.recording-overlay.overlay-exit-drop {
+  animation: overlay-exit-drop 200ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+@keyframes overlay-enter-spring {
+  0% {
+    opacity: 0;
+    scale: 0.82;
+  }
+  55% {
+    opacity: 1;
+    scale: 1.025;
+  }
+  100% {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes overlay-enter-blur {
+  0% {
+    opacity: 0;
+    filter: blur(8px);
+    scale: 0.94;
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    scale: 1;
+  }
+}
+
+@keyframes overlay-enter-rise {
+  0% {
+    opacity: 0;
+    translate: 0 8px;
+  }
+  100% {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+/* Grows out of a centered dot, like a dynamic island. */
+@keyframes overlay-enter-island {
+  0% {
+    opacity: 0;
+    clip-path: inset(0 calc(50% - 18px) round 18px);
+    scale: 0.92;
+  }
+  18% {
+    opacity: 1;
+  }
+  70% {
+    scale: 1.02;
+  }
+  100% {
+    opacity: 1;
+    clip-path: inset(0 0 round 18px);
+    scale: 1;
+  }
+}
+
+@keyframes overlay-enter-jelly {
+  0% {
+    opacity: 0;
+    scale: 0.6;
+  }
+  30% {
+    opacity: 1;
+    scale: 1.045 0.94;
+  }
+  50% {
+    scale: 0.97 1.04;
+  }
+  70% {
+    scale: 1.015 0.985;
+  }
+  85% {
+    scale: 0.995 1.005;
+  }
+  100% {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+/*
+ * The frame drops out of a ceiling portal on entrance and falls through a floor
+ * portal on exit, both drawn by RecordingOverlayPortal on tilted planes.
+ * Translate and clip move together, so the cut line stays fixed on the portal
+ * surface. Entrance line: frame top-left corner up to 2 * tilt above its
+ * top-right corner. Exit line: 2 * tilt below the bottom-left corner up to the
+ * bottom-right corner.
+ *
+ * Entrance: falls out under gravity, then a spring catch with squash and stretch.
+ */
+@keyframes overlay-enter-portal {
+  0%,
+  26% {
+    opacity: 1;
+    translate: 0 calc(-100% - 2 * var(--overlay-portal-tilt, 0px));
+    scale: 1;
+    clip-path: polygon(
+      0 calc(100% + 2 * var(--overlay-portal-tilt, 0px)),
+      100% 100%,
+      100% calc(100% + 48px),
+      0 calc(100% + 48px)
+    );
+    animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53);
+  }
+  49% {
+    translate: 0 0;
+    scale: 0.98 1.04;
+    clip-path: polygon(
+      0 0,
+      100% calc(-2 * var(--overlay-portal-tilt, 0px)),
+      100% calc(100% + 48px),
+      0 calc(100% + 48px)
+    );
+    animation-timing-function: cubic-bezier(0.2, 0.6, 0.35, 1);
+  }
+  56% {
+    translate: 0 5px;
+    scale: 1.05 0.9;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.3, 1);
+  }
+  67% {
+    translate: 0 0;
+    scale: 0.985 1.025;
+    animation-timing-function: ease-in-out;
+  }
+  76% {
+    translate: 0 1.5px;
+    scale: 1.01 0.99;
+  }
+  84%,
+  100% {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+    clip-path: polygon(
+      0 0,
+      100% calc(-2 * var(--overlay-portal-tilt, 0px)),
+      100% calc(100% + 48px),
+      0 calc(100% + 48px)
+    );
+  }
+}
+
+/* A small lift-off squash, then a gravity fall that stretches the frame. */
+@keyframes overlay-exit-portal {
+  0%,
+  24% {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+    clip-path: polygon(
+      0 -48px,
+      100% -48px,
+      100% calc(100%),
+      0 calc(100% + 2 * var(--overlay-portal-tilt, 0px))
+    );
+    animation-timing-function: cubic-bezier(0.3, 0, 0.5, 1);
+  }
+  31% {
+    translate: 0 -2px;
+    scale: 1.04 0.95;
+    clip-path: polygon(
+      0 -48px,
+      100% -48px,
+      100% calc(100% + 2px),
+      0 calc(100% + 2 * var(--overlay-portal-tilt, 0px) + 2px)
+    );
+    animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53);
+  }
+  62%,
+  99% {
+    opacity: 1;
+    translate: 0 calc(100% + 2 * var(--overlay-portal-tilt, 0px));
+    scale: 0.97 1.06;
+    clip-path: polygon(
+      0 -48px,
+      100% -48px,
+      100% calc(-2 * var(--overlay-portal-tilt, 0px)),
+      0 0
+    );
+  }
+  100% {
+    opacity: 0;
+    translate: 0 calc(100% + 2 * var(--overlay-portal-tilt, 0px));
+    scale: 0.97 1.06;
+    clip-path: polygon(
+      0 -48px,
+      100% -48px,
+      100% calc(-2 * var(--overlay-portal-tilt, 0px)),
+      0 0
+    );
+  }
+}
+
+@keyframes overlay-exit-shrink {
+  0% {
+    opacity: 1;
+    scale: 1;
+  }
+  100% {
+    opacity: 0;
+    scale: 0.82;
+  }
+}
+
+@keyframes overlay-exit-blur {
+  0% {
+    opacity: 1;
+    filter: blur(0);
+    scale: 1;
+  }
+  100% {
+    opacity: 0;
+    filter: blur(8px);
+    scale: 1.03;
+  }
+}
+
+@keyframes overlay-exit-island {
+  0% {
+    opacity: 1;
+    clip-path: inset(0 0 round 18px);
+    scale: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    clip-path: inset(0 calc(50% - 18px) round 18px);
+    scale: 0.9;
+  }
+}
+
+@keyframes overlay-exit-drop {
+  0% {
+    opacity: 1;
+    translate: 0 0;
+  }
+  100% {
+    opacity: 0;
+    translate: 0 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recording-overlay[class*="overlay-enter-"],
+  .recording-overlay[class*="overlay-exit-"] {
+    animation: none;
+  }
+}
+
 .recording-overlay.recording-overlay-custom .transcribing-text,
 .recording-overlay.recording-overlay-legacy .transcribing-text {
   color: var(--recording-overlay-ink, white);
