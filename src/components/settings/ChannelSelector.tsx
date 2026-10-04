@@ -62,6 +62,7 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = React.memo(
 
     return (
       <SettingContainer
+        id="settings-input-channel"
         title={t("settings.sound.channel.title")}
         description={t("settings.sound.channel.description")}
         descriptionMode={descriptionMode}
