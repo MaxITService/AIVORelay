@@ -8,7 +8,6 @@ import React, {
 import { useTranslation } from "react-i18next";
 import {
   FileAudio,
-  Upload,
   Copy,
   Check,
   Trash2,
@@ -64,6 +63,7 @@ import {
   type SttModelSelection,
 } from "@/lib/sttModelSelection";
 import { navigateToSettingsAnchor } from "@/lib/anchorNavigation";
+import { FileDropZone } from "./FileDropZone";
 
 const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 const DEEPGRAM_MAX_FILE_DURATION_SECONDS = 10 * 60;
@@ -412,6 +412,7 @@ export const TranscribeFileSettings: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [pendingFileReceives, setPendingFileReceives] = useState(0);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [sonioxLanguageHintsInput, setSonioxLanguageHintsInput] = useState("");
@@ -456,7 +457,6 @@ export const TranscribeFileSettings: React.FC = () => {
     parsedSonioxLanguageHintsInput.normalized.length >
     SONIOX_LANGUAGE_HINTS_MAX_COUNT;
 
-  const dropZoneRef = useRef<HTMLDivElement>(null);
   const selectedFileRef = useRef<SelectedFile | null>(selectedFile);
   const fileSelectionGenerationRef = useRef(0);
   const speakerReapplyGenerationRef = useRef(0);
@@ -676,6 +676,20 @@ export const TranscribeFileSettings: React.FC = () => {
       return replaceSelectedFile(nextFile, selectionGeneration);
     },
     [replaceSelectedFile],
+  );
+
+  // Same as prepareAndReplaceSelectedFile, but lets the drop zone show that
+  // a file is on its way while it is being prepared.
+  const receiveSelectedFile = useCallback(
+    async (path: string): Promise<boolean> => {
+      setPendingFileReceives((count) => count + 1);
+      try {
+        return await prepareAndReplaceSelectedFile(path);
+      } finally {
+        setPendingFileReceives((count) => count - 1);
+      }
+    },
+    [prepareAndReplaceSelectedFile],
   );
 
   const clearSelectedFileState = useCallback(async () => {
@@ -913,7 +927,7 @@ export const TranscribeFileSettings: React.FC = () => {
             return;
           }
 
-          const didReplace = await prepareAndReplaceSelectedFile(filePath);
+          const didReplace = await receiveSelectedFile(filePath);
           if (!didReplace) {
             return;
           }
@@ -934,7 +948,7 @@ export const TranscribeFileSettings: React.FC = () => {
     };
   }, [
     clearSpeakerSession,
-    prepareAndReplaceSelectedFile,
+    receiveSelectedFile,
     setError,
     setSavedFilePath,
     setChunkingTrace,
@@ -1294,7 +1308,7 @@ export const TranscribeFileSettings: React.FC = () => {
 
       if (result) {
         const path = result as string;
-        const didReplace = await prepareAndReplaceSelectedFile(path);
+        const didReplace = await receiveSelectedFile(path);
         if (!didReplace) {
           return;
         }
@@ -1705,52 +1719,17 @@ export const TranscribeFileSettings: React.FC = () => {
         />
         {/* Drop Zone / File Selection */}
         <div className="px-4 pb-4">
-          {!selectedFile ? (
-            <div
-              ref={dropZoneRef}
-              role="button"
-              tabIndex={0}
-              aria-label={t("transcribeFile.dropZone.title")}
-              onClick={handleSelectFile}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  void handleSelectFile();
-                }
-              }}
-              className={`
-                border-2 border-dashed rounded-xl p-8 text-center cursor-pointer
-                transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/60
-                ${
-                  isDragOver
-                    ? "border-[#9b5de5] bg-[#9b5de5]/10"
-                    : "border-[#333333] hover:border-[#9b5de5]/50 hover:bg-[#1a1a1a]/50"
-                }
-              `}
-            >
-              <div className="flex flex-col items-center gap-3">
-                <div
-                  className={`p-3 rounded-full ${isDragOver ? "bg-[#9b5de5]/20" : "bg-[#1a1a1a]"}`}
-                >
-                  <Upload
-                    className={`w-8 h-8 ${isDragOver ? "text-[#9b5de5]" : "text-[#b8b8b8]"}`}
-                  />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-[#f5f5f5]">
-                    {t("transcribeFile.dropZone.title")}
-                  </p>
-                  <p className="text-xs text-[#808080] mt-1">
-                    {t("transcribeFile.dropZone.subtitle")}
-                  </p>
-                </div>
-                <p className="text-xs text-[#606060]">
-                  {t("transcribeFile.dropZone.formats")}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-4">
+          <FileDropZone
+            hasFile={Boolean(selectedFile)}
+            isDragOver={isDragOver}
+            isReceiving={pendingFileReceives > 0}
+            onSelect={() => void handleSelectFile()}
+            title={t("transcribeFile.dropZone.title")}
+            subtitle={t("transcribeFile.dropZone.subtitle")}
+            formats={t("transcribeFile.dropZone.formats")}
+          >
+            {selectedFile && (
+              <>
               {/* File Info Card */}
               <div className="flex items-center gap-3 p-3 bg-[#1a1a1a] rounded-lg border border-[#333333]">
                 <div className="p-2 bg-[#9b5de5]/20 rounded-lg">
@@ -1783,8 +1762,9 @@ export const TranscribeFileSettings: React.FC = () => {
               {selectedFile.audioUrl && (
                 <AudioPlayer src={selectedFile.audioUrl} className="w-full" />
               )}
-            </div>
-          )}
+              </>
+            )}
+          </FileDropZone>
         </div>
 
         {transcriptionActionBar}
