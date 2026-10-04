@@ -638,6 +638,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
         </SettingContainer>
 
         <SettingContainer
+          id="settings-overlay-error-preview"
           title={t(
             "settings.userInterface.recordingOverlay.errorPreview.title",
             "Overlay Error Test",
