@@ -2091,6 +2091,7 @@ export const TextReplacementSettings: React.FC = () => {
         {/* Word Correction Threshold */}
         <div className="px-4 py-3 border-t border-white/[0.05]">
           <Slider
+            id="settings-word-correction-sensitivity"
             value={settings?.word_correction_threshold ?? 0.18}
             onChange={(value) => updateSetting("word_correction_threshold", value)}
             min={0.0}
