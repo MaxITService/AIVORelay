@@ -1858,6 +1858,7 @@ export const TextReplacementSettings: React.FC = () => {
         {/* Filler Word Filter */}
         <div className="px-4 py-3">
           <ToggleSwitch
+            id="settings-filler-word-filter"
             checked={settings?.filler_word_filter_enabled ?? false}
             onChange={(enabled) =>
               updateSetting("filler_word_filter_enabled", enabled)
