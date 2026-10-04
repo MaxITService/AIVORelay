@@ -1602,6 +1602,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
             titleOverride={t("settings.liveSoundTranscription.audio.outputTitle")}
           />
           <SettingContainer
+            id="settings-live-output-source"
             title={t("settings.liveSoundTranscription.audio.outputToggle")}
             description={t("settings.liveSoundTranscription.audio.outputToggleDescription")}
             grouped={true}
