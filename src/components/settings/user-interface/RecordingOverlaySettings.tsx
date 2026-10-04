@@ -2463,6 +2463,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         reason={customOverlayDisabledReason}
       >
       <SettingContainer
+        id="settings-overlay-ambient-background"
         title={t(
           "settings.userInterface.recordingOverlay.backgroundMode.title",
           "Background Mode",
