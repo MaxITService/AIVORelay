@@ -188,6 +188,7 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
 
   return (
     <SettingsGroup
+      id="settings-llm-benchmark"
       title={t("settings.postProcessing.benchmark.title", "Benchmark")}
       description={t(
         "settings.postProcessing.benchmark.description",

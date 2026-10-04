@@ -81,6 +81,7 @@
       "ttsApiKey": "Выбранный провайдер TTS не использует API-ключ."
     },
     "items": {
+      "llm-benchmark": "Бенчмарк LLM",
       "preview-sliding-lm-prompt": "Промпт скользящего окна LM",
       "preview-sliding-lm-tail": "Редактируемый хвост скользящего окна LM",
       "preview-sliding-lm": "Скользящее окно языковой модели",
