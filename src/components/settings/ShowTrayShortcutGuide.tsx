@@ -19,6 +19,7 @@ export const ShowTrayShortcutGuide: React.FC<ShowTrayShortcutGuideProps> =
 
     return (
       <ToggleSwitch
+        id="settings-tray-shortcut-guide"
         checked={showTrayShortcutGuide}
         onChange={(enabled) =>
           updateSetting("show_tray_shortcut_guide" as any, enabled)
