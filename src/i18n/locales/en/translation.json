@@ -73,6 +73,7 @@
       "api": "API"
     },
     "unavailable": {
+      "developmentOnly": "Available in development builds only.",
       "default": "This section is currently unavailable.",
       "windowsOnly": "Available on Windows only.",
       "voiceCommands": "Enable Beta Voice Commands on Windows to open this section.",
