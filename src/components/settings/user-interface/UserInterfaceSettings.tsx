@@ -1259,6 +1259,7 @@ export const UserInterfaceSettings: React.FC = () => {
             </TellMeMore>
             </div>
           <SettingContainer
+            id="settings-preview-theme"
             title="Live Preview Theme"
             description="Use the app-matching theme by default, or switch to alternate palettes."
             descriptionMode="inline"
