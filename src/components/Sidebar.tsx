@@ -241,14 +241,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 
   const navigateFromSearch = useCallback(
-    (sectionId: string, anchorId?: string, expandAnchorId?: string) => {
+    (sectionId: string, anchorId?: string, expandAnchorId?: string, fallbackAnchorId?: string) => {
       const section = sectionId as SidebarSection;
       const sectionAnchorId = `settings-section-${section}`;
       navigateToSettingsAnchor({
         activateSection: () => onSectionChange(section),
         targetId: anchorId ?? sectionAnchorId,
         readyId: sectionAnchorId,
-        fallbackId: sectionAnchorId,
+        fallbackId: fallbackAnchorId ?? sectionAnchorId,
         expandId: expandAnchorId,
         block: "center",
       });
