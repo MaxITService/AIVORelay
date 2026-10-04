@@ -350,6 +350,7 @@ export const AiReplaceSelectionSettings: React.FC = () => {
         </SettingContainer>
         <PromptPairHelp mode="with-selection" />
         <SettingContainer
+          id="settings-ai-replace-max-characters"
           title={t("settings.aiReplace.withSelection.maxChars.title")}
           description={t("settings.aiReplace.withSelection.maxChars.description")}
           descriptionMode="tooltip"
