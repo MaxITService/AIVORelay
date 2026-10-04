@@ -822,7 +822,7 @@ export const PostProcessingSettings: React.FC = () => {
         <PostProcessingSettingsPrompts />
       </SettingsGroup>
 
-      <SettingsGroup title={t("settings.postProcessing.api.title")}>
+      <SettingsGroup id="settings-postprocess-api" title={t("settings.postProcessing.api.title")}>
         <PostProcessingSettingsApi />
       </SettingsGroup>
 
