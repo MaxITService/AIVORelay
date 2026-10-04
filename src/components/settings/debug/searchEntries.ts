@@ -1,4 +1,13 @@
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import type { SettingsSearchEntry } from "../settingsSearchTypes";
+
+const isWindows = (() => {
+  try {
+    return getOsType() === "windows";
+  } catch {
+    return false;
+  }
+})();
 
 export const debugSearchEntries = [
   { id: "dictation-quick-tap", section: "debug", anchor: "settings-dictation-quick-tap-threshold", labelKey: "settings.debug.dictationQuickTap.title", fallbackLabel: "Short press threshold (ms)", keywords: ["quick tap", "short press", "empty transcription", "no text", "threshold", "короткое нажатие", "нет текста", "порог"] },
@@ -12,4 +21,5 @@ export const debugSearchEntries = [
   { id: "always-on-microphone", section: "debug", anchor: "settings-always-on-microphone", labelKey: "settings.debug.alwaysOnMicrophone.label", fallbackLabel: "Always-On Microphone", keywords: ["always on mic","microphone stream","mic latency","постоянный микрофон","задержка микрофона"] },
   { id: "clamshell-microphone", section: "debug", anchor: "settings-clamshell-microphone", labelKey: "settings.debug.clamshellMicrophone.title", fallbackLabel: "Clamshell Microphone", keywords: ["laptop lid","closed lid","clamshell","закрытая крышка","микрофон ноутбука"] },
   { id: "extra-recording-buffer", section: "debug", anchor: "settings-extra-recording-buffer", labelKey: "settings.debug.recordingBuffer.title", fallbackLabel: "Extra Local Recording Buffer", keywords: ["recording tail","trailing speech","extra buffer","обрезание конца","буфер записи","последнее слово"] },
+  { id: "keep-microphone-open", section: "debug", anchor: "settings-keep-microphone-open", labelKey: "settings.advanced.lazyStreamClose.label", fallbackLabel: "Keep Mic Open Between Transcriptions", unavailableReasonKey: "settingsSearch.unavailable.windowsOnly", unavailableReasonFallback: "Available on Windows only.", isAvailable: () => isWindows, keywords: ["keep mic open","lazy stream close","microphone latency","держать микрофон открытым","задержка микрофона"] },
 ] as const satisfies readonly SettingsSearchEntry[];
