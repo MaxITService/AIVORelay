@@ -1080,6 +1080,7 @@ export const TextReplacementSettings: React.FC = () => {
 
             <div className="px-4 py-3 border-t border-white/[0.05]">
               <Slider
+                id="settings-decapitalize-trigger-timeout"
                 value={decapitalizeAfterEditTimeoutMs}
                 onChange={(value) =>
                   updateSetting(
