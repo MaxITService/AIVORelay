@@ -64,6 +64,7 @@ export const SessionToastHistory: React.FC = () => {
 
   return (
     <SettingsGroup
+      id="settings-session-toast-history"
       title={t("settings.debug.sessionToasts.title", {
         count: toasts.length,
       })}
