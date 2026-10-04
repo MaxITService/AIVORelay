@@ -81,6 +81,7 @@
       "ttsApiKey": "Выбранный провайдер TTS не использует API-ключ."
     },
     "items": {
+      "preview-transparency": "Прозрачность Live Preview",
       "preview-theme": "Тема Live Preview",
       "preview-size": "Размер Live Preview",
       "preview-cursor-distance": "Расстояние от курсора (динамический режим)",

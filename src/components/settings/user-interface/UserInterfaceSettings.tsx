@@ -1283,6 +1283,7 @@ export const UserInterfaceSettings: React.FC = () => {
             />
           </SettingContainer>
           <Slider
+            id="settings-preview-transparency"
             label="Live Preview Transparency"
             description="Controls panel transparency."
             descriptionMode="inline"
