@@ -1503,6 +1503,7 @@ export const BrowserConnectorSettings: React.FC = () => {
         </SettingContainer>
 
         <SettingContainer
+          id="settings-connector-encryption"
           title={t("settings.browserConnector.connection.encryption.title")}
           description={t("settings.browserConnector.connection.encryption.description")}
           descriptionMode="tooltip"
