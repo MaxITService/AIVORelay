@@ -2663,7 +2663,7 @@ export const TranscriptionProfiles: React.FC = () => {
           {/* Overlay Toggle */}
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <div className="flex flex-col min-w-0">
-              <span className="text-sm font-medium">
+              <span id="settings-profile-switch-overlay" tabIndex={-1} className="text-sm font-medium">
                 {t("settings.transcriptionProfiles.showOverlayOnSwitch")}
               </span>
               <span className="text-xs text-mid-gray leading-snug">
