@@ -20,6 +20,7 @@ export const MicrophoneNoiseCancellation: React.FC<MicrophoneNoiseCancellationPr
 
     return (
       <SettingContainer
+        id="settings-microphone-noise-cancellation"
         title={
           <span className="inline-flex items-center gap-2">
             <Wind className="h-4 w-4 text-[#9b5de5]" />
