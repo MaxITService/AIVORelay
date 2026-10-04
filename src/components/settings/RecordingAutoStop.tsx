@@ -79,6 +79,7 @@ export const RecordingAutoStop: React.FC<RecordingAutoStopProps> = ({
           </SettingContainer>
 
           <SettingContainer
+            id="settings-recording-auto-stop-paste"
             title={t("settings.advanced.autoStop.pasteTitle")}
             description={t("settings.advanced.autoStop.pasteDescription")}
             descriptionMode={descriptionMode}
