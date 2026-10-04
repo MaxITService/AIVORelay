@@ -2724,6 +2724,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       />
 
       <Slider
+        id="settings-overlay-quiet-opacity"
         label={t(
           "settings.userInterface.recordingOverlay.silenceOpacity.title",
           "Silence Opacity",
