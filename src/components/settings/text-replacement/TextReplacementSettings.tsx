@@ -2155,6 +2155,7 @@ export const TextReplacementSettings: React.FC = () => {
         </div>
         <div className="px-4 py-3 border-t border-white/[0.05]">
           <ToggleSwitch
+            id="settings-trailing-space-remove"
             checked={trailingWhitespaceMode === "remove_if_present"}
             onChange={(enabled) =>
               setTrailingWhitespaceMode(enabled ? "remove_if_present" : "preserve")
