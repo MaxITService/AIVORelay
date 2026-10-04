@@ -3143,7 +3143,7 @@ export const TranscriptionProfiles: React.FC = () => {
 
                 {/* Voice Model Prompt — collapsible, matches ProfileCard details style */}
                 {!isSonioxProvider && modelInfo.supportsPrompt && (
-                  <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+                  <details id="settings-speech-model-prompt" tabIndex={-1} className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
                     <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
                       <div className="flex items-center gap-2 min-w-0">
                         <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
