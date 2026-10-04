@@ -37,6 +37,7 @@ export const AudioFeedback: React.FC<AudioFeedbackProps> = React.memo(
           grouped={grouped}
         />
         <ToggleSwitch
+          id="settings-result-ready-feedback"
           checked={resultReadyFeedbackEnabled}
           onChange={(enabled) =>
             updateSetting("result_ready_audio_feedback", enabled)
