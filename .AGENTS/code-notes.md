@@ -76,6 +76,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/ui/HotkeyCapture.tsx` | Reusable hotkey field backed by the same browser keyboard-capture hook as Tauri/rdev global shortcuts. |
 | `src/components/ui/Collapse.tsx` | Shared animated height disclosure for expandable sections; clips only while animating so popups inside open sections are not cut off. |
 | `src/hooks/usePresence.ts` | Keeps floating menus mounted while their `.app-popover` exit animation plays. |
+| `src/hooks/useCardSpotlight.ts` | Settings-card border glow: one shared document listener lights every card border within reach of the cursor (also while approaching from outside or scrolling) and trails it with inertia; writes `--card-spotlight-x/y` and `data-active` to the `.settings-card__spotlight` layer without re-rendering. |
 | `src/lib/motion.ts` | Disclosure/popover timings mirrored by the `--motion-*` tokens in `App.css`; native `<details>` use the same tokens via `::details-content`. |
 | `src/hooks/useKeyboardCapture.ts` | Shared DOM keyboard-event collection and normalization for browser-captured shortcut and feature-local hotkey fields. |
 | `src/components/hotkey-sidebar/HotkeySidebar.tsx` | Keyboard-accessible right-side assigned-hotkey guide, including enabled Decapitalize monitor keys. |
