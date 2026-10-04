@@ -1305,6 +1305,7 @@ export const UserInterfaceSettings: React.FC = () => {
             }
           />
           <SettingContainer
+            id="settings-preview-confirmed-color"
             title="Confirmed Text Color"
             description="Color of text that is already confirmed and will not change."
             descriptionMode="inline"
