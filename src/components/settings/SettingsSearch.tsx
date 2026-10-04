@@ -18,6 +18,7 @@ interface SettingsSearchProps {
     section: string,
     anchor?: string,
     expandAnchor?: string,
+    fallbackAnchor?: string,
   ) => void;
   onSearchHelp: (query: string) => void;
 }
@@ -247,7 +248,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
     ) {
       return;
     }
-    onNavigate(entry.section, entry.anchor, entry.expandAnchor);
+    onNavigate(entry.section, entry.anchor, entry.expandAnchor, entry.fallbackAnchor);
     setQuery("");
     setIsFocused(false);
   };

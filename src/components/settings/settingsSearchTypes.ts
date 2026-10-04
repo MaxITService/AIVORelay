@@ -4,6 +4,7 @@ export type SettingsSearchEntry = {
   id: string;
   section: string;
   anchor?: string;
+  fallbackAnchor?: string;
   expandAnchor?: string;
   labelKey: string;
   fallbackLabel: string;
