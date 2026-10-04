@@ -1828,7 +1828,7 @@ export const TranscribeFileSettings: React.FC = () => {
             </div>
             {/* Output Format Selection */}
             <div className="flex items-center gap-3 mt-3">
-              <span className="text-sm text-[#808080]">
+              <span id="settings-file-output-format" tabIndex={-1} className="text-sm text-[#808080]">
                 {t("transcribeFile.outputFormat.label")}
               </span>
               <div className="flex gap-2">
