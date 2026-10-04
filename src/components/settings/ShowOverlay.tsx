@@ -535,6 +535,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
         </SettingContainer>
 
         <SettingContainer
+          id="settings-overlay-exit-animation"
           title={t(
             "settings.advanced.overlay.exitAnimation.label",
             "Overlay Exit Animation",
