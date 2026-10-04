@@ -1363,6 +1363,7 @@ export const UserInterfaceSettings: React.FC = () => {
             </div>
           </SettingContainer>
           <SettingContainer
+            id="settings-preview-accent-color"
             title="Live Preview Accent Color"
             description="Header and accent color."
             descriptionMode="inline"
