@@ -2516,6 +2516,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       </SettingContainer>
 
       <SettingContainer
+        id="settings-overlay-animated-border"
         title={t(
           "settings.userInterface.recordingOverlay.animatedBorderMode.title",
           "Animated Border",
