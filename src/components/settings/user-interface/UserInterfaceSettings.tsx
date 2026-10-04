@@ -1581,6 +1581,7 @@ export const UserInterfaceSettings: React.FC = () => {
             }
           />
           <SettingContainer
+            id="settings-preview-sliding-lm"
             title="Sliding LM Window"
             description="After deterministic auto-flush updates the preview, send the recent editable tail to the configured post-processing LLM provider for stitching, punctuation, and cleanup. Changed text is highlighted in green until the preview resets."
             descriptionMode="inline"
