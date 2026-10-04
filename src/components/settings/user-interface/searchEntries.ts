@@ -1,4 +1,13 @@
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import type { SettingsSearchEntry } from "../settingsSearchTypes";
+
+const isWindows = (() => {
+  try {
+    return getOsType() === "windows";
+  } catch {
+    return false;
+  }
+})();
 
 export const userInterfaceSearchEntries = [
   { id: "tray-icon", section: "userInterface", anchor: "tray-icon-settings", labelKey: "settings.userInterface.showTrayIcon.label", fallbackLabel: "Show Tray Icon", keywords: ["tray", "tray icon", "system tray", "notification area", "blink", "blinking", "трей", "иконка в трее", "мигание"] },
@@ -46,4 +55,5 @@ export const userInterfaceSearchEntries = [
   { id: "overlay-silence-fade", section: "userInterface", anchor: "settings-overlay-silence-fade", expandAnchor: "recording-overlay-settings", labelKey: "settings.userInterface.recordingOverlay.silenceFade.label", fallbackLabel: "Fade When Quiet", groupLabelKey: "settingsSearch.items.overlay", groupFallbackLabel: "Recording overlay", keywords: ["silence fade","quiet fade","fade when quiet","затухание в тишине","исчезновение в паузах"] },
   { id: "overlay-quiet-opacity", section: "userInterface", anchor: "settings-overlay-quiet-opacity", expandAnchor: "recording-overlay-settings", labelKey: "settings.userInterface.recordingOverlay.silenceOpacity.title", fallbackLabel: "Quiet Opacity", groupLabelKey: "settingsSearch.items.overlay", groupFallbackLabel: "Recording overlay", keywords: ["quiet opacity","silence transparency","idle opacity","прозрачность в тишине","прозрачность в паузах"] },
   { id: "tray-shortcut-guide", section: "userInterface", anchor: "settings-tray-shortcut-guide", labelKey: "settings.userInterface.showTrayShortcutGuide.label", fallbackLabel: "Show Shortcut Guide in Tray", keywords: ["tray hotkeys","shortcut guide","hotkey guide","keyboard shortcuts","горячие клавиши в трее","список шорткатов"] },
+  { id: "voice-activation-button", section: "userInterface", anchor: "settings-voice-activation-button", labelKey: "settings.userInterface.voiceActivationButton.title", fallbackLabel: "Voice Activation Button", unavailableReasonKey: "settingsSearch.unavailable.windowsOnly", unavailableReasonFallback: "Available on Windows only.", isAvailable: () => isWindows, keywords: ["floating button","voice button","on screen button","always on top button","aot","плавающая кнопка","голосовая кнопка"] },
 ] as const satisfies readonly SettingsSearchEntry[];

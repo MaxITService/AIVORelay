@@ -1719,6 +1719,7 @@ export const UserInterfaceSettings: React.FC = () => {
 
       {isWindows && (
         <SettingsGroup
+          id="settings-voice-activation-button"
           title={t(
             "settings.userInterface.voiceActivationButton.title",
             "Voice Activation Button",
