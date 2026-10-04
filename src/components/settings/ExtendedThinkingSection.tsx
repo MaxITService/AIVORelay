@@ -69,6 +69,7 @@ export const ExtendedThinkingSection: React.FC<ExtendedThinkingSectionProps> = (
       {/* Token Budget input - only shown when enabled */}
       {isEnabled && (
         <SettingContainer
+          id={`${settingPrefix}-thinking-budget`}
           title={t("settings.extendedThinking.budget.title")}
           description={t("settings.extendedThinking.budget.description")}
           descriptionMode="tooltip"
