@@ -36,6 +36,7 @@ export const VadBackendSelector: React.FC<VadBackendSelectorProps> = ({
 
   return (
     <SettingContainer
+      id="settings-vad-backend"
       title={t("audioProcessing.vadBackend", "Filter Silence engine")}
       description={t(
         "audioProcessing.vadBackendDescription",
