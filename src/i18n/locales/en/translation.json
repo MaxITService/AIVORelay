@@ -81,6 +81,7 @@
       "ttsApiKey": "The selected TTS provider does not use an API key."
     },
     "items": {
+      "preview-confirmed-color": "Confirmed Text Color",
       "preview-transparency": "Live Preview Transparency",
       "preview-theme": "Live Preview Theme",
       "preview-size": "Live Preview Size",
