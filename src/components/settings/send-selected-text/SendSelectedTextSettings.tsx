@@ -1497,7 +1497,7 @@ export default function SendSelectedTextSettings() {
         <div className="sst-page-title">
           <Send size={22} />
           <div>
-            <h1>Send selected text to file or command</h1>
+            <h1 id="settings-selected-text-presets" tabIndex={-1}>Send selected text to file or command</h1>
             <p>
               Save a selection to Markdown or JSON, then optionally run your
               command.
