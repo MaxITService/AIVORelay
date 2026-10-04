@@ -2296,6 +2296,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       </SettingContainer>
 
       <SettingContainer
+        id="settings-overlay-surface-tint"
         title={t(
           "settings.userInterface.recordingOverlay.surfaceBaseColor.title",
           "Surface Tint",
