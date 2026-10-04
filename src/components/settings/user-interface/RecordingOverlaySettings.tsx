@@ -1998,6 +1998,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       />
 
       <ToggleSwitch
+        id="settings-overlay-status-icon"
         checked={showStatusIcon}
         onChange={(enabled) =>
           void updateSetting(
