@@ -300,6 +300,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
     return (
       <>
         <ToggleSwitch
+          id="settings-overlay-visibility"
           checked={recordingOverlayEnabled}
           onChange={(enabled) =>
             void updateSetting(
