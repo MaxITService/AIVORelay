@@ -135,6 +135,7 @@ export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
               {showBaseUrl && state.selectedProvider?.id === "custom" && (
                 <>
                   <SettingContainer
+                    id={`${apiKeyFeature}-llm-base-url`}
                     title={t("settings.postProcessing.api.baseUrl.title")}
                     description={t(
                       "settings.postProcessing.api.baseUrl.description",
