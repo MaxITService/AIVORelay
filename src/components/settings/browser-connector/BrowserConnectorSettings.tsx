@@ -953,6 +953,7 @@ export const BrowserConnectorSettings: React.FC = () => {
 
       {/* Feature 1: Send Transcription Directly to Extension */}
       <SettingsGroup 
+        id="settings-connector-dictation"
         title={t("settings.general.shortcut.bindings.send_to_extension.name")}
         description={t("settings.general.shortcut.bindings.send_to_extension.userStory")}
       >
