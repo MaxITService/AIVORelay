@@ -2069,6 +2069,7 @@ export const TextReplacementSettings: React.FC = () => {
         {/* N-gram toggle for multi-word fuzzy correction */}
         <div className="px-4 py-3 border-t border-white/[0.05]">
           <ToggleSwitch
+            id="settings-multi-word-correction"
             checked={(settings as any)?.custom_words_ngram_enabled ?? true}
             onChange={(enabled) =>
               (updateSetting as any)("custom_words_ngram_enabled", enabled)
