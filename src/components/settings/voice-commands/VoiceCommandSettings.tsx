@@ -454,7 +454,7 @@ export default function VoiceCommandSettings() {
 
       <div className="setting-row">
         <div className="setting-label">
-          <span>{t("voiceCommands.enabled", "Enable Voice Commands")}</span>
+          <span id="settings-voice-command-enabled" tabIndex={-1}>{t("voiceCommands.enabled", "Enable Voice Commands")}</span>
         </div>
         <label className="toggle-switch">
           <input
