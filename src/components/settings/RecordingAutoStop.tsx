@@ -36,6 +36,7 @@ export const RecordingAutoStop: React.FC<RecordingAutoStopProps> = ({
   return (
     <div className="flex flex-col">
       <SettingContainer
+        id="settings-recording-auto-stop"
         title={t("settings.advanced.autoStop.title")}
         description={t("settings.advanced.autoStop.description")}
         descriptionMode={descriptionMode}
