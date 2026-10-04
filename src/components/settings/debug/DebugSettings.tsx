@@ -91,6 +91,7 @@ export const DebugSettings: React.FC = () => {
         <LogLevelSelector grouped={true} />
         {import.meta.env.DEV && <DevConsoleLogLevelSelector grouped={true} />}
         <ToggleSwitch
+          id="settings-secret-logging"
           checked={unsafeLogSecrets}
           onChange={handleSecretLoggingToggle}
           isUpdating={isUpdating("remote_stt_unsafe_log_secrets")}
