@@ -322,6 +322,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
         />
 
         <SettingContainer
+          id="settings-overlay-position"
           title={t("settings.advanced.overlay.title")}
           description={t(
             "settings.advanced.overlay.positionDescription",
