@@ -135,6 +135,7 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
       </SettingContainer>
       {ortOptions.length > 2 && (
         <SettingContainer
+          id="settings-onnx-acceleration"
           title={t("settings.advanced.acceleration.ort.title")}
           description={t("settings.advanced.acceleration.ort.description")}
           descriptionMode={descriptionMode}
