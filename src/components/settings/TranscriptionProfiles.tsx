@@ -905,6 +905,8 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
       {/* Header - always visible */}
       <div
         className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer hover:bg-mid-gray/5 transition-colors"
+        data-settings-search-reveal-for={getTranscriptionProfileAnchorId(profile.id)}
+        aria-expanded={isExpanded}
         onClick={onToggleExpand}
       >
         <div className="flex items-center gap-3 min-w-0">
@@ -2700,6 +2702,8 @@ export const TranscriptionProfiles: React.FC = () => {
             {/* Header - clickable to expand */}
             <div
               className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer hover:bg-mid-gray/5 transition-colors"
+              data-settings-search-reveal-for={getTranscriptionProfileAnchorId("default")}
+              aria-expanded={isExpanded("default")}
               onClick={() => toggleExpanded("default")}
             >
               <div className="flex items-center gap-3 min-w-0">

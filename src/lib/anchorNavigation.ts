@@ -53,11 +53,11 @@ export const scrollAndFocusAnchor = (
 
 /** Only reveal the disclosure belonging to the requested anchor. */
 const COLLAPSED_TOGGLE_SELECTOR =
-  'button[data-settings-search-reveal-for][aria-expanded="false"]';
+  '[data-settings-search-reveal-for][aria-expanded="false"]';
 
-const findCollapsedToggle = (anchor: HTMLElement): HTMLButtonElement | undefined =>
+const findCollapsedToggle = (anchor: HTMLElement): HTMLElement | undefined =>
   Array.from(
-    anchor.querySelectorAll<HTMLButtonElement>(COLLAPSED_TOGGLE_SELECTOR),
+    anchor.querySelectorAll<HTMLElement>(COLLAPSED_TOGGLE_SELECTOR),
   ).find((button) => button.dataset.settingsSearchRevealFor === anchor.id);
 
 interface NavigateToSettingsAnchorOptions {
@@ -150,6 +150,10 @@ export const navigateToSettingsAnchor = ({
           : null;
       targetToggle?.click();
 
+      const targetDetails =
+        target instanceof HTMLDetailsElement && !target.open ? target : null;
+      if (targetDetails) targetDetails.open = true;
+
       const destination =
         target ??
         (fallbackId ? document.getElementById(fallbackId) : null) ??
@@ -157,7 +161,7 @@ export const navigateToSettingsAnchor = ({
       if (!destination) return;
 
       // Let expand animations finish so the scroll lands on the final layout.
-      if (collapsedDetails || collapsedToggle || targetToggle) {
+      if (collapsedDetails || collapsedToggle || targetToggle || targetDetails) {
         pendingRevealTimer = window.setTimeout(() => {
           pendingRevealTimer = null;
           scrollAndFocusAnchor(destination, block, isCurrent);
