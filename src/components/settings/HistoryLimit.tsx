@@ -29,6 +29,7 @@ export const HistoryLimit: React.FC<HistoryLimitProps> = ({
 
   return (
     <SettingContainer
+      id="settings-history-limit"
       title={t("settings.history.historyLimit.title")}
       description={t("settings.history.historyLimit.description")}
       descriptionMode={descriptionMode}
