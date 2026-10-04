@@ -2327,6 +2327,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       </SettingContainer>
 
       <SettingContainer
+        id="settings-overlay-accent-color"
         title={t(
           "settings.userInterface.recordingOverlay.accentColor.title",
           "Overlay Accent Color",
