@@ -1595,6 +1595,7 @@ export const RecordingOverlaySettings: React.FC = () => {
             }
           >
       <SettingContainer
+        id="settings-overlay-presets"
         title={t(
           "settings.userInterface.recordingOverlay.presets.title",
           "Hero Preset Packs",
