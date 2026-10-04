@@ -1,0 +1,725 @@
+/*
+ * Sidebar icon hover motion.
+ *
+ * Sidebar.tsx sets data-motion="play" on .sidebar-icon-motion when the pointer
+ * enters an item and removes it once every animation below has finished, so
+ * each icon plays its motion once per hover, always runs to completion, and
+ * never loops. Lucide icons are matched by their own class, so a motion
+ * follows its icon. Lengths inside icons are 24x24 viewBox units.
+ */
+
+.sidebar-icon-motion svg * {
+  transform-box: view-box;
+}
+
+/* The paper plane leaves the icon box; keep it clipped to the glyph. */
+.sidebar-icon-motion .lucide-send {
+  overflow: hidden;
+}
+
+/* Extra SVG parts a motion needs stay invisible until it plays. */
+.sidebar-icon-bubble {
+  opacity: 0;
+}
+
+/* Directions for parts that share one keyframe set */
+.sidebar-icon-motion .lucide-cpu path:nth-child(2),
+.sidebar-icon-motion .lucide-cpu path:nth-child(4),
+.sidebar-icon-motion .lucide-cpu path:nth-child(12) {
+  --sim-dy: -1px;
+}
+
+.sidebar-icon-motion .lucide-cpu path:nth-child(1),
+.sidebar-icon-motion .lucide-cpu path:nth-child(3),
+.sidebar-icon-motion .lucide-cpu path:nth-child(11) {
+  --sim-dy: 1px;
+}
+
+.sidebar-icon-motion .lucide-cpu path:nth-child(n + 5):nth-child(-n + 7) {
+  --sim-dx: -1px;
+}
+
+.sidebar-icon-motion .lucide-cpu path:nth-child(n + 8):nth-child(-n + 10) {
+  --sim-dx: 1px;
+}
+
+.sidebar-icon-motion .lucide-radio path:nth-child(-n + 2),
+.sidebar-icon-motion .lucide-file-volume-2 path:nth-child(n + 4) {
+  --sim-dx: 2.5px;
+}
+
+.sidebar-icon-motion .lucide-radio path:nth-child(n + 3) {
+  --sim-dx: -2.5px;
+}
+
+.sidebar-icon-motion .lucide-replace path:nth-child(-n + 4) {
+  --sim-dx: -12px;
+  --sim-dy: 12px;
+}
+
+.sidebar-icon-motion .lucide-replace rect {
+  --sim-dx: 12px;
+  --sim-dy: -12px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* General: the hand waves from the wrist */
+  .sidebar-icon-motion[data-motion="play"] > svg:not(.lucide) {
+    transform-origin: 55% 92%;
+    animation: sim-hand-wave 1080ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  /* Models: the core pulses and the pins push out with the surge */
+  .sidebar-icon-motion[data-motion="play"] .lucide-cpu rect:nth-of-type(2) {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: sim-core-pulse 840ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-cpu path {
+    animation: sim-cpu-pin 640ms cubic-bezier(0.45, 0, 0.55, 1) 240ms both;
+  }
+
+  /* Advanced: the gear turns one spoke (it repeats every 120deg) and springs into place */
+  .sidebar-icon-motion[data-motion="play"] .lucide-cog {
+    animation: sim-cog-turn 1040ms linear;
+  }
+
+  /* Post-processing: the big star squeezes and flares, the small ones twinkle after it */
+  .sidebar-icon-motion[data-motion="play"] .lucide-sparkles > * {
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-sparkles path:nth-child(1) {
+    animation: sim-sparkle-star 880ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-sparkles path:nth-child(n + 2) {
+    animation: sim-twinkle 680ms cubic-bezier(0.45, 0, 0.55, 1) 160ms both;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-sparkles circle {
+    animation: sim-twinkle 680ms cubic-bezier(0.45, 0, 0.55, 1) 320ms both;
+  }
+
+  /* AI Replace: the wand flicks from the handle and its sparks twinkle in turn */
+  .sidebar-icon-motion[data-motion="play"] .lucide-wand-sparkles path:nth-child(-n + 2) {
+    transform-origin: 3px 21px;
+    animation: sim-wand-flick 920ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-wand-sparkles path:nth-child(n + 3) {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: sim-twinkle 640ms cubic-bezier(0.45, 0, 0.55, 1) 120ms both;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-wand-sparkles path:nth-child(3),
+  .sidebar-icon-motion[data-motion="play"] .lucide-wand-sparkles path:nth-child(6) {
+    animation-delay: 240ms;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-wand-sparkles path:nth-child(4),
+  .sidebar-icon-motion[data-motion="play"] .lucide-wand-sparkles path:nth-child(7) {
+    animation-delay: 360ms;
+  }
+
+  /* Send: the plane flies off along its nose and glides back in from the opposite side */
+  .sidebar-icon-motion[data-motion="play"] .lucide-send path {
+    animation: sim-send-fly 1080ms linear;
+  }
+
+  /* Voice commands: the prompt nudges forward and the cursor blinks */
+  .sidebar-icon-motion[data-motion="play"] .lucide-terminal path:nth-child(2) {
+    animation: sim-terminal-prompt 840ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-terminal path:nth-child(1) {
+    animation: sim-terminal-cursor 920ms linear;
+  }
+
+  /* Browser connector: the meridian rolls over the edge and comes round again */
+  .sidebar-icon-motion[data-motion="play"] .lucide-globe path:nth-child(2) {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: sim-globe-spin 1040ms linear;
+  }
+
+  /* Text replacement: the two boxes trade places and spring back */
+  .sidebar-icon-motion[data-motion="play"] .lucide-replace path:nth-child(-n + 4),
+  .sidebar-icon-motion[data-motion="play"] .lucide-replace rect {
+    animation: sim-replace-swap 1120ms linear;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-replace path:nth-child(n + 5) {
+    animation: sim-replace-arrow 1120ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  /* User interface: the palette tilts and its paint dots pop one after another */
+  .sidebar-icon-motion[data-motion="play"] .lucide-palette {
+    transform-origin: 50% 60%;
+    animation: sim-palette-tilt 1000ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-palette circle {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: sim-dot-pop 520ms cubic-bezier(0.45, 0, 0.55, 1) both;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-palette circle:nth-child(4) {
+    animation-delay: 80ms;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-palette circle:nth-child(5) {
+    animation-delay: 200ms;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-palette circle:nth-child(2) {
+    animation-delay: 320ms;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-palette circle:nth-child(3) {
+    animation-delay: 440ms;
+  }
+
+  /* History: the hands rewind a full turn while the arrow kicks back */
+  .sidebar-icon-motion[data-motion="play"] .lucide-history path:nth-child(3) {
+    transform-origin: 12px 12px;
+    animation: sim-history-hands 1120ms linear;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-history path:nth-child(-n + 2) {
+    transform-origin: 12px 12px;
+    animation: sim-history-arc 1120ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  /* Audio processing: the microphone sways on its stand */
+  .sidebar-icon-motion[data-motion="play"] .lucide-mic {
+    transform-origin: 50% 92%;
+    animation: sim-mic-sway 1080ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  /* Debug: the liquid sloshes and bubbles rise to the surface */
+  .sidebar-icon-motion[data-motion="play"] .lucide-flask-conical path:nth-child(2) {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: sim-flask-slosh 1000ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .sidebar-icon-bubble {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: sim-flask-bubble 640ms cubic-bezier(0.33, 0, 0.67, 1) both;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .sidebar-icon-bubble:nth-child(2) {
+    animation-delay: 180ms;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .sidebar-icon-bubble:nth-child(3) {
+    animation-delay: 340ms;
+  }
+
+  /* Live sound transcription: the waves ripple outward from the source */
+  .sidebar-icon-motion[data-motion="play"] .lucide-radio path {
+    animation: sim-wave-out 760ms linear 80ms both;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-radio path:nth-child(2),
+  .sidebar-icon-motion[data-motion="play"] .lucide-radio path:nth-child(3) {
+    animation-delay: 240ms;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-radio circle,
+  .sidebar-icon-motion[data-motion="play"] .lucide-file-volume-2 path:nth-child(3) {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: sim-core-pulse 720ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  /* Transcribe file: the sound waves inside the page ripple outward */
+  .sidebar-icon-motion[data-motion="play"] .lucide-file-volume-2 path:nth-child(4) {
+    animation: sim-wave-out 760ms linear 80ms both;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-file-volume-2 path:nth-child(5) {
+    animation: sim-wave-out 760ms linear 240ms both;
+  }
+
+  /* Text to speech: a reading pass runs down the selected lines */
+  .sidebar-icon-motion[data-motion="play"] .lucide-text-select path:nth-child(11),
+  .sidebar-icon-motion[data-motion="play"] .lucide-text-select path:nth-child(12),
+  .sidebar-icon-motion[data-motion="play"] .lucide-text-select path:nth-child(13) {
+    transform-origin: 7px 12px;
+    animation: sim-text-scan 680ms cubic-bezier(0.45, 0, 0.55, 1) both;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-text-select path:nth-child(11) {
+    animation-delay: 140ms;
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-text-select path:nth-child(12) {
+    animation-delay: 280ms;
+  }
+
+  /* TTS files: the headphones bob to the beat */
+  .sidebar-icon-motion[data-motion="play"] .lucide-file-audio path:nth-child(3) {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation: sim-headphones-bob 920ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  /* Help: the question mark tilts its head around the dot */
+  .sidebar-icon-motion[data-motion="play"] .lucide-circle-question-mark path {
+    transform-origin: 12px 17px;
+    animation: sim-help-tilt 1000ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  /* About: the stem crouches and the dot hops */
+  .sidebar-icon-motion[data-motion="play"] .lucide-info path:nth-child(2) {
+    transform-origin: 12px 16px;
+    animation: sim-info-stem 920ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  .sidebar-icon-motion[data-motion="play"] .lucide-info path:nth-child(3) {
+    animation: sim-info-dot 920ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+}
+
+@keyframes sim-hand-wave {
+  0% {
+    transform: rotate(0deg);
+  }
+  18% {
+    transform: rotate(-14deg);
+  }
+  40% {
+    transform: rotate(11deg);
+  }
+  62% {
+    transform: rotate(-6deg);
+  }
+  82% {
+    transform: rotate(2deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes sim-core-pulse {
+  0% {
+    transform: scale(1);
+  }
+  32% {
+    transform: scale(0.6);
+  }
+  70% {
+    transform: scale(1.14);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes sim-cpu-pin {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  45% {
+    transform: translate(var(--sim-dx, 0px), var(--sim-dy, 0px));
+  }
+}
+
+@keyframes sim-cog-turn {
+  0% {
+    transform: rotate(0deg);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.25, 1);
+  }
+  58% {
+    transform: rotate(133deg);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  80% {
+    transform: rotate(116deg);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  100% {
+    transform: rotate(120deg);
+  }
+}
+
+@keyframes sim-sparkle-star {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+  35% {
+    transform: scale(0.7) rotate(-15deg);
+  }
+  70% {
+    transform: scale(1.12) rotate(5deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes sim-twinkle {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  30% {
+    transform: scale(0.2);
+    opacity: 0.2;
+  }
+  65% {
+    transform: scale(1.35);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes sim-wand-flick {
+  0% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(-8deg);
+  }
+  65% {
+    transform: rotate(4deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes sim-send-fly {
+  0% {
+    transform: translate(0, 0);
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  12% {
+    transform: translate(-1.5px, 1.5px);
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+  }
+  44% {
+    transform: translate(16px, -16px);
+    opacity: 0;
+  }
+  45% {
+    transform: translate(-16px, 16px);
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.22, 1.2, 0.36, 1);
+  }
+  100% {
+    transform: translate(0, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes sim-terminal-prompt {
+  0% {
+    transform: translateX(0);
+  }
+  30% {
+    transform: translateX(2.5px);
+  }
+  62% {
+    transform: translateX(-0.6px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes sim-terminal-cursor {
+  0%,
+  48%,
+  64%,
+  100% {
+    opacity: 1;
+  }
+  12%,
+  36%,
+  76%,
+  90% {
+    opacity: 0;
+  }
+}
+
+@keyframes sim-globe-spin {
+  0% {
+    transform: translateX(0) scaleX(1);
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.45, 0, 0.9, 0.55);
+  }
+  46% {
+    transform: translateX(7px) scaleX(0.15);
+    opacity: 0;
+  }
+  47% {
+    transform: translateX(-7px) scaleX(0.15);
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.1, 0.45, 0.3, 1);
+  }
+  100% {
+    transform: translateX(0) scaleX(1);
+    opacity: 1;
+  }
+}
+
+@keyframes sim-replace-swap {
+  0% {
+    transform: translate(0, 0);
+    animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+  40%,
+  56% {
+    transform: translate(var(--sim-dx, 0px), var(--sim-dy, 0px));
+    animation-timing-function: cubic-bezier(0.34, 1.2, 0.64, 1);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes sim-replace-arrow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  30%,
+  62% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes sim-palette-tilt {
+  0% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(-10deg);
+  }
+  65% {
+    transform: rotate(5deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes sim-dot-pop {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.7);
+  }
+}
+
+@keyframes sim-history-hands {
+  0% {
+    transform: rotate(0deg);
+    animation-timing-function: cubic-bezier(0.55, 0, 0.25, 1);
+  }
+  78% {
+    transform: rotate(-375deg);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  100% {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes sim-history-arc {
+  0% {
+    transform: rotate(0deg);
+  }
+  38% {
+    transform: rotate(-30deg);
+  }
+  72% {
+    transform: rotate(6deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes sim-mic-sway {
+  0% {
+    transform: rotate(0deg);
+  }
+  18% {
+    transform: rotate(-12deg);
+  }
+  42% {
+    transform: rotate(9deg);
+  }
+  64% {
+    transform: rotate(-5deg);
+  }
+  84% {
+    transform: rotate(2deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes sim-flask-slosh {
+  0% {
+    transform: translateY(0) rotate(0deg);
+  }
+  25% {
+    transform: translateY(-0.6px) rotate(-9deg);
+  }
+  50% {
+    transform: translateY(0) rotate(7deg);
+  }
+  75% {
+    transform: translateY(-0.3px) rotate(-3deg);
+  }
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+}
+
+@keyframes sim-flask-bubble {
+  0% {
+    transform: translateY(0) scale(0.3);
+    opacity: 0;
+  }
+  20% {
+    transform: translateY(-0.6px) scale(1);
+    opacity: 1;
+  }
+  80% {
+    transform: translateY(-3.6px) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-4.2px) scale(1.6);
+    opacity: 0;
+  }
+}
+
+/* Moves outward along --sim-dx while fading, then a fresh wave settles back */
+@keyframes sim-wave-out {
+  0% {
+    transform: translateX(0);
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.4, 0, 1, 1);
+  }
+  45% {
+    transform: translateX(var(--sim-dx, 0px));
+    opacity: 0;
+  }
+  46% {
+    transform: translateX(calc(var(--sim-dx, 0px) * -0.8));
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+  }
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes sim-text-scan {
+  0%,
+  100% {
+    transform: scaleX(1);
+  }
+  40% {
+    transform: scaleX(0.25);
+  }
+  75% {
+    transform: scaleX(1.08);
+  }
+}
+
+@keyframes sim-headphones-bob {
+  0% {
+    transform: translateY(0) rotate(0deg) scale(1, 1);
+  }
+  28% {
+    transform: translateY(-2.5px) rotate(-8deg) scale(1, 1);
+  }
+  52% {
+    transform: translateY(0.3px) rotate(0deg) scale(1.06, 0.88);
+  }
+  74% {
+    transform: translateY(-0.8px) rotate(3deg) scale(1, 1);
+  }
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1, 1);
+  }
+}
+
+@keyframes sim-help-tilt {
+  0% {
+    transform: rotate(0deg);
+  }
+  22% {
+    transform: rotate(-16deg);
+  }
+  48% {
+    transform: rotate(11deg);
+  }
+  72% {
+    transform: rotate(-5deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes sim-info-stem {
+  0% {
+    transform: scaleY(1);
+  }
+  14% {
+    transform: scaleY(0.78);
+  }
+  30% {
+    transform: scaleY(1.06);
+  }
+  46%,
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes sim-info-dot {
+  0% {
+    transform: translateY(0);
+  }
+  14% {
+    transform: translateY(0.6px);
+  }
+  42% {
+    transform: translateY(-3px);
+  }
+  64% {
+    transform: translateY(0.4px);
+  }
+  82% {
+    transform: translateY(-0.5px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
