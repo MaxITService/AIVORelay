@@ -1973,6 +1973,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         )}
       >
       <Slider
+        id="settings-overlay-width"
         label={t(
           "settings.userInterface.recordingOverlay.overlayWidth.title",
           "Overlay Width",
