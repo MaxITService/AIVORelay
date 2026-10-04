@@ -57,6 +57,7 @@ export const AutomaticMicrophoneMask: React.FC<
       </div>
 
       <ToggleSwitch
+        id="settings-microphone-auto-switch"
         checked={enabled}
         onChange={(checked) =>
           updateSetting("selected_microphone_auto_switch_enabled", checked)
