@@ -1547,6 +1547,7 @@ export const BrowserConnectorSettings: React.FC = () => {
         </SettingContainer>
 
         <SettingContainer
+          id="settings-connector-password"
           title={t("settings.browserConnector.connection.password.title")}
           description={t("settings.browserConnector.connection.password.description")}
           descriptionMode="tooltip"
