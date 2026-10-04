@@ -570,6 +570,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
         </p>
 
         <ToggleSwitch
+          id="settings-error-overlay-visibility"
           checked={errorFeedbackEnabled}
           onChange={(enabled) =>
             void updateSetting("error_feedback_enabled" as any, enabled as any)
