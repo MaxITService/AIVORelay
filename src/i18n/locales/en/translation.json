@@ -81,6 +81,7 @@
       "ttsApiKey": "The selected TTS provider does not use an API key."
     },
     "items": {
+      "preview-legacy-period": "Legacy Update Period",
       "preview-legacy-updates": "Enable Legacy Local Preview Updates",
       "preview-draft-opacity": "Live Draft Opacity",
       "preview-accent-color": "Live Preview Accent Color",

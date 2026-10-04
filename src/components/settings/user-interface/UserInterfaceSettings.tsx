@@ -1517,6 +1517,7 @@ export const UserInterfaceSettings: React.FC = () => {
             />
           </SettingContainer>
           <Slider
+            id="settings-preview-legacy-period"
             label="Legacy Update Period"
             description="How often the legacy local preview path tries to process a new audio chunk while recording. Shorter values update the preview sooner but may make chunk boundaries more visible."
             descriptionMode="inline"
