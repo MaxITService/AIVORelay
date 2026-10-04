@@ -2591,6 +2591,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         reason={customOverlayDisabledReason}
       >
       <ToggleSwitch
+        id="settings-overlay-voice-reactive-scale"
         checked={audioReactiveScale}
         onChange={(enabled) =>
           void updateSetting(
