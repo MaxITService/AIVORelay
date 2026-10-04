@@ -81,6 +81,7 @@
       "ttsApiKey": "Выбранный провайдер TTS не использует API-ключ."
     },
     "items": {
+      "preview-drag-handle": "Показывать ручку перетаскивания",
       "preview-delete-character": "Backspace удаляет последний символ",
       "preview-delete-word": "Ctrl+Backspace удаляет последнее слово",
       "preview-enabled": "Окно Live Preview",

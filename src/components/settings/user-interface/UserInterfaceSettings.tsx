@@ -707,6 +707,7 @@ export const UserInterfaceSettings: React.FC = () => {
             disabled={!sonioxLivePreviewEnabled}
           >
           <SettingContainer
+            id="settings-preview-drag-handle"
             title="Show Drag Grip"
             description="Show a dotted grip strip at the top of the preview window so you can drag it. Dragging remembers the new window position."
             descriptionMode="inline"
