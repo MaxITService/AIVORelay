@@ -82,6 +82,7 @@
       "ttsApiKey": "The selected TTS provider does not use an API key."
     },
     "items": {
+      "selected-text-history-options": "Send Selected Text history and error overlay",
       "selected-text-presets": "Send Selected Text presets",
       "selected-text-history": "Send Selected Text execution history",
       "voice-command-log": "Execution Log",
