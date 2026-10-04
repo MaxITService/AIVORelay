@@ -2421,6 +2421,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       />
 
       <Slider
+        id="settings-overlay-visualizer-size"
         label={t(
           "settings.userInterface.recordingOverlay.barWidth.title",
           "Visualizer Size",
