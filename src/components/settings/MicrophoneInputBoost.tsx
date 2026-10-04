@@ -130,6 +130,7 @@ export const MicrophoneInputBoost: React.FC<MicrophoneInputBoostProps> =
 
       return (
         <SettingContainer
+          id="settings-microphone-boost"
           title={
             titleOverride ??
             t("settings.sound.microphone.boost.title", "Microphone Input Boost")
