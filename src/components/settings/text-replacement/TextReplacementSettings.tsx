@@ -1193,6 +1193,7 @@ export const TextReplacementSettings: React.FC = () => {
         {/* Enable Toggle */}
         <div className="px-4 py-3">
           <ToggleSwitch
+            id="settings-text-replacement-enabled"
             checked={isEnabled}
             onChange={(enabled) =>
               updateSetting("text_replacements_enabled", enabled)
