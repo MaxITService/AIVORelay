@@ -2491,6 +2491,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       </SettingContainer>
 
       <SettingContainer
+        id="settings-overlay-centerpiece"
         title={t(
           "settings.userInterface.recordingOverlay.centerpieceMode.title",
           "Centerpiece Mode",
