@@ -1910,6 +1910,7 @@ export const RecordingOverlaySettings: React.FC = () => {
 
         <div className="order-0">
       <SettingContainer
+        id="settings-overlay-reset"
         title={t(
           "settings.userInterface.recordingOverlay.reset.title",
           "Reset Overlay",
