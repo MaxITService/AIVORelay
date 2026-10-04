@@ -1451,6 +1451,7 @@ export const BrowserConnectorSettings: React.FC = () => {
 
       {/* Auto-Open Tab Settings */}
       <SettingsGroup 
+        id="settings-connector-auto-open"
         title={t("settings.browserConnector.autoOpen.title")}
         description={t("settings.browserConnector.autoOpen.description")}
       >
