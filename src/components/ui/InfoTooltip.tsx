@@ -6,7 +6,15 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { computeTooltipLayout, TooltipLayout } from "./tooltipPositioning";
+import { usePresence } from "@/hooks/usePresence";
+import { useTooltipOpen } from "@/hooks/useTooltipOpen";
+import { TOOLTIP_EXIT_DURATION_MS } from "@/lib/motion";
+import {
+  computeTooltipLayout,
+  getTooltipArrowOrigin,
+  TooltipLayout,
+} from "./tooltipPositioning";
+import "./Tooltip.css";
 
 interface InfoTooltipProps {
   content: React.ReactNode;
@@ -23,7 +31,9 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
   position = "top",
   wide = false,
 }) => {
-  const [showTooltip, setShowTooltip] = useState(false);
+  const { open, show, showNow, hide } = useTooltipOpen();
+  const presence = usePresence(open, TOOLTIP_EXIT_DURATION_MS);
+  const showTooltip = presence.isMounted;
   const tooltipRef = useRef<HTMLDivElement>(null);
   const tooltipContentRef = useRef<HTMLDivElement>(null);
   const [tooltipLayout, setTooltipLayout] = useState<TooltipLayout | null>(
@@ -58,7 +68,7 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
       ) {
         return;
       }
-      setShowTooltip(false);
+      hide();
     };
 
     if (showTooltip) {
@@ -72,7 +82,7 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
         window.removeEventListener("resize", updateTooltipLayout);
       };
     }
-  }, [showTooltip, updateTooltipLayout]);
+  }, [showTooltip, updateTooltipLayout, hide]);
 
   // Update layout when tooltip opens and content is available
   useLayoutEffect(() => {
@@ -98,16 +108,24 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
           visibility: "hidden",
         };
 
+    // Measure the outer wrapper: the inner box is scaled while it animates.
     return createPortal(
       <div
+        ref={tooltipContentRef}
         className="fixed z-[9999] pointer-events-none"
         style={wrapperStyle}
       >
         <div
-          ref={tooltipContentRef}
-          className={`relative px-4 py-2.5 bg-[#323232]/98 backdrop-blur-xl border border-[#4a4a4a] rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.5)] whitespace-normal animate-in fade-in-0 zoom-in-95 duration-200 ${
+          data-state={presence.state}
+          className={`aivo-tooltip relative px-4 py-2.5 bg-[#323232]/98 backdrop-blur-xl border border-[#4a4a4a] rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.5)] whitespace-normal ${
             wide ? "max-w-xl min-w-[320px]" : "max-w-xs min-w-[200px]"
           }`}
+          style={{
+            transformOrigin: getTooltipArrowOrigin(
+              activePlacement,
+              tooltipLayout?.arrowLeft
+            ),
+          }}
         >
           <p className="text-sm text-[#e8e8e8] text-center leading-relaxed">
             {content}
@@ -134,8 +152,9 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
     <div
       ref={tooltipRef}
       className="relative flex items-center justify-center p-1"
-      onMouseEnter={() => setShowTooltip(true)}
-      onMouseLeave={() => setShowTooltip(false)}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onClick={showNow}
     >
       <svg
         className="w-4 h-4 text-[#707070] cursor-help hover:text-[#ff4d8d] transition-colors duration-200 select-none"
