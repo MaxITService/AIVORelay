@@ -1632,6 +1632,8 @@ export const RecordingOverlaySettings: React.FC = () => {
             </div>
             <button
               type="button"
+              data-settings-search-reveal-for="settings-overlay-presets"
+              aria-expanded={arePresetsExpanded}
               onClick={togglePresetsExpanded}
               className={
                 isPresetsToolbarStuck
