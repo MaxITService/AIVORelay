@@ -1,4 +1,13 @@
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import type { SettingsSearchEntry } from "../settingsSearchTypes";
+
+const isWindows = (() => {
+  try {
+    return getOsType() === "windows";
+  } catch {
+    return false;
+  }
+})();
 
 export const advancedSearchEntries = [
   { id: "advanced", section: "advanced", labelKey: "settingsSearch.items.advanced", fallbackLabel: "Advanced application settings", keywords: ["advanced", "behavior", "startup", "webview", "memory", "ram", "headless", "speech only", "dictation", "расширенные", "запуск", "память", "без интерфейса", "только диктовка"] },
@@ -6,4 +15,5 @@ export const advancedSearchEntries = [
   { id: "paste-method-delay", section: "advanced", anchor: "advanced-paste-settings", labelKey: "settings.advanced.pasteMethod.title", fallbackLabel: "Paste method and delay", keywords: ["paste", "paste method", "paste delay", "clipboard delay", "ctrl v", "shift insert", "direct input", "вставка", "метод вставки", "задержка вставки", "буфер обмена"] },
   { id: "start-hidden", section: "advanced", anchor: "settings-start-hidden", labelKey: "settings.advanced.startHidden.label", fallbackLabel: "Start Hidden", keywords: ["minimized","start in tray","hidden startup","скрытый запуск","запуск в трее"] },
   { id: "autostart", section: "advanced", anchor: "settings-autostart", labelKey: "settings.advanced.autostart.label", fallbackLabel: "Launch on Startup", keywords: ["autostart","startup","login","sign in","автозапуск","вход в систему"] },
+  { id: "admin-autostart", section: "advanced", anchor: "settings-autostart", labelKey: "settings.advanced.autostartAsAdmin.label", fallbackLabel: "Autostart with Administrator Privileges", unavailableReasonKey: "settingsSearch.unavailable.windowsOnly", unavailableReasonFallback: "Available on Windows only.", isAvailable: () => isWindows, keywords: ["administrator","elevated","uac","admin windows","администратор","повышенные права"] },
 ] as const satisfies readonly SettingsSearchEntry[];
