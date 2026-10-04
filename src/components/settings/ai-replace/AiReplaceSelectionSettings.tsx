@@ -249,6 +249,7 @@ export const AiReplaceSelectionSettings: React.FC = () => {
 
       {/* ── Quick Tap Mode ── */}
       <SettingsGroup
+        id="settings-ai-replace-quick-tap"
         title={t("settings.aiReplace.quickTap.title")}
         description={t("settings.aiReplace.quickTap.description")}
       >
