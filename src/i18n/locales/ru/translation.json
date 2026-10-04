@@ -81,6 +81,7 @@
       "ttsApiKey": "Выбранный провайдер TTS не использует API-ключ."
     },
     "items": {
+      "preview-enabled": "Окно Live Preview",
       "microphone": "Микрофон и клавиша диктовки",
       "profiles": "Профили транскрипции",
       "models": "Модели распознавания речи",
