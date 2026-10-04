@@ -458,6 +458,7 @@ export const UserInterfaceSettings: React.FC = () => {
           </LivePreviewSubsection>
           <LivePreviewSubsection title="Workflow">
           <SettingContainer
+            id="settings-preview-enabled"
             title="Live Preview Window"
             description="Shows the preview window for the active Output-to-Preview workflow. Text stays in the buffer until you insert it."
             descriptionMode="inline"
