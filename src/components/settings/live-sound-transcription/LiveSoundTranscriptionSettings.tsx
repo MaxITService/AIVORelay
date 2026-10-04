@@ -1436,6 +1436,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
 
       {providerSupportsDiarization && (
         <SettingsGroup
+          id="settings-live-speaker-names"
         title={t("settings.liveSoundTranscription.speakerNames.title")}
         description={t("settings.liveSoundTranscription.speakerNames.hint")}
       >
