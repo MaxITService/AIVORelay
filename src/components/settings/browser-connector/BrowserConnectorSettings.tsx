@@ -1489,6 +1489,7 @@ export const BrowserConnectorSettings: React.FC = () => {
 
       <SettingsGroup title={t("settings.browserConnector.connection.title")}>
         <SettingContainer
+          id="settings-connector-server-enabled"
           title={t("settings.browserConnector.connection.enabled.label")}
           description={t("settings.browserConnector.connection.enabled.description")}
           descriptionMode="tooltip"
