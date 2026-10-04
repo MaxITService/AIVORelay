@@ -600,6 +600,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
         </p>
 
         <SettingContainer
+          id="settings-error-overlay-duration"
           title={t("settings.advanced.overlay.errorDuration.title")}
           description={t("settings.advanced.overlay.errorDuration.description")}
           descriptionMode={descriptionMode}
