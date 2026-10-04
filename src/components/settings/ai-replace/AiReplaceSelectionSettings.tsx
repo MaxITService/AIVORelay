@@ -389,7 +389,7 @@ export const AiReplaceSelectionSettings: React.FC = () => {
         />
       </SettingsGroup>
 
-      <SettingsGroup title={t("settings.aiReplace.api.title")}>
+      <SettingsGroup id="settings-ai-replace-api" title={t("settings.aiReplace.api.title")}>
         <LlmConfigSection
           title=""
           description={t("settings.aiReplace.api.description")}
