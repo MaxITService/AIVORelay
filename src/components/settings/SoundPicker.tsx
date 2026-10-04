@@ -38,6 +38,7 @@ export const SoundPicker: React.FC<SoundPickerProps> = ({
 
   return (
     <SettingContainer
+      id="settings-sound-theme"
       title={label}
       description={description}
       grouped
