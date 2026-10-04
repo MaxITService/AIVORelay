@@ -941,7 +941,7 @@ export const BrowserConnectorSettings: React.FC = () => {
       </TellMeMore>
 
       {/* Extension Status */}
-      <SettingsGroup title={t("settings.browserConnector.status.sectionTitle")}>
+      <SettingsGroup id="settings-connector-status" title={t("settings.browserConnector.status.sectionTitle")}>
         <ConnectorStatusIndicator
           grouped={true}
           descriptionMode="tooltip"
