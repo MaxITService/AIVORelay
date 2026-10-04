@@ -21,6 +21,19 @@ interface ComputeTooltipLayoutOptions {
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
 
+const ARROW_SIZE = 6;
+
+/** Tip of the tooltip arrow as a `transform-origin`, so the tooltip grows out of it. */
+export function getTooltipArrowOrigin(
+  placement: TooltipPlacement,
+  arrowLeft?: number,
+): string {
+  const x = arrowLeft === undefined ? "50%" : `${arrowLeft}px`;
+  const y =
+    placement === "top" ? `calc(100% + ${ARROW_SIZE}px)` : `-${ARROW_SIZE}px`;
+  return `${x} ${y}`;
+}
+
 export function computeTooltipLayout({
   triggerRect,
   tooltipRect,

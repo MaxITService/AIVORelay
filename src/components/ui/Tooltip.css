@@ -1,0 +1,49 @@
+/* Hover tooltips grow out of their arrow with a light spring and fade out on
+   leave. transform-origin is set inline to the arrow tip; the exit duration is
+   mirrored by TOOLTIP_EXIT_DURATION_MS in src/lib/motion.ts. */
+
+.aivo-tooltip {
+  --aivo-tooltip-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  animation:
+    aivo-tooltip-grow 280ms var(--aivo-tooltip-spring),
+    aivo-tooltip-fade-in 120ms ease-out;
+}
+
+.aivo-tooltip[data-state="closed"] {
+  animation: aivo-tooltip-shrink 140ms ease-in forwards;
+}
+
+@keyframes aivo-tooltip-grow {
+  from {
+    scale: 0.5;
+  }
+}
+
+@keyframes aivo-tooltip-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes aivo-tooltip-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes aivo-tooltip-shrink {
+  to {
+    opacity: 0;
+    scale: 0.94;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aivo-tooltip {
+    animation: aivo-tooltip-fade-in 120ms ease-out;
+  }
+
+  .aivo-tooltip[data-state="closed"] {
+    animation: aivo-tooltip-fade-out 140ms ease-in forwards;
+  }
+}

@@ -6,6 +6,13 @@ export const COLLAPSE_MIN_DURATION_MS = 180;
 export const COLLAPSE_MAX_DURATION_MS = 450;
 export const POPOVER_EXIT_DURATION_MS = 120;
 
+/** Hover delay before a tooltip appears, so a passing cursor does not pop it up. */
+export const TOOLTIP_OPEN_DELAY_MS = 250;
+/** A tooltip hidden less than this long ago lets its neighbour open without the delay. */
+export const TOOLTIP_SKIP_DELAY_MS = 300;
+/** Mirrored by the exit animation in `components/ui/Tooltip.css`. */
+export const TOOLTIP_EXIT_DURATION_MS = 140;
+
 export const prefersReducedMotion = (): boolean =>
   typeof window !== "undefined" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
