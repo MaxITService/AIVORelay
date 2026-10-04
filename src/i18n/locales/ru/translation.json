@@ -82,6 +82,7 @@
       "ttsApiKey": "Выбранный провайдер TTS не использует API-ключ."
     },
     "items": {
+      "voice-button-always-on-top": "Показывать переключатель «Поверх окон» в голосовой кнопке",
       "preview-custom-height": "Своя высота (пиксели)",
       "preview-custom-width": "Своя ширина (пиксели)",
       "preview-custom-y": "Своя координата Y (пиксели)",
