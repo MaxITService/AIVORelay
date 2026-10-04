@@ -2186,6 +2186,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         )}
       >
       <SettingContainer
+        id="settings-overlay-theme"
         title={t(
           "settings.userInterface.recordingOverlay.theme.title",
           "Overlay Theme",
