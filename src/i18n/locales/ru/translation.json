@@ -82,6 +82,7 @@
       "ttsApiKey": "Выбранный провайдер TTS не использует API-ключ."
     },
     "items": {
+      "preview-custom-x": "Своя координата X (пиксели)",
       "session-toast-history": "История уведомлений сессии",
       "llm-benchmark": "Бенчмарк LLM",
       "preview-sliding-lm-prompt": "Промпт скользящего окна LM",
