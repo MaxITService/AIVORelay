@@ -1794,6 +1794,7 @@ export const UserInterfaceSettings: React.FC = () => {
 
       <SettingsGroup title={t("settings.advanced.window.title")}>
         <ToggleSwitch
+          id="settings-remember-window-size"
           checked={getSetting("remember_window_size") ?? false}
           onChange={(enabled) => updateSetting("remember_window_size", enabled)}
           isUpdating={isUpdating("remember_window_size")}
