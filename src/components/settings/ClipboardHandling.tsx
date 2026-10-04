@@ -114,6 +114,7 @@ export const ClipboardHandlingSetting: React.FC<ClipboardHandlingProps> =
           </div>
         </SettingContainer>
         <SettingContainer
+          id="settings-clipboard-restore-method"
           title={t("settings.advanced.clipboardHandling.restoreMethod.title")}
           description={t(
             "settings.advanced.clipboardHandling.restoreMethod.description",
