@@ -165,6 +165,7 @@ export const DebugSettings: React.FC = () => {
           <>
             <LazyStreamClose descriptionMode="tooltip" grouped={true} />
             <SettingContainer
+              id="settings-beta-voice-commands"
               title={t("settings.debug.voiceCommands.title")}
               description={t("settings.debug.voiceCommands.description")}
               descriptionMode="inline"
