@@ -1063,6 +1063,7 @@ export const UserInterfaceSettings: React.FC = () => {
           {sonioxLivePreviewSize === "custom" && (
             <>
               <SettingContainer
+                id="settings-preview-custom-width"
                 title="Custom Width (px)"
                 description="Manual window width in pixels."
                 descriptionMode="inline"

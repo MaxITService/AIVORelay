@@ -82,6 +82,7 @@
       "ttsApiKey": "Выбранный провайдер TTS не использует API-ключ."
     },
     "items": {
+      "preview-custom-width": "Своя ширина (пиксели)",
       "preview-custom-y": "Своя координата Y (пиксели)",
       "preview-custom-x": "Своя координата X (пиксели)",
       "session-toast-history": "История уведомлений сессии",
