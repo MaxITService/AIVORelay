@@ -65,6 +65,7 @@ export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
       </div>
 
       <SettingContainer
+        id={`${apiKeyFeature}-llm-provider`}
         title={t("settings.postProcessing.api.provider.title")}
         description={t("settings.postProcessing.api.provider.description")}
         descriptionMode="tooltip"
