@@ -10,6 +10,7 @@ import { createPortal } from "react-dom";
 import { computeTooltipLayout, TooltipLayout } from "./tooltipPositioning";
 
 interface SettingContainerProps {
+  id?: string;
   title: React.ReactNode;
   description: React.ReactNode;
   children: React.ReactNode;
@@ -23,6 +24,7 @@ interface SettingContainerProps {
 }
 
 export const SettingContainer: React.FC<SettingContainerProps> = ({
+  id,
   title,
   description,
   children,
@@ -200,7 +202,7 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
   if (layout === "stacked") {
     if (descriptionMode === "tooltip") {
       return (
-        <div className={containerClasses}>
+        <div id={id} tabIndex={id ? -1 : undefined} className={containerClasses}>
           <div className="flex items-center gap-2 mb-2">
             <h3
               className={`text-sm font-medium ${disabled ? "opacity-50" : ""}`}
@@ -215,7 +217,7 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
     }
 
     return (
-      <div className={containerClasses}>
+      <div id={id} tabIndex={id ? -1 : undefined} className={containerClasses}>
         <div className={compact ? "mb-1" : "mb-2"}>
           <h3 className={`text-sm font-medium ${disabled ? "opacity-50" : ""}`}>
             {title}
@@ -238,7 +240,7 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
 
   if (descriptionMode === "tooltip") {
     return (
-      <div className={horizontalContainerClasses}>
+      <div id={id} tabIndex={id ? -1 : undefined} className={horizontalContainerClasses}>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3
@@ -255,7 +257,7 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
   }
 
   return (
-    <div className={horizontalContainerClasses}>
+    <div id={id} tabIndex={id ? -1 : undefined} className={horizontalContainerClasses}>
       <div className="flex-1 min-w-0">
         <h3 className={`text-sm font-medium ${disabled ? "opacity-50" : ""}`}>
           {title}
