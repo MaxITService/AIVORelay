@@ -54,6 +54,7 @@ export const OutputDeviceSelector: React.FC<OutputDeviceSelectorProps> =
 
       return (
         <SettingContainer
+          id="settings-sound-output-device"
           title={titleOverride ?? t("settings.sound.outputDevice.title")}
           description={
             descriptionOverride ?? t("settings.sound.outputDevice.description")
