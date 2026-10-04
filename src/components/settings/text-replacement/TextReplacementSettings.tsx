@@ -2136,6 +2136,7 @@ export const TextReplacementSettings: React.FC = () => {
         </div>
         <div className="px-4 py-3 border-t border-white/[0.05]">
           <ToggleSwitch
+            id="settings-leading-space-add"
             checked={leadingWhitespaceMode === "add_if_missing"}
             onChange={(enabled) =>
               setLeadingWhitespaceMode(enabled ? "add_if_missing" : "preserve")
