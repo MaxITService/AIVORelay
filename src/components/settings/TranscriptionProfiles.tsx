@@ -2802,7 +2802,7 @@ export const TranscriptionProfiles: React.FC = () => {
               <div className="px-4 pb-4 pt-3 border-t border-mid-gray/20 space-y-3">
                 {/* Push-to-Talk + Output to Preview — matches ProfileCard box style */}
                 <div className="grid gap-3 lg:grid-cols-2 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
-                  <div className="min-w-0">
+                  <div id="settings-dictation-press-mode" tabIndex={-1} className="min-w-0">
                     <div className="flex items-center gap-2 mb-2">
                       <label className="text-xs font-semibold text-text/70">
                         {t("settings.general.pushToTalk.label")}
