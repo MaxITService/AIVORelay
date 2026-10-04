@@ -1604,6 +1604,7 @@ export const UserInterfaceSettings: React.FC = () => {
             />
           </SettingContainer>
           <Slider
+            id="settings-preview-sliding-lm-tail"
             label="Sliding LM Editable Tail"
             description="How many recent words the LLM may rewrite. Older text is sent only as stable context and is not replaced."
             descriptionMode="inline"
