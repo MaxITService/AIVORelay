@@ -186,6 +186,7 @@ export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
               )}
 
               <SettingContainer
+                id={`${apiKeyFeature}-llm-api-key`}
                 title={t("settings.postProcessing.api.apiKey.title")}
                 description={t(
                   "settings.postProcessing.api.apiKey.description",
