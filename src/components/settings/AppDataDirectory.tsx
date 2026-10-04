@@ -69,6 +69,7 @@ export const AppDataDirectory: React.FC<AppDataDirectoryProps> = ({
 
   return (
     <SettingContainer
+      id="settings-app-data-directory"
       title={t("settings.about.appDataDirectory.title")}
       description={t("settings.about.appDataDirectory.description")}
       descriptionMode={descriptionMode}
