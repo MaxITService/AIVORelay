@@ -248,7 +248,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         activateSection: () => onSectionChange(section),
         targetId: anchorId ?? sectionAnchorId,
         readyId: sectionAnchorId,
-        fallbackId: fallbackAnchorId ?? sectionAnchorId,
+        fallbackId: fallbackAnchorId ?? expandAnchorId ?? sectionAnchorId,
         expandId: expandAnchorId,
         block: "center",
       });
