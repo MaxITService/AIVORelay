@@ -985,6 +985,7 @@ export const TextReplacementSettings: React.FC = () => {
 
                 <div className="mt-3 rounded-md border border-white/[0.08] bg-white/[0.02] px-3 py-3">
                   <ToggleSwitch
+                    id="settings-decapitalize-secondary-key"
                     checked={decapitalizeAfterEditSecondaryKeyEnabled}
                     onChange={(enabled) =>
                       (updateSetting as any)(
