@@ -1165,6 +1165,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       </SettingsGroup>
 
       <SettingsGroup
+        id="settings-live-transcript"
         title={t("settings.liveSoundTranscription.transcript.title")}
         description={t("settings.liveSoundTranscription.transcript.description")}
       >
