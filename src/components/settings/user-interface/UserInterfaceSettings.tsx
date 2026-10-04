@@ -1549,6 +1549,7 @@ export const UserInterfaceSettings: React.FC = () => {
             }
           />
           <Slider
+            id="settings-preview-legacy-overlap"
             label="Legacy Chunk Overlap"
             description="Audio kept as context across legacy local preview chunks. Higher overlap can reduce missed words at boundaries, but may increase repeated text."
             descriptionMode="inline"
