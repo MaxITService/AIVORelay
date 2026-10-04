@@ -22,6 +22,7 @@ export const FilterSilence: React.FC<FilterSilenceProps> = React.memo(
 
     return (
       <SettingContainer
+        id="settings-filter-silence"
         title={
           <>
             <span>{t("settings.debug.filterSilence.label")}</span>
