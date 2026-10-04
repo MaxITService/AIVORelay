@@ -81,6 +81,7 @@
       "ttsApiKey": "The selected TTS provider does not use an API key."
     },
     "items": {
+      "preview-cursor-distance": "Cursor Distance (Dynamic Mode)",
       "preview-position": "Live Preview Position",
       "preview-drag-handle": "Show Drag Grip",
       "preview-delete-character": "Backspace Deletes Last Character",

@@ -771,6 +771,7 @@ export const UserInterfaceSettings: React.FC = () => {
             />
           </SettingContainer>
           <SettingContainer
+            id="settings-preview-cursor-distance"
             title="Cursor Distance (Dynamic Mode)"
             description="Vertical distance from cursor to preview window when using Near Cursor position."
             descriptionMode="inline"
