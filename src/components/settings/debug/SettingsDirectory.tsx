@@ -68,6 +68,7 @@ export const SettingsDirectory: React.FC<SettingsDirectoryProps> = ({
 
   return (
     <SettingContainer
+      id="settings-settings-directory"
       title={t("settings.debug.settingsDirectoryTitle", "Settings Directory")}
       description={t(
         "settings.debug.settingsDirectoryDescription",
