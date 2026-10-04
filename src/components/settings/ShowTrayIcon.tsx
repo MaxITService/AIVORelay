@@ -77,6 +77,7 @@ export const ShowTrayIcon: React.FC<ShowTrayIconProps> = React.memo(
             {trayIconBlinkingEnabled && (
               <div className="pl-4 space-y-3 border-l-2 border-primary/20 ml-2">
                 <ToggleSwitch
+                  id="settings-tray-blink-processing"
                   checked={trayIconBlinkOnProcessing}
                   onChange={(enabled) =>
                     updateSetting("tray_icon_blink_on_processing", enabled)
