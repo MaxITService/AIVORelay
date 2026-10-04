@@ -479,26 +479,28 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
           grouped={grouped}
         />
 
-        <ToggleSwitch
-          checked={recordingOverlayShowDragGrip}
-          onChange={(enabled) =>
-            void updateSetting(
-              "recording_overlay_show_drag_grip" as any,
-              enabled as any,
-            )
-          }
-          isUpdating={isUpdating("recording_overlay_show_drag_grip")}
-          label={t(
-            "settings.advanced.overlay.dragGrip.label",
-            "Show Recording Overlay Drag Grip",
-          )}
-          description={t(
-            "settings.advanced.overlay.dragGrip.description",
-            "Show a small top handle on hover so you can drag the recording overlay during a session without leaving the grip visible all the time.",
-          )}
-          descriptionMode={descriptionMode}
-          grouped={grouped}
-        />
+        <div id="recording-overlay-drag-grip" tabIndex={-1} className="outline-none">
+          <ToggleSwitch
+            checked={recordingOverlayShowDragGrip}
+            onChange={(enabled) =>
+              void updateSetting(
+                "recording_overlay_show_drag_grip" as any,
+                enabled as any,
+              )
+            }
+            isUpdating={isUpdating("recording_overlay_show_drag_grip")}
+            label={t(
+              "settings.advanced.overlay.dragGrip.label",
+              "Show Recording Overlay Drag Grip",
+            )}
+            description={t(
+              "settings.advanced.overlay.dragGrip.description",
+              "Show a small top handle on hover so you can drag the recording overlay during a session without leaving the grip visible all the time.",
+            )}
+            descriptionMode={descriptionMode}
+            grouped={grouped}
+          />
+        </div>
 
         <SettingContainer
           title={t(
