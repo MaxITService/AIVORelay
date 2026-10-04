@@ -1,0 +1,36 @@
+/* Tactile button feedback: instant press-in, springy release, smoother hover lift. */
+
+.aivo-btn {
+  transition:
+    all 200ms cubic-bezier(0.4, 0, 0.2, 1),
+    scale 260ms cubic-bezier(0.34, 1.7, 0.64, 1),
+    translate 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    filter 160ms ease;
+}
+
+/* Pressed: fast squeeze (this transition applies on the way in) */
+.aivo-btn:not(:disabled):active {
+  scale: 0.97;
+  filter: brightness(0.92);
+  transition:
+    all 60ms ease-out,
+    scale 60ms ease-out,
+    translate 60ms ease-out,
+    filter 60ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aivo-btn,
+  .aivo-btn:not(:disabled):active {
+    transition:
+      background-color 120ms ease,
+      border-color 120ms ease,
+      color 120ms ease,
+      box-shadow 120ms ease,
+      filter 120ms ease;
+  }
+
+  .aivo-btn:not(:disabled):active {
+    scale: 1;
+  }
+}

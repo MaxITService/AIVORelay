@@ -1,4 +1,5 @@
 import React from "react";
+import "./Button.css";
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "primary" | "secondary" | "danger" | "ghost";
@@ -13,7 +14,7 @@ export const Button: React.FC<ButtonProps> = ({
   ...props
 }) => {
   const baseClasses =
-    "font-medium rounded-md focus:outline-none transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer";
+    "aivo-btn font-medium rounded-md focus:outline-none transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer";
 
   const variantClasses = {
     primary:
