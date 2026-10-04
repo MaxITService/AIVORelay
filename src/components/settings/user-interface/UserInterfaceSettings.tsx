@@ -1035,6 +1035,7 @@ export const UserInterfaceSettings: React.FC = () => {
           </LivePreviewSubsection>
           <LivePreviewSubsection title="Size" disabled={!sonioxLivePreviewEnabled}>
           <SettingContainer
+            id="settings-preview-size"
             title="Live Preview Size"
             description="Set the size of the live preview window."
             descriptionMode="inline"
