@@ -7,9 +7,13 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 use crate::audio_toolkit::save_wav_file;
+
+const RETENTION_CLEANUP_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 /// Database migrations for transcription history.
 /// Each migration is applied in order. The library tracks which migrations
@@ -460,6 +464,25 @@ impl HistoryManager {
                 // Use time-based logic
                 return self.cleanup_by_time(retention_period);
             }
+        }
+    }
+
+    /// Saving an entry is not the only retention trigger: entries must also
+    /// expire while nothing new is saved, e.g. after days without dictation.
+    /// Runs once at startup and then hourly on a background thread.
+    pub fn start_retention_cleanup(self: &Arc<Self>) {
+        let manager = Arc::clone(self);
+        let spawn_result = std::thread::Builder::new()
+            .name("history-retention".into())
+            .spawn(move || loop {
+                if let Err(e) = manager.cleanup_old_entries() {
+                    error!("Scheduled history retention cleanup failed: {}", e);
+                }
+                std::thread::sleep(RETENTION_CLEANUP_INTERVAL);
+            });
+
+        if let Err(e) = spawn_result {
+            error!("Failed to start history retention cleanup: {}", e);
         }
     }
 

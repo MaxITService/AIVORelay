@@ -633,6 +633,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(history_manager.clone());
     app_handle.manage(key_listener_state);
     app_handle.manage(settings::DictationStatsEditState::default());
+    history_manager.start_retention_cleanup();
 
     if !speech_only {
         let tts_history_manager = Arc::new(
