@@ -6,10 +6,14 @@ import { SettingContainer } from "../../ui/SettingContainer";
 import { Collapse } from "../../ui/Collapse";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { Dropdown } from "../../ui/Dropdown";
+import { NameSortedDropdown } from "../../ui/NameSortedDropdown";
+import { NameSortControl } from "../../ui/NameSortControl";
 import { ConfirmationModal } from "../../ui/ConfirmationModal";
 import { Slider } from "../../ui/Slider";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { useSettings } from "../../../hooks/useSettings";
+import { useSortedDisplayNames } from "../../../hooks/useSortedDisplayNames";
+import { useListSortDirection } from "../../../hooks/useListSortPreference";
 import { navigateToSettingsAnchor } from "../../../lib/anchorNavigation";
 import { useNavigationStore } from "../../../stores/navigationStore";
 import { ShowOverlay } from "../ShowOverlay";
@@ -469,6 +473,8 @@ export const RecordingOverlaySettings: React.FC = () => {
   const [isApplyingPreset, setIsApplyingPreset] = React.useState(false);
   const [isApplyingStyleCode, setIsApplyingStyleCode] = React.useState(false);
   const [arePresetsExpanded, setArePresetsExpanded] = React.useState(true);
+  const [userPresetSortDirection, setUserPresetSortDirection] =
+    useListSortDirection("recording-overlay-presets");
   const presetsToolbarRef = React.useRef<HTMLDivElement | null>(null);
   const presetsToolbarSentinelRef = React.useRef<HTMLDivElement | null>(null);
   const [isPresetsToolbarStuck, setIsPresetsToolbarStuck] = React.useState(false);
@@ -799,6 +805,12 @@ export const RecordingOverlaySettings: React.FC = () => {
     [settings?.recording_overlay_user_presets, currentStyleCode],
   );
   const userPresetsBusy = isUpdating("recording_overlay_user_presets");
+  const { items: visibleUserPresets } =
+    useSortedDisplayNames(
+      userPresets,
+      ({ preset }) => preset.name,
+      userPresetSortDirection,
+    );
   const matchingUserPreset = React.useMemo(() => {
     const name = userPresetName.trim().toLowerCase();
     return name
@@ -1654,11 +1666,17 @@ export const RecordingOverlaySettings: React.FC = () => {
           </div>
           <div className="space-y-3 rounded-lg border border-[#2f2f2f] bg-[#151515] p-3">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[#ff8ebb]">
-                {t(
-                  "settings.userInterface.recordingOverlay.presets.user.title",
-                  "My Presets",
-                )}
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#ff8ebb]">
+                  {t(
+                    "settings.userInterface.recordingOverlay.presets.user.title",
+                    "My Presets",
+                  )}
+                </span>
+                <NameSortControl
+                  direction={userPresetSortDirection}
+                  onChange={setUserPresetSortDirection}
+                />
               </div>
               <div className="mt-1 text-xs leading-relaxed text-[#9d9d9d]">
                 {t(
@@ -1715,7 +1733,7 @@ export const RecordingOverlaySettings: React.FC = () => {
               </div>
             ) : arePresetsExpanded ? (
               <div className="grid gap-3 xl:grid-cols-2">
-                {userPresets.map(({ preset, config, isApplied }) => (
+                {visibleUserPresets.map(({ preset, config, isApplied }) => (
                   <div key={preset.id} className="relative">
                     <button
                       type="button"
@@ -2838,7 +2856,9 @@ export const RecordingOverlaySettings: React.FC = () => {
         descriptionMode="tooltip"
         grouped={true}
       >
-        <Dropdown
+        <NameSortedDropdown
+          sortKey="recording-overlay-fonts"
+          fixedDirection="asc"
           options={decapIndicatorFontOptions}
           selectedValue={decapIndicatorFontFamily}
           onSelect={(value) =>

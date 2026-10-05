@@ -73,6 +73,7 @@ describe("workflow-specific STT model menus", () => {
     expect(options.find(option => option.value === sttSelectionKey(unprepared.selection))).toEqual({
       value: sttSelectionKey(unprepared.selection),
       label: `⚠ ${unprepared.modelLabel}`,
+      sortLabel: unprepared.modelLabel,
       className: "text-red-400",
       title: reason,
     });

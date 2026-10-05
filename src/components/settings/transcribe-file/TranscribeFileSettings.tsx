@@ -31,7 +31,7 @@ import { Button } from "@/components/ui/Button";
 import { TextFileActions } from "@/components/ui/TextFileActions";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
-import { Dropdown } from "@/components/ui/Dropdown";
+import { NameSortedDropdown } from "@/components/ui/NameSortedDropdown";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { SttModelSelector } from "@/components/settings/SttModelSelector";
 import {
@@ -1668,7 +1668,10 @@ export const TranscribeFileSettings: React.FC = () => {
                   <p className="text-sm font-medium text-[#f5f5f5]">
                     {t("settings.gemini.language.title", "Gemini language")}
                   </p>
-                  <Dropdown
+                  <NameSortedDropdown
+                    sortKey="file-gemini-languages"
+                    fixedDirection="asc"
+                    pinnedValues={["auto", "os_input"]}
                     selectedValue={fileGeminiLanguage}
                     options={[
                       {
@@ -2219,7 +2222,8 @@ export const TranscribeFileSettings: React.FC = () => {
                           <label className="text-xs text-[#808080]">
                             {t("transcribeFile.speakerNames.savedProfiles")}
                           </label>
-                          <Dropdown
+                          <NameSortedDropdown
+                            sortKey="file-speaker-name-profiles"
                             className="w-full"
                             selectedValue={selectedSpeakerNameProfileId}
                             options={speakerNameProfileOptions}

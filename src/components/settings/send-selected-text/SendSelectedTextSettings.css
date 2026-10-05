@@ -176,7 +176,7 @@
   line-height: 1.45;
 }
 
-.sst-page select,
+.sst-page select:not([data-sort-control]),
 .sst-page textarea {
   width: 100%;
   min-width: 0;
@@ -189,7 +189,7 @@
   font-size: 12px;
 }
 
-.sst-page select {
+.sst-page select:not([data-sort-control]) {
   min-height: 34px;
   padding: 7px 9px;
 }
@@ -200,7 +200,7 @@
   line-height: 1.45;
 }
 
-.sst-page select:focus,
+.sst-page select:not([data-sort-control]):focus,
 .sst-page textarea:focus {
   border-color: rgba(132, 184, 255, 0.7);
   box-shadow: 0 0 0 2px rgba(132, 184, 255, 0.1);

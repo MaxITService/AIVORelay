@@ -4,7 +4,10 @@ import { commands } from "@/bindings";
 import type { PostProcessProvider } from "@/bindings";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import type { DropdownOption } from "../../ui/Dropdown";
-import { useInheritedPostProcessStatus } from "./useInheritedPostProcessStatus";
+import {
+  SAME_AS_POST_PROCESS_VALUE,
+  useInheritedPostProcessStatus,
+} from "./useInheritedPostProcessStatus";
 
 export interface ModelOption {
   value: string;
@@ -40,7 +43,6 @@ type AiReplaceProviderState = {
 };
 
 const APPLE_PROVIDER_ID = "apple_intelligence";
-const SAME_AS_POST_PROCESS_VALUE = "__same_as_post_process__";
 
 export const useAiReplaceProviderState = (): AiReplaceProviderState => {
   const {

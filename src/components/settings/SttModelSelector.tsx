@@ -4,7 +4,7 @@ import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { commands, type ModelInfo } from "@/bindings";
 import { Button } from "@/components/ui/Button";
-import { Dropdown } from "@/components/ui/Dropdown";
+import { NameSortedDropdown } from "@/components/ui/NameSortedDropdown";
 import { useNavigationStore } from "@/stores/navigationStore";
 import {
   sttCatalog,
@@ -163,8 +163,13 @@ export const SttModelSelector: React.FC<Props> = ({
     }
     return [...providers].map(([value, label]) => ({ value, label }));
   }, [options]);
-  const modelOptions = options.filter(
-    (option) => option.providerId === currentProviderId,
+  const modelOptions = useMemo(
+    () => options.filter((option) => option.providerId === currentProviderId),
+    [options, currentProviderId],
+  );
+  const modelDropdownOptions = useMemo(
+    () => sttModelDropdownOptions(modelOptions, readiness),
+    [modelOptions, readiness],
   );
   const currentCatalogOption = selection
     ? catalog.find(
@@ -253,7 +258,9 @@ export const SttModelSelector: React.FC<Props> = ({
         <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
           {t("settings.sttModelSelector.provider")}
         </p>
-        <Dropdown
+        <NameSortedDropdown
+          sortKey={`stt-providers:${workflow}`}
+          fixedDirection="asc"
           className="w-full"
           ariaLabel={t("settings.sttModelSelector.provider")}
           selectedValue={currentProviderId}
@@ -272,11 +279,13 @@ export const SttModelSelector: React.FC<Props> = ({
         >
           {t("settings.sttModelSelector.model")}
         </p>
-        <Dropdown
+        <NameSortedDropdown
+          sortKey={`stt-models:${workflow}:${currentProviderId ?? "custom"}`}
+          fixedDirection="asc"
           className="w-full"
           ariaLabel={t("settings.sttModelSelector.model")}
           selectedValue={currentKey}
-          options={sttModelDropdownOptions(modelOptions, readiness)}
+          options={modelDropdownOptions}
           onSelect={(value) => {
             const option = modelOptions.find(
               (item) => sttSelectionKey(item.selection) === value,

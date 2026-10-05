@@ -9,6 +9,7 @@ import { commands } from "@/bindings";
 import { Button } from "../../ui/Button";
 import { Collapse } from "../../ui/Collapse";
 import { Dropdown } from "../../ui/Dropdown";
+import { NameSortedDropdown } from "../../ui/NameSortedDropdown";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { useSettings } from "../../../hooks/useSettings";
@@ -1181,7 +1182,10 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                 <span className="text-xs text-[#8a8a8a]">
                   {t("settings.liveSoundTranscription.transcript.filterSpeaker")}
                 </span>
-                <Dropdown
+                <NameSortedDropdown
+                  sortKey="live-speaker-filter"
+                  fixedDirection="asc"
+                  pinnedValues={["all"]}
                   className="w-full sm:w-56"
                   selectedValue={speakerFilter}
                   options={speakerFilterOptions}
@@ -1489,7 +1493,8 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               <label className="text-xs text-[#808080]">
                 {t("transcribeFile.speakerNames.savedProfiles")}
               </label>
-              <Dropdown
+              <NameSortedDropdown
+                sortKey="live-speaker-name-profiles"
                 className="w-full"
                 selectedValue={selectedSpeakerNameProfileId}
                 options={speakerNameProfileOptions}

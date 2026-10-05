@@ -1,4 +1,14 @@
 {
+  "listSorting": {
+    "off": "Выкл.",
+    "ascending": "А → Я",
+    "descending": "Я → А",
+    "nameLabel": "Сортировать по имени",
+    "profilesLabel": "Сортировать профили по имени",
+    "modelsLabel": "Сортировка моделей",
+    "offTooltip": "«Выкл.» показывает элементы в исходном порядке.",
+    "activeTooltip": "Отсортировано по имени. Shift + щелчок отключает сортировку."
+  },
   "geminiEarlyFinalization": {
     "title": "Раннее завершение",
     "recommended": "Рекомендуется",

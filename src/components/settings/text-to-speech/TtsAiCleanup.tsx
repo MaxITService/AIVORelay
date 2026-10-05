@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { Input } from "@/components/ui/Input";
 import { Select, type SelectOption } from "@/components/ui/Select";
+import { NameSortedSelect } from "@/components/ui/NameSortedSelect";
 import { SettingContainer } from "@/components/ui/SettingContainer";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Textarea } from "@/components/ui/Textarea";
@@ -211,7 +212,6 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
   const modelOptions = useMemo(
     () =>
       Array.from(new Set([value.model, ...models].filter(Boolean)))
-        .sort()
         .map((model) => ({ value: model, label: model })),
     [models, value.model],
   );
@@ -519,7 +519,9 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
           "Provider definitions are shared with LLM Post Processing; this selection and model are TTS-only.",
         )}
       >
-        <Select
+        <NameSortedSelect
+          sortKey="tts-ai-cleanup-providers"
+          fixedDirection="asc"
           className="min-w-64"
           options={providerOptions}
           value={value.provider_id}
@@ -694,6 +696,8 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
       >
         <div className="flex flex-wrap items-center gap-2">
           <ModelSelect
+            sortKey={`tts-ai-cleanup-models:${value.provider_id}`}
+            fixedDirection="asc"
             value={value.model}
             options={modelOptions}
             isLoading={modelsBusy}
@@ -752,7 +756,9 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
       >
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            <Select
+            <NameSortedSelect
+              sortKey="tts-ai-cleanup-prompts"
+              fixedDirection="asc"
               className="min-w-64 flex-1"
               options={promptOptions}
               value={selectedPrompt?.id ?? null}

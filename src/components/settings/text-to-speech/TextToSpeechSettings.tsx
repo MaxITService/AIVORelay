@@ -55,6 +55,7 @@ import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { HotkeyCapture } from "@/components/ui/HotkeyCapture";
 import { Input } from "@/components/ui/Input";
 import { Select, type SelectOption } from "@/components/ui/Select";
+import { NameSortedSelect } from "@/components/ui/NameSortedSelect";
 import { SettingContainer } from "@/components/ui/SettingContainer";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Textarea } from "@/components/ui/Textarea";
@@ -991,6 +992,7 @@ const CARTESIA_MODEL_SELECT_OPTIONS: SelectOption[] =
   }));
 
 type CloudVoiceSelectorProps = {
+  sortKey: string;
   value: string;
   options: SelectOption[];
   customLabel: string;
@@ -1007,6 +1009,7 @@ type CloudVoiceSelectorProps = {
 };
 
 const CloudVoiceSelector: React.FC<CloudVoiceSelectorProps> = ({
+  sortKey,
   value,
   options,
   customLabel,
@@ -1024,7 +1027,9 @@ const CloudVoiceSelector: React.FC<CloudVoiceSelectorProps> = ({
   const { t } = useTranslation();
   return (
     <div className="w-full space-y-2 md:w-96">
-      <Select
+      <NameSortedSelect
+        sortKey={sortKey}
+        fixedDirection="asc"
         value={value}
         options={options}
         placeholder={customPlaceholder}
@@ -3529,9 +3534,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               title={t("textToSpeech.provider.title")}
               description={t("textToSpeech.provider.description")}
             >
-              <Select
+              <NameSortedSelect
                 className="w-full md:w-72"
                 value={tts.provider}
+                sortKey="tts-providers"
+                fixedDirection="asc"
                 options={providerSelectOptions}
                 onChange={(value) => {
                   if (value) void chooseProvider(value as TtsProvider);
@@ -3606,9 +3613,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               title={t("textToSpeech.provider.title")}
               description={t("textToSpeech.provider.description")}
             >
-              <Select
+              <NameSortedSelect
                 className="w-full md:w-72"
                 value={tts.provider}
+                sortKey="tts-providers"
+                fixedDirection="asc"
                 options={providerSelectOptions}
                 onChange={(value) => {
                   if (value) void chooseProvider(value as TtsProvider);
@@ -4091,9 +4100,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
             descriptionMode="inline"
           >
             <div className="flex flex-wrap gap-2">
-              <Select
+              <NameSortedSelect
                 className="min-w-64 flex-1"
                 value={selectedSynthesisPresetId}
+                sortKey="tts-synthesis-presets"
+                pinnedValues={[""]}
                 options={[
                   {
                     value: "",
@@ -4601,9 +4612,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
             description={t("textToSpeech.voice.voiceDescription")}
           >
             {tts.provider === "local_qwen" ? (
-              <Select
+              <NameSortedSelect
                 className="w-full md:w-72"
                 value={tts.local_qwen_voice}
+                sortKey="tts-voices:local_qwen"
+                fixedDirection="asc"
                 options={LOCAL_QWEN_VOICES}
                 onChange={(value) => {
                   if (value) {
@@ -4617,9 +4630,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 disabled={savingField !== null}
               />
             ) : tts.provider === "local_kokoro" ? (
-              <Select
+              <NameSortedSelect
                 className="w-full md:w-72"
                 value={tts.local_kokoro_voice}
+                sortKey="tts-voices:local_kokoro"
+                fixedDirection="asc"
                 options={
                   tts.local_kokoro_language === "Chinese"
                     ? LOCAL_KOKORO_CHINESE_VOICES
@@ -4651,8 +4666,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     {t("textToSpeech.windows.noVoices")}
                   </p>
                 ) : (
-                  <Select
+                  <NameSortedSelect
                     value={tts.windows_voice_id}
+                    sortKey="tts-voices:windows"
+                    fixedDirection="asc"
+                    pinnedValues={[""]}
                     options={[
                       {
                         value: "",
@@ -4714,6 +4732,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               tts.provider === "cartesia" ||
               tts.provider === "edge" ? (
               <CloudVoiceSelector
+                sortKey={`tts-voices:${tts.provider}`}
                 key={tts.provider}
                 value={voiceValue}
                 options={cloudVoiceOptions}
@@ -4812,9 +4831,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               title={t("textToSpeech.voice.languageTitle")}
               description={t("textToSpeech.voice.languageDescription")}
             >
-              <Select
+              <NameSortedSelect
                 className="w-full md:w-72"
                 value={tts.soniox_language}
+                sortKey="tts-languages:soniox"
+                fixedDirection="asc"
                 options={SONIOX_LANGUAGE_SELECT_OPTIONS}
                 placeholder="en"
                 isClearable={false}
@@ -4854,9 +4875,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               title={t("textToSpeech.voice.languageTitle")}
               description={t("textToSpeech.voice.languageDescription")}
             >
-              <Select
+              <NameSortedSelect
                 className="w-full md:w-72"
                 value={providerLanguageValue}
+                sortKey={`tts-languages:${tts.provider}`}
+                fixedDirection="asc"
                 options={providerLanguageOptions}
                 placeholder={TTS_PROVIDER_DEFAULTS[tts.provider].language}
                 isClearable={false}
@@ -4919,9 +4942,12 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               title={t("textToSpeech.voice.languageTitle")}
               description={t("textToSpeech.local.languageDescription")}
             >
-              <Select
+              <NameSortedSelect
                 className="w-full md:w-72"
                 value={tts.local_qwen_language}
+                sortKey="tts-languages:local_qwen"
+                fixedDirection="asc"
+                pinnedValues={["Auto"]}
                 options={LOCAL_QWEN_LANGUAGES}
                 onChange={(value) => {
                   if (value) {
@@ -4942,9 +4968,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               title={t("textToSpeech.voice.languageTitle")}
               description={t("textToSpeech.local.languageDescription")}
             >
-              <Select
+              <NameSortedSelect
                 className="w-full md:w-72"
                 value={tts.local_kokoro_language}
+                sortKey="tts-languages:local_kokoro"
+                fixedDirection="asc"
                 options={LOCAL_KOKORO_LANGUAGES}
                 onChange={(value) => {
                   if (value) {
@@ -4986,9 +5014,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     }
                   />
                 ) : (
-                <Select
+                <NameSortedSelect
                   className="w-full md:w-72"
                   value={modelValue}
+                  sortKey={`tts-models:${tts.provider}`}
+                  fixedDirection="asc"
                   options={
                     tts.provider === "soniox"
                       ? SONIOX_MODEL_SELECT_OPTIONS
@@ -5132,9 +5162,12 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 title={t("textToSpeech.voice.murfStyleTitle")}
                 description={t("textToSpeech.voice.murfStyleDescription")}
               >
-                <Select
+                <NameSortedSelect
                   className="w-full md:w-72"
                   value={tts.murf_style ?? ""}
+                  sortKey="tts-styles:murf"
+                  fixedDirection="asc"
+                  pinnedValues={[""]}
                   options={murfStyleOptions}
                   isClearable={false}
                   onChange={(value) =>
@@ -5472,9 +5505,12 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 descriptionMode="inline"
               >
                 <div className="flex flex-wrap gap-2">
-                  <Select
+                  <NameSortedSelect
                     className="min-w-64"
                     value={tts.selected_prompt_id}
+                    sortKey="tts-voice-prompts"
+                    fixedDirection="asc"
+                    pinnedValues={[""]}
                     options={[
                       {
                         value: "",

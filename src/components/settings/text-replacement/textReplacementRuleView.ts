@@ -1,3 +1,5 @@
+import { compareNaturalStrings } from "@/lib/displayNameSorting";
+
 export interface TextReplacementRule {
   id: string;
   from: string;
@@ -9,19 +11,17 @@ export interface TextReplacementRule {
 
 export type TextReplacementSearchScope = "all" | "replacement";
 
-export type TextReplacementColumnSortDirection = "off" | "asc" | "desc";
+export type { SortDirection as TextReplacementColumnSortDirection } from "@/lib/displayNameSorting";
 
-export type TextReplacementSortOrder =
-  | "added"
-  | "find-asc"
-  | "find-desc"
-  | "replacement-asc"
-  | "replacement-desc";
+export const TEXT_REPLACEMENT_SORT_ORDERS = [
+  "added",
+  "find-asc",
+  "find-desc",
+  "replacement-asc",
+  "replacement-desc",
+] as const;
 
-const alphabeticalCollator = new Intl.Collator(undefined, {
-  numeric: true,
-  sensitivity: "base",
-});
+export type TextReplacementSortOrder = (typeof TEXT_REPLACEMENT_SORT_ORDERS)[number];
 
 interface IndexedRule {
   rule: TextReplacementRule;
@@ -34,7 +34,7 @@ const compareIndexedRules = (
   field: "from" | "to",
   direction: 1 | -1,
 ): number => {
-  const comparison = alphabeticalCollator.compare(
+  const comparison = compareNaturalStrings(
     left.rule[field],
     right.rule[field],
   );

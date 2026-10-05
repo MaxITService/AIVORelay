@@ -41,10 +41,13 @@ import {
   type SendSelectedTextWriteMode as WriteMode,
 } from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
+import { useSortedDisplayNames } from "@/hooks/useSortedDisplayNames";
+import { useListSortDirection } from "@/hooks/useListSortPreference";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { Button } from "../../ui/Button";
 import { Collapse } from "../../ui/Collapse";
 import { Input } from "../../ui/Input";
+import { NameSortControl } from "../../ui/NameSortControl";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { HandyShortcut } from "../HandyShortcut";
 import "./SendSelectedTextSettings.css";
@@ -1112,6 +1115,8 @@ function HelpView() {
 export default function SendSelectedTextSettings() {
   const { refreshSettings } = useSettings();
   const [tab, setTab] = useState<PageTab>("presets");
+  const [presetSortDirection, setPresetSortDirection] =
+    useListSortDirection("send-selected-text-presets");
   const [feature, setFeature] =
     useState<SendSelectedTextFeatureSettings | null>(null);
   const [historyEntries, setHistoryEntries] = useState<
@@ -1247,6 +1252,8 @@ export default function SendSelectedTextSettings() {
   }, [loadFeature, loadHistory]);
 
   const presets = feature?.presets ?? [];
+  const { items: visiblePresets } =
+    useSortedDisplayNames(presets, (preset) => preset.name, presetSortDirection);
 
   const createPreset = async () => {
     if (createPresetInFlight.current) return;
@@ -1504,15 +1511,24 @@ export default function SendSelectedTextSettings() {
             </p>
           </div>
         </div>
-        <Button
-          variant="primary"
-          disabled={creatingPreset}
-          onClick={createPreset}
-        >
-          <span className="flex items-center gap-2">
-            <Plus size={16} /> Add preset
-          </span>
-        </Button>
+        <div className="flex items-center gap-2">
+          {tab === "presets" && (
+            <NameSortControl
+              direction={presetSortDirection}
+              onChange={setPresetSortDirection}
+              label="Sort presets"
+            />
+          )}
+          <Button
+            variant="primary"
+            disabled={creatingPreset}
+            onClick={createPreset}
+          >
+            <span className="flex items-center gap-2">
+              <Plus size={16} /> Add preset
+            </span>
+          </Button>
+        </div>
       </header>
 
       <nav className="sst-tabs" aria-label="Send Selected Text views">
@@ -1615,7 +1631,7 @@ export default function SendSelectedTextSettings() {
             </div>
           ) : (
             <div className="space-y-3">
-              {presets.map((preset) => (
+              {visiblePresets.map((preset) => (
                 <PresetCard
                   key={preset.id}
                   preset={preset}

@@ -58,6 +58,13 @@ Files that are added by this fork rather than upstream files that were modified.
 | File | Purpose |
 | --- | --- |
 | `src/components/settings/AccelerationSelector.tsx` | Whisper/ORT accelerator selector UI for local model backends. |
+| `src/lib/displayNameSorting.ts` | Shared synchronous Off/ascending/descending display-order contract, direction type, and numeric, case-insensitive, accent-insensitive `Intl.Collator` comparator for names and Text Replacement rules on all platforms; equal comparisons preserve original positions. Also owns the pinned-first, caller-ordered-group ordering used by `useSortedDisplayNames`; covered by `displayNameSorting.test.ts`. |
+| `src/hooks/useSortedDisplayNames.ts` | Memoizes indices by names, pinning, groups, and direction, and memoizes the displayed array by current objects and indices; preserves pinned service items, caller-ordered groups, stored arrays, and IDs. |
+| `src/hooks/useListSortPreference.ts` | Persists independent frontend sort preferences by stable list key in local storage, including name directions and Text Replacement column order; validates stored choices before restoring them. |
+| `src/components/ui/SortControl.tsx` | Shared Off/A-to-Z/Z-to-A control with caller-supplied translations, a compact muted variant, and Shift-click reset. |
+| `src/components/ui/NameSortControl.tsx` | Localized compact name-sort selector shared by list headers and dropdown adapters; optional visible caption for controls placed away from the list they sort. |
+| `src/components/ui/NameSortedSelect.tsx` | Name-sorted adapter for searchable and creatable selects; preserves existing group order, pinned defaults, option values, and create/select handlers. |
+| `src/components/ui/NameSortedDropdown.tsx` | Name-sorted dropdown adapter with a persistent list key, optional pinned service values, and optional undecorated sort labels so STT readiness warnings do not affect order; used for prompts, providers, models, devices, languages, and saved speaker-name profiles. |
 | `src/hooks/useWindowsMicrophonePermission.ts` | Shared Windows microphone privacy status: registry-backed check, focus/recording-error re-checks, polling after opening `ms-settings:privacy-microphone`. |
 | `src/components/settings/MicrophoneAccessNotice.tsx` | Speech / Microphone banner shown only while Windows blocks microphone access; the wizard permission step is skippable and no longer gates the app. |
 | `src/components/settings/SonioxContextEditor.tsx` | Soniox context editor. |
@@ -178,7 +185,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/Sidebar.tsx` | Navigation for fork settings. |
 | `src/hooks/useSettings.ts` | Fork settings hooks. |
 | `src/components/settings/remote-stt/RemoteSttSettings.tsx` | Soniox + Deepgram provider settings. |
-| `src/components/settings/TranscriptionProfiles.tsx` | Provider-aware languages, a standalone application-aware settings disclosure that starts collapsed while disabled, stays expanded while enabled unless manually closed, and exposes a collapsed enabled-status indicator; a lazy-loading master toggle; per-profile automatic executable/title/path rules; consistent Default/custom profile LLM post-processing controls; and route-aware availability guidance. |
+| `src/components/settings/TranscriptionProfiles.tsx` | Provider-aware languages, a standalone application-aware settings disclosure that starts collapsed while disabled, stays expanded while enabled unless manually closed, and exposes a collapsed enabled-status indicator; a lazy-loading master toggle; per-profile automatic executable/title/path rules; consistent Default/custom profile LLM post-processing controls; and route-aware availability guidance. Custom profile cards use shared name sorting, with Default pinned first and the saved profile order preserved. |
 | `src/components/settings/transcribe-file/TranscribeFileSettings.tsx` | File transcription UI, including diarization speaker-name set profiles. |
 | `src/components/settings/TranscriptionSystemPrompt.tsx` | Prompt limits handling. |
 | `src/components/settings/TranslateToEnglish.tsx` | Soniox/Deepgram-aware UI state. |

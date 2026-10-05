@@ -29,7 +29,9 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Textarea } from "../ui/Textarea";
 import { TextFileActions } from "../ui/TextFileActions";
-import { Dropdown } from "../ui/Dropdown";
+import { NameSortedDropdown } from "../ui/NameSortedDropdown";
+import { NameSortControl } from "../ui/NameSortControl";
+import { useListSortDirection } from "../../hooks/useListSortPreference";
 import { Badge } from "../ui/Badge";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { TriStateToggle, type TriStateValue } from "../ui/TriStateToggle";
@@ -42,6 +44,7 @@ import { InfoTooltip } from "../ui/InfoTooltip";
 import { SonioxContextEditor } from "./SonioxContextEditor";
 import type { ModelOption } from "./PostProcessingSettingsApi/types";
 import { useSettings } from "../../hooks/useSettings";
+import { useSortedDisplayNames } from "../../hooks/useSortedDisplayNames";
 import { useModels } from "../../hooks/useModels";
 import {
   LANGUAGES,
@@ -315,6 +318,7 @@ interface ProfileCardProps {
   isActive: boolean;
   onSetActive: (id: string) => Promise<void>;
   llmModelOptions: ModelOption[];
+  llmModelSortKey: string;
   globalLlmModel: string;
   onRefreshModels: () => void;
   isFetchingModels: boolean;
@@ -346,6 +350,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   isActive,
   onSetActive,
   llmModelOptions,
+  llmModelSortKey,
   globalLlmModel,
   onRefreshModels,
   isFetchingModels,
@@ -1265,7 +1270,10 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
               <label className="text-xs font-semibold text-text/70">
                 {t("settings.transcriptionProfiles.language")}
               </label>
-              <Dropdown
+              <NameSortedDropdown
+                sortKey="profile-languages"
+                fixedDirection="asc"
+                pinnedValues={["auto", "os_input"]}
                 selectedValue={profile.language}
                 options={effectiveLanguageOptions.map((l) => ({
                   value: l.value,
@@ -1363,7 +1371,10 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                 <label className="text-xs font-semibold text-text/70">
                   {t("settings.gemini.language.title", "Gemini language")}
                 </label>
-                <Dropdown
+                <NameSortedDropdown
+                  sortKey="profile-gemini-languages"
+                  fixedDirection="asc"
+                  pinnedValues={["__inherit__", "auto", "os_input"]}
                   selectedValue={profile.gemini_language_code_override ?? "__inherit__"}
                   options={[
                     {
@@ -1810,7 +1821,8 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                             "Copy a saved LLM Post-Processing prompt into this profile. Later edits affect only this profile.",
                           )}
                         </p>
-                        <Dropdown
+                        <NameSortedDropdown
+                          sortKey="profile-prompts"
                           options={llmPromptSourceOptions}
                           selectedValue={null}
                           onSelect={handleLlmPromptSourceSelect}
@@ -1912,6 +1924,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                       </p>
                       <div className="flex items-center gap-2">
                         <ModelSelect
+                          sortKey={llmModelSortKey}
                           value={profile.llm_model_override || ""}
                           options={llmModelOptions}
                           disabled={isUpdating}
@@ -1964,6 +1977,8 @@ export const TranscriptionProfiles: React.FC = () => {
     fetchPostProcessModels,
   } = useSettings();
   const { models: localSttModels, getModelInfo } = useModels();
+  const [profileSortDirection, setProfileSortDirection] =
+    useListSortDirection("transcription-profiles");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(
     () => new Set(["default"]),
   );
@@ -2042,6 +2057,11 @@ export const TranscriptionProfiles: React.FC = () => {
 
   const profiles = (settings?.transcription_profiles ||
     []) as ExtendedTranscriptionProfile[];
+  const { items: visibleProfiles } = useSortedDisplayNames(
+    profiles,
+    (profile) => profile.name,
+    profileSortDirection,
+  );
   const globalSttModelSelection = globalSttSelection(settings);
   const newLlmEnabled =
     newLlmEnabledOverride ?? Boolean(settings?.post_process_enabled);
@@ -2254,6 +2274,7 @@ export const TranscriptionProfiles: React.FC = () => {
     const models = postProcessModelOptions[currentLlmProviderId] || [];
     return models.map((m) => ({ value: m, label: m }));
   }, [postProcessModelOptions, currentLlmProviderId]);
+  const llmModelSortKey = `profile-llm-models:${currentLlmProviderId}`;
 
   const globalLlmModel =
     settings?.post_process_models?.[currentLlmProviderId] || "";
@@ -2686,7 +2707,19 @@ export const TranscriptionProfiles: React.FC = () => {
 
       <SettingContainer
         id="settings-manage-profiles"
-        title={t("settings.transcriptionProfiles.existingProfiles")}
+        title={
+          <span className="flex min-w-0 flex-wrap items-baseline justify-between gap-2">
+            <span>{t("settings.transcriptionProfiles.existingProfiles")}</span>
+            <NameSortControl
+              direction={profileSortDirection}
+              onChange={setProfileSortDirection}
+              ariaLabel={t(
+                "listSorting.profilesLabel",
+                "Sort profiles by name",
+              )}
+            />
+          </span>
+        }
         description=""
         descriptionMode="inline"
         layout="stacked"
@@ -2932,7 +2965,10 @@ export const TranscriptionProfiles: React.FC = () => {
                     <label className="text-xs font-semibold text-text/70">
                       {t("settings.general.language.title")}
                     </label>
-                    <Dropdown
+                    <NameSortedDropdown
+                      sortKey="profile-languages"
+                      fixedDirection="asc"
+                      pinnedValues={["auto", "os_input"]}
                       selectedValue={settings?.selected_language || "auto"}
                       onSelect={(value: string) =>
                         updateSetting &&
@@ -3038,7 +3074,10 @@ export const TranscriptionProfiles: React.FC = () => {
                       <label className="text-xs font-semibold text-text/70">
                         {t("settings.gemini.language.title", "Gemini language")}
                       </label>
-                      <Dropdown
+                      <NameSortedDropdown
+                        sortKey="profile-gemini-languages"
+                        fixedDirection="asc"
+                        pinnedValues={["auto", "os_input"]}
                         selectedValue={globalGeminiLanguageCode}
                         options={[
                           { value: "auto", label: t("settings.gemini.language.auto", "Auto Detect") },
@@ -3264,7 +3303,7 @@ export const TranscriptionProfiles: React.FC = () => {
           </div>
 
           {/* Custom Profiles */}
-          {profiles.map((profile) => {
+          {visibleProfiles.map((profile) => {
             const effectiveSelection =
               profile.stt_model_selection_override ?? globalSttModelSelection;
             const presentation = profileSttPresentation(
@@ -3286,6 +3325,7 @@ export const TranscriptionProfiles: React.FC = () => {
                 isActive={activeProfileId === profile.id}
                 onSetActive={handleSetActive}
                 llmModelOptions={llmModelOptions}
+                llmModelSortKey={llmModelSortKey}
                 globalLlmModel={globalLlmModel}
                 onRefreshModels={handleRefreshModels}
                 isFetchingModels={isFetchingModels}
@@ -3571,7 +3611,10 @@ export const TranscriptionProfiles: React.FC = () => {
               <label className="text-xs font-semibold text-text/70">
                 {t("settings.transcriptionProfiles.language")}
               </label>
-              <Dropdown
+              <NameSortedDropdown
+                sortKey="profile-languages"
+                fixedDirection="asc"
+                pinnedValues={["auto", "os_input"]}
                 selectedValue={newLanguage}
                 options={filteredLanguages.map((l) => ({
                   value: l.value,
@@ -4020,6 +4063,7 @@ export const TranscriptionProfiles: React.FC = () => {
                       <div className="flex items-center gap-2">
                         <ModelSelect
                           value={newLlmModelOverride || ""}
+                          sortKey={llmModelSortKey}
                           options={llmModelOptions}
                           disabled={isCreating}
                           placeholder={

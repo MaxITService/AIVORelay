@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   ArrowRight,
-  ArrowUpDown,
   CaseSensitive,
   Check,
   ChevronDown,
@@ -22,15 +21,16 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { useSettings } from "@/hooks/useSettings";
+import { useListSortPreference } from "@/hooks/useListSortPreference";
 import { useNavigationStore } from "@/stores/navigationStore";
 import { navigateToSettingsAnchor } from "@/lib/anchorNavigation";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
-import { Tooltip } from "@/components/ui/Tooltip";
 import { CustomWords } from "@/components/settings/CustomWords";
 import { Slider } from "@/components/ui/Slider";
+import { SortControl } from "@/components/ui/SortControl";
 import { TellMeMore } from "@/components/ui/TellMeMore";
 import { Collapse } from "@/components/ui/Collapse";
 import { HotkeyCapture } from "@/components/ui/HotkeyCapture";
@@ -41,6 +41,7 @@ import { sessionToast as toast } from "@/lib/sessionToast";
 import { TextReplacementImportDialog } from "./TextReplacementImportDialog";
 import {
   getVisibleTextReplacementRules,
+  TEXT_REPLACEMENT_SORT_ORDERS,
   type TextReplacementColumnSortDirection,
   type TextReplacementRule,
   type TextReplacementSearchScope,
@@ -106,60 +107,25 @@ function ColumnSortControl({
     "textReplacement.sortShiftClickTooltip",
     "Shift-click to turn sorting off.",
   );
-  const handleMouseDown = (event: React.MouseEvent<HTMLSelectElement>) => {
-    if (!event.shiftKey) return;
-    event.preventDefault();
-    onTurnOff();
-    event.currentTarget.blur();
-  };
 
   return (
     <div className="flex min-w-0 flex-1 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
       <span className="truncate text-xs font-medium text-[#a8a8a8]">
         {label}
       </span>
-      <Tooltip
-        content={direction === "off" ? offTooltip : activeTooltip}
-        position="top"
-      >
-        <span className="relative inline-block w-[5.75rem] shrink-0">
-          <ArrowUpDown
-            className={`pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 ${
-              direction === "off" ? "text-[#606060]" : "text-[#c69cff]"
-            }`}
-            aria-hidden="true"
-          />
-          <select
-            value={direction}
-            onMouseDown={handleMouseDown}
-            onChange={(event) =>
-              onChange(
-                event.target.value as TextReplacementColumnSortDirection,
-              )
-            }
-            aria-label={ariaLabel}
-            className={`min-h-7 w-full appearance-none rounded-md border bg-[#181818] py-1 pl-7 pr-7 text-xs outline-none transition-colors focus:border-[#9b5de5] [color-scheme:dark] ${
-              direction === "off"
-                ? "border-[#3c3c3c] text-[#8a8a8a] hover:border-[#505050]"
-                : "border-[#9b5de5] text-[#c69cff]"
-            }`}
-          >
-            <option value="off" title={offTooltip}>
-              {t("textReplacement.sortOff", "Off")}
-            </option>
-            <option value="asc">
-              {t("textReplacement.sortAscending", "A → Z")}
-            </option>
-            <option value="desc">
-              {t("textReplacement.sortDescending", "Z → A")}
-            </option>
-          </select>
-          <ChevronDown
-            className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#707070]"
-            aria-hidden="true"
-          />
-        </span>
-      </Tooltip>
+      <SortControl
+        direction={direction}
+        onChange={onChange}
+        onTurnOff={onTurnOff}
+        ariaLabel={ariaLabel}
+        labels={{
+          off: t("textReplacement.sortOff", "Off"),
+          asc: t("textReplacement.sortAscending", "A → Z"),
+          desc: t("textReplacement.sortDescending", "Z → A"),
+        }}
+        offTooltip={offTooltip}
+        activeTooltip={activeTooltip}
+      />
     </div>
   );
 }
@@ -191,7 +157,11 @@ export const TextReplacementSettings: React.FC = () => {
   const [ruleSearchScope, setRuleSearchScope] =
     useState<TextReplacementSearchScope>("all");
   const [ruleSortOrder, setRuleSortOrder] =
-    useState<TextReplacementSortOrder>("added");
+    useListSortPreference<TextReplacementSortOrder>(
+      "text-replacement-rules",
+      "added",
+      TEXT_REPLACEMENT_SORT_ORDERS,
+    );
   const [ruleTransferBusy, setRuleTransferBusy] = useState<
     "import" | "export" | null
   >(null);

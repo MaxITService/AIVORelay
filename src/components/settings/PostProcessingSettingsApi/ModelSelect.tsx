@@ -1,8 +1,11 @@
 import React from "react";
 import type { ModelOption } from "./types";
-import { Select } from "../../ui/Select";
+import { NameSortedSelect } from "../../ui/NameSortedSelect";
+import type { SortDirection } from "../../ui/SortControl";
 
 type ModelSelectProps = {
+  sortKey: string;
+  fixedDirection?: SortDirection;
   value: string;
   options: ModelOption[];
   disabled?: boolean;
@@ -16,6 +19,8 @@ type ModelSelectProps = {
 
 export const ModelSelect: React.FC<ModelSelectProps> = React.memo(
   ({
+    sortKey,
+    fixedDirection,
     value,
     options,
     disabled,
@@ -35,7 +40,9 @@ export const ModelSelect: React.FC<ModelSelectProps> = React.memo(
     const computedClassName = `text-sm ${className}`;
 
     return (
-      <Select
+      <NameSortedSelect
+        sortKey={sortKey}
+        fixedDirection={fixedDirection}
         className={computedClassName}
         value={value || null}
         options={options}

@@ -47,6 +47,7 @@ export type SttCatalogOption = {
 export type SttModelDropdownOption = {
   value: string;
   label: string;
+  sortLabel: string;
   className?: string;
   title?: string;
 };
@@ -137,6 +138,7 @@ export const sttModelDropdownOptions = (
     return {
       value: sttSelectionKey(option.selection),
       label: `${problem ? "⚠ " : ""}${option.modelLabel}`,
+      sortLabel: option.modelLabel,
       className: problem ? "text-red-400" : undefined,
       title: problem || undefined,
     };

@@ -11,7 +11,7 @@ import { Button } from "../../ui/Button";
 import { Collapse } from "../../ui/Collapse";
 import { ResetButton } from "../../ui/ResetButton";
 import { Input } from "../../ui/Input";
-import { Dropdown } from "../../ui/Dropdown";
+import { NameSortedDropdown } from "../../ui/NameSortedDropdown";
 import { Textarea } from "../../ui/Textarea";
 import { TextFileActions } from "../../ui/TextFileActions";
 import { PostProcessingToggle } from "../PostProcessingToggle";
@@ -569,7 +569,8 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
     >
       <div className="space-y-3">
         <div className="flex gap-2 min-w-0">
-          <Dropdown
+          <NameSortedDropdown
+            sortKey="post-process-prompts"
             selectedValue={selectedPromptId || null}
             options={prompts.map((p) => ({
               value: p.id,

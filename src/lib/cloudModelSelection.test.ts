@@ -118,6 +118,7 @@ test("ready cloud models have clean dropdown labels and no error styling", () =>
   expect(sttModelDropdownOptions(catalog, readiness)).toEqual(catalog.map(option => ({
     value: sttSelectionKey(option.selection),
     label: option.modelLabel,
+    sortLabel: option.modelLabel,
     className: undefined,
     title: undefined,
   })));

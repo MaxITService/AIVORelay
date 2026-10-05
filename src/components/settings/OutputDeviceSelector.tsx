@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Dropdown } from "../ui/Dropdown";
+import { NameSortedDropdown } from "../ui/NameSortedDropdown";
 import { SettingContainer } from "../ui/SettingContainer";
 import { ResetButton } from "../ui/ResetButton";
 import { useSettings } from "../../hooks/useSettings";
@@ -64,7 +64,10 @@ export const OutputDeviceSelector: React.FC<OutputDeviceSelectorProps> =
           disabled={disabled}
         >
           <div className="flex items-center space-x-1">
-            <Dropdown
+            <NameSortedDropdown
+              sortKey="output-devices"
+              fixedDirection="asc"
+              pinnedValues={["Default", "default"]}
               options={outputDeviceOptions}
               selectedValue={selectedOutputDevice}
               onSelect={handleOutputDeviceSelect}
