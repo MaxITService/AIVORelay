@@ -8,6 +8,9 @@ import {
 } from "../../lib/utils/modelTranslation";
 import { ProgressBar } from "../shared";
 import { ModelReleaseDate } from "../shared/ModelReleaseDate";
+import { NameSortControl } from "../ui/NameSortControl";
+import { useSortedDisplayNames } from "../../hooks/useSortedDisplayNames";
+import { useListSortDirection } from "../../hooks/useListSortPreference";
 
 interface DownloadProgress {
   model_id: string;
@@ -50,8 +53,14 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
     currentProvider === "remote_soniox" ||
     currentProvider === "remote_deepgram";
   const { t } = useTranslation();
-  const availableModels = models.filter((m) => m.is_downloaded);
-  const downloadableModels = models.filter((m) => !m.is_downloaded);
+  const [direction, setDirection] = useListSortDirection("model-popup");
+  const { items: visibleModels } = useSortedDisplayNames(
+    models,
+    (model) => getTranslatedModelName(model, t),
+    direction,
+  );
+  const availableModels = visibleModels.filter((m) => m.is_downloaded);
+  const downloadableModels = visibleModels.filter((m) => !m.is_downloaded);
   const isFirstRun = availableModels.length === 0 && models.length > 0;
   const nativeStreamingTitle = t(
     "modelSelector.nativeStreamingTooltip",
@@ -107,6 +116,13 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
       data-placement="top"
       className="app-popover absolute bottom-full left-0 mb-2 w-64 max-h-[calc(100vh-4rem)] overflow-y-auto bg-background border border-mid-gray/20 rounded-lg shadow-lg py-2 z-50"
     >
+      <div className="flex justify-end px-3 pb-1">
+        <NameSortControl
+          direction={direction}
+          onChange={setDirection}
+          label={t("listSorting.modelsLabel", "Sort models")}
+        />
+      </div>
       {/* Remote STT Options */}
       {onRemoteProviderSelect && (
         <div>

@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Dropdown } from "../ui/Dropdown";
+import { NameSortedDropdown } from "../ui/NameSortedDropdown";
 import { SettingContainer } from "../ui/SettingContainer";
 import { ResetButton } from "../ui/ResetButton";
 import { useSettings } from "../../hooks/useSettings";
@@ -66,7 +66,10 @@ export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
         disabled={disabled}
       >
         <div className="flex items-center space-x-1">
-          <Dropdown
+          <NameSortedDropdown
+            sortKey="microphones"
+            fixedDirection="asc"
+            pinnedValues={["Default", "default"]}
             options={microphoneOptions}
             selectedValue={selectedMicrophone}
             onSelect={handleMicrophoneSelect}

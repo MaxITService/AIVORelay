@@ -1,5 +1,9 @@
 export { Dropdown } from "./Dropdown";
+export { NameSortedDropdown } from "./NameSortedDropdown";
+export { NameSortedSelect } from "./NameSortedSelect";
+export { NameSortControl } from "./NameSortControl";
 export { Slider } from "./Slider";
+export { SortControl, type SortDirection } from "./SortControl";
 export { ToggleSwitch } from "./ToggleSwitch";
 export { TriStateToggle } from "./TriStateToggle";
 export { SettingContainer } from "./SettingContainer";

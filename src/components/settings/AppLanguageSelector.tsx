@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Dropdown } from "../ui/Dropdown";
+import { NameSortedDropdown } from "../ui/NameSortedDropdown";
 import { SettingContainer } from "../ui/SettingContainer";
 import { SUPPORTED_LANGUAGES, type SupportedLanguageCode } from "../../i18n";
 import { useSettings } from "@/hooks/useSettings";
@@ -36,7 +36,9 @@ export const AppLanguageSelector: React.FC<AppLanguageSelectorProps> =
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
-        <Dropdown
+        <NameSortedDropdown
+          sortKey="app-languages"
+          fixedDirection="asc"
           options={languageOptions}
           selectedValue={currentLanguage}
           onSelect={handleLanguageChange}

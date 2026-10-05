@@ -751,6 +751,7 @@ export default function VoiceCommandSettings() {
                         </div>
                         <div className="llm-api-model-row">
                           <ModelSelect
+                            sortKey={`voice-command-models:${voiceCommandProviderState.selectedProviderId}`}
                             value={voiceCommandProviderState.model}
                             options={voiceCommandProviderState.modelOptions}
                             disabled={voiceCommandProviderState.isModelUpdating}

@@ -12,12 +12,14 @@ import { usePresence } from "@/hooks/usePresence";
 export interface DropdownOption {
   value: string;
   label: string;
+  /** Undecorated name for sorting when the display label includes a status. */
+  sortLabel?: string;
   disabled?: boolean;
   className?: string;
   title?: string;
 }
 
-interface DropdownProps {
+export interface DropdownProps {
   options: DropdownOption[];
   className?: string;
   selectedValue: string | null;
@@ -44,6 +46,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
   const { t } = useTranslation();
   const triggerId = React.useId();
   const listboxId = React.useId();
+  const optionValuesKey = JSON.stringify(options.map((option) => option.value));
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -115,13 +118,14 @@ export const Dropdown: React.FC<DropdownProps> = ({
     };
   }, [isOpen, updateMenuPosition]);
 
-  // Reset highlighted index when dropdown opens
+  // Reset for opening, selection, or option order changes, not fresh array references.
   useEffect(() => {
     if (isOpen) {
-      const selectedIndex = options.findIndex(o => o.value === selectedValue);
+      const optionValues = JSON.parse(optionValuesKey) as string[];
+      const selectedIndex = selectedValue === null ? -1 : optionValues.indexOf(selectedValue);
       setHighlightedIndex(selectedIndex >= 0 ? selectedIndex : 0);
     }
-  }, [isOpen, options, selectedValue]);
+  }, [isOpen, optionValuesKey, selectedValue]);
 
   // Scroll highlighted item into view
   useEffect(() => {
@@ -207,7 +211,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
           // Find first matching option
           const searchStr = searchBufferRef.current;
           const matchIndex = options.findIndex(opt =>
-            opt.label.toLowerCase().startsWith(searchStr)
+            (opt.sortLabel ?? opt.label).toLowerCase().startsWith(searchStr)
           );
           
           if (matchIndex >= 0) {

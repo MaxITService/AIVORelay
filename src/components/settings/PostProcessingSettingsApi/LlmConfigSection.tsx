@@ -232,6 +232,7 @@ export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
           >
             <div className="flex items-center gap-2">
               <ModelSelect
+                sortKey={`${apiKeyFeature}-models:${state.selectedProviderId}`}
                 value={state.model || ""}
                 options={state.modelOptions}
                 disabled={state.isModelUpdating}

@@ -1,4 +1,14 @@
 {
+  "listSorting": {
+    "off": "Off",
+    "ascending": "A → Z",
+    "descending": "Z → A",
+    "nameLabel": "Sort by name",
+    "profilesLabel": "Sort profiles by name",
+    "modelsLabel": "Sort models",
+    "offTooltip": "Off shows items in their original order.",
+    "activeTooltip": "Sorted by name. Shift-click to turn sorting off."
+  },
   "geminiEarlyFinalization": {
     "title": "Early finalization",
     "recommended": "Recommended",

@@ -6,6 +6,9 @@ import { useSettings } from "../../../hooks/useSettings";
 
 const APPLE_PROVIDER_ID = "apple_intelligence";
 
+/** Provider option that reuses the Transcription Post-Processing LLM settings. */
+export const SAME_AS_POST_PROCESS_VALUE = "__same_as_post_process__";
+
 type SecureKeyStatus = {
   providerId: string;
   hasKey: boolean;

@@ -6,6 +6,8 @@ import { type as getOsType } from "@tauri-apps/plugin-os";
 import { Cloud, Download, Filter, HardDrive, Radio, RotateCcw } from "lucide-react";
 import { useModels } from "../../../hooks/useModels";
 import { useSettings } from "../../../hooks/useSettings";
+import { useSortedDisplayNames } from "../../../hooks/useSortedDisplayNames";
+import { useListSortDirection } from "../../../hooks/useListSortPreference";
 import { useModelFilters } from "../../../hooks/useModelFilters";
 import {
   getTranslatedModelDescription,
@@ -14,6 +16,7 @@ import {
 import { formatModelSize } from "../../../lib/utils/format";
 import { sessionToast as toast } from "../../../lib/sessionToast";
 import { Button } from "../../ui/Button";
+import { NameSortControl } from "../../ui/NameSortControl";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { RemoteSttSettings } from "../remote-stt/RemoteSttSettings";
@@ -49,6 +52,10 @@ type RemoteApiRow = {
   modelId?: string;
   iconClassName: string;
 };
+
+type RemoteEntry =
+  | { kind: "api"; title: string; row: RemoteApiRow }
+  | { kind: "soniox" | "deepgram"; title: string };
 
 type ModelFilterSummaryBarProps = {
   activeFilterCount: number;
@@ -311,11 +318,31 @@ export const ModelsSettings: React.FC = () => {
       iconClassName: "text-violet-400",
     },
   ];
-  const primaryRemoteApiRows = remoteApiRows.filter(
-    (row) => !row.notRecommended,
-  );
-  const discouragedRemoteApiRows = remoteApiRows.filter(
-    (row) => row.notRecommended,
+  const [modelSortDirection, setModelSortDirection] =
+    useListSortDirection("models-page");
+  // Streaming providers sort together with the recommended API rows; the
+  // not-recommended rows stay in their own group at the end.
+  const remoteEntries: RemoteEntry[] = [
+    ...remoteApiRows
+      .filter((row) => !row.notRecommended)
+      .map((row) => ({ kind: "api" as const, title: row.title, row })),
+    { kind: "soniox", title: t("modelSelector.remoteSonioxMode") },
+    {
+      kind: "deepgram",
+      title: t("modelSelector.remoteDeepgramMode", "Remote via Deepgram"),
+    },
+    ...remoteApiRows
+      .filter((row) => row.notRecommended)
+      .map((row) => ({ kind: "api" as const, title: row.title, row })),
+  ];
+  const { items: visibleRemoteEntries } = useSortedDisplayNames(
+    remoteEntries,
+    (entry) => entry.title,
+    modelSortDirection,
+    {
+      getGroup: (entry) =>
+        entry.kind === "api" && entry.row.notRecommended ? "discouraged" : "primary",
+    },
   );
 
   const downloadedModels = useMemo(
@@ -344,6 +371,19 @@ export const ModelsSettings: React.FC = () => {
     () => applyFilters(downloadableModels),
     [downloadableModels, applyFilters],
   );
+  const { items: visibleDownloaded } =
+    useSortedDisplayNames(
+      filteredDownloaded,
+      (model) => getTranslatedModelName(model, t),
+      modelSortDirection,
+      { getGroup: (model) => model.is_custom ? "custom" : "built-in" },
+    );
+  const { items: visibleDownloadable } =
+    useSortedDisplayNames(
+      filteredDownloadable,
+      (model) => getTranslatedModelName(model, t),
+      modelSortDirection,
+    );
   const activeFilterCount = useMemo(() => {
     return (
       (filters.search !== "" ? 1 : 0) +
@@ -606,59 +646,9 @@ export const ModelsSettings: React.FC = () => {
       );
     });
 
-  return (
-    <div
-      id="settings-models"
-      tabIndex={-1}
-      className="max-w-3xl w-full mx-auto space-y-8 pb-12 outline-none"
-    >
-      {/* Help Section */}
-      <TellMeMore title={t("modelSelector.tellMeMore.title")}>
-        <div className="space-y-3">
-          <p>
-            <strong>{t("modelSelector.tellMeMore.headline")}</strong>
-          </p>
-          <p className="opacity-90">{t("modelSelector.tellMeMore.intro")}</p>
-          <ul className="list-disc list-inside space-y-2 ml-1 opacity-90">
-            <li>
-              <strong>{t("modelSelector.tellMeMore.remoteApi.title")}</strong>{" "}
-              {t("modelSelector.tellMeMore.remoteApi.description")}
-            </li>
-            <li>
-              <strong>
-                {t("modelSelector.tellMeMore.remoteSoniox.title")}
-              </strong>{" "}
-              {t("modelSelector.tellMeMore.remoteSoniox.description")}
-            </li>
-            <li>
-              <strong>
-                {t(
-                  "modelSelector.tellMeMore.remoteDeepgram.title",
-                  "Remote via Deepgram",
-                )}
-              </strong>{" "}
-              {t(
-                "modelSelector.tellMeMore.remoteDeepgram.description",
-                "Uses Deepgram live streaming API with Nova models and control messages (Finalize, KeepAlive, CloseStream).",
-              )}
-            </li>
-            <li>
-              <strong>{t("modelSelector.tellMeMore.localModels.title")}</strong>{" "}
-              {t("modelSelector.tellMeMore.localModels.description")}
-            </li>
-          </ul>
-          <p className="pt-2 text-xs text-text/70">
-            {t("modelSelector.tellMeMore.tip")}
-          </p>
-        </div>
-      </TellMeMore>
-
-      {/* Remote providers depend on Windows Credential Manager. */}
-      {supportsRemoteProviders && (
-        <SettingsGroup id="settings-api-keys" title={t("modelSelector.remoteMode")}>
-        {renderRemoteApiRows(primaryRemoteApiRows)}
-
-        {/* Remote via Soniox */}
+  const renderStreamingProviderRow = (kind: "soniox" | "deepgram") =>
+    kind === "soniox" ? (
+      <React.Fragment key={kind}>
         <div
           className={`px-6 py-4 flex flex-col gap-3 transition-colors ${
             effectiveTranscriptionProvider === "remote_soniox"
@@ -713,8 +703,9 @@ export const ModelsSettings: React.FC = () => {
         </div>
 
         <div className="border-t border-[#3d3d3d]" />
-
-        {/* Remote via Deepgram */}
+      </React.Fragment>
+    ) : (
+      <React.Fragment key={kind}>
         <div
           className={`px-6 py-4 flex flex-col gap-3 transition-colors ${
             effectiveTranscriptionProvider === "remote_deepgram"
@@ -772,8 +763,71 @@ export const ModelsSettings: React.FC = () => {
         </div>
 
         <div className="border-t border-[#3d3d3d]" />
+      </React.Fragment>
+    );
 
-        {renderRemoteApiRows(discouragedRemoteApiRows)}
+  return (
+    <div
+      id="settings-models"
+      tabIndex={-1}
+      className="max-w-3xl w-full mx-auto space-y-8 pb-12 outline-none"
+    >
+      {/* Help Section */}
+      <TellMeMore title={t("modelSelector.tellMeMore.title")}>
+        <div className="space-y-3">
+          <p>
+            <strong>{t("modelSelector.tellMeMore.headline")}</strong>
+          </p>
+          <p className="opacity-90">{t("modelSelector.tellMeMore.intro")}</p>
+          <ul className="list-disc list-inside space-y-2 ml-1 opacity-90">
+            <li>
+              <strong>{t("modelSelector.tellMeMore.remoteApi.title")}</strong>{" "}
+              {t("modelSelector.tellMeMore.remoteApi.description")}
+            </li>
+            <li>
+              <strong>
+                {t("modelSelector.tellMeMore.remoteSoniox.title")}
+              </strong>{" "}
+              {t("modelSelector.tellMeMore.remoteSoniox.description")}
+            </li>
+            <li>
+              <strong>
+                {t(
+                  "modelSelector.tellMeMore.remoteDeepgram.title",
+                  "Remote via Deepgram",
+                )}
+              </strong>{" "}
+              {t(
+                "modelSelector.tellMeMore.remoteDeepgram.description",
+                "Uses Deepgram live streaming API with Nova models and control messages (Finalize, KeepAlive, CloseStream).",
+              )}
+            </li>
+            <li>
+              <strong>{t("modelSelector.tellMeMore.localModels.title")}</strong>{" "}
+              {t("modelSelector.tellMeMore.localModels.description")}
+            </li>
+          </ul>
+          <p className="pt-2 text-xs text-text/70">
+            {t("modelSelector.tellMeMore.tip")}
+          </p>
+        </div>
+      </TellMeMore>
+
+      <div className="flex justify-end">
+        <NameSortControl
+          direction={modelSortDirection}
+          onChange={setModelSortDirection}
+          label={t("listSorting.modelsLabel", "Sort models")}
+        />
+      </div>
+      {/* Remote providers depend on Windows Credential Manager. */}
+      {supportsRemoteProviders && (
+        <SettingsGroup id="settings-api-keys" title={t("modelSelector.remoteMode")}>
+        {visibleRemoteEntries.map((entry) =>
+          entry.kind === "api"
+            ? renderRemoteApiRows([entry.row])
+            : renderStreamingProviderRow(entry.kind),
+        )}
         </SettingsGroup>
       )}
 
@@ -837,7 +891,7 @@ export const ModelsSettings: React.FC = () => {
         )}
 
         {!loading &&
-          filteredDownloaded.map((model) => {
+          visibleDownloaded.map((model) => {
             const modelName = getTranslatedModelName(model, t);
             const effectiveLocalModelId =
               profileModelSelection?.provider === "local"
@@ -941,7 +995,7 @@ export const ModelsSettings: React.FC = () => {
           </div>
         )}
 
-        {filteredDownloadable.map((model) => {
+        {visibleDownloadable.map((model) => {
           const isDownloading = downloadingModels.has(model.id);
           const isExtracting = extractingModels.has(model.id);
           const effectiveLocalModelId =

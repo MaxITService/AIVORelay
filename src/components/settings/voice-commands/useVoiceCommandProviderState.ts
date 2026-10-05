@@ -3,7 +3,10 @@ import { useSettings } from "../../../hooks/useSettings";
 import type { PostProcessProvider } from "@/bindings";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import type { DropdownOption } from "../../ui/Dropdown";
-import { useInheritedPostProcessStatus } from "../post-processing/useInheritedPostProcessStatus";
+import {
+  SAME_AS_POST_PROCESS_VALUE,
+  useInheritedPostProcessStatus,
+} from "../post-processing/useInheritedPostProcessStatus";
 import { resolveVoiceCommandModel } from "./voiceCommandModel";
 
 export interface ModelOption {
@@ -40,7 +43,6 @@ type VoiceCommandProviderState = {
 };
 
 const APPLE_PROVIDER_ID = "apple_intelligence";
-const SAME_AS_POST_PROCESS_VALUE = "__same_as_post_process__";
 
 export const useVoiceCommandProviderState = (): VoiceCommandProviderState => {
   const {
