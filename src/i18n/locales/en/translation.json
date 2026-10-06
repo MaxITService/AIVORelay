@@ -1,4 +1,256 @@
 {
+  "sendSelectedText": {
+    "title": "Send selected text to file or command",
+    "description": "Save a selection to Markdown or JSON, then optionally run your command.",
+    "loading": "Loading Send Selected Text...",
+    "loadError": "Could not load Send Selected Text settings",
+    "loadErrorHelp": "Check the error message and try again.",
+    "tabs": {
+      "label": "Send Selected Text views",
+      "presets": "Presets",
+      "history": "History ({{entries}})",
+      "help": "Help / Examples"
+    },
+    "actions": {
+      "copy": "Copy {{label}}",
+      "duplicatePreset": "Duplicate preset",
+      "deletePreset": "Delete preset",
+      "collapsePreset": "Collapse preset",
+      "expandPreset": "Expand preset",
+      "chooseFolder": "Choose folder",
+      "browse": "Browse",
+      "trimJson": "Trim existing JSON now",
+      "testPreset": "Test preset",
+      "savePreset": "Save preset",
+      "refresh": "Refresh",
+      "clearHistory": "Clear history",
+      "deleteHistoryEntry": "Delete history entry",
+      "loadOlder": "Load older entries",
+      "retry": "Retry",
+      "sortPresets": "Sort presets",
+      "addPreset": "Add preset",
+      "addFirstPreset": "Add first preset",
+      "saveOptions": "Save history and overlay settings",
+      "save": "Save"
+    },
+    "fields": {
+      "presetName": "Preset name",
+      "enabled": "Enabled",
+      "hotkey": "Preset hotkey",
+      "format": "Format",
+      "fileAction": "File action",
+      "destinationFolder": "Destination folder",
+      "filenameTemplate": "Filename template",
+      "contentTemplate": "Markdown content template",
+      "keepLatest": "Keep latest entries",
+      "captureMethod": "Capture method",
+      "maximumCharacters": "Maximum characters",
+      "oversizeBehavior": "If text is too long",
+      "powerShellCommand": "PowerShell command",
+      "workingDirectory": "Working directory",
+      "executionPolicy": "Execution policy",
+      "filename": "Filename",
+      "content": "Content"
+    },
+    "presets": {
+      "defaultName": "New Markdown note",
+      "copyName": "{{name}} copy",
+      "disabled": "Disabled",
+      "enableNamed": "Enable {{name}}",
+      "enabledHelp": "Hotkey and preset may run",
+      "hotkeyHelp": "Captures after the keys are released, so Ctrl+C remains reliable.",
+      "hotkeyTitle": "Send Selected Text: {{name}}",
+      "hotkeyDescription": "Save the selected text with this preset and optionally run its command.",
+      "destinationPlaceholder": "Choose where this preset writes files",
+      "filenameHelp": "Filename variables: {{variables}}. Folder separators are rejected.",
+      "contentHelp": "{{textVariable}} is required. Optional: {{optionalVariables}}.",
+      "jsonTitle": "JSON is generated automatically",
+      "jsonHelp": "AivoRelay writes one versioned document with an entries array. Quotes, newlines, backslashes, and Unicode are escaped by the JSON serializer.",
+      "sampleTitle": "Test without changing the clipboard",
+      "sampleHelp": "Runs this preset with sample text instead of the current selection.",
+      "sampleText": "A sample selection saved by AivoRelay.",
+      "empty": "No presets yet",
+      "emptyHelp": "Add a preset, choose its folder, then assign a hotkey."
+    },
+    "writeModes": {
+      "createNew": "Create a new file",
+      "appendLast": "Append to this preset's last file",
+      "appendFile": "Append to the rendered filename",
+      "overwriteFile": "Overwrite the rendered filename"
+    },
+    "captureModes": {
+      "auto": "Auto: accessibility, then copy",
+      "clipboardCopy": "Copy and restore clipboard",
+      "accessibility": "Windows accessibility only"
+    },
+    "oversizeBehaviors": {
+      "reject": "Reject without saving",
+      "truncate": "Save the allowed beginning"
+    },
+    "command": {
+      "title": "Run a command after saving",
+      "savedFileHelp": "The file remains saved even if this command fails.",
+      "placeholderHelp": "Write placeholders without surrounding quotes. AivoRelay inserts them as PowerShell single-quoted literals.",
+      "workingDirectoryPlaceholder": "Optional project directory",
+      "systemDefault": "System default",
+      "captureOutput": "Capture exit code and output in History",
+      "skipProfile": "Skip PowerShell profile",
+      "usePwsh": "Use PowerShell 7 (pwsh)",
+      "allowDirectText": "Allow direct {{textVariable}} insertion",
+      "directTextWarning": "Direct text is safely PowerShell-quoted, but long selections can still exceed Windows command-line limits. Prefer {{inputFileVariable}}."
+    },
+    "history": {
+      "title": "Execution history",
+      "description": "Selected text, saved path, command output, and complete errors.",
+      "clearing": "Clearing...",
+      "loading": "Loading history...",
+      "loadingMore": "Loading...",
+      "empty": "No Send Selected Text runs yet.",
+      "selectedText": "Selected text",
+      "noText": "No text captured",
+      "command": "Command",
+      "commandOutput": "Command output",
+      "outputTruncated": "Output was truncated at the configured storage boundary.",
+      "fullError": "Full error"
+    },
+    "status": {
+      "saved": "Saved",
+      "commandStarted": "Command started",
+      "completed": "Completed",
+      "commandFailed": "Command failed",
+      "failed": "Failed"
+    },
+    "copyLabels": {
+      "selectedText": "selected text",
+      "filePath": "file path",
+      "command": "command",
+      "commandOutput": "command output",
+      "fullError": "full error",
+      "variable": "variable"
+    },
+    "options": {
+      "title": "History and error overlay",
+      "description": "These settings apply to every preset.",
+      "historyLimit": "History entries",
+      "errorSeconds": "Error overlay seconds"
+    },
+    "messages": {
+      "copyFailed": "Could not copy {{label}}: {{error}}",
+      "presetSaved": "Preset saved",
+      "presetSavedWithNewerEdits": "Submitted version saved; newer edits remain unsaved",
+      "historyLoadFailed": "Failed to load history: {{error}}",
+      "olderHistoryLoadFailed": "Failed to load older history: {{error}}",
+      "historyWatchFailed": "Failed to watch history updates: {{error}}",
+      "settingsLoadFailed": "Failed to load Send Selected Text settings: {{error}}",
+      "presetCreated": "Preset created",
+      "presetCreateFailed": "Failed to create preset: {{error}}",
+      "presetSaveFailed": "Failed to save preset: {{error}}",
+      "presetDuplicated": "Preset duplicated without copying its hotkey",
+      "presetDuplicateFailed": "Failed to duplicate preset: {{error}}",
+      "deletePresetConfirm": "Delete preset \"{{name}}\"? Its history will remain.",
+      "presetDeleted": "Preset deleted; history preserved",
+      "presetDeleteFailed": "Failed to delete preset: {{error}}",
+      "sampleSaved": "Saved to {{path}}",
+      "sampleFailed": "Failed to run sample: {{error}}",
+      "jsonRetentionSatisfied": "JSON already satisfies retention",
+      "jsonTrimFailed": "Failed to trim JSON: {{error}}",
+      "oldEntriesRemoved_one": "Removed {{count}} old entry",
+      "oldEntriesRemoved_other": "Removed {{count}} old entries",
+      "optionsSaved": "History and overlay settings saved",
+      "optionsSavedWithNewerEdits": "Submitted settings saved; newer edits remain unsaved",
+      "optionsSaveFailed": "Failed to save history and overlay settings: {{error}}",
+      "historyEntryDeleteFailed": "Failed to delete history entry: {{error}}",
+      "clearHistoryConfirm": "Clear all Send Selected Text history? Saved output files remain.",
+      "historyClearFailed": "Failed to clear history: {{error}}"
+    },
+    "help": {
+      "workflowTitle": "How this workflow fits together",
+      "steps": {
+        "select": "Select text in any application.",
+        "hotkey": "Press the hotkey assigned to a preset.",
+        "capture": "AivoRelay reads the selection and restores your clipboard.",
+        "save": "The preset writes Markdown or a structured JSON record.",
+        "command": "An optional command receives safe file paths and variables.",
+        "history": "History records the text, path, output, and any complete error."
+      },
+      "fileRecipesTitle": "File recipes",
+      "fileRecipesDescription": "Use these field combinations as starting points.",
+      "commandsTitle": "Codex CLI and command examples",
+      "commandsDescription": "These are PowerShell commands. Set Working directory to the project that Codex should inspect or modify.",
+      "variablesTitle": "Variables",
+      "variablesDescription": "Placeholders are replaced only after the file has been saved.",
+      "privacyTitle": "Command and privacy notes",
+      "executionNotes": "Commands are authored by you and run with your Windows account. Use captured execution when you need an exit code and logs. Visible-window commands are started without waiting, so their temporary input file is retained until PowerShell exits. Stale files left by an app shutdown are cleaned later.",
+      "historyNotes": "History contains the selected text. Set a suitable history limit and clear it when the source is sensitive. JSON escaping is automatic; never add manual backslashes merely to make ordinary text valid JSON.",
+      "fileExamples": {
+        "selection": {
+          "title": "One Markdown file per selection",
+          "summary": "A clean inbox where every capture remains independent."
+        },
+        "daily": {
+          "title": "Append to a daily Markdown note",
+          "summary": "Collect snippets in one file per day."
+        },
+        "lastFile": {
+          "title": "Continue the last task file",
+          "summary": "The preset remembers its latest successful output even if History is cleared."
+        },
+        "json": {
+          "title": "Rolling JSON inbox",
+          "summary": "One valid JSON document that keeps only its newest 50 records."
+        }
+      },
+      "commandExamples": {
+        "explain": {
+          "title": "Ask Codex to explain or solve the selected task",
+          "description": "Reads the UTF-8 input file and gives Codex read-only access."
+        },
+        "implement": {
+          "title": "Ask Codex to implement selected tasks",
+          "description": "Use a repository as the command working directory."
+        },
+        "process": {
+          "title": "Process selected text",
+          "description": "The saved text becomes stdin; the prompt describes the transformation."
+        },
+        "cleanup": {
+          "title": "Remove unwanted material",
+          "description": "A starting point for cleanup workflows."
+        },
+        "summarize": {
+          "title": "Summarize as Markdown",
+          "description": "Produces concise bullets from the selected source."
+        },
+        "inbox": {
+          "title": "Let Codex maintain the saved inbox",
+          "description": "Passes the destination file path instead of command-line text."
+        },
+        "agent": {
+          "title": "Run any file-aware agent",
+          "description": "The same variables work with another installed CLI."
+        },
+        "directText": {
+          "title": "Direct text insertion",
+          "description": "Enable direct {{textVariable}} insertion first; file input is safer for long text."
+        }
+      },
+      "variables": {
+        "inputFile": "Temporary UTF-8 file containing only this selection",
+        "filePath": "The successfully saved Markdown or JSON file",
+        "directory": "Destination directory",
+        "filename": "Destination filename",
+        "text": "Selected text; requires the direct insertion toggle",
+        "recordId": "Stable ID for this capture",
+        "timestamp": "UTC timestamp",
+        "timestampLocal": "Timestamp in the computer's time zone",
+        "dateTime": "Filename-safe date and time",
+        "preset": "Preset identity",
+        "strategy": "Actual output strategy",
+        "textLength": "Selected-text character count",
+        "workingDirectory": "The command working-directory field"
+      }
+    }
+  },
   "listSorting": {
     "off": "Off",
     "ascending": "A → Z",

@@ -4,6 +4,8 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -44,6 +46,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { useSortedDisplayNames } from "@/hooks/useSortedDisplayNames";
 import { useListSortDirection } from "@/hooks/useListSortPreference";
 import { sessionToast as toast } from "@/lib/sessionToast";
+import { shouldUseSystem12HourClock } from "@/utils/dateFormat";
 import { Button } from "../../ui/Button";
 import { Collapse } from "../../ui/Collapse";
 import { Input } from "../../ui/Input";
@@ -77,137 +80,136 @@ const asCompleteFeatureSettings = (
 type PageTab = "presets" | "history" | "help";
 const HISTORY_PAGE_SIZE = 100;
 
-const STATUS_LABELS: Record<HistoryStatus, string> = {
-  saved: "Saved",
-  command_started: "Command started",
-  completed: "Completed",
-  command_failed: "Command failed",
-  failed: "Failed",
+const STATUS_LABEL_KEYS: Record<HistoryStatus, string> = {
+  saved: "sendSelectedText.status.saved",
+  command_started: "sendSelectedText.status.commandStarted",
+  completed: "sendSelectedText.status.completed",
+  command_failed: "sendSelectedText.status.commandFailed",
+  failed: "sendSelectedText.status.failed",
 };
 
-const WRITE_MODE_LABELS: Record<WriteMode, string> = {
-  create_new: "Create a new file",
-  append_last: "Append to this preset's last file",
-  append_file: "Append to the rendered filename",
-  overwrite_file: "Overwrite the rendered filename",
+const WRITE_MODE_LABEL_KEYS: Record<WriteMode, string> = {
+  create_new: "sendSelectedText.writeModes.createNew",
+  append_last: "sendSelectedText.writeModes.appendLast",
+  append_file: "sendSelectedText.writeModes.appendFile",
+  overwrite_file: "sendSelectedText.writeModes.overwriteFile",
 };
 
-const COPY_EXAMPLES = [
+const getCopyExamples = (t: TFunction) => [
   {
-    title: "One Markdown file per selection",
-    summary: "A clean inbox where every capture remains independent.",
+    title: t("sendSelectedText.help.fileExamples.selection.title"),
+    summary: t("sendSelectedText.help.fileExamples.selection.summary"),
     fields: [
-      ["Format", "Markdown"],
-      ["Action", "Create a new file"],
-      ["Filename", "selected-{{date}}-{{time}}.md"],
-      ["Content", "{{text}}"],
+      [t("sendSelectedText.fields.format"), "Markdown"],
+      [t("sendSelectedText.fields.fileAction"), t(WRITE_MODE_LABEL_KEYS.create_new)],
+      [t("sendSelectedText.fields.filename"), "selected-{{date}}-{{time}}.md"],
+      [t("sendSelectedText.fields.content"), "{{text}}"],
     ],
   },
   {
-    title: "Append to a daily Markdown note",
-    summary: "Collect snippets in one file per day.",
+    title: t("sendSelectedText.help.fileExamples.daily.title"),
+    summary: t("sendSelectedText.help.fileExamples.daily.summary"),
     fields: [
-      ["Format", "Markdown"],
-      ["Action", "Append to the rendered filename"],
-      ["Filename", "inbox-{{date}}.md"],
-      ["Content", "## {{timestamp_local}}\n\n{{text}}"],
+      [t("sendSelectedText.fields.format"), "Markdown"],
+      [t("sendSelectedText.fields.fileAction"), t(WRITE_MODE_LABEL_KEYS.append_file)],
+      [t("sendSelectedText.fields.filename"), "inbox-{{date}}.md"],
+      [t("sendSelectedText.fields.content"), "## {{timestamp_local}}\n\n{{text}}"],
     ],
   },
   {
-    title: "Continue the last task file",
-    summary:
-      "The preset remembers its latest successful output even if History is cleared.",
+    title: t("sendSelectedText.help.fileExamples.lastFile.title"),
+    summary: t("sendSelectedText.help.fileExamples.lastFile.summary"),
     fields: [
-      ["Format", "Markdown"],
-      ["Action", "Append to this preset's last file"],
-      ["Filename", "task-{{date}}-{{time}}.md"],
-      ["Content", "{{text}}"],
+      [t("sendSelectedText.fields.format"), "Markdown"],
+      [t("sendSelectedText.fields.fileAction"), t(WRITE_MODE_LABEL_KEYS.append_last)],
+      [t("sendSelectedText.fields.filename"), "task-{{date}}-{{time}}.md"],
+      [t("sendSelectedText.fields.content"), "{{text}}"],
     ],
   },
   {
-    title: "Rolling JSON inbox",
-    summary: "One valid JSON document that keeps only its newest 50 records.",
+    title: t("sendSelectedText.help.fileExamples.json.title"),
+    summary: t("sendSelectedText.help.fileExamples.json.summary"),
     fields: [
-      ["Format", "JSON"],
-      ["Action", "Append to the rendered filename"],
-      ["Filename", "selected-text.json"],
-      ["Keep latest", "50"],
+      [t("sendSelectedText.fields.format"), "JSON"],
+      [t("sendSelectedText.fields.fileAction"), t(WRITE_MODE_LABEL_KEYS.append_file)],
+      [t("sendSelectedText.fields.filename"), "selected-text.json"],
+      [t("sendSelectedText.fields.keepLatest"), "50"],
     ],
   },
 ];
 
-const COMMAND_EXAMPLES = [
+const getCommandExamples = (t: TFunction) => [
   {
-    title: "Ask Codex to explain or solve the selected task",
-    description: "Reads the UTF-8 input file and gives Codex read-only access.",
+    title: t("sendSelectedText.help.commandExamples.explain.title"),
+    description: t("sendSelectedText.help.commandExamples.explain.description"),
     command:
       "Get-Content -Raw -Encoding UTF8 -LiteralPath {{input_file}} | codex exec -C {{working_directory}} -s read-only -",
   },
   {
-    title: "Ask Codex to implement selected tasks",
-    description: "Use a repository as the command working directory.",
+    title: t("sendSelectedText.help.commandExamples.implement.title"),
+    description: t("sendSelectedText.help.commandExamples.implement.description"),
     command:
       "Get-Content -Raw -Encoding UTF8 -LiteralPath {{input_file}} | codex exec -C {{working_directory}} -s workspace-write -",
   },
   {
-    title: "Process selected text",
-    description:
-      "The saved text becomes stdin; the prompt describes the transformation.",
+    title: t("sendSelectedText.help.commandExamples.process.title"),
+    description: t("sendSelectedText.help.commandExamples.process.description"),
     command:
       '("Process the supplied text. Return only the useful final result.`n`n" + (Get-Content -Raw -Encoding UTF8 -LiteralPath {{input_file}})) | codex exec -s read-only -',
   },
   {
-    title: "Remove unwanted material",
-    description: "A starting point for cleanup workflows.",
+    title: t("sendSelectedText.help.commandExamples.cleanup.title"),
+    description: t("sendSelectedText.help.commandExamples.cleanup.description"),
     command:
       '("Remove repetition, boilerplate, and irrelevant material. Return only the cleaned text.`n`n" + (Get-Content -Raw -Encoding UTF8 -LiteralPath {{input_file}})) | codex exec -s read-only -',
   },
   {
-    title: "Summarize as Markdown",
-    description: "Produces concise bullets from the selected source.",
+    title: t("sendSelectedText.help.commandExamples.summarize.title"),
+    description: t("sendSelectedText.help.commandExamples.summarize.description"),
     command:
       '("Summarize the supplied text as concise Markdown bullets.`n`n" + (Get-Content -Raw -Encoding UTF8 -LiteralPath {{input_file}})) | codex exec -s read-only -',
   },
   {
-    title: "Let Codex maintain the saved inbox",
-    description:
-      "Passes the destination file path instead of command-line text.",
+    title: t("sendSelectedText.help.commandExamples.inbox.title"),
+    description: t("sendSelectedText.help.commandExamples.inbox.description"),
     command:
       'codex exec -C {{working_directory}} -s workspace-write ("Review the inbox file at " + {{file_path}} + ". Organize it, preserve useful content, and remove duplicates.")',
   },
   {
-    title: "Run any file-aware agent",
-    description: "The same variables work with another installed CLI.",
+    title: t("sendSelectedText.help.commandExamples.agent.title"),
+    description: t("sendSelectedText.help.commandExamples.agent.description"),
     command: "my-agent --input-file {{input_file}} --output-file {{file_path}}",
   },
   {
-    title: "Direct text insertion",
-    description:
-      "Enable direct {{text}} insertion first; file input is safer for long text.",
+    title: t("sendSelectedText.help.commandExamples.directText.title"),
+    description: t("sendSelectedText.help.commandExamples.directText.description", {
+      textVariable: "{{text}}",
+    }),
     command: 'codex exec -s read-only ("Solve this task: " + {{text}})',
   },
 ];
 
-const VARIABLES = [
-  ["{{input_file}}", "Temporary UTF-8 file containing only this selection"],
-  ["{{file_path}}", "The successfully saved Markdown or JSON file"],
-  ["{{directory}}", "Destination directory"],
-  ["{{filename}}", "Destination filename"],
-  ["{{text}}", "Selected text; requires the direct insertion toggle"],
-  ["{{record_id}}", "Stable ID for this capture"],
-  ["{{timestamp}}", "UTC timestamp"],
-  ["{{timestamp_local}}", "Timestamp in the computer's time zone"],
-  ["{{date}} / {{time}}", "Filename-safe date and time"],
-  ["{{preset_id}} / {{preset_name}}", "Preset identity"],
-  ["{{format}} / {{write_mode}}", "Actual output strategy"],
-  ["{{text_length}}", "Selected-text character count"],
-  ["{{working_directory}}", "The command working-directory field"],
+const getVariables = (t: TFunction) => [
+  ["{{input_file}}", t("sendSelectedText.help.variables.inputFile")],
+  ["{{file_path}}", t("sendSelectedText.help.variables.filePath")],
+  ["{{directory}}", t("sendSelectedText.help.variables.directory")],
+  ["{{filename}}", t("sendSelectedText.help.variables.filename")],
+  ["{{text}}", t("sendSelectedText.help.variables.text")],
+  ["{{record_id}}", t("sendSelectedText.help.variables.recordId")],
+  ["{{timestamp}}", t("sendSelectedText.help.variables.timestamp")],
+  ["{{timestamp_local}}", t("sendSelectedText.help.variables.timestampLocal")],
+  ["{{date}} / {{time}}", t("sendSelectedText.help.variables.dateTime")],
+  ["{{preset_id}} / {{preset_name}}", t("sendSelectedText.help.variables.preset")],
+  ["{{format}} / {{write_mode}}", t("sendSelectedText.help.variables.strategy")],
+  ["{{text_length}}", t("sendSelectedText.help.variables.textLength")],
+  ["{{working_directory}}", t("sendSelectedText.help.variables.workingDirectory")],
 ];
 
-const formatDate = (timestampMs: number) =>
-  new Intl.DateTimeFormat(undefined, {
+const formatDate = (timestampMs: number, language: string) =>
+  new Intl.DateTimeFormat(language, {
     dateStyle: "medium",
     timeStyle: "medium",
+    hour12: shouldUseSystem12HourClock(),
   }).format(new Date(timestampMs));
 
 const previewText = (value: string, maximum = 220) => {
@@ -220,6 +222,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 }
 
 function CopyButton({ value, label }: { value: string; label: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const handleCopy = async () => {
     try {
@@ -227,7 +230,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
     } catch (error) {
-      toast.error(`Could not copy ${label}: ${String(error)}`);
+      toast.error(t("sendSelectedText.messages.copyFailed", { label, error: String(error) }));
     }
   };
   return (
@@ -237,8 +240,8 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       size="sm"
       className="flex min-h-8 min-w-8 items-center justify-center !p-1.5"
       onClick={handleCopy}
-      title={`Copy ${label}`}
-      aria-label={`Copy ${label}`}
+      title={t("sendSelectedText.actions.copy", { label })}
+      aria-label={t("sendSelectedText.actions.copy", { label })}
     >
       {copied ? <Check size={15} /> : <Copy size={15} />}
     </Button>
@@ -262,15 +265,15 @@ function PresetCard({
   onRunSample,
   onTrimJson,
 }: PresetCardProps) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState(preset);
   const [dirty, setDirty] = useState(false);
   const draftRevision = useRef(0);
   const busyRef = useRef(false);
   const [expanded, setExpanded] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [sampleText, setSampleText] = useState(
-    "A sample selection saved by AivoRelay.",
-  );
+  const [customSampleText, setSampleText] = useState<string | null>(null);
+  const sampleText = customSampleText ?? t("sendSelectedText.presets.sampleText");
 
   useEffect(() => {
     if (!dirty) setDraft(preset);
@@ -295,9 +298,9 @@ function PresetCard({
       if (draftRevision.current === revision) {
         setDraft(saved);
         setDirty(false);
-        toast.success("Preset saved");
+        toast.success(t("sendSelectedText.messages.presetSaved"));
       } else {
-        toast.success("Submitted version saved; newer edits remain unsaved");
+        toast.success(t("sendSelectedText.messages.presetSavedWithNewerEdits"));
       }
     } catch {
       // The parent reports the save error.
@@ -415,11 +418,11 @@ function PresetCard({
               {preset.name}
             </h3>
             {!preset.enabled && (
-              <span className="sst-status-chip neutral">Disabled</span>
+              <span className="sst-status-chip neutral">{t("sendSelectedText.presets.disabled")}</span>
             )}
           </div>
           <p className="mt-1 truncate text-xs text-[#969696]">
-            {WRITE_MODE_LABELS[preset.write_mode]}
+            {t(WRITE_MODE_LABEL_KEYS[preset.write_mode])}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -430,8 +433,8 @@ function PresetCard({
             className="flex min-h-8 min-w-8 items-center justify-center !p-1.5"
             disabled={busy}
             onClick={duplicateDraft}
-            title="Duplicate preset"
-            aria-label="Duplicate preset"
+            title={t("sendSelectedText.actions.duplicatePreset")}
+            aria-label={t("sendSelectedText.actions.duplicatePreset")}
           >
             <ClipboardCopy size={15} />
           </Button>
@@ -442,8 +445,8 @@ function PresetCard({
             className="flex min-h-8 min-w-8 items-center justify-center !p-1.5"
             disabled={busy}
             onClick={deleteDraft}
-            title="Delete preset"
-            aria-label="Delete preset"
+            title={t("sendSelectedText.actions.deletePreset")}
+            aria-label={t("sendSelectedText.actions.deletePreset")}
           >
             <Trash2 size={15} />
           </Button>
@@ -453,8 +456,8 @@ function PresetCard({
             size="sm"
             className="flex min-h-8 min-w-8 items-center justify-center !p-1.5"
             onClick={() => setExpanded((value) => !value)}
-            title={expanded ? "Collapse preset" : "Expand preset"}
-            aria-label={expanded ? "Collapse preset" : "Expand preset"}
+            title={t(expanded ? "sendSelectedText.actions.collapsePreset" : "sendSelectedText.actions.expandPreset")}
+            aria-label={t(expanded ? "sendSelectedText.actions.collapsePreset" : "sendSelectedText.actions.expandPreset")}
             aria-expanded={expanded}
           >
             {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -466,7 +469,7 @@ function PresetCard({
         <div className="sst-preset-body">
           <div className="sst-form-grid two">
             <label className="sst-field">
-              <FieldLabel>Preset name</FieldLabel>
+              <FieldLabel>{t("sendSelectedText.fields.presetName")}</FieldLabel>
               <Input
                 variant="compact"
                 className="w-full text-xs"
@@ -475,28 +478,29 @@ function PresetCard({
               />
             </label>
             <div className="sst-field">
-              <FieldLabel>Enabled</FieldLabel>
+              <FieldLabel>{t("sendSelectedText.fields.enabled")}</FieldLabel>
               <span className="sst-toggle-row">
                 <ToggleSwitch
                   checked={draft.enabled}
                   onChange={(checked) => update("enabled", checked)}
-                  ariaLabel={`Enable ${draft.name}`}
+                  ariaLabel={t("sendSelectedText.presets.enableNamed", { name: draft.name })}
                 />
-                <span>Hotkey and preset may run</span>
+                <span>{t("sendSelectedText.presets.enabledHelp")}</span>
               </span>
             </div>
           </div>
 
           <div className="sst-hotkey-row">
             <div>
-              <FieldLabel>Preset hotkey</FieldLabel>
+              <FieldLabel>{t("sendSelectedText.fields.hotkey")}</FieldLabel>
               <p>
-                Captures after the keys are released, so Ctrl+C remains
-                reliable.
+                {t("sendSelectedText.presets.hotkeyHelp")}
               </p>
             </div>
             <HandyShortcut
               shortcutId={`send_selected_text_${preset.id}`}
+              title={t("sendSelectedText.presets.hotkeyTitle", { name: preset.name })}
+              description={t("sendSelectedText.presets.hotkeyDescription")}
               grouped
               descriptionMode="tooltip"
               disabled={!draft.enabled}
@@ -505,7 +509,7 @@ function PresetCard({
 
           <div className="sst-form-grid three">
             <label className="sst-field">
-              <FieldLabel>Format</FieldLabel>
+              <FieldLabel>{t("sendSelectedText.fields.format")}</FieldLabel>
               <select
                 value={draft.format}
                 onChange={(event) =>
@@ -517,7 +521,7 @@ function PresetCard({
               </select>
             </label>
             <label className="sst-field span-two">
-              <FieldLabel>File action</FieldLabel>
+              <FieldLabel>{t("sendSelectedText.fields.fileAction")}</FieldLabel>
               <select
                 value={draft.write_mode}
                 onChange={(event) =>
@@ -526,7 +530,7 @@ function PresetCard({
               >
                 {writeModes.map((mode) => (
                   <option key={mode} value={mode}>
-                    {WRITE_MODE_LABELS[mode]}
+                    {t(WRITE_MODE_LABEL_KEYS[mode])}
                   </option>
                 ))}
               </select>
@@ -534,7 +538,7 @@ function PresetCard({
           </div>
 
           <div className="sst-field">
-            <FieldLabel>Destination folder</FieldLabel>
+            <FieldLabel>{t("sendSelectedText.fields.destinationFolder")}</FieldLabel>
             <div className="sst-input-action-row">
               <Input
                 variant="compact"
@@ -543,7 +547,7 @@ function PresetCard({
                 onChange={(event) =>
                   update("destination_directory", event.target.value)
                 }
-                placeholder="Choose where this preset writes files"
+                placeholder={t("sendSelectedText.presets.destinationPlaceholder")}
               />
               <Button
                 type="button"
@@ -551,16 +555,16 @@ function PresetCard({
                 size="sm"
                 className="flex min-h-[34px] items-center justify-center gap-2 whitespace-nowrap"
                 onClick={chooseDirectory}
-                title="Choose folder"
+                title={t("sendSelectedText.actions.chooseFolder")}
               >
                 <FolderOpen size={16} />
-                <span>Browse</span>
+                <span>{t("sendSelectedText.actions.browse")}</span>
               </Button>
             </div>
           </div>
 
           <label className="sst-field">
-            <FieldLabel>Filename template</FieldLabel>
+            <FieldLabel>{t("sendSelectedText.fields.filenameTemplate")}</FieldLabel>
             <Input
               variant="compact"
               className="w-full font-mono text-xs"
@@ -570,14 +574,15 @@ function PresetCard({
               }
             />
             <small>
-              Filename variables: {"{{date}}"}, {"{{time}}"}, {"{{record_id}}"},{" "}
-              {"{{preset_name}}"}. Folder separators are rejected.
+              {t("sendSelectedText.presets.filenameHelp", {
+                variables: "{{date}}, {{time}}, {{record_id}}, {{preset_name}}",
+              })}
             </small>
           </label>
 
           {draft.format === "markdown" ? (
             <label className="sst-field">
-              <FieldLabel>Markdown content template</FieldLabel>
+              <FieldLabel>{t("sendSelectedText.fields.contentTemplate")}</FieldLabel>
               <textarea
                 className="min-h-[104px] font-mono"
                 value={draft.content_template}
@@ -586,23 +591,23 @@ function PresetCard({
                 }
               />
               <small>
-                {"{{text}}"} is required. Optional: {"{{timestamp_local}}"},{" "}
-                {"{{preset_name}}"}, {"{{record_id}}"}.
+                {t("sendSelectedText.presets.contentHelp", {
+                  textVariable: "{{text}}",
+                  optionalVariables: "{{timestamp_local}}, {{preset_name}}, {{record_id}}",
+                })}
               </small>
             </label>
           ) : (
             <div className="sst-json-note">
               <FileJson size={18} />
               <div>
-                <strong>JSON is generated automatically</strong>
+                <strong>{t("sendSelectedText.presets.jsonTitle")}</strong>
                 <p>
-                  AivoRelay writes one versioned document with an entries array.
-                  Quotes, newlines, backslashes, and Unicode are escaped by the
-                  JSON serializer.
+                  {t("sendSelectedText.presets.jsonHelp")}
                 </p>
               </div>
               <label>
-                <span>Keep latest entries</span>
+                <span>{t("sendSelectedText.fields.keepLatest")}</span>
                 <Input
                   type="number"
                   variant="compact"
@@ -624,7 +629,7 @@ function PresetCard({
                     disabled={busy}
                     onClick={trimJsonDraft}
                   >
-                    Trim existing JSON now
+                    {t("sendSelectedText.actions.trimJson")}
                   </Button>
                 )}
             </div>
@@ -632,24 +637,24 @@ function PresetCard({
 
           <div className="sst-form-grid three">
             <label className="sst-field">
-              <FieldLabel>Capture method</FieldLabel>
+              <FieldLabel>{t("sendSelectedText.fields.captureMethod")}</FieldLabel>
               <select
                 value={draft.capture_mode}
                 onChange={(event) =>
                   update("capture_mode", event.target.value as CaptureMode)
                 }
               >
-                <option value="auto">Auto: accessibility, then copy</option>
+                <option value="auto">{t("sendSelectedText.captureModes.auto")}</option>
                 <option value="clipboard_copy">
-                  Copy and restore clipboard
+                  {t("sendSelectedText.captureModes.clipboardCopy")}
                 </option>
                 <option value="accessibility">
-                  Windows accessibility only
+                  {t("sendSelectedText.captureModes.accessibility")}
                 </option>
               </select>
             </label>
             <label className="sst-field">
-              <FieldLabel>Maximum characters</FieldLabel>
+              <FieldLabel>{t("sendSelectedText.fields.maximumCharacters")}</FieldLabel>
               <Input
                 type="number"
                 variant="compact"
@@ -663,7 +668,7 @@ function PresetCard({
               />
             </label>
             <label className="sst-field">
-              <FieldLabel>If text is too long</FieldLabel>
+              <FieldLabel>{t("sendSelectedText.fields.oversizeBehavior")}</FieldLabel>
               <select
                 value={draft.oversize_behavior}
                 onChange={(event) =>
@@ -673,8 +678,8 @@ function PresetCard({
                   )
                 }
               >
-                <option value="reject">Reject without saving</option>
-                <option value="truncate">Save the allowed beginning</option>
+                <option value="reject">{t("sendSelectedText.oversizeBehaviors.reject")}</option>
+                <option value="truncate">{t("sendSelectedText.oversizeBehaviors.truncate")}</option>
               </select>
             </label>
           </div>
@@ -682,22 +687,22 @@ function PresetCard({
           <section className="sst-command-section">
             <div className="sst-section-heading-row">
               <div>
-                <h4>Run a command after saving</h4>
-                <p>The file remains saved even if this command fails.</p>
+                <h4>{t("sendSelectedText.command.title")}</h4>
+                <p>{t("sendSelectedText.command.savedFileHelp")}</p>
               </div>
               <span className="sst-toggle-row compact">
                 <ToggleSwitch
                   checked={draft.command_enabled}
                   onChange={(checked) => update("command_enabled", checked)}
-                  ariaLabel="Run a command after saving"
+                  ariaLabel={t("sendSelectedText.command.title")}
                 />
-                <span>Enabled</span>
+                <span>{t("sendSelectedText.fields.enabled")}</span>
               </span>
             </div>
             {draft.command_enabled && (
               <div className="space-y-3">
                 <label className="sst-field">
-                  <FieldLabel>PowerShell command</FieldLabel>
+                  <FieldLabel>{t("sendSelectedText.fields.powerShellCommand")}</FieldLabel>
                   <textarea
                     className="min-h-[112px] font-mono"
                     value={draft.command}
@@ -705,13 +710,12 @@ function PresetCard({
                     placeholder="Get-Content -Raw -Encoding UTF8 -LiteralPath {{input_file}} | codex exec -s read-only -"
                   />
                   <small>
-                    Write placeholders without surrounding quotes. AivoRelay
-                    inserts them as PowerShell single-quoted literals.
+                    {t("sendSelectedText.command.placeholderHelp")}
                   </small>
                 </label>
                 <div className="sst-form-grid two">
                   <label className="sst-field">
-                    <FieldLabel>Working directory</FieldLabel>
+                    <FieldLabel>{t("sendSelectedText.fields.workingDirectory")}</FieldLabel>
                     <Input
                       variant="compact"
                       className="w-full text-xs"
@@ -719,11 +723,11 @@ function PresetCard({
                       onChange={(event) =>
                         update("command_working_directory", event.target.value)
                       }
-                      placeholder="Optional project directory"
+                      placeholder={t("sendSelectedText.command.workingDirectoryPlaceholder")}
                     />
                   </label>
                   <label className="sst-field">
-                    <FieldLabel>Execution policy</FieldLabel>
+                    <FieldLabel>{t("sendSelectedText.fields.executionPolicy")}</FieldLabel>
                     <select
                       value={draft.command_execution_policy}
                       onChange={(event) =>
@@ -733,7 +737,7 @@ function PresetCard({
                         )
                       }
                     >
-                      <option value="default">System default</option>
+                      <option value="default">{t("sendSelectedText.command.systemDefault")}</option>
                       <option value="bypass">Bypass</option>
                       <option value="remote_signed">RemoteSigned</option>
                       <option value="unrestricted">Unrestricted</option>
@@ -749,7 +753,7 @@ function PresetCard({
                         update("command_silent", event.target.checked)
                       }
                     />
-                    Capture exit code and output in History
+                    {t("sendSelectedText.command.captureOutput")}
                   </label>
                   <label>
                     <input
@@ -759,7 +763,7 @@ function PresetCard({
                         update("command_no_profile", event.target.checked)
                       }
                     />
-                    Skip PowerShell profile
+                    {t("sendSelectedText.command.skipProfile")}
                   </label>
                   <label>
                     <input
@@ -769,7 +773,7 @@ function PresetCard({
                         update("command_use_pwsh", event.target.checked)
                       }
                     />
-                    Use PowerShell 7 (pwsh)
+                    {t("sendSelectedText.command.usePwsh")}
                   </label>
                   <label>
                     <input
@@ -779,16 +783,16 @@ function PresetCard({
                         update("allow_text_variable", event.target.checked)
                       }
                     />
-                    Allow direct {"{{text}}"} insertion
+                    {t("sendSelectedText.command.allowDirectText", { textVariable: "{{text}}" })}
                   </label>
                 </div>
                 {draft.allow_text_variable && (
                   <div className="sst-warning-row">
                     <AlertTriangle size={17} />
                     <span>
-                      Direct text is safely PowerShell-quoted, but long
-                      selections can still exceed Windows command-line limits.
-                      Prefer {"{{input_file}}"}.
+                      {t("sendSelectedText.command.directTextWarning", {
+                        inputFileVariable: "{{input_file}}",
+                      })}
                     </span>
                   </div>
                 )}
@@ -798,10 +802,9 @@ function PresetCard({
 
           <section className="sst-sample-section">
             <div>
-              <FieldLabel>Test without changing the clipboard</FieldLabel>
+              <FieldLabel>{t("sendSelectedText.presets.sampleTitle")}</FieldLabel>
               <p>
-                Runs this preset with sample text instead of the current
-                selection.
+                {t("sendSelectedText.presets.sampleHelp")}
               </p>
             </div>
             <textarea
@@ -816,7 +819,7 @@ function PresetCard({
               onClick={runSampleDraft}
             >
               <span className="flex items-center gap-2">
-                <Play size={14} /> Test preset
+                <Play size={14} /> {t("sendSelectedText.actions.testPreset")}
               </span>
             </Button>
           </section>
@@ -829,7 +832,7 @@ function PresetCard({
               onClick={saveDraft}
             >
               <span className="flex items-center gap-2">
-                <Save size={15} /> Save preset
+                <Save size={15} /> {t("sendSelectedText.actions.savePreset")}
               </span>
             </Button>
           </footer>
@@ -860,12 +863,13 @@ function HistoryView({
   onDelete: (id: number) => Promise<void>;
   onClear: () => Promise<void>;
 }) {
+  const { t, i18n } = useTranslation();
   return (
     <div className="space-y-3">
       <div className="sst-toolbar">
         <div>
-          <h2 id="settings-selected-text-history" tabIndex={-1}>Execution history</h2>
-          <p>Selected text, saved path, command output, and complete errors.</p>
+          <h2 id="settings-selected-text-history" tabIndex={-1}>{t("sendSelectedText.history.title")}</h2>
+          <p>{t("sendSelectedText.history.description")}</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -874,7 +878,7 @@ function HistoryView({
             disabled={loading || loadingMore || clearing}
             onClick={onRefresh}
           >
-            Refresh
+            {t("sendSelectedText.actions.refresh")}
           </Button>
           <Button
             variant="danger"
@@ -884,16 +888,16 @@ function HistoryView({
             }
             onClick={onClear}
           >
-            {clearing ? "Clearing..." : "Clear history"}
+            {t(clearing ? "sendSelectedText.history.clearing" : "sendSelectedText.actions.clearHistory")}
           </Button>
         </div>
       </div>
       {loading ? (
-        <div className="sst-empty">Loading history...</div>
+        <div className="sst-empty">{t("sendSelectedText.history.loading")}</div>
       ) : entries.length === 0 ? (
         <div className="sst-empty">
           <History size={22} />
-          <span>No Send Selected Text runs yet.</span>
+          <span>{t("sendSelectedText.history.empty")}</span>
         </div>
       ) : (
         <div className="space-y-2">
@@ -904,13 +908,13 @@ function HistoryView({
                   <div className="flex flex-wrap items-center gap-2">
                     <strong>{entry.preset_name}</strong>
                     <span className={`sst-status-chip ${entry.status}`}>
-                      {STATUS_LABELS[entry.status]}
+                      {t(STATUS_LABEL_KEYS[entry.status])}
                     </span>
                     <span className="sst-history-format">
-                      {entry.output_format}
+                      {entry.output_format === "json" ? "JSON" : "Markdown"}
                     </span>
                   </div>
-                  <time>{formatDate(entry.timestamp_ms)}</time>
+                  <time>{formatDate(entry.timestamp_ms, i18n.resolvedLanguage ?? i18n.language)}</time>
                 </div>
                 <Button
                   type="button"
@@ -919,50 +923,50 @@ function HistoryView({
                   className="flex min-h-8 min-w-8 items-center justify-center !p-1.5"
                   disabled={clearing}
                   onClick={() => onDelete(entry.id)}
-                  title="Delete history entry"
-                  aria-label="Delete history entry"
+                  title={t("sendSelectedText.actions.deleteHistoryEntry")}
+                  aria-label={t("sendSelectedText.actions.deleteHistoryEntry")}
                 >
                   <Trash2 size={15} />
                 </Button>
               </header>
               <div className="sst-history-block">
                 <div className="sst-history-block-title">
-                  <span>Selected text</span>
+                  <span>{t("sendSelectedText.history.selectedText")}</span>
                   <CopyButton
                     value={entry.selected_text}
-                    label="selected text"
+                    label={t("sendSelectedText.copyLabels.selectedText")}
                   />
                 </div>
-                <p>{previewText(entry.selected_text) || "No text captured"}</p>
+                <p>{previewText(entry.selected_text) || t("sendSelectedText.history.noText")}</p>
               </div>
               {entry.output_path && (
                 <div className="sst-history-path">
                   <span>{entry.output_path}</span>
-                  <CopyButton value={entry.output_path} label="file path" />
+                  <CopyButton value={entry.output_path} label={t("sendSelectedText.copyLabels.filePath")} />
                 </div>
               )}
               {entry.command && (
                 <details className="sst-history-details">
-                  <summary>Command</summary>
+                  <summary>{t("sendSelectedText.history.command")}</summary>
                   <div className="sst-history-detail-content">
                     <pre>{entry.command}</pre>
-                    <CopyButton value={entry.command} label="command" />
+                    <CopyButton value={entry.command} label={t("sendSelectedText.copyLabels.command")} />
                   </div>
                 </details>
               )}
               {entry.command_output && (
                 <details className="sst-history-details">
-                  <summary>Command output</summary>
+                  <summary>{t("sendSelectedText.history.commandOutput")}</summary>
                   <div className="sst-history-detail-content">
                     <pre>{entry.command_output}</pre>
                     <CopyButton
                       value={entry.command_output}
-                      label="command output"
+                      label={t("sendSelectedText.copyLabels.commandOutput")}
                     />
                   </div>
                   {entry.command_output_truncated && (
                     <small>
-                      Output was truncated at the configured storage boundary.
+                      {t("sendSelectedText.history.outputTruncated")}
                     </small>
                   )}
                 </details>
@@ -970,8 +974,8 @@ function HistoryView({
               {entry.error && (
                 <div className="sst-history-error">
                   <div className="sst-history-block-title">
-                    <span>Full error</span>
-                    <CopyButton value={entry.error} label="full error" />
+                    <span>{t("sendSelectedText.history.fullError")}</span>
+                    <CopyButton value={entry.error} label={t("sendSelectedText.copyLabels.fullError")} />
                   </div>
                   <pre>{entry.error}</pre>
                 </div>
@@ -986,7 +990,7 @@ function HistoryView({
                 disabled={loading || loadingMore || clearing}
                 onClick={onLoadMore}
               >
-                {loadingMore ? "Loading..." : "Load older entries"}
+                {t(loadingMore ? "sendSelectedText.history.loadingMore" : "sendSelectedText.actions.loadOlder")}
               </Button>
             </div>
           )}
@@ -997,20 +1001,21 @@ function HistoryView({
 }
 
 function HelpView() {
+  const { t } = useTranslation();
   return (
     <div className="space-y-5">
       <section className="sst-help-intro">
         <Lightbulb size={21} />
         <div>
-          <h2>How this workflow fits together</h2>
+          <h2>{t("sendSelectedText.help.workflowTitle")}</h2>
           <ol>
-            <li>Select text in any application.</li>
-            <li>Press the hotkey assigned to a preset.</li>
-            <li>AivoRelay reads the selection and restores your clipboard.</li>
-            <li>The preset writes Markdown or a structured JSON record.</li>
-            <li>An optional command receives safe file paths and variables.</li>
+            <li>{t("sendSelectedText.help.steps.select")}</li>
+            <li>{t("sendSelectedText.help.steps.hotkey")}</li>
+            <li>{t("sendSelectedText.help.steps.capture")}</li>
+            <li>{t("sendSelectedText.help.steps.save")}</li>
+            <li>{t("sendSelectedText.help.steps.command")}</li>
             <li>
-              History records the text, path, output, and any complete error.
+              {t("sendSelectedText.help.steps.history")}
             </li>
           </ol>
         </div>
@@ -1020,12 +1025,12 @@ function HelpView() {
         <div className="sst-help-heading">
           <FileText size={18} />
           <div>
-            <h2>File recipes</h2>
-            <p>Use these field combinations as starting points.</p>
+            <h2>{t("sendSelectedText.help.fileRecipesTitle")}</h2>
+            <p>{t("sendSelectedText.help.fileRecipesDescription")}</p>
           </div>
         </div>
         <div className="sst-example-grid">
-          {COPY_EXAMPLES.map((example) => (
+          {getCopyExamples(t).map((example) => (
             <article key={example.title} className="sst-example-card">
               <h3>{example.title}</h3>
               <p>{example.summary}</p>
@@ -1049,22 +1054,21 @@ function HelpView() {
         <div className="sst-help-heading">
           <Code2 size={18} />
           <div>
-            <h2>Codex CLI and command examples</h2>
+            <h2>{t("sendSelectedText.help.commandsTitle")}</h2>
             <p>
-              These are PowerShell commands. Set Working directory to the
-              project that Codex should inspect or modify.
+              {t("sendSelectedText.help.commandsDescription")}
             </p>
           </div>
         </div>
         <div className="space-y-2">
-          {COMMAND_EXAMPLES.map((example) => (
+          {getCommandExamples(t).map((example) => (
             <article key={example.title} className="sst-command-example">
               <div>
                 <h3>{example.title}</h3>
                 <p>{example.description}</p>
               </div>
               <pre>{example.command}</pre>
-              <CopyButton value={example.command} label="command" />
+              <CopyButton value={example.command} label={t("sendSelectedText.copyLabels.command")} />
             </article>
           ))}
         </div>
@@ -1074,16 +1078,16 @@ function HelpView() {
         <div className="sst-help-heading">
           <Settings2 size={18} />
           <div>
-            <h2 id="settings-selected-text-variables" tabIndex={-1}>Variables</h2>
-            <p>Placeholders are replaced only after the file has been saved.</p>
+            <h2 id="settings-selected-text-variables" tabIndex={-1}>{t("sendSelectedText.help.variablesTitle")}</h2>
+            <p>{t("sendSelectedText.help.variablesDescription")}</p>
           </div>
         </div>
         <div className="sst-variable-table">
-          {VARIABLES.map(([name, description]) => (
+          {getVariables(t).map(([name, description]) => (
             <React.Fragment key={name}>
               <code>{name}</code>
               <span>{description}</span>
-              <CopyButton value={name} label="variable" />
+              <CopyButton value={name} label={t("sendSelectedText.copyLabels.variable")} />
             </React.Fragment>
           ))}
         </div>
@@ -1092,19 +1096,12 @@ function HelpView() {
       <section className="sst-safety-help">
         <AlertTriangle size={20} />
         <div>
-          <h2>Command and privacy notes</h2>
+          <h2>{t("sendSelectedText.help.privacyTitle")}</h2>
           <p>
-            Commands are authored by you and run with your Windows account. Use
-            captured execution when you need an exit code and logs.
-            Visible-window commands are started without waiting, so their
-            temporary input file is retained until PowerShell exits. Stale files
-            left by an app shutdown are cleaned later.
+            {t("sendSelectedText.help.executionNotes")}
           </p>
           <p>
-            History contains the selected text. Set a suitable history limit and
-            clear it when the source is sensitive. JSON escaping is automatic;
-            never add manual backslashes merely to make ordinary text valid
-            JSON.
+            {t("sendSelectedText.help.historyNotes")}
           </p>
         </div>
       </section>
@@ -1113,6 +1110,7 @@ function HelpView() {
 }
 
 export default function SendSelectedTextSettings() {
+  const { t } = useTranslation();
   const { refreshSettings } = useSettings();
   const [tab, setTab] = useState<PageTab>("presets");
   const [presetSortDirection, setPresetSortDirection] =
@@ -1170,14 +1168,14 @@ export default function SendSelectedTextSettings() {
       setHistoryHasMore(entries.length > HISTORY_PAGE_SIZE);
     } catch (error) {
       if (historyGeneration.current === generation) {
-        toast.error(`Failed to load history: ${String(error)}`);
+        toast.error(t("sendSelectedText.messages.historyLoadFailed", { error: String(error) }));
       }
     } finally {
       if (historyGeneration.current === generation) {
         setHistoryLoading(false);
       }
     }
-  }, []);
+  }, [t]);
 
   const loadMoreHistory = async () => {
     if (
@@ -1206,7 +1204,7 @@ export default function SendSelectedTextSettings() {
       setHistoryHasMore(entries.length > HISTORY_PAGE_SIZE);
     } catch (error) {
       if (historyGeneration.current === generation) {
-        toast.error(`Failed to load older history: ${String(error)}`);
+        toast.error(t("sendSelectedText.messages.olderHistoryLoadFailed", { error: String(error) }));
       }
     } finally {
       setHistoryLoadingMore(false);
@@ -1231,7 +1229,7 @@ export default function SendSelectedTextSettings() {
         unlistenHistory = unlisten;
       } catch (error) {
         if (active) {
-          toast.error(`Failed to watch history updates: ${String(error)}`);
+          toast.error(t("sendSelectedText.messages.historyWatchFailed", { error: String(error) }));
         }
       }
       if (!active) return;
@@ -1239,7 +1237,7 @@ export default function SendSelectedTextSettings() {
       try {
         await Promise.all([loadFeature(), loadHistory()]);
       } catch (error) {
-        if (active) toast.error(String(error));
+        if (active) toast.error(t("sendSelectedText.messages.settingsLoadFailed", { error: String(error) }));
       } finally {
         if (active) setLoading(false);
       }
@@ -1249,7 +1247,7 @@ export default function SendSelectedTextSettings() {
       active = false;
       unlistenHistory?.();
     };
-  }, [loadFeature, loadHistory]);
+  }, [loadFeature, loadHistory, t]);
 
   const presets = feature?.presets ?? [];
   const { items: visiblePresets } =
@@ -1261,7 +1259,10 @@ export default function SendSelectedTextSettings() {
     setCreatingPreset(true);
     try {
       const created = asCompletePreset(
-        unwrapCommandResult(await commands.createSendSelectedTextPreset(null)),
+        unwrapCommandResult(await commands.createSendSelectedTextPreset({
+          id: "",
+          name: t("sendSelectedText.presets.defaultName"),
+        })),
       );
       featureGeneration.current += 1;
       setFeature((current) =>
@@ -1270,9 +1271,9 @@ export default function SendSelectedTextSettings() {
           : current,
       );
       await refreshSettings();
-      toast.success("Preset created");
+      toast.success(t("sendSelectedText.messages.presetCreated"));
     } catch (error) {
-      toast.error(String(error));
+      toast.error(t("sendSelectedText.messages.presetCreateFailed", { error: String(error) }));
     } finally {
       createPresetInFlight.current = false;
       setCreatingPreset(false);
@@ -1300,7 +1301,7 @@ export default function SendSelectedTextSettings() {
       await refreshSettings();
       return updated;
     } catch (error) {
-      toast.error(String(error));
+      toast.error(t("sendSelectedText.messages.presetSaveFailed", { error: String(error) }));
       throw error;
     }
   };
@@ -1312,7 +1313,7 @@ export default function SendSelectedTextSettings() {
           await commands.createSendSelectedTextPreset({
             ...preset,
             id: "",
-            name: `${preset.name} copy`,
+            name: t("sendSelectedText.presets.copyName", { name: preset.name }),
           }),
         ),
       );
@@ -1323,16 +1324,16 @@ export default function SendSelectedTextSettings() {
           : current,
       );
       await refreshSettings();
-      toast.success("Preset duplicated without copying its hotkey");
+      toast.success(t("sendSelectedText.messages.presetDuplicated"));
     } catch (error) {
-      toast.error(String(error));
+      toast.error(t("sendSelectedText.messages.presetDuplicateFailed", { error: String(error) }));
     }
   };
 
   const deletePreset = async (preset: SendSelectedTextPreset) => {
     if (
       !window.confirm(
-        `Delete preset "${preset.name}"? Its history will remain.`,
+        t("sendSelectedText.messages.deletePresetConfirm", { name: preset.name }),
       )
     ) {
       return;
@@ -1351,9 +1352,9 @@ export default function SendSelectedTextSettings() {
           : current,
       );
       await refreshSettings();
-      toast.success("Preset deleted; history preserved");
+      toast.success(t("sendSelectedText.messages.presetDeleted"));
     } catch (error) {
-      toast.error(String(error));
+      toast.error(t("sendSelectedText.messages.presetDeleteFailed", { error: String(error) }));
     }
   };
 
@@ -1363,10 +1364,10 @@ export default function SendSelectedTextSettings() {
       const result = unwrapCommandResult(
         await commands.runSendSelectedTextPreset(preset.id, text),
       );
-      toast.success(`Saved to ${result.output_path}`);
+      toast.success(t("sendSelectedText.messages.sampleSaved", { path: result.output_path }));
       await loadHistory();
     } catch (error) {
-      toast.error(String(error));
+      toast.error(t("sendSelectedText.messages.sampleFailed", { error: String(error) }));
       throw error;
     }
   };
@@ -1379,11 +1380,11 @@ export default function SendSelectedTextSettings() {
       );
       toast.success(
         removed === 0
-          ? "JSON already satisfies retention"
-          : `Removed ${removed} old entries`,
+          ? t("sendSelectedText.messages.jsonRetentionSatisfied")
+          : t("sendSelectedText.messages.oldEntriesRemoved", { count: removed }),
       );
     } catch (error) {
-      toast.error(String(error));
+      toast.error(t("sendSelectedText.messages.jsonTrimFailed", { error: String(error) }));
       throw error;
     }
   };
@@ -1418,13 +1419,13 @@ export default function SendSelectedTextSettings() {
           historyLimit: updated.history_limit,
           errorSeconds: Math.round(updated.error_overlay_auto_hide_ms / 1000),
         });
-        toast.success("History and overlay settings saved");
+        toast.success(t("sendSelectedText.messages.optionsSaved"));
       } else {
-        toast.success("Submitted settings saved; newer edits remain unsaved");
+        toast.success(t("sendSelectedText.messages.optionsSavedWithNewerEdits"));
       }
       await loadHistory();
     } catch (error) {
-      toast.error(String(error));
+      toast.error(t("sendSelectedText.messages.optionsSaveFailed", { error: String(error) }));
     } finally {
       optionsSaveInFlight.current = false;
       setOptionsSaving(false);
@@ -1437,7 +1438,7 @@ export default function SendSelectedTextSettings() {
       unwrapCommandResult(await commands.deleteSendSelectedTextHistoryEntry(id));
       await loadHistory();
     } catch (error) {
-      toast.error(String(error));
+      toast.error(t("sendSelectedText.messages.historyEntryDeleteFailed", { error: String(error) }));
     }
   };
 
@@ -1445,7 +1446,7 @@ export default function SendSelectedTextSettings() {
     if (historyClearInFlight.current) return;
     if (
       !window.confirm(
-        "Clear all Send Selected Text history? Saved output files remain.",
+        t("sendSelectedText.messages.clearHistoryConfirm"),
       )
     ) {
       return;
@@ -1456,7 +1457,7 @@ export default function SendSelectedTextSettings() {
       unwrapCommandResult(await commands.clearSendSelectedTextHistory());
       await loadHistory();
     } catch (error) {
-      toast.error(String(error));
+      toast.error(t("sendSelectedText.messages.historyClearFailed", { error: String(error) }));
     } finally {
       historyClearInFlight.current = false;
       setHistoryClearing(false);
@@ -1473,7 +1474,7 @@ export default function SendSelectedTextSettings() {
     try {
       await Promise.all([loadFeature(), loadHistory()]);
     } catch (error) {
-      toast.error(String(error));
+      toast.error(t("sendSelectedText.messages.settingsLoadFailed", { error: String(error) }));
     } finally {
       setLoading(false);
     }
@@ -1481,7 +1482,7 @@ export default function SendSelectedTextSettings() {
 
   if (loading) {
     return (
-      <div className="sst-page sst-empty">Loading Send Selected Text...</div>
+      <div className="sst-page sst-empty">{t("sendSelectedText.loading")}</div>
     );
   }
 
@@ -1489,10 +1490,10 @@ export default function SendSelectedTextSettings() {
     return (
       <div className="sst-page sst-empty tall">
         <AlertTriangle size={28} />
-        <strong>Could not load Send Selected Text settings</strong>
-        <span>Check the error message and try again.</span>
+        <strong>{t("sendSelectedText.loadError")}</strong>
+        <span>{t("sendSelectedText.loadErrorHelp")}</span>
         <Button variant="secondary" onClick={retryInitialLoad}>
-          Retry
+          {t("sendSelectedText.actions.retry")}
         </Button>
       </div>
     );
@@ -1504,10 +1505,9 @@ export default function SendSelectedTextSettings() {
         <div className="sst-page-title">
           <Send size={22} />
           <div>
-            <h1 id="settings-selected-text-presets" tabIndex={-1}>Send selected text to file or command</h1>
+            <h1 id="settings-selected-text-presets" tabIndex={-1}>{t("sendSelectedText.title")}</h1>
             <p>
-              Save a selection to Markdown or JSON, then optionally run your
-              command.
+              {t("sendSelectedText.description")}
             </p>
           </div>
         </div>
@@ -1516,7 +1516,7 @@ export default function SendSelectedTextSettings() {
             <NameSortControl
               direction={presetSortDirection}
               onChange={setPresetSortDirection}
-              label="Sort presets"
+              label={t("sendSelectedText.actions.sortPresets")}
             />
           )}
           <Button
@@ -1525,22 +1525,24 @@ export default function SendSelectedTextSettings() {
             onClick={createPreset}
           >
             <span className="flex items-center gap-2">
-              <Plus size={16} /> Add preset
+              <Plus size={16} /> {t("sendSelectedText.actions.addPreset")}
             </span>
           </Button>
         </div>
       </header>
 
-      <nav className="sst-tabs" aria-label="Send Selected Text views">
+      <nav className="sst-tabs" aria-label={t("sendSelectedText.tabs.label")}>
         {(
           [
-            ["presets", Settings2, "Presets"],
+            ["presets", Settings2, t("sendSelectedText.tabs.presets")],
             [
               "history",
               Clock3,
-              `History (${historyEntries.length}${historyHasMore ? "+" : ""})`,
+              t("sendSelectedText.tabs.history", {
+                entries: `${historyEntries.length}${historyHasMore ? "+" : ""}`,
+              }),
             ],
-            ["help", Lightbulb, "Help / Examples"],
+            ["help", Lightbulb, t("sendSelectedText.tabs.help")],
           ] as const
         ).map(([id, Icon, label]) => (
           <button
@@ -1561,11 +1563,11 @@ export default function SendSelectedTextSettings() {
         <div className="space-y-4">
           <section className="sst-options-bar">
             <div>
-              <h2 id="settings-selected-text-history-options" tabIndex={-1}>History and error overlay</h2>
-              <p>These settings apply to every preset.</p>
+              <h2 id="settings-selected-text-history-options" tabIndex={-1}>{t("sendSelectedText.options.title")}</h2>
+              <p>{t("sendSelectedText.options.description")}</p>
             </div>
             <label>
-              <span>History entries</span>
+              <span>{t("sendSelectedText.options.historyLimit")}</span>
               <Input
                 type="number"
                 variant="compact"
@@ -1584,7 +1586,7 @@ export default function SendSelectedTextSettings() {
               />
             </label>
             <label>
-              <span>Error overlay seconds</span>
+              <span>{t("sendSelectedText.options.errorSeconds")}</span>
               <Input
                 type="number"
                 variant="compact"
@@ -1609,23 +1611,23 @@ export default function SendSelectedTextSettings() {
               className="flex min-h-[34px] items-center justify-center gap-2 whitespace-nowrap"
               disabled={optionsSaving}
               onClick={saveOptions}
-              title="Save history and overlay settings"
+              title={t("sendSelectedText.actions.saveOptions")}
             >
               <Save size={15} />
-              <span>Save</span>
+              <span>{t("sendSelectedText.actions.save")}</span>
             </Button>
           </section>
 
           {presets.length === 0 ? (
             <div className="sst-empty tall">
               <Send size={28} />
-              <strong>No presets yet</strong>
+              <strong>{t("sendSelectedText.presets.empty")}</strong>
               <span>
-                Add a preset, choose its folder, then assign a hotkey.
+                {t("sendSelectedText.presets.emptyHelp")}
               </span>
               <Button disabled={creatingPreset} onClick={createPreset}>
                 <span className="flex items-center gap-2">
-                  <Plus size={16} /> Add first preset
+                  <Plus size={16} /> {t("sendSelectedText.actions.addFirstPreset")}
                 </span>
               </Button>
             </div>

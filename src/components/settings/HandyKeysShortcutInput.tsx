@@ -19,6 +19,8 @@ interface HandyKeysShortcutInputProps {
   grouped?: boolean;
   shortcutId: string;
   disabled?: boolean;
+  title?: string;
+  description?: string;
 }
 
 interface HandyKeysEvent {
@@ -33,6 +35,8 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
   grouped = false,
   shortcutId,
   disabled = false,
+  title,
+  description,
 }) => {
   const { t } = useTranslation();
   const { getSetting, updateBinding, resetBinding, isUpdating, isLoading } =
@@ -278,11 +282,11 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     );
   }
 
-  const translatedName = t(
+  const translatedName = title ?? t(
     `settings.general.shortcut.bindings.${shortcutId}.name`,
     binding.name,
   );
-  const translatedDescription = t(
+  const translatedDescription = description ?? t(
     `settings.general.shortcut.bindings.${shortcutId}.description`,
     binding.description,
   );
