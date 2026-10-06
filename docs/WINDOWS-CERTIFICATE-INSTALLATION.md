@@ -27,9 +27,9 @@ Windows may display the thumbprint with spaces. The hexadecimal characters must 
    ```
 
 5. Approve the Administrator prompt.
-6. Confirm that the script shows the expected thumbprint and reports `[OK] Installed` or `[OK] Already installed`.
+6. Confirm that the script shows the expected thumbprint, reports `[OK] Installed` or `[OK] Already installed`, and then reports `[OK] Limited to Code Signing`.
 
-The script refuses to install an embedded or accompanying certificate whose thumbprint does not match the expected value.
+The script refuses to install the embedded certificate if its thumbprint does not match the expected value. Running it on an existing installation adds the Code Signing limit.
 
 ## Option 2: install it manually
 
@@ -46,12 +46,13 @@ The script refuses to install an embedded or accompanying certificate whose thum
 2. Open **Trusted Root Certification Authorities → Certificates**.
 3. Find **Max IT Service Root CA**.
 4. Open it, select **Details → Thumbprint**, and confirm that it matches `CE21720C8D57D58C4C170E2FC9102E2A9CAF97F5`.
+5. Right-click it, select **Properties**, and check that **Enable only the following purposes** has only **Code Signing** checked. After a manual installation, set it there.
 
 You can now run the AivoRelay installer downloaded from the release.
 
 ## Remove the certificate
 
-If you no longer use GitHub-distributed AivoRelay builds:
+If you no longer use GitHub-distributed AivoRelay builds, run the release script and press **D** at the end, or remove it manually:
 
 1. Open `certlm.msc` as described above.
 2. Go to **Trusted Root Certification Authorities → Certificates**.

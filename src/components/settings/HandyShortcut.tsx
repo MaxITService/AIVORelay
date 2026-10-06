@@ -10,6 +10,8 @@ interface HandyShortcutProps {
   grouped?: boolean;
   shortcutId: string;
   disabled?: boolean;
+  title?: string;
+  description?: string;
 }
 
 export const HandyShortcut: React.FC<HandyShortcutProps> = (props) => {

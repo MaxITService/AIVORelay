@@ -2,7 +2,7 @@ const DEFAULT_HOUR12 = false;
 const TWELVE_HOUR_CYCLES = new Set(["h11", "h12"]);
 const TWENTY_FOUR_HOUR_CYCLES = new Set(["h23", "h24"]);
 
-const shouldUseSystem12HourClock = (): boolean => {
+export const shouldUseSystem12HourClock = (): boolean => {
   try {
     if (
       typeof Intl === "undefined" ||

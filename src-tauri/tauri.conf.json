@@ -118,6 +118,8 @@
     "windows": {
       "certificateThumbprint": "C1F83B324662E8D224282F9D587B030426346A77",
       "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "tsp": true,
       "wix": {
         "template": "./windows/wix/main.wxs"
       }

@@ -14,6 +14,7 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 - Soniox text to speech now uses the v2 model by default, including the built-in voice presets.
 - Removing filler words preserves sentence capitals and English names such as Ha Long Bay.
 - Local recording now explains when the selected model is missing or unavailable instead of starting a recording that cannot be transcribed.
+- Windows builds now carry a signing timestamp, so their digital signatures stay valid long-term, including after the signing certificate is renewed.
 - Included the latest upstream Handy improvements and fixes for text cleanup, recording, and startup.
 
 ---
@@ -21,4 +22,6 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 **Notice:**
 The [Microsoft Store Edition](https://github.com/MaxITService/AIVORelay/releases/tag/v1.0.45-store) is also available for this version. It targets Windows x64 and requires an AVX2-capable processor.
 
-Optional: Windows users can install AivoRelay's self-signed root certificate to trust GitHub builds from Max IT Service. AivoRelay also works without it, but Windows may show publisher or SmartScreen warnings. See the [certificate installation guide](https://github.com/MaxITService/AIVORelay/blob/main/docs/WINDOWS-CERTIFICATE-INSTALLATION.md).
+Optional: Windows users can install AivoRelay's self-signed root certificate to trust GitHub builds from Max IT Service. The install script now limits the certificate to code signing, the same way Windows limits its built-in certificates; if you installed it before, you can run the new script once to apply this. AivoRelay also works without it, but Windows may show publisher or SmartScreen warnings. See the [certificate installation guide](https://github.com/MaxITService/AIVORelay/blob/main/docs/WINDOWS-CERTIFICATE-INSTALLATION.md).
+
+The [Microsoft Store](https://apps.microsoft.com/detail/9ppfkfh2zn1l) edition avoids the Windows SmartScreen warning (“Windows protected your PC”) shown before running downloaded files.
