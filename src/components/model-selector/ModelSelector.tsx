@@ -346,6 +346,21 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     };
   }, []);
 
+  // Escape closes the dropdown and returns focus to the status button.
+  useEffect(() => {
+    if (!showModelDropdown) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const container = dropdownRef.current;
+      const focusWasInside =
+        !!container && container.contains(document.activeElement);
+      setShowModelDropdown(false);
+      if (focusWasInside) container.querySelector("button")?.focus();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [showModelDropdown]);
+
   const loadModels = async () => {
     try {
       const result = await commands.getAvailableModels();
