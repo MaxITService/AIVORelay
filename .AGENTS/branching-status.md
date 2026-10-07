@@ -6,10 +6,10 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## release/microsoft-store
 
-Last synced commit from `main`: `2a495378` — chore: bump version to 1.0.45.
+Last synced commit from `main`: `c5df5ef5` — chore: bump version to 1.0.46.
 Maintenance rule: after a successful `main` -> `release/microsoft-store` propagation, update this main-copy cursor and the `release/microsoft-store` worktree copy together.
 Note: the cursor always points to the last propagated `main` state reflected in branch content, not to a docs-only cursor-update commit itself.
-Alignment note: runtime and 1.0.45 release preparation propagated through the cursor above. Main-only code notes, testing documentation, and standalone frontend tests from 7366d7c5 are excluded; earlier test-only 8498faaa remains excluded. Existing documentation differences are preserved. Store config, workflows, updater, and AVX2 rules are preserved. The Store lockfile app version was updated independently; builds/tests were not run locally. Release notes and What's New retain all 1.0.44 highlights because the last published version is 1.0.43.
+Alignment note: runtime/UI and 1.0.46 release preparation propagated through the cursor above. Main-only code notes, testing documentation, standalone frontend tests, certificate installation tooling and Windows signing changes are excluded. The updater-search commit is excluded. Existing documentation and test-support differences are preserved. Store config, workflows, updater, and AVX2 rules are preserved. Store lockfile app version was updated independently. Release notes and What's New describe changes since published 1.0.45. The user confirmed build verification; no agent build/tests were run.
 Sync rule: for this branch, source commits come from `main` only.
 Propagation scope rule: for Microsoft Store Edition propagation, bring over the intended `main` commit set in order unless a commit is store-incompatible. Default exclusions are self-update/auto-update changes and AVX512-only changes; AVX2 is allowed.
 
