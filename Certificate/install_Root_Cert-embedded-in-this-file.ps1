@@ -2,10 +2,11 @@
 Install-RootCA.ps1
 - Auto-elevates
 - Installs the embedded root certificate into LocalMachine\Root
-- Verifies thumbprint before installing
+- Verifies thumbprint before installing, then installs only after the user presses Enter
 - Limits the installed certificate to Code Signing (also on re-run for existing installs)
 - Applies the same limit to other copies in trusted root stores, such as a copy installed for the current user only
-- Informs + "Press D to delete the installed certificate, or any other key to exit"
+- If the certificate is already installed: shows its setting and lets the user limit it, allow all purposes, delete it, or exit
+- Informs + "Press any key to exit"
 #>
 
 param(
@@ -25,7 +26,11 @@ MIIGDDCCA/SgAwIBAgIUPd2UkjRUSfakbsFG1eYCWooBXsowDQYJKoZIhvcNAQELBQAwgYsxHzAdBgNV
 $CodeSigningOid     = "1.3.6.1.5.5.7.3.3"
 $StoreCurrentUser   = 0x10000  # CERT_SYSTEM_STORE_CURRENT_USER
 $StoreLocalMachine  = 0x20000  # CERT_SYSTEM_STORE_LOCAL_MACHINE
-$ExitDeleted        = 2  # exit code of the Administrator window after the user chose to delete
+# Exit codes of the Administrator window, so the original window applies the
+# same choice to the user's own stores. 0 means installed or limited, 1 an error.
+$ExitDeleted        = 2
+$ExitAllowedAll     = 3
+$ExitNoChange       = 4
 $exitCode           = 0
 
 # Trusted root stores the script works with.
@@ -76,9 +81,10 @@ public static class AivoRelayCertApi
     public const int AlreadyLimited = 1;
     public const int AllPurposes = 2;   // no limit: trusted for every purpose
     public const int OtherPurposes = 3; // limited, but not to the expected purposes
-    // Results of EnsureLimited, in addition to NotPresent and AlreadyLimited.
+    // Results of EnsureLimited and ClearLimit, in addition to the states above.
     public const int Limited = 4;
     public const int InstalledAndLimited = 5;
+    public const int Cleared = 6;
 
     // CERT_STORE_PROV_SYSTEM_REGISTRY_W opens only the certificates saved in that
     // exact store, without the ones Windows merges in from elsewhere (for example,
@@ -122,6 +128,10 @@ public static class AivoRelayCertApi
 
     [DllImport("crypt32.dll", SetLastError = true)]
     private static extern bool CertSetCertificateContextProperty(IntPtr pCertContext, uint dwPropId, uint dwFlags, ref CRYPT_DATA_BLOB pvData);
+
+    // The same function with a pointer value: passing IntPtr.Zero deletes the property.
+    [DllImport("crypt32.dll", EntryPoint = "CertSetCertificateContextProperty", SetLastError = true)]
+    private static extern bool CertSetCertificateContextPropertyPtr(IntPtr pCertContext, uint dwPropId, uint dwFlags, IntPtr pvData);
 
     // Returns IntPtr.Zero when the store does not exist.
     private static IntPtr OpenExactStore(uint location, string storeName, bool readOnly)
@@ -361,6 +371,54 @@ public static class AivoRelayCertApi
         }
         return true;
     }
+
+    // Removes the usage limit, so the copy is trusted for all purposes again (the
+    // Windows default), then re-reads the store to confirm. Returns NotPresent,
+    // AllPurposes (nothing to change) or Cleared.
+    public static int ClearLimit(uint location, string storeName, string thumbprint)
+    {
+        byte[] sha1 = HexToBytes(thumbprint);
+        int state = ReadState(location, storeName, sha1, null);
+        if (state == NotPresent || state == AllPurposes)
+        {
+            return state;
+        }
+
+        IntPtr store = OpenExactStore(location, storeName, false);
+        if (store == IntPtr.Zero)
+        {
+            return NotPresent;
+        }
+        try
+        {
+            IntPtr cert = FindCertificate(store, sha1);
+            if (cert == IntPtr.Zero)
+            {
+                return NotPresent;
+            }
+            try
+            {
+                if (!CertSetCertificateContextPropertyPtr(cert, CERT_ENHKEY_USAGE_PROP_ID, 0, IntPtr.Zero))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+            }
+            finally
+            {
+                CertFreeCertificateContext(cert);
+            }
+        }
+        finally
+        {
+            CertCloseStore(store, 0);
+        }
+
+        if (ReadState(location, storeName, sha1, null) != AllPurposes)
+        {
+            throw new InvalidOperationException("Windows did not save the change.");
+        }
+        return Cleared;
+    }
 }
 '@
 }
@@ -374,6 +432,18 @@ function Get-CodeSigningOnlyUsage {
   ,$usage.RawData
 }
 
+# Describes the current purpose setting of a copy.
+function Get-StateText {
+  param([Parameter(Mandatory)][int]$State)
+  if ($State -eq [AivoRelayCertApi]::AlreadyLimited) {
+    "limited to Code Signing."
+  } elseif ($State -eq [AivoRelayCertApi]::AllPurposes) {
+    "trusted for all purposes (code signing, websites, email and more)."
+  } else {
+    "limited to purposes that differ from Code Signing only."
+  }
+}
+
 # Describes what is about to change for a copy that is not limited yet.
 function Get-ChangeText {
   param([Parameter(Mandatory)][int]$State)
@@ -384,12 +454,68 @@ function Get-ChangeText {
   }
 }
 
-# Returns $true when the user presses D. ConsoleKey follows the physical key,
-# so this works with any keyboard layout.
-function Read-DeleteChoice {
+# Drops keys pressed before the question appeared, so they cannot answer it.
+function Clear-KeyBuffer {
+  while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) }
+}
+
+function Read-InstallConfirmation {
   Write-Host ""
-  Write-Host "Press D to delete the installed certificate, or any other key to exit..." -ForegroundColor DarkGray
-  ([Console]::ReadKey($true)).Key -eq [ConsoleKey]::D
+  Write-Host "Press Enter to install it and limit it to Code Signing, or any other key to exit without changes..." -ForegroundColor Cyan
+  Clear-KeyBuffer
+  $key = [Console]::ReadKey($true).Key
+  Write-Host ""
+  $key -eq [ConsoleKey]::Enter
+}
+
+# Returns L, A or D, or an empty string for any other key. ConsoleKey follows
+# the physical key, so this works with any keyboard layout.
+function Read-Choice {
+  Clear-KeyBuffer
+  Write-Host ""
+  Write-Host "What do you want to do?" -ForegroundColor Cyan
+  Write-Host "  L  Limit it to Code Signing (recommended)"
+  Write-Host "  A  Allow all purposes (the Windows default)"
+  Write-Host "  D  Delete it"
+  Write-Host "  Any other key: exit without changes"
+  $key = [Console]::ReadKey($true).Key
+  Write-Host ""
+  if ($key -eq [ConsoleKey]::L) { return 'L' }
+  if ($key -eq [ConsoleKey]::A) { return 'A' }
+  if ($key -eq [ConsoleKey]::D) { return 'D' }
+  ''
+}
+
+# Installs the certificate into LocalMachine\Root if needed and limits it to
+# Code Signing, the only purpose it is used for. Windows limits its built-in
+# roots the same way.
+function Set-MachineRootLimit {
+  param(
+    [Parameter(Mandatory)][System.Security.Cryptography.X509Certificates.X509Certificate2]$Cert,
+    [Parameter(Mandatory)][string]$Thumbprint,
+    [Parameter(Mandatory)][byte[]]$Usage,
+    [Parameter(Mandatory)][int]$Before
+  )
+
+  if ($Before -eq [AivoRelayCertApi]::AllPurposes -or $Before -eq [AivoRelayCertApi]::OtherPurposes) {
+    Write-Host (Get-ChangeText $Before) -ForegroundColor Yellow
+  }
+
+  try {
+    $result = [AivoRelayCertApi]::EnsureLimited($StoreLocalMachine, "Root", $Thumbprint, $Usage, $Cert.RawData)
+  }
+  catch {
+    throw "Could not finish setting up the certificate in LocalMachine\Root ($(Get-ErrorText $_)). If it is installed, limit it manually: open certlm.msc, go to Trusted Root Certification Authorities, open Max IT Service Root CA -> Properties, select 'Enable only the following purposes', and leave only Code Signing checked."
+  }
+
+  if ($result -eq [AivoRelayCertApi]::InstalledAndLimited) {
+    Write-Host "[OK] Installed into LocalMachine\Root (Trusted Root Certification Authorities)." -ForegroundColor Green
+  }
+  if ($result -eq [AivoRelayCertApi]::AlreadyLimited) {
+    Write-Host "[OK] Limited to Code Signing: already set, nothing to change." -ForegroundColor Green
+  } else {
+    Write-Host "[OK] Limited to Code Signing, the only purpose AivoRelay uses it for." -ForegroundColor Green
+  }
 }
 
 # A copy in another trusted root store does not share the limit of the
@@ -422,6 +548,28 @@ function Limit-OtherCopies {
   }
 }
 
+function Clear-UsageLimits {
+  param(
+    [Parameter(Mandatory)][string]$Thumbprint,
+    [Parameter(Mandatory)][hashtable[]]$Stores
+  )
+
+  foreach ($store in $Stores) {
+    $where = "$($store.Scope)\$($store.Folder)"
+    try {
+      $result = [AivoRelayCertApi]::ClearLimit($store.Location, $store.Name, $Thumbprint)
+    }
+    catch {
+      throw "Could not change the copy in $where ($(Get-ErrorText $_)). Change it manually: open $($store.Tool), go to $($store.Folder), open Max IT Service Root CA -> Properties, and select 'Enable all purposes for this certificate'."
+    }
+    if ($result -eq [AivoRelayCertApi]::AllPurposes) {
+      Write-Host "[OK] $where already allows all purposes, nothing to change." -ForegroundColor Green
+    } elseif ($result -eq [AivoRelayCertApi]::Cleared) {
+      Write-Host "[OK] Changed: $where now allows all purposes." -ForegroundColor Green
+    }
+  }
+}
+
 # Returns the number of deleted copies.
 function Remove-Copies {
   param(
@@ -446,14 +594,13 @@ function Remove-Copies {
   $removed
 }
 
-$isAdministrator = Test-IsAdministrator
 $expected = Format-Thumbprint $ExpectedThumbprint
 
 try {
   Initialize-CertApi
   $codeSigningUsage = Get-CodeSigningOnlyUsage
 
-  if (-not $isAdministrator) {
+  if (-not (Test-IsAdministrator)) {
     Write-Host "Requesting Administrator elevation..." -ForegroundColor Yellow
 
     $scriptPath = $PSCommandPath
@@ -471,16 +618,18 @@ try {
     $null = $elevated.Handle
     $elevated.WaitForExit()
 
-    # This window runs as the user who started the script, so it handles that
-    # user's own stores. The Administrator window may belong to another account.
-    if ($elevated.ExitCode -eq $ExitDeleted) {
-      [void](Remove-Copies -Thumbprint $expected -Stores $UserStores)
-    }
-    elseif ($elevated.ExitCode -ne 0) {
-      throw "The Administrator window reported an error, described in that window. Nothing was changed for your user account."
-    }
-    else {
+    # This window runs as the user who started the script, so it applies the
+    # choice made in the Administrator window to that user's own stores. The
+    # Administrator window may belong to another account.
+    $choice = $elevated.ExitCode
+    if ($choice -eq 0) {
       Limit-OtherCopies -Thumbprint $expected -Usage $codeSigningUsage -Stores $UserStores
+    } elseif ($choice -eq $ExitDeleted) {
+      [void](Remove-Copies -Thumbprint $expected -Stores $UserStores)
+    } elseif ($choice -eq $ExitAllowedAll) {
+      Clear-UsageLimits -Thumbprint $expected -Stores $UserStores
+    } elseif ($choice -ne $ExitNoChange) {
+      throw "The Administrator window reported an error, described in that window. Nothing was changed for your user account."
     }
     Write-Host "[OK] Done." -ForegroundColor Green
   }
@@ -501,64 +650,50 @@ try {
       throw "Thumbprint mismatch!`nExpected: $expected`nActual:   $actual"
     }
 
-    # Limit the root to Code Signing, the only purpose it is used for. Windows
-    # limits its built-in roots the same way. Checked on every run, so
-    # re-running also updates older installs.
-    $before = [AivoRelayCertApi]::GetState($StoreLocalMachine, "Root", $actual, $codeSigningUsage)
-    if ($before -ne [AivoRelayCertApi]::NotPresent) {
-      Write-Host "[OK] Already installed in LocalMachine\Root." -ForegroundColor Green
-      if ($before -ne [AivoRelayCertApi]::AlreadyLimited) {
-        Write-Host (Get-ChangeText $before) -ForegroundColor Yellow
-      }
-    }
-
-    try {
-      $result = [AivoRelayCertApi]::EnsureLimited($StoreLocalMachine, "Root", $actual, $codeSigningUsage, $cert.RawData)
-    }
-    catch {
-      throw "Could not finish setting up the certificate in LocalMachine\Root ($(Get-ErrorText $_)). If it is installed, limit it manually: open certlm.msc, go to Trusted Root Certification Authorities, open Max IT Service Root CA -> Properties, select 'Enable only the following purposes', and leave only Code Signing checked."
-    }
-
-    if ($result -eq [AivoRelayCertApi]::InstalledAndLimited) {
-      Write-Host "[OK] Installed into LocalMachine\Root (Trusted Root Certification Authorities)." -ForegroundColor Green
-    }
-    if ($result -eq [AivoRelayCertApi]::AlreadyLimited) {
-      Write-Host "[OK] Limited to Code Signing: already set, nothing to change." -ForegroundColor Green
-    } else {
-      Write-Host "[OK] Limited to Code Signing, the only purpose AivoRelay uses it for." -ForegroundColor Green
-    }
-
     $otherStores = $OtherMachineStores
     if (-not $MachineOnly) { $otherStores += $UserStores }
-    Limit-OtherCopies -Thumbprint $actual -Usage $codeSigningUsage -Stores $otherStores
+    $before = [AivoRelayCertApi]::GetState($StoreLocalMachine, "Root", $actual, $codeSigningUsage)
+
+    if ($before -eq [AivoRelayCertApi]::NotPresent) {
+      Write-Host "The certificate is not installed in LocalMachine\Root."
+      if (Read-InstallConfirmation) {
+        Set-MachineRootLimit -Cert $cert -Thumbprint $actual -Usage $codeSigningUsage -Before $before
+        Limit-OtherCopies -Thumbprint $actual -Usage $codeSigningUsage -Stores $otherStores
+      } else {
+        Write-Host "No changes made." -ForegroundColor DarkGray
+        $exitCode = $ExitNoChange
+      }
+    }
+    else {
+      Write-Host "[OK] Already installed in LocalMachine\Root." -ForegroundColor Green
+      Write-Host "Current setting: $(Get-StateText $before)"
+      $choice = Read-Choice
+
+      if ($choice -eq 'L') {
+        Set-MachineRootLimit -Cert $cert -Thumbprint $actual -Usage $codeSigningUsage -Before $before
+        Limit-OtherCopies -Thumbprint $actual -Usage $codeSigningUsage -Stores $otherStores
+      }
+      elseif ($choice -eq 'A') {
+        Clear-UsageLimits -Thumbprint $actual -Stores (@($MachineRootStore) + $otherStores)
+        $exitCode = $ExitAllowedAll
+      }
+      elseif ($choice -eq 'D') {
+        [void](Remove-Copies -Thumbprint $actual -Stores (@($MachineRootStore) + $otherStores))
+        Write-Host "Run this script again to reinstall the certificate." -ForegroundColor DarkGray
+        $exitCode = $ExitDeleted
+      }
+      else {
+        Write-Host "No changes made." -ForegroundColor DarkGray
+        $exitCode = $ExitNoChange
+      }
+    }
   }
 }
 catch {
   $exitCode = 1
   Write-Host "[ERROR] $(Get-ErrorText $_)" -ForegroundColor Red
 }
-
-if ($isAdministrator -and (Read-DeleteChoice)) {
-  try {
-    $deleteStores = @($MachineRootStore) + $OtherMachineStores
-    if (-not $MachineOnly) { $deleteStores += $UserStores }
-    $removed = Remove-Copies -Thumbprint $expected -Stores $deleteStores
-    if ($removed -eq 0 -and $MachineOnly) {
-      Write-Host "No machine-wide copy to delete." -ForegroundColor Yellow
-    } elseif ($removed -eq 0) {
-      Write-Host "Nothing to delete: the certificate is not installed." -ForegroundColor Yellow
-    } else {
-      Write-Host "Run this script again to reinstall the certificate." -ForegroundColor DarkGray
-    }
-    $exitCode = $ExitDeleted
-  }
-  catch {
-    $exitCode = 1
-    Write-Host "[ERROR] $(Get-ErrorText $_)" -ForegroundColor Red
-  }
-  Wait-AnyKey
-}
-elseif (-not $isAdministrator) {
+finally {
   Wait-AnyKey
 }
 

@@ -27,9 +27,9 @@ Windows may display the thumbprint with spaces. The hexadecimal characters must 
    ```
 
 5. Approve the Administrator prompt.
-6. Confirm that the script shows the expected thumbprint, reports `[OK] Installed` or `[OK] Already installed`, and then reports `[OK] Limited to Code Signing`.
+6. Confirm that the script shows the expected thumbprint, press Enter, and check that it reports `[OK] Installed` and `[OK] Limited to Code Signing`.
 
-The script refuses to install the embedded certificate if its thumbprint does not match the expected value. Running it on an existing installation adds the Code Signing limit.
+The script refuses to install the embedded certificate if its thumbprint does not match the expected value. If the certificate is already installed, the script shows its current setting and lets you limit it to Code Signing, allow all purposes, or delete it.
 
 ## Option 2: install it manually
 
@@ -52,7 +52,7 @@ You can now run the AivoRelay installer downloaded from the release.
 
 ## Remove the certificate
 
-If you no longer use GitHub-distributed AivoRelay builds, run the release script and press **D** at the end, or remove it manually:
+If you no longer use GitHub-distributed AivoRelay builds, run the release script and press **D** when it asks, or remove it manually:
 
 1. Open `certlm.msc` as described above.
 2. Go to **Trusted Root Certification Authorities → Certificates**.
