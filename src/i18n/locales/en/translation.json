@@ -545,20 +545,19 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.43",
+      "since": "Since version 1.0.45",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "overlayUserPresets": "Save your own named overlay presets and share the complete appearance through style codes. Previously shared codes still import.",
-        "overlayDepth": "Give the overlay a new look with 3D-style animated bars, backgrounds, centerpieces, and materials.",
-        "overlayControls": "Choose new status icon frames and optionally make the cancel button invisible while keeping it clickable.",
-        "overlayAppearance": "Overlay presets, reset, and imported styles now save the complete appearance together and report any saving errors.",
-        "overlayPreview": "Preview the overlay while capture starts, during silence, or with an application name. Previews also respect reduced-motion settings.",
-        "localTtsInstall": "Before installing a local speech model, you can review its download sources, installation details, and component licenses, then confirm that you have read them.",
-        "sonioxTts": "Soniox text to speech now uses the v2 model by default, including the built-in voice presets.",
-        "textCleanup": "Removing filler words preserves sentence capitals and English names such as Ha Long Bay.",
-        "localRecording": "Local recording now explains when the selected model is missing or unavailable instead of starting a recording that cannot be transcribed.",
-        "upstreamFixes": "Included the latest upstream Handy improvements and fixes for text cleanup, recording, and startup."
+        "settingsSearch": "Settings search now finds individual options and takes you straight to them, opening collapsed panels on the way. If an option appears only after you turn on another one, search takes you to that one.",
+        "listSorting": "Lists and dropdowns in settings are now sorted by name, with numbers in natural order. Profiles, prompts, presets, and model lists can also be switched to Z → A or Off, and entries such as Default and Auto stay at the top.",
+        "overlayAnimations": "Choose how the recording overlay appears and disappears, including the new Portal animation. An interrupted animation now reverses smoothly instead of jumping.",
+        "historyLiveReplay": "Re-transcribe saved recordings in History with live models too. Progress is shown, and stopping keeps the original text.",
+        "interfaceMotion": "Smoother interface: animated menus, sections, switches, buttons, sliders, and tooltips, a soft glow on settings cards near the cursor, smooth sidebar dragging, and new Speech / Mic and Speech Processing icons.",
+        "sendSelectedText": "Send Selected Text is now fully translated into Russian, and its history uses the 12- or 24-hour clock set in Windows.",
+        "transcribeFile": "Transcribe File keeps the progress and result of a running transcription when you switch to another section and back.",
+        "historyCleanup": "History now removes old recordings according to your retention setting at startup and every hour, not only after a new recording.",
+        "dictationOnlyMode": "Speech-only mode is now called Dictation-only mode (less RAM), with clearer descriptions."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"

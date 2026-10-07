@@ -5,16 +5,15 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Save your own named overlay presets and share the complete appearance through style codes. Previously shared codes still import.
-- Give the overlay a new look with 3D-style animated bars, backgrounds, centerpieces, and materials.
-- Choose new status icon frames and optionally make the cancel button invisible while keeping it clickable.
-- Overlay presets, reset, and imported styles now save the complete appearance together and report any saving errors.
-- Preview the overlay while capture starts, during silence, or with an application name. Previews also respect reduced-motion settings.
-- Before installing a local speech model, you can review its download sources, installation details, and component licenses, then confirm that you have read them.
-- Soniox text to speech now uses the v2 model by default, including the built-in voice presets.
-- Removing filler words preserves sentence capitals and English names such as Ha Long Bay.
-- Local recording now explains when the selected model is missing or unavailable instead of starting a recording that cannot be transcribed.
-- Included the latest upstream Handy improvements and fixes for text cleanup, recording, and startup.
+- Settings search finds individual options and opens them directly, including options inside collapsed panels.
+- Settings lists and dropdowns sort names and numbers naturally, with A → Z, Z → A, and Off controls where useful.
+- Choose recording overlay entrance and exit animations, including Portal effects. Interrupted animations reverse smoothly.
+- Re-transcribe saved recordings in History with live models, follow progress, and stop without losing the original text.
+- Enjoy smoother menus, controls, tooltips, sidebar dragging, and file selection, plus refreshed speech icons and a soft settings-card glow.
+- Send Selected Text is fully translated into Russian, and its history follows the Windows 12- or 24-hour clock setting.
+- File transcription keeps its progress and results when you switch sections and return.
+- Old recordings are cleaned up at startup and hourly according to your retention setting.
+- Dictation-only mode has a clearer name and explanation of its lower RAM use.
 
 ---
 
