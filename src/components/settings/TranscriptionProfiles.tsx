@@ -3407,7 +3407,7 @@ export const TranscriptionProfiles: React.FC = () => {
             <p className="text-xs text-text/80 leading-relaxed">
               {t(
                 "settings.transcriptionProfiles.automaticApps.sectionHelp",
-                "Automatically activate profiles for specific foreground applications or windows. When disabled, application detection performs no foreground-window or process checks. Unmatched applications use your manually active profile.",
+                "Turn this on, then open any profile above: it gets a new blue box, “Automatically use this profile in applications”, where you list the applications for that profile, for example chrome.exe. When you start dictating in one of them, that profile is used automatically. Other applications use the profile you selected manually. While this is off, AivoRelay does not check which application is active.",
               )}
             </p>
           </div>
