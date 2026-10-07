@@ -63,16 +63,15 @@ const SMART_HELP_ACTIONS = [
 ] as const;
 
 const WHATS_NEW_ITEMS = [
-  "help.whatsNew.items.overlayUserPresets",
-  "help.whatsNew.items.overlayDepth",
-  "help.whatsNew.items.overlayControls",
-  "help.whatsNew.items.overlayAppearance",
-  "help.whatsNew.items.overlayPreview",
-  "help.whatsNew.items.localTtsInstall",
-  "help.whatsNew.items.sonioxTts",
-  "help.whatsNew.items.textCleanup",
-  "help.whatsNew.items.localRecording",
-  "help.whatsNew.items.upstreamFixes",
+  "help.whatsNew.items.settingsSearch",
+  "help.whatsNew.items.listSorting",
+  "help.whatsNew.items.overlayAnimations",
+  "help.whatsNew.items.historyLiveReplay",
+  "help.whatsNew.items.interfaceMotion",
+  "help.whatsNew.items.sendSelectedText",
+  "help.whatsNew.items.transcribeFile",
+  "help.whatsNew.items.historyCleanup",
+  "help.whatsNew.items.dictationOnlyMode",
 ] as const;
 
 export const HelpSettings: React.FC = () => {
