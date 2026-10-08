@@ -210,6 +210,15 @@ struct CompletedDirectSegment {
     was_streamed: bool,
 }
 
+// Keep desktop side effects outside the transport loop so the same loop can be
+// exercised with scripted WebSocket frames and a deterministic clock.
+struct SessionEvents {
+    live_text: Box<dyn Fn(&str) + Send + Sync>,
+    setup_complete: Box<dyn Fn() + Send + Sync>,
+    time_limit_stop: Box<dyn Fn() + Send + Sync>,
+    time_limit_completed: Box<dyn Fn(Value) + Send + Sync>,
+}
+
 struct ActiveSession {
     binding_id: String,
     operation_id: Option<u64>,
@@ -762,8 +771,8 @@ impl GeminiRealtimeManager {
     async fn run_session_loop<S, R>(
         write: &mut S,
         read: &mut R,
-        mut audio_rx: mpsc::Receiver<Vec<u8>>,
-        mut control_rx: mpsc::UnboundedReceiver<ControlMessage>,
+        audio_rx: mpsc::Receiver<Vec<u8>>,
+        control_rx: mpsc::UnboundedReceiver<ControlMessage>,
         final_text: Arc<Mutex<String>>,
         app_handle: AppHandle,
         binding_id: String,
@@ -773,6 +782,67 @@ impl GeminiRealtimeManager {
         completion_options: GeminiRealtimeOptions,
         time_limit_duration: Duration,
         time_limit_completion: Arc<Mutex<Option<GeminiTimeLimitCompletion>>>,
+    ) -> Result<()>
+    where
+        S: Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+        R: Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+    {
+        let app_for_text = app_handle.clone();
+        let binding_for_text = binding_id.clone();
+        let app_for_setup = app_handle.clone();
+        let binding_for_setup = binding_id.clone();
+        let app_for_stop = app_handle.clone();
+        let binding_for_stop = binding_id.clone();
+        let events = SessionEvents {
+            live_text: Box::new(move |text| {
+                emit_live_text(&app_for_text, &binding_for_text, live_sound_session_id, text);
+            }),
+            setup_complete: Box::new(move || {
+                crate::managers::remote_stt::record_external_remote_stt_debug(
+                    &app_for_setup,
+                    format!("Gemini Live setup confirmed route={} binding={}",
+                        transport.debug_label(), binding_for_setup),
+                    false,
+                );
+            }),
+            time_limit_stop: Box::new(move || {
+                let app_for_stop = app_for_stop.clone();
+                let binding_for_stop = binding_for_stop.clone();
+                tauri::async_runtime::spawn(async move {
+                    if binding_for_stop == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                        crate::managers::live_sound_audio::stop(&app_for_stop);
+                    } else {
+                        crate::actions::stop_transcription_at_realtime_limit(
+                            &app_for_stop, &binding_for_stop,
+                        );
+                    }
+                });
+            }),
+            time_limit_completed: Box::new(move |payload| {
+                let _ = app_handle.emit(GEMINI_LIVE_TIME_LIMIT_COMPLETED_EVENT, payload);
+            }),
+        };
+        Self::drive_session_loop(
+            write, read, audio_rx, control_rx, final_text, binding_id,
+            on_final_chunk, transport, completion_options, time_limit_duration,
+            time_limit_completion, events,
+        ).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn drive_session_loop<S, R>(
+        write: &mut S,
+        read: &mut R,
+        mut audio_rx: mpsc::Receiver<Vec<u8>>,
+        mut control_rx: mpsc::UnboundedReceiver<ControlMessage>,
+        final_text: Arc<Mutex<String>>,
+        binding_id: String,
+        on_final_chunk: Option<FinalChunkCallback>,
+        transport: GeminiLiveTransport,
+        completion_options: GeminiRealtimeOptions,
+        time_limit_duration: Duration,
+        time_limit_completion: Arc<Mutex<Option<GeminiTimeLimitCompletion>>>,
+        events: SessionEvents,
     ) -> Result<()>
     where
         S: Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
@@ -813,18 +883,7 @@ impl GeminiRealtimeManager {
                         .map_err(|e| anyhow!("Failed to finalize Gemini Live at the safe time limit: {}", e))?;
                     end_signal_sent = true;
                     *time_limit_completion.lock() = Some(GeminiTimeLimitCompletion::Partial);
-                    let app_for_stop = app_handle.clone();
-                    let binding_for_stop = binding_id.clone();
-                    tauri::async_runtime::spawn(async move {
-                        if binding_for_stop == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
-                            crate::managers::live_sound_audio::stop(&app_for_stop);
-                        } else {
-                            crate::actions::stop_transcription_at_realtime_limit(
-                                &app_for_stop,
-                                &binding_for_stop,
-                            );
-                        }
-                    });
+                    (events.time_limit_stop)();
                     if transport == GeminiLiveTransport::GoogleDirect {
                         google_finish_grace.as_mut().reset(
                             tokio::time::Instant::now() + Duration::from_millis(GOOGLE_FINAL_TRANSCRIPT_GRACE_MS),
@@ -961,12 +1020,7 @@ impl GeminiRealtimeManager {
                                     if let Some(callback) = &on_final_chunk {
                                         callback(delta);
                                     }
-                                    emit_live_text(
-                                        &app_handle,
-                                        &binding_id,
-                                        live_sound_session_id,
-                                        accumulated_text.trim(),
-                                    );
+                                    (events.live_text)(accumulated_text.trim());
                                 }
                             }
                             "transcript-partial" => {
@@ -976,12 +1030,7 @@ impl GeminiRealtimeManager {
                                         partial,
                                         &final_text,
                                     );
-                                    emit_live_text(
-                                        &app_handle,
-                                        &binding_id,
-                                        live_sound_session_id,
-                                        display.trim(),
-                                    );
+                                    (events.live_text)(display.trim());
                                 }
                             }
                             "transcript-final" => {
@@ -1018,12 +1067,7 @@ impl GeminiRealtimeManager {
                                         &accumulated_text,
                                         &final_text,
                                     );
-                                    emit_live_text(
-                                        &app_handle,
-                                        &binding_id,
-                                        live_sound_session_id,
-                                        accumulated_text.trim(),
-                                    );
+                                    (events.live_text)(accumulated_text.trim());
                                 }
                                 provider_confirmed_finalization = true;
                                 break;
@@ -1042,15 +1086,7 @@ impl GeminiRealtimeManager {
                             || payload.get("setup_complete").is_some())
                     {
                         google_setup_complete = true;
-                        crate::managers::remote_stt::record_external_remote_stt_debug(
-                            &app_handle,
-                            format!(
-                                "Gemini Live setup confirmed route={} binding={}",
-                                transport.debug_label(),
-                                binding_id,
-                            ),
-                            false,
-                        );
+                        (events.setup_complete)();
                         session_limit.as_mut().reset(
                             tokio::time::Instant::now() + time_limit_duration,
                         );
@@ -1102,12 +1138,7 @@ impl GeminiRealtimeManager {
                                     &accumulated_text,
                                     interim_text,
                                 );
-                                emit_live_text(
-                                    &app_handle,
-                                    &binding_id,
-                                    live_sound_session_id,
-                                    display_text.trim(),
-                                );
+                                (events.live_text)(display_text.trim());
                             }
                         }
 
@@ -1136,12 +1167,7 @@ impl GeminiRealtimeManager {
                                     &direct_segment_text,
                                 );
                                 *final_text.lock() = display_text.clone();
-                                emit_live_text(
-                                    &app_handle,
-                                    &binding_id,
-                                    live_sound_session_id,
-                                    display_text.trim(),
-                                );
+                                (events.live_text)(display_text.trim());
                             }
                             let segment_finished = final_val
                                 .get("finished")
@@ -1224,12 +1250,7 @@ impl GeminiRealtimeManager {
                                     &direct_segment_text,
                                 );
                                 *final_text.lock() = display_text.clone();
-                                emit_live_text(
-                                    &app_handle,
-                                    &binding_id,
-                                    live_sound_session_id,
-                                    display_text.trim(),
-                                );
+                                (events.live_text)(display_text.trim());
                             }
                             if transcription
                                 .get("finished")
@@ -1292,10 +1313,7 @@ impl GeminiRealtimeManager {
                 completion_options.custom_vocabulary.len(),
                 partial,
             );
-            let _ = app_handle.emit(
-                GEMINI_LIVE_TIME_LIMIT_COMPLETED_EVENT,
-                completion_payload,
-            );
+            (events.time_limit_completed)(completion_payload);
         }
 
         let _ = write.close().await;
@@ -1578,6 +1596,43 @@ impl GeminiFinalizingSession {
         hide_preview(Some(&binding_id));
         Ok(read_final_text())
     }
+}
+
+async fn connect_live_socket<C, F, T>(
+    transport: GeminiLiveTransport,
+    model: &str,
+    api_key: &str,
+    connect: C,
+) -> Result<T>
+where
+    C: FnOnce(tokio_tungstenite::tungstenite::http::Request<()>) -> F,
+    F: std::future::Future<Output = Result<T, tokio_tungstenite::tungstenite::Error>>,
+{
+    let request = build_live_websocket_request(transport, model, api_key)?;
+    timeout(Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS), connect(request))
+        .await
+        .map_err(|_| anyhow!("Timed out while connecting to Gemini 3.5 Transcribe Live"))?
+        .map_err(|e| anyhow!("Failed to connect to Gemini 3.5 Transcribe Live: {}", e))
+}
+
+async fn send_live_setup<S>(
+    write: &mut S,
+    transport: GeminiLiveTransport,
+    options: &GeminiRealtimeOptions,
+) -> Result<()>
+where
+    S: Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    let payload = match transport {
+        GeminiLiveTransport::GoogleDirect => {
+            GeminiRealtimeManager::build_google_setup_payload(&options.model, options)
+        }
+        GeminiLiveTransport::VercelGateway => {
+            GeminiRealtimeManager::build_vercel_start_payload(options)
+        }
+    };
+    write.send(Message::Text(payload.to_string().into())).await
+        .map_err(|e| anyhow!("Failed to send Gemini 3.5 Transcribe Live setup message: {}", e))
 }
 
 fn build_live_websocket_request(
