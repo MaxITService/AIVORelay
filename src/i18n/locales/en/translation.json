@@ -4042,6 +4042,10 @@
         "title": "Extra Local Recording Buffer",
         "description": "Extra time in milliseconds to keep recording after you release the hotkey on local STT paths. Helps catch the tail end of a phrase without changing remote streaming behavior."
       },
+      "dictationQuickTap": {
+        "title": "Short press threshold (ms)",
+        "description": "Recordings shorter than this do not show a no-text error. Live recordings with no output are cancelled without waiting for finalization. Default: 500 ms. Range: 0–5000 ms; 0 disables this exception. Does not change Gemini's early finalization delay."
+      },
       "appendTrailingSpace": {
         "label": "[Legacy] Append Trailing Space",
         "description": "[Legacy] Deprecated debug option, no longer used."
@@ -4721,6 +4725,14 @@
       "unknown": {
         "title": "Transcription failed",
         "hint": "Try again. If it keeps happening, check the logs."
+      },
+      "noText": {
+        "title": "No transcription received",
+        "hint": "Recording ended, but no transcription text was received."
+      },
+      "geminiEarlyNoText": {
+        "title": "Gemini returned no text",
+        "hint": "Gemini early finalization ended, but no transcription text was received."
       }
     }
   },

@@ -8319,7 +8319,7 @@ mod tests {
     fn tts_provider_defaults_match_documented_working_choices() {
         let settings = TtsSettings::default();
         assert_eq!(settings.provider, TtsProvider::Soniox);
-        assert_eq!(settings.soniox_model, "tts-rt-v1");
+        assert_eq!(settings.soniox_model, "tts-rt-v2");
         assert_eq!(settings.soniox_language, "en");
         assert_eq!(settings.soniox_voice, "Maya");
         assert_eq!(settings.deepgram_model, "flux-kit-en");
