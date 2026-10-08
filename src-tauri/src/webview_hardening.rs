@@ -5,6 +5,20 @@ pub fn disable_browser_accelerator_keys(window: &tauri::WebviewWindow) {
         use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
         use windows::core::Interface;
 
+        let context_menu_result = webview
+            .controller()
+            .CoreWebView2()
+            .and_then(|core| core.Settings())
+            .and_then(|settings| settings.SetAreDefaultContextMenusEnabled(false));
+
+        if let Err(err) = context_menu_result {
+            log::warn!(
+                "Failed to disable WebView2 context menus for '{}': {}",
+                label,
+                err
+            );
+        }
+
         let result = webview
             .controller()
             .CoreWebView2()
