@@ -1,5 +1,5 @@
 use crate::input::{self, EnigoState};
-use crate::settings::{get_settings, AppSettings, AutoSubmitKey, ClipboardHandling, PasteMethod};
+use crate::settings::{get_settings, AutoSubmitKey, ClipboardHandling, PasteMethod, ResolvedOutputSettings};
 use enigo::{Direction, Enigo, Key, Keyboard};
 use log::{debug, info, warn};
 use once_cell::sync::Lazy;
@@ -41,6 +41,98 @@ struct StreamingPasteSession {
 
 static STREAMING_PASTE_SESSION: Lazy<Mutex<Option<StreamingPasteSession>>> =
     Lazy::new(|| Mutex::new(None));
+
+struct DictationOutputSession {
+    operation_id: u64,
+    settings: ResolvedOutputSettings,
+    delivered: bool,
+    failed: bool,
+}
+
+/// The newest recording owns live chunks. An older operation may still have its
+/// final delivery queued on the main thread after a synchronous wait timed out,
+/// so its captured settings stay available until that delivery consumes them.
+#[derive(Default)]
+struct DictationOutputSessions {
+    current_operation_id: Option<u64>,
+    sessions: Vec<DictationOutputSession>,
+}
+
+// Bounds entries whose delivery never ran; only a few can be pending at once.
+const MAX_DICTATION_OUTPUT_SESSIONS: usize = 4;
+
+impl DictationOutputSessions {
+    fn begin(&mut self, operation_id: u64, settings: Option<ResolvedOutputSettings>) {
+        self.current_operation_id = Some(operation_id);
+        self.take(operation_id);
+        if let Some(settings) = settings {
+            if self.sessions.len() >= MAX_DICTATION_OUTPUT_SESSIONS {
+                self.sessions.remove(0);
+            }
+            self.sessions.push(DictationOutputSession {
+                operation_id, settings, delivered: false, failed: false,
+            });
+        }
+    }
+
+    fn get(&self, operation_id: u64) -> Option<&DictationOutputSession> {
+        self.sessions.iter().find(|session| session.operation_id == operation_id)
+    }
+
+    fn get_mut(&mut self, operation_id: u64) -> Option<&mut DictationOutputSession> {
+        self.sessions.iter_mut().find(|session| session.operation_id == operation_id)
+    }
+
+    fn current(&self) -> Option<&DictationOutputSession> {
+        self.get(self.current_operation_id?)
+    }
+
+    fn output_for_chunk(&self, operation_id: Option<u64>) -> Option<(u64, ResolvedOutputSettings)> {
+        let session = match operation_id {
+            Some(id) => self.get(id),
+            None => self.current(),
+        }?;
+        Some((session.operation_id, session.settings.clone()))
+    }
+
+    fn take(&mut self, operation_id: u64) -> Option<DictationOutputSession> {
+        let index = self.sessions.iter().position(|session| session.operation_id == operation_id)?;
+        Some(self.sessions.remove(index))
+    }
+}
+
+static DICTATION_OUTPUT_SESSIONS: Lazy<Mutex<DictationOutputSessions>> =
+    Lazy::new(|| Mutex::new(DictationOutputSessions::default()));
+
+fn lock_dictation_output_sessions() -> MutexGuard<'static, DictationOutputSessions> {
+    DICTATION_OUTPUT_SESSIONS.lock().unwrap_or_else(|error| {
+        warn!("Dictation output session lock poisoned; recovering");
+        error.into_inner()
+    })
+}
+
+pub(crate) fn begin_dictation_output_session(
+    operation_id: u64,
+    settings: Option<ResolvedOutputSettings>,
+) {
+    lock_dictation_output_sessions().begin(operation_id, settings);
+}
+
+fn current_dictation_output() -> Option<(u64, ResolvedOutputSettings)> {
+    lock_dictation_output_sessions().output_for_chunk(None)
+}
+
+fn dictation_output_settings(operation_id: u64) -> Option<ResolvedOutputSettings> {
+    lock_dictation_output_sessions().get(operation_id).map(|session| session.settings.clone())
+}
+
+pub(crate) fn end_dictation_output_session_if_matches(operation_id: u64) {
+    lock_dictation_output_sessions().take(operation_id);
+}
+
+pub(crate) fn dictation_output_is_buffered(operation_id: u64) -> bool {
+    dictation_output_settings(operation_id).is_some_and(|settings| settings.buffers_external_output())
+}
 // Clipboard-backed paste and selection capture must be one transaction. Always
 // acquire this before STREAMING_PASTE_SESSION and Enigo locks.
 static CLIPBOARD_TRANSACTION: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
@@ -721,7 +813,7 @@ fn write_transcription_text(
 /// In KeepTranscription mode the final text is always recorded (matching the
 /// legacy copy_to_clipboard behavior); in the restore modes it follows the
 /// user's history toggle.
-fn exclude_final_write_from_history(settings: &AppSettings) -> bool {
+fn exclude_final_write_from_history(settings: &ResolvedOutputSettings) -> bool {
     settings.clipboard_handling != ClipboardHandling::KeepTranscription
         && !settings.clipboard_history_allowed
 }
@@ -752,7 +844,7 @@ fn restore_plain_text_without_history(app_handle: &AppHandle, text: &str) -> Res
         .map_err(|e| format!("Failed to restore clipboard: {}", e))
 }
 
-fn paste_via_clipboard_no_restore(
+fn paste_via_clipboard_no_restore_guarded(
     enigo: &mut Enigo,
     text: &str,
     app_handle: &AppHandle,
@@ -760,16 +852,19 @@ fn paste_via_clipboard_no_restore(
     paste_delay_ms: u64,
     convert_lf_to_crlf: bool,
     exclude_from_history: bool,
-) -> Result<Instant, String> {
+    can_continue: &impl Fn() -> bool,
+) -> Result<Option<Instant>, String> {
     let text = convert_text_for_clipboard(text, convert_lf_to_crlf);
 
     write_transcription_text(app_handle, &text, exclude_from_history)?;
 
-    std::thread::sleep(Duration::from_millis(paste_delay_ms));
+    if !wait_for_output_delay(paste_delay_ms, can_continue) {
+        return Ok(None);
+    }
     send_paste_shortcut(enigo, paste_method)?;
     let paste_sent_at = Instant::now();
     std::thread::sleep(Duration::from_millis(50));
-    Ok(paste_sent_at)
+    Ok(Some(paste_sent_at))
 }
 
 fn remaining_clipboard_consumer_grace(paste_sent_at: Option<Instant>, now: Instant) -> Duration {
@@ -853,7 +948,12 @@ pub fn begin_streaming_paste_session(
     app_handle: &AppHandle,
     operation_id: u64,
 ) -> Result<(), String> {
-    let settings = get_settings(app_handle);
+    let dictation_output = dictation_output_settings(operation_id);
+    if dictation_output.as_ref().is_some_and(|settings| settings.buffers_external_output()) {
+        return Ok(());
+    }
+    let settings = dictation_output
+        .unwrap_or_else(|| ResolvedOutputSettings::resolve(&get_settings(app_handle), None));
     if !matches!(
         settings.paste_method,
         PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert
@@ -869,6 +969,9 @@ pub fn begin_streaming_paste_session(
     let mut session_guard = STREAMING_PASTE_SESSION
         .lock()
         .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
+    if session_guard.as_ref().is_some_and(|session| session.operation_id == operation_id) {
+        return Ok(());
+    }
     if let Some(previous) = session_guard.take() {
         warn!("Replacing stale streaming clipboard session; restoring previous backup");
         if let Err(error) = restore_streaming_session(previous, app_handle) {
@@ -936,6 +1039,12 @@ pub fn begin_streaming_paste_session(
 
 pub fn end_streaming_paste_session(app_handle: &AppHandle) -> Result<(), String> {
     let _clipboard_guard = lock_clipboard_transaction("ending streaming paste")?;
+    {
+        let mut sessions = lock_dictation_output_sessions();
+        if let Some(operation_id) = sessions.current_operation_id {
+            sessions.take(operation_id);
+        }
+    }
     let mut guard = STREAMING_PASTE_SESSION
         .lock()
         .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
@@ -947,6 +1056,16 @@ pub fn end_streaming_paste_session(app_handle: &AppHandle) -> Result<(), String>
 }
 
 pub fn end_streaming_paste_session_if_matches(
+    app_handle: &AppHandle,
+    operation_id: u64,
+) -> Result<bool, String> {
+    end_dictation_output_session_if_matches(operation_id);
+    release_streaming_paste_session_if_matches(app_handle, operation_id)
+}
+
+/// Restore a detached operation's clipboard without discarding its captured
+/// output settings. Gemini can still deliver chunks while it finalizes.
+pub(crate) fn release_streaming_paste_session_if_matches(
     app_handle: &AppHandle,
     operation_id: u64,
 ) -> Result<bool, String> {
@@ -1041,7 +1160,7 @@ pub fn finalize_streaming_paste_session_if_matches(
 }
 
 /// Pastes text using the clipboard: saves current content, writes text, sends paste keystroke, restores clipboard.
-fn paste_via_clipboard(
+fn paste_via_clipboard_guarded(
     enigo: &mut Enigo,
     text: &str,
     app_handle: &AppHandle,
@@ -1050,7 +1169,8 @@ fn paste_via_clipboard(
     convert_lf_to_crlf: bool,
     clipboard_handling: ClipboardHandling,
     exclude_final_from_history: bool,
-) -> Result<(), String> {
+    can_continue: &impl Fn() -> bool,
+) -> Result<bool, String> {
     let clipboard = app_handle.clipboard();
 
     // Backup clipboard content based on handling mode.
@@ -1088,7 +1208,7 @@ fn paste_via_clipboard(
     };
 
     // The non-streaming paste write is also the final write.
-    let paste_sent_at = paste_via_clipboard_no_restore(
+    let paste_result = paste_via_clipboard_no_restore_guarded(
         enigo,
         text,
         app_handle,
@@ -1096,19 +1216,23 @@ fn paste_via_clipboard(
         paste_delay_ms,
         convert_lf_to_crlf,
         exclude_final_from_history,
-    )?;
-    wait_for_clipboard_consumer(Some(paste_sent_at));
+        can_continue,
+    );
+    if let Ok(Some(paste_sent_at)) = &paste_result {
+        wait_for_clipboard_consumer(Some(*paste_sent_at));
+    }
 
     // Restore clipboard based on handling mode.
     #[cfg(target_os = "windows")]
     if let Some(backup) = advanced_backup {
-        return restore_advanced_clipboard_with_text_fallback(
+        restore_advanced_clipboard_with_text_fallback(
             app_handle,
             backup,
             &text_backup,
             uses_documented_clipboard_owner(clipboard_handling),
             None,
-        );
+        )?;
+        return paste_result.map(|sent_at| sent_at.is_some());
     }
 
     // Text-only restore for RestorePlainText and as the fallback when an advanced
@@ -1122,7 +1246,7 @@ fn paste_via_clipboard(
         restore_plain_text_without_history(app_handle, &text_backup)?;
     }
 
-    Ok(())
+    paste_result.map(|sent_at| sent_at.is_some())
 }
 
 /// Attempts to send a key combination using Linux-native tools.
@@ -1433,50 +1557,187 @@ fn paste_direct(enigo: &mut Enigo, text: &str) -> Result<(), String> {
 }
 
 fn send_return_key(enigo: &mut Enigo, key_type: AutoSubmitKey) -> Result<(), String> {
-    match key_type {
-        AutoSubmitKey::Enter => {
-            enigo
-                .key(Key::Return, Direction::Press)
-                .map_err(|e| format!("Failed to press Return key: {}", e))?;
-            enigo
-                .key(Key::Return, Direction::Release)
-                .map_err(|e| format!("Failed to release Return key: {}", e))?;
-        }
-        AutoSubmitKey::CtrlEnter => {
-            enigo
-                .key(Key::Control, Direction::Press)
-                .map_err(|e| format!("Failed to press Control key: {}", e))?;
-            enigo
-                .key(Key::Return, Direction::Press)
-                .map_err(|e| format!("Failed to press Return key: {}", e))?;
-            enigo
-                .key(Key::Return, Direction::Release)
-                .map_err(|e| format!("Failed to release Return key: {}", e))?;
-            enigo
-                .key(Key::Control, Direction::Release)
-                .map_err(|e| format!("Failed to release Control key: {}", e))?;
-        }
-        AutoSubmitKey::CmdEnter => {
-            enigo
-                .key(Key::Meta, Direction::Press)
-                .map_err(|e| format!("Failed to press Meta/Cmd key: {}", e))?;
-            enigo
-                .key(Key::Return, Direction::Press)
-                .map_err(|e| format!("Failed to press Return key: {}", e))?;
-            enigo
-                .key(Key::Return, Direction::Release)
-                .map_err(|e| format!("Failed to release Return key: {}", e))?;
-            enigo
-                .key(Key::Meta, Direction::Release)
-                .map_err(|e| format!("Failed to release Meta/Cmd key: {}", e))?;
-        }
-    }
-
-    Ok(())
+    send_output_key(enigo, match key_type {
+        AutoSubmitKey::Enter => "enter",
+        AutoSubmitKey::CtrlEnter => "ctrl+enter",
+        AutoSubmitKey::CmdEnter => "meta+enter",
+    })
 }
 
 fn should_send_auto_submit(auto_submit: bool, paste_method: PasteMethod) -> bool {
     auto_submit && paste_method != PasteMethod::None
+}
+
+fn output_foreground_window() -> Option<usize> {
+    #[cfg(target_os = "windows")]
+    {
+        let hwnd = unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
+        (!hwnd.0.is_null()).then_some(hwnd.0 as usize)
+    }
+    #[cfg(not(target_os = "windows"))]
+    { None }
+}
+
+fn output_target_is_current(target_window: Option<usize>, current_window: Option<usize>) -> bool {
+    (!cfg!(target_os = "windows") || target_window.is_some())
+        && target_window == current_window
+}
+
+fn wait_for_output_delay(delay_ms: u64, can_continue: &impl Fn() -> bool) -> bool {
+    let deadline = Instant::now() + Duration::from_millis(delay_ms.min(5000));
+    while Instant::now() < deadline {
+        if !can_continue() { return false; }
+        std::thread::sleep(deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(10)));
+    }
+    can_continue()
+}
+
+fn parse_output_key(value: &str) -> Result<(Vec<Key>, Key), String> {
+    let parts: Vec<_> = value.split('+').map(str::trim).collect();
+    let (last, modifiers) = parts.split_last().ok_or("An opening key is required")?;
+    let mut keys = Vec::new();
+    for modifier in modifiers {
+        let key = match *modifier {
+            "ctrl" | "control" => Key::Control,
+            "shift" => Key::Shift,
+            "alt" | "option" => Key::Alt,
+            "win" | "super" | "meta" | "command" | "cmd" => Key::Meta,
+            _ => return Err(format!("Unsupported opening-key modifier: {}", modifier)),
+        };
+        if !keys.contains(&key) { keys.push(key); }
+    }
+    let key = match *last {
+        "enter" | "return" => Key::Return,
+        "tab" => Key::Tab,
+        "space" => Key::Space,
+        "escape" | "esc" => Key::Escape,
+        "backspace" => Key::Backspace,
+        "capslock" => Key::CapsLock,
+        "delete" => Key::Delete,
+        #[cfg(not(target_os = "macos"))]
+        "insert" => Key::Insert,
+        #[cfg(not(target_os = "macos"))]
+        "printscreen" => Key::PrintScr,
+        #[cfg(not(target_os = "macos"))]
+        "pause" => Key::Pause,
+        #[cfg(not(target_os = "macos"))]
+        "numlock" => Key::Numlock,
+        #[cfg(target_os = "windows")]
+        "scrolllock" => Key::Scroll,
+        #[cfg(target_os = "linux")]
+        "scrolllock" => Key::ScrollLock,
+        #[cfg(target_os = "windows")]
+        "menu" => Key::Apps,
+        #[cfg(target_os = "linux")]
+        "menu" => Key::LMenu,
+        "numpad 0" => Key::Numpad0, "numpad 1" => Key::Numpad1,
+        "numpad 2" => Key::Numpad2, "numpad 3" => Key::Numpad3,
+        "numpad 4" => Key::Numpad4, "numpad 5" => Key::Numpad5,
+        "numpad 6" => Key::Numpad6, "numpad 7" => Key::Numpad7,
+        "numpad 8" => Key::Numpad8, "numpad 9" => Key::Numpad9,
+        "numpad *" => Key::Multiply,
+        "numadd" => Key::Add,
+        "numpad -" => Key::Subtract,
+        "numpad ." => Key::Decimal,
+        "numpad /" => Key::Divide,
+        "home" => Key::Home,
+        "end" => Key::End,
+        "pageup" => Key::PageUp,
+        "pagedown" => Key::PageDown,
+        "up" | "arrowup" => Key::UpArrow,
+        "down" | "arrowdown" => Key::DownArrow,
+        "left" | "arrowleft" => Key::LeftArrow,
+        "right" | "arrowright" => Key::RightArrow,
+        "f1" => Key::F1, "f2" => Key::F2, "f3" => Key::F3, "f4" => Key::F4,
+        "f5" => Key::F5, "f6" => Key::F6, "f7" => Key::F7, "f8" => Key::F8,
+        "f9" => Key::F9, "f10" => Key::F10, "f11" => Key::F11, "f12" => Key::F12,
+        "f13" => Key::F13, "f14" => Key::F14, "f15" => Key::F15, "f16" => Key::F16,
+        "f17" => Key::F17, "f18" => Key::F18, "f19" => Key::F19, "f20" => Key::F20,
+        #[cfg(not(target_os = "macos"))]
+        "f21" => Key::F21,
+        #[cfg(not(target_os = "macos"))]
+        "f22" => Key::F22,
+        #[cfg(not(target_os = "macos"))]
+        "f23" => Key::F23,
+        #[cfg(not(target_os = "macos"))]
+        "f24" => Key::F24,
+        // Browser capture identifies the physical punctuation key. Preserve
+        // that key on Windows so games receive a key event, not Unicode input.
+        name if matches!(name, ";" | "=" | "," | "-" | "." | "/" | "`" | "[" | "\\" | "]" | "'") => {
+            #[cfg(target_os = "windows")]
+            {
+                let virtual_key = match name {
+                    ";" => 0xBA, "=" => 0xBB, "," => 0xBC, "-" => 0xBD,
+                    "." => 0xBE, "/" => 0xBF, "`" => 0xC0, "[" => 0xDB,
+                    "\\" => 0xDC, "]" => 0xDD, "'" => 0xDE,
+                    _ => unreachable!(),
+                };
+                Key::Other(virtual_key)
+            }
+            #[cfg(not(target_os = "windows"))]
+            { Key::Unicode(name.chars().next().unwrap()) }
+        }
+        name if name.len() == 1 && name.as_bytes()[0].is_ascii_alphanumeric() => {
+            let character = name.chars().next().unwrap();
+            #[cfg(target_os = "windows")]
+            { Key::Other(character.to_ascii_uppercase() as u32) }
+            #[cfg(not(target_os = "windows"))]
+            { Key::Unicode(character) }
+        }
+        _ => return Err(format!("Unsupported opening key: {}", last)),
+    };
+    Ok((keys, key))
+}
+
+pub(crate) fn validate_output_key(value: &str) -> Result<(), String> {
+    parse_output_key(value).map(|_| ())
+}
+
+fn send_output_key(enigo: &mut Enigo, value: &str) -> Result<(), String> {
+    let (modifiers, key) = parse_output_key(value)?;
+    let mut pressed = Vec::new();
+    let result = (|| {
+        for modifier in modifiers {
+            enigo.key(modifier, Direction::Press).map_err(|error| error.to_string())?;
+            pressed.push(modifier);
+        }
+        enigo.key(key, Direction::Click).map_err(|error| error.to_string())
+    })();
+    let mut release_error = None;
+    for modifier in pressed.into_iter().rev() {
+        if let Err(error) = enigo.key(modifier, Direction::Release) {
+            release_error = Some(error.to_string());
+        }
+    }
+    result.and_then(|_| release_error.map_or(Ok(()), Err))
+}
+
+/// Called once at the final delivery boundary, after all queued live chunks.
+pub(crate) fn complete_dictation_output(
+    app: &AppHandle,
+    operation_id: u64,
+    final_text: &str,
+    can_continue: impl Fn() -> bool,
+) -> Result<bool, String> {
+    // Consume the configuration before delivery so every return path,
+    // including an interrupted delay or clipboard error, releases it.
+    let config = lock_dictation_output_sessions().take(operation_id);
+    let Some(DictationOutputSession { settings, delivered, failed, .. }) = config else {
+        return finalize_streaming_paste_session_if_matches(app, operation_id, final_text);
+    };
+    if !can_continue() || final_text.trim().is_empty() {
+        end_streaming_paste_session_if_matches(app, operation_id)?;
+        return Ok(false);
+    }
+    if settings.buffers_external_output() {
+        return paste_with_output_settings(final_text.to_string(), app.clone(), &settings, can_continue);
+    }
+    // A failed chunk leaves the target incomplete. Still publish the complete
+    // transcript so the clipboard/history fallback holds the full text.
+    finalize_streaming_paste_session_if_matches(app, operation_id, final_text)?;
+    Ok(!failed
+        && (delivered || settings.paste_method == PasteMethod::None)
+        && can_continue())
 }
 
 pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
@@ -1490,9 +1751,37 @@ pub(crate) fn paste_with_method_override(
     method: Option<PasteMethod>,
 ) -> Result<(), String> {
     let settings = get_settings(&app_handle);
-    let paste_method = method.unwrap_or(settings.paste_method);
+    let mut output = ResolvedOutputSettings::resolve(&settings, None);
+    output.paste_method = method.unwrap_or(settings.paste_method);
+    // Generic pastes (including selection restoration) do not open chat.
+    output.before_insert_key.clear();
+    if text.is_empty() {
+        return Ok(());
+    }
+    if !paste_with_output_settings(text, app_handle, &output, || true)? {
+        return Err("Paste was cancelled because the target window changed or could not be identified".to_string());
+    }
+    Ok(())
+}
+
+/// Returns false when the text did not reach the target. `PasteMethod::None`
+/// completes without inserting, matching the legacy successful paste result.
+pub(crate) fn paste_with_output_settings(
+    text: String,
+    app_handle: AppHandle,
+    settings: &ResolvedOutputSettings,
+    can_continue: impl Fn() -> bool,
+) -> Result<bool, String> {
+    if text.is_empty() || !can_continue() {
+        return Ok(false);
+    }
+    if settings.paste_method == PasteMethod::None {
+        info!("PasteMethod::None selected - skipping paste action");
+        return Ok(true);
+    }
+    let paste_method = settings.paste_method;
     let clipboard_handling = settings.clipboard_handling;
-    let exclude_final_from_history = exclude_final_write_from_history(&settings);
+    let exclude_final_from_history = exclude_final_write_from_history(settings);
     let paste_delay_ms = settings.paste_delay_ms;
 
     info!(
@@ -1516,6 +1805,17 @@ pub(crate) fn paste_with_method_override(
         .lock()
         .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
 
+    let target_window = output_foreground_window();
+    let target_is_current = || output_target_is_current(target_window, output_foreground_window());
+    let output_can_continue = || can_continue() && target_is_current();
+    if !settings.before_insert_key.is_empty() {
+        if !output_can_continue() { return Ok(false); }
+        send_output_key(&mut enigo, &settings.before_insert_key)?;
+        if !wait_for_output_delay(settings.before_insert_delay_ms, &output_can_continue) {
+            return Ok(false);
+        }
+    }
+    if !output_can_continue() { return Ok(false); }
     // Perform the paste operation
     match paste_method {
         PasteMethod::None => {
@@ -1525,7 +1825,7 @@ pub(crate) fn paste_with_method_override(
             paste_direct(&mut enigo, &text)?;
         }
         PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
-            paste_via_clipboard(
+            if !paste_via_clipboard_guarded(
                 &mut enigo,
                 &text,
                 &app_handle,
@@ -1534,21 +1834,74 @@ pub(crate) fn paste_with_method_override(
                 settings.convert_lf_to_crlf,
                 clipboard_handling,
                 exclude_final_from_history,
-            )?
+                &output_can_continue,
+            )? {
+                return Ok(false);
+            }
         }
     }
 
     if should_send_auto_submit(settings.auto_submit, paste_method) {
-        std::thread::sleep(Duration::from_millis(50));
-        send_return_key(&mut enigo, settings.auto_submit_key)?;
+        if !wait_for_output_delay(settings.auto_submit_delay_ms, &output_can_continue) {
+            // Text already reached the target. Do not retain a preview buffer
+            // that could insert the same text again after a cancelled submit.
+            return Ok(true);
+        }
+        if let Err(error) = send_return_key(&mut enigo, settings.auto_submit_key) {
+            // Delivery succeeded: retaining Preview here would duplicate text
+            // on the next insertion attempt.
+            warn!("Text was inserted, but the submit key failed: {}", error);
+        }
     }
 
-    Ok(())
+    Ok(true)
 }
 
 /// Pastes a streaming chunk without appending trailing space and without
 /// restoring clipboard contents until the session ends.
 pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), String> {
+    let output = current_dictation_output();
+    paste_stream_chunk_for_output(text, app_handle, output, None)
+}
+
+/// Deliver a queued chunk using only the settings captured by its recording.
+/// A missing session must not fall back to current settings or a newer profile.
+pub(crate) fn paste_stream_chunk_for_operation(
+    text: String,
+    app_handle: AppHandle,
+    operation_id: u64,
+) -> Result<(), String> {
+    let output = lock_dictation_output_sessions().output_for_chunk(Some(operation_id))
+        .ok_or_else(|| format!("Dictation output settings for operation {} are no longer available", operation_id))?;
+    paste_stream_chunk_for_output(text, app_handle, Some(output), Some(operation_id))
+}
+
+fn paste_stream_chunk_for_output(
+    text: String,
+    app_handle: AppHandle,
+    output: Option<(u64, ResolvedOutputSettings)>,
+    operation_id: Option<u64>,
+) -> Result<(), String> {
+    if output.as_ref().is_some_and(|(_, settings)| settings.buffers_external_output()) {
+        return Ok(());
+    }
+    let has_text = !text.is_empty();
+    let result = paste_stream_chunk_with_output(text, app_handle, output.as_ref().map(|(_, settings)| settings), operation_id);
+    if let Some((operation_id, settings)) = output {
+        if let Some(session) = lock_dictation_output_sessions().get_mut(operation_id) {
+            session.failed |= result.is_err();
+            session.delivered |= result.is_ok() && has_text && settings.paste_method != PasteMethod::None;
+        }
+    }
+    result
+}
+
+fn paste_stream_chunk_with_output(
+    text: String,
+    app_handle: AppHandle,
+    output: Option<&ResolvedOutputSettings>,
+    operation_id: Option<u64>,
+) -> Result<(), String> {
     if text.is_empty() {
         return Ok(());
     }
@@ -1561,13 +1914,17 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
     let mut stream_session_guard = STREAMING_PASTE_SESSION
         .lock()
         .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
-    let active_stream_config = stream_session_guard.as_ref().map(|session| {
-        (
-            session.paste_method,
-            session.paste_delay_ms,
-            session.convert_lf_to_crlf,
-        )
-    });
+    // A late chunk may arrive while a newer recording owns this clipboard
+    // session. Use the old operation's captured fallback settings in that case.
+    let active_stream_config = stream_session_guard.as_ref()
+        .filter(|session| operation_id.map_or(true, |id| session.operation_id == id))
+        .map(|session| {
+            (
+                session.paste_method,
+                session.paste_delay_ms,
+                session.convert_lf_to_crlf,
+            )
+        });
 
     let enigo_state = app_handle
         .try_state::<EnigoState>()
@@ -1576,6 +1933,12 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
         .0
         .lock()
         .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+
+    let target_window = output_foreground_window();
+    let target_is_current = || output_target_is_current(target_window, output_foreground_window());
+    if !target_is_current() {
+        return Err("Streaming paste was interrupted because the target window changed".to_string());
+    }
 
     if let Some((paste_method, paste_delay_ms, convert_lf_to_crlf)) = active_stream_config {
         match paste_method {
@@ -1595,7 +1958,7 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
                 );
                 // Streaming chunks are always excluded from the clipboard
                 // history; only the final full-text write may be captured.
-                let paste_sent_at = paste_via_clipboard_no_restore(
+                let paste_sent_at = paste_via_clipboard_no_restore_guarded(
                     &mut enigo,
                     &text,
                     &app_handle,
@@ -1603,19 +1966,28 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
                     paste_delay_ms,
                     convert_lf_to_crlf,
                     true,
+                    &target_is_current,
                 )?;
                 if let Some(session) = stream_session_guard.as_mut() {
-                    session.last_clipboard_paste_sent_at = Some(paste_sent_at);
+                    if let Some(paste_sent_at) = paste_sent_at {
+                        session.last_clipboard_paste_sent_at = Some(paste_sent_at);
+                    }
                     #[cfg(target_os = "windows")]
                     {
+                        // An interrupted delay still wrote the chunk to the
+                        // clipboard, so restoration must track that write.
                         session.last_clipboard_sequence = Some(win_clipboard::last_write_sequence());
                     }
+                }
+                if paste_sent_at.is_none() {
+                    return Err("Streaming paste was interrupted because the target window changed".to_string());
                 }
             }
         }
     } else {
         // No active streaming session: preserve safe fallback behavior.
-        let settings = get_settings(&app_handle);
+        let settings = output.cloned()
+            .unwrap_or_else(|| ResolvedOutputSettings::resolve(&get_settings(&app_handle), None));
         match settings.paste_method {
             PasteMethod::None => {
                 info!("PasteMethod::None selected - skipping streaming chunk paste");
@@ -1625,7 +1997,7 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
             }
             PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
                 // Streaming chunks are always excluded from the clipboard history.
-                paste_via_clipboard(
+                if !paste_via_clipboard_guarded(
                     &mut enigo,
                     &text,
                     &app_handle,
@@ -1634,7 +2006,10 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
                     settings.convert_lf_to_crlf,
                     settings.clipboard_handling,
                     true,
-                )?
+                    &target_is_current,
+                )? {
+                    return Err("Streaming paste was interrupted because the target window changed".to_string());
+                }
             }
         }
     }
@@ -1645,6 +2020,11 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
 }
 
 pub fn delete_last_stream_characters(app_handle: AppHandle, count: usize) -> Result<(), String> {
+    if current_dictation_output().is_some_and(|(_, settings)|
+        settings.buffers_external_output() || settings.paste_method == PasteMethod::None)
+    {
+        return Ok(());
+    }
     if count == 0 {
         return Ok(());
     }
@@ -1814,6 +2194,146 @@ pub fn capture_selection_text_copy(app_handle: &AppHandle) -> Result<String, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finishing_dictation_output_removes_buffered_configuration_once() {
+        let mut settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
+        settings.before_insert_key = "enter".to_string();
+        let mut sessions = DictationOutputSessions::default();
+        sessions.begin(7, Some(settings));
+        sessions.get_mut(7).unwrap().delivered = true;
+
+        let finished = sessions.take(7).unwrap();
+        assert!(finished.settings.buffers_external_output());
+        assert!(finished.delivered);
+        assert!(sessions.current().is_none());
+        assert!(sessions.take(7).is_none());
+    }
+
+    #[test]
+    fn stale_dictation_output_cleanup_preserves_the_new_operation() {
+        let settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
+        let mut sessions = DictationOutputSessions::default();
+        sessions.begin(8, Some(settings));
+        sessions.get_mut(8).unwrap().failed = true;
+
+        assert!(sessions.take(7).is_none());
+        assert_eq!(sessions.current().unwrap().operation_id, 8);
+        let cancelled = sessions.take(8).unwrap();
+        assert!(cancelled.failed);
+        assert!(sessions.current().is_none());
+    }
+
+    #[test]
+    fn new_recording_keeps_the_queued_output_of_the_previous_operation() {
+        let mut buffered = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
+        buffered.auto_submit = true;
+        let mut sessions = DictationOutputSessions::default();
+        sessions.begin(7, Some(buffered));
+        sessions.begin(8, None);
+
+        // Live chunks follow the newest recording; 7 keeps its final delivery.
+        assert!(sessions.current().is_none());
+        assert!(sessions.take(7).unwrap().settings.buffers_external_output());
+
+        let settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
+        for operation_id in 10..20 {
+            sessions.begin(operation_id, Some(settings.clone()));
+        }
+        assert_eq!(sessions.sessions.len(), MAX_DICTATION_OUTPUT_SESSIONS);
+        assert_eq!(sessions.current().unwrap().operation_id, 19);
+        assert!(sessions.get(10).is_none());
+    }
+
+    #[test]
+    fn late_chunk_keeps_its_profile_after_a_new_recording_starts() {
+        let mut old_settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
+        old_settings.paste_method = PasteMethod::None;
+        let mut new_settings = old_settings.clone();
+        new_settings.paste_method = PasteMethod::CtrlV;
+
+        let mut sessions = DictationOutputSessions::default();
+        sessions.begin(7, Some(old_settings));
+        // Background finalization keeps 7's settings while 8 becomes current.
+        sessions.begin(8, Some(new_settings));
+
+        assert_eq!(sessions.output_for_chunk(Some(7)).unwrap().1.paste_method, PasteMethod::None);
+        assert_eq!(sessions.output_for_chunk(None).unwrap().1.paste_method, PasteMethod::CtrlV);
+        sessions.take(7);
+        assert!(sessions.output_for_chunk(Some(7)).is_none());
+    }
+
+    #[test]
+    fn opening_key_accepts_chat_keys_and_rejects_ambiguous_chords() {
+        assert!(validate_output_key("enter").is_ok());
+        assert!(validate_output_key("ctrl+enter").is_ok());
+        assert!(validate_output_key("shift+t").is_ok());
+        assert!(validate_output_key("/").is_ok());
+        assert!(validate_output_key("ctrl+;").is_ok());
+        assert!(validate_output_key("f20").is_ok());
+        assert!(validate_output_key("").is_err());
+        assert!(validate_output_key("ctrl").is_err());
+        assert!(validate_output_key("t+y").is_err());
+        assert!(validate_output_key("ctrl+").is_err());
+    }
+
+    #[test]
+    fn opening_key_deduplicates_modifiers_and_delay_checks_cancellation() {
+        let (modifiers, key) = parse_output_key("ctrl+control+enter").unwrap();
+        assert_eq!(modifiers, vec![Key::Control]);
+        assert_eq!(key, Key::Return);
+        assert!(!wait_for_output_delay(5000, &|| false));
+        assert!(!wait_for_output_delay(0, &|| false));
+    }
+
+    #[test]
+    fn opening_key_accepts_browser_captured_lock_and_numpad_keys() {
+        for (value, expected) in [
+            ("capslock", Key::CapsLock), ("numpad 0", Key::Numpad0),
+            ("numpad 9", Key::Numpad9), ("numpad *", Key::Multiply),
+            ("numadd", Key::Add), ("numpad -", Key::Subtract),
+            ("numpad .", Key::Decimal), ("numpad /", Key::Divide),
+        ] {
+            let (modifiers, key) = parse_output_key(&format!("ctrl+{}", value)).unwrap();
+            assert_eq!(modifiers, vec![Key::Control]);
+            assert_eq!(key, expected);
+        }
+        for value in ["audiovolumeup", "numpadenter", "capslock+t", "numpad 10"] {
+            assert!(validate_output_key(value).is_err(), "{}", value);
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn opening_key_accepts_browser_captured_desktop_keys() {
+        assert_eq!(parse_output_key("printscreen").unwrap().1, Key::PrintScr);
+        assert_eq!(parse_output_key("pause").unwrap().1, Key::Pause);
+        assert_eq!(parse_output_key("numlock").unwrap().1, Key::Numlock);
+        assert!(validate_output_key("scrolllock").is_ok());
+        assert!(validate_output_key("menu").is_ok());
+    }
+
+    #[test]
+    fn output_delay_stops_when_permission_is_revoked_after_waiting_begins() {
+        let checks = std::cell::Cell::new(0);
+        assert!(!wait_for_output_delay(5000, &|| {
+            checks.set(checks.get() + 1);
+            checks.get() < 3
+        }));
+        assert_eq!(checks.get(), 3);
+    }
+
+    #[test]
+    fn output_delay_stops_when_the_target_window_changes() {
+        let current_window = std::cell::Cell::new(1);
+        assert!(!wait_for_output_delay(5000, &|| {
+            let current = current_window.replace(2);
+            output_target_is_current(Some(1), Some(current))
+        }));
+        assert!(output_target_is_current(Some(1), Some(1)));
+        assert!(!output_target_is_current(Some(1), None));
+        assert_eq!(output_target_is_current(None, None), !cfg!(target_os = "windows"));
+    }
 
     #[test]
     fn convert_text_for_clipboard_keeps_text_when_conversion_disabled() {

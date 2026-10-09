@@ -361,8 +361,10 @@ pub fn take_session(app: &AppHandle) -> Option<(Arc<RecordingSession>, String)> 
         SessionState::Recording {
             session,
             binding_id,
+            operation_id,
             ..
         } => {
+            crate::clipboard::end_dictation_output_session_if_matches(operation_id);
             debug!("take_session: Took session for {}", binding_id);
             Some((session, binding_id))
         }
@@ -370,7 +372,8 @@ pub fn take_session(app: &AppHandle) -> Option<(Arc<RecordingSession>, String)> 
             debug!("take_session: No active session to take");
             None
         }
-        SessionState::Processing { binding_id, .. } => {
+        SessionState::Processing { binding_id, operation_id } => {
+            crate::clipboard::end_dictation_output_session_if_matches(operation_id);
             debug!(
                 "take_session: Was in Processing state for {}, returning to Idle",
                 binding_id
@@ -393,7 +396,7 @@ pub fn take_session_if_matches(
     match &*state_guard {
         SessionState::Recording { binding_id, .. } if binding_id == expected_binding_id => {
             // Matches, take it
-            if let SessionState::Recording { session, .. } =
+            if let SessionState::Recording { session, operation_id, .. } =
                 std::mem::replace(&mut *state_guard, SessionState::Idle)
             {
                 debug!(
@@ -401,6 +404,7 @@ pub fn take_session_if_matches(
                     expected_binding_id
                 );
                 drop(state_guard);
+                crate::clipboard::end_dictation_output_session_if_matches(operation_id);
                 crate::recording_model_loading::notify_session_changed(app);
                 return Some(session);
             }

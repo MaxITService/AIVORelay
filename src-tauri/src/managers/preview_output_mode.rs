@@ -30,6 +30,7 @@ struct PreviewOutputModeRuntime {
     profile_id: Option<String>,
     active_app_context: Option<ActiveAppContext>,
     recording_prefix_text: String,
+    output_settings: Option<crate::settings::ResolvedOutputSettings>,
     error_message: Option<String>,
 }
 
@@ -82,8 +83,12 @@ pub fn activate_session(
     active_app_context: Option<ActiveAppContext>,
     is_realtime: bool,
     recording_prefix_text: String,
+    output_settings: crate::settings::ResolvedOutputSettings,
 ) {
     update_state(app, move |state| {
+        if !state.active || state.binding_id.as_deref() != Some(binding_id.as_str()) {
+            state.output_settings = Some(output_settings);
+        }
         state.active = true;
         state.recording = true;
         state.processing_llm = false;
@@ -94,6 +99,10 @@ pub fn activate_session(
         state.recording_prefix_text = recording_prefix_text;
         state.error_message = None;
     });
+}
+
+pub(crate) fn output_settings() -> Option<crate::settings::ResolvedOutputSettings> {
+    PREVIEW_OUTPUT_MODE_STATE.lock().ok()?.output_settings.clone()
 }
 
 pub fn deactivate_session(app: &AppHandle) {

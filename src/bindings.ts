@@ -909,6 +909,14 @@ async changeAutoSubmitSetting(enabled: boolean) : Promise<Result<null, string>> 
     else return { status: "error", error: e  as any };
 }
 },
+async changeTranscriptionOutputSettings(profileId: string, output: ProfileOutputSettings) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_transcription_output_settings", { profileId, output }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeAutoSubmitKeySetting(key: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_auto_submit_key_setting", { key }) };
@@ -1850,6 +1858,14 @@ async stopHandyKeysRecording() : Promise<Result<null, string>> {
 async changeMuteWhileRecordingSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_mute_while_recording_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeMuteImmediatelySetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_mute_immediately_setting", { enabled }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -3694,9 +3710,9 @@ async unloadModelManually() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async getHistoryEntries(cursor: number | null, limit: number | null) : Promise<Result<PaginatedHistory, string>> {
+async getHistoryEntries(cursor: number | null, limit: number | null, search: string | null) : Promise<Result<PaginatedHistory, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("get_history_entries", { cursor, limit }) };
+    return { status: "ok", data: await TAURI_INVOKE("get_history_entries", { cursor, limit, search }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -4359,7 +4375,7 @@ log_transcription_text?: boolean; custom_words?: string[]; custom_words_enabled?
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
  */
-convert_lf_to_crlf?: boolean; clipboard_handling?: ClipboardHandling; clipboard_history_allowed?: boolean; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; post_process_benchmark_collapsed?: boolean; post_process_benchmark_system_prompt?: string; post_process_benchmark_user_message?: string; post_process_benchmark_log?: LlmPostProcessBenchmarkResult[];
+convert_lf_to_crlf?: boolean; clipboard_handling?: ClipboardHandling; clipboard_history_allowed?: boolean; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; transcription_output_defaults?: ProfileOutputSettings; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; post_process_benchmark_collapsed?: boolean; post_process_benchmark_system_prompt?: string; post_process_benchmark_user_message?: string; post_process_benchmark_log?: LlmPostProcessBenchmarkResult[];
 /**
  * When true, the benchmark uses the currently selected post-processing prompt as the system
  * prompt instead of the separate custom benchmark system prompt field.
@@ -4396,7 +4412,11 @@ send_to_extension_enabled?: boolean; send_to_extension_push_to_talk?: boolean;
 /**
  * Whether the "Send Transcription + Selection to Extension" action is enabled (risky feature)
  */
-send_to_extension_with_selection_enabled?: boolean; send_to_extension_with_selection_push_to_talk?: boolean; send_to_extension_with_selection_allow_no_voice?: boolean; send_to_extension_with_selection_quick_tap_threshold_ms?: number; send_to_extension_with_selection_no_voice_system_prompt?: string; ai_replace_selection_push_to_talk?: boolean; mute_while_recording?: boolean; pause_media_while_recording?: boolean; filter_silence?: boolean; vad_backend?: VadBackend; file_transcription_chunking_mode?: FileTranscriptionChunkingMode; file_transcription_chunking_max_minutes?: number;
+send_to_extension_with_selection_enabled?: boolean; send_to_extension_with_selection_push_to_talk?: boolean; send_to_extension_with_selection_allow_no_voice?: boolean; send_to_extension_with_selection_quick_tap_threshold_ms?: number; send_to_extension_with_selection_no_voice_system_prompt?: string; ai_replace_selection_push_to_talk?: boolean; mute_while_recording?: boolean;
+/**
+ * Mute microphone recordings before readiness/start feedback, and skip the start sound.
+ */
+mute_immediately?: boolean; pause_media_while_recording?: boolean; filter_silence?: boolean; vad_backend?: VadBackend; file_transcription_chunking_mode?: FileTranscriptionChunkingMode; file_transcription_chunking_max_minutes?: number;
 /**
  * Optional microphone-only preamp in dB, saved per microphone device name.
  */
@@ -4938,6 +4958,11 @@ export type PreviewOutputModeStatePayload = { active: boolean; recording: boolea
  * Used as a parameter struct for update_transcription_profile to reduce argument count.
  */
 export type ProfileLlmSettings = { enabled: boolean; promptOverride: string | null; modelOverride: string | null }
+export type ProfileOutputSettings = { paste_method: PasteMethod | null; clipboard_handling: ClipboardHandling | null; clipboard_history_allowed: boolean | null; convert_lf_to_crlf: boolean | null; paste_delay_ms: number | null; auto_submit: boolean | null; auto_submit_key: AutoSubmitKey | null;
+/**
+ * None inherits; an empty string explicitly disables the opening key.
+ */
+before_insert_key: string | null; before_insert_delay_ms: number | null; auto_submit_delay_ms: number | null }
 export type RecordingModelLoadingState = { recording_session_id: number | null; provider: string | null; model_id: string | null; loading: boolean; loading_elapsed_ms: number; preview_active: boolean }
 export type RecordingOverlayAnimatedBorderMode = "none" | "shimmer_edge" | "traveling_highlight" | "breathing_contour" | "spectrum_edge"
 export type RecordingOverlayAppearancePayload = { custom_enabled: boolean; theme: string; background_mode: string; material_mode: string; centerpiece_mode: string; animated_border_mode: string; accent_color: string; status_icon_color: string; cancel_icon_color: string; surface_base_color: string; body_background_color: string; show_status_icon: boolean; status_icon_style: string; show_cancel_button: boolean; cancel_button_invisible: boolean; bar_count: number; bar_width_px: number; bar_style: string; show_drag_grip: boolean; entrance_animation: string; exit_animation: string; audio_reactive_scale: boolean; audio_reactive_scale_max_percent: number; voice_sensitivity_percent: number; animation_softness_percent: number; depth_parallax_percent: number; opacity_percent: number; silence_fade: boolean; silence_opacity_percent: number; decapitalize_indicator_mode: string; decapitalize_indicator_custom_text: string; decapitalize_indicator_font_family: string; decapitalize_indicator_font_size_px: number; decapitalize_indicator_color: string; frame_width_px: number; frame_height_px: number }
@@ -5187,6 +5212,10 @@ auto_shortcut_activation?: boolean;
  * The user explicitly controls when text is inserted via preview actions.
  */
 preview_output_only_enabled?: boolean;
+/**
+ * Unset output fields inherit Default (Global).
+ */
+output_settings?: ProfileOutputSettings;
 /**
  * Enforce language hints strictly in Soniox (None = inherit global)
  */

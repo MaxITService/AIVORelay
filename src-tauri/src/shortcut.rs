@@ -3782,6 +3782,53 @@ pub fn change_auto_submit_setting(app: AppHandle, enabled: bool) -> Result<(), S
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_transcription_output_settings(
+    app: AppHandle,
+    profile_id: String,
+    mut output: settings::ProfileOutputSettings,
+) -> Result<(), String> {
+    let _settings_guard = settings::lock_settings_mutation("changing profile output settings")?;
+    if let Some(key) = &mut output.before_insert_key {
+        *key = key.trim().to_lowercase();
+        if !key.is_empty() {
+            crate::clipboard::validate_output_key(key)?;
+        }
+    }
+    for delay in [output.paste_delay_ms, output.before_insert_delay_ms, output.auto_submit_delay_ms]
+        .into_iter().flatten()
+    {
+        if delay > 5000 {
+            return Err("Output delays must be between 0 and 5000 milliseconds".into());
+        }
+    }
+    let mut settings = settings::get_settings(&app);
+    if profile_id == "default" {
+        macro_rules! update_default {
+            ($($field:ident),+ $(,)?) => { $(
+                if let Some(value) = output.$field { settings.$field = value; }
+            )+ };
+        }
+        update_default!(paste_method, clipboard_handling, clipboard_history_allowed,
+            convert_lf_to_crlf, paste_delay_ms, auto_submit, auto_submit_key);
+        // The fields above live on AppSettings; keep only Default-only values
+        // here so no stale copy can diverge from the saved global settings.
+        settings.transcription_output_defaults = settings::ProfileOutputSettings {
+            before_insert_key: output.before_insert_key,
+            before_insert_delay_ms: output.before_insert_delay_ms,
+            auto_submit_delay_ms: output.auto_submit_delay_ms,
+            ..Default::default()
+        };
+    } else {
+        let profile = settings.transcription_profiles.iter_mut()
+            .find(|profile| profile.id == profile_id)
+            .ok_or_else(|| format!("Profile with id '{}' not found", profile_id))?;
+        profile.output_settings = output;
+    }
+    settings::write_settings_checked(&app, settings)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_auto_submit_key_setting(app: AppHandle, key: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     let parsed = match key.as_str() {
@@ -5466,6 +5513,7 @@ pub fn add_transcription_profile(
         llm_post_process_enabled,
         llm_prompt_override,
         llm_model_override,
+        output_settings: settings::ProfileOutputSettings::default(),
         soniox_context_general_json: general_json.trim().to_string(),
         soniox_context_text: context_text.trim().to_string(),
         soniox_context_terms: context_terms,

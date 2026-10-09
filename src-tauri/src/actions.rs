@@ -414,12 +414,14 @@ fn prompt_templates_require_current_app(
         .map(|profile| profile.llm_post_process_enabled)
         .unwrap_or(settings.post_process_enabled);
     let output_route_allows_post_process = post_process_allowed_for_output_route(settings, profile);
+    let output_is_buffered = buffers_profile_output(settings, profile);
     let post_process_can_run = (force_post_process && output_route_allows_post_process)
         || (llm_enabled
             && output_route_allows_post_process
-            && settings.transcription_provider != TranscriptionProvider::RemoteSoniox
-            && !(settings.transcription_provider == TranscriptionProvider::RemoteDeepgram
-                && settings.deepgram_live_enabled));
+            && (output_is_buffered
+                || (settings.transcription_provider != TranscriptionProvider::RemoteSoniox
+                    && !(settings.transcription_provider == TranscriptionProvider::RemoteDeepgram
+                        && settings.deepgram_live_enabled))));
 
     if post_process_can_run && post_process_provider_and_model_are_configured(settings, profile_id)
     {
@@ -920,7 +922,7 @@ fn release_gemini_finalization_foreground_on_main_thread(
         return false;
     }
 
-    if let Err(error) = crate::clipboard::end_streaming_paste_session_if_matches(
+    if let Err(error) = crate::clipboard::release_streaming_paste_session_if_matches(
         app,
         pending.operation_id,
     ) {
@@ -1214,7 +1216,7 @@ async fn maybe_post_process_transcription(
         return PostProcessTranscriptionOutcome::Skipped;
     }
 
-    if !force_manual {
+    if !force_manual && !buffers_profile_output(settings, profile) {
         if settings.transcription_provider == TranscriptionProvider::RemoteSoniox {
             debug!("Skipping post-processing for Soniox streaming transcription");
             return PostProcessTranscriptionOutcome::Skipped;
@@ -1695,6 +1697,11 @@ fn resolve_history_post_process_requested(
     enabled && post_process_allowed_for_output_route(settings, profile)
 }
 
+fn buffers_profile_output(settings: &AppSettings, profile: Option<&TranscriptionProfile>) -> bool {
+    crate::settings::ResolvedOutputSettings::resolve(settings, profile.map(|p| p.id.as_str()))
+        .buffers_external_output()
+}
+
 /// LLM post-processing is safe only while the complete transcription is still
 /// reversible. Direct realtime output has already been inserted into the target
 /// application chunk by chunk, so changing only the final/history text would
@@ -1708,6 +1715,9 @@ fn post_process_allowed_for_output_route(
     settings: &AppSettings,
     profile: Option<&TranscriptionProfile>,
 ) -> bool {
+    if buffers_profile_output(settings, profile) {
+        return true;
+    }
     let output_is_held_in_preview = should_route_output_to_preview(settings, profile);
 
     let inserts_realtime_text_directly = match settings.transcription_provider {
@@ -1803,6 +1813,15 @@ impl FinishGuard {
             "FinishGuard: finishing shortcut '{}' operation {}",
             self.binding_id, self.operation_id
         );
+        // Preserve captured output settings until every previously queued
+        // chunk/final paste has run, including when a synchronous wait timed out.
+        let operation_id = self.operation_id;
+        if let Err(error) = self.app.run_on_main_thread(move || {
+            crate::clipboard::end_dictation_output_session_if_matches(operation_id);
+        }) {
+            warn!("Failed to queue dictation output cleanup: {}", error);
+            crate::clipboard::end_dictation_output_session_if_matches(operation_id);
+        }
         let Some(_completion_guard) = session_manager::try_begin_processing_completion(
             &self.app,
             &self.binding_id,
@@ -2083,6 +2102,18 @@ fn start_recording_with_feedback_with_settings(
     );
 
     let operation_id = session_manager::next_operation_id();
+    let output_settings = if is_transcribe_binding_id(binding_id)
+        && binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+    {
+        let preview_output = crate::managers::preview_output_mode::is_active_for_binding(binding_id)
+            .then(crate::managers::preview_output_mode::output_settings).flatten();
+        Some(preview_output.unwrap_or_else(|| crate::settings::ResolvedOutputSettings::resolve(
+            &settings, captured_profile_id.as_deref(),
+        )))
+    } else {
+        None
+    };
+    crate::clipboard::begin_dictation_output_session(operation_id, output_settings);
     *state_guard = session_manager::SessionState::Recording {
         session: Arc::clone(&session),
         binding_id: binding_id.to_string(),
@@ -2330,6 +2361,7 @@ fn start_recording_with_feedback_with_settings(
             *state_guard = session_manager::SessionState::Idle;
         }
         drop(state_guard);
+        crate::clipboard::end_dictation_output_session_if_matches(operation_id);
 
         if let Some(err) = recording_error.as_ref() {
             show_recording_start_error_overlay(app, err);
@@ -3639,6 +3671,9 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
             return;
         }
 
+        let output_settings = crate::settings::ResolvedOutputSettings::resolve(
+            &request.recording_settings, request.captured_profile_id.as_deref(),
+        );
         let final_text = match apply_post_processing_and_history(
             &app,
             &request.recording_settings,
@@ -3673,7 +3708,8 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
             if !remote_recording_retry_is_in_flight(Some(retry_id)) {
                 return;
             }
-            if let Err(err) = utils::paste(final_text, app_for_main_thread.clone()) {
+            if let Err(err) = utils::paste_with_output_settings(final_text, app_for_main_thread.clone(),
+                &output_settings, || remote_recording_retry_is_in_flight(Some(retry_id))) {
                 error!("Failed to paste retried transcription: {}", err);
                 let _ = app_for_main_thread.emit("paste-error", ());
             }
@@ -5855,19 +5891,28 @@ async fn paste_preview_buffer_to_target(
     }
 
     let ah_for_paste = app.clone();
-    let main_thread_timeout_ms = get_settings(app).paste_delay_ms.saturating_add(1500);
+    let output_settings = crate::managers::preview_output_mode::output_settings()
+        .ok_or_else(|| "The preview output settings are no longer available".to_string())?;
+    let main_thread_timeout_ms = output_settings.timeout_ms();
     let paste_result = run_on_main_thread_sync_with_result(app, main_thread_timeout_ms, move || {
         if operation_stamp.is_some_and(|stamp| stamp.was_cancelled(&ah_for_paste)) {
             return Ok(false);
         }
-        utils::paste(text, ah_for_paste.clone())?;
-        play_result_ready_sound(&ah_for_paste);
-        Ok(true)
+        let pasted = utils::paste_with_output_settings(text, ah_for_paste.clone(), &output_settings,
+            || crate::managers::preview_output_mode::get_state_payload().active
+                && operation_stamp.is_none_or(|stamp| !stamp.was_cancelled(&ah_for_paste)))?;
+        if pasted { play_result_ready_sound(&ah_for_paste); }
+        Ok(pasted)
     })
     .and_then(|result: Result<bool, String>| result);
 
     match paste_result {
-        Ok(pasted) => Ok(pasted),
+        Ok(pasted) => {
+            if !pasted && crate::managers::preview_output_mode::get_state_payload().active {
+                crate::overlay::show_live_preview_window(app);
+            }
+            Ok(pasted)
+        }
         Err(err) => {
             warn!("Preview paste failed: {}", err);
             crate::managers::preview_output_mode::set_error(app, Some(err.clone()));
@@ -6009,15 +6054,17 @@ fn finalize_streaming_paste_session_after_main_thread_queue(
             }
             return;
         }
-        if let Err(finalize_err) = crate::clipboard::finalize_streaming_paste_session_if_matches(
+        match crate::clipboard::complete_dictation_output(
             &app_for_finalize,
             operation_id,
             &final_text,
+            || !operation_stamp.was_cancelled(&app_for_finalize),
         ) {
-            warn!(
-                "Failed to finalize streaming clipboard session: {}",
-                finalize_err
-            );
+            Ok(finalized) => output_finalized_in_queue.store(finalized, std::sync::atomic::Ordering::Release),
+            Err(finalize_err) => {
+                output_finalized_in_queue.store(false, std::sync::atomic::Ordering::Release);
+                warn!("Failed to finalize dictation output: {}", finalize_err);
+            }
         }
     }) {
         warn!(
@@ -6890,7 +6937,7 @@ mod transcription_post_process_tests {
         should_run_transcription_post_process,
     };
     use crate::plus_overlay_state::OverlayErrorCategory;
-    use crate::settings::{get_default_settings, TranscriptionProvider};
+    use crate::settings::{get_default_settings, PasteMethod, TranscriptionProfile, TranscriptionProvider};
     use std::time::Duration;
 
     #[test]
@@ -7028,6 +7075,67 @@ mod transcription_post_process_tests {
 
         settings.preview_output_only_enabled = true;
         assert!(post_process_allowed_for_output_route(&settings, None));
+    }
+
+    #[test]
+    fn buffered_key_actions_allow_post_process_for_live_providers() {
+        for (provider, preset, model) in [
+            (TranscriptionProvider::Local, "", ""),
+            (TranscriptionProvider::RemoteSoniox, "", ""),
+            (TranscriptionProvider::RemoteDeepgram, "", ""),
+            (TranscriptionProvider::RemoteOpenAiCompatible, "openai", "gpt-live-transcribe"),
+            (TranscriptionProvider::RemoteOpenAiCompatible, "google", "gemini-3.5-transcribe-live"),
+        ] {
+            let mut settings = get_default_settings();
+            settings.transcription_provider = provider;
+            settings.selected_model = "streaming-model".into();
+            settings.native_streaming_live_output_models = vec![settings.selected_model.clone()];
+            settings.soniox_model = "stt-rt-v5".into();
+            settings.soniox_live_enabled = true;
+            settings.deepgram_model = "nova-3".into();
+            settings.deepgram_live_enabled = true;
+            settings.remote_stt.provider_preset = preset.into();
+            settings.remote_stt.model_id = model.into();
+            settings.openai_realtime_whisper_flatten_enabled = false;
+            settings.preview_output_only_enabled = false;
+            settings.soniox_live_preview_enabled = false;
+            settings.paste_method = PasteMethod::CtrlV;
+            settings.auto_submit = false;
+            settings.transcription_output_defaults.before_insert_key = None;
+            assert!(!post_process_allowed_for_output_route(&settings, None));
+
+            settings.auto_submit = true;
+            assert!(post_process_allowed_for_output_route(&settings, None));
+            settings.auto_submit = false;
+            settings.transcription_output_defaults.before_insert_key = Some("enter".into());
+            assert!(post_process_allowed_for_output_route(&settings, None));
+            settings.paste_method = PasteMethod::None;
+            assert!(!post_process_allowed_for_output_route(&settings, None));
+        }
+    }
+
+    #[test]
+    fn profile_output_overrides_control_post_process_buffering() {
+        let mut profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
+            "id": "editor", "name": "Editor", "language": "auto", "translate_to_english": false,
+            "output_settings": { "auto_submit": false, "before_insert_key": "" }
+        })).unwrap();
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::RemoteSoniox;
+        settings.soniox_model = "stt-rt-v5".into();
+        settings.soniox_live_enabled = true;
+        settings.preview_output_only_enabled = false;
+        settings.soniox_live_preview_enabled = false;
+        settings.auto_submit = true;
+        settings.transcription_output_defaults.before_insert_key = Some("enter".into());
+        settings.transcription_profiles.push(profile.clone());
+        assert!(!post_process_allowed_for_output_route(&settings, Some(&profile)));
+        assert!(post_process_allowed_for_output_route(&settings, None));
+
+        profile.output_settings.auto_submit = None;
+        profile.output_settings.before_insert_key = None;
+        settings.transcription_profiles[0] = profile.clone();
+        assert!(post_process_allowed_for_output_route(&settings, Some(&profile)));
     }
 
     #[test]
@@ -7447,8 +7555,17 @@ impl ShortcutAction for TranscribeAction {
             take_pending_transcribe_start(binding_id)
                 .unwrap_or_else(|| prepared_transcribe_start_for_binding(app, binding_id))
         };
-        let settings = prepared.settings;
+        let mut settings = prepared.settings;
         let active_app_context = prepared.active_app_context;
+        if binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+            let profile = resolve_profile_for_binding(&settings, binding_id);
+            let output = if crate::managers::preview_output_mode::is_active_for_binding(binding_id) {
+                crate::managers::preview_output_mode::output_settings()
+            } else { None }.unwrap_or_else(|| crate::settings::ResolvedOutputSettings::resolve(
+                &settings, profile.map(|profile| profile.id.as_str()),
+            ));
+            output.apply_to_recording(&mut settings);
+        }
         let use_live_streaming = should_use_live_streaming(&settings);
         let profile = resolve_profile_for_binding(&settings, binding_id);
         let optimized_delivery_profile_id = profile.map(|p| p.id.clone());
@@ -7525,6 +7642,7 @@ impl ShortcutAction for TranscribeAction {
                 active_app_context.clone(),
                 use_live_streaming || use_native_local_streaming || use_local_preview_streaming,
                 recording_prefix,
+                crate::settings::ResolvedOutputSettings::resolve(&settings, profile.map(|p| p.id.as_str())),
             );
             crate::overlay::show_live_preview_window(app);
             if use_local_preview_streaming {
@@ -7981,9 +8099,10 @@ impl ShortcutAction for TranscribeAction {
                                             );
                                             return;
                                         }
-                                        match crate::clipboard::paste_stream_chunk(
+                                        match crate::clipboard::paste_stream_chunk_for_operation(
                                             delta,
                                             ah_for_clip.clone(),
+                                            operation_stamp.operation_id,
                                         ) {
                                             Ok(()) => {
                                                 if let Ok(mut processor) = processor_for_paste.lock() {
@@ -8107,8 +8226,10 @@ impl ShortcutAction for TranscribeAction {
                 }
             };
             let recording_settings = stop_context.recording_settings.clone();
-            let streaming_clipboard_timeout_ms =
-                recording_settings.paste_delay_ms.saturating_add(5000);
+            let buffered_output = crate::clipboard::dictation_output_is_buffered(stop_context.operation_id);
+            let streaming_clipboard_timeout_ms = crate::settings::ResolvedOutputSettings::resolve(
+                &recording_settings, stop_context.captured_profile_id.as_deref(),
+            ).timeout_ms();
             let preview_output_only_enabled = should_route_output_to_preview_for_captured_profile(
                 &recording_settings,
                 stop_context.captured_profile_id.as_ref(),
@@ -8123,7 +8244,8 @@ impl ShortcutAction for TranscribeAction {
                 should_use_openai_realtime_whisper_live(&recording_settings);
             let is_gemini_live_provider =
                 should_use_gemini_realtime_live(&recording_settings);
-            let live_instant_stop = if is_deepgram_live_provider {
+            let live_instant_stop = !buffered_output
+                && if is_deepgram_live_provider {
                 recording_settings.deepgram_live_instant_stop
             } else if is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
                 false
@@ -8141,7 +8263,7 @@ impl ShortcutAction for TranscribeAction {
             };
             let operation_stamp = stop_context.operation_stamp();
             let recording_operation_id = stop_context.operation_id;
-            let early_gemini_deadline = if is_gemini_live_provider
+            let early_gemini_deadline = if is_gemini_live_provider && !buffered_output
                 && recording_settings.gemini_live_early_finalization_enabled
                 && !preview_output_only_enabled
                 && !invoked_from_realtime_error
@@ -8166,7 +8288,7 @@ impl ShortcutAction for TranscribeAction {
                 show_finalizing_overlay(app);
             }
             let pending_gemini_background_finalization =
-                if early_gemini_deadline.is_none() && can_background_vercel_gemini_finalization(
+                if !buffered_output && early_gemini_deadline.is_none() && can_background_vercel_gemini_finalization(
                     is_gemini_live_provider,
                     &recording_settings.remote_stt.provider_preset,
                     preview_output_only_enabled,
@@ -8320,7 +8442,7 @@ impl ShortcutAction for TranscribeAction {
                     had_soniox_stream_output
                 };
                 let release_vercel_gemini_after_streamed_output =
-                    should_release_vercel_gemini_after_streamed_output(
+                    !buffered_output && should_release_vercel_gemini_after_streamed_output(
                         is_gemini_live_provider,
                         &recording_settings.remote_stt.provider_preset,
                         preview_output_only_enabled,
@@ -8468,9 +8590,9 @@ impl ShortcutAction for TranscribeAction {
                             .finish_session_if_matches(Some(recording_operation_id), live_finalize_timeout_ms)
                             .await
                     }
-                } else if preview_output_only_enabled {
-                    // Preview output is still reversible, so surface a partial
-                    // Soniox timeout and let the complete-recording replay repair it.
+                } else if preview_output_only_enabled || buffered_output {
+                    // Preview and buffered output are still reversible, so
+                    // let complete-recording replay repair a Soniox timeout.
                     soniox_live_manager
                         .finish_session_strict(live_finalize_timeout_ms)
                         .await
@@ -8518,7 +8640,9 @@ impl ShortcutAction for TranscribeAction {
                             change_tray_icon(&app_for_output, TrayIconState::Idle);
                             info!("Gemini early final output (operation={}, chars={}, whitespace_only={})", recording_operation_id, tail.chars().count(), !tail.is_empty() && tail.trim().is_empty());
                             if !tail.is_empty() {
-                                if let Err(error) = crate::clipboard::paste_stream_chunk(tail, app_for_output.clone()) {
+                                if let Err(error) = crate::clipboard::paste_stream_chunk_for_operation(
+                                    tail, app_for_output.clone(), recording_operation_id,
+                                ) {
                                     handle_remote_transcription_error(&app_for_output, &error, false);
                                     return;
                                 }
@@ -8596,9 +8720,10 @@ impl ShortcutAction for TranscribeAction {
                                         );
                                         return;
                                     }
-                                    if let Err(error) = crate::clipboard::paste_stream_chunk(
+                                    if let Err(error) = crate::clipboard::paste_stream_chunk_for_operation(
                                         tail_delta,
                                         ah_for_tail,
+                                        recording_operation_id,
                                     ) {
                                         warn!(
                                             "Failed to insert Gemini background stream tail: {}",
@@ -8694,7 +8819,7 @@ impl ShortcutAction for TranscribeAction {
                                 && !is_openai_realtime_whisper_live_provider
                                 && !is_gemini_live_provider,
                             preview_output_only_enabled,
-                            had_soniox_stream_output,
+                            had_soniox_stream_output && !buffered_output,
                         );
 
                         if can_replay_soniox {
@@ -8850,9 +8975,10 @@ impl ShortcutAction for TranscribeAction {
                                         );
                                         return;
                                     }
-                                    match crate::clipboard::paste_stream_chunk(
+                                    match crate::clipboard::paste_stream_chunk_for_operation(
                                         tail_delta,
                                         ah_for_clip.clone(),
+                                        operation_stamp.operation_id,
                                     ) {
                                         Ok(()) => {
                                             mark_openai_realtime_whisper_stream_emitted(
@@ -9064,10 +9190,18 @@ impl ShortcutAction for TranscribeAction {
                                 had_openai_realtime_whisper_stream_output
                             };
                             if !had_provider_stream_output {
-                                let fallback_result = crate::clipboard::paste_stream_chunk(
-                                    final_text_for_ui.clone(),
-                                    ah_clone.clone(),
-                                );
+                                let fallback_result = if is_gemini_live_provider {
+                                    crate::clipboard::paste_stream_chunk_for_operation(
+                                        final_text_for_ui.clone(),
+                                        ah_clone.clone(),
+                                        operation_stamp.operation_id,
+                                    )
+                                } else {
+                                    crate::clipboard::paste_stream_chunk(
+                                        final_text_for_ui.clone(),
+                                        ah_clone.clone(),
+                                    )
+                                };
                                 if is_gemini_live_provider {
                                     if let Err(error) = fallback_result {
                                         let message = format!(
@@ -9193,7 +9327,10 @@ impl ShortcutAction for TranscribeAction {
         let recording_settings = stop_context.recording_settings.clone();
         let operation_stamp = stop_context.operation_stamp();
         let recording_operation_id = stop_context.operation_id;
-        let streaming_clipboard_timeout_ms = recording_settings.paste_delay_ms.saturating_add(5000);
+        let output_settings = crate::settings::ResolvedOutputSettings::resolve(
+            &recording_settings, captured_profile_id.as_deref(),
+        );
+        let streaming_clipboard_timeout_ms = output_settings.timeout_ms();
         let native_streaming_live_output =
             native_streaming_live_output_enabled(&recording_settings)
                 && local_model_supports_native_streaming(app, &recording_settings);
@@ -9492,8 +9629,10 @@ impl ShortcutAction for TranscribeAction {
                     // operation-scoped session finalizer owns the clipboard.
                     apply_stream_trailing_adjustment(&ah_clone, stream_trailing_adjustment);
                 } else if !preview_output_only_enabled {
-                    match utils::paste(final_text_for_ui.clone(), ah_clone.clone()) {
-                        Ok(()) => play_result_ready_sound(&ah_clone),
+                    match utils::paste_with_output_settings(final_text_for_ui.clone(), ah_clone.clone(),
+                        &output_settings, || !operation_stamp.was_cancelled(&ah_clone)) {
+                        Ok(true) => play_result_ready_sound(&ah_clone),
+                        Ok(false) => {},
                         Err(err) => {
                             error!("Failed to paste transcription: {}", err);
                             let _ = ah_clone.emit("paste-error", ());
@@ -11854,7 +11993,9 @@ pub async fn preview_insert_action(app: AppHandle) -> Result<(), String> {
     }
 
     let full_text = current_preview_buffer_text();
-    paste_preview_buffer_to_target(&app, full_text, None).await?;
+    if !paste_preview_buffer_to_target(&app, full_text, None).await? {
+        return Err("Preview insertion was interrupted before delivery completed".into());
+    }
 
     close_preview_output_mode_workflow(&app, true);
     Ok(())

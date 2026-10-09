@@ -1,5 +1,6 @@
 import type { AppSettings, SttModelSelection } from "@/bindings";
 import { STT_MODEL_IDS } from "@/lib/sttModelSelection";
+import type { ProfileOutputSettings } from "@/lib/profileOutputSettings";
 
 export type PostProcessingUnavailableReason = "direct_realtime_output";
 
@@ -11,6 +12,8 @@ export interface PostProcessingAvailability {
 interface AvailabilityOptions {
   profilePreviewOutputOnlyEnabled?: boolean;
   sttSelection?: SttModelSelection;
+  // Null selects the shared defaults; undefined follows the active profile.
+  profileOutputSettings?: ProfileOutputSettings | null;
 }
 
 const REALTIME_OPENAI_MODELS = new Set([
@@ -72,6 +75,15 @@ export const getPostProcessingAvailability = (
     Boolean(settings.preview_output_only_enabled);
   const livePreviewEnabled = Boolean(settings.soniox_live_preview_enabled);
   const outputIsHeldInPreview = profilePreviewEnabled || livePreviewEnabled;
+  const output = options.profileOutputSettings === undefined
+    ? activeProfile?.output_settings : options.profileOutputSettings;
+  const pasteMethod = output?.paste_method ?? settings.paste_method ?? "ctrl_v";
+  const autoSubmit = output?.auto_submit ?? settings.auto_submit ?? false;
+  const openingKey = output?.before_insert_key
+    ?? settings.transcription_output_defaults?.before_insert_key ?? "";
+  if (pasteMethod !== "none" && (autoSubmit || openingKey !== "")) {
+    return { available: true, reason: null };
+  }
 
   let insertsRealtimeTextDirectly = false;
 

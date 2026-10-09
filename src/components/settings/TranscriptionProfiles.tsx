@@ -63,6 +63,8 @@ import {
 } from "../../lib/gemini/vocabulary";
 import { ChineseScriptSetting } from "./ChineseScript";
 import { SttModelSelector } from "./SttModelSelector";
+import { ProfileOutputSettings } from "./ProfileOutputSettings";
+import type { ProfileOutputSettings as OutputSettings } from "@/lib/profileOutputSettings";
 import {
   globalSttSelection,
   type SttModelSelection,
@@ -284,7 +286,8 @@ Return only the cleaned transcript.
 Transcript:
 \${output}`;
 
-interface ExtendedTranscriptionProfile extends TranscriptionProfile {
+type ExtendedTranscriptionProfile = TranscriptionProfile & {
+  output_settings?: OutputSettings;
   automatic_app_rules: string[];
   include_in_cycle: boolean;
   push_to_talk: boolean;
@@ -298,7 +301,7 @@ interface ExtendedTranscriptionProfile extends TranscriptionProfile {
   soniox_context_terms: string[];
   gemini_language_code_override?: string | null;
   gemini_custom_vocabulary_override?: string[] | null;
-}
+};
 
 interface LlmPromptSourceOption {
   value: string;
@@ -1512,6 +1515,8 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
             />
           )}
 
+          <ProfileOutputSettings profileId={profile.id} overrides={profile.output_settings} disabled={isUpdating} />
+
           {/* Voice Model Prompt Override — collapsible */}
           {!isSonioxProvider && supportsSttPrompt && (
             <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
@@ -2194,6 +2199,7 @@ export const TranscriptionProfiles: React.FC = () => {
   const globalGeminiLanguageCode = String((settings as any)?.gemini_language_code ?? "auto");
   const newPostProcessingAvailability = getPostProcessingAvailability(settings, {
     profilePreviewOutputOnlyEnabled: newPreviewOutputOnly,
+    profileOutputSettings: null,
   });
   const defaultPostProcessingAvailability = getPostProcessingAvailability(
     settings,
@@ -2201,6 +2207,7 @@ export const TranscriptionProfiles: React.FC = () => {
       profilePreviewOutputOnlyEnabled: Boolean(
         settings?.preview_output_only_enabled,
       ),
+      profileOutputSettings: null,
     },
   );
   const effectiveDefaultLlmEnabled =
@@ -3185,6 +3192,8 @@ export const TranscriptionProfiles: React.FC = () => {
                   />
                 )}
 
+                <ProfileOutputSettings profileId="default" />
+
                 {/* Voice Model Prompt — collapsible, matches ProfileCard details style */}
                 {!isSonioxProvider && modelInfo.supportsPrompt && (
                   <details id="settings-speech-model-prompt" tabIndex={-1} className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
@@ -3342,6 +3351,7 @@ export const TranscriptionProfiles: React.FC = () => {
                     profilePreviewOutputOnlyEnabled:
                       profile.preview_output_only_enabled ?? false,
                     sttSelection: effectiveSelection,
+                    profileOutputSettings: profile.output_settings ?? null,
                   }).available
                 }
                 globalSonioxLanguageHintsStrict={Boolean((settings as any)?.soniox_language_hints_strict)}
