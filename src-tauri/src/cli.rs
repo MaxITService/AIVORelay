@@ -292,6 +292,50 @@ pub struct CliArgs {
 }
 
 impl CliArgs {
+    pub fn remote_command(&self) -> Option<RemoteCommand> {
+        match &self.command {
+            Some(CliCommand::Recording { action }) => Some(RemoteCommand::Recording(*action)),
+            Some(CliCommand::Transcript { action }) => Some(RemoteCommand::Transcript(*action)),
+            Some(_) => None,
+            None if self.toggle_transcription => Some(RemoteCommand::Recording(
+                RecordingCommand::Toggle { post_process: false },
+            )),
+            None if self.toggle_post_process => Some(RemoteCommand::Recording(
+                RecordingCommand::Toggle { post_process: true },
+            )),
+            None if self.cancel => Some(RemoteCommand::Recording(RecordingCommand::Cancel)),
+            None => None,
+        }
+    }
+
+    /// Remote controls must never accidentally enter a headless conversion workflow.
+    pub fn validate_remote_command(&self) -> Result<(), clap::Error> {
+        let structured = matches!(
+            self.command,
+            Some(CliCommand::Recording { .. } | CliCommand::Transcript { .. })
+        );
+        let legacy_count = self.toggle_transcription as u8
+            + self.toggle_post_process as u8
+            + self.cancel as u8;
+        if (structured && (legacy_count > 0 || self.json))
+            || legacy_count > 1
+            || ((structured || legacy_count > 0)
+                && (self.transcribe_file.is_some()
+                    || self.list_devices
+                    || !self.convert_file.is_empty()
+                    || self.model.is_some()
+                    || self.device_index.is_some()
+                    || self.repeat.is_some()
+                    || (!structured && self.command.is_some())))
+        {
+            return Err(clap::Error::raw(
+                clap::error::ErrorKind::ArgumentConflict,
+                "Recording/transcript controls cannot be combined with another control or headless commands; structured controls do not support --json",
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn has_tts_file_conversion_args(&self) -> bool {
         self.tts_provider.is_some()
             || self.tts_voice.is_some()
@@ -345,12 +389,81 @@ impl CliArgs {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum CliCommand {
+    /// Control dictation in an already-running AivoRelay instance.
+    Recording {
+        #[command(subcommand)]
+        action: RecordingCommand,
+    },
+    /// Copy or paste the latest completed dictation from a running instance.
+    Transcript {
+        #[command(subcommand)]
+        action: TranscriptCommand,
+    },
     /// Inspect, export, regenerate, or delete retained Text-to-Speech history.
     #[command(name = "tts-history")]
     TtsHistory(TtsHistoryArgs),
     /// Inspect, install, test, or delete an optional local TTS runtime.
     #[command(name = "tts-local")]
     TtsLocal(TtsLocalArgs),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteCommand {
+    Recording(RecordingCommand),
+    Transcript(TranscriptCommand),
+}
+
+#[derive(Subcommand, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordingCommand {
+    /// Start if idle; repeated start leaves the active recording unchanged.
+    Start {
+        #[arg(long)]
+        post_process: bool,
+    },
+    /// Stop the active recording, preserving its profile and output mode.
+    Stop,
+    /// Start if idle, or stop the active recording.
+    Toggle {
+        #[arg(long)]
+        post_process: bool,
+    },
+    /// Cancel the current recording or processing operation.
+    Cancel,
+}
+
+#[derive(Subcommand, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TranscriptCommand {
+    /// Copy the latest completed transcript to the clipboard.
+    Clipboard,
+    /// Paste using the saved settings and an optional one-shot method override.
+    Paste {
+        #[arg(long, value_enum)]
+        method: Option<CliPasteMethod>,
+    },
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CliPasteMethod {
+    #[value(name = "ctrl_v", alias = "ctrl-v")]
+    CtrlV,
+    #[value(name = "ctrl_shift_v", alias = "ctrl-shift-v")]
+    CtrlShiftV,
+    #[value(name = "shift_insert", alias = "shift-insert")]
+    ShiftInsert,
+    Direct,
+    None,
+}
+
+impl From<CliPasteMethod> for crate::settings::PasteMethod {
+    fn from(method: CliPasteMethod) -> Self {
+        match method {
+            CliPasteMethod::CtrlV => Self::CtrlV,
+            CliPasteMethod::CtrlShiftV => Self::CtrlShiftV,
+            CliPasteMethod::ShiftInsert => Self::ShiftInsert,
+            CliPasteMethod::Direct => Self::Direct,
+            CliPasteMethod::None => Self::None,
+        }
+    }
 }
 
 #[derive(Args, Debug, Clone)]
@@ -623,10 +736,75 @@ pub enum CliTtsOutputFormat {
 #[cfg(test)]
 mod tests {
     use super::{
-        CliArgs, CliCommand, CliTtsHistoryScope, CliTtsKeySource, CliTtsOutputFormat,
-        CliTtsProvider, TtsHistoryCommand, TtsLocalCommand,
+        CliArgs, CliCommand, CliPasteMethod, CliTtsHistoryScope, CliTtsKeySource, CliTtsOutputFormat,
+        CliTtsProvider, RecordingCommand, RemoteCommand, TranscriptCommand, TtsHistoryCommand,
+        TtsLocalCommand,
     };
     use clap::{error::ErrorKind, Parser};
+
+    #[test]
+    fn recording_controls_and_legacy_aliases_resolve_to_the_same_actions() {
+        for (arguments, expected) in [
+            (vec!["recording", "start"], RecordingCommand::Start { post_process: false }),
+            (vec!["recording", "start", "--post-process"], RecordingCommand::Start { post_process: true }),
+            (vec!["recording", "stop"], RecordingCommand::Stop),
+            (vec!["recording", "toggle"], RecordingCommand::Toggle { post_process: false }),
+            (vec!["recording", "toggle", "--post-process"], RecordingCommand::Toggle { post_process: true }),
+            (vec!["recording", "cancel"], RecordingCommand::Cancel),
+            (vec!["--toggle-transcription"], RecordingCommand::Toggle { post_process: false }),
+            (vec!["--toggle-post-process"], RecordingCommand::Toggle { post_process: true }),
+            (vec!["--cancel"], RecordingCommand::Cancel),
+        ] {
+            let args = CliArgs::try_parse_from(std::iter::once("aivorelay").chain(arguments))
+                .expect("remote recording command should parse");
+            args.validate_remote_command().expect("remote command should be valid");
+            assert_eq!(args.remote_command(), Some(RemoteCommand::Recording(expected)));
+        }
+    }
+
+    #[test]
+    fn transcript_controls_support_only_app_paste_methods() {
+        for (method, expected) in [
+            ("ctrl_v", CliPasteMethod::CtrlV),
+            ("ctrl-v", CliPasteMethod::CtrlV),
+            ("ctrl_shift_v", CliPasteMethod::CtrlShiftV),
+            ("ctrl-shift-v", CliPasteMethod::CtrlShiftV),
+            ("shift_insert", CliPasteMethod::ShiftInsert),
+            ("shift-insert", CliPasteMethod::ShiftInsert),
+            ("direct", CliPasteMethod::Direct),
+            ("none", CliPasteMethod::None),
+        ] {
+            let args = CliArgs::try_parse_from(["aivorelay", "transcript", "paste", "--method", method])
+                .expect("supported paste method should parse");
+            assert_eq!(args.remote_command(), Some(RemoteCommand::Transcript(
+                TranscriptCommand::Paste { method: Some(expected) }
+            )));
+        }
+        let args = CliArgs::try_parse_from(["aivorelay", "transcript", "paste"]).unwrap();
+        assert_eq!(args.remote_command(), Some(RemoteCommand::Transcript(
+            TranscriptCommand::Paste { method: None }
+        )));
+        let args = CliArgs::try_parse_from(["aivorelay", "transcript", "clipboard"]).unwrap();
+        assert_eq!(args.remote_command(), Some(RemoteCommand::Transcript(TranscriptCommand::Clipboard)));
+        assert!(CliArgs::try_parse_from(["aivorelay", "transcript", "paste", "--method", "external_script"]).is_err());
+    }
+
+    #[test]
+    fn remote_controls_reject_headless_and_ambiguous_invocations() {
+        for arguments in [
+            vec!["--transcribe-file", "input.wav", "recording", "start"],
+            vec!["--list-devices", "recording", "stop"],
+            vec!["--json", "recording", "start"],
+            vec!["--toggle-transcription", "recording", "start"],
+            vec!["--cancel", "--toggle-post-process"],
+            vec!["--cancel", "tts-local", "status"],
+        ] {
+            match CliArgs::try_parse_from(std::iter::once("aivorelay").chain(arguments)) {
+                Ok(args) => assert_eq!(args.validate_remote_command().unwrap_err().kind(), ErrorKind::ArgumentConflict),
+                Err(error) => assert_eq!(error.kind(), ErrorKind::ArgumentConflict),
+            }
+        }
+    }
 
     #[test]
     fn exposes_package_version() {

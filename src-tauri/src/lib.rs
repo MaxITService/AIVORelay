@@ -31,6 +31,7 @@ mod plus_overlay_state;
 mod portable;
 mod recording_auto_stop;
 mod recording_model_loading;
+mod remote_control;
 #[cfg(target_os = "windows")]
 mod region_capture;
 mod secure_keys;
@@ -88,6 +89,7 @@ fn normalize_generated_typescript_whitespace(path: &std::path::Path) -> std::io:
 }
 
 pub use cli::CliArgs;
+use clap::Parser;
 #[cfg(not(debug_assertions))]
 use env_filter::Builder as EnvFilterBuilder;
 use managers::audio::AudioRecordingManager;
@@ -364,54 +366,6 @@ fn show_main_window(app: &AppHandle) {
         // Automatic WebView2 recovery may have closed the dead windows; an
         // explicit request is the moment to try again.
         webview_recovery::rebuild_for_user(app);
-    }
-}
-
-fn send_transcription_input(app: &AppHandle, binding_id: &str, shortcut_string: &str) {
-    let Some(action) = actions::ACTION_MAP.get(binding_id) else {
-        log::warn!(
-            "No action defined in ACTION_MAP for binding ID '{}'",
-            binding_id
-        );
-        return;
-    };
-
-    if action.is_instant() {
-        action.start(app, binding_id, shortcut_string);
-        return;
-    }
-
-    let should_start = {
-        let toggle_state_manager = app.state::<ManagedToggleState>();
-        let mut states = match toggle_state_manager.lock() {
-            Ok(states) => states,
-            Err(error) => {
-                log::warn!("Failed to lock toggle state manager: {}", error);
-                return;
-            }
-        };
-
-        let is_currently_active = states
-            .active_toggles
-            .entry(binding_id.to_string())
-            .or_insert(false);
-        let should_start = !*is_currently_active;
-        *is_currently_active = should_start;
-        if !should_start {
-            states.active_presses.remove(binding_id);
-        }
-        should_start
-    };
-
-    if should_start {
-        if binding_id == "transcribe" {
-            // A second-instance CLI invocation has no reliable target-window
-            // ownership. Keep it on the profile selected manually.
-            actions::prepare_manual_transcribe_settings(app, binding_id);
-        }
-        action.start(app, binding_id, shortcut_string);
-    } else {
-        action.stop(app, binding_id, shortcut_string);
     }
 }
 
@@ -1883,15 +1837,17 @@ pub fn run(cli_args: CliArgs) {
 
     if !headless_mode {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if args.iter().any(|arg| arg == "--toggle-transcription") {
-                send_transcription_input(app, "transcribe", "CLI");
-            } else if args.iter().any(|arg| arg == "--toggle-post-process") {
-                actions::force_post_process_for_next_transcription("transcribe");
-                send_transcription_input(app, "transcribe", "CLI");
-            } else if args.iter().any(|arg| arg == "--cancel") {
-                crate::utils::cancel_current_operation(app);
-            } else {
-                show_main_window(app);
+            match CliArgs::try_parse_from(args) {
+                Ok(args) => {
+                    if let Err(error) = args.validate_remote_command() {
+                        log::warn!("Invalid second-instance command: {error}");
+                    } else if let Some(command) = args.remote_command() {
+                        remote_control::dispatch(app, command);
+                    } else {
+                        show_main_window(app);
+                    }
+                }
+                Err(error) => log::warn!("Failed to parse second-instance command: {error}"),
             }
         }));
     }

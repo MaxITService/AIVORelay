@@ -491,6 +491,13 @@ fn take_force_post_process_for_binding(binding_id: &str) -> bool {
         .unwrap_or(false)
 }
 
+pub(crate) fn clear_forced_post_processing() {
+    FORCE_POST_PROCESS_BINDINGS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .clear();
+}
+
 fn quick_tap_threshold_samples(threshold_ms: u32) -> usize {
     ((threshold_ms.max(1) as f32 / 1000.0) * RECORDING_SAMPLE_RATE_HZ) as usize
 }
@@ -1905,7 +1912,7 @@ fn maybe_restore_ai_replace_selection(
 /// race conditions when the user rapidly presses the shortcut key.
 fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     let settings = settings_for_binding(app, binding_id);
-    start_recording_with_feedback_with_settings(app, binding_id, settings, None, true)
+    start_recording_with_feedback_with_settings(app, binding_id, settings, None, true, false)
 }
 
 fn start_recording_with_feedback_with_settings(
@@ -1914,6 +1921,7 @@ fn start_recording_with_feedback_with_settings(
     settings: AppSettings,
     captured_active_app: Option<&ActiveAppContext>,
     allow_active_app_lookup: bool,
+    force_post_process: bool,
 ) -> bool {
     // Load model in the background if using local transcription
     let tm = app.state::<Arc<TranscriptionManager>>();
@@ -2008,6 +2016,12 @@ fn start_recording_with_feedback_with_settings(
     let Some(_startup_guard) = session_manager::try_begin_recording_startup() else {
         return false;
     };
+
+    // Install the CLI override only after this attempt owns recording startup.
+    // Repeated Start and competing hotkeys must not change an active session.
+    if force_post_process {
+        force_post_process_for_next_transcription(binding_id);
+    }
 
     // Mark as recording immediately to prevent concurrent starts
     // We'll update with the real session once recording actually starts
@@ -2266,6 +2280,9 @@ fn start_recording_with_feedback_with_settings(
             }
             let _ = take_recording_app_context(binding_id);
             utils::hide_recording_overlay(app);
+            if force_post_process {
+                let _ = take_force_post_process_for_binding(binding_id);
+            }
             return false;
         }
 
@@ -2325,6 +2342,9 @@ fn start_recording_with_feedback_with_settings(
         }
     }
 
+    if !recording_started && force_post_process {
+        let _ = take_force_post_process_for_binding(binding_id);
+    }
     recording_started
 }
 
@@ -7471,7 +7491,7 @@ async fn ai_replace_with_llm(
 }
 
 impl ShortcutAction for TranscribeAction {
-    fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
+    fn start(&self, app: &AppHandle, binding_id: &str, shortcut_str: &str) {
         if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID
             && crate::webview_mode::webviews_disabled()
         {
@@ -7483,8 +7503,19 @@ impl ShortcutAction for TranscribeAction {
         let start_time = Instant::now();
         debug!("TranscribeAction::start called for binding: {}", binding_id);
 
-        let prepared = take_pending_transcribe_start(binding_id)
-            .unwrap_or_else(|| prepared_transcribe_start_for_binding(app, binding_id));
+        let from_cli = shortcut_str == "CLI" || shortcut_str == "CLI_POST_PROCESS";
+        let prepared = if from_cli {
+            // CLI cannot reliably identify the user's target application.
+            // Capture the manually selected profile without sharing pending
+            // hotkey snapshots with a concurrent shortcut press.
+            PreparedTranscribeStart {
+                settings: settings_with_model_override_for_binding(get_settings(app), binding_id),
+                active_app_context: None,
+            }
+        } else {
+            take_pending_transcribe_start(binding_id)
+                .unwrap_or_else(|| prepared_transcribe_start_for_binding(app, binding_id))
+        };
         let settings = prepared.settings;
         let active_app_context = prepared.active_app_context;
         let use_live_streaming = should_use_live_streaming(&settings);
@@ -7511,11 +7542,13 @@ impl ShortcutAction for TranscribeAction {
             settings.clone(),
             active_app_context.as_ref(),
             false,
+            shortcut_str == "CLI_POST_PROCESS",
         ) {
             // Recording failed to start (e.g., system busy) - reset toggle state
             // so next press will try to start again instead of calling stop
-            let _ = take_force_post_process_for_binding(binding_id);
-            reset_toggle_state(app, binding_id);
+            if !from_cli || !session_manager::has_current_operation_for_binding(app, binding_id) {
+                reset_toggle_state(app, binding_id);
+            }
             return;
         }
         let Some(recording_operation_id) = session_manager::recording_operation_id(app, binding_id)
