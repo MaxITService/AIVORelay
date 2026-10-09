@@ -34,7 +34,6 @@ pub const SONIOX_LANGUAGE_HINTS_MAX_COUNT: usize = 100;
 
 #[derive(Serialize)]
 struct SonioxStartRequest {
-    api_key: String,
     model: String,
     audio_format: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -67,6 +66,8 @@ struct SonioxResponse {
     error_code: Option<u16>,
     #[serde(default)]
     error_message: Option<String>,
+    #[serde(default)]
+    error_type: Option<String>,
     #[serde(default, alias = "final_audio_proc_ms")]
     audio_final_proc_ms: Option<u64>,
     #[serde(default, alias = "total_audio_proc_ms")]
@@ -555,6 +556,52 @@ impl SonioxSttManager {
         }
     }
 
+    async fn websocket_write_error<R>(
+        &self,
+        read: &mut R,
+        operation_id: Option<u64>,
+        started: Instant,
+        timeout_seconds: u32,
+        fallback: anyhow::Error,
+    ) -> anyhow::Error
+    where
+        R: futures_util::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+    {
+        if let Err(error) = self.ensure_not_cancelled(operation_id) {
+            return error;
+        }
+        let remaining = match Self::remaining_timeout(started, timeout_seconds) {
+            Ok(remaining) => remaining,
+            Err(error) => return error,
+        };
+        let recovery = async {
+            while let Some(Ok(frame)) = read.next().await {
+                if let Message::Text(text) = frame {
+                    if let Ok(payload) = serde_json::from_str::<SonioxResponse>(text.as_ref()) {
+                        if let Some(code) = payload.error_code {
+                            let message = payload.error_message.or(payload.error_type)
+                                .unwrap_or_else(|| "Unknown Soniox WebSocket error".to_string());
+                            return Some(anyhow!("Soniox WebSocket error {}: {}", code, message));
+                        }
+                    }
+                } else if matches!(frame, Message::Close(_)) {
+                    break;
+                }
+                // Keep cancellation and the recovery timeout responsive even
+                // when unrelated frames are continuously ready.
+                tokio::task::yield_now().await;
+            }
+            None
+        };
+        match self.await_with_cancellation(operation_id, timeout(
+            remaining.min(Duration::from_millis(250)), recovery,
+        )).await {
+            Err(error) => error,
+            Ok(Ok(Some(error))) => error,
+            _ => fallback,
+        }
+    }
+
     async fn transcribe_once_ws(
         &self,
         operation_id: Option<u64>,
@@ -572,7 +619,7 @@ impl SonioxSttManager {
         let connect_started_at = Instant::now();
         let (stream, _) = timeout(
             Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS),
-            connect_async(SONIOX_WS_URL),
+            connect_async(super::soniox_auth::websocket_request(SONIOX_WS_URL, api_key)?),
         )
         .await
         .map_err(|_| anyhow!("Timed out while connecting to Soniox WebSocket"))?
@@ -583,7 +630,6 @@ impl SonioxSttManager {
 
         let build_start_payload_started_at = Instant::now();
         let start_request = SonioxStartRequest {
-            api_key: api_key.to_string(),
             model: model.to_string(),
             audio_format: "pcm_s16le".to_string(),
             sample_rate: Some(SONIOX_FALLBACK_SAMPLE_RATE),
@@ -601,10 +647,12 @@ impl SonioxSttManager {
         let build_start_payload_ms = build_start_payload_started_at.elapsed().as_millis();
 
         let send_start_started_at = Instant::now();
-        write
-            .send(Message::Text(start_payload.into()))
-            .await
-            .map_err(|e| anyhow!("Failed to send Soniox start request: {}", e))?;
+        if let Err(error) = write.send(Message::Text(start_payload.into())).await {
+            return Err(self.websocket_write_error(
+                &mut read, operation_id, started, timeout_seconds,
+                anyhow!("Failed to send Soniox start request: {}", error),
+            ).await);
+        }
         let send_start_ms = send_start_started_at.elapsed().as_millis();
 
         let upload_started_at = Instant::now();
@@ -614,10 +662,12 @@ impl SonioxSttManager {
             Self::ensure_within_timeout(started, timeout_seconds)?;
 
             audio_chunk_count += 1;
-            write
-                .send(Message::Binary(chunk.to_vec().into()))
-                .await
-                .map_err(|e| anyhow!("Failed to send audio chunk to Soniox: {}", e))?;
+            if let Err(error) = write.send(Message::Binary(chunk.to_vec().into())).await {
+                return Err(self.websocket_write_error(
+                    &mut read, operation_id, started, timeout_seconds,
+                    anyhow!("Failed to send audio chunk to Soniox: {}", error),
+                ).await);
+            }
         }
         let upload_ms = upload_started_at.elapsed().as_millis();
 
@@ -626,25 +676,31 @@ impl SonioxSttManager {
         // (AI Replace / Connector / Screenshot voice text), which do not use the
         // dedicated live session manager.
         let send_finalize_started_at = Instant::now();
-        write
-            .send(Message::Text(r#"{"type":"finalize"}"#.to_string().into()))
-            .await
-            .map_err(|e| anyhow!("Failed to send Soniox finalize control message: {}", e))?;
+        if let Err(error) = write.send(Message::Text(r#"{"type":"finalize"}"#.to_string().into())).await {
+            return Err(self.websocket_write_error(
+                &mut read, operation_id, started, timeout_seconds,
+                anyhow!("Failed to send Soniox finalize control message: {}", error),
+            ).await);
+        }
         let send_finalize_ms = send_finalize_started_at.elapsed().as_millis();
 
         // Empty binary message signals end-of-audio for Soniox WebSocket API.
         let send_end_marker_started_at = Instant::now();
-        write
-            .send(Message::Binary(Vec::new().into()))
-            .await
-            .map_err(|e| anyhow!("Failed to finalize Soniox audio stream: {}", e))?;
+        if let Err(error) = write.send(Message::Binary(Vec::new().into())).await {
+            return Err(self.websocket_write_error(
+                &mut read, operation_id, started, timeout_seconds,
+                anyhow!("Failed to finalize Soniox audio stream: {}", error),
+            ).await);
+        }
         let send_end_marker_ms = send_end_marker_started_at.elapsed().as_millis();
 
         let flush_started_at = Instant::now();
-        write
-            .flush()
-            .await
-            .map_err(|e| anyhow!("Failed to flush Soniox WebSocket stream: {}", e))?;
+        if let Err(error) = write.flush().await {
+            return Err(self.websocket_write_error(
+                &mut read, operation_id, started, timeout_seconds,
+                anyhow!("Failed to flush Soniox WebSocket stream: {}", error),
+            ).await);
+        }
         let flush_ms = flush_started_at.elapsed().as_millis();
 
         info!(
@@ -702,6 +758,7 @@ impl SonioxSttManager {
                     if let Some(code) = payload.error_code {
                         let message = payload
                             .error_message
+                            .or(payload.error_type)
                             .unwrap_or_else(|| "Unknown Soniox WebSocket error".to_string());
                         return Err(anyhow!("Soniox WebSocket error {}: {}", code, message));
                     }
@@ -821,7 +878,7 @@ impl SonioxSttManager {
 
         let (stream, _) = timeout(
             Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS),
-            connect_async(SONIOX_WS_URL),
+            connect_async(super::soniox_auth::websocket_request(SONIOX_WS_URL, api_key)?),
         )
         .await
         .map_err(|_| anyhow!("Timed out while connecting to Soniox WebSocket"))?
@@ -830,7 +887,6 @@ impl SonioxSttManager {
         let (mut write, mut read) = stream.split();
 
         let start_request = SonioxStartRequest {
-            api_key: api_key.to_string(),
             model: model.to_string(),
             audio_format: "pcm_s16le".to_string(),
             sample_rate: Some(SONIOX_FALLBACK_SAMPLE_RATE),
@@ -843,36 +899,46 @@ impl SonioxSttManager {
         let start_payload = serde_json::to_string(&start_request)
             .map_err(|e| anyhow!("Failed to build Soniox start payload: {}", e))?;
 
-        write
-            .send(Message::Text(start_payload.into()))
-            .await
-            .map_err(|e| anyhow!("Failed to send Soniox start request: {}", e))?;
+        if let Err(error) = write.send(Message::Text(start_payload.into())).await {
+            return Err(self.websocket_write_error(
+                &mut read, operation_id, started, timeout_seconds,
+                anyhow!("Failed to send Soniox start request: {}", error),
+            ).await);
+        }
 
         for chunk in audio_data.chunks(AUDIO_CHUNK_SIZE_BYTES) {
             self.ensure_not_cancelled(operation_id)?;
             Self::ensure_within_timeout(started, timeout_seconds)?;
 
-            write
-                .send(Message::Binary(chunk.to_vec().into()))
-                .await
-                .map_err(|e| anyhow!("Failed to send audio chunk to Soniox: {}", e))?;
+            if let Err(error) = write.send(Message::Binary(chunk.to_vec().into())).await {
+                return Err(self.websocket_write_error(
+                    &mut read, operation_id, started, timeout_seconds,
+                    anyhow!("Failed to send audio chunk to Soniox: {}", error),
+                ).await);
+            }
         }
 
         // Ask Soniox to finalize pending tail audio before closing the stream.
-        write
-            .send(Message::Text(r#"{"type":"finalize"}"#.to_string().into()))
-            .await
-            .map_err(|e| anyhow!("Failed to send Soniox finalize control message: {}", e))?;
+        if let Err(error) = write.send(Message::Text(r#"{"type":"finalize"}"#.to_string().into())).await {
+            return Err(self.websocket_write_error(
+                &mut read, operation_id, started, timeout_seconds,
+                anyhow!("Failed to send Soniox finalize control message: {}", error),
+            ).await);
+        }
 
-        write
-            .send(Message::Binary(Vec::new().into()))
-            .await
-            .map_err(|e| anyhow!("Failed to finalize Soniox audio stream: {}", e))?;
+        if let Err(error) = write.send(Message::Binary(Vec::new().into())).await {
+            return Err(self.websocket_write_error(
+                &mut read, operation_id, started, timeout_seconds,
+                anyhow!("Failed to finalize Soniox audio stream: {}", error),
+            ).await);
+        }
 
-        write
-            .flush()
-            .await
-            .map_err(|e| anyhow!("Failed to flush Soniox WebSocket stream: {}", e))?;
+        if let Err(error) = write.flush().await {
+            return Err(self.websocket_write_error(
+                &mut read, operation_id, started, timeout_seconds,
+                anyhow!("Failed to flush Soniox WebSocket stream: {}", error),
+            ).await);
+        }
 
         let mut final_tokens: Vec<String> = Vec::new();
         let mut finished = false;
@@ -905,6 +971,7 @@ impl SonioxSttManager {
                     if let Some(code) = payload.error_code {
                         let message = payload
                             .error_message
+                            .or(payload.error_type)
                             .unwrap_or_else(|| "Unknown Soniox WebSocket error".to_string());
                         return Err(anyhow!("Soniox WebSocket error {}: {}", code, message));
                     }
@@ -1424,6 +1491,29 @@ impl SonioxSttManager {
 mod tests {
     use super::*;
 
+    #[test]
+    fn websocket_start_payload_contains_configuration_without_credentials() {
+        let request = SonioxStartRequest {
+            model: "stt-rt-v5".into(),
+            audio_format: "pcm_s16le".into(),
+            sample_rate: Some(16_000),
+            num_channels: Some(1),
+            language_hints: Some(vec!["zh".into()]),
+            context: None,
+            enable_endpoint_detection: true,
+        };
+        let payload = serde_json::to_value(request).unwrap();
+
+        assert_eq!(payload, serde_json::json!({
+            "model": "stt-rt-v5",
+            "audio_format": "pcm_s16le",
+            "sample_rate": 16_000,
+            "num_channels": 1,
+            "language_hints": ["zh"],
+            "enable_endpoint_detection": true
+        }));
+    }
+
     fn async_output_language(text: &str, tokens: Value) -> Option<String> {
         let tokens = serde_json::from_value::<Vec<SonioxAsyncTranscriptToken>>(tokens).unwrap();
         SonioxSttManager::homogeneous_async_output_language(text, &tokens)
@@ -1458,6 +1548,76 @@ mod tests {
         assert_eq!(async_output_language("！", serde_json::json!([
             { "text": "！", "language": "zh" }
         ])), None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancellation_aborts_pending_request_and_allows_next_operation() {
+        let manager = SonioxSttManager {
+            http_client: reqwest::Client::new(),
+            current_operation_id: AtomicU64::new(0),
+            cancelled_before_id: AtomicU64::new(0),
+        };
+        let operation_id = manager.start_operation();
+        let cancel = async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            manager.cancel();
+        };
+        let pending = manager.await_with_cancellation(
+            Some(operation_id), std::future::pending::<()>(),
+        );
+        let (result, ()) = tokio::join!(pending, cancel);
+
+        assert_eq!(result.unwrap_err().to_string(), "Transcription cancelled");
+        let next = manager.start_operation();
+        assert!(!manager.is_cancelled(next));
+        assert_eq!(manager.await_with_cancellation(Some(next), async { "recovered" }).await.unwrap(), "recovered");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn websocket_write_recovery_returns_provider_auth_error() {
+        let manager = SonioxSttManager {
+            http_client: reqwest::Client::new(),
+            current_operation_id: AtomicU64::new(0),
+            cancelled_before_id: AtomicU64::new(0),
+        };
+        let mut read = futures_util::stream::iter(vec![
+            Ok(Message::Ping(Vec::new())),
+            Ok(Message::Text(r#"{"error_code":401,"error_type":"invalid_api_key"}"#.into())),
+        ]);
+
+        let error = manager.websocket_write_error(
+            &mut read, None, Instant::now(), 30, anyhow!("original write failure"),
+        ).await;
+        assert_eq!(error.to_string(), "Soniox WebSocket error 401: invalid_api_key");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn websocket_write_recovery_is_bounded_and_cancellable() {
+        let manager = SonioxSttManager {
+            http_client: reqwest::Client::new(),
+            current_operation_id: AtomicU64::new(0),
+            cancelled_before_id: AtomicU64::new(0),
+        };
+        let mut read = futures_util::stream::pending::<Result<Message, tokio_tungstenite::tungstenite::Error>>();
+        let started = tokio::time::Instant::now();
+        let error = manager.websocket_write_error(
+            &mut read, None, Instant::now(), 30, anyhow!("original write failure"),
+        ).await;
+        assert_eq!(error.to_string(), "original write failure");
+        assert_eq!(started.elapsed(), Duration::from_millis(250));
+
+        let operation_id = manager.start_operation();
+        let cancel = async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            manager.cancel();
+        };
+        let recover = manager.websocket_write_error(
+            &mut read, Some(operation_id), Instant::now(), 30, anyhow!("original write failure"),
+        );
+        let started = tokio::time::Instant::now();
+        let (error, ()) = tokio::join!(recover, cancel);
+        assert_eq!(error.to_string(), "Transcription cancelled");
+        assert!(started.elapsed() < Duration::from_millis(250));
     }
 
     #[test]
