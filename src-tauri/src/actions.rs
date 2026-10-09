@@ -45,7 +45,6 @@ use crate::utils::{
     show_thinking_overlay, show_transcribing_overlay,
 };
 use crate::ManagedToggleState;
-use ferrous_opencc::{config::BuiltinConfig, OpenCC};
 use log::{debug, error, info, warn};
 use natural::phonetics::soundex;
 use once_cell::sync::Lazy;
@@ -1670,50 +1669,6 @@ pub async fn run_llm_post_process_benchmark(
     })
 }
 
-async fn maybe_convert_chinese_variant(
-    requested_language: &str,
-    transcription: &str,
-) -> Option<String> {
-    // Check if language is set to Simplified or Traditional Chinese
-    let is_simplified = requested_language == "zh-Hans";
-    let is_traditional = requested_language == "zh-Hant";
-
-    if !is_simplified && !is_traditional {
-        debug!("requested language is not Simplified or Traditional Chinese; skipping translation");
-        return None;
-    }
-
-    debug!(
-        "Starting Chinese translation using OpenCC for language: {}",
-        requested_language
-    );
-
-    // Use OpenCC to convert based on selected language
-    let config = if is_simplified {
-        // Convert Traditional Chinese to Simplified Chinese
-        BuiltinConfig::Tw2sp
-    } else {
-        // Convert Simplified Chinese to Traditional Chinese
-        BuiltinConfig::S2twp
-    };
-
-    match OpenCC::from_config(config) {
-        Ok(converter) => {
-            let converted = converter.convert(transcription);
-            debug!(
-                "OpenCC translation completed. Input length: {}, Output length: {}",
-                transcription.len(),
-                converted.len()
-            );
-            Some(converted)
-        }
-        Err(e) => {
-            error!("Failed to initialize OpenCC converter: {}. Falling back to original transcription.", e);
-            None
-        }
-    }
-}
-
 fn resolve_history_post_process_requested(
     settings: &AppSettings,
     profile: Option<&TranscriptionProfile>,
@@ -2117,6 +2072,7 @@ fn start_recording_with_feedback_with_settings(
 
     // Now release the lock before doing I/O operations
     drop(state_guard);
+    crate::recording_model_loading::begin_recording(app, operation_id, &settings);
 
     let rm = app.state::<Arc<AudioRecordingManager>>();
     let operation_stamp = OperationStamp {
@@ -2192,6 +2148,7 @@ fn start_recording_with_feedback_with_settings(
             native_stream_language,
             native_stream_translate,
             on_committed_text,
+            Some(settings.chinese_script),
         );
         let stream_router = tm.stream_router();
         rm.set_stream_frame_callback(Arc::new(move |frame| {
@@ -2533,6 +2490,7 @@ async fn perform_transcription_for_profile_with_retry_action(
             .map(|text| {
                 apply_transcription_output_filters(
                     settings,
+                    profile,
                     text,
                     crate::audio_toolkit::OutputLanguageEvidence::from_requested_language(
                         Some(language.as_str()),
@@ -2608,6 +2566,7 @@ async fn perform_transcription_for_profile_with_retry_action(
                 .map(|id| id == "transcribe" || id.starts_with("transcribe_profile_"))
                 .unwrap_or(false);
 
+        let mut soniox_output_language = crate::audio_toolkit::OutputLanguageEvidence::Multilingual;
         let result = if should_stream_insert {
             let app_handle = app.clone();
             let stream_processor =
@@ -2807,14 +2766,20 @@ async fn perform_transcription_for_profile_with_retry_action(
                     soniox_options,
                 )
                 .await
-                .map(|transcript| transcript.text)
+                .map(|transcript| {
+                    soniox_output_language = transcript.output_language
+                        .map(crate::audio_toolkit::OutputLanguageEvidence::ModelDetected)
+                        .unwrap_or(crate::audio_toolkit::OutputLanguageEvidence::Multilingual);
+                    transcript.text
+                })
         };
 
         let result = result.map(|text| {
             apply_transcription_output_filters(
                 settings,
+                profile,
                 text,
-                crate::audio_toolkit::OutputLanguageEvidence::Multilingual,
+                soniox_output_language,
             )
         });
 
@@ -2892,6 +2857,7 @@ async fn perform_transcription_for_profile_with_retry_action(
             .map(|text| {
                 apply_transcription_output_filters(
                     settings,
+                    profile,
                     text,
                     crate::audio_toolkit::OutputLanguageEvidence::from_requested_language(
                         Some(language.as_str()),
@@ -2970,13 +2936,25 @@ async fn perform_transcription_for_profile_with_retry_action(
                     &settings.selected_model,
                 ),
                 settings.custom_words_enabled,
+                Some(crate::chinese_script::resolve_chinese_script(settings, Some(p))),
             )
         } else {
             log::info!(
                 "Transcription using Local model: {}",
                 settings.selected_model
             );
-            tm.transcribe(samples, settings.custom_words_enabled)
+            tm.transcribe_with_overrides(
+                samples,
+                Some(&settings.selected_language),
+                Some(settings.translate_to_english),
+                crate::settings::resolve_stt_prompt(
+                    None,
+                    &settings.transcription_prompts,
+                    &settings.selected_model,
+                ),
+                settings.custom_words_enabled,
+                Some(settings.chinese_script),
+            )
         };
 
         match result {
@@ -3070,6 +3048,7 @@ fn prepare_stop_recording_with_options(
 
     // Release lock before doing I/O
     drop(state_guard);
+    crate::recording_model_loading::notify_session_changed(app);
 
     if result.is_some() {
         audio_manager.invalidate_recording_readiness();
@@ -3705,6 +3684,10 @@ fn settings_with_model_override_for_binding(
     mut settings: AppSettings,
     binding_id: &str,
 ) -> AppSettings {
+    settings.chinese_script = crate::chinese_script::resolve_chinese_script(
+        &settings,
+        resolve_profile_for_binding(&settings, binding_id),
+    );
     if !is_transcribe_binding_id(binding_id) {
         return settings;
     }
@@ -6835,9 +6818,13 @@ pub(crate) fn parse_openai_realtime_keywords(value: &str) -> Option<Vec<String>>
 }
 fn apply_transcription_output_filters(
     settings: &AppSettings,
+    profile: Option<&TranscriptionProfile>,
     text: String,
     output_language: crate::audio_toolkit::OutputLanguageEvidence,
 ) -> String {
+    let text = crate::chinese_script::convert_with_profile_evidence(
+        &text, settings, profile, &output_language, &[],
+    );
     let corrected = if settings.custom_words_enabled && !settings.custom_words.is_empty() {
         apply_custom_words(
             &text,
@@ -6880,7 +6867,7 @@ fn apply_profile_output_filters(
             translate_to_english,
         )
     };
-    apply_transcription_output_filters(settings, text, output_language)
+    apply_transcription_output_filters(settings, profile, text, output_language)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -7144,15 +7131,6 @@ pub(crate) async fn process_transcription_output(
     // Apply text replacements BEFORE LLM if configured
     if settings.text_replacements_before_llm {
         final_text = apply_replacements(&final_text);
-    }
-
-    let requested_language = profile
-        .map(|p| p.language.as_str())
-        .unwrap_or(settings.selected_language.as_str());
-    if let Some(converted_text) =
-        maybe_convert_chinese_variant(requested_language, &final_text).await
-    {
-        final_text = converted_text;
     }
 
     if should_run_transcription_post_process(post_process_requested, &final_text) {

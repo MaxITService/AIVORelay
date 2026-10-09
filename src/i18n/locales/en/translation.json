@@ -2790,6 +2790,17 @@
       }
     },
     "advanced": {
+      "chineseScript": {
+        "title": "Chinese Script",
+        "description": "Writes Mandarin and Cantonese transcriptions in Simplified or Traditional characters. Other languages are left unchanged.",
+        "options": {
+          "asTranscribed": "As Transcribed",
+          "simplified": "Simplified",
+          "traditional": "Traditional",
+          "inherit": "Use global setting"
+        },
+        "saveFailed": "Could not save Chinese output script."
+      },
       "title": "Advanced",
       "neverLaunchWebview": {
         "groupTitle": "Dictation-only mode (less RAM)",
@@ -4647,6 +4658,7 @@
     "sending": "Processing speech...",
     "thinking": "Thinking...",
     "transcribing": "Transcribing...",
+    "loadingModel": "Loading model...",
     "finalizing": "Finalizing...",
     "geminiLiveCompletion": {
       "title": "Gemini Live session completed",

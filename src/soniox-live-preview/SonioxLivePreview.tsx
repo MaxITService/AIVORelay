@@ -1,3 +1,6 @@
+import { syncLanguageFromSettings } from "../i18n";
+import { useRecordingModelLoading } from "../hooks/useRecordingModelLoading";
+import { useTranslation } from "react-i18next";
 import {
   useCallback,
   useEffect,
@@ -359,6 +362,11 @@ export default function SonioxLivePreview() {
     osKind === "windows" || osKind === "macos" || osKind === "linux"
       ? osKind
       : "unknown";
+  const { t } = useTranslation();
+  const modelLoad = useRecordingModelLoading();
+  useEffect(() => {
+    void syncLanguageFromSettings();
+  }, [modelLoad.sessionId]);
   const [finalText, setFinalText] = useState("");
   const [interimText, setInterimText] = useState("");
   const [changedRanges, setChangedRanges] = useState<PreviewChangedRange[]>([]);
@@ -834,6 +842,10 @@ export default function SonioxLivePreview() {
     [appearance.deleteLastWordHotkey, osType],
   );
   const emptyStateMessage = useMemo(() => {
+    if (modelLoad.loading && modelLoad.previewActive &&
+        (modelLoad.slow || (workflowState.active && !workflowState.recording))) {
+      return t("overlay.loadingModel", "Loading model...");
+    }
     if (
       workflowState.active &&
       workflowState.recording &&
@@ -843,6 +855,10 @@ export default function SonioxLivePreview() {
     }
     return "Waiting for speech...";
   }, [
+    modelLoad.loading,
+    modelLoad.slow,
+    modelLoad.previewActive,
+    t,
     workflowState.active,
     workflowState.isRealtime,
     workflowState.recording,

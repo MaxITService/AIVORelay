@@ -6,7 +6,7 @@ use crate::managers::model::{self, EngineType, ModelManager, NativeStreamingLate
 use crate::managers::moonshine_streaming_shim::{self, CommittedTextSink};
 use crate::managers::native_streaming_latency;
 use crate::settings::{
-    get_settings, AppSettings, FileTranscriptionChunkingMode, ModelUnloadTimeout,
+    get_settings, AppSettings, ChineseScript, FileTranscriptionChunkingMode, ModelUnloadTimeout,
     NativeStreamingLatencyPreset, OrtAcceleratorSetting, WhisperAcceleratorSetting,
 };
 use anyhow::Result;
@@ -20,9 +20,12 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
 use transcribe_cpp::{
-    Backend, Model, ModelOptions, RunExtension, RunOptions, Session, StreamOptions, Task,
+    Backend, RunExtension, RunOptions, StreamOptions, Task,
     TimestampKind, WhisperRunOptions,
 };
+use crate::engine_supervisor::{DeviceInfo, DeviceSelector, EngineSupervisor, RemoteModel as Model, RemoteSession as Session};
+#[cfg(test)]
+use crate::engine_supervisor::RemoteModelOptions as ModelOptions;
 use transcribe_rs::{
     onnx::{
         canary::CanaryModel,
@@ -58,7 +61,12 @@ enum LoadedEngine {
 
 const STREAM_FINALIZE_REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 const STREAM_PERF_LOG_INTERVAL: Duration = Duration::from_secs(5);
-static TRANSCRIBE_BACKEND_INIT: OnceLock<std::result::Result<(), String>> = OnceLock::new();
+static NATIVE_ENGINE_SUPERVISOR: OnceLock<EngineSupervisor> = OnceLock::new();
+
+/// Creating the supervisor does not initialize native backends or spawn a worker.
+pub fn native_engine_supervisor() -> &'static EngineSupervisor {
+    NATIVE_ENGINE_SUPERVISOR.get_or_init(|| EngineSupervisor::new(!transcribe_gpu_disabled_for_host()))
+}
 
 fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(message) = payload.downcast_ref::<&str>() {
@@ -84,6 +92,7 @@ struct FinalizedStreamText {
     text: String,
     output_language: OutputLanguageEvidence,
     supported_languages: Vec<String>,
+    chinese_script: ChineseScript,
 }
 
 /// Receives only newly committed native-stream text. Tentative text never
@@ -432,8 +441,8 @@ fn with_text_detected_language(
     settings: &AppSettings,
 ) -> OutputLanguageEvidence {
     if evidence == OutputLanguageEvidence::Unknown
-        && settings.filler_word_filter_enabled
-        && settings.custom_filler_words.is_none()
+        && (settings.chinese_script != ChineseScript::AsTranscribed
+            || (settings.filler_word_filter_enabled && settings.custom_filler_words.is_none()))
     {
         if let Some(language) =
             crate::audio_toolkit::detect_output_language(text, supported_languages)
@@ -732,6 +741,7 @@ pub struct TranscriptionManager {
     app_handle: AppHandle,
     current_model_id: Arc<Mutex<Option<String>>>,
     last_activity: Arc<AtomicU64>,
+    operation_generation: Arc<AtomicU64>,
     stream_router: Arc<StreamRouter>,
     active_stream_worker: Arc<AtomicU64>,
     active_engine_lease: Arc<AtomicU64>,
@@ -753,6 +763,7 @@ impl TranscriptionManager {
             app_handle: app_handle.clone(),
             current_model_id: Arc::new(Mutex::new(None)),
             last_activity: Arc::new(AtomicU64::new(Self::now_ms())),
+            operation_generation: Arc::new(AtomicU64::new(0)),
             stream_router: Arc::new(StreamRouter::new()),
             active_stream_worker: Arc::new(AtomicU64::new(0)),
             active_engine_lease: Arc::new(AtomicU64::new(0)),
@@ -853,6 +864,12 @@ impl TranscriptionManager {
             .as_millis() as u64
     }
 
+    fn begin_operation(&self) {
+        // Serialize the claim with a pending background unload's final check.
+        let _loading = self.is_loading.lock().unwrap_or_else(|e| e.into_inner());
+        self.operation_generation.fetch_add(1, Ordering::AcqRel);
+    }
+
     fn touch_activity(&self) {
         self.last_activity.store(Self::now_ms(), Ordering::Relaxed);
     }
@@ -870,12 +887,14 @@ impl TranscriptionManager {
         selected_language: String,
         translate_to_english: bool,
         on_committed_text: Option<NativeStreamCommittedCallback>,
+        chinese_script_override: Option<ChineseScript>,
     ) {
         if self.stream_router.is_open() || self.active_stream_worker.load(Ordering::Acquire) != 0 {
             warn!("start_stream called while a stream worker is already active");
             return;
         }
 
+        self.begin_operation();
         let worker_id = self.next_stream_worker_id.fetch_add(1, Ordering::Relaxed);
         if self
             .active_stream_worker
@@ -896,6 +915,7 @@ impl TranscriptionManager {
                 selected_language,
                 translate_to_english,
                 on_committed_text,
+                chinese_script_override,
             )
         });
     }
@@ -907,6 +927,7 @@ impl TranscriptionManager {
         selected_language: String,
         translate_to_english: bool,
         on_committed_text: Option<NativeStreamCommittedCallback>,
+        chinese_script_override: Option<ChineseScript>,
     ) {
         let _worker = StreamWorkerGuard {
             worker_id,
@@ -923,6 +944,7 @@ impl TranscriptionManager {
         }
 
         let model_id = self.get_current_model().unwrap_or_default();
+        let loading_generation = self.loading_generation.load(Ordering::Acquire);
         let effective_language =
             effective_language_for_model(&self.model_manager, &model_id, &selected_language);
         if self
@@ -936,7 +958,15 @@ impl TranscriptionManager {
             return;
         }
 
-        let mut engine = match self.lock_engine().take() {
+        let taken_engine = {
+            let loading = self.is_loading.lock().unwrap_or_else(|e| e.into_inner());
+            let mut engine = self.lock_engine();
+            if !*loading && self.loading_generation.load(Ordering::Acquire) == loading_generation
+                && self.current_model_id.lock().unwrap().as_deref() == Some(model_id.as_str()) {
+                engine.take()
+            } else { None }
+        };
+        let mut engine = match taken_engine {
             Some(engine) => engine,
             None => {
                 info!(
@@ -977,7 +1007,7 @@ impl TranscriptionManager {
         };
 
         if !supports_streaming {
-            self.return_engine(engine, &model_id);
+            self.return_engine(engine, &model_id, loading_generation);
             self.stream_router.clear();
             drain_until_finalize(rx);
             return;
@@ -1012,7 +1042,8 @@ impl TranscriptionManager {
             } else {
                 CommittedTextSink::ReplaceablePreview
             };
-            let stream_settings = get_settings(&self.app_handle);
+            let mut stream_settings = get_settings(&self.app_handle);
+            if let Some(script) = chinese_script_override { stream_settings.chinese_script = script; }
             let latency_kind = self
                 .model_manager
                 .get_model_info(&model_id)
@@ -1056,6 +1087,8 @@ impl TranscriptionManager {
 
             let mut perf = StreamPerf::new();
             let mut delivered_committed_text = String::new();
+            // Freeze confident language before any irreversible script-converted output.
+            let mut stream_output_language = initial_output_language.clone();
             while let Ok(cmd) = rx.recv() {
                 match cmd {
                     StreamCmd::Feed(pcm) => {
@@ -1086,12 +1119,34 @@ impl TranscriptionManager {
                                         text.tentative.chars().count(),
                                     );
                                     perf.record_emit();
-                                    if update.committed_changed {
+                                    if stream_output_language == OutputLanguageEvidence::Unknown
+                                        && text.full.chars().count() >= 6
+                                    {
+                                        stream_output_language = with_model_detected_language(
+                                            OutputLanguageEvidence::Unknown, stream.snapshot().language,
+                                        );
+                                        stream_output_language = with_text_detected_language(
+                                            stream_output_language, &text.full, &supported_languages, &stream_settings,
+                                        );
+                                    }
+                                    let committed = crate::chinese_script::convert_with_evidence(
+                                        &text.committed, &stream_settings, &stream_output_language, &supported_languages,
+                                    );
+                                    let full = crate::chinese_script::convert_with_evidence(
+                                        &text.full, &stream_settings, &stream_output_language, &supported_languages,
+                                    );
+                                    let tentative = full.strip_prefix(&committed).map(str::to_string)
+                                        .unwrap_or_else(|| crate::chinese_script::convert_with_evidence(
+                                            &text.tentative, &stream_settings, &stream_output_language, &supported_languages,
+                                        ));
+                                    let can_commit = stream_settings.chinese_script == ChineseScript::AsTranscribed
+                                        || stream_output_language != OutputLanguageEvidence::Unknown;
+                                    if update.committed_changed && can_commit {
                                         if let (Some(callback), Some(delta)) = (
                                             on_committed_text.as_ref(),
                                             native_stream_committed_delta(
                                                 &mut delivered_committed_text,
-                                                &text.committed,
+                                                &committed,
                                             ),
                                         ) {
                                             callback(delta);
@@ -1099,8 +1154,8 @@ impl TranscriptionManager {
                                     }
                                     crate::overlay::emit_live_preview_update(
                                         &self.app_handle,
-                                        &text.committed,
-                                        &text.tentative,
+                                        &committed,
+                                        &tentative,
                                     );
                                 }
                                 perf.maybe_log();
@@ -1133,35 +1188,34 @@ impl TranscriptionManager {
                                     text.tentative.chars().count(),
                                 );
                                 let final_text = text.full.clone();
+                                let output_language = with_text_detected_language(
+                                    with_model_detected_language(stream_output_language.clone(), stream.snapshot().language),
+                                    &final_text, &supported_languages, &stream_settings,
+                                );
+                                let converted_final = crate::chinese_script::convert_with_evidence(
+                                    &final_text, &stream_settings, &output_language, &supported_languages,
+                                );
                                 if let (Some(callback), Some(delta)) = (
                                     on_committed_text.as_ref(),
                                     native_stream_committed_delta(
                                         &mut delivered_committed_text,
                                         // Terminal delivery must use the model's authoritative
                                         // final hypothesis, not the append-only display snapshot.
-                                        &final_text,
+                                        &converted_final,
                                     ),
                                 ) {
                                     callback(delta);
                                 }
                                 crate::overlay::emit_live_preview_update(
                                     &self.app_handle,
-                                    &final_text,
+                                    &converted_final,
                                     "",
                                 );
-                                let output_language = match &initial_output_language {
-                                    OutputLanguageEvidence::Unknown => {
-                                        with_model_detected_language(
-                                            OutputLanguageEvidence::Unknown,
-                                            stream.snapshot().language,
-                                        )
-                                    }
-                                    resolved => resolved.clone(),
-                                };
                                 Some(FinalizedStreamText {
                                     text: final_text,
                                     output_language,
                                     supported_languages: supported_languages.clone(),
+                                    chinese_script: stream_settings.chinese_script,
                                 })
                             }
                             Err(error) => {
@@ -1191,27 +1245,28 @@ impl TranscriptionManager {
         };
 
         if !stream_started {
-            self.return_engine(engine, &model_id);
+            self.return_engine(engine, &model_id, loading_generation);
             drain_until_finalize(rx);
             return;
         }
 
-        self.return_engine(engine, &model_id);
+        self.return_engine(engine, &model_id, loading_generation);
         if let (Some(reply), Some(result)) = (finalize_reply, finalize_result) {
             let _ = reply.send(result);
         }
     }
 
-    fn return_engine(&self, engine: LoadedEngine, expected_model_id: &str) {
-        let still_current =
-            self.current_model_id.lock().unwrap().as_deref() == Some(expected_model_id);
-        if still_current {
-            *self.lock_engine() = Some(engine);
+    fn return_engine(&self, engine: LoadedEngine, expected_model_id: &str, generation: u64) {
+        // Match and restore while holding the same locks as unload. A late
+        // engine may neither resurrect an unloaded model nor displace a reload.
+        let loading = self.is_loading.lock().unwrap_or_else(|e| e.into_inner());
+        let mut slot = self.lock_engine();
+        let still_current = !*loading && self.loading_generation.load(Ordering::Acquire) == generation
+            && self.current_model_id.lock().unwrap().as_deref() == Some(expected_model_id);
+        if still_current && slot.is_none() {
+            *slot = Some(engine);
         } else {
-            info!(
-                "Model changed/unloaded during native stream; dropping stale engine '{}'",
-                expected_model_id
-            );
+            info!("Model changed/unloaded during transcription; dropping stale engine '{}'", expected_model_id);
         }
     }
 
@@ -1238,7 +1293,8 @@ impl TranscriptionManager {
             }
         };
 
-        let settings = get_settings(&self.app_handle);
+        let mut settings = get_settings(&self.app_handle);
+        settings.chinese_script = finalized.chinese_script;
         let final_text = post_process_stream_text(
             finalized.text,
             &settings,
@@ -1250,6 +1306,9 @@ impl TranscriptionManager {
     }
 
     pub fn cancel_stream(&self) {
+        if self.stream_router.is_open() || self.active_stream_worker.load(Ordering::Acquire) != 0 {
+            native_engine_supervisor().cancel();
+        }
         if let Some(tx) = self.stream_router.take() {
             let _ = tx.send(StreamCmd::Cancel);
         }
@@ -1257,6 +1316,7 @@ impl TranscriptionManager {
     }
 
     pub fn cancel_file_transcription(&self) {
+        native_engine_supervisor().cancel();
         self.file_transcription_cancel_requested
             .store(true, Ordering::Relaxed);
     }
@@ -1311,6 +1371,74 @@ impl TranscriptionManager {
             is_loading: self.is_loading.clone(),
             loading_condvar: self.loading_condvar.clone(),
         })
+    }
+
+    /// Cancel native work immediately without waiting for the engine lease.
+    pub fn cancel_transcription(&self) {
+        native_engine_supervisor().cancel();
+        self.cancel_stream();
+    }
+
+    /// Request unload on a background thread, keeping the UI event loop responsive.
+    pub fn request_unload(self: &Arc<Self>) {
+        let generation = self.loading_generation.load(Ordering::Acquire);
+        let stream_generation = self.next_stream_worker_id.load(Ordering::Acquire);
+        let operation_generation = self.operation_generation.load(Ordering::Acquire);
+        self.cancel_transcription();
+        let manager = Arc::clone(self);
+        thread::spawn(move || {
+            // A newer load supersedes this request. Hold the loading mutex while
+            // clearing the engine so a new load cannot start between the check
+            // and the unload; wait for the originally requested load to finish.
+            let mut loading = manager.is_loading.lock().unwrap_or_else(|e| e.into_inner());
+            while *loading {
+                loading = manager.loading_condvar.wait(loading).unwrap_or_else(|e| e.into_inner());
+            }
+            if manager.loading_generation.load(Ordering::Acquire) != generation
+                || manager.next_stream_worker_id.load(Ordering::Acquire) != stream_generation
+                || manager.operation_generation.load(Ordering::Acquire) != operation_generation {
+                return;
+            }
+            {
+                let mut engine = manager.lock_engine();
+                *engine = None;
+                *manager.current_model_id.lock().unwrap() = None;
+            }
+            let _ = manager.app_handle.emit(
+                "model-state-changed",
+                ModelStateEvent { event_type: "unloaded".to_string(), model_id: None, model_name: None, error: None },
+            );
+        });
+    }
+
+    /// The caller must retain its `try_start_loading()` guard through deletion
+    /// and rollback. That claim serializes this operation with model switches.
+    pub(crate) fn unload_model_for_deletion(&self, model_id: &str) -> Result<bool> {
+        let loading = self.is_loading.lock().unwrap_or_else(|e| e.into_inner());
+        if !*loading {
+            anyhow::bail!("Model deletion requires an active loading claim");
+        }
+        if self.current_model_id.lock().unwrap().as_deref() != Some(model_id) {
+            return Ok(false);
+        }
+        // Cancel before taking the engine mutex: file/override inference keeps
+        // that mutex, while plain batch inference temporarily borrows the slot.
+        native_engine_supervisor().cancel();
+        let mut engine = self.lock_engine();
+        let mut current = self.current_model_id.lock().unwrap();
+        self.loading_generation.fetch_add(1, Ordering::AcqRel);
+        *engine = None;
+        *current = None;
+        // A borrowed session may still be returning from the cancelled call.
+        // Reap its child before callers remove the model file from disk.
+        native_engine_supervisor().unload().wait();
+        drop(current);
+        drop(engine);
+        let _ = self.app_handle.emit("model-state-changed", ModelStateEvent {
+            event_type: "unloaded".to_string(), model_id: None, model_name: None, error: None,
+        });
+        drop(loading);
+        Ok(true)
     }
 
     pub fn unload_model(&self) -> Result<()> {
@@ -1474,43 +1602,25 @@ impl TranscriptionManager {
 
         let loaded_engine = match model_info.engine_type {
             EngineType::TranscribeCpp | EngineType::Whisper => {
-                let (backend, device) = match device_index {
-                    Some(index) => resolve_transcribe_cpp_device_index(index)
-                        .inspect_err(|err| emit_loading_failed(&err.to_string()))?,
-                    None => {
-                        let settings = get_settings(&self.app_handle);
-                        let device = resolve_whisper_gpu_device(
-                            settings.whisper_accelerator,
-                            settings.whisper_gpu_device.as_deref(),
-                        );
-                        let backend = if device.is_some() {
-                            Backend::Auto
-                        } else {
-                            select_transcribe_cpp_backend(settings.whisper_accelerator)
-                        };
-                        (backend, device)
-                    }
+                let settings = get_settings(&self.app_handle);
+                let backend = if device_index.is_some() { Backend::Auto } else {
+                    select_transcribe_cpp_backend(settings.whisper_accelerator)
                 };
-                let requested_device = device
-                    .as_ref()
-                    .map(transcribe_device_label)
-                    .unwrap_or_else(|| "automatic".to_string());
-                let options = ModelOptions { backend, device };
-                let model = Model::load_with(&model_path, &options).map_err(|e| {
-                    let error_msg =
-                        format!("Failed to load transcribe.cpp model {}: {}", model_id, e);
+                let device = match device_index {
+                    Some(index) => DeviceSelector::Index(index),
+                    None if settings.whisper_accelerator == WhisperAcceleratorSetting::Gpu
+                        && !transcribe_gpu_disabled_for_host() => settings.whisper_gpu_device.clone()
+                        .map(DeviceSelector::Key).unwrap_or(DeviceSelector::Auto),
+                    None => DeviceSelector::Auto,
+                };
+                let requested_device = format!("{:?}", device);
+                let model = Model::load(&model_path, backend, device).map_err(|e| {
+                    let error_msg = format!("Failed to load transcribe.cpp model {}: {}", model_id, e);
                     emit_loading_failed(&error_msg);
                     anyhow::anyhow!(error_msg)
                 })?;
                 let bound_backend = model.backend();
-                let session = model.session().map_err(|e| {
-                    let error_msg = format!(
-                        "Failed to create transcribe.cpp session for {}: {}",
-                        model_id, e
-                    );
-                    emit_loading_failed(&error_msg);
-                    anyhow::anyhow!(error_msg)
-                })?;
+                let session = model.session()?;
                 let caps = session.model().capabilities();
                 self.model_manager.set_runtime_capabilities(
                     model_id,
@@ -1519,10 +1629,7 @@ impl TranscriptionManager {
                     caps.supports_language_detect,
                     caps.languages.clone(),
                 );
-                let bound_device = model
-                    .device()
-                    .map(|device| transcribe_device_label(&device))
-                    .unwrap_or_else(|_| "unknown".to_string());
+                let bound_device = model.bound_device();
                 info!(
                     "Loaded transcribe.cpp model '{}' (requested backend {:?}, requested device '{}', bound backend '{}', bound device '{}', supports_streaming={}, supports_translate={}, supports_language_detect={})",
                     model_id,
@@ -1879,6 +1986,7 @@ impl TranscriptionManager {
         }
 
         // Update last activity timestamp
+        self.begin_operation();
         self.touch_activity();
 
         let st = std::time::Instant::now();
@@ -1927,7 +2035,12 @@ impl TranscriptionManager {
         // We use catch_unwind to prevent engine panics from poisoning the mutex,
         // which would make the app hang indefinitely on subsequent operations.
         let result = {
+            let loading = self.is_loading.lock().unwrap_or_else(|e| e.into_inner());
             let mut engine_guard = self.lock_engine();
+            let loading_generation = self.loading_generation.load(Ordering::Acquire);
+            if *loading || self.current_model_id.lock().unwrap().as_deref() != Some(active_model.as_str()) {
+                anyhow::bail!("Model changed before transcription began");
+            }
 
             // Take the engine out so we own it during transcription.
             // If the engine panics, we simply don't put it back (effectively unloading it)
@@ -1943,6 +2056,7 @@ impl TranscriptionManager {
 
             // Release the lock before transcribing — no mutex held during the engine call
             drop(engine_guard);
+            drop(loading);
 
             let transcribe_result = catch_unwind(AssertUnwindSafe(
                 || -> Result<transcribe_rs::TranscriptionResult> {
@@ -2049,8 +2163,7 @@ impl TranscriptionManager {
             match transcribe_result {
                 Ok(inner_result) => {
                     // Success or normal error — put the engine back
-                    let mut engine_guard = self.lock_engine();
-                    *engine_guard = Some(engine);
+                    self.return_engine(engine, &active_model, loading_generation);
                     inner_result?
                 }
                 Err(panic_payload) => {
@@ -2062,16 +2175,20 @@ impl TranscriptionManager {
                         panic_msg
                     );
 
-                    // Clear the model ID so it will be reloaded on next attempt
-                    {
-                        let mut current_model = self
-                            .current_model_id
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner());
-                        *current_model = None;
-                    }
+                    // A panic from a superseded engine must not clear a newer model.
+                    let cleared = {
+                        let loading = self.is_loading.lock().unwrap_or_else(|e| e.into_inner());
+                        let slot = self.lock_engine();
+                        let mut current = self.current_model_id.lock().unwrap_or_else(|e| e.into_inner());
+                        if !*loading && slot.is_none()
+                            && self.loading_generation.load(Ordering::Acquire) == loading_generation
+                            && current.as_deref() == Some(active_model.as_str()) {
+                            *current = None;
+                            true
+                        } else { false }
+                    };
 
-                    let _ = self.app_handle.emit(
+                    if cleared { let _ = self.app_handle.emit(
                         "model-state-changed",
                         ModelStateEvent {
                             event_type: "unloaded".to_string(),
@@ -2079,7 +2196,7 @@ impl TranscriptionManager {
                             model_name: None,
                             error: Some(format!("Engine panicked: {}", panic_msg)),
                         },
-                    );
+                    ); }
 
                     return Err(anyhow::anyhow!(
                         "Transcription engine panicked: {}. The model has been unloaded and will reload on next attempt.",
@@ -2134,8 +2251,10 @@ impl TranscriptionManager {
         translate_override: Option<bool>,
         prompt_override: Option<String>,
         apply_custom_words_enabled: bool,
+        chinese_script_override: Option<ChineseScript>,
     ) -> Result<String> {
         // Update last activity timestamp
+        self.begin_operation();
         self.touch_activity();
 
         let st = std::time::Instant::now();
@@ -2160,7 +2279,8 @@ impl TranscriptionManager {
             }
         }
 
-        let settings = get_settings(&self.app_handle);
+        let mut settings = get_settings(&self.app_handle);
+        if let Some(script) = chinese_script_override { settings.chinese_script = script; }
 
         // Apply overrides
         let selected_language = language_override
@@ -2322,6 +2442,7 @@ impl TranscriptionManager {
         translate_override: Option<bool>,
         prompt_override: Option<String>,
         apply_custom_words_enabled: bool,
+        chinese_script_override: Option<ChineseScript>,
     ) -> Result<(String, FileTranscriptionExecutionMeta)> {
         let (
             result,
@@ -2337,6 +2458,7 @@ impl TranscriptionManager {
             translate_override,
             prompt_override,
             apply_custom_words_enabled,
+            chinese_script_override,
         )?;
 
         let filtered_result = post_process_transcription_text(
@@ -2369,6 +2491,7 @@ impl TranscriptionManager {
         translate_override: Option<bool>,
         prompt_override: Option<String>,
         apply_custom_words_enabled: bool,
+        chinese_script_override: Option<ChineseScript>,
     ) -> Result<(
         String,
         Option<Vec<crate::subtitle::SubtitleSegment>>,
@@ -2388,6 +2511,7 @@ impl TranscriptionManager {
             translate_override,
             prompt_override,
             apply_custom_words_enabled,
+            chinese_script_override,
         )?;
 
         let output_language = with_text_detected_language(
@@ -2449,6 +2573,7 @@ impl TranscriptionManager {
         translate_override: Option<bool>,
         prompt_override: Option<String>,
         apply_custom_words_enabled: bool,
+        chinese_script_override: Option<ChineseScript>,
     ) -> Result<(
         TranscriptionResult,
         FileTranscriptionExecutionMeta,
@@ -2458,6 +2583,7 @@ impl TranscriptionManager {
         OutputLanguageEvidence,
         Vec<String>,
     )> {
+        self.begin_operation();
         self.touch_activity();
 
         if audio.is_empty() {
@@ -2495,7 +2621,8 @@ impl TranscriptionManager {
             }
         }
 
-        let settings = get_settings(&self.app_handle);
+        let mut settings = get_settings(&self.app_handle);
+        if let Some(script) = chinese_script_override { settings.chinese_script = script; }
         let selected_language = language_override
             .map(|value| value.to_string())
             .unwrap_or_else(|| settings.selected_language.clone());
@@ -3352,7 +3479,6 @@ pub struct GpuDeviceOption {
     pub total_vram_mb: usize,
 }
 
-static GPU_DEVICES: OnceLock<Vec<GpuDeviceOption>> = OnceLock::new();
 
 fn transcribe_gpu_disabled_for_host() -> bool {
     crate::utils::is_windows_x64_emulated_on_arm64()
@@ -3369,7 +3495,7 @@ fn effective_whisper_accelerator(
     }
 }
 
-fn is_transcribe_cpp_gpu_device(device: &transcribe_cpp::Device) -> bool {
+fn is_transcribe_cpp_gpu_device(device: &DeviceInfo) -> bool {
     matches!(
         device.device_type,
         transcribe_cpp::DeviceType::Gpu | transcribe_cpp::DeviceType::Igpu
@@ -3386,8 +3512,8 @@ fn transcribe_cpp_device_allowed(
         || matches!(device_type, transcribe_cpp::DeviceType::Accel)
 }
 
-fn transcribe_compute_devices() -> Vec<transcribe_cpp::Device> {
-    let devices = transcribe_cpp::devices();
+fn transcribe_compute_devices() -> Vec<DeviceInfo> {
+    let devices = native_engine_supervisor().devices().unwrap_or_default();
     let gpu_disabled = transcribe_gpu_disabled_for_host();
     if !gpu_disabled {
         return devices;
@@ -3409,45 +3535,18 @@ fn available_whisper_accelerators(gpu_disabled: bool) -> Vec<String> {
     }
 }
 
-fn cached_gpu_devices() -> &'static [GpuDeviceOption] {
-    GPU_DEVICES.get_or_init(|| {
-        // Use stable backend identity instead of the process-local registry index.
-        transcribe_compute_devices()
-            .into_iter()
-            .filter(is_transcribe_cpp_gpu_device)
-            .map(|device| GpuDeviceOption {
-                id: transcribe_device_key(&device),
-                name: if device.description.is_empty() {
-                    device.name
-                } else {
-                    device.description
-                },
-                total_vram_mb: (device.memory_total / (1024 * 1024)) as usize,
-            })
-            .collect()
-    })
-}
-
-fn resolve_transcribe_cpp_device_index(
-    index: usize,
-) -> Result<(Backend, Option<transcribe_cpp::Device>)> {
-    let device = transcribe_compute_devices()
+fn cached_gpu_devices() -> Vec<GpuDeviceOption> {
+    // The supervisor caches enumeration and refreshes it after a worker load;
+    // keep recovery results visible instead of freezing a failed first probe.
+    transcribe_compute_devices()
         .into_iter()
-        .find(|device| device.index == Some(index))
-        .ok_or_else(|| anyhow::anyhow!("No transcribe.cpp compute device with index {}", index))?;
-
-    if matches!(
-        device.device_type,
-        transcribe_cpp::DeviceType::Accel | transcribe_cpp::DeviceType::Unknown
-    ) {
-        return Err(anyhow::anyhow!(
-            "Device index {} has unsupported kind '{}'",
-            index,
-            device.kind
-        ));
-    }
-
-    Ok((Backend::Auto, Some(device)))
+        .filter(is_transcribe_cpp_gpu_device)
+        .map(|device| GpuDeviceOption {
+            id: transcribe_device_key(&device),
+            name: if device.description.is_empty() { device.name } else { device.description },
+            total_vram_mb: (device.memory_total / (1024 * 1024)) as usize,
+        })
+        .collect()
 }
 
 fn select_transcribe_cpp_backend(setting: WhisperAcceleratorSetting) -> Backend {
@@ -3464,28 +3563,7 @@ fn select_transcribe_cpp_backend_for_host(
     }
 }
 
-fn resolve_whisper_gpu_device(
-    setting: WhisperAcceleratorSetting,
-    gpu_device: Option<&str>,
-) -> Option<transcribe_cpp::Device> {
-    if transcribe_gpu_disabled_for_host() || setting != WhisperAcceleratorSetting::Gpu {
-        return None;
-    }
-
-    let gpu_device = gpu_device?;
-    let resolved = transcribe_compute_devices().into_iter().find(|device| {
-        is_transcribe_cpp_gpu_device(device) && transcribe_device_key(device) == gpu_device
-    });
-    if resolved.is_none() {
-        warn!(
-            "Stored transcribe.cpp GPU device '{}' is no longer available; using automatic device selection",
-            gpu_device
-        );
-    }
-    resolved
-}
-
-fn transcribe_device_key(device: &transcribe_cpp::Device) -> String {
+fn transcribe_device_key(device: &DeviceInfo) -> String {
     let (identity_kind, identity) = match device.device_id.as_deref() {
         Some(device_id) => ("id", device_id),
         None => ("name", device.name.as_str()),
@@ -3494,7 +3572,7 @@ fn transcribe_device_key(device: &transcribe_cpp::Device) -> String {
         .expect("transcribe device identity is always JSON serializable")
 }
 
-fn transcribe_device_label(device: &transcribe_cpp::Device) -> String {
+fn transcribe_device_label(device: &DeviceInfo) -> String {
     if device.description.is_empty() {
         device.name.clone()
     } else {
@@ -3682,6 +3760,9 @@ fn post_process_transcription_text(
     supported_languages: &[String],
 ) -> String {
     fail_open_text_transform(raw, |raw| {
+        let raw = crate::chinese_script::convert_with_evidence(
+            &raw, settings, output_language, supported_languages,
+        );
         let corrected = if apply_custom_words_enabled && !settings.custom_words.is_empty() {
             apply_custom_words(
                 &raw,
@@ -3736,42 +3817,17 @@ fn drain_until_finalize(rx: mpsc::Receiver<StreamCmd>) {
     }
 }
 
-fn transcribe_backend_init_result() -> &'static std::result::Result<(), String> {
-    TRANSCRIBE_BACKEND_INIT.get_or_init(|| {
-        transcribe_cpp::init_logging();
-        transcribe_cpp::init_backends_default()
-            .map_err(|err| {
-                let message = format!("Failed to initialize transcribe.cpp backends: {err}");
-                warn!("{message}");
-                message
-            })
-            .map(|()| {
-                if transcribe_gpu_disabled_for_host() {
-                    warn!(
-                        "Windows x64 build is running under emulation on an ARM64 host; \
-                         hiding transcribe.cpp GPU devices and using CPU"
-                    );
-                }
-            })
-    })
-}
-
 fn ensure_transcribe_backend_initialized() -> Result<()> {
-    match transcribe_backend_init_result() {
-        Ok(()) => Ok(()),
-        Err(message) => Err(anyhow::anyhow!(message.clone())),
-    }
+    let _ = native_engine_supervisor();
+    Ok(())
 }
 
 pub fn init_transcribe_backend() {
-    let _ = transcribe_backend_init_result();
+    let _ = native_engine_supervisor();
 }
 
 /// Device enumeration opens the GPU, so GUI startup reports from its prewarm thread.
 pub fn report_compute_devices() {
-    if transcribe_backend_init_result().is_err() {
-        return;
-    }
     let devices = transcribe_compute_devices();
     info!(
         "transcribe.cpp initialized with {} compute device(s): [{}]",
@@ -3827,7 +3883,7 @@ pub fn get_available_accelerators() -> AvailableAccelerators {
     AvailableAccelerators {
         whisper: available_whisper_accelerators(transcribe_gpu_disabled_for_host()),
         ort: ort_options,
-        gpu_devices: cached_gpu_devices().to_vec(),
+        gpu_devices: cached_gpu_devices(),
     }
 }
 

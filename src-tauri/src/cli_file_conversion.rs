@@ -268,7 +268,6 @@ pub fn initialize_file_conversion_managers(
             match settings.transcription_provider {
                 TranscriptionProvider::Local => {
                     if app.try_state::<Arc<TranscriptionManager>>().is_none() {
-                        crate::managers::transcription::init_transcribe_backend();
                         crate::managers::transcription::apply_accelerator_settings(app);
                         let model_manager =
                             Arc::new(ModelManager::new(app).map_err(|error| {

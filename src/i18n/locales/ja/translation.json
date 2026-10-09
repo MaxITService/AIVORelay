@@ -172,6 +172,17 @@
       }
     },
     "advanced": {
+      "chineseScript": {
+        "title": "中国語の表記",
+        "description": "北京語と広東語の文字起こしを簡体字または繁体字で出力します。他の言語は変更されません。",
+        "options": {
+          "asTranscribed": "文字起こしのまま",
+          "simplified": "簡体字",
+          "traditional": "繁体字",
+          "inherit": "Use global setting"
+        },
+        "saveFailed": "Could not save Chinese output script."
+      },
       "title": "詳細設定",
       "startHidden": {
         "label": "非表示で起動",
@@ -499,6 +510,7 @@
     "description": "AivoRelayインターフェースの言語を変更"
   },
   "overlay": {
-    "transcribing": "文字起こし中..."
+    "transcribing": "文字起こし中...",
+    "loadingModel": "モデルを読み込み中..."
   }
 }

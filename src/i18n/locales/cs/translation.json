@@ -172,6 +172,17 @@
       }
     },
     "advanced": {
+      "chineseScript": {
+        "title": "Čínské písmo",
+        "description": "Zapisuje přepisy v mandarínštině a kantonštině zjednodušenými nebo tradičními znaky. Ostatní jazyky zůstávají beze změny.",
+        "options": {
+          "asTranscribed": "Jak bylo přepsáno",
+          "simplified": "Zjednodušené",
+          "traditional": "Tradiční",
+          "inherit": "Use global setting"
+        },
+        "saveFailed": "Could not save Chinese output script."
+      },
       "title": "Pokročilé",
       "startHidden": {
         "label": "Spouštět skrytě",
@@ -499,6 +510,7 @@
     "description": "Změňte jazyk rozhraní AivoRelay"
   },
   "overlay": {
-    "transcribing": "Přepisuji..."
+    "transcribing": "Přepisuji...",
+    "loadingModel": "Načítání modelu..."
   }
 }

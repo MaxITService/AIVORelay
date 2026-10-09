@@ -53,6 +53,37 @@ test("appearance is saved in one call and does not overwrite concurrent unrelate
   expect(useSettingsStore.getState().isUpdating.recording_overlay_appearance).toBe(false);
 });
 
+test("global Chinese script changes persist globally while a custom profile is active", async () => {
+  const calls: Array<{ command: string; args: Record<string, unknown> }> = [];
+  invokeBackend = async (command, args) => { calls.push({ command, args }); };
+  await useSettingsStore.getState().updateSetting("chinese_script", "traditional");
+  expect(calls).toEqual([{
+    command: "change_chinese_script_setting",
+    args: { script: "traditional", profileId: null },
+  }]);
+  expect(useSettingsStore.getState().settings?.chinese_script).toBe("traditional");
+  expect(useSettingsStore.getState().settings?.active_profile_id).toBe("profile-a");
+  expect(useSettingsStore.getState().settings?.transcription_profiles).toEqual(settings().transcription_profiles);
+  expect(useSettingsStore.getState().isUpdating.chinese_script).toBe(false);
+});
+
+test("failed Chinese script save rolls back its preference and preserves concurrent unrelated state", async () => {
+  const backend = deferred();
+  const started = deferred();
+  useSettingsStore.getState().setSettings({ ...settings(), chinese_script: "simplified" });
+  invokeBackend = () => { started.resolve(); return backend.promise; };
+  const change = useSettingsStore.getState().updateSetting("chinese_script", "traditional", { throwOnError: true });
+  await started.promise;
+  useSettingsStore.getState().setSettings({
+    ...useSettingsStore.getState().settings!, active_profile_id: "profile-b",
+  });
+  backend.reject(new Error("disk full"));
+  await expect(change).rejects.toThrow("disk full");
+  expect(useSettingsStore.getState().settings?.chinese_script).toBe("simplified");
+  expect(useSettingsStore.getState().settings?.active_profile_id).toBe("profile-b");
+  expect(useSettingsStore.getState().isUpdating.chinese_script).toBe(false);
+});
+
 test("failed appearance save rejects without partial frontend changes and releases its busy state", async () => {
   invokeBackend = async () => { throw new Error("disk full"); };
   const original = useSettingsStore.getState().settings;

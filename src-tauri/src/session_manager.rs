@@ -354,7 +354,10 @@ pub fn take_session(app: &AppHandle) -> Option<(Arc<RecordingSession>, String)> 
     let state = app.state::<ManagedSessionState>();
     let mut state_guard = lock_session_state(&state, "take_session");
 
-    match std::mem::replace(&mut *state_guard, SessionState::Idle) {
+    let previous = std::mem::replace(&mut *state_guard, SessionState::Idle);
+    drop(state_guard);
+    crate::recording_model_loading::notify_session_changed(app);
+    match previous {
         SessionState::Recording {
             session,
             binding_id,
@@ -397,6 +400,8 @@ pub fn take_session_if_matches(
                     "take_session_if_matches: Took session for {}",
                     expected_binding_id
                 );
+                drop(state_guard);
+                crate::recording_model_loading::notify_session_changed(app);
                 return Some(session);
             }
         }
@@ -431,6 +436,8 @@ pub fn exit_processing(app: &AppHandle) {
     } else {
         debug!("exit_processing: Not in Processing state, ignoring");
     }
+    drop(state_guard);
+    crate::recording_model_loading::notify_session_changed(app);
 }
 
 /// Exits Processing only when it still belongs to the expected operation.
@@ -439,7 +446,12 @@ pub fn exit_processing_if_matches(app: &AppHandle, expected_operation_id: u64) -
     let state = app.state::<ManagedSessionState>();
     let mut state_guard = lock_session_state(&state, "exit_processing_if_matches");
 
-    exit_processing_state_if_matches(&mut state_guard, expected_operation_id)
+    let cleared = exit_processing_state_if_matches(&mut state_guard, expected_operation_id);
+    drop(state_guard);
+    if cleared {
+        crate::recording_model_loading::notify_session_changed(app);
+    }
+    cleared
 }
 
 fn exit_processing_state_if_matches(state: &mut SessionState, expected_operation_id: u64) -> bool {

@@ -125,6 +125,9 @@ struct TranscriptResponse {
 struct SonioxAsyncTranscriptToken {
     #[serde(default)]
     text: String,
+    /// Actual per-token language, present when language identification is enabled.
+    #[serde(default)]
+    language: Option<String>,
     #[serde(default)]
     speaker: Option<Value>,
     #[serde(default)]
@@ -136,6 +139,8 @@ struct SonioxAsyncTranscriptToken {
 #[derive(Debug, Clone, Default)]
 pub struct SonioxAsyncTranscript {
     pub text: String,
+    /// Set only when all content tokens identify the same output language.
+    pub output_language: Option<String>,
     pub speaker_blocks: Vec<RawSpeakerBlock>,
     pub timed_tokens: Vec<TimedTranscriptToken>,
 }
@@ -377,6 +382,39 @@ impl SonioxSttManager {
 
     fn is_async_control_token(text: &str) -> bool {
         matches!(text.trim(), "<end>" | "<fin>")
+    }
+
+    fn homogeneous_async_output_language(
+        text: &str,
+        tokens: &[SonioxAsyncTranscriptToken],
+    ) -> Option<String> {
+        let mut language: Option<String> = None;
+        let mut covered_text = String::new();
+        for token in tokens {
+            if Self::is_async_control_token(&token.text) {
+                continue;
+            }
+            covered_text.extend(token.text.chars().filter(|character| character.is_alphanumeric()));
+            if !token.text.chars().any(|character| character.is_alphanumeric()) {
+                continue;
+            }
+            // Hints describe requested recognition; only provider token metadata
+            // proves the language actually produced. Missing metadata fails closed.
+            let token_language = token.language.as_deref()?.trim()
+                .split(['-', '_']).next()?.to_ascii_lowercase();
+            if token_language.is_empty() {
+                return None;
+            }
+            if language.as_ref().is_some_and(|language| language != &token_language) {
+                return None;
+            }
+            language = Some(token_language);
+        }
+        let transcript_text: String = text.chars().filter(|character| character.is_alphanumeric()).collect();
+        if covered_text != transcript_text {
+            return None;
+        }
+        language
     }
 
     fn build_async_speaker_blocks(tokens: &[SonioxAsyncTranscriptToken]) -> Vec<RawSpeakerBlock> {
@@ -1090,8 +1128,10 @@ impl SonioxSttManager {
             )
         })?;
 
+        let output_language = Self::homogeneous_async_output_language(&payload.text, &payload.tokens);
         Ok(SonioxAsyncTranscript {
             text: payload.text,
+            output_language,
             speaker_blocks: Self::build_async_speaker_blocks(&payload.tokens),
             timed_tokens: Self::build_async_timed_tokens(&payload.tokens),
         })
@@ -1383,6 +1423,42 @@ impl SonioxSttManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn async_output_language(text: &str, tokens: Value) -> Option<String> {
+        let tokens = serde_json::from_value::<Vec<SonioxAsyncTranscriptToken>>(tokens).unwrap();
+        SonioxSttManager::homogeneous_async_output_language(text, &tokens)
+    }
+
+    #[test]
+    fn async_language_uses_all_content_tokens_and_ignores_control_and_punctuation() {
+        let language = async_output_language("你好，世界！", serde_json::json!([
+            { "text": "你好", "language": " ZH-Hans " },
+            { "text": "，" },
+            { "text": "世界", "language": "zh_Hant" },
+            { "text": "！" },
+            { "text": "<end>" },
+            { "text": "<fin>" }
+        ]));
+
+        assert_eq!(language.as_deref(), Some("zh"));
+    }
+
+    #[test]
+    fn async_language_requires_complete_consistent_provider_metadata() {
+        for tokens in [
+            serde_json::json!([{ "text": "你好", "language": "zh" }, { "text": "世界" }]),
+            serde_json::json!([{ "text": "你好", "language": "zh" }, { "text": "世界", "language": "en" }]),
+            serde_json::json!([{ "text": "你好", "language": "zh" }, { "text": "世界", "language": " " }]),
+            serde_json::json!([{ "text": "你好", "language": "zh" }]),
+            serde_json::json!([{ "text": "世界你好", "language": "zh" }]),
+            serde_json::json!([]),
+        ] {
+            assert_eq!(async_output_language("你好世界", tokens.clone()), None, "{tokens}");
+        }
+        assert_eq!(async_output_language("！", serde_json::json!([
+            { "text": "！", "language": "zh" }
+        ])), None);
+    }
 
     #[test]
     fn websocket_read_timeout_is_not_retried() {

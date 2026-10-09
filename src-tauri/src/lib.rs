@@ -7,12 +7,14 @@ mod apple_intelligence;
 mod audio_feedback;
 pub mod audio_toolkit;
 mod catalog;
+mod chinese_script;
 pub mod cli;
 mod cli_file_conversion;
 mod cli_local_tts;
 mod cli_tts_history;
 mod clipboard;
 mod commands;
+pub mod engine_supervisor;
 mod file_transcription_diarization;
 mod gemini_config;
 mod helpers;
@@ -22,11 +24,13 @@ mod input_source;
 mod language_resolver;
 mod llm_client;
 mod managers;
+mod memory;
 mod no_clobber;
 mod overlay;
 mod plus_overlay_state;
 mod portable;
 mod recording_auto_stop;
+mod recording_model_loading;
 #[cfg(target_os = "windows")]
 mod region_capture;
 mod secure_keys;
@@ -535,6 +539,7 @@ fn timed_startup<T>(label: &str, operation: impl FnOnce() -> T) -> T {
 }
 
 fn initialize_core_logic(app_handle: &AppHandle) {
+    recording_model_loading::install(app_handle);
     let speech_only = webview_mode::webviews_disabled();
 
     // Initialize the input state (Enigo singleton for keyboard/mouse simulation)
@@ -560,11 +565,9 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         current_settings.error_overlay_auto_hide_ms,
     );
 
-    // Remote providers do not need the local transcribe.cpp/Vulkan stack.
-    // Keep the existing eager initialization for Local so its first use remains fast.
-    if should_eagerly_initialize_local_backends(&current_settings) {
-        managers::transcription::init_transcribe_backend();
-    } else {
+    // Native initialization runs only in workers, with Local pre-warmed below
+    // on a background thread so GPU discovery cannot stall UI startup.
+    if !should_eagerly_initialize_local_backends(&current_settings) {
         log::info!(
             "Deferring local transcribe.cpp backend initialization while provider is {:?}",
             current_settings.transcription_provider
@@ -928,10 +931,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                         log::warn!("No model is currently loaded.");
                         return;
                     }
-                    match transcription_manager.unload_model() {
-                        Ok(()) => log::info!("Model unloaded via tray."),
-                        Err(e) => log::error!("Failed to unload model via tray: {}", e),
-                    }
+                    transcription_manager.request_unload();
+                    log::info!("Model unload requested via tray.");
                 }
                 "cancel" => {
                     use crate::utils::cancel_current_operation;
@@ -1554,6 +1555,8 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_text_replacements_setting,
         shortcut::change_text_replacements_before_llm_setting,
         shortcut::change_filler_word_filter_enabled_setting,
+        settings::change_chinese_script_setting,
+        recording_model_loading::get_recording_model_loading_state,
         shortcut::change_zero_width_filter_enabled_setting,
         shortcut::change_text_replacement_decapitalize_after_edit_key_enabled_setting,
         shortcut::change_text_replacement_decapitalize_after_edit_key_setting,
@@ -1978,8 +1981,6 @@ pub fn run(cli_args: CliArgs) {
                     return Ok(());
                 }
 
-                managers::transcription::init_transcribe_backend();
-                managers::transcription::report_compute_devices();
                 let model_manager = Arc::new(
                     ModelManager::new(&app_handle).expect("Failed to initialize model manager"),
                 );
@@ -1990,6 +1991,7 @@ pub fn run(cli_args: CliArgs) {
                 app_handle.manage(model_manager);
                 app_handle.manage(transcription_manager);
                 managers::transcription::apply_accelerator_settings(&app_handle);
+                managers::transcription::report_compute_devices();
 
                 let handle = app_handle.clone();
                 let args = cli_args.clone();

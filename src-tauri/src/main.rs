@@ -25,6 +25,21 @@ fn main() {
         }
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        // Apply the same Vulkan policy before either the UI or native worker starts.
+        if std::env::var_os("VK_LOADER_LAYERS_DISABLE").is_none()
+            && !env_flag_enabled("AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS")
+        {
+            std::env::set_var("VK_LOADER_LAYERS_DISABLE", "~implicit~");
+        }
+    }
+
+    // Workers must bypass CLI parsing, WebViews, and single-instance handling.
+    if aivorelay_app_lib::engine_supervisor::is_worker_invocation() {
+        std::process::exit(aivorelay_app_lib::engine_supervisor::run_worker());
+    }
+
     let raw_arguments = std::env::args_os().collect::<Vec<_>>();
     let cli_args = match aivorelay_app_lib::CliArgs::try_parse_from(&raw_arguments) {
         Ok(arguments) => arguments,
@@ -54,17 +69,6 @@ fn main() {
         }
         Err(error) => error.exit(),
     };
-
-    #[cfg(target_os = "windows")]
-    {
-        // Implicit Vulkan layers injected by overlays and capture tools can
-        // crash GPU backend discovery. Preserve explicit user/launcher policy.
-        if std::env::var_os("VK_LOADER_LAYERS_DISABLE").is_none()
-            && !env_flag_enabled("AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS")
-        {
-            std::env::set_var("VK_LOADER_LAYERS_DISABLE", "~implicit~");
-        }
-    }
 
     aivorelay_app_lib::run(cli_args)
 }

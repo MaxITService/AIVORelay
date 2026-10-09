@@ -217,6 +217,21 @@ impl SonioxContext {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ChineseScript {
+    #[default]
+    AsTranscribed,
+    Simplified,
+    Traditional,
+}
+
+fn default_chinese_script() -> ChineseScript {
+    tauri_plugin_os::locale()
+        .and_then(|locale| crate::chinese_script::chinese_script_for_locale(&locale))
+        .unwrap_or_default()
+}
+
 /// A custom transcription profile with its own language and translation settings.
 /// Each profile creates a separate shortcut binding (e.g., "transcribe_profile_abc123").
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
@@ -227,6 +242,9 @@ pub struct TranscriptionProfile {
     pub name: String,
     /// Language code for speech recognition (e.g., "fr", "es", "auto")
     pub language: String,
+    /// None inherits the global script preference.
+    #[serde(default)]
+    pub chinese_script: Option<ChineseScript>,
     /// Whether to translate the transcription to English
     pub translate_to_english: bool,
     /// Optional description shown in UI
@@ -3792,6 +3810,8 @@ pub struct AppSettings {
     pub translate_to_english: bool,
     #[serde(default = "default_selected_language")]
     pub selected_language: String,
+    #[serde(default)]
+    pub chinese_script: ChineseScript,
     #[serde(default = "default_overlay_position")]
     pub overlay_position: OverlayPosition,
     // The JSON normalization step derives this from legacy `overlay_position`
@@ -6077,6 +6097,7 @@ pub fn get_default_settings() -> AppSettings {
         live_sound_deepgram_endpointing_ms: None,
         translate_to_english: false,
         selected_language: "auto".to_string(),
+        chinese_script: default_chinese_script(),
         overlay_position: default_overlay_position(),
         recording_overlay_enabled: default_recording_overlay_enabled(),
         auto_position_allow_reserved_areas: false,
@@ -6729,12 +6750,90 @@ fn normalize_legacy_recording_overlay_settings(candidate: &mut Value) -> bool {
     changed
 }
 
+fn migrate_chinese_script_settings(value: &mut Value) -> bool {
+    let Some(object) = value.as_object_mut() else { return false; };
+    let mut changed = false;
+    if object.get("chinese_script").is_none_or(Value::is_null) {
+        let script = object.get("selected_language").and_then(Value::as_str)
+            .and_then(crate::chinese_script::legacy_script).unwrap_or_default();
+        object.insert("chinese_script".into(), serde_json::to_value(script).unwrap());
+        changed = true;
+    }
+    if object.get("selected_language").and_then(Value::as_str)
+        .and_then(crate::chinese_script::legacy_script).is_some()
+    {
+        object.insert("selected_language".into(), Value::String("zh".into()));
+        changed = true;
+    }
+    if let Some(configs) = object.get_mut("file_transcription_model_configs").and_then(Value::as_object_mut) {
+        for config in configs.values_mut() {
+            if let Some(snapshot) = config.get_mut("profile_snapshot").and_then(Value::as_object_mut) {
+                let legacy_script = snapshot.get("language").and_then(Value::as_str)
+                    .and_then(crate::chinese_script::legacy_script);
+                if !snapshot.contains_key("chinese_script")
+                    || (legacy_script.is_some() && snapshot.get("chinese_script").is_some_and(Value::is_null))
+                {
+                    snapshot.insert("chinese_script".into(), serde_json::to_value(legacy_script.unwrap_or_default()).unwrap());
+                    changed = true;
+                }
+                if legacy_script.is_some() {
+                    snapshot.insert("language".into(), Value::String("zh".into()));
+                    changed = true;
+                }
+            }
+        }
+    }
+    if let Some(profiles) = object.get_mut("transcription_profiles").and_then(Value::as_array_mut) {
+        for profile in profiles {
+            let Some(profile) = profile.as_object_mut() else { continue; };
+            let legacy_script = profile.get("language").and_then(Value::as_str)
+                .and_then(crate::chinese_script::legacy_script);
+            if !profile.contains_key("chinese_script")
+                || (legacy_script.is_some() && profile.get("chinese_script").is_some_and(Value::is_null))
+            {
+                // Existing profiles had independent script intent, not a global
+                // inherited preference. New profiles may explicitly inherit.
+                profile.insert("chinese_script".into(), serde_json::to_value(legacy_script.unwrap_or_default()).unwrap());
+                changed = true;
+            }
+            if legacy_script.is_some() {
+                profile.insert("language".into(), Value::String("zh".into()));
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_chinese_script_setting(
+    app: AppHandle,
+    script: Option<ChineseScript>,
+    profile_id: Option<String>,
+) -> Result<(), String> {
+    let _guard = lock_settings_mutation("changing Chinese output script")?;
+    let mut settings = get_settings(&app);
+    if let Some(id) = profile_id.filter(|id| id != "default") {
+        let profile = settings.transcription_profiles.iter_mut().find(|profile| profile.id == id)
+            .ok_or_else(|| format!("Transcription profile '{}' not found", id))?;
+        profile.chinese_script = script;
+        if crate::chinese_script::legacy_script(&profile.language).is_some() {
+            profile.language = "zh".into();
+        }
+    } else {
+        settings.chinese_script = script.unwrap_or_default();
+    }
+    write_settings_checked(&app, settings)
+}
+
 fn deserialize_settings_value_with_repair(settings_value: &Value) -> (AppSettings, bool) {
     let default_settings = get_default_settings();
     let default_value = serde_json::to_value(&default_settings).unwrap();
     let mut normalized_value = settings_value.clone();
     let mut repaired = normalize_legacy_aliases(&mut normalized_value);
     repaired |= normalize_legacy_whisper_gpu_device(&mut normalized_value);
+    repaired |= migrate_chinese_script_settings(&mut normalized_value);
     let mut candidate = merge_json_with_defaults(&default_value, &normalized_value);
     repaired |= candidate != *settings_value;
 
@@ -7654,6 +7753,97 @@ pub fn record_dictation_stats_for_text(app: &AppHandle, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chinese_script_migration_preserves_legacy_profiles_and_file_snapshots() {
+        let mut value = serde_json::json!({
+            "selected_language": "zh-Hant",
+            "selected_model": "unchanged-model",
+            "custom_words": ["AivoRelay"],
+            "transcription_profiles": [
+                {"id": "legacy", "language": "zh_Hans", "system_prompt": "keep"},
+                {"id": "null-legacy", "language": "zh-Hant", "chinese_script": null},
+                {"id": "old-auto", "language": "auto"},
+                {"id": "inherit", "language": "zh", "chinese_script": null},
+                {"id": "explicit", "language": "zh-Hant", "chinese_script": "as_transcribed"}
+            ],
+            "file_transcription_model_configs": {
+                "legacy": {"profile_snapshot": {"language": "zh-Hant", "chinese_script": null}, "chunking_max_minutes": 7},
+                "old-auto": {"profile_snapshot": {"language": "auto"}},
+                "none": {"profile_snapshot": null}
+            }
+        });
+        assert!(migrate_chinese_script_settings(&mut value));
+        assert_eq!(value["selected_language"], "zh");
+        assert_eq!(value["chinese_script"], "traditional");
+        assert_eq!(value["selected_model"], "unchanged-model");
+        assert_eq!(value["custom_words"], serde_json::json!(["AivoRelay"]));
+        let profiles = &value["transcription_profiles"];
+        assert_eq!(profiles[0]["language"], "zh");
+        assert_eq!(profiles[0]["chinese_script"], "simplified");
+        assert_eq!(profiles[0]["system_prompt"], "keep");
+        assert_eq!(profiles[1]["chinese_script"], "traditional");
+        assert_eq!(profiles[2]["chinese_script"], "as_transcribed");
+        assert!(profiles[3]["chinese_script"].is_null());
+        assert_eq!(profiles[4]["chinese_script"], "as_transcribed");
+        let configs = &value["file_transcription_model_configs"];
+        assert_eq!(configs["legacy"]["profile_snapshot"]["language"], "zh");
+        assert_eq!(configs["legacy"]["profile_snapshot"]["chinese_script"], "traditional");
+        assert_eq!(configs["legacy"]["chunking_max_minutes"], 7);
+        assert_eq!(configs["old-auto"]["profile_snapshot"]["chinese_script"], "as_transcribed");
+        assert!(configs["none"]["profile_snapshot"].is_null());
+        let migrated = value.clone();
+        assert!(!migrate_chinese_script_settings(&mut value));
+        assert_eq!(value, migrated);
+    }
+
+    #[test]
+    fn chinese_script_migration_preserves_explicit_choices_and_repairs_null_global() {
+        for (language, script) in [("auto", "as_transcribed"), ("zh-Hans", "simplified"), ("zh-Hant", "traditional")] {
+            for initial_script in [None, Some(Value::Null)] {
+                let mut value = serde_json::json!({"selected_language": language, "volume": 0.37});
+                if let Some(initial_script) = initial_script {
+                    value["chinese_script"] = initial_script;
+                }
+                assert!(migrate_chinese_script_settings(&mut value));
+                assert_eq!(value["chinese_script"], script);
+                assert_eq!(value["volume"], 0.37);
+            }
+        }
+        let mut explicit = serde_json::json!({"selected_language": "zh-Hans", "chinese_script": "traditional"});
+        assert!(migrate_chinese_script_settings(&mut explicit));
+        assert_eq!(explicit["chinese_script"], "traditional");
+        assert_eq!(explicit["selected_language"], "zh");
+    }
+
+    #[test]
+    fn chinese_script_migration_deserializes_without_resetting_unrelated_settings() {
+        let mut settings = get_default_settings();
+        settings.selected_language = "zh-Hant".into();
+        settings.selected_model = "saved-model".into();
+        settings.custom_words = vec!["AivoRelay".into()];
+        settings.filler_word_filter_enabled = false;
+        settings.transcription_profiles.push(serde_json::from_value(serde_json::json!({
+            "id": "legacy", "name": "Keep this profile", "language": "zh-Hans",
+            "translate_to_english": true, "system_prompt": "Keep this prompt"
+        })).unwrap());
+        let mut value = serde_json::to_value(&settings).unwrap();
+        value.as_object_mut().unwrap().remove("chinese_script");
+        value["transcription_profiles"][0].as_object_mut().unwrap().remove("chinese_script");
+        let (restored, repaired) = deserialize_settings_value_with_repair(&value);
+        assert!(repaired);
+        assert_eq!(restored.selected_model, "saved-model");
+        assert_eq!(restored.custom_words, vec!["AivoRelay"]);
+        assert!(!restored.filler_word_filter_enabled);
+        assert_eq!(restored.selected_language, "zh");
+        assert_eq!(restored.chinese_script, ChineseScript::Traditional);
+        let profile = &restored.transcription_profiles[0];
+        assert_eq!(profile.name, "Keep this profile");
+        assert_eq!(profile.system_prompt, "Keep this prompt");
+        assert!(profile.translate_to_english);
+        assert_eq!(profile.language, "zh");
+        assert_eq!(profile.chinese_script, Some(ChineseScript::Simplified));
+    }
 
     #[test]
     fn repair_backups_preserve_each_original_byte_sequence_without_overwriting() {

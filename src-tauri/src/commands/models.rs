@@ -131,15 +131,14 @@ pub async fn delete_model(
         .try_start_loading()
         .ok_or_else(|| "Model load already in progress".to_string())?;
 
-    let was_loaded = transcription_manager.get_current_model().as_deref()
-        == Some(model_id.as_str())
-        && transcription_manager.is_model_loaded();
-
-    if was_loaded {
-        transcription_manager
-            .unload_model()
-            .map_err(|e| format!("Failed to unload model: {}", e))?;
-    }
+    let manager = Arc::clone(&transcription_manager);
+    let unload_id = model_id.clone();
+    let was_loaded = tauri::async_runtime::spawn_blocking(move || {
+        manager.unload_model_for_deletion(&unload_id)
+    })
+        .await
+        .map_err(|e| format!("Failed to unload model: {}", e))?
+        .map_err(|e| format!("Failed to unload model: {}", e))?;
 
     let mut updated_settings = get_settings(&app_handle);
     if updated_settings.selected_model != model_id {
@@ -152,7 +151,12 @@ pub async fn delete_model(
         let current_settings = get_settings(&app_handle);
         if current_settings.selected_model.is_empty() {
             if was_loaded {
-                if let Err(reload_error) = transcription_manager.load_model(&model_id) {
+                let manager = Arc::clone(&transcription_manager);
+                let restore_id = model_id.clone();
+                let reload = tauri::async_runtime::spawn_blocking(move || manager.load_model(&restore_id))
+                    .await
+                    .map_err(|e| format!("Failed to reload model: {}", e))?;
+                if let Err(reload_error) = reload {
                     tray::refresh_tray_menu(&app_handle, None);
                     return Err(format!(
                         "Failed to delete model: {delete_error}. The model also failed to reload: {reload_error}"
@@ -183,7 +187,9 @@ pub async fn set_active_model(
     _transcription_manager: State<'_, Arc<TranscriptionManager>>,
     model_id: String,
 ) -> Result<(), String> {
-    switch_active_model(&app_handle, &model_id)
+    tauri::async_runtime::spawn_blocking(move || switch_active_model(&app_handle, &model_id))
+        .await
+        .map_err(|error| format!("Failed to switch model: {}", error))?
 }
 
 pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String> {

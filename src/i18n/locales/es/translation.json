@@ -172,6 +172,17 @@
       }
     },
     "advanced": {
+      "chineseScript": {
+        "title": "Escritura china",
+        "description": "Escribe las transcripciones en mandarín y cantonés con caracteres simplificados o tradicionales. Los demás idiomas no se modifican.",
+        "options": {
+          "asTranscribed": "Tal como se transcribió",
+          "simplified": "Simplificado",
+          "traditional": "Tradicional",
+          "inherit": "Use global setting"
+        },
+        "saveFailed": "Could not save Chinese output script."
+      },
       "title": "Avanzado",
       "startHidden": {
         "label": "Iniciar Oculto",
@@ -504,6 +515,7 @@
     "description": "Cambia el idioma de la interfaz de AivoRelay"
   },
   "overlay": {
-    "transcribing": "Transcribiendo..."
+    "transcribing": "Transcribiendo...",
+    "loadingModel": "Cargando modelo..."
   }
 }

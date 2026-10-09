@@ -6,6 +6,42 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-10-09):
+- Reviewed the complete 16-commit linear corridor after `29bd2c0d` through
+  `f6b3f829` (`docs: keep translation contribution guidance aligned with supported
+  locales (#2235)`); there are no merges. The safe review cursor is now `f6b3f829`.
+- Adapted seven items: separate Chinese recognition/script
+  selection (`0bb0428e`), refresh custom sounds (`345caa8f`), the native runtime
+  update (`ffbc9504`), legacy portable-cache discovery (`a94b403e`), native worker
+  isolation (`c8262ab3`), and the final combined loading-feedback behavior
+  (`20a6685e`, `417dc6ac`), grouped under
+  `feat(transcription): isolate native engine and adapt upstream updates`.
+  Soniox authentication and dev-launch confirmation have separate commits.
+- Pinned all five native dependency declarations to exact `0.3.1` with serde,
+  including `0.3.0` improvements and the worker's CPU-only backend allowlist.
+  Regenerated the fork lock locally. Kept the fork's model metadata, explicit CLI
+  device selection, native stream callbacks/latency settings, file chunking,
+  ONNX paths, x64 dynamic runtime staging, and ARM64 static CPU configuration.
+- Native backend initialization, device enumeration, loading, inference and
+  streaming now run in hidden child processes; cancellation and model ownership
+  prevent a late engine return or unload from displacing newer work. Retained
+  remote-provider startup deferral and background Local prewarm.
+- Chinese settings preserve legacy profile/snapshot intent and use output-language
+  evidence before custom-word correction. Soniox async language metadata permits
+  conversion only for a verified single-language output; mixed output stays intact.
+  Loading feedback follows the recording's captured provider/model, including
+  recovered previews and retries. Legacy caches are lookup-only.
+- `b38987a9` is already covered by the fork's cancel-shortcut ownership logic.
+  Skipped eight contribution-policy, version, NSIS-only and Linux-documentation
+  commits. Separately migrated all four Soniox WebSocket connections to sensitive
+  Bearer headers and removed credentials from their start payloads.
+- Verification passed: 50 targeted Rust tests, 207 frontend tests, TypeScript,
+  and 16 fixture-only launcher checks. The 16 worker integration tests remain
+  explicitly ignored pending real worker/model/audio/GPU fixtures. User manual
+  checks confirmed repeated dictation, cancel/retry, and remote STT continuing
+  after local-model unload. Pre-existing unrelated edits remain outside this
+  intake, and older history rows were retained. No push was performed.
+
 Audit note (2026-09-30):
 - Refreshed `upstream/main` and reviewed the complete six-commit linear corridor
   after `8f9cf53c` through `29bd2c0d`; there are no merges. The safe review
@@ -249,6 +285,13 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-10-09 | 2026-10-07 | `417dc6ac` | fix: show model loading in the Live preview when the load is slow | feat(transcription): isolate native engine and adapt upstream updates | captured session/model; elapsed-time retry and preview hydration |
+| 2026-10-09 | 2026-10-07 | `20a6685e` | fix: show that the model is loading instead of a stuck "Transcribing..." (#2227) | feat(transcription): isolate native engine and adapt upstream updates | combined final behavior; 14 translated labels |
+| 2026-10-09 | 2026-10-07 | `c8262ab3` | isolate transcribe.cpp backend in own worker (#2208) | feat(transcription): isolate native engine and adapt upstream updates | fork facade, CPU recovery, generation-safe cancellation/unload |
+| 2026-10-09 | 2026-10-05 | `a94b403e` | fix(portable): retain access to legacy model cache (#2116) | feat(transcription): isolate native engine and adapt upstream updates | active cache priority; legacy reads only |
+| 2026-10-09 | 2026-10-03 | `ffbc9504` | transcribe 0.3.0 (#2203) | feat(transcription): isolate native engine and adapt upstream updates | exact final 0.3.1/serde; local lock; targeted tests passed |
+| 2026-10-09 | 2026-10-03 | `345caa8f` | fix: refresh custom sounds when opening sound selector (#1941) | feat(transcription): isolate native engine and adapt upstream updates | existing dropdown refresh API retained |
+| 2026-10-09 | 2026-10-03 | `0bb0428e` | add chinese script selector + simplify internals (#2186) | feat(transcription): isolate native engine and adapt upstream updates | profile/snapshot migration; conversion before custom words |
 | 2026-10-01 | 2026-09-28 | `29bd2c0d` | fix: list compute devices off the startup path (#2160) | fix: adapt upstream text, recording, and startup fixes | Local background reporting; cached init and remote deferral retained |
 | 2026-10-01 | 2026-09-27 | `eea1f5f4` | fix: don't start recording when no model can transcribe it (#2161) | fix: adapt upstream text, recording, and startup fixes | rejects empty/unknown/missing custom selections; catalog download-on-use retained |
 | 2026-10-01 | 2026-09-27 | `eb49dc02` | fix: keep the sentence capital after removing a leading filler (#2157) | fix: adapt upstream text, recording, and startup fixes | language-safe/custom filler adaptation with text regressions |
