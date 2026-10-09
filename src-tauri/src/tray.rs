@@ -97,6 +97,7 @@ struct BlinkPlan {
 pub struct TraySyncTicket {
     seq: u64,
     icon_state: TrayIconState,
+    last_error: Option<&'static str>,
 }
 
 fn spawn_blink_loop(app: &AppHandle, plan: BlinkPlan) {
@@ -199,7 +200,62 @@ pub fn claim_tray_state(
     settings: &settings::AppSettings,
 ) -> Option<TraySyncTicket> {
     let policy = BlinkPolicy::from_settings(settings);
-    claim_tray_sync(app, |inner| inner.icon_state = state, Some(policy))
+    claim_tray_sync(app, |inner| inner.set_icon_state(state), Some(policy))
+}
+
+const TRAY_ERROR_DISPLAY_DURATION: Duration = Duration::from_secs(8);
+
+/// Remembers a failure so the idle tray shows the error icon and tooltip
+/// for a few seconds or until the next recording starts. Error paths already
+/// move the tray to Idle afterwards, so the next sync applies it.
+pub fn record_tray_error(app: &AppHandle, text: &'static str) {
+    let Some(state) = app.try_state::<TrayState>() else {
+        return;
+    };
+    let start_timer = state.lock().record_error(text, Instant::now());
+    if start_timer {
+        spawn_error_expiry_timer(app);
+    }
+}
+
+/// At most one timer runs. Repeated errors only move the deadline, so
+/// mashing a failing shortcut cannot pile up threads.
+fn spawn_error_expiry_timer(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut wait = TRAY_ERROR_DISPLAY_DURATION;
+        loop {
+            std::thread::sleep(wait);
+            let mut expiry = ErrorExpiry::Stopped;
+            // Cleared in the same critical section that claims the sync, so
+            // a recording or a newer error ordered after it always wins.
+            let ticket = claim_tray_sync(
+                &app,
+                |inner| expiry = inner.expire_error(Instant::now()),
+                None,
+            );
+            match expiry {
+                ErrorExpiry::Wait(remaining) => wait = remaining,
+                ErrorExpiry::Cleared => {
+                    if let Some(ticket) = ticket {
+                        commit_tray_sync(&app, ticket);
+                    }
+                    return;
+                }
+                ErrorExpiry::Stopped => return,
+            }
+        }
+    });
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ErrorExpiry {
+    /// A newer error moved the deadline.
+    Wait(Duration),
+    /// The error expired; the tray needs a sync.
+    Cleared,
+    /// Nothing to clear (a recording already did) or the tray is gone.
+    Stopped,
 }
 
 /// Re-applies the current state when the appearance changed without changing
@@ -252,6 +308,7 @@ struct MenuInputs {
     downloaded_local_models: Vec<TrayModelItem>,
     microphones: Vec<TrayMicrophoneItem>,
     shortcut_items: Vec<TrayShortcutItem>,
+    last_error: Option<&'static str>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -273,9 +330,48 @@ struct TrayInner {
     /// together with `icon_state`, under the same lock, so the last writer of
     /// the state is always the last to decide whether the tray blinks.
     blink_generation: u64,
+    /// Short text of the last failure; cleared after a few seconds or when a
+    /// recording starts.
+    last_error: Option<&'static str>,
+    error_expires_at: Option<Instant>,
+    /// Set while the expiry timer thread owns clearing `last_error`.
+    error_timer_running: bool,
 }
 
 impl TrayInner {
+    /// A new recording means the user moved on from the last failure.
+    fn set_icon_state(&mut self, state: TrayIconState) {
+        self.icon_state = state;
+        if state == TrayIconState::Recording {
+            self.last_error = None;
+        }
+    }
+
+    /// Returns whether the caller must start the expiry timer.
+    fn record_error(&mut self, text: &'static str, now: Instant) -> bool {
+        self.last_error = Some(text);
+        self.error_expires_at = Some(now + TRAY_ERROR_DISPLAY_DURATION);
+        !std::mem::replace(&mut self.error_timer_running, true)
+    }
+
+    /// Called only by the timer. Whenever it returns anything but `Wait`,
+    /// the timer exits, so the running flag is released in the same step.
+    fn expire_error(&mut self, now: Instant) -> ErrorExpiry {
+        let expiry = match (self.last_error, self.error_expires_at) {
+            (Some(_), Some(deadline)) if deadline > now => {
+                return ErrorExpiry::Wait(deadline - now);
+            }
+            (Some(_), _) => {
+                self.last_error = None;
+                ErrorExpiry::Cleared
+            }
+            (None, _) => ErrorExpiry::Stopped,
+        };
+        self.error_expires_at = None;
+        self.error_timer_running = false;
+        expiry
+    }
+
     /// Retires the running blink loop and, when the current state should
     /// blink, claims a new generation for its replacement.
     fn transition_blink(&mut self, policy: &BlinkPolicy) -> Option<BlinkPlan> {
@@ -299,6 +395,7 @@ impl TrayInner {
         TraySyncTicket {
             seq: self.next_seq,
             icon_state: self.icon_state,
+            last_error: self.last_error,
         }
     }
 
@@ -335,6 +432,9 @@ impl TrayState {
             next_seq: 0,
             desired_seq: 0,
             blink_generation: 0,
+            last_error: None,
+            error_expires_at: None,
+            error_timer_running: false,
         }))
     }
 
@@ -455,8 +555,50 @@ pub fn get_icon_path(theme: AppTheme, state: TrayIconState) -> &'static str {
 
 
 
+/// Shown instead of the idle icon after a failure; readable on any taskbar.
+const TRAY_ERROR_ICON_PATH: &str = "resources/tray_error.png";
+
+fn desired_icon_path(
+    theme: AppTheme,
+    state: TrayIconState,
+    last_error: Option<&'static str>,
+) -> &'static str {
+    if state == TrayIconState::Idle && last_error.is_some() {
+        TRAY_ERROR_ICON_PATH
+    } else {
+        get_icon_path(theme, state)
+    }
+}
+
 pub fn tray_tooltip() -> String {
     version_label()
+}
+
+/// Windows stores the tooltip in 128 UTF-16 units including the terminator,
+/// and tray-icon does not truncate it safely.
+const TRAY_TOOLTIP_MAX_UTF16: usize = 127;
+
+fn tray_tooltip_with_error(last_error: Option<&str>) -> String {
+    let mut tooltip = version_label();
+    if let Some(error) = last_error {
+        tooltip.push_str("\n⚠ ");
+        tooltip.push_str(error);
+    }
+    if tooltip.encode_utf16().count() <= TRAY_TOOLTIP_MAX_UTF16 {
+        return tooltip;
+    }
+    let mut truncated = String::new();
+    let mut units = 0;
+    for ch in tooltip.chars() {
+        // Reserve one unit for the ellipsis.
+        if units + ch.len_utf16() > TRAY_TOOLTIP_MAX_UTF16 - 1 {
+            break;
+        }
+        units += ch.len_utf16();
+        truncated.push(ch);
+    }
+    truncated.push('…');
+    truncated
 }
 
 fn version_label() -> String {
@@ -469,7 +611,7 @@ fn version_label() -> String {
 
 pub fn update_tray_menu(app: &AppHandle, state: &TrayIconState, locale: Option<&str>) {
     let policy = BlinkPolicy::load(app);
-    if let Some(ticket) = claim_tray_sync(app, |inner| inner.icon_state = *state, Some(policy)) {
+    if let Some(ticket) = claim_tray_sync(app, |inner| inner.set_icon_state(*state), Some(policy)) {
         commit_tray_sync_with_locale(app, ticket, locale);
     }
 }
@@ -525,7 +667,7 @@ fn commit_tray_sync_with_locale(app: &AppHandle, ticket: TraySyncTicket, locale:
         return;
     }
 
-    let desired = compute_desired(app, ticket.icon_state, locale);
+    let desired = compute_desired(app, ticket.icon_state, ticket.last_error, locale);
     let needs_icon = !state.lock().icons.contains_key(desired.icon_path);
     let loaded_icon = if needs_icon {
         match load_tray_icon(
@@ -558,6 +700,7 @@ fn commit_tray_sync_with_locale(app: &AppHandle, ticket: TraySyncTicket, locale:
 fn compute_desired(
     app: &AppHandle,
     icon_state: TrayIconState,
+    last_error: Option<&'static str>,
     locale_override: Option<&str>,
 ) -> TrayDesired {
     let settings = settings::get_settings(app);
@@ -613,7 +756,7 @@ fn compute_desired(
     };
 
     TrayDesired {
-        icon_path: get_icon_path(get_current_theme(app), icon_state),
+        icon_path: desired_icon_path(get_current_theme(app), icon_state, last_error),
         menu: MenuInputs {
             busy: icon_state.is_busy(),
             webviews_disabled: crate::webview_mode::webviews_disabled(),
@@ -636,6 +779,7 @@ fn compute_desired(
             downloaded_local_models,
             microphones,
             shortcut_items,
+            last_error,
         },
     }
 }
@@ -914,7 +1058,7 @@ fn build_tray_menu(
     menu.append(&separator()?)?;
     menu.append(&quit_i)?;
 
-    Ok((menu, version_label))
+    Ok((menu, tray_tooltip_with_error(inputs.last_error)))
 }
 
 fn should_show_enter_speech_only_mode(
@@ -1467,15 +1611,16 @@ pub fn copy_last_transcript(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::{
-        get_icon_path, last_transcript_text, parse_microphone_menu_selection,
-        parse_model_menu_selection, should_show_enter_speech_only_mode, tray_tooltip, AppTheme,
-        BlinkPolicy, MenuInputs, TrayDesired, TrayIconState, TrayModelSelection, TrayState,
+        desired_icon_path, get_icon_path, last_transcript_text, parse_microphone_menu_selection,
+        parse_model_menu_selection, should_show_enter_speech_only_mode, tray_tooltip,
+        tray_tooltip_with_error, AppTheme, BlinkPolicy, ErrorExpiry, MenuInputs, TrayDesired,
+        TrayIconState, TrayModelSelection, TrayState, TRAY_ERROR_ICON_PATH,
         TRAY_MICROPHONE_DEFAULT_ID, TRAY_MICROPHONE_MENU_PREFIX, TRAY_MICROPHONE_MISSING_ID,
-        TRAY_MODEL_MENU_PREFIX,
+        TRAY_MODEL_MENU_PREFIX, TRAY_TOOLTIP_MAX_UTF16,
     };
     use crate::managers::history::HistoryEntry;
     use crate::settings::TranscriptionProvider;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     fn blink_everywhere() -> BlinkPolicy {
         BlinkPolicy {
@@ -1510,6 +1655,7 @@ mod tests {
                 downloaded_local_models: Vec::new(),
                 microphones: Vec::new(),
                 shortcut_items: Vec::new(),
+                last_error: None,
             },
         }
     }
@@ -1746,6 +1892,94 @@ mod tests {
         assert!(should_show_enter_speech_only_mode(false, true));
         assert!(!should_show_enter_speech_only_mode(true, false));
         assert!(!should_show_enter_speech_only_mode(true, true));
+    }
+
+    #[test]
+    fn error_icon_replaces_only_the_idle_icon() {
+        let error = Some("Mic unavailable");
+        assert_eq!(
+            desired_icon_path(AppTheme::Dark, TrayIconState::Idle, error),
+            TRAY_ERROR_ICON_PATH
+        );
+        assert_eq!(
+            desired_icon_path(AppTheme::Dark, TrayIconState::Recording, error),
+            get_icon_path(AppTheme::Dark, TrayIconState::Recording)
+        );
+        assert_eq!(
+            desired_icon_path(AppTheme::Light, TrayIconState::Idle, None),
+            get_icon_path(AppTheme::Light, TrayIconState::Idle)
+        );
+    }
+
+    #[test]
+    fn recording_start_clears_the_tray_error() {
+        let state = TrayState::new();
+        let mut inner = state.lock();
+        inner.last_error = Some("Server error");
+        inner.set_icon_state(TrayIconState::Transcribing);
+        inner.set_icon_state(TrayIconState::Idle);
+        assert_eq!(inner.claim_seq().last_error, Some("Server error"));
+        inner.set_icon_state(TrayIconState::Recording);
+        assert_eq!(inner.claim_seq().last_error, None);
+    }
+
+    #[test]
+    fn repeated_errors_share_one_timer_and_extend_the_deadline() {
+        let state = TrayState::new();
+        let mut inner = state.lock();
+        let start = Instant::now();
+        assert!(inner.record_error("Server error", start));
+        assert!(!inner.record_error("Mic unavailable", start + Duration::from_secs(5)));
+
+        assert_eq!(
+            inner.expire_error(start + Duration::from_secs(8)),
+            ErrorExpiry::Wait(Duration::from_secs(5))
+        );
+        assert_eq!(inner.last_error, Some("Mic unavailable"));
+        assert_eq!(
+            inner.expire_error(start + Duration::from_secs(13)),
+            ErrorExpiry::Cleared
+        );
+        assert_eq!(inner.last_error, None);
+        // The timer exited, so the next error must start a new one.
+        assert!(inner.record_error("Server error", start + Duration::from_secs(20)));
+    }
+
+    #[test]
+    fn recording_during_the_wait_stops_the_timer_and_a_new_error_restarts_it() {
+        let state = TrayState::new();
+        let mut inner = state.lock();
+        let start = Instant::now();
+        assert!(inner.record_error("Server error", start));
+        inner.set_icon_state(TrayIconState::Recording);
+
+        assert_eq!(
+            inner.expire_error(start + Duration::from_secs(8)),
+            ErrorExpiry::Stopped
+        );
+        assert!(inner.record_error("Mic unavailable", start + Duration::from_secs(9)));
+
+        // A newer error while the old timer still sleeps reuses that timer.
+        let other_state = TrayState::new();
+        let mut other = other_state.lock();
+        assert!(other.record_error("Server error", start));
+        other.set_icon_state(TrayIconState::Recording);
+        assert!(!other.record_error("Mic unavailable", start + Duration::from_secs(3)));
+        assert_eq!(
+            other.expire_error(start + Duration::from_secs(8)),
+            ErrorExpiry::Wait(Duration::from_secs(3))
+        );
+    }
+
+    #[test]
+    fn tray_tooltip_appends_error_and_fits_windows_limit() {
+        let tooltip = tray_tooltip_with_error(Some("Mic unavailable"));
+        assert!(tooltip.ends_with("\n⚠ Mic unavailable"));
+
+        let long = "ошибка ".repeat(40);
+        let truncated = tray_tooltip_with_error(Some(&long));
+        assert!(truncated.encode_utf16().count() <= TRAY_TOOLTIP_MAX_UTF16);
+        assert!(truncated.ends_with('…'));
     }
 
     #[test]
