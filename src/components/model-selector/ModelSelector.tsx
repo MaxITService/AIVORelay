@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { type as getOsType } from "@tauri-apps/plugin-os";
-import { commands, type ModelInfo } from "@/bindings";
+import { commands, type ModelInfo, type RemoteSttSettings } from "@/bindings";
+import { resolveRemoteApiRow, type RemoteApiRow } from "@/lib/remoteApiModels";
 import type { ModelStateEvent } from "@/lib/types/events";
 import { getTranslatedModelName } from "../../lib/utils/modelTranslation";
 import { getRemoteApiDisplayLabel } from "../../lib/utils/remoteSttDisplay";
@@ -58,7 +59,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   onInteraction,
 }) => {
   const { t } = useTranslation();
-  const { getSetting, setTranscriptionProvider } = useSettings();
+  const { getSetting, setTranscriptionProvider, refreshSettings } = useSettings();
   const supportsRemoteProviders = getOsType() === "windows";
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [currentModelId, setCurrentModelId] = useState<string>("");
@@ -79,9 +80,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   const transcriptionProvider = String(
     getSetting("transcription_provider") || "local",
   );
-  const remoteApiDisplayLabel = getRemoteApiDisplayLabel(
-    getSetting("remote_stt") as any,
-  );
+  const remoteStt = getSetting("remote_stt") as RemoteSttSettings | undefined;
+  const remoteApiDisplayLabel = getRemoteApiDisplayLabel(remoteStt);
   const isRemoteProvider =
     transcriptionProvider === "remote_openai_compatible" ||
     transcriptionProvider === "remote_soniox" ||
@@ -571,6 +571,35 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     }
   };
 
+  const handleRemoteApiSelect = async (row: RemoteApiRow) => {
+    try {
+      invalidateModelDownloadActivationIntent();
+      setShowModelDropdown(false);
+      const { preset, modelId } = resolveRemoteApiRow(
+        row,
+        remoteStt?.provider_preset,
+      );
+      // Reapplying a preset resets its endpoint and model, including Custom API.
+      if (preset !== remoteStt?.provider_preset) {
+        const result = await commands.changeRemoteSttProviderPresetSetting(preset);
+        if (result.status === "error") throw new Error(result.error);
+      }
+      if (modelId) {
+        const result = await commands.changeRemoteSttModelIdSetting(modelId);
+        if (result.status === "error") throw new Error(result.error);
+      }
+      await setTranscriptionProvider("remote_openai_compatible");
+      await refreshSettings();
+      setModelError(null);
+      setModelStatus("ready");
+    } catch (err) {
+      const errorMsg = `${err}`;
+      setModelError(errorMsg);
+      setModelStatus("error");
+      onError?.(errorMsg);
+    }
+  };
+
   const handleRemoteProviderSelect = useCallback(
     async (provider: string) => {
       if (!supportsRemoteProviders) {
@@ -651,7 +680,10 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
             onModelDelete={handleModelDelete}
             onError={onError}
             currentProvider={transcriptionProvider}
-            remoteApiLabel={remoteApiDisplayLabel}
+            remoteStt={remoteStt}
+            onRemoteApiSelect={
+              supportsRemoteProviders ? handleRemoteApiSelect : undefined
+            }
             onRemoteProviderSelect={
               supportsRemoteProviders ? handleRemoteProviderSelect : undefined
             }
