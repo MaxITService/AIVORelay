@@ -778,6 +778,8 @@ fn show_error_overlay_internal(
     retry_session_id: Option<u64>,
     auto_hide_ms_override: Option<u64>,
 ) -> bool {
+    // Every branch below moves the tray to Idle, which then shows the error.
+    crate::tray::record_tray_error(app, category.display_text());
     let settings = crate::settings::get_settings(app);
     if !settings.error_feedback_enabled || !settings.recording_overlay_enabled {
         // Still need to reset tray icon even if overlay is disabled
