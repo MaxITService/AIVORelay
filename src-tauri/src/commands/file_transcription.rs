@@ -135,6 +135,7 @@ fn default_file_profile_snapshot(
         push_to_talk: false,
         auto_shortcut_activation: false,
         preview_output_only_enabled: false,
+        output_settings: crate::settings::ProfileOutputSettings::default(),
         soniox_language_hints_strict: Some(settings.soniox_language_hints_strict),
         gemini_language_code_override: Some(settings.gemini_language_code.clone()),
         gemini_custom_vocabulary_override: Some(settings.gemini_custom_vocabulary.clone()),

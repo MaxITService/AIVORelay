@@ -16,11 +16,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { invalidateModelDownloadActivationIntent } from "@/lib/modelDownloadActivation";
 import { getActiveProfilePostProcessingEnabled } from "@/lib/postProcessingAvailability";
 import { sessionToast as toast } from "@/lib/sessionToast";
+import type { ProfileOutputSettings } from "@/lib/profileOutputSettings";
 
 export type ChineseScript = "as_transcribed" | "simplified" | "traditional";
 export type Settings = GeneratedSettings & {
   chinese_script?: ChineseScript;
   mute_immediately?: boolean;
+  transcription_output_defaults?: ProfileOutputSettings;
 };
 
 const withActiveProfilePostProcessingEnabled = (

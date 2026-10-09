@@ -281,6 +281,9 @@ pub struct TranscriptionProfile {
     /// The user explicitly controls when text is inserted via preview actions.
     #[serde(default)]
     pub preview_output_only_enabled: bool,
+    /// Unset output fields inherit Default (Global).
+    #[serde(default)]
+    pub output_settings: ProfileOutputSettings,
     /// Enforce language hints strictly in Soniox (None = inherit global)
     #[serde(default)]
     pub soniox_language_hints_strict: Option<bool>,
@@ -3329,6 +3332,92 @@ pub enum AutoSubmitKey {
     CmdEnter,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, Type)]
+#[serde(default)]
+pub struct ProfileOutputSettings {
+    pub paste_method: Option<PasteMethod>,
+    pub clipboard_handling: Option<ClipboardHandling>,
+    pub clipboard_history_allowed: Option<bool>,
+    pub convert_lf_to_crlf: Option<bool>,
+    pub paste_delay_ms: Option<u64>,
+    pub auto_submit: Option<bool>,
+    pub auto_submit_key: Option<AutoSubmitKey>,
+    /// None inherits; an empty string explicitly disables the opening key.
+    pub before_insert_key: Option<String>,
+    pub before_insert_delay_ms: Option<u64>,
+    pub auto_submit_delay_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedOutputSettings {
+    pub paste_method: PasteMethod,
+    pub clipboard_handling: ClipboardHandling,
+    pub clipboard_history_allowed: bool,
+    pub convert_lf_to_crlf: bool,
+    pub paste_delay_ms: u64,
+    pub auto_submit: bool,
+    pub auto_submit_key: AutoSubmitKey,
+    pub before_insert_key: String,
+    pub before_insert_delay_ms: u64,
+    pub auto_submit_delay_ms: u64,
+}
+
+impl ResolvedOutputSettings {
+    pub fn resolve(settings: &AppSettings, profile_id: Option<&str>) -> Self {
+        let defaults = &settings.transcription_output_defaults;
+        let mut output = Self {
+            paste_method: settings.paste_method,
+            clipboard_handling: settings.clipboard_handling,
+            clipboard_history_allowed: settings.clipboard_history_allowed,
+            convert_lf_to_crlf: settings.convert_lf_to_crlf,
+            paste_delay_ms: settings.paste_delay_ms,
+            auto_submit: settings.auto_submit,
+            auto_submit_key: settings.auto_submit_key,
+            before_insert_key: defaults.before_insert_key.clone().unwrap_or_default(),
+            before_insert_delay_ms: defaults.before_insert_delay_ms.unwrap_or(150),
+            auto_submit_delay_ms: defaults.auto_submit_delay_ms.unwrap_or(50),
+        };
+        if let Some(profile) = profile_id.and_then(|id| settings.transcription_profile(id)) {
+            let overrides = &profile.output_settings;
+            macro_rules! override_field {
+                ($($field:ident),+ $(,)?) => { $(
+                    if let Some(value) = overrides.$field { output.$field = value; }
+                )+ };
+            }
+            override_field!(paste_method, clipboard_handling, clipboard_history_allowed,
+                convert_lf_to_crlf, paste_delay_ms, auto_submit, auto_submit_key,
+                before_insert_delay_ms, auto_submit_delay_ms);
+            if let Some(key) = &overrides.before_insert_key {
+                output.before_insert_key = key.clone();
+            }
+        }
+        output
+    }
+
+    pub fn buffers_external_output(&self) -> bool {
+        self.paste_method != PasteMethod::None
+            && (!self.before_insert_key.is_empty() || self.auto_submit)
+    }
+
+    pub fn apply_to_recording(&self, settings: &mut AppSettings) {
+        settings.paste_method = self.paste_method;
+        settings.clipboard_handling = self.clipboard_handling;
+        settings.clipboard_history_allowed = self.clipboard_history_allowed;
+        settings.convert_lf_to_crlf = self.convert_lf_to_crlf;
+        settings.paste_delay_ms = self.paste_delay_ms;
+        settings.auto_submit = self.auto_submit;
+        settings.auto_submit_key = self.auto_submit_key;
+        settings.transcription_output_defaults.before_insert_key = Some(self.before_insert_key.clone());
+        settings.transcription_output_defaults.before_insert_delay_ms = Some(self.before_insert_delay_ms);
+        settings.transcription_output_defaults.auto_submit_delay_ms = Some(self.auto_submit_delay_ms);
+    }
+
+    pub fn timeout_ms(&self) -> u64 {
+        self.paste_delay_ms.saturating_add(self.before_insert_delay_ms)
+            .saturating_add(self.auto_submit_delay_ms).saturating_add(5000)
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputWhitespaceMode {
@@ -4052,6 +4141,8 @@ pub struct AppSettings {
     pub auto_submit: bool,
     #[serde(default)]
     pub auto_submit_key: AutoSubmitKey,
+    #[serde(default)]
+    pub transcription_output_defaults: ProfileOutputSettings,
     #[serde(default = "default_post_process_enabled")]
     pub post_process_enabled: bool,
     #[serde(default = "default_post_process_provider_id")]
@@ -6222,6 +6313,7 @@ pub fn get_default_settings() -> AppSettings {
         clipboard_history_allowed: default_true(),
         auto_submit: default_auto_submit(),
         auto_submit_key: AutoSubmitKey::default(),
+        transcription_output_defaults: ProfileOutputSettings::default(),
         post_process_enabled: default_post_process_enabled(),
         post_process_provider_id: default_post_process_provider_id(),
         post_process_providers: default_post_process_providers(),
@@ -7757,6 +7849,93 @@ pub fn record_dictation_stats_for_text(app: &AppHandle, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_profiles_inherit_output_without_resetting_saved_defaults() {
+        let profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
+            "id": "legacy", "name": "Legacy", "language": "auto", "translate_to_english": false
+        })).unwrap();
+        assert_eq!(profile.output_settings, ProfileOutputSettings::default());
+        let mut settings = get_default_settings();
+        settings.transcription_profiles.push(profile);
+        settings.paste_method = PasteMethod::ShiftInsert;
+        settings.clipboard_handling = ClipboardHandling::KeepTranscription;
+        settings.auto_submit = true;
+        settings.auto_submit_key = AutoSubmitKey::CtrlEnter;
+        let mut document = serde_json::to_value(&settings).unwrap();
+        document.as_object_mut().unwrap().remove("transcription_output_defaults");
+        document["transcription_profiles"][0].as_object_mut().unwrap().remove("output_settings");
+        let restored: AppSettings = serde_json::from_value(document).unwrap();
+        let output = ResolvedOutputSettings::resolve(&restored, Some("legacy"));
+        assert_eq!(output.paste_method, PasteMethod::ShiftInsert);
+        assert_eq!(output.clipboard_handling, ClipboardHandling::KeepTranscription);
+        assert!(output.auto_submit);
+        assert_eq!(output.auto_submit_key, AutoSubmitKey::CtrlEnter);
+        assert!(output.before_insert_key.is_empty());
+    }
+
+    #[test]
+    fn output_overrides_preserve_explicit_off_and_inherit_each_unset_field() {
+        let profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
+            "id": "editor", "name": "Editor", "language": "auto", "translate_to_english": false,
+            "output_settings": {
+                "paste_method": "direct", "auto_submit": false, "before_insert_key": "",
+                "before_insert_delay_ms": 0, "clipboard_history_allowed": false
+            }
+        })).unwrap();
+        let mut settings = get_default_settings();
+        settings.transcription_profiles.push(profile);
+        settings.auto_submit = true;
+        settings.auto_submit_key = AutoSubmitKey::CtrlEnter;
+        settings.paste_delay_ms = 123;
+        settings.transcription_output_defaults.before_insert_key = Some("enter".into());
+        settings.transcription_output_defaults.auto_submit_delay_ms = Some(321);
+        let output = ResolvedOutputSettings::resolve(&settings, Some("editor"));
+        assert_eq!(output.paste_method, PasteMethod::Direct);
+        assert!(!output.auto_submit);
+        assert!(output.before_insert_key.is_empty());
+        assert_eq!(output.before_insert_delay_ms, 0);
+        assert!(!output.clipboard_history_allowed);
+        assert_eq!(output.auto_submit_key, AutoSubmitKey::CtrlEnter);
+        assert_eq!(output.paste_delay_ms, 123);
+        assert_eq!(output.auto_submit_delay_ms, 321);
+        assert!(!output.buffers_external_output());
+        assert!(ResolvedOutputSettings::resolve(&settings, Some("missing")).auto_submit);
+    }
+
+    #[test]
+    fn key_actions_buffer_live_output_but_none_never_sends_keys() {
+        let settings = get_default_settings();
+        let mut output = ResolvedOutputSettings::resolve(&settings, None);
+        output.paste_method = PasteMethod::Direct;
+        output.auto_submit = false;
+        assert!(!output.buffers_external_output());
+        output.auto_submit = true;
+        assert!(output.buffers_external_output());
+        output.auto_submit = false;
+        output.before_insert_key = "enter".into();
+        assert!(output.buffers_external_output());
+        output.paste_method = PasteMethod::None;
+        output.auto_submit = true;
+        assert!(!output.buffers_external_output());
+    }
+
+    #[test]
+    fn recording_output_snapshot_keeps_delays_after_saved_settings_change() {
+        let mut settings = get_default_settings();
+        settings.paste_delay_ms = 5000;
+        settings.transcription_output_defaults.before_insert_delay_ms = Some(5000);
+        settings.transcription_output_defaults.auto_submit_delay_ms = Some(5000);
+        let output = ResolvedOutputSettings::resolve(&settings, None);
+        let mut recording = settings.clone();
+        settings.paste_delay_ms = 10;
+        settings.transcription_output_defaults.before_insert_delay_ms = Some(20);
+        output.apply_to_recording(&mut recording);
+        assert_eq!(recording.paste_delay_ms, 5000);
+        assert_eq!(recording.transcription_output_defaults.before_insert_delay_ms, Some(5000));
+        assert_eq!(settings.paste_delay_ms, 10);
+        assert_eq!(output.timeout_ms(), 20000);
+    }
 
     #[test]
     fn chinese_script_migration_preserves_legacy_profiles_and_file_snapshots() {
