@@ -248,6 +248,21 @@ fn create_stream(
     let mut used_fallback = false;
     let stream_builder = if let Some(name) = device_name.filter(|name| *name != "Default") {
         let host = crate::audio_toolkit::get_cpal_host();
+        // Avoid enumerating every output device when the named selection is
+        // already the system default. The worker still owns and caches it.
+        if let Some(default_device) = host.default_output_device() {
+            if let Ok(default_name) = default_device.name() {
+                if default_name == name {
+                    debug!(
+                        "Selected device '{}' is the current default, using fast path",
+                        name
+                    );
+                    let stream = OutputStreamBuilder::from_device(default_device)?.open_stream()?;
+                    return Ok((stream, false));
+                }
+            }
+        }
+
         let devices = host.output_devices()?;
 
         let mut found_device = None;
