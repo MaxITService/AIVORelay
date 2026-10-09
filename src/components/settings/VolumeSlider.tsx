@@ -8,7 +8,7 @@ export const VolumeSlider: React.FC<{ disabled?: boolean }> = ({
 }) => {
   const { t } = useTranslation();
   const { getSetting, updateSetting } = useSettings();
-  const audioFeedbackVolume = getSetting("audio_feedback_volume") ?? 0.5;
+  const audioFeedbackVolume = getSetting("audio_feedback_volume") ?? 1.0;
 
   return (
     <Slider

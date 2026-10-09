@@ -20,7 +20,7 @@ export const ShowTrayIcon: React.FC<ShowTrayIconProps> = React.memo(
     const trayIconBlinkingEnabled =
       getSetting("tray_icon_blinking_enabled") ?? false;
     const trayIconBlinkOnRecording =
-      getSetting("tray_icon_blink_on_recording") ?? false;
+      getSetting("tray_icon_blink_on_recording") ?? true;
     const trayIconBlinkOnProcessing =
       getSetting("tray_icon_blink_on_processing") ?? true;
     const trayIconBlinkFrequencyHz =
