@@ -12,6 +12,7 @@ use crate::settings::{
     TranscriptionProvider, VadBackend,
 };
 use crate::utils;
+use cpal::traits::HostTrait;
 use log::{debug, error, info, trace, warn};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -961,9 +962,39 @@ impl AudioRecordingManager {
     }
 
     pub fn start_stream_for_binding(&self, binding_id: Option<&str>) -> Result<(), anyhow::Error> {
+        let state = self.state.lock().unwrap();
+        if !matches!(*state, RecordingState::Idle) {
+            return Ok(());
+        }
         let settings = get_settings(&self.app_handle);
         let selection = self.resolve_selection_for_binding(&settings, binding_id);
         self.start_stream_for_selection(selection, &settings)
+    }
+
+    /// UI device refresh may reconcile a warm default microphone, but must
+    /// preserve an active session, loopback, and any explicit device choice.
+    pub fn refresh_default_microphone_stream(&self) -> Result<(), anyhow::Error> {
+        let state = self.state.lock().unwrap();
+        if !matches!(*state, RecordingState::Idle) || !*self.is_open.lock().unwrap() {
+            return Ok(());
+        }
+        let settings = get_settings(&self.app_handle);
+        let selection = self.resolve_selection_for_binding(&settings, None);
+        if selection.source != AudioCaptureSource::Microphone || selection.device_name.is_some() {
+            return Ok(());
+        }
+        if self.active_selection.lock().unwrap().as_ref() != Some(&selection) {
+            return Ok(());
+        }
+        let reopened = self.ensure_stream_for_selection(selection, &settings)?;
+        if reopened && matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand) {
+            if self.should_use_lazy_stream_close() {
+                self.schedule_lazy_close();
+            } else {
+                self.stop_microphone_stream();
+            }
+        }
+        Ok(())
     }
 
     pub fn preload_audio_recorder(&self) -> Result<(), anyhow::Error> {
@@ -1075,11 +1106,20 @@ impl AudioRecordingManager {
 
     fn start_stream_for_selection(
         &self,
-        mut selection: ActiveRecorderSelection,
+        selection: ActiveRecorderSelection,
         settings: &AppSettings,
     ) -> Result<(), anyhow::Error> {
         self.close_generation.fetch_add(1, Ordering::SeqCst);
+        self.ensure_stream_for_selection(selection, settings).map(|_| ())
+    }
 
+    /// Returns whether a stream was opened, preserving idle-close ownership
+    /// when an existing stream is already healthy and uses the right device.
+    fn ensure_stream_for_selection(
+        &self,
+        mut selection: ActiveRecorderSelection,
+        settings: &AppSettings,
+    ) -> Result<bool, anyhow::Error> {
         let is_open = *self.is_open.lock().unwrap();
         let active_selection = self.active_selection.lock().unwrap().clone();
         if is_open && active_selection.as_ref() == Some(&selection) {
@@ -1092,20 +1132,39 @@ impl AudioRecordingManager {
                 .unwrap()
                 .as_ref()
                 .is_some_and(|rec| rec.needs_reopen());
+            let default_device_changed = !needs_reopen
+                && selection.source == AudioCaptureSource::Microphone
+                && selection.device_name.is_none()
+                && crate::audio_toolkit::get_cpal_host()
+                    .default_input_device()
+                    .is_some_and(|device| {
+                        self.recorder
+                            .lock()
+                            .unwrap()
+                            .as_ref()
+                            .is_some_and(|rec| !rec.is_using_device(&device))
+                    });
 
-            if !needs_reopen {
+            if !needs_reopen && !default_device_changed {
                 trace!(
                     "Audio capture stream already active for {:?}",
                     selection.source
                 );
-                return Ok(());
+                return Ok(false);
             }
 
-            warn!(
-                "Audio capture stream for {:?} is no longer running; reopening",
-                selection.source
-            );
+            if default_device_changed {
+                info!("System default microphone changed; reopening capture before recording");
+            } else {
+                warn!(
+                    "Audio capture stream for {:?} is no longer running; reopening",
+                    selection.source
+                );
+            }
             if let Some(rec) = self.recorder.lock().unwrap().as_mut() {
+                if default_device_changed {
+                    rec.invalidate_device_config_cache();
+                }
                 let _ = rec.close();
             }
             *self.is_recording.lock().unwrap() = false;
@@ -1118,6 +1177,7 @@ impl AudioRecordingManager {
             self.stop_microphone_stream();
         }
 
+        self.close_generation.fetch_add(1, Ordering::SeqCst);
         let start_time = Instant::now();
 
         // Don't mute immediately - caller will handle muting after audio feedback.
@@ -1194,7 +1254,7 @@ impl AudioRecordingManager {
             resolve_elapsed,
             open_started.elapsed()
         );
-        Ok(())
+        Ok(true)
     }
 
     pub fn stop_microphone_stream(&self) {
@@ -1245,7 +1305,9 @@ impl AudioRecordingManager {
                 // Keep the current capture (including loopback) intact. The
                 // next idle/start transition can apply a pending device change.
                 if matches!(*state, RecordingState::Idle) {
-                    self.start_microphone_stream()?;
+                    let settings = get_settings(&self.app_handle);
+                    let selection = self.resolve_selection_for_binding(&settings, None);
+                    self.start_stream_for_selection(selection, &settings)?;
                 }
             }
             _ => {}
