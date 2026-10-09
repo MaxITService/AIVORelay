@@ -1171,6 +1171,8 @@ struct CapturePipeline {
     max_drain_samples: usize,
     total_dropped_samples: u64,
     overrun_warning_logged: bool,
+    captured_input_samples: u64,
+    captured_input_has_nonzero: bool,
 }
 
 impl CapturePipeline {
@@ -1220,6 +1222,8 @@ impl CapturePipeline {
             max_drain_samples,
             total_dropped_samples: 0,
             overrun_warning_logged: false,
+            captured_input_samples: 0,
+            captured_input_has_nonzero: false,
         }
     }
 
@@ -1233,6 +1237,8 @@ impl CapturePipeline {
         self.capture_ready_tx = Some(ready_tx);
         self.total_dropped_samples = 0;
         self.overrun_warning_logged = false;
+        self.captured_input_samples = 0;
+        self.captured_input_has_nonzero = false;
         self.visualizer.reset();
         self.frame_resampler.reset();
         if let Some(resampler) = self.vad_frame_resampler.as_mut() {
@@ -1257,6 +1263,13 @@ impl CapturePipeline {
     fn process_raw_chunk(&mut self, raw: &[f32], disposition: ChunkDisposition) {
         if disposition == ChunkDisposition::Discard {
             return;
+        }
+
+        // Observe actual input before gain, noise cancellation, resampling,
+        // or VAD can alter it. Retain this evidence across streaming flushes.
+        self.captured_input_samples = self.captured_input_samples.saturating_add(raw.len() as u64);
+        if !self.captured_input_has_nonzero {
+            self.captured_input_has_nonzero = raw.iter().any(|sample| *sample != 0.0);
         }
 
         if let Some(buckets) = self.visualizer.feed(raw) {
@@ -1307,6 +1320,13 @@ impl CapturePipeline {
     }
 
     fn finish_recording(&mut self) -> Vec<f32> {
+        if self.captured_input_samples > 0 && !self.captured_input_has_nonzero {
+            log::warn!(
+                "Captured {:?} audio is digital silence: all {} captured input samples are zero before gain, noise cancellation, resampling, and VAD; check source routing, mute, and channel selection",
+                self.source,
+                self.captured_input_samples
+            );
+        }
         self.frame_resampler.finish(&mut |frame: &[f32]| {
             process_enhanced_capture_frame(
                 frame,
