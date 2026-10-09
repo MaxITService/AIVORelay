@@ -3683,7 +3683,7 @@
         "promptLabelPlaceholder": "Enter prompt name",
         "promptInstructions": "Prompt Instructions",
         "promptInstructionsPlaceholder": "Write the instructions to run after transcription. Example: Improve grammar and clarity for the following text: ${output}",
-        "promptTip": "Tip: Use <code>${output}</code> to insert the transcribed text in your prompt.",
+        "promptTip": "Tip: Use <code>${output}</code> to insert the transcribed text and <code>${custom_words}</code> to include your enabled custom words list, one word per line. When the dictionary is disabled or empty, ${custom_words} becomes (none provided).",
         "outputVariableDoc": {
           "title": "Required: ${output} Template Variable",
           "description": "Your prompt <strong>MUST</strong> include <code>${output}</code> to indicate where the transcribed text will be inserted.",

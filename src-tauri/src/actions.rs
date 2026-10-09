@@ -154,6 +154,7 @@ impl OperationStamp {
 #[derive(Clone, Debug, Default)]
 struct LlmTemplateContext {
     output: String,
+    custom_words: String,
     instruction: String,
     selection: String,
     current_app: String,
@@ -1074,6 +1075,11 @@ fn build_llm_template_context(
 
     LlmTemplateContext {
         output: output.to_string(),
+        custom_words: if settings.custom_words_enabled && !settings.custom_words.is_empty() {
+            settings.custom_words.join("\n")
+        } else {
+            "(none provided)".to_string()
+        },
         instruction: instruction.to_string(),
         selection: selection.to_string(),
         current_app: current_app.to_string(),
@@ -1120,6 +1126,7 @@ fn apply_llm_template_vars(template: &str, context: &LlmTemplateContext) -> Stri
         template,
         &[
             ("output", &context.output),
+            ("custom_words", &context.custom_words),
             ("instruction", &context.instruction),
             ("selection", &context.selection),
             ("current_app", &context.current_app),
@@ -1142,6 +1149,7 @@ mod llm_template_regression_tests {
         let context = LlmTemplateContext {
             output: "Unicode: почта ${language}; quotes: \"x\"; slash: \\; dollars: $$"
                 .to_string(),
+            custom_words: "AivoRelay\nБренд ${output}".to_string(),
             instruction: String::new(),
             selection: "${output}".to_string(),
             language: "en".to_string(),
@@ -1150,10 +1158,10 @@ mod llm_template_regression_tests {
 
         assert_eq!(
             apply_llm_template_vars(
-                "${output}|${output}|${instruction}|${selection}|${unknown}|${unfinished",
+                "${output}|${output}|${custom_words}|${custom_words}|${instruction}|${selection}|${unknown}|${unfinished",
                 &context,
             ),
-            "Unicode: почта ${language}; quotes: \"x\"; slash: \\; dollars: $$|Unicode: почта ${language}; quotes: \"x\"; slash: \\; dollars: $$||${output}|${unknown}|${unfinished"
+            "Unicode: почта ${language}; quotes: \"x\"; slash: \\; dollars: $$|Unicode: почта ${language}; quotes: \"x\"; slash: \\; dollars: $$|AivoRelay\nБренд ${output}|AivoRelay\nБренд ${output}||${output}|${unknown}|${unfinished"
         );
     }
 
