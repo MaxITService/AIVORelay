@@ -51,6 +51,8 @@ When asked to bump the app version:
 
 ## Main Release Preflight
 
+Microsoft Store release procedure: [[../AIVORelay-store/.AGENTS/Release-store|Release-store.md]].
+
 Before tagging or running `Release` for `main`, verify `.github/release-notes/main.md` is current for the target version.
 After pushing `main`, run `gh workflow run release.yml --ref main`; the workflow creates a draft GitHub release named from `src-tauri/tauri.conf.json`.
 

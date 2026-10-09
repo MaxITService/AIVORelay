@@ -18,3 +18,5 @@ Target branch: `release/microsoft-store`
 - AVX2-targeted changes
 - normal runtime fixes from `main`
 - UI fixes from `main`
+
+Store release contract: [[../AIVORelay-store/.AGENTS/store-branch-notes#Distribution Differences|Microsoft Store branch contract]].
