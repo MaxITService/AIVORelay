@@ -5,15 +5,15 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Settings search finds individual options and opens them directly, including options inside collapsed panels.
-- Settings lists and dropdowns sort names and numbers naturally, with A → Z, Z → A, and Off controls where useful.
-- Choose recording overlay entrance and exit animations, including Portal effects. Interrupted animations reverse smoothly.
-- Re-transcribe saved recordings in History with live models, follow progress, and stop without losing the original text.
-- Enjoy smoother menus, controls, tooltips, sidebar dragging, and file selection, plus refreshed speech icons and a soft settings-card glow.
-- Send Selected Text is fully translated into Russian, and its history follows the Windows 12- or 24-hour clock setting.
-- File transcription keeps its progress and results when you switch sections and return.
-- Old recordings are cleaned up at startup and hourly according to your retention setting.
-- Dictation-only mode has a clearer name and explanation of its lower RAM use.
+- Local transcription runs separately from the app, improving responsiveness and recovery from speech-engine failures.
+- The recording overlay and live preview clearly show when a speech model is loading.
+- Choose simplified or traditional Chinese text, with separate preferences for transcription profiles.
+- Fixed Soniox live-transcription connection authentication.
+- New custom sounds appear when you reopen the sound selector.
+- Portable installations can reuse models from earlier download locations.
+- The tray briefly shows an error icon and explanation after failures.
+- Settings show the correct default values.
+- Included the latest upstream Handy improvements and fixes.
 
 ---
 

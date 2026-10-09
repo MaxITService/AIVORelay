@@ -545,19 +545,18 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.45",
+      "since": "Since version 1.0.46",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "settingsSearch": "Settings search now finds individual options and takes you straight to them, opening collapsed panels on the way. If an option appears only after you turn on another one, search takes you to that one.",
-        "listSorting": "Lists and dropdowns in settings are now sorted by name, with numbers in natural order. Profiles, prompts, presets, and model lists can also be switched to Z → A or Off, and entries such as Default and Auto stay at the top.",
-        "overlayAnimations": "Choose how the recording overlay appears and disappears, including the new Portal animation. An interrupted animation now reverses smoothly instead of jumping.",
-        "historyLiveReplay": "Re-transcribe saved recordings in History with live models too. Progress is shown, and stopping keeps the original text.",
-        "interfaceMotion": "Smoother interface: animated menus, sections, switches, buttons, sliders, and tooltips, a soft glow on settings cards near the cursor, smooth sidebar dragging, and new Speech / Mic and Speech Processing icons.",
-        "sendSelectedText": "Send Selected Text is now fully translated into Russian, and its history uses the 12- or 24-hour clock set in Windows.",
-        "transcribeFile": "Transcribe File keeps the progress and result of a running transcription when you switch to another section and back.",
-        "historyCleanup": "History now removes old recordings according to your retention setting at startup and every hour, not only after a new recording.",
-        "dictationOnlyMode": "Speech-only mode is now called Dictation-only mode (less RAM), with clearer descriptions."
+        "localReliability": "Local transcription runs separately from the app, helping it stay responsive while a model loads or the speech engine recovers from a failure.",
+        "modelLoading": "The recording overlay and live preview now show when a speech model is loading, instead of appearing stuck on transcription.",
+        "chineseScript": "Choose simplified Chinese, traditional Chinese, or the original recognized text. Each transcription profile can have its own preference.",
+        "sonioxConnection": "Fixed connection authentication for Soniox live transcription.",
+        "customSounds": "New custom sounds appear when you reopen the sound selector.",
+        "legacyModels": "Portable installations can reuse models from earlier download locations, avoiding unnecessary downloads.",
+        "trayErrors": "After an error, the tray briefly shows an error icon and a short explanation in its tooltip.",
+        "defaultSettings": "Settings now show the correct default values."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"
