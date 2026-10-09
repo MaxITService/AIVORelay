@@ -63,15 +63,14 @@ const SMART_HELP_ACTIONS = [
 ] as const;
 
 const WHATS_NEW_ITEMS = [
-  "help.whatsNew.items.settingsSearch",
-  "help.whatsNew.items.listSorting",
-  "help.whatsNew.items.overlayAnimations",
-  "help.whatsNew.items.historyLiveReplay",
-  "help.whatsNew.items.interfaceMotion",
-  "help.whatsNew.items.sendSelectedText",
-  "help.whatsNew.items.transcribeFile",
-  "help.whatsNew.items.historyCleanup",
-  "help.whatsNew.items.dictationOnlyMode",
+  "help.whatsNew.items.localReliability",
+  "help.whatsNew.items.modelLoading",
+  "help.whatsNew.items.chineseScript",
+  "help.whatsNew.items.sonioxConnection",
+  "help.whatsNew.items.customSounds",
+  "help.whatsNew.items.legacyModels",
+  "help.whatsNew.items.trayErrors",
+  "help.whatsNew.items.defaultSettings",
 ] as const;
 
 export const HelpSettings: React.FC = () => {
