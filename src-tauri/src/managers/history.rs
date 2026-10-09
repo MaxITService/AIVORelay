@@ -656,9 +656,18 @@ impl HistoryManager {
         &self,
         cursor: Option<i64>,
         limit: Option<usize>,
+        search: Option<String>,
     ) -> Result<PaginatedHistory> {
         let conn = self.get_connection()?;
         let limit = limit.map(|value| value.min(100));
+
+        if let Some(query) = search
+            .as_deref()
+            .map(str::trim)
+            .filter(|query| !query.is_empty())
+        {
+            return Self::search_entries_with_conn(&conn, query, cursor, limit);
+        }
 
         let mut entries = match (cursor, limit) {
             (Some(cursor_id), Some(page_size)) => {
@@ -702,6 +711,60 @@ impl HistoryManager {
             entries.pop();
         }
 
+        Ok(PaginatedHistory { entries, has_more })
+    }
+
+    /// Search the fields rendered by History, with literal Unicode case-insensitive
+    /// matching (the frontend uses the same rules for highlighting).
+    fn search_entries_with_conn(
+        conn: &Connection,
+        query: &str,
+        cursor: Option<i64>,
+        limit: Option<usize>,
+    ) -> Result<PaginatedHistory> {
+        let needle = regex::RegexBuilder::new(&regex::escape(query))
+            .case_insensitive(true)
+            .build()?;
+        let fetch_count = limit.map_or(usize::MAX, |value| value + 1);
+        let mut stmt = conn.prepare(
+            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response
+             FROM transcription_history
+             WHERE ?1 IS NULL OR id < ?1
+             ORDER BY id DESC",
+        )?;
+        let rows = stmt.query_map(params![cursor], Self::map_history_entry)?;
+        let mut entries = Vec::new();
+        for row in rows {
+            let entry = row?;
+            let matches = if entry.action_type == "ai_replace" {
+                needle.is_match(&entry.transcription_text)
+                    || entry
+                        .original_selection
+                        .as_deref()
+                        .is_some_and(|text| needle.is_match(text))
+                    || entry
+                        .ai_response
+                        .as_deref()
+                        .is_some_and(|text| needle.is_match(text))
+            } else {
+                needle.is_match(
+                    entry
+                        .post_processed_text
+                        .as_deref()
+                        .unwrap_or(&entry.transcription_text),
+                )
+            };
+            if matches {
+                entries.push(entry);
+                if entries.len() >= fetch_count {
+                    break;
+                }
+            }
+        }
+        let has_more = limit.is_some_and(|value| entries.len() > value);
+        if has_more {
+            entries.pop();
+        }
         Ok(PaginatedHistory { entries, has_more })
     }
 
