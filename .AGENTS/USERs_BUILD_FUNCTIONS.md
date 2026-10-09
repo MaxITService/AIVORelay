@@ -61,6 +61,23 @@ function Assert-AivoRelayTcpPortAvailable {
   }
 }
 
+# Confirms closing a previous AivoRelay session before either dev launcher starts.
+function Confirm-AivoRelayDevLaunch {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][string]$TargetRoot,
+    [string]$CargoTargetDir = 'Q:\t\d',
+    [int[]]$Ports = @(1420)
+  )
+
+  $preflightScript = Join-Path $TargetRoot 'scripts\confirm-aivorelay-dev-launch.ps1'
+  if (-not (Test-Path -LiteralPath $preflightScript -PathType Leaf)) {
+    throw "AivoRelay launch preflight not found: $preflightScript"
+  }
+  . $preflightScript
+  Confirm-AivoRelayLaunch -TargetRoot $TargetRoot -CargoTargetDir $CargoTargetDir -Ports $Ports
+}
+
 # Dev-AivoRelay
 # Runs Get-Dev, prepares the Windows bindgen/Vulkan environment, shortens Cargo target output, then starts the Tauri dev server via bun.
 # Optional: -EnablePlaywright exposes the same visible dev window over WebView2 CDP.
@@ -89,6 +106,10 @@ function Dev-AivoRelay {
   if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
     throw "'bun' not found in PATH; ensure bun is installed and available."
   }
+
+  $launchPorts = @(1420)
+  if ($EnablePlaywright) { $launchPorts += $PlaywrightPort }
+  Confirm-AivoRelayDevLaunch -TargetRoot $target -Ports $launchPorts
 
   Set-AivoRelayBindgenWindowsEnv
   Ensure-AivoRelayVulkanDll -TargetRoot $target
@@ -217,6 +238,10 @@ function Fast-Dev-AivoRelay {
     Throw "Target folder not found: $target"
   }
 
+  $launchPorts = @(1420)
+  if ($EnablePlaywright) { $launchPorts += $PlaywrightPort }
+  Confirm-AivoRelayDevLaunch -TargetRoot $target -Ports $launchPorts
+
   $lldLinkPath = "C:\Program Files\LLVM\bin\lld-link.exe"
   if (-not (Test-Path -LiteralPath $lldLinkPath)) {
     Write-Warning "lld-link.exe not found at $lldLinkPath. Falling back to Dev-AivoRelay."
@@ -312,7 +337,10 @@ Test-AivoRelayPlaywright -PlaywrightPort 9334 -ScreenshotPath .\aivorelay.png
 
 Behavior notes:
 
-- default behavior is unchanged when `-EnablePlaywright` is omitted
+- both launchers list a previous AivoRelay app/dev session and accept Enter to close it before continuing; any other input cancels the new launch
+- unrelated Bun/Node sessions and PowerShell consoles are left running; non-interactive launches require the existing AivoRelay session to be closed first
+- Fast mode asks before saving or changing `.cargo/config.toml`, allowing the previous Fast session to restore its original config first
+- the checked-in `scripts/confirm-aivorelay-dev-launch.ps1` supplies the same preflight for both profile functions and `start-playwright-tauri-dev.ps1`
 - when enabled, the same visible `bun x tauri dev` instance exposes WebView2 CDP on the selected port
 - the launcher rejects an already occupied CDP port before starting a long build
 - the previous `PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT` environment value is restored after the dev session exits

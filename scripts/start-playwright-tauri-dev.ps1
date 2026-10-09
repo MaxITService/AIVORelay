@@ -9,6 +9,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 . "$PSScriptRoot\setup-rust-build-env.ps1"
+. "$PSScriptRoot\confirm-aivorelay-dev-launch.ps1"
 
 function Assert-TcpPortAvailable {
     param([Parameter(Mandatory = $true)][int]$Port)
@@ -67,6 +68,10 @@ if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
     throw "'bun' not found in PATH; ensure bun is installed and available."
 }
 
+if (-not $SkipProcessCheck) {
+    Confirm-AivoRelayLaunch -TargetRoot $repoRoot -CargoTargetDir $CargoTargetDir -Ports @(1420, $PlaywrightPort)
+}
+
 $context = $null
 $previousPlaywrightPort = $env:PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT
 $hadPreviousPlaywrightPort = Test-Path Env:PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT
@@ -76,7 +81,7 @@ try {
     Write-Host "Preparing AivoRelay Playwright dev launch..." -ForegroundColor Cyan
 
     $context = Initialize-RustBuildEnvironment `
-        -SkipProcessCheck:$SkipProcessCheck `
+        -SkipProcessCheck `
         -PreferredCargoTargetDir $CargoTargetDir `
         -MinimumFreeSpaceGB 10
 
