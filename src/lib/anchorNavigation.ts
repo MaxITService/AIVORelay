@@ -150,18 +150,24 @@ export const navigateToSettingsAnchor = ({
           : null;
       targetToggle?.click();
 
-      const targetDetails =
-        target instanceof HTMLDetailsElement && !target.open ? target : null;
-      if (targetDetails) targetDetails.open = true;
-
       const destination =
         target ??
         (fallbackId ? document.getElementById(fallbackId) : null) ??
         expansionTarget;
       if (!destination) return;
 
+      let openedDetails = false;
+      let parentDetails = destination.closest("details");
+      while (parentDetails) {
+        if (!parentDetails.open) {
+          parentDetails.open = true;
+          openedDetails = true;
+        }
+        parentDetails = parentDetails.parentElement?.closest("details") ?? null;
+      }
+
       // Let expand animations finish so the scroll lands on the final layout.
-      if (collapsedDetails || collapsedToggle || targetToggle || targetDetails) {
+      if (collapsedDetails || collapsedToggle || targetToggle || openedDetails) {
         pendingRevealTimer = window.setTimeout(() => {
           pendingRevealTimer = null;
           scrollAndFocusAnchor(destination, block, isCurrent);

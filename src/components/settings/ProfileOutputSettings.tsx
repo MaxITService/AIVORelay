@@ -95,7 +95,7 @@ export const ProfileOutputSettings: React.FC<Props> = ({ profileId, overrides = 
     { value: "false", label: t("profileOutput.disabled") },
   ];
   const delay = (key: "paste_delay_ms" | "before_insert_delay_ms" | "auto_submit_delay_ms", label: string) => (
-    <SettingContainer title={label} description="" grouped={true}>
+    <SettingContainer id={`profile-output-${profileId}-${key}`} title={label} description="" grouped={true}>
       <Input
         key={`${profileId}-${key}-${values[key] ?? "inherit"}`}
         type="number"
@@ -144,13 +144,13 @@ export const ProfileOutputSettings: React.FC<Props> = ({ profileId, overrides = 
             <button type="button" className="underline underline-offset-2 hover:text-text" onClick={openDefaultProfileOutputSettings}>{t("profileOutput.openDefault")}</button>
           </>}
         </p>
-        <SettingContainer title={t("settings.advanced.pasteMethod.title")} description={t("settings.advanced.pasteMethod.description")} descriptionMode="tooltip" grouped={true}>
+        <SettingContainer id={`profile-output-${profileId}-paste-method`} title={t("settings.advanced.pasteMethod.title")} description={t("settings.advanced.pasteMethod.description")} descriptionMode="tooltip" grouped={true}>
           <Dropdown options={options(pasteChoices, choiceLabel(pasteChoices, defaults.paste_method))} selectedValue={ownValue("paste_method")} disabled={busy} onSelect={value => void save({ paste_method: value === "inherit" ? null : value as OutputSettings["paste_method"] })} />
         </SettingContainer>
-        {usesClipboard && <SettingContainer title={t("profileOutput.clipboard")} description={t("settings.advanced.clipboardHandling.description")} descriptionMode="tooltip" grouped={true}>
+        {usesClipboard && <SettingContainer id={`profile-output-${profileId}-clipboard`} title={t("profileOutput.clipboard")} description={t("settings.advanced.clipboardHandling.description")} descriptionMode="tooltip" grouped={true}>
           <Dropdown options={options(clipboardChoices, choiceLabel(clipboardChoices, defaults.clipboard_handling))} selectedValue={ownValue("clipboard_handling")} disabled={busy} onSelect={value => void save({ clipboard_handling: value === "inherit" ? null : value as OutputSettings["clipboard_handling"] })} />
         </SettingContainer>}
-        <SettingContainer title={t("profileOutput.before")} description={t("profileOutput.beforeHelp")} descriptionMode="tooltip" grouped={true}>
+        <SettingContainer id={`profile-output-${profileId}-before`} title={t("profileOutput.before")} description={t("profileOutput.beforeHelp")} descriptionMode="tooltip" grouped={true}>
           <Dropdown options={options([
             { value: "off", label: t("profileOutput.noKey") },
             { value: "enter", label: "Enter" },
@@ -161,7 +161,7 @@ export const ProfileOutputSettings: React.FC<Props> = ({ profileId, overrides = 
             void save({ before_insert_key: value === "inherit" ? null : value === "off" ? "" : "enter" });
           }} />
         </SettingContainer>
-        {(openingValue === "custom" || capturing) && <SettingContainer title={t("profileOutput.openingKey")} description="" grouped={true}>
+        {(openingValue === "custom" || capturing) && <SettingContainer id={`profile-output-${profileId}-opening-key`} title={t("profileOutput.openingKey")} description="" grouped={true}>
           <HotkeyCapture value={openingKey} isCapturing={capturing} osType={osType} disabled={saving || disabled}
             onStartCapture={() => setCapturing(true)} onCancel={() => { setCapturing(false); setCustomKeyRequested(false); }}
             onCaptured={async key => {
@@ -172,22 +172,22 @@ export const ProfileOutputSettings: React.FC<Props> = ({ profileId, overrides = 
               setCapturing(false); setCustomKeyRequested(false); await save({ before_insert_key: key });
             }} />
         </SettingContainer>}
-        <SettingContainer title={t("profileOutput.after")} description={t("settings.advanced.autoSubmit.description")} descriptionMode="tooltip" grouped={true}>
+        <SettingContainer id={`profile-output-${profileId}-after`} title={t("profileOutput.after")} description={t("settings.advanced.autoSubmit.description")} descriptionMode="tooltip" grouped={true}>
           <Dropdown options={options(submitChoices, choiceLabel(submitChoices, defaults.auto_submit ? defaults.auto_submit_key : "off"))} selectedValue={submitValue} disabled={busy || method === "none"} onSelect={value => void save(value === "inherit"
             ? { auto_submit: null, auto_submit_key: null }
             : value === "off" ? { auto_submit: false } : { auto_submit: true, auto_submit_key: value as OutputSettings["auto_submit_key"] })} />
         </SettingContainer>
         {(openingKey !== "" || submitEnabled) && method !== "none" && <p className="px-3 pb-3 text-xs text-mid-gray">{t("profileOutput.bufferedHelp")}</p>}
-        <details className="mx-3 mb-3 border-t border-mid-gray/15">
+        <details id={`profile-output-${profileId}-more`} tabIndex={-1} className="mx-3 mb-3 border-t border-mid-gray/15">
           <summary className="py-2 text-xs text-mid-gray cursor-pointer">{t("profileOutput.more")}</summary>
           {usesClipboard && delay("paste_delay_ms", t("profileOutput.pasteDelay"))}
           {openingKey !== "" && delay("before_insert_delay_ms", t("profileOutput.openDelay"))}
           {submitEnabled && delay("auto_submit_delay_ms", t("profileOutput.submitDelay"))}
           {usesClipboard && osType === "windows" && <>
-            {effective("clipboard_handling") !== "keep_transcription" && <SettingContainer title={t("settings.advanced.clipboardHandling.history.title")} description={t("settings.advanced.clipboardHandling.history.description")} descriptionMode="tooltip" grouped={true}>
+            {effective("clipboard_handling") !== "keep_transcription" && <SettingContainer id={`profile-output-${profileId}-clipboard-history`} title={t("settings.advanced.clipboardHandling.history.title")} description={t("settings.advanced.clipboardHandling.history.description")} descriptionMode="tooltip" grouped={true}>
               <Dropdown options={options(booleanChoices, choiceLabel(booleanChoices, String(defaults.clipboard_history_allowed)))} selectedValue={ownValue("clipboard_history_allowed")} disabled={busy} onSelect={value => void save({ clipboard_history_allowed: value === "inherit" ? null : value === "true" })} />
             </SettingContainer>}
-            <SettingContainer title={t("settings.advanced.pasteMethod.convertLfToCrlf.label")} description={t("settings.advanced.pasteMethod.convertLfToCrlf.description")} descriptionMode="tooltip" grouped={true}>
+            <SettingContainer id={`profile-output-${profileId}-line-endings`} title={t("settings.advanced.pasteMethod.convertLfToCrlf.label")} description={t("settings.advanced.pasteMethod.convertLfToCrlf.description")} descriptionMode="tooltip" grouped={true}>
               <Dropdown options={options(booleanChoices, choiceLabel(booleanChoices, String(defaults.convert_lf_to_crlf)))} selectedValue={ownValue("convert_lf_to_crlf")} disabled={busy} onSelect={value => void save({ convert_lf_to_crlf: value === "inherit" ? null : value === "true" })} />
             </SettingContainer>
           </>}

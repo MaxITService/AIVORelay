@@ -50,6 +50,7 @@ export const ChineseScriptSetting: React.FC<ChineseScriptProps> = React.memo(
     };
     return (
       <SettingContainer
+        id={`settings-chinese-script-${profileId ?? "default"}`}
         title={t("settings.advanced.chineseScript.title")}
         description={t("settings.advanced.chineseScript.description")}
         descriptionMode={descriptionMode}
