@@ -128,7 +128,7 @@ export const BrowserConnectorSettings: React.FC = () => {
 
   // Screenshot settings local state
   const [screenshotCommandInput, setScreenshotCommandInput] = useState(
-    settings?.screenshot_capture_command ?? '"C:\\Program Files\\ShareX\\ShareX.exe" -RectangleRegion'
+    settings?.screenshot_capture_command ?? '& "C:\\Program Files\\ShareX\\ShareX.exe" -RectangleRegion'
   );
   const [screenshotFolderInput, setScreenshotFolderInput] = useState(
     settings?.screenshot_folder ?? getDefaultScreenshotFolder()
@@ -256,7 +256,7 @@ export const BrowserConnectorSettings: React.FC = () => {
   // Screenshot settings sync with settings
   useEffect(() => {
     setScreenshotCommandInput(
-      settings?.screenshot_capture_command ?? '"C:\\Program Files\\ShareX\\ShareX.exe" -RectangleRegion'
+      settings?.screenshot_capture_command ?? '& "C:\\Program Files\\ShareX\\ShareX.exe" -RectangleRegion'
     );
   }, [settings?.screenshot_capture_command]);
 
@@ -1326,7 +1326,7 @@ export const BrowserConnectorSettings: React.FC = () => {
                 grouped={true}
               >
                 <ToggleSwitch
-                  checked={settings?.screenshot_include_subfolders ?? false}
+                  checked={settings?.screenshot_include_subfolders ?? true}
                   onChange={(enabled) => void updateSetting("screenshot_include_subfolders", enabled)}
                   disabled={isUpdating("screenshot_include_subfolders")}
                 />
