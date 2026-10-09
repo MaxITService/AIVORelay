@@ -56,7 +56,6 @@ impl Default for SonioxRealtimeOptions {
 
 #[derive(Serialize)]
 struct SonioxStartRequest {
-    api_key: String,
     model: String,
     audio_format: String,
     sample_rate: u32,
@@ -93,6 +92,8 @@ struct SonioxResponse {
     error_code: Option<u16>,
     #[serde(default)]
     error_message: Option<String>,
+    #[serde(default)]
+    error_type: Option<String>,
 }
 
 fn parse_soniox_speaker_key(value: &Value) -> Option<String> {
@@ -293,7 +294,6 @@ impl SonioxRealtimeManager {
     }
 
     fn build_start_payload(
-        api_key: &str,
         model: String,
         options: SonioxRealtimeOptions,
     ) -> Result<(String, u32, bool)> {
@@ -323,7 +323,6 @@ impl SonioxRealtimeManager {
         };
 
         let start_request = SonioxStartRequest {
-            api_key: api_key.to_string(),
             model,
             audio_format: "pcm_s16le".to_string(),
             sample_rate: 16_000,
@@ -362,15 +361,24 @@ impl SonioxRealtimeManager {
             return Err(anyhow!("Soniox live mode requires a real-time model (stt-rt-*)"));
         }
         let (start_payload, keepalive_interval_seconds, _) =
-            Self::build_start_payload(api_key, model, options)?;
+            Self::build_start_payload(model, options)?;
         let (stream, _) = timeout(
-            Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS), connect_async(SONIOX_WS_URL),
+            Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS),
+            connect_async(super::soniox_auth::websocket_request(SONIOX_WS_URL, api_key)?),
         ).await
             .map_err(|_| anyhow!("Timed out while connecting to Soniox WebSocket"))?
             .map_err(|error| anyhow!("Failed to connect to Soniox WebSocket: {}", error))?;
         let (write, mut read) = stream.split();
         let mut write = super::history_replay::ReplaySink::new(write, replay, 16_000);
-        write.send(Message::Text(start_payload.into())).await?;
+        if let Err(error) = write.send(Message::Text(start_payload.into())).await {
+            let recovery = super::soniox_auth::start_write_error(&mut read,
+                anyhow!("Failed to send Soniox start request: {}", error));
+            return Err(tokio::select! {
+                biased;
+                _ = replay.cancelled() => anyhow!(super::history_replay::HISTORY_REPLAY_CANCELLED),
+                error = recovery => error,
+            });
+        }
         let (audio_tx, audio_rx) = mpsc::channel(1);
         let (control_tx, control_rx) = mpsc::unbounded_channel();
         let final_text = Arc::new(Mutex::new(String::new()));
@@ -425,10 +433,11 @@ impl SonioxRealtimeManager {
         }
 
         let (start_payload, keepalive_interval_seconds, show_preview) =
-            Self::build_start_payload(api_key, model, options)?;
+            Self::build_start_payload(model, options)?;
 
+        let websocket_request = super::soniox_auth::websocket_request(SONIOX_WS_URL, api_key)?;
         let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_QUEUE_CAPACITY);
-        let (control_tx, control_rx) = mpsc::unbounded_channel::<ControlMessage>();
+        let (control_tx, mut control_rx) = mpsc::unbounded_channel::<ControlMessage>();
         let final_text = Arc::new(Mutex::new(String::new()));
         let final_text_for_task = Arc::clone(&final_text);
         let start_payload_for_task = start_payload;
@@ -443,17 +452,29 @@ impl SonioxRealtimeManager {
             let session_result: Result<()> = async {
                 let (stream, _) = timeout(
                     Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS),
-                    connect_async(SONIOX_WS_URL),
+                    connect_async(websocket_request),
                 )
                 .await
                 .map_err(|_| anyhow!("Timed out while connecting to Soniox WebSocket"))?
                 .map_err(|e| anyhow!("Failed to connect to Soniox WebSocket: {}", e))?;
 
                 let (mut write, mut read) = stream.split();
-                write
-                    .send(Message::Text(start_payload_for_task.into()))
-                    .await
-                    .map_err(|e| anyhow!("Failed to send Soniox start request: {}", e))?;
+                if let Err(error) = write.send(Message::Text(start_payload_for_task.into())).await {
+                    let recovery = super::soniox_auth::start_write_error(&mut read,
+                        anyhow!("Failed to send Soniox start request: {}", error));
+                    tokio::pin!(recovery);
+                    return tokio::select! {
+                        biased;
+                        control = control_rx.recv() => {
+                            if matches!(control, Some(ControlMessage::Cancel)) {
+                                Ok(())
+                            } else {
+                                Err(recovery.await)
+                            }
+                        }
+                        error = &mut recovery => Err(error),
+                    };
+                }
 
                 Self::run_session_loop(
                     &mut write,
@@ -658,7 +679,7 @@ impl SonioxRealtimeManager {
                             })?;
 
                             if let Some(code) = payload.error_code {
-                                let message = payload.error_message.unwrap_or_else(|| "Unknown Soniox WebSocket error".to_string());
+                                let message = payload.error_message.or(payload.error_type).unwrap_or_else(|| "Unknown Soniox WebSocket error".to_string());
                                 return Err(anyhow!("Soniox WebSocket error {}: {}", code, message));
                             }
 
@@ -1008,4 +1029,35 @@ fn frame_16khz_mono_to_pcm_s16le_bytes(frame: &[f32]) -> Vec<u8> {
         out.extend_from_slice(&value.to_le_bytes());
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn live_start_payload_keeps_options_without_authentication_fields() {
+        let options = SonioxRealtimeOptions {
+            language_hints: vec!["zh".to_string()],
+            language_hints_strict: true,
+            keepalive_interval_seconds: 1,
+            max_endpoint_delay_ms: 100,
+            show_preview: false,
+            ..SonioxRealtimeOptions::default()
+        };
+        let (payload, keepalive, show_preview) = SonioxRealtimeManager::build_start_payload(
+            "stt-rt-v5".to_string(), options,
+        ).unwrap();
+        let payload: Value = serde_json::from_str(&payload).unwrap();
+
+        assert!(payload.get("api_key").is_none());
+        assert!(payload.get("authorization").is_none());
+        assert_eq!(payload["model"], "stt-rt-v5");
+        assert_eq!(payload["language_hints"], serde_json::json!(["zh"]));
+        assert_eq!(payload["language_hints_strict"], true);
+        assert_eq!(payload["max_endpoint_delay_ms"], 500);
+        assert_eq!(payload["sample_rate"], 16_000);
+        assert_eq!(keepalive, MIN_KEEPALIVE_INTERVAL_SECONDS);
+        assert!(!show_preview);
+    }
 }
