@@ -2823,6 +2823,10 @@
         "label": "Mute While Recording",
         "description": "Mute system audio while recording."
       },
+      "muteImmediately": {
+        "label": "Mute Immediately",
+        "description": "Mute as soon as microphone capture starts and skip the start sound, reducing background audio at the beginning of the recording. Does not apply to system-output capture."
+      },
       "pauseMediaWhileRecording": {
         "label": "Pause Media While Recording",
         "description": "Pause active media when recording starts, then resume what AivoRelay paused after recording stops."

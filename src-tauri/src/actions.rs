@@ -2195,13 +2195,21 @@ fn start_recording_with_feedback_with_settings(
     match rm.try_start_recording_detailed(binding_id, operation_id, gemini_stream_callback) {
         Ok(readiness) => {
             recording_started_at = Some(Instant::now());
+            let generation = readiness.generation();
+            // Only microphone capture benefits from silencing playback. Loopback
+            // deliberately records system output and keeps its existing behavior.
+            let mute_immediately = settings.mute_while_recording
+                && settings.mute_immediately
+                && readiness.is_microphone();
+            if mute_immediately {
+                rm.apply_mute_for_generation(generation);
+            }
             rm.apply_media_pause();
             debug!(
                 "Recording request accepted in {:?}; waiting for first audio samples",
                 recording_start_time.elapsed()
             );
 
-            let generation = readiness.generation();
             let app_clone = app.clone();
             let rm_clone = Arc::clone(&rm);
             std::thread::spawn(move || {
@@ -2217,11 +2225,11 @@ fn start_recording_with_feedback_with_settings(
                 debug!("Audio capture is receiving samples; recording is ready");
                 utils::emit_recording_ready(&app_clone, generation, operation_id);
 
-                if rm_clone.is_recording_readiness_current(generation) {
+                if !mute_immediately && rm_clone.is_recording_readiness_current(generation) {
                     play_feedback_sound_blocking(&app_clone, SoundType::Start);
                 }
                 if rm_clone.is_recording_readiness_current(generation) {
-                    rm_clone.apply_mute();
+                    rm_clone.apply_mute_for_generation(generation);
                 }
             });
         }

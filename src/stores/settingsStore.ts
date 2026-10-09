@@ -18,7 +18,10 @@ import { getActiveProfilePostProcessingEnabled } from "@/lib/postProcessingAvail
 import { sessionToast as toast } from "@/lib/sessionToast";
 
 export type ChineseScript = "as_transcribed" | "simplified" | "traditional";
-export type Settings = GeneratedSettings & { chinese_script?: ChineseScript };
+export type Settings = GeneratedSettings & {
+  chinese_script?: ChineseScript;
+  mute_immediately?: boolean;
+};
 
 const withActiveProfilePostProcessingEnabled = (
   settings: Settings,
@@ -391,6 +394,8 @@ const settingUpdaters: {
     commands.changeScreenshotNoVoiceDefaultPromptSetting(value as string),
   mute_while_recording: (value) =>
     commands.changeMuteWhileRecordingSetting(value as boolean),
+  mute_immediately: (value) =>
+    invoke("change_mute_immediately_setting", { enabled: Boolean(value) }),
   filter_silence: (value) =>
     commands.changeFilterSilenceSetting(value as boolean),
   log_level: (value) => commands.setLogLevel(value as any),

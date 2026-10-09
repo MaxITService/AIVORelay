@@ -172,6 +172,10 @@
       }
     },
     "advanced": {
+      "muteImmediately": {
+        "label": "Disattiva subito l'audio",
+        "description": "Disattiva l'audio di sistema appena inizia la cattura del microfono e salta il suono iniziale per ridurre l'audio di sottofondo all'inizio. Si applica solo alle registrazioni dal microfono."
+      },
       "chineseScript": {
         "title": "Scrittura cinese",
         "description": "Scrive le trascrizioni in mandarino e cantonese con caratteri semplificati o tradizionali. Le altre lingue restano invariate.",

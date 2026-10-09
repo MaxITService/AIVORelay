@@ -4142,6 +4142,9 @@ pub struct AppSettings {
     pub ai_replace_selection_push_to_talk: bool,
     #[serde(default)]
     pub mute_while_recording: bool,
+    /// Mute microphone recordings before readiness/start feedback, and skip the start sound.
+    #[serde(default)]
+    pub mute_immediately: bool,
     #[serde(default)]
     pub pause_media_while_recording: bool,
     #[serde(default = "default_filter_silence")]
@@ -6262,6 +6265,7 @@ pub fn get_default_settings() -> AppSettings {
         send_to_extension_with_selection_push_to_talk: true,
         ai_replace_selection_push_to_talk: true,
         mute_while_recording: false,
+        mute_immediately: false,
         pause_media_while_recording: false,
         filter_silence: default_filter_silence(),
         vad_backend: VadBackend::default(),

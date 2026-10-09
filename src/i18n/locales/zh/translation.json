@@ -172,6 +172,10 @@
       }
     },
     "advanced": {
+      "muteImmediately": {
+        "label": "立即静音",
+        "description": "麦克风采集开始后立即静音系统音频并跳过开始提示音，以减少开头的背景声音。仅适用于麦克风录音。"
+      },
       "chineseScript": {
         "title": "简繁转换",
         "description": "将普通话和粤语转录输出为简体或繁体中文。其他语言不受影响。",

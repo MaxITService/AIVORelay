@@ -14,17 +14,34 @@ export const MuteWhileRecording: React.FC<MuteWhileRecordingToggleProps> =
     const { getSetting, updateSetting, isUpdating } = useSettings();
 
     const muteEnabled = getSetting("mute_while_recording") ?? false;
+    const muteImmediately = getSetting("mute_immediately") ?? false;
 
     return (
-      <ToggleSwitch
-        id="settings-mute-while-recording"
-        checked={muteEnabled}
-        onChange={(enabled) => updateSetting("mute_while_recording", enabled)}
-        isUpdating={isUpdating("mute_while_recording")}
-        label={t("settings.advanced.muteWhileRecording.label")}
-        description={t("settings.advanced.muteWhileRecording.description")}
-        descriptionMode={descriptionMode}
-        grouped={grouped}
-      />
+      <>
+        <ToggleSwitch
+          id="settings-mute-while-recording"
+          checked={muteEnabled}
+          onChange={(enabled) => updateSetting("mute_while_recording", enabled)}
+          isUpdating={isUpdating("mute_while_recording")}
+          label={t("settings.advanced.muteWhileRecording.label")}
+          description={t("settings.advanced.muteWhileRecording.description")}
+          descriptionMode={descriptionMode}
+          grouped={grouped}
+        />
+        {muteEnabled && (
+          <div className="ms-6 border-s border-mid-gray/20">
+            <ToggleSwitch
+              id="settings-mute-immediately"
+              checked={muteImmediately}
+              onChange={(enabled) => updateSetting("mute_immediately", enabled)}
+              isUpdating={isUpdating("mute_immediately")}
+              label={t("settings.advanced.muteImmediately.label")}
+              description={t("settings.advanced.muteImmediately.description")}
+              descriptionMode={descriptionMode}
+              grouped={grouped}
+            />
+          </div>
+        )}
+      </>
     );
   });

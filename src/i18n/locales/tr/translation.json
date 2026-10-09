@@ -192,6 +192,10 @@
       }
     },
     "advanced": {
+      "muteImmediately": {
+        "label": "Hemen sessize al",
+        "description": "Başlangıçtaki arka plan sesini azaltmak için mikrofon yakalama başlar başlamaz sistem sesini kapat ve başlangıç sesini atla. Yalnızca mikrofon kayıtlarına uygulanır."
+      },
       "chineseScript": {
         "title": "Çince yazı",
         "description": "Mandarin ve Kantonca transkripsiyonları Basitleştirilmiş veya Geleneksel karakterlerle yazar. Diğer diller değiştirilmez.",
