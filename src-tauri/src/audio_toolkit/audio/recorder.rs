@@ -403,6 +403,39 @@ impl AudioRecorder {
                 .is_some_and(|handle| handle.is_finished())
     }
 
+    pub fn is_using_device(&self, device: &Device) -> bool {
+        let Some(active_device) = self.device.as_ref() else {
+            return false;
+        };
+
+        #[cfg(target_os = "windows")]
+        {
+            // WASAPI equality compares endpoint IDs, so identical display
+            // names cannot hide a change of the system default microphone.
+            match (active_device.as_inner(), device.as_inner()) {
+                (
+                    cpal::platform::DeviceInner::Wasapi(active),
+                    cpal::platform::DeviceInner::Wasapi(current),
+                ) => active == current,
+                // Other hosts are only present when their CPAL feature is enabled.
+                #[allow(unreachable_patterns)]
+                _ => false,
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            active_device
+                .name()
+                .ok()
+                .zip(device.name().ok())
+                .is_some_and(|(active, current)| active == current)
+        }
+    }
+
+    pub fn invalidate_device_config_cache(&self) {
+        *self.config_cache.lock().unwrap() = None;
+    }
+
     pub fn close(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(tx) = self.cmd_tx.take() {
             let _ = tx.send(Cmd::Shutdown);

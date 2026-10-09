@@ -197,9 +197,16 @@ pub async fn update_microphone_mode(app: AppHandle, always_on: bool) -> Result<(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn get_available_microphones() -> Result<Vec<AudioDevice>, String> {
+pub async fn get_available_microphones(app: AppHandle) -> Result<Vec<AudioDevice>, String> {
     // cpal device enumeration can stall — run it off the webview/main run loop.
-    tokio::task::spawn_blocking(get_available_microphones_blocking)
+    tokio::task::spawn_blocking(move || {
+        let devices = get_available_microphones_blocking()?;
+        let manager = app.state::<Arc<AudioRecordingManager>>();
+        if let Err(error) = manager.refresh_default_microphone_stream() {
+            warn!("Failed to refresh the active default microphone: {error}");
+        }
+        Ok(devices)
+    })
         .await
         .map_err(|e| format!("audio task join failed: {}", e))?
 }
