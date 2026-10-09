@@ -172,6 +172,10 @@
       }
     },
     "advanced": {
+      "muteImmediately": {
+        "label": "Wycisz natychmiast",
+        "description": "Wycisz dźwięk systemowy zaraz po rozpoczęciu przechwytywania mikrofonu i pomiń dźwięk rozpoczęcia, aby ograniczyć dźwięki tła na początku. Dotyczy tylko nagrań z mikrofonu."
+      },
       "chineseScript": {
         "title": "Pismo chińskie",
         "description": "Zapisuje transkrypcje w języku mandaryńskim i kantońskim znakami uproszczonymi lub tradycyjnymi. Inne języki pozostają bez zmian.",

@@ -173,6 +173,10 @@
       }
     },
     "advanced": {
+      "muteImmediately": {
+        "label": "Couper le son immédiatement",
+        "description": "Couper le son du système dès le début de la capture du microphone et ignorer le son de démarrage pour réduire les sons de fond au début. S’applique uniquement aux enregistrements du microphone."
+      },
       "chineseScript": {
         "title": "Écriture chinoise",
         "description": "Écrit les transcriptions en mandarin et en cantonais en caractères simplifiés ou traditionnels. Les autres langues ne sont pas modifiées.",

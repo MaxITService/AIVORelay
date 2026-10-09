@@ -172,6 +172,10 @@
       }
     },
     "advanced": {
+      "muteImmediately": {
+        "label": "Silenciar imediatamente",
+        "description": "Silenciar o áudio do sistema assim que a captura do microfone começar e omitir o som de início para reduzir o áudio de fundo no começo. Aplica-se apenas a gravações do microfone."
+      },
       "chineseScript": {
         "title": "Escrita chinesa",
         "description": "Escreve as transcrições em mandarim e cantonês com caracteres simplificados ou tradicionais. Os outros idiomas não são alterados.",

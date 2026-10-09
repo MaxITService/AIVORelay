@@ -173,6 +173,10 @@
       }
     },
     "advanced": {
+      "muteImmediately": {
+        "label": "Tắt tiếng ngay",
+        "description": "Tắt tiếng hệ thống ngay khi bắt đầu thu âm từ micrô và bỏ qua âm thanh bắt đầu để giảm âm thanh nền ở đầu bản ghi. Chỉ áp dụng cho bản ghi từ micrô."
+      },
       "chineseScript": {
         "title": "Chữ Hán giản thể/phồn thể",
         "description": "Ghi bản chép tiếng Quan Thoại và tiếng Quảng Đông bằng chữ Giản thể hoặc Phồn thể. Các ngôn ngữ khác không bị thay đổi.",

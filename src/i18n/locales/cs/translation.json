@@ -172,6 +172,10 @@
       }
     },
     "advanced": {
+      "muteImmediately": {
+        "label": "Ztlumit okamžitě",
+        "description": "Ztlumit systémový zvuk hned po spuštění mikrofonu a přeskočit úvodní zvuk, aby se omezil zvuk na pozadí na začátku nahrávky. Platí pouze pro záznam z mikrofonu."
+      },
       "chineseScript": {
         "title": "Čínské písmo",
         "description": "Zapisuje přepisy v mandarínštině a kantonštině zjednodušenými nebo tradičními znaky. Ostatní jazyky zůstávají beze změny.",

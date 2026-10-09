@@ -615,6 +615,7 @@ fn should_apply_extra_recording_buffer(settings: &AppSettings, binding_id: &str)
 pub struct RecordingReadiness {
     receiver: mpsc::Receiver<()>,
     generation: u64,
+    source: AudioCaptureSource,
 }
 
 impl RecordingReadiness {
@@ -624,6 +625,10 @@ impl RecordingReadiness {
 
     pub fn generation(&self) -> u64 {
         self.generation
+    }
+
+    pub fn is_microphone(&self) -> bool {
+        self.source == AudioCaptureSource::Microphone
     }
 }
 
@@ -900,6 +905,17 @@ impl AudioRecordingManager {
             "Mute applied (previously_muted={:?})",
             mute_state.previously_muted
         );
+    }
+
+    /// Keep a delayed/startup mute attached to the recording that requested it.
+    /// Holding state prevents stop or another start from racing the mute write.
+    pub fn apply_mute_for_generation(&self, generation: u64) {
+        let state = self.state.lock().unwrap();
+        if matches!(*state, RecordingState::Recording { .. })
+            && self.is_recording_readiness_current(generation)
+        {
+            self.apply_mute();
+        }
     }
 
     /// Pauses active media if pause_media_while_recording is enabled.
@@ -1399,6 +1415,7 @@ impl AudioRecordingManager {
                 return Ok(RecordingReadiness {
                     receiver,
                     generation,
+                    source: selection.source,
                 });
             }
             error!("Recorder not available");
