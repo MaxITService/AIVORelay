@@ -138,6 +138,8 @@ pub(crate) fn cancel_current_operation_guarded(
     states.active_presses.clear();
     drop(states);
 
+    crate::actions::clear_forced_post_processing();
+
     // Cancel any ongoing recording (belt-and-suspenders, session should have done this)
     let audio_manager = app.state::<Arc<AudioRecordingManager>>();
     audio_manager.cancel_recording();

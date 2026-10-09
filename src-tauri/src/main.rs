@@ -42,7 +42,10 @@ fn main() {
 
     let raw_arguments = std::env::args_os().collect::<Vec<_>>();
     let cli_args = match aivorelay_app_lib::CliArgs::try_parse_from(&raw_arguments) {
-        Ok(arguments) => arguments,
+        Ok(arguments) => match arguments.validate_remote_command() {
+            Ok(()) => arguments,
+            Err(error) => error.exit(),
+        },
         Err(error)
             if matches!(
                 error.kind(),

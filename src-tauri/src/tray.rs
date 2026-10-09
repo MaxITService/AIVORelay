@@ -1561,7 +1561,7 @@ pub fn set_tray_visibility(app: &AppHandle, visible: bool) {
     }
 }
 
-fn last_transcript_text(entry: &HistoryEntry) -> &str {
+pub(crate) fn last_transcript_text(entry: &HistoryEntry) -> &str {
     entry
         .post_processed_text
         .as_deref()
