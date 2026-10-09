@@ -9,7 +9,7 @@ Branch-specific release rules for the Microsoft Store Edition.
 - The Store workflow currently builds only `x86_64-pc-windows-msvc`.
 - Create tag `vX.Y.Z-store` at the exact Store workflow commit.
 - Create the GitHub release as a draft pre-release.
-- Keep normal GitHub Actions binary signing disabled; Microsoft Store ingestion performs final signing.
+- Follow [[.AGENTS/store-branch-notes#Distribution Differences|the canonical signing, certificate, and release-asset rules]], including the final attachment check.
 - Keep in-app updater artifacts disabled and updater endpoints empty.
 - Upload Store assets to the Store tag, never the plain `vX.Y.Z` tag.
 

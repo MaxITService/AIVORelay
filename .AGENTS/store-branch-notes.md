@@ -10,10 +10,14 @@ Canonical inventory of intentional differences from `main`. If code and this fil
 | --- | --- | --- |
 | Release identity | Draft pre-release tagged `vX.Y.Z-store` | Draft release tagged `vX.Y.Z` |
 | Release target | The exact Store workflow commit | Normal release tag behavior |
-| Binary signing in GitHub Actions | Disabled; Microsoft Store ingestion handles final signing | Enabled by the standard release workflow |
+| Binary signing in GitHub Actions | `sign-binaries: false`; Microsoft Store ingestion handles final signing | Enabled by the standard release workflow |
+| Project certificate and installation script | Must not be bundled in MSI/ZIP or attached to the GitHub release | Included as release attachments |
+| Detached signature files | Must not be attached to the GitHub release | Updater signature files are generated |
 | In-app updater artifacts | `createUpdaterArtifacts: false` | Enabled |
 | In-app updater endpoints | Empty | GitHub release endpoint configured |
 | CPU baseline | Rust and ggml are forced to AVX2; AVX512/AMX is disabled | The x64 release workflow disables AVX/AVX2/FMA/F16C for older-CPU compatibility |
+
+Before completing a Store release, check that GitHub release assets contain no project certificate, certificate-installation script, or detached signature files. Remove such attachments added to a Store draft by mistake; do not rebuild packages to upload them. Binary signature inspection is not required and an existing binary signature is not a release blocker.
 
 Implementation anchors:
 

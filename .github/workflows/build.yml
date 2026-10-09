@@ -760,7 +760,7 @@ jobs:
           retention-days: 30
 
       - name: Upload Certificate Files to Release (Windows)
-        if: inputs.release-id && contains(inputs.platform, 'windows')
+        if: inputs.release-id && contains(inputs.platform, 'windows') && inputs.sign-binaries
         uses: actions/github-script@v8
         with:
           script: |
