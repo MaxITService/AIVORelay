@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { AudioPlayer, AudioPlayerGroup } from "../../ui/AudioPlayer";
 import { Button } from "../../ui/Button";
+import { Tooltip } from "../../ui/Tooltip";
 import { ConfirmationModal } from "../../ui/ConfirmationModal";
 import { CopyFeedbackIcon } from "../../ui/CopyFeedbackIcon";
 import {
@@ -30,6 +31,8 @@ import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { useSettings } from "@/hooks/useSettings";
 import { useNavigationStore } from "@/stores/navigationStore";
+import { useSettingsStore } from "@/stores/settingsStore";
+import { navigateToSettingsAnchor } from "@/lib/anchorNavigation";
 import { reconcileHistoryPage } from "./historyPage";
 import { historyDisplayText, matchesHistorySearch, splitByQuery } from "./search";
 
@@ -815,23 +818,29 @@ const DictationStatsSection: React.FC = () => {
 const IconButton: React.FC<{
   onClick: () => void;
   title: string;
+  tooltip?: React.ReactNode;
   disabled?: boolean;
   active?: boolean;
   children: React.ReactNode;
-}> = ({ onClick, title, disabled, active, children }) => (
+}> = ({ onClick, title, tooltip, disabled, active, children }) => {
+  const button = (
   <button
+    type="button"
     onClick={onClick}
     disabled={disabled}
+    aria-label={title}
     className={`p-1.5 rounded-md flex items-center justify-center transition-colors cursor-pointer disabled:cursor-not-allowed disabled:text-text/20 ${
       active
         ? "text-logo-primary hover:text-logo-primary/80"
         : "text-text/50 hover:text-logo-primary"
-    }`}
-    title={title}
+    } ${tooltip && disabled ? "pointer-events-none" : ""}`}
+    title={tooltip ? undefined : title}
   >
     {children}
   </button>
-);
+  );
+  return tooltip ? <Tooltip content={tooltip}>{button}</Tooltip> : button;
+};
 
 const RepasteShortcutSection: React.FC = () => {
   const { t } = useTranslation();
@@ -1396,6 +1405,9 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   stopReplay,
 }) => {
   const { t, i18n } = useTranslation();
+  const benchmarkUpdating = useSettingsStore(
+    (state) => state.isUpdating.post_process_benchmark_user_message,
+  );
   const [showCopied, setShowCopied] = useState(false);
   const [copyBurst, setCopyBurst] = useState(0);
   const copyFeedbackTimeoutRef = useRef<number | null>(null);
@@ -1511,6 +1523,30 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
     }, 2000);
   };
 
+  const handleOpenLlmBenchmark = async () => {
+    const store = useSettingsStore.getState();
+    if (
+      retrying || !entry.transcription_text.trim() ||
+      store.isUpdating.post_process_benchmark_user_message
+    ) return;
+
+    try {
+      await store.updateSetting(
+        "post_process_benchmark_user_message",
+        entry.transcription_text,
+        { throwOnError: true },
+      );
+      if (!retryMountedRef.current) return;
+      navigateToSettingsAnchor({
+        activateSection: () => useNavigationStore.getState().setSection("postprocessing"),
+        targetId: "settings-llm-benchmark",
+      });
+    } catch (error) {
+      console.error("Failed to open history text in LLM benchmark:", error);
+      toast.error(t("settings.history.openLlmBenchmarkError"));
+    }
+  };
+
   const handleDeleteEntry = async () => {
     try {
       await deleteAudio(entry.id);
@@ -1536,7 +1572,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
 
   return (
     <div className="px-4 py-2 pb-5 flex flex-col gap-3">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-wrap justify-between items-center gap-2">
         <div className="flex items-center gap-2">
           {isAiReplace && (
             <Wand2 width={14} height={14} className="text-logo-primary" />
@@ -1548,7 +1584,25 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
+          {!isAiReplace && (
+            <IconButton
+              onClick={handleOpenLlmBenchmark}
+              disabled={retrying || benchmarkUpdating || !entry.transcription_text.trim()}
+              title={t("settings.history.openLlmBenchmark")}
+              tooltip={<>
+                <span className="font-medium">{t("settings.history.openLlmBenchmark")}</span>
+                <br />
+                {t("settings.history.openLlmBenchmarkDescription")}
+              </>}
+            >
+              <svg width={16} height={16} viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M7 3h6M8 3v7l-4 7.5A2 2 0 0 0 5.8 20h8.4a2 2 0 0 0 1.8-2.5L12 10V3M6 15h8" />
+                <path d="M17 3h4v4m0-4-4 4" />
+              </svg>
+            </IconButton>
+          )}
           <IconButton
             onClick={handleCopyText}
             disabled={!hasDisplayText || retrying}
