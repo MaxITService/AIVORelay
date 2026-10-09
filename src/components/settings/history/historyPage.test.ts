@@ -3,6 +3,42 @@ import { reconcileHistoryPage } from "./historyPage";
 
 const row = (id: number, saved = false) => ({ id, saved });
 
+const searchRow = (id: number, text: string) => ({ ...row(id), text });
+const matches = (entry: { text: string }) => entry.text.includes("match");
+
+test("search applies additions and transcript edits before filtering a late snapshot", () => {
+  expect(reconcileHistoryPage([], [searchRow(3, "match stale")], true, [
+    { action: "updated", entry: searchRow(3, "no longer relevant") },
+    { action: "added", entry: searchRow(4, "unrelated") },
+    { action: "updated", entry: searchRow(2, "match corrected") },
+    { action: "added", entry: searchRow(5, "match new") },
+  ], matches)).toEqual([searchRow(5, "match new"), searchRow(2, "match corrected")]);
+});
+
+test("search updates cannot revive entries deleted or cleared during a request", () => {
+  expect(reconcileHistoryPage([], [searchRow(3, "match old")], true, [
+    { action: "deleted", id: 3 },
+    { action: "updated", entry: searchRow(3, "match edited") },
+    { action: "cleared" },
+    { action: "updated", entry: searchRow(2, "match old") },
+    { action: "added", entry: searchRow(4, "unrelated") },
+    { action: "updated", entry: searchRow(4, "match corrected") },
+  ], matches)).toEqual([searchRow(4, "match corrected")]);
+});
+
+test("search pagination merges current rows and events without duplicates", () => {
+  expect(reconcileHistoryPage([searchRow(5, "match current")], [searchRow(4, "match page")], false, [
+    { action: "updated", entry: searchRow(4, "match latest") },
+    { action: "added", entry: searchRow(5, "match current") },
+    { action: "toggled", id: 4, saved: true },
+  ], matches)).toEqual([searchRow(5, "match current"), { ...searchRow(4, "match latest"), saved: true }]);
+});
+
+test("clearing the query restores ordinary page replacement", () => {
+  expect(reconcileHistoryPage([searchRow(5, "match current")], [searchRow(4, "unrelated")], true, []))
+    .toEqual([searchRow(4, "unrelated")]);
+});
+
 test("late first page retains additions and applies deletion and saved events", () => {
   expect(reconcileHistoryPage([], [row(3), row(2)], true, [
     { action: "added", entry: row(4) },

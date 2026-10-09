@@ -3774,6 +3774,9 @@
         "resetting": "Resetting...",
         "resetError": "Failed to reset dictation stats. Please try again."
       },
+      "searchPlaceholder": "Search transcriptions...",
+      "clearSearch": "Clear search",
+      "noSearchResults": "No transcriptions match \"{{query}}\".",
       "copyToClipboard": "Copy transcription to clipboard",
       "copyError": "Failed to copy transcription to clipboard.",
       "save": "Save transcription",

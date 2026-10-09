@@ -12,6 +12,8 @@ import {
   Wand2,
   AlertTriangle,
   RotateCcw,
+  Search,
+  X,
 } from "lucide-react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -29,14 +31,38 @@ import { SettingContainer } from "../../ui/SettingContainer";
 import { useSettings } from "@/hooks/useSettings";
 import { useNavigationStore } from "@/stores/navigationStore";
 import { reconcileHistoryPage } from "./historyPage";
+import { historyDisplayText, matchesHistorySearch, splitByQuery } from "./search";
 
 const PAGE_SIZE = 30;
+const SEARCH_DEBOUNCE_MS = 250;
+
+const HighlightedText: React.FC<{ text: string; query: string }> = ({
+  text,
+  query,
+}) => (
+  <>
+    {splitByQuery(text, query).map((segment, index) =>
+      segment.match ? (
+        <mark key={index} className="bg-logo-primary/40 text-inherit rounded-sm">
+          {segment.text}
+        </mark>
+      ) : (
+        segment.text
+      ),
+    )}
+  </>
+);
 
 interface HistoryReplayProgress {
   id: number;
   sent_seconds: number;
   duration_seconds: number;
   phase: "connecting" | "sending" | "finalizing" | "processing";
+}
+
+interface HistoryRetryState {
+  progress: HistoryReplayProgress | null;
+  stopping: boolean;
 }
 
 type HistoryDeleteFailureReason =
@@ -839,14 +865,43 @@ export const HistorySettings: React.FC = () => {
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const entriesRef = useRef<HistoryEntry[]>([]);
   const loadingRef = useRef(false);
   const historyRequestRef = useRef(0);
+  const searchQueryRef = useRef("");
+  const listenerReadyRef = useRef(false);
+  // Keep the server cursor even if live edits remove the last visible match.
+  const pageCursorRef = useRef<number | null>(null);
+  // Search may include a newly matching update, but never resurrect a deleted row.
+  const deletedIdsRef = useRef(new Set<number>());
+  const historyClearedRef = useRef(false);
+  const addedIdsAfterClearRef = useRef(new Set<number>());
   const pendingHistoryChangesRef = useRef<HistoryUpdatePayload[]>([]);
   const pendingToggleIdsRef = useRef<Set<number>>(new Set());
+  const [retryStates, setRetryStates] = useState<Record<number, HistoryRetryState>>({});
+  const retriesInFlightRef = useRef(new Set<number>());
+  const retriesMountedRef = useRef(true);
+  const retryCancellationRef = useRef(new Set<number>());
+  const cancelHistoryReplay = useCallback(async (id: number) => {
+    if (!retriesInFlightRef.current.has(id)) return;
+    retryCancellationRef.current.add(id);
+    await invoke("cancel_history_entry_transcription", { id });
+  }, []);
+
+  useEffect(() => {
+    retriesMountedRef.current = true;
+    return () => {
+      retriesMountedRef.current = false;
+      for (const id of retriesInFlightRef.current) {
+        void cancelHistoryReplay(id).catch(console.error);
+      }
+    };
+  }, [cancelHistoryReplay]);
 
   useEffect(() => {
     entriesRef.current = historyEntries;
@@ -860,23 +915,27 @@ export const HistorySettings: React.FC = () => {
 
     loadingRef.current = true;
     const request = ++historyRequestRef.current;
+    const query = searchQueryRef.current;
     pendingHistoryChangesRef.current = [];
-    if (isFirstPage) {
-      setLoading(true);
-    }
+    setLoading(true);
 
     try {
       const result = await invoke<PaginatedHistory>("get_history_entries", {
         cursor: cursor ?? null,
         limit: PAGE_SIZE,
+        search: query || null,
       });
 
       if (request !== historyRequestRef.current) return;
       const changes = pendingHistoryChangesRef.current.slice();
       const nextEntries = result.entries ?? [];
       setHistoryEntries((prev) =>
-        reconcileHistoryPage(prev, nextEntries, isFirstPage, changes),
+        reconcileHistoryPage(
+          prev, nextEntries, isFirstPage, changes,
+          query ? (entry) => matchesHistorySearch(entry, query) : undefined,
+        ),
       );
+      pageCursorRef.current = nextEntries[nextEntries.length - 1]?.id ?? null;
       setHasMore(!changes.some((change) => change.action === "cleared") && Boolean(result.has_more));
     } catch (error) {
       console.error("Failed to load history entries:", error);
@@ -888,6 +947,28 @@ export const HistorySettings: React.FC = () => {
       }
     }
   }, []);
+
+  const applySearch = useCallback(
+    (query: string) => {
+      if (query === searchQueryRef.current) return;
+      searchQueryRef.current = query;
+      setSearchQuery(query);
+      if (listenerReadyRef.current) void loadHistoryEntries();
+    },
+    [loadHistoryEntries],
+  );
+
+  useEffect(() => {
+    const timeout = window.setTimeout(
+      () => applySearch(searchInput.trim()), SEARCH_DEBOUNCE_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [searchInput, applySearch]);
+
+  const clearSearch = () => {
+    setSearchInput("");
+    applySearch("");
+  };
 
   useEffect(() => {
     if (loading) {
@@ -906,9 +987,9 @@ export const HistorySettings: React.FC = () => {
           return;
         }
 
-        const lastEntry = entriesRef.current[entriesRef.current.length - 1];
-        if (lastEntry) {
-          loadHistoryEntries(lastEntry.id);
+        const cursor = pageCursorRef.current;
+        if (cursor !== null) {
+          void loadHistoryEntries(cursor);
         }
       },
       { threshold: 0 },
@@ -929,48 +1010,61 @@ export const HistorySettings: React.FC = () => {
         (event) => {
           if (disposed) return;
           const payload = event.payload;
-          if (loadingRef.current) pendingHistoryChangesRef.current.push(payload);
-          if (payload.action === "added") {
-            setHistoryEntries((prev) =>
-              [payload.entry, ...prev.filter((entry) => entry.id !== payload.entry.id)],
-            );
-          } else if (payload.action === "updated") {
-            setHistoryEntries((prev) =>
-              prev.map((entry) =>
-                entry.id === payload.entry.id ? payload.entry : entry,
-              ),
-            );
-          } else if (payload.action === "deleted") {
-            setHistoryEntries((prev) =>
-              prev.filter((entry) => entry.id !== payload.id),
-            );
+          if (payload.action === "deleted") {
+            void cancelHistoryReplay(payload.id).catch(console.error);
           } else if (payload.action === "cleared") {
-            setHistoryEntries([]);
+            for (const id of retriesInFlightRef.current) {
+              void cancelHistoryReplay(id).catch(console.error);
+            }
+          }
+          if (payload.action === "added") {
+            deletedIdsRef.current.delete(payload.entry.id);
+            if (historyClearedRef.current) addedIdsAfterClearRef.current.add(payload.entry.id);
+          }
+          if (payload.action === "deleted") deletedIdsRef.current.add(payload.id);
+          if (payload.action === "cleared") {
+            historyClearedRef.current = true;
+            addedIdsAfterClearRef.current.clear();
+          }
+          if (payload.action === "updated" && deletedIdsRef.current.has(payload.entry.id)) return;
+          if (loadingRef.current) pendingHistoryChangesRef.current.push(payload);
+          const query = searchQueryRef.current;
+          const mayIncludeUpdate =
+            !historyClearedRef.current ||
+            (payload.action === "updated" && addedIdsAfterClearRef.current.has(payload.entry.id));
+          setHistoryEntries((prev) =>
+            reconcileHistoryPage(
+              prev, [], false, [payload],
+              query && mayIncludeUpdate
+                ? (entry) => matchesHistorySearch(entry, query)
+                : undefined,
+            ).filter((entry) => matchesHistorySearch(entry, query)),
+          );
+          if (payload.action === "cleared") {
             setHasMore(false);
-          } else if (payload.action === "toggled") {
-            setHistoryEntries((prev) =>
-              prev.map((entry) =>
-                entry.id === payload.id
-                  ? { ...entry, saved: payload.saved }
-                  : entry,
-              ),
-            );
           }
         },
       );
 
       // Subscribe before reading the snapshot so no intervening change is lost.
-      if (!disposed) void loadHistoryEntries();
+      if (!disposed) {
+        listenerReadyRef.current = true;
+        void loadHistoryEntries();
+      }
       return unlisten;
     };
 
     const unlistenPromise = setupListener().catch((error) => {
       console.error("Failed to subscribe to history updates:", error);
-      if (!disposed) void loadHistoryEntries();
+      if (!disposed) {
+        listenerReadyRef.current = true;
+        void loadHistoryEntries();
+      }
     });
 
     return () => {
       disposed = true;
+      listenerReadyRef.current = false;
       ++historyRequestRef.current;
       unlistenPromise.then((unlisten) => {
         if (unlisten) {
@@ -978,7 +1072,7 @@ export const HistorySettings: React.FC = () => {
         }
       });
     };
-  }, [loadHistoryEntries]);
+  }, [loadHistoryEntries, cancelHistoryReplay]);
 
   const toggleSaved = async (id: number) => {
     if (pendingToggleIdsRef.current.has(id)) {
@@ -1036,6 +1130,7 @@ export const HistorySettings: React.FC = () => {
   }, []);
 
   const deleteAudioEntry = async (id: number) => {
+    void cancelHistoryReplay(id).catch(console.error);
     const previousEntries = entriesRef.current;
     const deletedIndex = previousEntries.findIndex((entry) => entry.id === id);
     const deletedEntry =
@@ -1045,7 +1140,11 @@ export const HistorySettings: React.FC = () => {
 
     const restoreDeletedEntry = () => {
       setHistoryEntries((prev) => {
-        if (!deletedEntry || prev.some((entry) => entry.id === id)) {
+        if (
+          !deletedEntry ||
+          !matchesHistorySearch(deletedEntry, searchQueryRef.current) ||
+          prev.some((entry) => entry.id === id)
+        ) {
           return prev;
         }
 
@@ -1076,6 +1175,9 @@ export const HistorySettings: React.FC = () => {
 
   const deleteAllHistoryEntries = async () => {
     setIsDeletingAll(true);
+    for (const id of retriesInFlightRef.current) {
+      void cancelHistoryReplay(id).catch(console.error);
+    }
 
     try {
       const result = await commands.deleteAllHistoryEntries();
@@ -1096,7 +1198,63 @@ export const HistorySettings: React.FC = () => {
   };
 
   const retryHistoryEntry = async (id: number) => {
-    await invoke("retry_history_entry_transcription", { id });
+    if (!retriesMountedRef.current || retriesInFlightRef.current.has(id)) return;
+    retriesInFlightRef.current.add(id);
+    setRetryStates((prev) => ({ ...prev, [id]: { progress: null, stopping: false } }));
+    let unlisten: (() => void) | undefined;
+    try {
+      // Page ownership survives filtering a row out of the search results.
+      unlisten = await listen<HistoryReplayProgress>("history-replay-progress", ({ payload }) => {
+        if (payload.id !== id || !retriesInFlightRef.current.has(id)) return;
+        if (!retriesMountedRef.current || retryCancellationRef.current.has(id)) {
+          // Page cleanup can run before the backend registers its replay.
+          void invoke("cancel_history_entry_transcription", { id }).catch(console.error);
+          return;
+        }
+        setRetryStates((prev) => ({
+          ...prev, [id]: { progress: payload, stopping: prev[id]?.stopping ?? false },
+        }));
+      });
+      if (!retriesMountedRef.current || retryCancellationRef.current.has(id)) return;
+      await invoke("retry_history_entry_transcription", { id });
+    } catch (error) {
+      if (!retriesMountedRef.current) return;
+      if (String(error) === "History replay cancelled") {
+        toast.info(t("settings.history.liveReplay.cancelled"));
+      } else {
+        console.error("Failed to re-transcribe:", error);
+        toast.error(t("settings.history.retranscribeError"));
+      }
+    } finally {
+      unlisten?.();
+      retriesInFlightRef.current.delete(id);
+      retryCancellationRef.current.delete(id);
+      if (retriesMountedRef.current) {
+        setRetryStates((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
+    }
+  };
+
+  const stopHistoryReplay = async (id: number) => {
+    if (!retriesInFlightRef.current.has(id)) return;
+    setRetryStates((prev) => ({
+      ...prev, [id]: { progress: prev[id]?.progress ?? null, stopping: true },
+    }));
+    try {
+      await cancelHistoryReplay(id);
+    } catch (error) {
+      if (!retriesMountedRef.current || !retriesInFlightRef.current.has(id)) return;
+      console.error("Failed to stop history replay:", error);
+      retryCancellationRef.current.delete(id);
+      setRetryStates((prev) => ({
+        ...prev, [id]: { progress: prev[id]?.progress ?? null, stopping: false },
+      }));
+      toast.error(t("settings.history.liveReplay.stopError"));
+    }
   };
 
   const openRecordingsFolder = async () => {
@@ -1120,84 +1278,6 @@ export const HistorySettings: React.FC = () => {
     />
   );
 
-  if (loading) {
-    return (
-      <>
-        <HistoryPageLayout>
-          <div className="space-y-2">
-            <div className="px-4 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-xs font-medium text-mid-gray uppercase tracking-wide">
-                  {t("settings.history.title")}
-                </h2>
-              </div>
-              <HistoryActions
-                deleteAllDisabled={true}
-                onDeleteAll={() => setShowDeleteAllConfirm(true)}
-                onOpenRecordings={openRecordingsFolder}
-              />
-            </div>
-            <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
-              <div
-                role="status"
-                aria-live="polite"
-                className="px-4 py-3 text-center text-text/60"
-              >
-                {t("settings.history.loading")}
-              </div>
-            </div>
-          </div>
-        </HistoryPageLayout>
-        {deleteAllModal}
-      </>
-    );
-  }
-
-  if (historyEntries.length === 0) {
-    return (
-      <>
-        <HistoryPageLayout>
-          <div className="space-y-2">
-            <div className="px-4 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-xs font-medium text-mid-gray uppercase tracking-wide">
-                  {t("settings.history.title")}
-                </h2>
-              </div>
-              <HistoryActions
-                deleteAllDisabled={true}
-                onDeleteAll={() => setShowDeleteAllConfirm(true)}
-                onOpenRecordings={openRecordingsFolder}
-              />
-            </div>
-            <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
-              <div className="flex flex-col items-center gap-3 px-4 py-6 text-center">
-                <div>
-                  <p className="text-sm font-medium text-text">
-                    {t("settings.history.emptyTitle")}
-                  </p>
-                  <p className="mt-1 text-sm text-text/60">
-                    {t("settings.history.empty")}
-                  </p>
-                </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() =>
-                    useNavigationStore.getState().setSection("general")
-                  }
-                >
-                  {t("settings.history.configureDictation")}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </HistoryPageLayout>
-        {deleteAllModal}
-      </>
-    );
-  }
-
   return (
     <>
       <HistoryPageLayout>
@@ -1210,34 +1290,79 @@ export const HistorySettings: React.FC = () => {
               </h2>
             </div>
             <HistoryActions
-              deleteAllDisabled={isDeletingAll || historyEntries.length === 0}
+              deleteAllDisabled={loading || isDeletingAll || historyEntries.length === 0}
               onDeleteAll={() => setShowDeleteAllConfirm(true)}
               onOpenRecordings={openRecordingsFolder}
             />
           </div>
           <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
+            <div className="relative mx-4 my-3">
+              <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text/40 pointer-events-none" />
+              <input
+                type="search"
+                className="w-full ps-9 pe-9 py-2 text-sm bg-mid-gray/10 border border-mid-gray/40 rounded-lg focus:outline-none focus:ring-1 focus:ring-logo-primary placeholder:text-text/40 [&::-webkit-search-cancel-button]:appearance-none"
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape" && searchInput) {
+                    event.preventDefault();
+                    clearSearch();
+                  }
+                }}
+                placeholder={t("settings.history.searchPlaceholder")}
+                aria-label={t("settings.history.searchPlaceholder")}
+              />
+              {searchInput && (
+                <button type="button" onClick={clearSearch}
+                  className="absolute end-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-text/50 hover:text-logo-primary cursor-pointer"
+                  title={t("settings.history.clearSearch")} aria-label={t("settings.history.clearSearch")}>
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            {loading && historyEntries.length === 0 ? (
+              <div role="status" aria-live="polite" className="px-4 py-3 text-center text-text/60">
+                {t("settings.history.loading")}
+              </div>
+            ) : historyEntries.length === 0 ? (
+              <div role="status" aria-live="polite" className="flex flex-col items-center gap-3 px-4 py-6 text-center">
+                {searchQuery ? (
+                  <p className="text-sm text-text/60">{t("settings.history.noSearchResults", { query: searchQuery })}</p>
+                ) : (
+                  <>
+                    <div>
+                      <p className="text-sm font-medium text-text">{t("settings.history.emptyTitle")}</p>
+                      <p className="mt-1 text-sm text-text/60">{t("settings.history.empty")}</p>
+                    </div>
+                    <Button variant="secondary" size="sm"
+                      onClick={() => useNavigationStore.getState().setSection("general")}>
+                      {t("settings.history.configureDictation")}
+                    </Button>
+                  </>
+                )}
+              </div>
+            ) : (
             <AudioPlayerGroup>
               <div className="divide-y divide-mid-gray/20">
                 {historyEntries.map((entry) => (
                   <HistoryEntryComponent
                     key={entry.id}
                     entry={entry}
+                    searchQuery={searchQuery}
                     onToggleSaved={() => toggleSaved(entry.id)}
                     onCopyText={() => {
-                      const textToCopy =
-                        entry.action_type === "ai_replace"
-                          ? (entry.ai_response ?? entry.transcription_text)
-                          : (entry.post_processed_text ??
-                            entry.transcription_text);
-                      return copyToClipboard(textToCopy);
+                      return copyToClipboard(historyDisplayText(entry));
                     }}
                     getAudioUrl={getAudioUrl}
                     deleteAudio={deleteAudioEntry}
                     retryTranscription={retryHistoryEntry}
+                    retryState={retryStates[entry.id]}
+                    stopReplay={() => stopHistoryReplay(entry.id)}
                   />
                 ))}
               </div>
             </AudioPlayerGroup>
+            )}
             {hasMore && <div ref={sentinelRef} className="h-1" />}
           </div>
         </div>
@@ -1249,29 +1374,34 @@ export const HistorySettings: React.FC = () => {
 
 interface HistoryEntryProps {
   entry: HistoryEntry;
+  searchQuery: string;
   onToggleSaved: () => void;
   onCopyText: () => Promise<boolean>;
   getAudioUrl: (fileName: string) => Promise<string | null>;
   deleteAudio: (id: number) => Promise<void>;
   retryTranscription: (id: number) => Promise<void>;
+  retryState?: HistoryRetryState;
+  stopReplay: () => Promise<void>;
 }
 
 const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   entry,
+  searchQuery,
   onToggleSaved,
   onCopyText,
   getAudioUrl,
   deleteAudio,
   retryTranscription,
+  retryState,
+  stopReplay,
 }) => {
   const { t, i18n } = useTranslation();
   const [showCopied, setShowCopied] = useState(false);
   const [copyBurst, setCopyBurst] = useState(0);
   const copyFeedbackTimeoutRef = useRef<number | null>(null);
-  const [retrying, setRetrying] = useState(false);
-  const [replayProgress, setReplayProgress] = useState<HistoryReplayProgress | null>(null);
-  const [stoppingReplay, setStoppingReplay] = useState(false);
-  const retryInFlightRef = useRef(false);
+  const retrying = retryState !== undefined;
+  const replayProgress = retryState?.progress ?? null;
+  const stoppingReplay = retryState?.stopping ?? false;
   const retryMountedRef = useRef(true);
   const [playableAudio, setPlayableAudio] = useState<{
     url: string;
@@ -1279,9 +1409,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   } | null>(null);
 
   const isAiReplace = entry.action_type === "ai_replace";
-  const displayText = isAiReplace
-    ? (entry.ai_response ?? entry.transcription_text)
-    : (entry.post_processed_text ?? entry.transcription_text);
+  const displayText = historyDisplayText(entry);
   const hasDisplayText = displayText.trim().length > 0;
   const hasAudioReference =
     !isAiReplace && entry.file_name.trim().length > 0;
@@ -1291,9 +1419,6 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
     retryMountedRef.current = true;
     return () => {
       retryMountedRef.current = false;
-      if (retryInFlightRef.current) {
-        void invoke("cancel_history_entry_transcription", { id: entry.id }).catch(console.error);
-      }
     };
   }, [entry.id]);
 
@@ -1398,60 +1523,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   };
 
   const handleRetranscribe = async () => {
-    if (!retryMountedRef.current || retryInFlightRef.current) {
-      return;
-    }
-    retryInFlightRef.current = true;
-    let unlisten: (() => void) | undefined;
-    try {
-      setRetrying(true);
-      setReplayProgress(null);
-      setStoppingReplay(false);
-      // Subscribe before invoking so the initial connecting event is not lost.
-      unlisten = await listen<HistoryReplayProgress>("history-replay-progress", ({ payload }) => {
-        if (payload.id === entry.id) {
-          if (!retryMountedRef.current) {
-            // Unmount may have cancelled before the backend registered its replay.
-            void invoke("cancel_history_entry_transcription", { id: entry.id }).catch(console.error);
-            return;
-          }
-          setReplayProgress(payload);
-        }
-      });
-      if (!retryMountedRef.current) {
-        return;
-      }
-      await retryTranscription(entry.id);
-    } catch (error) {
-      if (!retryMountedRef.current) {
-        return;
-      }
-      if (String(error) === "History replay cancelled") {
-        toast.info(t("settings.history.liveReplay.cancelled"));
-      } else {
-        console.error("Failed to re-transcribe:", error);
-        toast.error(t("settings.history.retranscribeError"));
-      }
-    } finally {
-      unlisten?.();
-      retryInFlightRef.current = false;
-      if (retryMountedRef.current) {
-        setRetrying(false);
-        setReplayProgress(null);
-        setStoppingReplay(false);
-      }
-    }
-  };
-
-  const handleStopReplay = async () => {
-    setStoppingReplay(true);
-    try {
-      await invoke("cancel_history_entry_transcription", { id: entry.id });
-    } catch (error) {
-      console.error("Failed to stop history replay:", error);
-      setStoppingReplay(false);
-      toast.error(t("settings.history.liveReplay.stopError"));
-    }
+    if (retryMountedRef.current && !retrying) await retryTranscription(entry.id);
   };
 
   const formattedDate = formatDateTime(String(entry.timestamp), i18n.language);
@@ -1539,7 +1611,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
                 {t(`settings.history.liveReplay.${replayProgress.phase}`)}
               </span>
             </div>
-            <Button variant="secondary" size="sm" onClick={handleStopReplay} disabled={stoppingReplay}>
+            <Button variant="secondary" size="sm" onClick={stopReplay} disabled={stoppingReplay}>
               {t(stoppingReplay ? "settings.history.liveReplay.stopping" : "settings.history.liveReplay.stop")}
             </Button>
           </div>
@@ -1562,8 +1634,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
                 {t("settings.history.aiReplace.instruction")}
               </p>
               <p className="italic text-text/90 text-sm select-text cursor-text">
-                {entry.transcription_text ||
-                  t("settings.history.aiReplace.quickTap")}
+                <HighlightedText text={entry.transcription_text} query={searchQuery} />
               </p>
             </div>
           )}
@@ -1575,7 +1646,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
                 {t("settings.history.aiReplace.originalSelection")}
               </p>
               <p className="text-text/70 text-sm select-text cursor-text">
-                {truncateText(entry.original_selection, 150)}
+                <HighlightedText text={searchQuery ? entry.original_selection : truncateText(entry.original_selection, 150)} query={searchQuery} />
               </p>
             </div>
           )}
@@ -1587,7 +1658,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
             </p>
             {entry.ai_response ? (
               <p className="text-text/90 text-sm select-text cursor-text">
-                {entry.ai_response}
+                <HighlightedText text={entry.ai_response} query={searchQuery} />
               </p>
             ) : (
               <div className="flex items-center gap-2 text-amber-500">
@@ -1627,7 +1698,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
             {retrying
               ? t("settings.history.transcribing")
               : hasDisplayText
-                ? displayText
+                ? <HighlightedText text={displayText} query={searchQuery} />
                 : t("settings.history.transcriptionFailed")}
           </p>
           {playableAudio && (
