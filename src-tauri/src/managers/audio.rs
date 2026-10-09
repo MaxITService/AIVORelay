@@ -689,9 +689,14 @@ impl AudioRecordingManager {
             cached_device: Arc::new(Mutex::new(None)),
         };
 
-        // Always-on?  Open immediately.
+        // Always-on? Open immediately, but keep startup usable if capture is
+        // unavailable. Recording start retries and surfaces its own errors.
         if matches!(mode, MicrophoneMode::AlwaysOn) {
-            manager.start_microphone_stream()?;
+            if let Err(e) = manager.start_microphone_stream() {
+                warn!(
+                    "Failed to open always-on microphone stream at startup ({e}); will retry on the next recording start"
+                );
+            }
         }
 
         Ok(manager)
