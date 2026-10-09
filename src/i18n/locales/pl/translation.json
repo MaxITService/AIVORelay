@@ -172,6 +172,17 @@
       }
     },
     "advanced": {
+      "chineseScript": {
+        "title": "Pismo chińskie",
+        "description": "Zapisuje transkrypcje w języku mandaryńskim i kantońskim znakami uproszczonymi lub tradycyjnymi. Inne języki pozostają bez zmian.",
+        "options": {
+          "asTranscribed": "Jak w transkrypcji",
+          "simplified": "Uproszczone",
+          "traditional": "Tradycyjne",
+          "inherit": "Use global setting"
+        },
+        "saveFailed": "Could not save Chinese output script."
+      },
       "title": "Zaawansowane",
       "startHidden": {
         "label": "Uruchom ukryty",
@@ -496,6 +507,7 @@
     "description": "Zmień język interfejsu AivoRelay"
   },
   "overlay": {
-    "transcribing": "Transkrypcja..."
+    "transcribing": "Transkrypcja...",
+    "loadingModel": "Ładowanie modelu..."
   }
 }

@@ -99,18 +99,46 @@ fn model_hf_source(model: &ModelInfo) -> Option<(String, String, String)> {
     model.url.as_deref().and_then(parse_hf_source_url)
 }
 
-fn hf_cached_path(repo_id: &str, revision: &str, filename: &str) -> Option<PathBuf> {
-    let get = |revision: &str| {
-        Cache::from_env()
-            .repo(Repo::with_revision(
-                repo_id.to_string(),
-                RepoType::Model,
-                revision.to_string(),
-            ))
-            .get(filename)
-    };
+/// Active cache first; portable upgrades can borrow their previous shared cache.
+/// Downloads and deletion continue to operate only on the active cache.
+fn hf_caches() -> Vec<Cache> {
+    let current = Cache::from_env();
+    let mut caches = vec![current.clone()];
+    if crate::portable::data_dir().is_some() {
+        let legacy = crate::portable::previous_hf_home()
+            .map(|home| Cache::new(home.join("hub")))
+            .unwrap_or_default();
+        if legacy.path() != current.path() {
+            caches.push(legacy);
+        }
+    }
+    caches
+}
 
-    get(revision).or_else(|| (revision != "main").then(|| get("main")).flatten())
+fn hf_cached_path(repo_id: &str, revision: &str, filename: &str) -> Option<PathBuf> {
+    hf_cached_path_in(&hf_caches(), repo_id, revision, filename)
+}
+
+fn hf_cached_path_in(
+    caches: &[Cache],
+    repo_id: &str,
+    revision: &str,
+    filename: &str,
+) -> Option<PathBuf> {
+    caches.iter().find_map(|cache| {
+        let get = |revision: &str| {
+            cache
+                .repo(Repo::with_revision(
+                    repo_id.to_string(),
+                    RepoType::Model,
+                    revision.to_string(),
+                ))
+                .get(filename)
+        };
+        // Keep grandfathered main snapshots, while preferring the active cache
+        // even when only the legacy cache has a pinned revision.
+        get(revision).or_else(|| (revision != "main").then(|| get("main")).flatten())
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -1568,7 +1596,9 @@ impl ModelManager {
     }
 
     fn discover_hf_cache_models(available_models: &mut HashMap<String, ModelInfo>) {
-        Self::discover_hf_cache_models_in(Cache::from_env().path(), available_models);
+        for cache in hf_caches() {
+            Self::discover_hf_cache_models_in(cache.path(), available_models);
+        }
     }
 
     fn discover_hf_cache_models_in(
@@ -2355,7 +2385,15 @@ impl ModelManager {
 
         if let Some((repo_id, revision, filename)) = model_hf_source(&model_info) {
             let mut deleted_something = false;
-            if let Some(model_path) = hf_cached_path(&repo_id, &revision, &filename) {
+            let active_path = hf_cached_path_in(
+                &[Cache::from_env()], &repo_id, &revision, &filename,
+            );
+            if active_path.is_none() && hf_cached_path(&repo_id, &revision, &filename).is_some() {
+                return Err(anyhow::anyhow!(
+                    "This model is stored in the read-only legacy Hugging Face cache. Remove it from that cache manually if needed."
+                ));
+            }
+            if let Some(model_path) = active_path {
                 // The snapshot entry belongs to this model; the repository and
                 // its blobs may also serve other models, revisions, or apps.
                 // Remove the entry itself without following its symlink.
@@ -2685,6 +2723,88 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("aivorelay-{name}-{unique}.partial"))
+    }
+
+    struct HfCacheFixture(PathBuf);
+
+    impl HfCacheFixture {
+        fn new() -> Self {
+            let root = temp_file_path("hf-cache");
+            fs::create_dir_all(&root).unwrap();
+            Self(root)
+        }
+
+        fn cache(&self, name: &str) -> hf_hub::Cache {
+            hf_hub::Cache::new(self.0.join(name))
+        }
+
+        fn snapshot(&self, cache: &hf_hub::Cache, revision: &str, commit: &str) -> PathBuf {
+            let repository = cache.path().join("models--test--model");
+            let refs = repository.join("refs");
+            let snapshot = repository.join("snapshots").join(commit);
+            fs::create_dir_all(&refs).unwrap();
+            fs::create_dir_all(&snapshot).unwrap();
+            fs::write(refs.join(revision), commit).unwrap();
+            let file = snapshot.join("model.gguf");
+            fs::write(&file, commit).unwrap();
+            file
+        }
+    }
+
+    impl Drop for HfCacheFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn hf_cache_lookup_prefers_active_main_over_legacy_pinned_snapshot() {
+        let fixture = HfCacheFixture::new();
+        let active = fixture.cache("active");
+        let legacy = fixture.cache("legacy");
+        let active_file = fixture.snapshot(&active, "main", "active-commit");
+        let legacy_file = fixture.snapshot(&legacy, "pinned", "legacy-commit");
+
+        assert_eq!(super::hf_cached_path_in(
+            &[active.clone(), legacy], "test/model", "pinned", "model.gguf",
+        ), Some(active_file.clone()));
+        assert_eq!(super::hf_cached_path_in(
+            &[active], "test/model", "pinned", "model.gguf",
+        ), Some(active_file));
+        assert_eq!(fs::read_to_string(legacy_file).unwrap(), "legacy-commit");
+    }
+
+    #[test]
+    fn hf_cache_lookup_borrows_legacy_without_exposing_it_as_active() {
+        let fixture = HfCacheFixture::new();
+        let active = fixture.cache("active");
+        let legacy = fixture.cache("legacy");
+        let legacy_file = fixture.snapshot(&legacy, "main", "legacy-commit");
+
+        assert_eq!(super::hf_cached_path_in(
+            &[active.clone(), legacy], "test/model", "pinned", "model.gguf",
+        ), Some(legacy_file.clone()));
+        // Deletion queries only the active cache, so a borrowed snapshot must
+        // never be returned as an active entry eligible for removal.
+        assert_eq!(super::hf_cached_path_in(
+            &[active], "test/model", "pinned", "model.gguf",
+        ), None);
+        assert_eq!(fs::read_to_string(legacy_file).unwrap(), "legacy-commit");
+    }
+
+    #[test]
+    fn hf_cache_lookup_prefers_requested_revision_and_rejects_missing_files() {
+        let fixture = HfCacheFixture::new();
+        let active = fixture.cache("active");
+        fixture.snapshot(&active, "main", "old-commit");
+        let pinned_file = fixture.snapshot(&active, "pinned", "pinned-commit");
+
+        assert_eq!(super::hf_cached_path_in(
+            &[active.clone()], "test/model", "pinned", "model.gguf",
+        ), Some(pinned_file));
+        assert_eq!(super::hf_cached_path_in(
+            &[active], "test/model", "pinned", "missing.gguf",
+        ), None);
     }
 
     #[test]

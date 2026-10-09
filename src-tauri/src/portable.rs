@@ -3,8 +3,11 @@ use std::sync::OnceLock;
 use tauri::Manager;
 
 static PORTABLE_DATA_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+static PREVIOUS_HF_HOME: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 pub fn init() {
+    PREVIOUS_HF_HOME.get_or_init(|| std::env::var_os("HF_HOME").map(PathBuf::from));
+
     PORTABLE_DATA_DIR.get_or_init(|| {
         let exe_path = std::env::current_exe().ok()?;
         let exe_dir = exe_path.parent()?;
@@ -18,6 +21,11 @@ pub fn init() {
             None
         }
     });
+}
+
+/// Hugging Face home before portable redirection; legacy caches are read-only.
+pub fn previous_hf_home() -> Option<&'static PathBuf> {
+    PREVIOUS_HF_HOME.get().and_then(|path| path.as_ref())
 }
 
 /// Keep hf-hub downloads inside the portable data directory. hf-hub appends

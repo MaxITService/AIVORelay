@@ -182,6 +182,7 @@ pub(crate) fn cancel_current_operation_guarded(
     // Unload model if immediate unload is enabled
     let tm = app.state::<Arc<TranscriptionManager>>();
     tm.cancel_stream();
+    tm.cancel_transcription();
     tm.cancel_file_transcription();
     crate::commands::file_transcription::cancel_file_transcription();
     tm.maybe_unload_immediately("cancellation");

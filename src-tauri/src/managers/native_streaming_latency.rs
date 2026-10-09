@@ -1,8 +1,9 @@
 use super::model::NativeStreamingLatencyKind;
 use crate::settings::NativeStreamingLatencyPreset;
 use log::warn;
+use crate::engine_supervisor::RemoteModel as Model;
 use transcribe_cpp::{
-    sys, ExtSlot, Model, ParakeetBufferedStreamOptions, ParakeetStreamOptions, StreamExtension,
+    sys, ExtSlot, ParakeetBufferedStreamOptions, ParakeetStreamOptions, StreamExtension,
 };
 
 fn extension_for_kind(

@@ -22,9 +22,8 @@ pub fn set_model_unload_timeout(app: AppHandle, timeout: ModelUnloadTimeout) {
 pub fn unload_model_manually(
     transcription_manager: State<'_, Arc<TranscriptionManager>>,
 ) -> Result<(), String> {
-    transcription_manager
-        .unload_model()
-        .map_err(|e| format!("Failed to unload model: {}", e))
+    transcription_manager.request_unload();
+    Ok(())
 }
 
 fn apply_and_reload_accelerator(app: &AppHandle) {
@@ -32,9 +31,7 @@ fn apply_and_reload_accelerator(app: &AppHandle) {
 
     let transcription_manager = app.state::<Arc<TranscriptionManager>>();
     if transcription_manager.is_model_loaded() {
-        if let Err(err) = transcription_manager.unload_model() {
-            log::warn!("Failed to unload model after accelerator change: {}", err);
-        }
+        transcription_manager.request_unload();
     }
 }
 
@@ -44,6 +41,8 @@ pub fn change_whisper_accelerator_setting(app: AppHandle, accelerator: WhisperAc
     let mut settings = get_settings(&app);
     settings.whisper_accelerator = accelerator;
     write_settings(&app, settings);
+    crate::managers::transcription::native_engine_supervisor()
+        .retry_gpu("native accelerator changed");
     apply_and_reload_accelerator(&app);
 }
 
@@ -62,6 +61,8 @@ pub fn change_whisper_gpu_device(app: AppHandle, device: Option<String>) {
     let mut settings = get_settings(&app);
     settings.whisper_gpu_device = device;
     write_settings(&app, settings);
+    crate::managers::transcription::native_engine_supervisor()
+        .retry_gpu("native device changed");
     apply_and_reload_accelerator(&app);
 }
 

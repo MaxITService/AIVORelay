@@ -41,6 +41,10 @@ fn iso639_1_for_whatlang(lang: Lang) -> Option<&'static str> {
 /// that the model can produce. Missing metadata permits unconstrained
 /// detection; wholly unrepresentable metadata fails closed.
 pub fn detect_output_language(text: &str, supported_languages: &[String]) -> Option<String> {
+    if text.trim().chars().count() < 6 {
+        return None;
+    }
+
     let allowlist: Vec<Lang> = supported_languages
         .iter()
         .filter_map(|code| whatlang_lang_for_model_code(code))
@@ -82,6 +86,19 @@ mod tests {
     #[test]
     fn short_ambiguous_text_returns_none() {
         assert_eq!(detect_output_language("um ok", &langs(&["en", "pt"])), None);
+    }
+
+    #[test]
+    fn minimum_length_counts_unicode_characters_after_trimming() {
+        for text in ["", "   ", "这是中文", "  这是中文  ", "漢字語中文"] {
+            assert_eq!(detect_output_language(text, &langs(&["zh"])), None, "{text:?}");
+        }
+        // A single-language allowlist makes the six-character boundary
+        // independent of the detector's ranking among multiple languages.
+        assert_eq!(
+            detect_output_language("  这是中文句子  ", &langs(&["zh"])).as_deref(),
+            Some("zh")
+        );
     }
 
     #[test]

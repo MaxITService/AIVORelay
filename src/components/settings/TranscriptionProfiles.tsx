@@ -61,6 +61,7 @@ import {
   parseGeminiVocabulary,
   validateGeminiVocabularyFile,
 } from "../../lib/gemini/vocabulary";
+import { ChineseScriptSetting } from "./ChineseScript";
 import { SttModelSelector } from "./SttModelSelector";
 import {
   globalSttSelection,
@@ -1261,6 +1262,8 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
             </label>
             <HandyShortcut shortcutId={bindingId} grouped={true} />
           </div>
+
+          <ChineseScriptSetting profileId={profile.id} descriptionMode="tooltip" />
 
           {/* Language + Translate to English — same row */}
           <div className="grid gap-3 lg:grid-cols-2">
@@ -2957,6 +2960,8 @@ export const TranscriptionProfiles: React.FC = () => {
                     grouped={true}
                   />
                 </div>
+
+                <ChineseScriptSetting descriptionMode="tooltip" />
 
                 {/* Language + Translate to English — same row */}
                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">

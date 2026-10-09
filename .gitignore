@@ -26,6 +26,7 @@ dist-ssr
 
 /target/
 recording_*
+!/src-tauri/src/recording_model_loading.rs
 ~
 
 # Bundled DLLs (copied during CI build)

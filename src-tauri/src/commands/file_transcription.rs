@@ -124,6 +124,7 @@ fn default_file_profile_snapshot(
         id: "file_transcription".to_string(),
         name: "Transcribe File".to_string(),
         language: settings.selected_language.clone(),
+        chinese_script: Some(crate::chinese_script::resolve_chinese_script(settings, None)),
         translate_to_english: settings.translate_to_english,
         description: String::new(),
         automatic_app_rules: Vec::new(),
@@ -153,6 +154,7 @@ fn initial_file_profile_snapshot(
     if settings.active_profile_id != "default" {
         if let Some(profile) = settings.transcription_profile(&settings.active_profile_id) {
             let mut snapshot = profile.clone();
+            snapshot.chinese_script = Some(crate::chinese_script::resolve_chinese_script(settings, Some(profile)));
             snapshot.id = "file_transcription".to_string();
             snapshot.name = "Transcribe File".to_string();
             snapshot.automatic_app_rules.clear();
@@ -778,6 +780,7 @@ pub async fn transcribe_audio_file(
         })
         .and_then(|config| config.profile_snapshot.clone());
     let profile = file_profile_snapshot.as_ref();
+    settings.chinese_script = crate::chinese_script::resolve_chinese_script(&settings, profile);
     let apply_custom_words_enabled =
         custom_words_enabled_override.unwrap_or(settings.custom_words_enabled);
     let should_apply_custom_words = apply_custom_words_enabled && !settings.custom_words.is_empty();
@@ -1147,9 +1150,11 @@ pub async fn transcribe_audio_file(
         } else {
             Vec::new()
         };
-        // Soniox language values are hints and can still produce multilingual
-        // output, so resolve the actual text instead of trusting one hint.
-        let output_language = OutputLanguageEvidence::Multilingual;
+        // Soniox requests can produce multiple languages. Only homogeneous
+        // per-token provider language metadata proves a single output language.
+        let output_language = transcript.output_language.as_ref()
+            .map(|language| OutputLanguageEvidence::ModelDetected(language.clone()))
+            .unwrap_or(OutputLanguageEvidence::Multilingual);
         let output_language =
             resolved_output_language_for_text(&settings, &transcript.text, output_language);
 
@@ -1356,6 +1361,7 @@ pub async fn transcribe_audio_file(
                         transcription_model_id,
                     ),
                     apply_custom_words_enabled,
+                    Some(settings.chinese_script),
                 )
                 .map_err(|e| format!("Local transcription failed: {}", e))
             } else {
@@ -1365,6 +1371,7 @@ pub async fn transcribe_audio_file(
                     None,
                     None,
                     apply_custom_words_enabled,
+                    Some(settings.chinese_script),
                 )
                 .map_err(|e| format!("Local transcription failed: {}", e))
             }
@@ -1380,10 +1387,11 @@ pub async fn transcribe_audio_file(
                         transcription_model_id,
                     ),
                     apply_custom_words_enabled,
+                    Some(settings.chinese_script),
                 )
                 .map_err(|e| format!("Local transcription failed: {}", e))
             } else {
-                tm.transcribe_file_text(samples, None, None, None, apply_custom_words_enabled)
+                tm.transcribe_file_text(samples, None, None, None, apply_custom_words_enabled, Some(settings.chinese_script))
                     .map_err(|e| format!("Local transcription failed: {}", e))
             };
             text_result.map(|(text, meta)| (text, None, meta))
@@ -1511,6 +1519,7 @@ fn apply_transcription_post_processing(
     should_apply_custom_words: bool,
     output_language: &OutputLanguageEvidence,
 ) -> String {
+    let text = crate::chinese_script::convert_with_evidence(&text, settings, output_language, &[]);
     let corrected = if should_apply_custom_words {
         apply_custom_words(
             &text,
@@ -1537,8 +1546,8 @@ fn resolved_output_language_for_text(
     evidence: OutputLanguageEvidence,
 ) -> OutputLanguageEvidence {
     if evidence == OutputLanguageEvidence::Unknown
-        && settings.filler_word_filter_enabled
-        && settings.custom_filler_words.is_none()
+        && (settings.chinese_script != crate::settings::ChineseScript::AsTranscribed
+            || (settings.filler_word_filter_enabled && settings.custom_filler_words.is_none()))
     {
         if let Some(language) = detect_output_language(text, &[]) {
             return OutputLanguageEvidence::TextDetected(language);
@@ -1812,6 +1821,9 @@ fn post_process_remote_segments(
     segments
         .into_iter()
         .filter_map(|mut segment| {
+            segment.text = crate::chinese_script::convert_with_evidence(
+                &segment.text, settings, output_language, &[],
+            );
             if should_apply_custom_words {
                 segment.text = apply_custom_words(
                     &segment.text,
@@ -2201,11 +2213,14 @@ fn save_transcription_without_overwrite(
 mod tests {
     use super::{
         apply_file_model_config, compatible_initial_file_selection, load_file_model_config,
-        initialize_file_transcription_model_state, legacy_file_model_config_key,
+        apply_transcription_post_processing, apply_transcription_post_processing_to_diarized_segments,
+        initial_file_profile_snapshot, initialize_file_transcription_model_state, legacy_file_model_config_key,
         require_remote_segments, resample_audio, save_transcription_without_overwrite,
         seed_file_model_config, session_blocks_local_file_transcription,
         sync_active_file_model_config, validate_audio_sample_rate,
     };
+    use crate::audio_toolkit::OutputLanguageEvidence;
+    use crate::file_transcription_diarization::DiarizedSubtitleSegment;
     use crate::session_manager::SessionState;
     use crate::settings::{
         get_default_settings, stt_model_selection_supports_file, GeminiTranscriptionMode,
@@ -2311,6 +2326,99 @@ mod tests {
         .unwrap();
         profile.stt_model_selection_override = Some(selection);
         profile
+    }
+
+    #[test]
+    fn file_profile_snapshot_freezes_inherited_chinese_script() {
+        use crate::settings::ChineseScript;
+        let mut settings = get_default_settings();
+        settings.selected_language = "auto".into();
+        settings.chinese_script = ChineseScript::Traditional;
+        let selection = remote_selection("google", "gemini-3.5-transcribe");
+        let mut profile = profile_with_selection(selection.clone());
+        profile.language = "zh".into();
+        profile.chinese_script = None;
+        settings.active_profile_id = profile.id.clone();
+        settings.transcription_profiles.push(profile);
+        let snapshot = initial_file_profile_snapshot(&settings, &selection);
+        assert_eq!(snapshot.chinese_script, Some(ChineseScript::Traditional));
+        settings.chinese_script = ChineseScript::Simplified;
+        settings.transcription_profiles[0].chinese_script = Some(ChineseScript::AsTranscribed);
+        assert_eq!(crate::chinese_script::resolve_chinese_script(&settings, Some(&snapshot)), ChineseScript::Traditional);
+        assert_eq!(snapshot.language, "zh");
+        assert_eq!(snapshot.id, "file_transcription");
+        assert_eq!(snapshot.stt_model_selection_override, Some(selection));
+    }
+
+    #[test]
+    fn file_profile_snapshot_preserves_explicit_and_legacy_script_choices() {
+        use crate::settings::ChineseScript;
+        let mut settings = get_default_settings();
+        settings.selected_language = "auto".into();
+        settings.chinese_script = ChineseScript::Traditional;
+        let selection = remote_selection("google", "gemini-3.5-transcribe");
+        let mut profile = profile_with_selection(selection.clone());
+        settings.active_profile_id = profile.id.clone();
+        profile.language = "zh-Hans".into();
+        settings.transcription_profiles.push(profile);
+        assert_eq!(initial_file_profile_snapshot(&settings, &selection).chinese_script, Some(ChineseScript::Simplified));
+        settings.transcription_profiles[0].chinese_script = Some(ChineseScript::AsTranscribed);
+        assert_eq!(initial_file_profile_snapshot(&settings, &selection).chinese_script, Some(ChineseScript::AsTranscribed));
+        settings.active_profile_id = "default".into();
+        let snapshot = initial_file_profile_snapshot(&settings, &selection);
+        settings.chinese_script = ChineseScript::Simplified;
+        assert_eq!(snapshot.chinese_script, Some(ChineseScript::Traditional));
+        settings.selected_language = "zh-Hant".into();
+        assert_eq!(initial_file_profile_snapshot(&settings, &selection).chinese_script, Some(ChineseScript::Traditional));
+    }
+
+    #[test]
+    fn file_post_processing_converts_known_chinese_but_preserves_other_output() {
+        use crate::settings::ChineseScript;
+        let mut settings = get_default_settings();
+        settings.selected_language = "auto".into();
+        settings.chinese_script = ChineseScript::Traditional;
+        settings.filler_word_filter_enabled = false;
+        let text = "学习汉语";
+        assert_eq!(apply_transcription_post_processing(text.into(), &settings, false, &OutputLanguageEvidence::ModelDetected("zh".into())), "學習漢語");
+        for evidence in [
+            OutputLanguageEvidence::ModelDetected("ja".into()),
+            OutputLanguageEvidence::Multilingual,
+            OutputLanguageEvidence::TranslatedToEnglish,
+            OutputLanguageEvidence::Unknown,
+        ] {
+            assert_eq!(apply_transcription_post_processing(text.into(), &settings, false, &evidence), text);
+        }
+    }
+
+    #[test]
+    fn file_diarized_script_conversion_preserves_speakers_and_timestamps() {
+        let mut settings = get_default_settings();
+        settings.selected_language = "auto".into();
+        settings.chinese_script = crate::settings::ChineseScript::Traditional;
+        settings.filler_word_filter_enabled = false;
+        let segments = vec![DiarizedSubtitleSegment {
+            speaker_id: Some(3), default_name: Some("Speaker 3".into()),
+            start: 1.25, end: 2.75, text: "学习汉语".into(),
+        }];
+        let output = apply_transcription_post_processing_to_diarized_segments(
+            segments.clone(), &settings, false, &OutputLanguageEvidence::ModelDetected("zh".into()),
+        );
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0].text, "學習漢語");
+        assert_eq!(output[0].speaker_id, Some(3));
+        assert_eq!(output[0].default_name.as_deref(), Some("Speaker 3"));
+        assert_eq!(output[0].start, 1.25);
+        assert_eq!(output[0].end, 2.75);
+        let multilingual = apply_transcription_post_processing_to_diarized_segments(
+            segments.clone(), &settings, false, &OutputLanguageEvidence::Multilingual,
+        );
+        assert_eq!(multilingual.len(), 1);
+        assert_eq!(multilingual[0].text, segments[0].text);
+        assert_eq!(multilingual[0].speaker_id, segments[0].speaker_id);
+        assert_eq!(multilingual[0].default_name, segments[0].default_name);
+        assert_eq!(multilingual[0].start, segments[0].start);
+        assert_eq!(multilingual[0].end, segments[0].end);
     }
 
     #[test]

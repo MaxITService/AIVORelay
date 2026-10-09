@@ -1,3 +1,4 @@
+import { useRecordingModelLoading } from "../hooks/useRecordingModelLoading";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { type as getOsType } from "@tauri-apps/plugin-os";
@@ -529,6 +530,7 @@ function getOverlayErrorTooltip(
 
 const RecordingOverlay: React.FC = () => {
   const { t } = useTranslation();
+  const modelLoad = useRecordingModelLoading();
   const [isVisible, setIsVisible] = useState(false);
   // Mirrors isVisible synchronously for event handlers registered once.
   const isVisibleRef = useRef(false);
@@ -1672,7 +1674,11 @@ const RecordingOverlay: React.FC = () => {
           </div>
         )}
         {state === "transcribing" && (
-          <div className="transcribing-text">{t("overlay.transcribing")}</div>
+          <div className="transcribing-text">
+            {modelLoad.loading
+              ? t("overlay.loadingModel", "Loading model...")
+              : t("overlay.transcribing")}
+          </div>
         )}
         {state === "error" && (
           <div className="error-copy" title={errorTechnical || undefined}>

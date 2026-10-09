@@ -2431,6 +2431,17 @@ async changeFillerWordFilterEnabledSetting(enabled: boolean) : Promise<Result<nu
     else return { status: "error", error: e  as any };
 }
 },
+async changeChineseScriptSetting(script: ChineseScript | null, profileId: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_chinese_script_setting", { script, profileId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getRecordingModelLoadingState() : Promise<RecordingModelLoadingState> {
+    return await TAURI_INVOKE("get_recording_model_loading_state");
+},
 async changeZeroWidthFilterEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_zero_width_filter_enabled_setting", { enabled }) };
@@ -4313,7 +4324,7 @@ live_sound_microphone?: string | null; selected_output_device?: string | null; l
 /**
  * Overrides for Live Monitor sessions — None means inherit global provider setting.
  */
-live_sound_soniox_endpoint_detection?: boolean | null; live_sound_soniox_max_endpoint_delay_ms?: number | null; live_sound_deepgram_endpointing_enabled?: boolean | null; live_sound_deepgram_endpointing_ms?: number | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; recording_overlay_enabled?: boolean; auto_position_allow_reserved_areas?: boolean; recording_overlay_use_manual_position?: boolean; recording_overlay_has_saved_custom_position?: boolean; recording_overlay_manual_position_uses_physical_px?: boolean; recording_overlay_custom_x_px?: number; recording_overlay_custom_y_px?: number;
+live_sound_soniox_endpoint_detection?: boolean | null; live_sound_soniox_max_endpoint_delay_ms?: number | null; live_sound_deepgram_endpointing_enabled?: boolean | null; live_sound_deepgram_endpointing_ms?: number | null; translate_to_english?: boolean; selected_language?: string; chinese_script?: ChineseScript; overlay_position?: OverlayPosition; recording_overlay_enabled?: boolean; auto_position_allow_reserved_areas?: boolean; recording_overlay_use_manual_position?: boolean; recording_overlay_has_saved_custom_position?: boolean; recording_overlay_manual_position_uses_physical_px?: boolean; recording_overlay_custom_x_px?: number; recording_overlay_custom_y_px?: number;
 /**
  * Auto-hide duration for error overlay in milliseconds.
  */
@@ -4710,6 +4721,7 @@ export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { whisper: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type BundledExtensionExportResult = { exportPath: string; extensionId: string; configuredOrigin: string; generatedPassword: string; reusedExistingId: boolean; replacedExistingExport: boolean }
+export type ChineseScript = "as_transcribed" | "simplified" | "traditional"
 export type ClipboardHandling =
 /**
  * Do nothing after pasting: the transcript stays in the clipboard and
@@ -4926,6 +4938,7 @@ export type PreviewOutputModeStatePayload = { active: boolean; recording: boolea
  * Used as a parameter struct for update_transcription_profile to reduce argument count.
  */
 export type ProfileLlmSettings = { enabled: boolean; promptOverride: string | null; modelOverride: string | null }
+export type RecordingModelLoadingState = { recording_session_id: number | null; provider: string | null; model_id: string | null; loading: boolean; loading_elapsed_ms: number; preview_active: boolean }
 export type RecordingOverlayAnimatedBorderMode = "none" | "shimmer_edge" | "traveling_highlight" | "breathing_contour" | "spectrum_edge"
 export type RecordingOverlayAppearancePayload = { custom_enabled: boolean; theme: string; background_mode: string; material_mode: string; centerpiece_mode: string; animated_border_mode: string; accent_color: string; status_icon_color: string; cancel_icon_color: string; surface_base_color: string; body_background_color: string; show_status_icon: boolean; status_icon_style: string; show_cancel_button: boolean; cancel_button_invisible: boolean; bar_count: number; bar_width_px: number; bar_style: string; show_drag_grip: boolean; entrance_animation: string; exit_animation: string; audio_reactive_scale: boolean; audio_reactive_scale_max_percent: number; voice_sensitivity_percent: number; animation_softness_percent: number; depth_parallax_percent: number; opacity_percent: number; silence_fade: boolean; silence_opacity_percent: number; decapitalize_indicator_mode: string; decapitalize_indicator_custom_text: string; decapitalize_indicator_font_family: string; decapitalize_indicator_font_size_px: number; decapitalize_indicator_color: string; frame_width_px: number; frame_height_px: number }
 /**
@@ -5123,6 +5136,10 @@ name: string;
  * Language code for speech recognition (e.g., "fr", "es", "auto")
  */
 language: string;
+/**
+ * None inherits the global script preference.
+ */
+chinese_script?: ChineseScript | null;
 /**
  * Whether to translate the transcription to English
  */

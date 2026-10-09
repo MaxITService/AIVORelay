@@ -13,6 +13,7 @@ import { RecordingAutoStop } from "../RecordingAutoStop";
 import { AccelerationSelector } from "../AccelerationSelector";
 import { MuteWhileRecording } from "../MuteWhileRecording";
 import { PauseMediaWhileRecording } from "../PauseMediaWhileRecording";
+import { ChineseScriptSetting } from "../ChineseScript";
 import { NeverLaunchWebView } from "../NeverLaunchWebView";
 
 export const AdvancedSettings: React.FC = () => {
@@ -47,6 +48,7 @@ export const AdvancedSettings: React.FC = () => {
       </TellMeMore>
 
       <SettingsGroup title={t("settings.advanced.title")}>
+        <ChineseScriptSetting descriptionMode="tooltip" grouped={true} />
         <StartHidden descriptionMode="tooltip" grouped={true} />
         <AutostartToggle descriptionMode="tooltip" grouped={true} />
         <AutoSubmit descriptionMode="tooltip" grouped={true} />

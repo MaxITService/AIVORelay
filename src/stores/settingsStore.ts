@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import type {
-  AppSettings as Settings,
+  AppSettings as GeneratedSettings,
   AudioDevice,
   ModelUnloadTimeout,
   VadBackend,
@@ -16,6 +16,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { invalidateModelDownloadActivationIntent } from "@/lib/modelDownloadActivation";
 import { getActiveProfilePostProcessingEnabled } from "@/lib/postProcessingAvailability";
 import { sessionToast as toast } from "@/lib/sessionToast";
+
+export type ChineseScript = "as_transcribed" | "simplified" | "traditional";
+export type Settings = GeneratedSettings & { chinese_script?: ChineseScript };
 
 const withActiveProfilePostProcessingEnabled = (
   settings: Settings,
@@ -248,6 +251,8 @@ const settingUpdaters: {
   model_unload_timeout: (value) => commands.setModelUnloadTimeout(value as any),
   translate_to_english: (value) =>
     commands.changeTranslateToEnglishSetting(value as boolean),
+  chinese_script: (value) =>
+    invoke("change_chinese_script_setting", { script: value, profileId: null }),
   selected_language: (value) =>
     commands.changeSelectedLanguageSetting(value as string),
   overlay_position: (value) =>

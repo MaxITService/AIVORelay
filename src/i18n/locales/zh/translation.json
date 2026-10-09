@@ -172,6 +172,17 @@
       }
     },
     "advanced": {
+      "chineseScript": {
+        "title": "简繁转换",
+        "description": "将普通话和粤语转录输出为简体或繁体中文。其他语言不受影响。",
+        "options": {
+          "asTranscribed": "保持原样",
+          "simplified": "简体",
+          "traditional": "繁体",
+          "inherit": "使用全局设置"
+        },
+        "saveFailed": "无法保存中文书写形式。"
+      },
       "title": "高级",
       "startHidden": {
         "label": "隐藏启动",
@@ -496,6 +507,7 @@
     "description": "更改 AivoRelay 界面的语言"
   },
   "overlay": {
-    "transcribing": "正在转录..."
+    "transcribing": "正在转录...",
+    "loadingModel": "正在加载模型..."
   }
 }

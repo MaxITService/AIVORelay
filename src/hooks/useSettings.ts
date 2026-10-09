@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import type { RecordingOverlayStyleConfig } from "../overlay/recordingOverlayStyleConfig";
 import { useSettingsStore } from "../stores/settingsStore";
-import type { AppSettings as Settings, AudioDevice } from "@/bindings";
+import type { AudioDevice } from "@/bindings";
+import type { Settings } from "../stores/settingsStore";
 
 interface UseSettingsReturn {
   // State

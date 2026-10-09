@@ -5449,6 +5449,7 @@ pub fn add_transcription_profile(
         id: profile_id.clone(),
         name: name.clone(),
         language,
+        chinese_script: None,
         translate_to_english,
         description: description.clone(),
         automatic_app_rules,

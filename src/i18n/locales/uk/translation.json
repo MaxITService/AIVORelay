@@ -172,6 +172,17 @@
       }
     },
     "advanced": {
+      "chineseScript": {
+        "title": "Китайська писемність",
+        "description": "Записує транскрипції мандаринською та кантонською спрощеними або традиційними ієрогліфами. Інші мови не змінюються.",
+        "options": {
+          "asTranscribed": "Як розпізнано",
+          "simplified": "Спрощені",
+          "traditional": "Традиційні",
+          "inherit": "Use global setting"
+        },
+        "saveFailed": "Could not save Chinese output script."
+      },
       "title": "Розширені",
       "startHidden": {
         "label": "Запуск у фоні",
@@ -496,6 +507,7 @@
     "description": "Змінити мову інтерфейсу AivoRelay"
   },
   "overlay": {
-    "transcribing": "Обробка..."
+    "transcribing": "Обробка...",
+    "loadingModel": "Завантаження моделі..."
   }
 }
