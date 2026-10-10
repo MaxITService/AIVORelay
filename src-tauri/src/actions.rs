@@ -5927,8 +5927,18 @@ async fn finalize_preview_workflow_after_stop(
     text: String,
     operation_stamp: OperationStamp,
 ) -> Result<(), String> {
+    if !operation_stamp.is_current(app) || operation_stamp.was_cancelled(app) {
+        return Ok(());
+    }
+
+    // Keep the delivered version available for retry if insertion is interrupted.
+    replace_preview_text_for_output_mode(app, &text);
     if !text.trim().is_empty() {
-        if !paste_preview_buffer_to_target(app, text, Some(operation_stamp)).await? {
+        let paste_result = paste_preview_buffer_to_target(app, text, Some(operation_stamp)).await;
+        if operation_stamp.is_current(app) && !operation_stamp.was_cancelled(app) {
+            stop_preview_processing_before_insert(app);
+        }
+        if !paste_result? {
             return Ok(());
         }
     }
