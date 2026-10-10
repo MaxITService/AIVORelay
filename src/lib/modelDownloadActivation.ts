@@ -1,8 +1,11 @@
 import { commands } from "@/bindings";
+import { sttSelectionKey } from "@/lib/sttModelSelection";
 
 interface ModelSelectionSnapshot {
   modelId: string;
   provider: string;
+  profileId: string;
+  profileModelSelectionKey: string | null;
 }
 
 interface ModelDownloadActivationIntent extends ModelSelectionSnapshot {
@@ -24,9 +27,17 @@ const captureModelSelection =
       return null;
     }
 
+    const profileId = settingsResult.data.active_profile_id ?? "default";
+    const profileSelection = profileId === "default"
+      ? null
+      : settingsResult.data.transcription_profiles?.find(
+          (profile) => profile.id === profileId,
+        )?.stt_model_selection_override;
     return {
       modelId: modelResult.data,
       provider: String(settingsResult.data.transcription_provider ?? "local"),
+      profileId,
+      profileModelSelectionKey: profileSelection ? sttSelectionKey(profileSelection) : null,
     };
   };
 
@@ -77,6 +88,7 @@ export const invalidateModelDownloadActivationIntent = (): void => {
  */
 export const prepareModelDownloadAutoActivation = async (
   modelId: string,
+  expectedProfileId?: string,
 ): Promise<number | null> => {
   const intent = pendingIntent;
   if (
@@ -98,7 +110,10 @@ export const prepareModelDownloadAutoActivation = async (
   if (
     !currentSelection ||
     currentSelection.modelId !== intent.modelId ||
-    currentSelection.provider !== intent.provider
+    currentSelection.provider !== intent.provider ||
+    currentSelection.profileId !== intent.profileId ||
+    currentSelection.profileModelSelectionKey !== intent.profileModelSelectionKey ||
+    (expectedProfileId !== undefined && currentSelection.profileId !== expectedProfileId)
   ) {
     invalidateModelDownloadActivationIntent();
     return null;

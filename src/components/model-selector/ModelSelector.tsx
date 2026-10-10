@@ -2,8 +2,9 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { type as getOsType } from "@tauri-apps/plugin-os";
-import { commands, type ModelInfo, type RemoteSttSettings } from "@/bindings";
+import { commands, type ModelInfo, type RemoteSttSettings, type SttModelSelection } from "@/bindings";
 import { resolveRemoteApiRow, type RemoteApiRow } from "@/lib/remoteApiModels";
+import { sttSelectionKey } from "@/lib/sttModelSelection";
 import type { ModelStateEvent } from "@/lib/types/events";
 import { getTranslatedModelName } from "../../lib/utils/modelTranslation";
 import { getRemoteApiDisplayLabel } from "../../lib/utils/remoteSttDisplay";
@@ -59,7 +60,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   onInteraction,
 }) => {
   const { t } = useTranslation();
-  const { getSetting, setTranscriptionProvider, refreshSettings } = useSettings();
+  const { settings, getSetting, setTranscriptionProvider, refreshSettings } = useSettings();
   const supportsRemoteProviders = getOsType() === "windows";
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [currentModelId, setCurrentModelId] = useState<string>("");
@@ -77,10 +78,32 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     new Set(),
   );
 
+  const activeProfileId = settings?.active_profile_id ?? "default";
+  const activeProfile = activeProfileId === "default"
+    ? undefined
+    : settings?.transcription_profiles?.find((profile) => profile.id === activeProfileId);
+  const profileModelSelection = activeProfile?.stt_model_selection_override;
+  const profileModelSelectionKey = profileModelSelection
+    ? sttSelectionKey(profileModelSelection)
+    : null;
   const transcriptionProvider = String(
-    getSetting("transcription_provider") || "local",
+    profileModelSelection?.provider ?? getSetting("transcription_provider") ?? "local",
   );
-  const remoteStt = getSetting("remote_stt") as RemoteSttSettings | undefined;
+  const globalRemoteStt = getSetting("remote_stt") as RemoteSttSettings | undefined;
+  const remoteStt = profileModelSelection?.provider === "remote_openai_compatible"
+    ? {
+        ...globalRemoteStt,
+        provider_preset: profileModelSelection.provider_preset || globalRemoteStt?.provider_preset,
+        model_id: profileModelSelection.model_id || globalRemoteStt?.model_id,
+      } as RemoteSttSettings
+    : globalRemoteStt;
+  const effectiveModelId = profileModelSelection?.provider === "local"
+    ? profileModelSelection.model_id || getSetting("selected_model") || currentModelId
+    : getSetting("selected_model") || currentModelId;
+  const displayModelStatus = effectiveModelId !== currentModelId &&
+    (modelStatus === "ready" || modelStatus === "loading")
+    ? "unloaded"
+    : modelStatus;
   const remoteApiDisplayLabel = getRemoteApiDisplayLabel(remoteStt);
   const isRemoteProvider =
     transcriptionProvider === "remote_openai_compatible" ||
@@ -88,6 +111,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     transcriptionProvider === "remote_deepgram";
 
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setModelError(null);
+    loadCurrentModel();
+  }, [activeProfileId, profileModelSelectionKey]);
 
   useEffect(() => {
     loadModels();
@@ -201,30 +229,43 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         // Only the latest requested download may auto-select, and only while
         // the user's model/provider selection remains unchanged.
         setTimeout(async () => {
-          const activationGeneration =
-            await prepareModelDownloadAutoActivation(modelId);
-          if (activationGeneration === null) {
+          const settingsResult = await commands.getAppSettings();
+          if (settingsResult.status === "error") {
+            cancelModelDownloadActivationIntent(modelId);
             return;
           }
-
           const isRecording = await commands.isRecording();
           if (isRecording) {
             cancelModelDownloadActivationIntent(modelId);
             return; // Skip auto-switch if recording in progress
+          }
+          const activationGeneration = await prepareModelDownloadAutoActivation(
+            modelId,
+            settingsResult.data.active_profile_id ?? "default",
+          );
+          if (activationGeneration === null) {
+            return;
           }
           if (
             !consumeModelDownloadAutoActivation(modelId, activationGeneration)
           ) {
             return;
           }
-          setCurrentModelId(modelId);
           setModelError(null);
           setShowModelDropdown(false);
-          const result = await commands.setActiveModel(modelId);
+          const result = (settingsResult.data.active_profile_id ?? "default") === "default"
+            ? await commands.setActiveModel(modelId)
+            : await commands.changeActiveProfileSttModelSelectionOverride({
+                provider: "local",
+                model_id: modelId,
+                provider_preset: "",
+              });
           if (result.status === "error") {
             setModelError(result.error);
             setModelStatus("error");
             onError?.(result.error);
+          } else {
+            await refreshSettings();
           }
         }, 500);
       },
@@ -401,9 +442,25 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     }
   };
 
+  const setActiveProfileModelSelection = useCallback(async (selection: SttModelSelection) => {
+    if (activeProfileId === "default") return false;
+    const result = await commands.changeActiveProfileSttModelSelectionOverride(selection);
+    if (result.status === "error") throw new Error(result.error);
+    await refreshSettings();
+    setModelError(null);
+    setModelStatus("unloaded");
+    return true;
+  }, [activeProfileId, refreshSettings]);
+
   const handleModelSelect = async (modelId: string) => {
     try {
       invalidateModelDownloadActivationIntent();
+      setShowModelDropdown(false);
+      if (await setActiveProfileModelSelection({
+        provider: "local",
+        model_id: modelId,
+        provider_preset: "",
+      })) return;
       // If we're in remote mode and selecting a local model, switch to local provider first
       if (isRemoteProvider) {
         await setTranscriptionProvider("local");
@@ -417,6 +474,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         setModelError(errorMsg);
         setModelStatus("error");
         onError?.(errorMsg);
+      } else {
+        await refreshSettings();
       }
     } catch (err) {
       const errorMsg = `${err}`;
@@ -428,8 +487,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 
   const handleModelDownload = async (modelId: string) => {
     try {
-      // If we're in remote mode and downloading a model, switch to local provider first
-      if (isRemoteProvider) {
+      // Custom profiles switch after download; Default keeps global selection behavior.
+      if (activeProfileId === "default" && isRemoteProvider) {
         await setTranscriptionProvider("local");
       }
       setModelError(null);
@@ -452,7 +511,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   };
 
   const getCurrentModel = () => {
-    return models.find((m) => m.id === currentModelId);
+    return models.find((m) => m.id === effectiveModelId);
   };
 
   const currentModel = getCurrentModel();
@@ -539,7 +598,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       }
     }
 
-    switch (modelStatus) {
+    switch (displayModelStatus) {
       case "ready":
         return currentModel
           ? getTranslatedModelName(currentModel, t)
@@ -579,6 +638,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         row,
         remoteStt?.provider_preset,
       );
+      if (await setActiveProfileModelSelection({
+        provider: "remote_openai_compatible",
+        model_id: modelId || (globalRemoteStt?.provider_preset === "custom"
+          ? globalRemoteStt.model_id
+          : "gpt-transcribe"),
+        provider_preset: preset,
+      })) return;
       // Reapplying a preset resets its endpoint and model, including Custom API.
       if (preset !== remoteStt?.provider_preset) {
         const result = await commands.changeRemoteSttProviderPresetSetting(preset);
@@ -615,6 +681,17 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       try {
         invalidateModelDownloadActivationIntent();
         setShowModelDropdown(false);
+        if (await setActiveProfileModelSelection({
+          provider: provider as SttModelSelection["provider"],
+          model_id: provider === "remote_soniox"
+            ? profileModelSelection?.provider === "remote_soniox"
+              ? profileModelSelection.model_id
+              : getSetting("soniox_model") || "stt-rt-v5"
+            : profileModelSelection?.provider === "remote_deepgram"
+              ? profileModelSelection.model_id
+              : getSetting("deepgram_model") || "nova-3",
+          provider_preset: "",
+        })) return;
         await setTranscriptionProvider(provider);
         setModelError(null);
         setModelStatus("ready");
@@ -625,7 +702,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         onError?.(errorMsg);
       }
     },
-    [onError, setTranscriptionProvider, supportsRemoteProviders, t],
+    [onError, setTranscriptionProvider, supportsRemoteProviders, t, setActiveProfileModelSelection, profileModelSelection, getSetting],
   );
 
   const handleModelDelete = async (modelId: string) => {
@@ -646,7 +723,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
               ? "error"
               : isRemoteProvider
                 ? "ready"
-                : modelStatus
+                : displayModelStatus
           }
           displayText={getModelDisplayText()}
           nativeStreaming={currentModelSupportsNativeStreaming}
@@ -666,7 +743,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           <ModelDropdown
             presenceState={modelDropdownPresence.state}
             models={models}
-            currentModelId={currentModelId}
+            currentModelId={effectiveModelId}
             downloadProgress={modelDownloadProgress}
             onModelSelect={handleModelSelect}
             onModelDownload={handleModelDownload}
