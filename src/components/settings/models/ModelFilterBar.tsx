@@ -46,6 +46,7 @@ interface ModelFilterBarProps {
   onReleasedAfterChange: (value: string) => void;
   onReset: () => void;
   filterBarRef?: React.Ref<HTMLDivElement>;
+  scrollMarginTop?: string;
 }
 
 // Debounce helper
@@ -242,6 +243,7 @@ export const ModelFilterBar: React.FC<ModelFilterBarProps> = ({
   onReleasedAfterChange,
   onReset,
   filterBarRef,
+  scrollMarginTop,
 }) => {
   const { t, i18n } = useTranslation();
   const [localSearch, setLocalSearch] = useState(filters.search);
@@ -326,6 +328,7 @@ export const ModelFilterBar: React.FC<ModelFilterBarProps> = ({
   return (
     <div
       ref={filterBarRef}
+      style={{ scrollMarginTop }}
       className={`glass-panel-subtle border rounded-xl p-4 space-y-3 transition-all duration-500 ${
         isAnyFilterActive
           ? "model-filter-panel-active border-emerald-500/60"

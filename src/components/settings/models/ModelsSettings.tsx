@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef } from "react";
+import React, { useLayoutEffect, useMemo, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -21,6 +21,7 @@ import { SettingsGroup } from "../../ui/SettingsGroup";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { RemoteSttSettings } from "../remote-stt/RemoteSttSettings";
 import { ModelMetadataPanel } from "./ModelMetadataPanel";
+import { ModelSelectionProfileNotice } from "./ModelSelectionProfileNotice";
 import { ModelFilterBar } from "./ModelFilterBar";
 import { ModelReleaseDate } from "../../shared/ModelReleaseDate";
 import { invalidateModelDownloadActivationIntent } from "@/lib/modelDownloadActivation";
@@ -45,6 +46,7 @@ type ModelFilterSummaryBarProps = {
   activeFilterCount: number;
   shownCount: number;
   totalCount: number;
+  profileNoticeHeight: number;
   onEdit: () => void;
   onClear: () => void;
 };
@@ -53,6 +55,7 @@ const ModelFilterSummaryBar: React.FC<ModelFilterSummaryBarProps> = ({
   activeFilterCount,
   shownCount,
   totalCount,
+  profileNoticeHeight,
   onEdit,
   onClear,
 }) => {
@@ -66,7 +69,10 @@ const ModelFilterSummaryBar: React.FC<ModelFilterSummaryBarProps> = ({
         });
 
   return (
-    <div className="sticky top-3 z-30">
+    <div
+      className="sticky z-30"
+      style={{ top: `calc(${profileNoticeHeight}px + 2.25rem)` }}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/45 bg-[#121f1a]/90 px-3 py-2 text-xs text-emerald-100 shadow-[0_10px_30px_rgba(0,0,0,0.28),0_0_24px_rgba(52,211,153,0.18)] backdrop-blur-md">
         <button
           type="button"
@@ -156,9 +162,22 @@ export const ModelsSettings: React.FC = () => {
   } = useModelFilters();
 
   const filterBarRef = useRef<HTMLDivElement>(null);
+  const profileNoticeRef = useRef<HTMLDivElement>(null);
+  const [profileNoticeHeight, setProfileNoticeHeight] = useState(0);
+
+  useLayoutEffect(() => {
+    const notice = profileNoticeRef.current;
+    if (!notice) return;
+    const updateHeight = () =>
+      setProfileNoticeHeight(notice.getBoundingClientRect().height);
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(notice);
+    return () => observer.disconnect();
+  }, []);
 
   const scrollToFilter = () => {
-    filterBarRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    filterBarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const transcriptionProvider = String(
@@ -659,6 +678,9 @@ export const ModelsSettings: React.FC = () => {
       tabIndex={-1}
       className="max-w-3xl w-full mx-auto space-y-8 pb-12 outline-none"
     >
+      <div ref={profileNoticeRef} className="sticky top-3 z-40 rounded-xl bg-[#121212]">
+        <ModelSelectionProfileNotice />
+      </div>
       {/* Help Section */}
       <TellMeMore title={t("modelSelector.tellMeMore.title")}>
         <div className="space-y-3">
@@ -736,6 +758,7 @@ export const ModelsSettings: React.FC = () => {
 
       <ModelFilterBar
         filterBarRef={filterBarRef}
+        scrollMarginTop={`calc(${profileNoticeHeight}px + 2.25rem)`}
         allLocalModels={allLocalModels}
         filters={filters}
         resetVersion={resetVersion}
@@ -753,6 +776,7 @@ export const ModelsSettings: React.FC = () => {
           activeFilterCount={activeFilterCount}
           shownCount={shownLocalModelsCount}
           totalCount={allLocalModels.length}
+          profileNoticeHeight={profileNoticeHeight}
           onEdit={scrollToFilter}
           onClear={resetFilters}
         />

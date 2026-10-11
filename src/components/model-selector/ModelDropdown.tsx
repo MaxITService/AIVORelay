@@ -16,6 +16,7 @@ import { ModelReleaseDate } from "../shared/ModelReleaseDate";
 import { NameSortControl } from "../ui/NameSortControl";
 import { useSortedDisplayNames } from "../../hooks/useSortedDisplayNames";
 import { useListSortDirection } from "../../hooks/useListSortPreference";
+import { ModelSelectionProfileNotice } from "../settings/models/ModelSelectionProfileNotice";
 
 interface DownloadProgress {
   model_id: string;
@@ -37,6 +38,7 @@ interface ModelDropdownProps {
   remoteStt?: RemoteSttSettings;
   onRemoteApiSelect?: (row: RemoteApiRow) => void;
   onRemoteProviderSelect?: (provider: string) => void;
+  onProfileNavigate?: () => void;
   presenceState?: "open" | "closed";
 }
 
@@ -53,6 +55,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
   remoteStt,
   onRemoteApiSelect,
   onRemoteProviderSelect,
+  onProfileNavigate,
   presenceState = "open",
 }) => {
   const isRemoteProvider =
@@ -126,14 +129,20 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
     <div
       data-state={presenceState}
       data-placement="top"
-      className="app-popover absolute bottom-full left-0 mb-2 w-64 max-h-[calc(100vh-4rem)] overflow-y-auto bg-background border border-mid-gray/20 rounded-lg shadow-lg py-2 z-50"
+      className="app-popover absolute bottom-full left-0 mb-2 w-64 max-h-[calc(100vh-4rem)] overflow-y-auto bg-background border border-mid-gray/20 rounded-lg shadow-lg pb-2 z-50"
     >
-      <div className="flex justify-end px-3 pb-1">
-        <NameSortControl
-          direction={direction}
-          onChange={setDirection}
-          label={t("listSorting.modelsLabel", "Sort models")}
-        />
+      <div className="sticky top-0 z-10 border-b border-mid-gray/20 bg-background px-3 pb-2 pt-3">
+        <ModelSelectionProfileNotice compact onNavigate={onProfileNavigate} />
+        <div className="mt-3 flex items-center justify-between gap-2 px-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[#8a8a8a]">
+            {t("sidebar.models", "Models")}
+          </span>
+          <NameSortControl
+            direction={direction}
+            onChange={setDirection}
+            ariaLabel={t("listSorting.modelsLabel", "Sort models")}
+          />
+        </div>
       </div>
       {/* Remote STT Options */}
       {onRemoteProviderSelect && (
@@ -162,7 +171,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
                 }}
                 tabIndex={isActive ? undefined : 0}
                 role={isActive ? undefined : "button"}
-                className={`w-full px-3 py-2 text-left transition-colors focus:outline-none ${
+                className={`w-full px-4 py-2 text-left transition-colors focus:outline-none ${
                   isActive
                     ? "bg-blue-500/10 text-blue-400 cursor-default"
                     : "hover:bg-mid-gray/10 cursor-pointer"
@@ -211,7 +220,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
             }}
             tabIndex={0}
             role="button"
-            className={`w-full px-3 py-2 text-left hover:bg-mid-gray/10 transition-colors cursor-pointer focus:outline-none ${
+            className={`w-full px-4 py-2 text-left hover:bg-mid-gray/10 transition-colors cursor-pointer focus:outline-none ${
               currentProvider === "remote_soniox"
                 ? "bg-teal-500/10 text-teal-400"
                 : ""
@@ -261,7 +270,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
             }}
             tabIndex={0}
             role="button"
-            className={`w-full px-3 py-2 text-left hover:bg-mid-gray/10 transition-colors cursor-pointer focus:outline-none ${
+            className={`w-full px-4 py-2 text-left hover:bg-mid-gray/10 transition-colors cursor-pointer focus:outline-none ${
               currentProvider === "remote_deepgram"
                 ? "bg-cyan-500/10 text-cyan-400"
                 : ""
@@ -310,7 +319,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
 
       {/* First Run Welcome */}
       {isFirstRun && (
-        <div className="px-3 py-2 bg-logo-primary/10 border-b border-logo-primary/20">
+        <div className="px-4 py-2 bg-logo-primary/10 border-b border-logo-primary/20">
           <div className="text-xs font-medium text-logo-primary mb-1">
             {t("modelSelector.welcome")}
           </div>
@@ -323,7 +332,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
       {/* Available Models */}
       {availableModels.length > 0 && (
         <div>
-          <div className="px-3 py-1 text-xs font-medium text-text/80 border-b border-mid-gray/10">
+          <div className="px-4 py-1 text-xs font-medium text-text/80 border-b border-mid-gray/10">
             {t("modelSelector.availableModels")}
           </div>
           {availableModels.map((model) => {
@@ -343,7 +352,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
                   }}
                   tabIndex={isActive ? undefined : 0}
                   role={isActive ? undefined : "button"}
-                  className={`w-full px-3 py-2 text-left transition-colors focus:outline-none ${
+                  className={`w-full px-4 py-2 text-left transition-colors focus:outline-none ${
                     isActive
                       ? "bg-logo-primary/10 text-logo-primary cursor-default"
                       : "hover:bg-mid-gray/10 cursor-pointer"
@@ -426,7 +435,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
             tabIndex={isDownloading ? -1 : 0}
             role="button"
             aria-disabled={isDownloading}
-            className={`group w-full px-3 py-2 text-left hover:bg-mid-gray/10 transition-colors focus:outline-none ${
+            className={`group w-full px-4 py-2 text-left hover:bg-mid-gray/10 transition-colors focus:outline-none ${
               isDownloading
                 ? "bg-logo-primary/5 cursor-default"
                 : "cursor-pointer"
@@ -505,7 +514,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
 
       {/* No Models Available */}
       {availableModels.length === 0 && downloadableModels.length === 0 && (
-        <div className="px-3 py-2 text-sm text-text/60">
+        <div className="px-4 py-2 text-sm text-text/60">
           {t("modelSelector.noModelsAvailable")}
         </div>
       )}
