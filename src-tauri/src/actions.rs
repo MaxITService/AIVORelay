@@ -3708,11 +3708,11 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
             if !remote_recording_retry_is_in_flight(Some(retry_id)) {
                 return;
             }
-            if let Err(err) = utils::paste_with_output_settings(final_text, app_for_main_thread.clone(),
-                &output_settings, || remote_recording_retry_is_in_flight(Some(retry_id))) {
-                error!("Failed to paste retried transcription: {}", err);
-                let _ = app_for_main_thread.emit("paste-error", ());
-            }
+            let has_text = !final_text.trim().is_empty();
+            let result = utils::paste_with_output_settings(final_text, app_for_main_thread.clone(),
+                &output_settings, || remote_recording_retry_is_in_flight(Some(retry_id)));
+            report_dictation_paste_result(&app_for_main_thread, result, has_text,
+                !remote_recording_retry_is_in_flight(Some(retry_id)));
             clear_last_remote_recording_retry_by_id(retry_id);
             crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
                 &app_for_main_thread,
@@ -5986,6 +5986,9 @@ async fn paste_preview_buffer_to_target(
     match paste_result {
         Ok(pasted) => {
             if !pasted && crate::managers::preview_output_mode::get_state_payload().active {
+                finish_dictation_paste_result(Ok(false), true,
+                    operation_stamp.is_some_and(|stamp| stamp.was_cancelled(app)),
+                    |error| crate::managers::preview_output_mode::set_error(app, Some(error.to_string())));
                 crate::overlay::show_live_preview_window(app);
             }
             Ok(pasted)
@@ -6113,6 +6116,77 @@ fn end_streaming_paste_session_after_main_thread_queue(
     true
 }
 
+/// A false delivery result is an insertion failure only while the operation
+/// still wants to deliver nonempty text. User cancellation stays quiet.
+fn finish_dictation_paste_result(
+    result: Result<bool, String>,
+    has_text: bool,
+    cancelled: bool,
+    report_failure: impl FnOnce(&str),
+) -> bool {
+    match result {
+        Ok(true) => true,
+        Ok(false) => {
+            if has_text && !cancelled {
+                report_failure("Text insertion was cancelled or did not complete");
+            }
+            false
+        }
+        Err(error) => {
+            if has_text && !cancelled {
+                report_failure(&error);
+            }
+            false
+        }
+    }
+}
+
+fn report_dictation_paste_result(
+    app: &AppHandle,
+    result: Result<bool, String>,
+    has_text: bool,
+    cancelled: bool,
+) -> bool {
+    finish_dictation_paste_result(result, has_text, cancelled, |error| {
+        warn!("Failed to insert dictation text: {}", error);
+        let _ = app.emit("paste-error", ());
+    })
+}
+
+#[cfg(test)]
+mod dictation_paste_feedback_tests {
+    use super::finish_dictation_paste_result;
+
+    #[test]
+    fn cancelled_insertion_and_stream_failure_each_report_once() {
+        for result in [Ok(false), Err("Streaming paste was interrupted because the target window changed".to_string())] {
+            let mut messages = Vec::new();
+            assert!(!finish_dictation_paste_result(result, true, false,
+                |error| messages.push(error.to_string())));
+            assert_eq!(messages.len(), 1);
+            assert!(!messages[0].is_empty());
+        }
+    }
+
+    #[test]
+    fn user_cancel_and_empty_output_do_not_report_paste_errors() {
+        for (has_text, cancelled) in [(true, true), (false, false), (false, true)] {
+            for result in [Ok(false), Err("Clipboard failure".to_string())] {
+                assert!(!finish_dictation_paste_result(result, has_text, cancelled,
+                    |_| panic!("Skipped output must not show a paste error")));
+            }
+        }
+    }
+
+    #[test]
+    fn delivered_output_does_not_report_an_error_after_focus_or_cancellation_changes() {
+        for cancelled in [false, true] {
+            assert!(finish_dictation_paste_result(Ok(true), true, cancelled,
+                |_| panic!("Delivered text must not be reported as a failed insertion")));
+        }
+    }
+}
+
 /// Queue successful streaming clipboard finalization behind every pending
 /// chunk paste. Unlike the cancellation helper above, this publishes the
 /// complete transcript once to Win+V (when allowed) before restoring the
@@ -6141,18 +6215,19 @@ fn finalize_streaming_paste_session_after_main_thread_queue(
             }
             return;
         }
-        match crate::clipboard::complete_dictation_output(
+        let result = crate::clipboard::complete_dictation_output(
             &app_for_finalize,
             operation_id,
             &final_text,
             || !operation_stamp.was_cancelled(&app_for_finalize),
-        ) {
-            Ok(finalized) => output_finalized_in_queue.store(finalized, std::sync::atomic::Ordering::Release),
-            Err(finalize_err) => {
-                output_finalized_in_queue.store(false, std::sync::atomic::Ordering::Release);
-                warn!("Failed to finalize dictation output: {}", finalize_err);
-            }
-        }
+        );
+        let finalized = report_dictation_paste_result(
+            &app_for_finalize,
+            result,
+            !final_text.trim().is_empty(),
+            operation_stamp.was_cancelled(&app_for_finalize),
+        );
+        output_finalized_in_queue.store(finalized, std::sync::atomic::Ordering::Release);
     }) {
         warn!(
             "{}; clipboard finalization remains queued behind pending streaming pastes",
@@ -9715,14 +9790,11 @@ impl ShortcutAction for TranscribeAction {
                     // operation-scoped session finalizer owns the clipboard.
                     apply_stream_trailing_adjustment(&ah_clone, stream_trailing_adjustment);
                 } else if !preview_output_only_enabled {
-                    match utils::paste_with_output_settings(final_text_for_ui.clone(), ah_clone.clone(),
-                        &output_settings, || !operation_stamp.was_cancelled(&ah_clone)) {
-                        Ok(true) => play_result_ready_sound(&ah_clone),
-                        Ok(false) => {},
-                        Err(err) => {
-                            error!("Failed to paste transcription: {}", err);
-                            let _ = ah_clone.emit("paste-error", ());
-                        }
+                    let result = utils::paste_with_output_settings(final_text_for_ui.clone(), ah_clone.clone(),
+                        &output_settings, || !operation_stamp.was_cancelled(&ah_clone));
+                    if report_dictation_paste_result(&ah_clone, result,
+                        !final_text_for_ui.trim().is_empty(), operation_stamp.was_cancelled(&ah_clone)) {
+                        play_result_ready_sound(&ah_clone);
                     }
                 }
                 crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(

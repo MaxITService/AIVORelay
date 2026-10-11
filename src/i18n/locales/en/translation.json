@@ -16,6 +16,8 @@
     "unsupportedKey": "{{key}} is not supported. Choose another key, optionally combined with Ctrl, Shift, Alt, or Win/Cmd.",
     "more": "Additional settings",
     "pasteDelay": "Clipboard paste delay (ms)",
+    "checkActiveWindow": "Cancel insertion when the active window changes",
+    "checkActiveWindowHelp": "Cancel insertion and key actions if the active window changes or Windows cannot identify it. When disabled, output continues to the currently active window.",
     "openDelay": "Wait after opening chat (ms)",
     "submitDelay": "Wait before sending (ms)",
     "bufferedHelp": "With key actions enabled, live text is inserted once at completion. Preview updates do not open chat or send text.",

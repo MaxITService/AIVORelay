@@ -4961,7 +4961,7 @@ export type PreviewOutputModeStatePayload = { active: boolean; recording: boolea
  * Used as a parameter struct for update_transcription_profile to reduce argument count.
  */
 export type ProfileLlmSettings = { enabled: boolean; promptOverride: string | null; modelOverride: string | null }
-export type ProfileOutputSettings = { paste_method: PasteMethod | null; clipboard_handling: ClipboardHandling | null; clipboard_history_allowed: boolean | null; convert_lf_to_crlf: boolean | null; paste_delay_ms: number | null; auto_submit: boolean | null; auto_submit_key: AutoSubmitKey | null;
+export type ProfileOutputSettings = { paste_method: PasteMethod | null; clipboard_handling: ClipboardHandling | null; clipboard_history_allowed: boolean | null; convert_lf_to_crlf: boolean | null; paste_delay_ms: number | null; check_active_window: boolean | null; auto_submit: boolean | null; auto_submit_key: AutoSubmitKey | null;
 /**
  * None inherits; an empty string explicitly disables the opening key.
  */

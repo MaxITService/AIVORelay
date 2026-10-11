@@ -70,6 +70,27 @@ Run it with:
 
 Update this section every time new tests are added.
 
+### Profile output window guard and insertion feedback (2026-10-11)
+
+- `clipboard::tests::output_target_guard_` uses injected window handles to cover unchanged, changed, missing, and disabled window checks, including interruption during the paste delay. These tests do not use the real clipboard or move desktop focus.
+- `clipboard::tests::delivered_paste_keeps_success_when_clipboard_cleanup_fails` and related cleanup tests use injected delivery and cleanup results to cover successful insertion with failed clipboard restoration or final history write, original insertion failures, partial streaming output, and cancellation. They do not use the real clipboard.
+- `actions::dictation_paste_feedback_tests::` covers one failure notification for an unsuccessful final insertion or streaming failure, silent user cancellation and empty output, and successful delivery even if cancellation happens afterward.
+- `settings::tests::active_window_check_` covers the enabled legacy default, per-profile inheritance and explicit overrides, serialization, and the recording's captured setting.
+- Run the focused batch through the existing harness:
+
+```powershell
+.\test-local.ps1 -LibOnly -Filter @(
+    'clipboard::tests::output_target_guard_'
+    'clipboard::tests::delivered_paste_keeps_success_when_clipboard_cleanup_fails'
+    'clipboard::tests::failed_paste_keeps_its_delivery_error_when_clipboard_cleanup_fails'
+    'clipboard::tests::cancelled_paste_stays_cancelled_when_clipboard_cleanup_fails'
+    'clipboard::tests::failed_or_partial_streaming_delivery_stays_failed_after_cleanup_error'
+    'clipboard::tests::completed_streaming_delivery_stays_successful_after_cleanup_error'
+    'actions::dictation_paste_feedback_tests::'
+    'settings::tests::active_window_check_'
+)
+```
+
 ### Recording overlay presets (2026-10-01)
 
 - `shortcut::recording_overlay_user_preset_tests` covers saving a complete

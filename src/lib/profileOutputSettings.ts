@@ -35,6 +35,7 @@ export interface ProfileOutputSettings {
   clipboard_history_allowed?: boolean | null;
   convert_lf_to_crlf?: boolean | null;
   paste_delay_ms?: number | null;
+  check_active_window?: boolean | null;
   auto_submit?: boolean | null;
   auto_submit_key?: AutoSubmitKey | null;
   before_insert_key?: string | null;

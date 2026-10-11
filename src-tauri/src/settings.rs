@@ -3340,6 +3340,7 @@ pub struct ProfileOutputSettings {
     pub clipboard_history_allowed: Option<bool>,
     pub convert_lf_to_crlf: Option<bool>,
     pub paste_delay_ms: Option<u64>,
+    pub check_active_window: Option<bool>,
     pub auto_submit: Option<bool>,
     pub auto_submit_key: Option<AutoSubmitKey>,
     /// None inherits; an empty string explicitly disables the opening key.
@@ -3355,6 +3356,7 @@ pub struct ResolvedOutputSettings {
     pub clipboard_history_allowed: bool,
     pub convert_lf_to_crlf: bool,
     pub paste_delay_ms: u64,
+    pub check_active_window: bool,
     pub auto_submit: bool,
     pub auto_submit_key: AutoSubmitKey,
     pub before_insert_key: String,
@@ -3371,6 +3373,7 @@ impl ResolvedOutputSettings {
             clipboard_history_allowed: settings.clipboard_history_allowed,
             convert_lf_to_crlf: settings.convert_lf_to_crlf,
             paste_delay_ms: settings.paste_delay_ms,
+            check_active_window: defaults.check_active_window.unwrap_or(true),
             auto_submit: settings.auto_submit,
             auto_submit_key: settings.auto_submit_key,
             before_insert_key: defaults.before_insert_key.clone().unwrap_or_default(),
@@ -3385,7 +3388,7 @@ impl ResolvedOutputSettings {
                 )+ };
             }
             override_field!(paste_method, clipboard_handling, clipboard_history_allowed,
-                convert_lf_to_crlf, paste_delay_ms, auto_submit, auto_submit_key,
+                convert_lf_to_crlf, paste_delay_ms, check_active_window, auto_submit, auto_submit_key,
                 before_insert_delay_ms, auto_submit_delay_ms);
             if let Some(key) = &overrides.before_insert_key {
                 output.before_insert_key = key.clone();
@@ -3408,6 +3411,7 @@ impl ResolvedOutputSettings {
         settings.auto_submit = self.auto_submit;
         settings.auto_submit_key = self.auto_submit_key;
         settings.transcription_output_defaults.before_insert_key = Some(self.before_insert_key.clone());
+        settings.transcription_output_defaults.check_active_window = Some(self.check_active_window);
         settings.transcription_output_defaults.before_insert_delay_ms = Some(self.before_insert_delay_ms);
         settings.transcription_output_defaults.auto_submit_delay_ms = Some(self.auto_submit_delay_ms);
     }
@@ -7872,6 +7876,33 @@ mod tests {
         assert!(output.auto_submit);
         assert_eq!(output.auto_submit_key, AutoSubmitKey::CtrlEnter);
         assert!(output.before_insert_key.is_empty());
+    }
+
+    #[test]
+    fn active_window_check_inherits_defaults_and_keeps_the_recording_snapshot() {
+        let mut settings = get_default_settings();
+        let profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
+            "id": "editor", "name": "Editor", "language": "auto", "translate_to_english": false
+        })).unwrap();
+        settings.transcription_profiles.push(profile);
+        assert!(ResolvedOutputSettings::resolve(&settings, Some("editor")).check_active_window);
+
+        settings.transcription_output_defaults.check_active_window = Some(false);
+        assert!(!ResolvedOutputSettings::resolve(&settings, Some("editor")).check_active_window);
+        settings.transcription_profiles[0].output_settings.check_active_window = Some(true);
+        assert!(ResolvedOutputSettings::resolve(&settings, Some("editor")).check_active_window);
+
+        settings.transcription_output_defaults.check_active_window = Some(true);
+        settings.transcription_profiles[0].output_settings.check_active_window = Some(false);
+        let output = ResolvedOutputSettings::resolve(&settings, Some("editor"));
+        assert!(!output.check_active_window);
+        let mut recording = settings.clone();
+        output.apply_to_recording(&mut recording);
+        settings.transcription_profiles[0].output_settings.check_active_window = None;
+        assert!(ResolvedOutputSettings::resolve(&settings, Some("editor")).check_active_window);
+        assert!(!ResolvedOutputSettings::resolve(&recording, None).check_active_window);
+        let restored: AppSettings = serde_json::from_value(serde_json::to_value(recording).unwrap()).unwrap();
+        assert!(!ResolvedOutputSettings::resolve(&restored, Some("editor")).check_active_window);
     }
 
     #[test]
