@@ -4,6 +4,7 @@ import { NameSortedSelect } from "../../ui/NameSortedSelect";
 import type { SortDirection } from "../../ui/SortControl";
 
 type ModelSelectProps = {
+  inputId?: string;
   sortKey: string;
   fixedDirection?: SortDirection;
   value: string;
@@ -19,6 +20,7 @@ type ModelSelectProps = {
 
 export const ModelSelect: React.FC<ModelSelectProps> = React.memo(
   ({
+    inputId,
     sortKey,
     fixedDirection,
     value,
@@ -41,6 +43,7 @@ export const ModelSelect: React.FC<ModelSelectProps> = React.memo(
 
     return (
       <NameSortedSelect
+        inputId={inputId}
         sortKey={sortKey}
         fixedDirection={fixedDirection}
         className={computedClassName}

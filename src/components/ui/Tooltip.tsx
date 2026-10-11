@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePresence } from "@/hooks/usePresence";
 import { useTooltipOpen } from "@/hooks/useTooltipOpen";
@@ -14,23 +14,44 @@ interface TooltipProps {
   content: React.ReactNode;
   children: React.ReactNode;
   position?: "top" | "bottom";
+  disabled?: boolean;
+  className?: string;
+  tabIndex?: number;
+  triggerRole?: React.AriaRole;
+  ariaLabel?: string;
+  ariaDisabled?: boolean;
 }
 
 /**
- * Generic tooltip wrapper — hover over children to see the tooltip.
+ * Generic tooltip wrapper — hover or focus children to see the tooltip.
  * Reuses the same portal + positioning logic as InfoTooltip / SettingContainer.
  */
 export const Tooltip: React.FC<TooltipProps> = ({
   content,
   children,
   position = "top",
+  disabled = false,
+  className,
+  tabIndex,
+  triggerRole,
+  ariaLabel,
+  ariaDisabled,
 }) => {
-  const { open, show, hide } = useTooltipOpen();
+  const { open, show, showNow, hide } = useTooltipOpen();
+  const tooltipId = useId();
+  const hoveredRef = useRef(false);
+  const focusedRef = useRef(false);
   const presence = usePresence(open, TOOLTIP_EXIT_DURATION_MS);
-  const visible = presence.isMounted;
+  const visible = !disabled && presence.isMounted;
   const triggerRef = useRef<HTMLSpanElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState<TooltipLayout | null>(null);
+
+  useEffect(() => {
+    if (disabled) hide();
+    else if (focusedRef.current) showNow();
+    else if (hoveredRef.current) show();
+  }, [disabled, hide, show, showNow]);
 
   const updateLayout = useCallback(() => {
     if (!visible || !triggerRef.current || !tooltipRef.current) return;
@@ -68,6 +89,8 @@ export const Tooltip: React.FC<TooltipProps> = ({
     ? createPortal(
         <div
           ref={tooltipRef}
+          id={tooltipId}
+          role="tooltip"
           className="fixed z-[9999] pointer-events-none"
           style={
             layout
@@ -105,11 +128,35 @@ export const Tooltip: React.FC<TooltipProps> = ({
   return (
     <span
       ref={triggerRef}
-      onMouseEnter={show}
-      onMouseLeave={hide}
-      className="cursor-help"
+      tabIndex={tabIndex}
+      role={triggerRole}
+      aria-label={ariaLabel}
+      aria-disabled={ariaDisabled}
+      aria-describedby={!disabled ? tooltipId : undefined}
+      onMouseEnter={() => {
+        hoveredRef.current = true;
+        if (!disabled) show();
+      }}
+      onMouseLeave={() => {
+        hoveredRef.current = false;
+        if (!focusedRef.current) hide();
+      }}
+      onFocus={() => {
+        focusedRef.current = true;
+        if (!disabled) showNow();
+      }}
+      onBlur={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget)) return;
+        focusedRef.current = false;
+        if (!hoveredRef.current) hide();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") hide();
+      }}
+      className={[!disabled && "cursor-help", className].filter(Boolean).join(" ") || undefined}
     >
       {children}
+      {!visible && !disabled && <span id={tooltipId} role="tooltip" className="sr-only">{content}</span>}
       {portal}
     </span>
   );

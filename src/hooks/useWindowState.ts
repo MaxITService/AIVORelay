@@ -1,7 +1,8 @@
-import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 
 // UI state survives section changes, but is discarded with this window.
 const windowState = new Map<string, unknown>();
+const listeners = new Map<string, Set<(value: unknown) => void>>();
 
 export const useWindowState = <T,>(
   key: string,
@@ -15,14 +16,25 @@ export const useWindowState = <T,>(
     windowState.set(key, initial);
     return initial;
   });
+  useEffect(() => {
+    const listener = (next: unknown) => setValue(next as T);
+    const subscribers = listeners.get(key) ?? new Set<(value: unknown) => void>();
+    subscribers.add(listener);
+    listeners.set(key, subscribers);
+    setValue(windowState.get(key) as T);
+    return () => {
+      subscribers.delete(listener);
+      if (subscribers.size === 0) listeners.delete(key);
+    };
+  }, [key]);
   const updateValue = useCallback<Dispatch<SetStateAction<T>>>((nextValue) => {
-    setValue((current) => {
-      const next = typeof nextValue === "function"
-        ? (nextValue as (previous: T) => T)(current)
-        : nextValue;
-      windowState.set(key, next);
-      return next;
-    });
+    const current = windowState.get(key) as T;
+    const next = typeof nextValue === "function"
+      ? (nextValue as (previous: T) => T)(current)
+      : nextValue;
+    windowState.set(key, next);
+    setValue(next);
+    listeners.get(key)?.forEach((listener) => listener(next));
   }, [key]);
 
   return [value, updateValue];

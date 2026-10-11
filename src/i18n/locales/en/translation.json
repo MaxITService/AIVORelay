@@ -1,5 +1,6 @@
 {
   "profileOutput": {
+    "delayInvalid": "Enter a number from 0 to 5000 ms.",
     "title": "Choose how to handle the clipboard, insert text, and press keys before and after insertion",
     "profileMore": "More",
     "active": "Key actions enabled",
@@ -2478,6 +2479,22 @@
       }
     },
     "transcriptionProfiles": {
+      "duplicate": "Duplicate",
+      "copyName": "{{name}} — copy",
+      "copyDraftFrom": "Copied from {{name}}. Review settings before creating.",
+      "draft": "Draft",
+      "clearDraft": "Clear",
+      "nameRequired": "Enter a name to create a profile.",
+      "nameEmpty": "Enter a profile name.",
+      "nameDuplicate": "A profile with this name already exists. Choose another name.",
+      "renameFailed": "Failed to rename profile. Try again.",
+      "saveName": "Save profile name",
+      "clickToRename": "Click to rename",
+      "selectModelToEditGlobalPrompt": "Select an active transcription model to edit this prompt.",
+      "creatingProfile": "Creating profile…",
+      "shortenSystemPrompt": "Shorten the voice model prompt.",
+      "fixGeminiVocabulary": "Fix the Gemini vocabulary.",
+      "fixSonioxContext": "Fix the Soniox context.",
       "active": "Active",
       "setActive": "Set Active",
       "defaultProfile": "Default (Global)",
@@ -2490,7 +2507,7 @@
       "help": "You are in the main place where you can set a key to make speech to text active with a button! This is done via profiles. Profiles allow you to switch between different languages, STT models, and post-processing settings. You need at least to configure default profile, and then call it via key.",
       "createNew": "Create New Profile",
       "createNewDescription": "Create a new custom profile with independent settings.",
-      "addProfile": "Add Profile",
+      "addProfile": "Create Profile",
       "profileName": "Profile Name",
       "profileNamePlaceholder": "e.g., Technical Meeting, French, etc.",
       "language": "Language",

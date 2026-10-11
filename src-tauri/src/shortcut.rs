@@ -5383,6 +5383,10 @@ pub struct AddTranscriptionProfilePayload {
     pub soniox_context_general_json: Option<String>,
     pub soniox_context_text: Option<String>,
     pub soniox_context_terms: Option<Vec<String>>,
+    #[serde(default)]
+    pub chinese_script: Option<settings::ChineseScript>,
+    #[serde(default)]
+    pub output_settings: settings::ProfileOutputSettings,
 }
 
 #[derive(Deserialize, Debug, Clone, Type)]
@@ -5424,6 +5428,7 @@ pub fn add_transcription_profile(
     app: AppHandle,
     payload: AddTranscriptionProfilePayload,
 ) -> Result<settings::TranscriptionProfile, String> {
+    let _settings_guard = settings::lock_settings_mutation("creating a transcription profile")?;
     let AddTranscriptionProfilePayload {
         name,
         language,
@@ -5443,17 +5448,30 @@ pub fn add_transcription_profile(
         soniox_context_general_json,
         soniox_context_text,
         soniox_context_terms,
+        chinese_script,
+        mut output_settings,
     } = payload;
 
     let mut settings = settings::get_settings(&app);
+
+    settings::validate_transcription_profile_name(&settings, &name, None)?;
+    let name = name.trim().to_string();
 
     if let Some(selection) = stt_model_selection_override.as_ref() {
         let mut candidate = settings.clone();
         settings::apply_stt_model_selection(&mut candidate, selection)?;
     }
 
-    // Generate unique ID using timestamp
-    let profile_id = format!("profile_{}", chrono::Utc::now().timestamp_millis());
+    // Distinguish rapid creations even when they share the same timestamp.
+    let base_profile_id = format!("profile_{}", chrono::Utc::now().timestamp_millis());
+    let mut profile_id = base_profile_id.clone();
+    let mut id_suffix = 1u64;
+    while settings.transcription_profiles.iter().any(|profile| profile.id == profile_id)
+        || settings.bindings.contains_key(&format!("transcribe_{}", profile_id))
+    {
+        profile_id = format!("{base_profile_id}_{id_suffix}");
+        id_suffix += 1;
+    }
     let binding_id = format!("transcribe_{}", profile_id);
 
     // Create the profile
@@ -5492,12 +5510,25 @@ pub fn add_transcription_profile(
 
     let automatic_app_rules =
         settings::normalize_automatic_app_rules(&automatic_app_rules.unwrap_or_default())?;
+    if let Some(key) = &mut output_settings.before_insert_key {
+        *key = key.trim().to_lowercase();
+        if !key.is_empty() {
+            crate::clipboard::validate_output_key(key)?;
+        }
+    }
+    for delay in [output_settings.paste_delay_ms, output_settings.before_insert_delay_ms, output_settings.auto_submit_delay_ms]
+        .into_iter().flatten()
+    {
+        if delay > 5000 {
+            return Err("Output delays must be between 0 and 5000 milliseconds".into());
+        }
+    }
 
     let new_profile = settings::TranscriptionProfile {
         id: profile_id.clone(),
         name: name.clone(),
         language,
-        chinese_script: None,
+        chinese_script,
         translate_to_english,
         description: description.clone(),
         automatic_app_rules,
@@ -5514,7 +5545,7 @@ pub fn add_transcription_profile(
         llm_post_process_enabled,
         llm_prompt_override,
         llm_model_override,
-        output_settings: settings::ProfileOutputSettings::default(),
+        output_settings,
         soniox_context_general_json: general_json.trim().to_string(),
         soniox_context_text: context_text.trim().to_string(),
         soniox_context_terms: context_terms,
@@ -5544,6 +5575,7 @@ pub fn update_transcription_profile(
     app: AppHandle,
     payload: UpdateTranscriptionProfilePayload,
 ) -> Result<(), String> {
+    let _settings_guard = settings::lock_settings_mutation("updating a transcription profile")?;
     let UpdateTranscriptionProfilePayload {
         id,
         name,
@@ -5567,6 +5599,9 @@ pub fn update_transcription_profile(
     } = payload;
 
     let mut settings = settings::get_settings(&app);
+
+    settings::validate_transcription_profile_name(&settings, &name, Some(&id))?;
+    let name = name.trim().to_string();
 
     let automatic_app_rules = automatic_app_rules
         .as_deref()
@@ -5641,6 +5676,7 @@ pub fn update_transcription_profile(
 
     synchronize_active_profile_preview(&mut settings);
     settings::write_settings_checked(&app, settings)?;
+    drop(_settings_guard);
     let _ = app.emit(
         "settings-changed",
         serde_json::json!({ "setting": "transcription_profiles" }),
@@ -5736,6 +5772,7 @@ mod stt_profile_model_tests {
 #[tauri::command]
 #[specta::specta]
 pub fn delete_transcription_profile(app: AppHandle, id: String) -> Result<(), String> {
+    let _settings_guard = settings::lock_settings_mutation("deleting a transcription profile")?;
     let mut settings = settings::get_settings(&app);
 
     // Safety check: prevent deleting a profile that is currently in use
@@ -5809,16 +5846,21 @@ pub fn get_active_profile(app: AppHandle) -> String {
 #[tauri::command]
 #[specta::specta]
 pub fn set_active_profile(app: AppHandle, id: String) -> Result<(), String> {
-    let mut settings = settings::get_settings(&app);
+    let settings = {
+        let _settings_guard =
+            settings::lock_settings_mutation("changing the active transcription profile")?;
+        let mut settings = settings::get_settings(&app);
 
-    // Validate: must be "default" or an existing profile ID
-    if id != "default" && !settings.transcription_profiles.iter().any(|p| p.id == id) {
-        return Err(format!("Profile '{}' not found", id));
-    }
+        // Validate: must be "default" or an existing profile ID
+        if id != "default" && !settings.transcription_profiles.iter().any(|p| p.id == id) {
+            return Err(format!("Profile '{}' not found", id));
+        }
 
-    settings.active_profile_id = id.clone();
-    synchronize_active_profile_preview(&mut settings);
-    settings::write_settings_checked(&app, settings.clone())?;
+        settings.active_profile_id = id.clone();
+        synchronize_active_profile_preview(&mut settings);
+        settings::write_settings_checked(&app, settings.clone())?;
+        settings
+    };
     refresh_soniox_live_preview_window(&app);
 
     // Show overlay notification if enabled

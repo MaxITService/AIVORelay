@@ -1,92 +1,42 @@
-import React, {
-  useState,
-  useMemo,
-  useEffect,
-  useCallback,
-  useRef,
-} from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Plus,
-  Trash2,
-  ChevronDown,
-  ChevronUp,
-  Globe,
-  Check,
-  RefreshCw,
-  RefreshCcw,
-  RotateCcw,
-  Pencil,
-} from "lucide-react";
-import { commands, TranscriptionProfile, type ModelInfo } from "@/bindings";
+import { Plus, Trash2, ChevronDown, ChevronUp, Globe, Check, RefreshCw, Pencil } from "lucide-react";
+import { commands, type TranscriptionProfile } from "@/bindings";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-
 import { SettingsGroup } from "../ui/SettingsGroup";
 import { SettingContainer } from "../ui/SettingContainer";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
-import { Textarea } from "../ui/Textarea";
-import { TextFileActions } from "../ui/TextFileActions";
-import { NameSortedDropdown } from "../ui/NameSortedDropdown";
 import { NameSortControl } from "../ui/NameSortControl";
 import { useListSortDirection } from "../../hooks/useListSortPreference";
 import { Badge } from "../ui/Badge";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
-import { TriStateToggle, type TriStateValue } from "../ui/TriStateToggle";
 import { Tooltip } from "../ui/Tooltip";
+import type { TriStateValue } from "../ui/TriStateToggle";
 import { Collapse } from "../ui/Collapse";
-import { WindowDetails } from "../ui/WindowDetails";
 import { useWindowState } from "../../hooks/useWindowState";
 import { HandyShortcut } from "./HandyShortcut";
-import { ModelSelect } from "./PostProcessingSettingsApi/ModelSelect";
-import { ResetButton } from "../ui/ResetButton";
-import { InfoTooltip } from "../ui/InfoTooltip";
-import { SonioxContextEditor } from "./SonioxContextEditor";
 import type { ModelOption } from "./PostProcessingSettingsApi/types";
 import { useSettings } from "../../hooks/useSettings";
 import { useSortedDisplayNames } from "../../hooks/useSortedDisplayNames";
 import { useModels } from "../../hooks/useModels";
-import {
-  LANGUAGES,
-  supportsLanguageCode,
-  type Language,
-} from "../../lib/constants/languages";
-import { isLanguageSupportedBySoniox } from "../../lib/constants/sonioxLanguages";
-import { getModelPromptInfo } from "./TranscriptionSystemPrompt";
+import { LANGUAGES } from "../../lib/constants/languages";
 import { useNavigationStore } from "../../stores/navigationStore";
-import { getPostProcessingAvailability } from "../../lib/postProcessingAvailability";
 import { GEMINI_LOCALES } from "../../lib/gemini/geminiConfig";
-import {
-  GEMINI_VOCABULARY_FILE_EXTENSIONS,
-  parseGeminiVocabulary,
-  validateGeminiVocabularyFile,
-} from "../../lib/gemini/vocabulary";
-import { ChineseScriptSetting } from "./ChineseScript";
-import { SttModelSelector } from "./SttModelSelector";
-import { ProfileOutputSettings } from "./ProfileOutputSettings";
+import ProfileSettingsForm, { useProfileSttCapabilities, type ProfileSettingsFormProps, type ProfileValidationReason, type ExtendedTranscriptionProfile, type LlmPromptSourceOption, strictModeToApi, DEFAULT_CLEAN_PROMPT } from "./ProfileSettingsForm";
+import { getGlobalProfileOutputDefaults } from "./ProfileOutputSettings";
 import type { ProfileOutputSettings as OutputSettings } from "@/lib/profileOutputSettings";
-import {
-  globalSttSelection,
-  type SttModelSelection,
-} from "../../lib/sttModelSelection";
-import { navigateToSettingsAnchor } from "../../lib/anchorNavigation";
+import { globalSttSelection, type SttModelSelection } from "../../lib/sttModelSelection";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { getTranscriptionProfileAnchorId } from "../../lib/transcriptionProfileNavigation";
+import { availableProfileName, getProfileNameError, profileNameErrorFromBackend, type ProfileNameError } from "../../lib/profileNames";
 
-/** Navigate to the User Interface section and scroll to the Live Preview settings anchor. */
-const openLivePreviewSettings = () => {
-  navigateToSettingsAnchor({
-    activateSection: () =>
-      useNavigationStore.getState().setSection("userInterface"),
-    targetId: "live-preview-settings",
-    updateHash: false,
-  });
-};
-
-/** Open the shared provider, model, key, and prompt configuration. */
-const openPostProcessingSettings = () => {
-  useNavigationStore.getState().setSection("postprocessing");
+const profileNameErrorMessage = (reason: ProfileNameError | null, t: ReturnType<typeof useTranslation>["t"]) => {
+  if (reason === "required") return t("settings.transcriptionProfiles.nameEmpty", "Enter a profile name.");
+  if (reason === "duplicate") return t("settings.transcriptionProfiles.nameDuplicate", "A profile with this name already exists. Choose another name.");
+  return null;
 };
 
 /** Open Advanced settings section. */
@@ -94,290 +44,69 @@ const openAdvancedSettings = () => {
   useNavigationStore.getState().setSection("advanced");
 };
 
-const ProfileMoreSettings: React.FC<{
-  profileId: string;
-  children: React.ReactNode;
-}> = ({ profileId, children }) => {
-  const { t } = useTranslation();
-
-  return (
-    <WindowDetails
-      stateKey={`profile-${profileId}-more`}
-      id={`profile-more-${profileId}`}
-      className="group/more rounded-lg border border-mid-gray/20 bg-mid-gray/5 transition-colors open:border-purple-500/30 open:bg-purple-500/5"
-    >
-      <summary className="flex items-center gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
-        <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open/more:rotate-180" />
-        <span className="text-xs font-semibold text-text/70">
-          {t("profileOutput.profileMore")}
-        </span>
-      </summary>
-      <div className="px-3 py-3 space-y-3 border-t border-mid-gray/10">
-        {children}
-      </div>
-    </WindowDetails>
-  );
-};
-
-interface DefaultModelPromptEditorProps {
-  modelId: string;
-  persistedValue: string;
-  promptLimit: number;
-  disabled: boolean;
-  onSaved: () => Promise<unknown>;
-}
-
-const DefaultModelPromptEditor: React.FC<DefaultModelPromptEditorProps> = ({
-  modelId,
-  persistedValue,
-  promptLimit,
-  disabled,
-  onSaved,
-}) => {
-  const { t } = useTranslation();
-  const [draft, setDraft] = useState(persistedValue);
-  const [isSaving, setIsSaving] = useState(false);
-  const dirtyRef = useRef(false);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!dirtyRef.current) {
-      setDraft(persistedValue);
-    }
-  }, [persistedValue]);
-
-  const isOverLimit = promptLimit > 0 && draft.length > promptLimit;
-
-  const save = async (value = draft) => {
-    if (disabled || isSaving) return;
-    if (promptLimit > 0 && value.length > promptLimit) return;
-    if (value === persistedValue) {
-      dirtyRef.current = false;
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const result = await commands.changeTranscriptionPromptSetting(
-        modelId,
-        value,
-      );
-      if (result.status === "error") throw new Error(String(result.error));
-      dirtyRef.current = false;
-      await onSaved();
-    } catch (error) {
-      console.error("Failed to save global voice model prompt:", error);
-      toast.error(
-        t(
-          "settings.transcriptionProfiles.systemPromptSaveFailed",
-          "Could not save voice model prompt.",
-        ),
-        {
-          description: error instanceof Error ? error.message : String(error),
-        },
-      );
-    } finally {
-      if (mountedRef.current) setIsSaving(false);
-    }
-  };
-
-  return (
-    <>
-      <span
-        className={`text-xs ${isOverLimit ? "text-red-400" : "text-mid-gray"}`}
-      >
-        {draft.length}
-        {promptLimit > 0 && `/${promptLimit}`}
-      </span>
-      <textarea
-        value={draft}
-        onChange={(event) => {
-          const nextDraft = event.target.value;
-          dirtyRef.current = nextDraft !== persistedValue;
-          setDraft(nextDraft);
-        }}
-        onBlur={() => void save()}
-        disabled={disabled || isSaving}
-        aria-invalid={isOverLimit}
-        placeholder={t(
-          "settings.general.transcriptionSystemPrompt.placeholder",
-        )}
-        rows={3}
-        className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors ${
-          isOverLimit
-            ? "border-red-400 focus:border-red-400"
-            : "border-[#3c3c3c] focus:border-[#4a4a4a]"
-        } text-[#e8e8e8] placeholder-[#6b6b6b] ${disabled || isSaving ? "opacity-50 cursor-not-allowed" : ""}`}
-      />
-      <TextFileActions
-        value={draft}
-        defaultFileName="voice-model-prompt.txt"
-        maxLength={promptLimit}
-        disabled={disabled || isSaving}
-        onOpen={async (text) => {
-          dirtyRef.current = text !== persistedValue;
-          setDraft(text);
-          await save(text);
-        }}
-      />
-      {isOverLimit && (
-        <p className="text-xs text-red-400">
-          {t("settings.transcriptionProfiles.systemPromptTooLong", {
-            limit: promptLimit,
-          })}
-        </p>
-      )}
-    </>
-  );
-};
-
-const profileSttPresentation = (
-  selection: SttModelSelection,
-  localModels: ModelInfo[],
-) => {
-  const provider = selection.provider;
-  const modelId = selection.model_id ?? "";
-  const isSonioxProvider = provider === "remote_soniox";
-  const isGeminiProvider =
-    provider === "remote_openai_compatible" &&
-    modelId.toLowerCase().includes("gemini-3.5-transcribe");
-  const localModel =
-    provider === "local"
-      ? localModels.find((model) => model.id === modelId)
-      : undefined;
-  const promptInfo =
-    provider === "remote_soniox" || provider === "remote_deepgram"
-      ? { supportsPrompt: false, charLimit: 0 }
-      : provider === "remote_openai_compatible"
-        ? getModelPromptInfo(modelId, undefined, false)
-        : getModelPromptInfo(modelId, localModel?.engine_type);
-  const languageOptions = isSonioxProvider
-    ? LANGUAGES.filter((language) =>
-        isLanguageSupportedBySoniox(language.value),
-      )
-    : provider === "local" && localModel?.supported_languages?.length
-      ? LANGUAGES.filter(
-          (language) =>
-            language.value === "auto" ||
-            language.value === "os_input" ||
-            supportsLanguageCode(
-              localModel.supported_languages,
-              language.value,
-            ),
-        )
-      : LANGUAGES;
-
-  return {
-    isGeminiProvider,
-    isSonioxProvider,
-    languageOptions,
-    promptLimit: promptInfo.supportsPrompt ? promptInfo.charLimit : 0,
-    supportsSttPrompt: promptInfo.supportsPrompt,
-  };
-};
-
 const APPLE_PROVIDER_ID = "apple_intelligence";
 
-const strictModeFromApi = (
-  value: boolean | null | undefined,
-): TriStateValue => {
-  if (value === true) return "on";
-  if (value === false) return "off";
-  return "global";
+// Read old window-state drafts once; all new edits use the complete shared profile model.
+type LegacyProfileDraftMetadata = {
+  sourceName?: string;
+  sttModelSelectionOverride: SttModelSelection | null;
+  autoShortcutActivation: boolean;
+  geminiLanguageCodeOverride: string | null;
+  geminiCustomVocabularyOverride: string[] | null;
+  chineseScript: TranscriptionProfile["chinese_script"];
+  outputSettings: OutputSettings;
 };
 
-const strictModeToApi = (value: TriStateValue): boolean | null => {
-  if (value === "on") return true;
-  if (value === "off") return false;
-  return null;
+const cloneProfileSettings = (profile: ExtendedTranscriptionProfile): Partial<ExtendedTranscriptionProfile> => {
+  const { id: _id, name: _name, ...values } = profile;
+  return { ...values, automatic_app_rules: [...(profile.automatic_app_rules ?? [])],
+    soniox_context_terms: [...(profile.soniox_context_terms ?? [])],
+    gemini_custom_vocabulary_override: profile.gemini_custom_vocabulary_override == null ? null : [...profile.gemini_custom_vocabulary_override],
+    stt_model_selection_override: profile.stt_model_selection_override ? { ...profile.stt_model_selection_override } : null,
+    output_settings: { ...profile.output_settings },
+  };
 };
 
-const DEFAULT_CLEAN_PROMPT = `Clean this Speech to text transcript:
-1. Fix spelling, capitalization, and punctuation errors
-2. Convert number words to digits (twenty-five → 25, ten percent → 10%, five dollars → $5)
-3. Replace spoken punctuation with symbols (period → ., comma → , question mark → ?)
-4. REPLACE "ENTER" WITH NEWLINE SYMBOL!!!!
-5. Keep the language in the original version (if it was french, keep it in french for example) unless last sentence is "Translate this to <language>". Then - do this: CUT OUT THE LAST SENTENCE (the one wiht instruction), and translate the text into target language. 
+const profileSettingsPayload = (profile: ExtendedTranscriptionProfile) => ({
+  language: profile.language, translateToEnglish: profile.translate_to_english,
+  automaticAppRules: profile.automatic_app_rules ?? [], systemPrompt: profile.system_prompt ?? "",
+  sttPromptOverrideEnabled: profile.stt_prompt_override_enabled ?? false,
+  sttModelSelectionOverride: profile.stt_model_selection_override ?? null,
+  pushToTalk: profile.push_to_talk, autoShortcutActivation: profile.auto_shortcut_activation ?? false,
+  previewOutputOnlyEnabled: profile.preview_output_only_enabled ?? false, includeInCycle: profile.include_in_cycle,
+  llmSettings: { enabled: profile.llm_post_process_enabled ?? false,
+    promptOverride: profile.llm_prompt_override ?? null, modelOverride: profile.llm_model_override ?? null },
+  sonioxContextGeneralJson: profile.soniox_context_general_json ?? "", sonioxContextText: profile.soniox_context_text ?? "",
+  sonioxContextTerms: profile.soniox_context_terms ?? [], sonioxLanguageHintsStrict: profile.soniox_language_hints_strict ?? null,
+  geminiLanguageCodeOverride: profile.gemini_language_code_override ?? null,
+  geminiCustomVocabularyOverride: profile.gemini_custom_vocabulary_override ?? null,
+  chineseScript: profile.chinese_script ?? null, outputSettings: profile.output_settings ?? {},
+});
 
-Preserve exact meaning and word order. Do not paraphrase or reorder content.
-
-Return only the cleaned transcript.
-
-Transcript:
-\${output}`;
-
-type ExtendedTranscriptionProfile = TranscriptionProfile & {
-  output_settings?: OutputSettings;
-  automatic_app_rules: string[];
-  include_in_cycle: boolean;
-  push_to_talk: boolean;
-  auto_shortcut_activation?: boolean;
-  preview_output_only_enabled: boolean;
-  soniox_language_hints_strict?: boolean | null;
-  stt_prompt_override_enabled: boolean;
-  stt_model_selection_override?: SttModelSelection | null;
-  soniox_context_general_json: string;
-  soniox_context_text: string;
-  soniox_context_terms: string[];
-  gemini_language_code_override?: string | null;
-  gemini_custom_vocabulary_override?: string[] | null;
-};
-
-interface LlmPromptSourceOption {
-  value: string;
-  label: string;
-  prompt: string;
-}
-
-interface ProfileCardProps {
-  profile: ExtendedTranscriptionProfile;
-  languageOptions: Language[];
+interface ProfileCardProps extends Omit<ProfileSettingsFormProps, "scope" | "disabled" | "onDraftChange" | "onValidationChange" | "shortcut"> {
+  scope: "saved" | "global";
+  formKey?: string;
   isExpanded: boolean;
   onToggleExpand: () => void;
-  onUpdate: (profile: ExtendedTranscriptionProfile) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
-  canDelete: boolean;
-  supportsSttPrompt: boolean;
-  promptLimit: number;
+  onDelete?: (id: string) => Promise<void>;
+  onDuplicate: (profile: ExtendedTranscriptionProfile) => void;
+  isCreatingProfile: boolean;
   isActive: boolean;
   onSetActive: (id: string) => Promise<void>;
-  llmModelOptions: ModelOption[];
-  llmModelSortKey: string;
-  globalLlmModel: string;
-  onRefreshModels: () => void;
-  isFetchingModels: boolean;
-  defaultLlmPrompt: string;
-  llmPromptSourceOptions: LlmPromptSourceOption[];
-  showSonioxLanguageFallbackWarning: boolean;
-  isSonioxProvider: boolean;
-  postProcessingAvailable: boolean;
-  globalSonioxLanguageHintsStrict: boolean;
-  isGeminiProvider: boolean;
-  globalGeminiLanguageCode: string;
-  globalGeminiVocabulary: string[];
-  localSttModels: ModelInfo[];
-  globalSttModelSelection: SttModelSelection;
-  automaticAppProfilesEnabled: boolean;
-  // Note: resolvedOsLanguage removed - language is detected at transcription time, not in UI
+  allProfileNames: readonly { id: string; name: string }[];
 }
 
 const ProfileCard: React.FC<ProfileCardProps> = ({
   profile,
-  languageOptions,
+  scope,
+  formKey,
+  settings,
+  onCommit,
   isExpanded,
   onToggleExpand,
-  onUpdate,
   onDelete,
-  canDelete,
-  supportsSttPrompt,
-  promptLimit,
+  onDuplicate,
+  isCreatingProfile,
   isActive,
   onSetActive,
   llmModelOptions,
@@ -387,552 +116,78 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   isFetchingModels,
   defaultLlmPrompt,
   llmPromptSourceOptions,
-  showSonioxLanguageFallbackWarning,
-  isSonioxProvider,
-  postProcessingAvailable,
   globalSonioxLanguageHintsStrict,
-  isGeminiProvider,
   globalGeminiLanguageCode,
   globalGeminiVocabulary,
   localSttModels,
   globalSttModelSelection,
   automaticAppProfilesEnabled,
+  allProfileNames,
 }) => {
   const { t } = useTranslation();
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [showShortcutMoreOptions, setShowShortcutMoreOptions] =
-    useWindowState(`profile-${profile.id}-shortcut-more`, false);
-  const effectiveSttSelection =
-    profile.stt_model_selection_override ?? globalSttModelSelection;
-  const [remoteSupportsTranslation, setRemoteSupportsTranslation] =
-    useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    setRemoteSupportsTranslation(false);
-    if (effectiveSttSelection.provider !== "remote_openai_compatible") {
-      return;
+  const isDefault = scope === "global";
+  const ProfileIcon = isDefault ? RefreshCw : Globe;
+  const [isIdentityUpdating, setIsUpdating] = useState(false);
+  const [isFormSaving, setIsFormSaving] = useState(false);
+  const pendingCommitsRef = useRef(0);
+  const commitProfilePatch = async (patch: Partial<ExtendedTranscriptionProfile>) => {
+    pendingCommitsRef.current += 1;
+    setIsFormSaving(true);
+    try { await onCommit(patch); }
+    finally {
+      pendingCommitsRef.current -= 1;
+      if (pendingCommitsRef.current === 0) setIsFormSaving(false);
     }
-
-    void commands
-      .remoteSttModelSupportsTranslation(effectiveSttSelection.model_id ?? "")
-      .then((supported) => {
-        if (!cancelled) setRemoteSupportsTranslation(supported);
-      })
-      .catch(() => {
-        if (!cancelled) setRemoteSupportsTranslation(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [effectiveSttSelection.model_id, effectiveSttSelection.provider]);
-  const supportsTranslation =
-    effectiveSttSelection.provider === "local"
-      ? (localSttModels.find(
-          (model) => model.id === effectiveSttSelection.model_id,
-        )?.supports_translation ?? true)
-      : effectiveSttSelection.provider === "remote_openai_compatible"
-        ? remoteSupportsTranslation
-        : false;
-  const effectiveLlmEnabled =
-    postProcessingAvailable && (profile.llm_post_process_enabled ?? false);
+  };
+  const isUpdating = isIdentityUpdating || isFormSaving;
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(profile.name);
-  const persistedSystemPrompt = profile.system_prompt || "";
-  const [systemPromptDraft, setSystemPromptDraft] = useState(
-    persistedSystemPrompt,
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [renameBackendNameError, setRenameBackendNameError] = useState<ProfileNameError | null>(null);
+  const renamePendingRef = useRef(false);
+  const cancelRenameRef = useRef(false);
+  const renameInvalid = getProfileNameError(tempName, allProfileNames, profile.id) ?? renameBackendNameError;
+  const renameNameError = profileNameErrorMessage(renameInvalid, t) ?? renameError;
+  const renameErrorId = `profile-name-error-${profile.id}`;
+  const { isGeminiProvider, supportsTranslation } = useProfileSttCapabilities(
+    profile.stt_model_selection_override ?? globalSttModelSelection, localSttModels,
   );
-  const systemPromptDirtyRef = useRef(false);
-  const systemPromptSyncRef = useRef({
-    profileId: profile.id,
-    persisted: persistedSystemPrompt,
-  });
-  const persistedAutomaticAppRules = (profile.automatic_app_rules ?? []).join(
-    "\n",
-  );
-  const [automaticAppRulesDraft, setAutomaticAppRulesDraft] = useState(
-    persistedAutomaticAppRules,
-  );
-  const automaticAppRulesDirtyRef = useRef(false);
-  const automaticAppRulesSyncRef = useRef({
-    profileId: profile.id,
-    persisted: persistedAutomaticAppRules,
-  });
-  // Track whether user has a custom override (non-null) or uses global (null)
-  const [isCustomOverride, setIsCustomOverride] = useState(
-    profile.llm_prompt_override != null,
-  );
-  // Local state for LLM prompt
-  const [localLlmPrompt, setLocalLlmPrompt] = useState(
-    profile.llm_prompt_override ?? defaultLlmPrompt,
-  );
-  const lastSavedLlmPromptRef = useRef({
-    prompt: profile.llm_prompt_override ?? defaultLlmPrompt,
-    isCustom: profile.llm_prompt_override != null,
-  });
-  // Track whether user is actively editing to prevent useEffect from clobbering
-  const isEditingRef = useRef(false);
-  const llmPromptSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const llmPromptPendingCountRef = useRef(0);
-  const [geminiVocabularyDraft, setGeminiVocabularyDraft] = useState(
-    (profile.gemini_custom_vocabulary_override ?? []).join("\n"),
-  );
-  const geminiVocabularyDirtyRef = useRef(false);
-  const persistedGeminiVocabulary = JSON.stringify(
-    profile.gemini_custom_vocabulary_override ?? null,
-  );
-  const persistedGeminiVocabularyDraft = (
-    profile.gemini_custom_vocabulary_override ?? []
-  ).join("\n");
-  const geminiVocabularySyncRef = useRef({
-    profileId: profile.id,
-    persisted: persistedGeminiVocabulary,
-  });
-  const geminiVocabularyResult = useMemo(
-    () => parseGeminiVocabulary(geminiVocabularyDraft),
-    [geminiVocabularyDraft],
-  );
-  const commitGeminiVocabularyDraft = async (draft: string) => {
-    const result = parseGeminiVocabulary(draft);
-    if (!result.safeToPersist) return;
-    const normalizedTerms = result.normalizedTerms;
-    setIsUpdating(true);
-    try {
-      await onUpdate({
-        ...profile,
-        gemini_custom_vocabulary_override: normalizedTerms,
-      });
-      geminiVocabularyDirtyRef.current = false;
-      setGeminiVocabularyDraft(normalizedTerms.join("\n"));
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  useEffect(() => {
-    const previous = systemPromptSyncRef.current;
-    const profileChanged = previous.profileId !== profile.id;
-    const persistedChanged = previous.persisted !== persistedSystemPrompt;
-    if (
-      profileChanged ||
-      (!systemPromptDirtyRef.current && persistedChanged)
-    ) {
-      setSystemPromptDraft(persistedSystemPrompt);
-      systemPromptDirtyRef.current = false;
-    }
-    systemPromptSyncRef.current = {
-      profileId: profile.id,
-      persisted: persistedSystemPrompt,
-    };
-  }, [profile.id, persistedSystemPrompt]);
-
-  useEffect(() => {
-    const previous = automaticAppRulesSyncRef.current;
-    const profileChanged = previous.profileId !== profile.id;
-    const persistedChanged = previous.persisted !== persistedAutomaticAppRules;
-    if (
-      profileChanged ||
-      (!automaticAppRulesDirtyRef.current && persistedChanged)
-    ) {
-      setAutomaticAppRulesDraft(persistedAutomaticAppRules);
-      automaticAppRulesDirtyRef.current = false;
-    }
-    automaticAppRulesSyncRef.current = {
-      profileId: profile.id,
-      persisted: persistedAutomaticAppRules,
-    };
-  }, [profile.id, persistedAutomaticAppRules]);
-
-  useEffect(() => {
-    const previous = geminiVocabularySyncRef.current;
-    const profileChanged = previous.profileId !== profile.id;
-    const persistedChanged = previous.persisted !== persistedGeminiVocabulary;
-
-    if (profileChanged || (!geminiVocabularyDirtyRef.current && persistedChanged)) {
-      setGeminiVocabularyDraft(persistedGeminiVocabularyDraft);
-      geminiVocabularyDirtyRef.current = false;
-    }
-
-    geminiVocabularySyncRef.current = {
-      profileId: profile.id,
-      persisted: persistedGeminiVocabulary,
-    };
-  }, [profile.id, persistedGeminiVocabulary, persistedGeminiVocabularyDraft]);
-
-  // Sync local prompt when profile or global prompt changes (but not during active editing)
-  useEffect(() => {
-    if (isEditingRef.current) return;
-    if (profile.llm_prompt_override == null) {
-      // Using global prompt — auto-track global changes
-      setLocalLlmPrompt(defaultLlmPrompt);
-      setIsCustomOverride(false);
-      lastSavedLlmPromptRef.current = {
-        prompt: defaultLlmPrompt,
-        isCustom: false,
-      };
-    } else {
-      // Custom override — show saved value
-      setLocalLlmPrompt(profile.llm_prompt_override);
-      setIsCustomOverride(true);
-      lastSavedLlmPromptRef.current = {
-        prompt: profile.llm_prompt_override,
-        isCustom: true,
-      };
-    }
-  }, [profile.llm_prompt_override, defaultLlmPrompt]);
-
-  const bindingId = `transcribe_${profile.id}`;
-
   const languageLabel = useMemo(() => {
-    if (isGeminiProvider) {
-      const selection = profile.gemini_language_code_override ?? globalGeminiLanguageCode;
-      if (selection === "auto") return t("settings.gemini.language.auto", "Auto Detect");
-      if (selection === "os_input") {
-        return t("settings.gemini.language.osInput", "Follow OS Input Language");
-      }
-      const locale = GEMINI_LOCALES.find(([, value]) => value === selection);
-      return locale ? `${locale[0]} (${selection})` : selection;
-    }
-    const lang = LANGUAGES.find((l) => l.value === profile.language);
-    return (
-      lang?.label || profile.language || t("settings.general.language.auto")
-    );
-  }, [
-    globalGeminiLanguageCode,
-    isGeminiProvider,
-    profile.gemini_language_code_override,
-    profile.language,
-    t,
-  ]);
-
-  const effectiveLanguageOptions = useMemo(() => {
-    if (languageOptions.some((option) => option.value === profile.language)) {
-      return languageOptions;
-    }
-
-    return [
-      {
-        value: profile.language,
-        label: isSonioxProvider
-          ? `${languageLabel} (fallback to auto in Soniox)`
-          : `${languageLabel} (fallback to auto for selected model)`,
-        className: "text-amber-400",
-      },
-      ...languageOptions,
-    ];
-  }, [languageLabel, languageOptions, profile.language, isSonioxProvider]);
-
-  const promptLength = systemPromptDraft.length;
-  const isOverLimit = promptLimit > 0 && promptLength > promptLimit;
-
-  // Instant update handlers
-  const handleNameChange = async (newName: string) => {
-    const trimmed = newName.trim();
-    if (!trimmed || trimmed === profile.name) return;
-    setIsUpdating(true);
-    try {
-      await onUpdate({ ...profile, name: trimmed });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleLanguageChange = async (newLanguage: string) => {
-    if (newLanguage === profile.language) return;
-    setIsUpdating(true);
-    try {
-      await onUpdate({ ...profile, language: newLanguage });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleTranslateChange = async (newTranslate: boolean) => {
-    setIsUpdating(true);
-    try {
-      await onUpdate({ ...profile, translate_to_english: newTranslate });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleSystemPromptChange = async (value = systemPromptDraft) => {
-    if (promptLimit > 0 && value.length > promptLimit) return;
-    if (value === persistedSystemPrompt) {
-      systemPromptDirtyRef.current = false;
+    if (!isGeminiProvider) return LANGUAGES.find(option => option.value === profile.language)?.label ?? profile.language;
+    const code = profile.gemini_language_code_override ?? globalGeminiLanguageCode;
+    if (code === "auto") return t("settings.gemini.language.auto", "Auto Detect");
+    if (code === "os_input") return t("settings.gemini.language.osInput", "Follow OS Input Language");
+    const locale = GEMINI_LOCALES.find(([, value]) => value === code);
+    return locale ? `${locale[0]} (${code})` : code;
+  }, [isGeminiProvider, profile.language, profile.gemini_language_code_override, globalGeminiLanguageCode, t]);
+  const handleNameChange = async () => {
+    if (isDefault || renamePendingRef.current || cancelRenameRef.current || isUpdating) return;
+    if (renameInvalid) return;
+    if (tempName.trim() === profile.name) {
+      setIsEditingName(false);
       return;
     }
+    renamePendingRef.current = true;
+    setRenameError(null);
     setIsUpdating(true);
     try {
-      await onUpdate({ ...profile, system_prompt: value });
-      systemPromptDirtyRef.current = false;
+      await commitProfilePatch({ name: tempName.trim() });
+      setIsEditingName(false);
     } catch (error) {
-      toast.error(
-        t(
-          "settings.transcriptionProfiles.systemPromptSaveFailed",
-          "Could not save voice model prompt.",
-        ),
-        {
-          description: error instanceof Error ? error.message : String(error),
-        },
-      );
+      const nameError = profileNameErrorFromBackend(error);
+      setRenameBackendNameError(nameError);
+      setRenameError(nameError ? null : t("settings.transcriptionProfiles.renameFailed", "Failed to rename profile. Try again."));
     } finally {
+      renamePendingRef.current = false;
       setIsUpdating(false);
     }
   };
-
-  const handleIncludeInCycleChange = async (newValue: boolean) => {
-    setIsUpdating(true);
-    try {
-      await onUpdate({ ...profile, include_in_cycle: newValue });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleAutomaticAppRulesCommit = async () => {
-    const rules = automaticAppRulesDraft
-      .split(/\r?\n/)
-      .map((rule) => rule.trim())
-      .filter(Boolean);
-    const normalizedDraft = rules.join("\n");
-    if (normalizedDraft === persistedAutomaticAppRules) {
-      setAutomaticAppRulesDraft(normalizedDraft);
-      automaticAppRulesDirtyRef.current = false;
-      return;
-    }
-
-    setIsUpdating(true);
-    try {
-      await onUpdate({ ...profile, automatic_app_rules: rules });
-      setAutomaticAppRulesDraft(normalizedDraft);
-      automaticAppRulesDirtyRef.current = false;
-    } catch (error) {
-      console.error("Failed to save automatic application rules:", error);
-      toast.error(
-        t(
-          "settings.transcriptionProfiles.automaticApps.saveFailed",
-          "Failed to save automatic application rules.",
-        ),
-      );
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handlePushToTalkChange = async (newValue: boolean) => {
-    setIsUpdating(true);
-    try {
-      await onUpdate({ ...profile, push_to_talk: newValue });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleAutoShortcutActivationChange = async (newValue: boolean) => {
-    setIsUpdating(true);
-    try {
-      await onUpdate({ ...profile, auto_shortcut_activation: newValue });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handlePreviewOutputOnlyChange = async (newValue: boolean) => {
-    setIsUpdating(true);
-    try {
-      await onUpdate({ ...profile, preview_output_only_enabled: newValue });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleSttPromptOverrideChange = async (newValue: boolean) => {
-    setIsUpdating(true);
-    try {
-      await onUpdate({ ...profile, stt_prompt_override_enabled: newValue });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleSttModelOverrideEnabledChange = async (enabled: boolean) => {
-    setIsUpdating(true);
-    try {
-      await onUpdate({
-        ...profile,
-        stt_model_selection_override: enabled ? globalSttModelSelection : null,
-      });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleSttModelOverrideChange = async (
-    selection: SttModelSelection,
-  ) => {
-    setIsUpdating(true);
-    try {
-      await onUpdate({ ...profile, stt_model_selection_override: selection });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleSonioxGeneralJsonChange = async (newValue: string) => {
-    if (newValue.trim() === (profile.soniox_context_general_json || "").trim())
-      return;
-    setIsUpdating(true);
-    try {
-      await onUpdate({
-        ...profile,
-        soniox_context_general_json: newValue,
-      });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleSonioxContextTextChange = async (newValue: string) => {
-    if (newValue.trim() === (profile.soniox_context_text || "").trim()) return;
-    setIsUpdating(true);
-    try {
-      await onUpdate({
-        ...profile,
-        soniox_context_text: newValue,
-      });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleSonioxTermsChange = async (newValue: string[]) => {
-    const previous = profile.soniox_context_terms || [];
-    if (
-      previous.length === newValue.length &&
-      previous.every((value, idx) => value === newValue[idx])
-    ) {
-      return;
-    }
-    setIsUpdating(true);
-    try {
-      await onUpdate({
-        ...profile,
-        soniox_context_terms: newValue,
-      });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleLlmEnabledChange = async (newValue: boolean) => {
-    setIsUpdating(true);
-    try {
-      await onUpdate({ ...profile, llm_post_process_enabled: newValue });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleLlmPromptChange = (newPrompt: string): Promise<void> => {
-    if (
-      llmPromptPendingCountRef.current === 0 &&
-      newPrompt === (profile.llm_prompt_override ?? "")
-    ) {
-      return Promise.resolve();
-    }
-
-    isEditingRef.current = true;
-    llmPromptPendingCountRef.current += 1;
-    const queuedSave = llmPromptSaveQueueRef.current.then(async () => {
-      let saveFailed = false;
-      setIsUpdating(true);
-      try {
-        await onUpdate({
-          ...profile,
-          llm_prompt_override: newPrompt,
-        });
-        lastSavedLlmPromptRef.current = {
-          prompt: newPrompt,
-          isCustom: true,
-        };
-      } catch (error) {
-        saveFailed = true;
-        console.error("Failed to save profile LLM prompt:", error);
-        toast.error(
-          t(
-            "settings.transcriptionProfiles.llmPostProcessing.promptSaveFailed",
-            "Could not save the profile LLM prompt.",
-          ),
-          {
-            description: error instanceof Error ? error.message : String(error),
-          },
-        );
-      } finally {
-        llmPromptPendingCountRef.current -= 1;
-        if (llmPromptPendingCountRef.current === 0) {
-          if (saveFailed) {
-            setLocalLlmPrompt(lastSavedLlmPromptRef.current.prompt);
-            setIsCustomOverride(lastSavedLlmPromptRef.current.isCustom);
-          }
-          setIsUpdating(false);
-          isEditingRef.current = false;
-        }
-      }
-    });
-    llmPromptSaveQueueRef.current = queuedSave;
-    return queuedSave;
-  };
-
-  const handleLlmPromptSourceSelect = (promptId: string) => {
-    const source = llmPromptSourceOptions.find(
-      (option) => option.value === promptId,
-    );
-    if (!source) return;
-
-    setLocalLlmPrompt(source.prompt);
-    setIsCustomOverride(true);
-    void handleLlmPromptChange(source.prompt);
-  };
-
-  const handleResetToGlobal = async () => {
-    if (profile.llm_prompt_override == null) return;
-    setLocalLlmPrompt(defaultLlmPrompt);
-    setIsCustomOverride(false);
-    isEditingRef.current = false;
-    setIsUpdating(true);
-    try {
-      await onUpdate({
-        ...profile,
-        llm_prompt_override: null,
-      });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleLlmModelChange = async (newModel: string | null) => {
-    if (newModel === profile.llm_model_override) return;
-    setIsUpdating(true);
-    try {
-      await onUpdate({
-        ...profile,
-        llm_model_override: newModel || null,
-      });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
   const handleDelete = async () => {
+    if (isDefault || !onDelete) return;
     setIsUpdating(true);
-    try {
-      await onDelete(profile.id);
-    } finally {
-      setIsUpdating(false);
-    }
+    try { await onDelete(profile.id); }
+    finally { setIsUpdating(false); }
   };
-
   return (
     <div
       id={getTranscriptionProfileAnchorId(profile.id)}
@@ -947,33 +202,36 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
         onClick={onToggleExpand}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <Globe
-            className={`w-4 h-4 ${isActive ? "text-purple-400" : "text-logo-primary"}`}
+          <ProfileIcon
+            className={`w-4 h-4 ${isActive ? "text-purple-400" : isDefault ? "text-mid-gray" : "text-logo-primary"}`}
           />
           <div className="flex flex-col min-w-0">
             <div className="flex flex-wrap items-center gap-2 min-w-0">
-              {isEditingName ? (
-                <div className="flex items-center gap-1 min-w-0">
+              {isDefault ? (
+                <span className="font-medium text-sm break-words">
+                  {profile.name}
+                </span>
+              ) : isEditingName ? (
+                <div className="flex flex-col gap-1 min-w-0" onClick={(e) => e.stopPropagation()}
+                  onBlur={(e) => {
+                    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                    void handleNameChange();
+                  }}>
+                  <div className="flex items-center gap-1 min-w-0">
                   <Input
                     autoFocus
                     value={tempName}
-                    onChange={(e) => setTempName(e.target.value)}
-                    onBlur={() => {
-                      if (tempName.trim() && tempName !== profile.name) {
-                        handleNameChange(tempName);
-                      } else {
-                        setTempName(profile.name);
-                      }
-                      setIsEditingName(false);
-                    }}
+                    onChange={(e) => { setTempName(e.target.value); setRenameError(null); setRenameBackendNameError(null); }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
-                        if (tempName.trim() && tempName !== profile.name) {
-                          handleNameChange(tempName);
-                        }
-                        setIsEditingName(false);
+                        e.preventDefault();
+                        void handleNameChange();
                       } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        cancelRenameRef.current = true;
                         setTempName(profile.name);
+                        setRenameError(null);
+                        setRenameBackendNameError(null);
                         setIsEditingName(false);
                       }
                     }}
@@ -981,24 +239,34 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                     className="h-6 py-0 px-2 min-w-[120px] text-sm font-medium"
                     onClick={(e) => e.stopPropagation()}
                     disabled={isUpdating}
+                    aria-invalid={Boolean(renameNameError)}
+                    aria-describedby={renameNameError ? renameErrorId : undefined}
                   />
                   <div className="flex items-center gap-0.5">
+                    <Tooltip content={profileNameErrorMessage(renameInvalid, t) ?? ""} disabled={!renameInvalid}
+                      className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/50"
+                      tabIndex={renameInvalid ? 0 : undefined} triggerRole={renameInvalid ? "button" : undefined}
+                      ariaDisabled={renameInvalid ? true : undefined}
+                      ariaLabel={renameInvalid ? t("settings.transcriptionProfiles.saveName", "Save profile name") : undefined}>
                     <Button
+                      type="button"
                       size="sm"
                       variant="ghost"
-                      className="p-1 h-6 w-6 text-green-400 hover:text-green-300"
+                      className={`p-1 h-6 w-6 text-green-400 hover:text-green-300${renameInvalid ? " pointer-events-none" : ""}`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (tempName.trim() && tempName !== profile.name) {
-                          handleNameChange(tempName);
-                        }
-                        setIsEditingName(false);
+                        void handleNameChange();
                       }}
-                      disabled={isUpdating}
+                      disabled={isUpdating || Boolean(renameInvalid)}
+                      aria-label={t("settings.transcriptionProfiles.saveName", "Save profile name")}
+                      aria-hidden={renameInvalid ? true : undefined}
                     >
                       <Check className="w-3 h-3" />
                     </Button>
+                    </Tooltip>
                   </div>
+                  </div>
+                  {renameNameError && <p id={renameErrorId} className="text-xs text-red-400" role="status">{renameNameError}</p>}
                 </div>
               ) : (
                 <div
@@ -1007,6 +275,9 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                     e.stopPropagation();
                     setIsEditingName(true);
                     setTempName(profile.name);
+                    setRenameError(null);
+                    setRenameBackendNameError(null);
+                    cancelRenameRef.current = false;
                   }}
                   title={t(
                     "settings.transcriptionProfiles.clickToRename",
@@ -1047,7 +318,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   {t("settings.transcriptionProfiles.toEnglish", "→ EN")}
                 </span>
               )}
-              {profile.language === "os_input" && (
+              {(isGeminiProvider ? (profile.gemini_language_code_override ?? globalGeminiLanguageCode) === "os_input" : profile.language === "os_input") && (
                 <span
                   className="text-amber-400/60 ml-2 text-[10px]"
                   title={t("settings.general.language.followOsInputTooltip")}
@@ -1059,6 +330,17 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <Button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDuplicate(profile);
+            }}
+            disabled={isUpdating || isCreatingProfile}
+            variant="secondary"
+            size="sm"
+          >
+            {t("settings.transcriptionProfiles.duplicate", "Duplicate")}
+          </Button>
           <Button
             onClick={(e) => {
               e.stopPropagation();
@@ -1080,7 +362,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
               </span>
             )}
           </Button>
-          {canDelete && (
+          {!isDefault && onDelete && (
             <Button
               onClick={(e) => {
                 e.stopPropagation();
@@ -1102,902 +384,18 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
         </div>
       </div>
 
-      {/* Expanded content */}
       <Collapse open={isExpanded}>
-        <div className="px-4 pb-4 pt-3 border-t border-mid-gray/20 space-y-3">
-          {/* Cycle & Push-to-Talk Controls */}
-          <div className="grid gap-3 lg:grid-cols-3 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
-            <div className="min-w-0">
-              <label className="text-xs font-semibold text-text/70 block mb-2">
-                {t("settings.transcriptionProfiles.includeInCycle")}
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={profile.include_in_cycle}
-                  onChange={(e) => handleIncludeInCycleChange(e.target.checked)}
-                  disabled={isUpdating}
-                  className="w-4 h-4 rounded border-mid-gray bg-background text-purple-500 focus:ring-purple-500/50"
-                />
-                <span className="text-xs text-mid-gray leading-snug">
-                  {t(
-                    "settings.transcriptionProfiles.includeInCycleDescription",
-                  )}
-                </span>
-              </div>
-            </div>
-
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 mb-2">
-                <label className="text-xs font-semibold text-text/70">
-                  {t("settings.general.pushToTalk.label")}
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setShowShortcutMoreOptions((shown) => !shown)}
-                  className="text-[11px] text-[#8b8490] underline underline-offset-2 hover:text-[#aaa3ae] transition-colors"
-                >
-                  {t("settings.general.pushToTalk.moreOptions", "More options")}
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <ToggleSwitch
-                  checked={profile.push_to_talk ?? true}
-                  onChange={handlePushToTalkChange}
-                  disabled={isUpdating || profile.auto_shortcut_activation === true}
-                />
-                <span className="text-xs text-mid-gray leading-snug">
-                  {t("settings.general.pushToTalk.description")}
-                </span>
-              </div>
-              <Collapse open={showShortcutMoreOptions}>
-                <div className="mt-3 pt-3 border-t border-mid-gray/15">
-                  <div className="flex items-start gap-2">
-                    <ToggleSwitch
-                      checked={profile.auto_shortcut_activation ?? false}
-                      onChange={handleAutoShortcutActivationChange}
-                      disabled={isUpdating}
-                    />
-                    <div className="min-w-0">
-                      <div className="text-xs font-medium text-text/80">
-                        {t(
-                          "settings.general.pushToTalk.autoLabel",
-                          "Automatic tap / hold",
-                        )}
-                      </div>
-                      <div className="mt-1 text-[11px] text-mid-gray leading-snug">
-                        {t(
-                          "settings.general.pushToTalk.autoDescription",
-                          "Recording starts immediately. Release within 300 ms to keep recording until the next press, or keep holding and release to stop.",
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </Collapse>
-            </div>
-
-            <div className="min-w-0">
-              <label className="text-xs font-semibold text-text/70 block mb-2">
-                {t(
-                  "settings.transcriptionProfiles.previewOutputOnly.title",
-                  "Output to Preview",
-                )}{" "}
-                <button
-                  type="button"
-                  onClick={openLivePreviewSettings}
-                  className="text-[#8b8490] underline underline-offset-2 font-normal hover:text-[#aaa3ae] transition-colors"
-                >
-                  (open settings)
-                </button>
-              </label>
-              <div className="flex items-center gap-2">
-                <ToggleSwitch
-                  checked={profile.preview_output_only_enabled ?? false}
-                  onChange={handlePreviewOutputOnlyChange}
-                  disabled={isUpdating}
-                />
-                <span className="text-xs text-mid-gray leading-snug">
-                  {t(
-                    "settings.transcriptionProfiles.previewOutputOnly.description",
-                    "Keep this profile's output in the preview buffer before insertion.",
-                  )}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {automaticAppProfilesEnabled && (
-            <div className="space-y-2 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
-              <div className="space-y-1">
-                <p className="text-xs font-semibold text-text/80">
-                  {t(
-                    "settings.transcriptionProfiles.automaticApps.title",
-                    "Automatically use this profile in applications",
-                  )}
-                </p>
-                <p className="text-xs text-mid-gray leading-relaxed">
-                  {t(
-                    "settings.transcriptionProfiles.automaticApps.description",
-                    "When the main Transcribe shortcut starts in a matching foreground application, this profile overrides the manually active profile for that recording only.",
-                  )}
-                </p>
-              </div>
-              <Textarea
-                value={automaticAppRulesDraft}
-                rows={4}
-                className="w-full font-mono text-xs"
-                aria-label={t(
-                  "settings.transcriptionProfiles.automaticApps.title",
-                  "Automatically use this profile in applications",
-                )}
-                placeholder={t(
-                  "settings.transcriptionProfiles.automaticApps.placeholder",
-                  "code.exe\nchrome.exe\ntitle:Microsoft Teams\npath:*\\Microsoft Office\\*",
-                )}
-                onChange={(event) => {
-                  const nextDraft = event.target.value;
-                  automaticAppRulesDirtyRef.current =
-                    nextDraft !== persistedAutomaticAppRules;
-                  setAutomaticAppRulesDraft(nextDraft);
-                }}
-                onBlur={() => void handleAutomaticAppRulesCommit()}
-                disabled={isUpdating}
-              />
-              <p className="text-[11px] text-mid-gray leading-relaxed">
-                {t(
-                  "settings.transcriptionProfiles.automaticApps.help",
-                  "One rule per line. Use an executable name such as code.exe, or the prefixes exe:, title:, and path:. Matching ignores case; * and ? are wildcards. The most specific rule wins. Profile-specific shortcuts always keep their explicit profile.",
-                )}
-              </p>
-            </div>
-          )}
-
-          <div className="space-y-3 rounded-lg border border-mid-gray/10 bg-mid-gray/5 p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-text/70">
-                  {t(
-                    "settings.sttModelSelector.profileOverrideTitle",
-                    "Override dictation model",
-                  )}
-                </p>
-                <p className="mt-1 text-xs text-mid-gray">
-                  {t(
-                    "settings.sttModelSelector.profileOverrideDescription",
-                    "Use a different provider and model for ordinary dictation with this profile.",
-                  )}
-                </p>
-              </div>
-              <ToggleSwitch
-                checked={profile.stt_model_selection_override != null}
-                onChange={handleSttModelOverrideEnabledChange}
-                disabled={isUpdating}
-              />
-            </div>
-            {profile.stt_model_selection_override && (
-              <SttModelSelector
-                workflow="dictation"
-                selection={profile.stt_model_selection_override}
-                localModels={localSttModels}
-                onChange={handleSttModelOverrideChange}
-                disabled={isUpdating}
-              />
-            )}
-          </div>
-
-          {/* Shortcut */}
-          <div className="space-y-2 min-w-0">
-            <label className="text-xs font-semibold text-text/70">
-              {t("settings.transcriptionProfiles.shortcut")}
-            </label>
-            <HandyShortcut shortcutId={bindingId} grouped={true} />
-          </div>
-
-          {/* Language + Translate to English — same row */}
-          <div className="grid gap-3 lg:grid-cols-2">
-            {/* Language Selection */}
-            {!isGeminiProvider && (
-              <div className="space-y-2 relative z-20 min-w-0">
-              <label className="text-xs font-semibold text-text/70">
-                {t("settings.transcriptionProfiles.language")}
-              </label>
-              <NameSortedDropdown
-                sortKey="profile-languages"
-                fixedDirection="asc"
-                pinnedValues={["auto", "os_input"]}
-                selectedValue={profile.language}
-                options={effectiveLanguageOptions.map((l) => ({
-                  value: l.value,
-                  label: l.label,
-                  className: l.className,
-                }))}
-                onSelect={(value) => value && handleLanguageChange(value)}
-                placeholder={t("settings.general.language.auto")}
-                disabled={isUpdating}
-              />
-              {isSonioxProvider && (
-                <div className="flex items-center gap-1.5 mt-1.5">
-                  <Tooltip content={t("settings.advanced.soniox.languageHintsStrict.titleTooltip", "This option only appears if a Soniox model is used")}>
-                    <span className="text-[10px] text-text/60">{t("settings.advanced.soniox.languageHintsStrict.title", "Strict")}:</span>
-                  </Tooltip>
-                  <div onClick={(e) => e.stopPropagation()}>
-                    <TriStateToggle
-                      value={strictModeFromApi(
-                        profile.soniox_language_hints_strict,
-                      )}
-                      globalValue={globalSonioxLanguageHintsStrict}
-                      onChange={async (mode) => {
-                        setIsUpdating(true);
-                        try {
-                          await onUpdate({
-                            ...profile,
-                            soniox_language_hints_strict: strictModeToApi(mode),
-                          });
-                        } finally {
-                          setIsUpdating(false);
-                        }
-                      }}
-                      disabled={isUpdating}
-                    />
-                  </div>
-                  <InfoTooltip content={t("settings.advanced.soniox.languageHintsStrict.description")} />
-                </div>
-              )}
-              {showSonioxLanguageFallbackWarning && (
-                <p className="text-xs text-amber-400/90">
-                  {isSonioxProvider
-                    ? t(
-                        "settings.transcriptionProfiles.sonioxLanguageFallbackWarning",
-                        "This language is not supported by Soniox. Soniox requests will fallback to auto-detect.",
-                      )
-                    : t(
-                        "settings.transcriptionProfiles.localModelLanguageFallbackWarning",
-                        "This language is not supported by the selected local model. Requests will fallback to auto-detect.",
-                      )}
-                </p>
-              )}
-              </div>
-            )}
-
-            {/* Translate to English Toggle */}
-            {supportsTranslation && (
-              <div className="space-y-2 min-w-0">
-                <label className="text-xs font-semibold text-text/70">
-                  {t("settings.transcriptionProfiles.translateToEnglish")}
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleTranslateChange(!profile.translate_to_english)
-                    }
-                    disabled={isUpdating}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
-                      profile.translate_to_english
-                        ? "bg-purple-500"
-                        : "bg-mid-gray/30"
-                    } ${isUpdating ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        profile.translate_to_english
-                          ? "translate-x-6"
-                          : "translate-x-1"
-                      }`}
-                    />
-                  </button>
-                  <span className="text-xs text-mid-gray leading-snug">
-                    {t(
-                      "settings.transcriptionProfiles.translateToEnglishDescription",
-                    )}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {isGeminiProvider && (
-            <div className="space-y-3 border-t border-mid-gray/10 pt-3">
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-text/70">
-                  {t("settings.gemini.language.title", "Gemini language")}
-                </label>
-                <NameSortedDropdown
-                  sortKey="profile-gemini-languages"
-                  fixedDirection="asc"
-                  pinnedValues={["__inherit__", "auto", "os_input"]}
-                  selectedValue={profile.gemini_language_code_override ?? "__inherit__"}
-                  options={[
-                    {
-                      value: "__inherit__",
-                      label: t("settings.gemini.inheritLanguage", {
-                        language: globalGeminiLanguageCode,
-                        defaultValue: `Inherit global (${globalGeminiLanguageCode})`,
-                      }),
-                    },
-                    { value: "auto", label: t("settings.gemini.language.auto", "Auto Detect") },
-                    { value: "os_input", label: t("settings.gemini.language.osInput", "Follow OS Input Language") },
-                    ...GEMINI_LOCALES.map(([label, value]) => ({ value, label: `${label} (${value})` })),
-                  ]}
-                  onSelect={async value => {
-                    if (!value) return;
-                    setIsUpdating(true);
-                    try {
-                      await onUpdate({
-                        ...profile,
-                        gemini_language_code_override: value === "__inherit__" ? null : value,
-                      });
-                    } finally {
-                      setIsUpdating(false);
-                    }
-                  }}
-                  disabled={isUpdating}
-                />
-                <p className="text-xs text-mid-gray">
-                  {t(
-                    "settings.gemini.language.mappingHelp",
-                    "If the OS input language does not map unambiguously to an exact supported locale, AivoRelay uses automatic detection and does not send an unsupported hint.",
-                  )}
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-xs font-semibold text-text/70">
-                    {t("settings.gemini.vocabulary.title", "Gemini Custom Vocabulary")}
-                  </label>
-                  <label className="flex items-center gap-2 text-xs text-mid-gray">
-                    <input
-                      type="checkbox"
-                      checked={profile.gemini_custom_vocabulary_override != null}
-                      onChange={async event => {
-                        const enabled = event.target.checked;
-                        const next = enabled ? [] : null;
-                        geminiVocabularyDirtyRef.current = false;
-                        setGeminiVocabularyDraft("");
-                        setIsUpdating(true);
-                        try {
-                          await onUpdate({ ...profile, gemini_custom_vocabulary_override: next });
-                        } catch (error) {
-                          setGeminiVocabularyDraft(persistedGeminiVocabularyDraft);
-                          throw error;
-                        } finally {
-                          setIsUpdating(false);
-                        }
-                      }}
-                      disabled={isUpdating}
-                    />
-                    {t("settings.gemini.vocabulary.override", "Replace global vocabulary")}
-                  </label>
-                </div>
-                {profile.gemini_custom_vocabulary_override == null ? (
-                  <p className="text-xs text-mid-gray">
-                    {t("settings.gemini.vocabulary.inherited", "Inheriting {{count}} global terms.", { count: globalGeminiVocabulary.length })}
-                  </p>
-                ) : (
-                  <>
-                    <Textarea
-                      value={geminiVocabularyDraft}
-                      className="w-full"
-                      onChange={event => {
-                        const nextDraft = event.target.value;
-                        geminiVocabularyDirtyRef.current =
-                          nextDraft !== persistedGeminiVocabularyDraft;
-                        setGeminiVocabularyDraft(nextDraft);
-                      }}
-                      onBlur={() => void commitGeminiVocabularyDraft(geminiVocabularyDraft)}
-                      rows={7}
-                      disabled={isUpdating}
-                      placeholder={'Gemini\nKubernetes\nBigQuery'}
-                    />
-                    <div className="flex items-start justify-between gap-3">
-                      <p className={`text-xs ${geminiVocabularyResult.errors.length ? "text-red-400" : "text-mid-gray"}`}>
-                        {t("settings.gemini.vocabulary.status", "Detected {{format}} · {{count}}/1000 terms", {
-                          format: geminiVocabularyResult.format,
-                          count: geminiVocabularyResult.normalizedTerms.length,
-                        })}
-                      </p>
-                      <TextFileActions
-                        value={geminiVocabularyDraft}
-                        defaultFileName="gemini-vocabulary.txt"
-                        extensions={GEMINI_VOCABULARY_FILE_EXTENSIONS}
-                        validate={validateGeminiVocabularyFile}
-                        disabled={isUpdating}
-                        onOpen={async text => {
-                          geminiVocabularyDirtyRef.current = true;
-                          setGeminiVocabularyDraft(text);
-                          await commitGeminiVocabularyDraft(text);
-                        }}
-                      />
-                    </div>
-                    <p className="text-xs text-mid-gray">
-                      {t(
-                        "settings.gemini.vocabulary.formatHelp",
-                        "Paste one term per line, CSV, quoted CSV, or a JSON string array. Example: Gemini, Kubernetes, BigQuery",
-                      )}
-                    </p>
-                    {geminiVocabularyResult.errors.map(issue => (
-                      <p key={`${issue.code}-${issue.position ?? 0}`} className="text-xs text-red-400">{issue.message}</p>
-                    ))}
-                    {geminiVocabularyResult.warnings.map(issue => (
-                      <p key={`${issue.code}-${issue.position ?? 0}`} className="text-xs text-amber-400">{issue.message}</p>
-                    ))}
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-
-          {isSonioxProvider && (
-            <SonioxContextEditor
-              stateKey={`profile-${profile.id}-soniox`}
-              generalJson={profile.soniox_context_general_json || ""}
-              text={profile.soniox_context_text || ""}
-              terms={profile.soniox_context_terms || []}
-              disabled={isUpdating}
-              onCommitGeneralJson={handleSonioxGeneralJsonChange}
-              onCommitText={handleSonioxContextTextChange}
-              onCommitTerms={handleSonioxTermsChange}
-            />
-          )}
-
-          {/* Voice Model Prompt Override — collapsible */}
-          {!isSonioxProvider && supportsSttPrompt && (
-            <WindowDetails stateKey={`profile-${profile.id}-stt-prompt`} className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
-              <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
-                <div className="flex items-center gap-2 min-w-0">
-                  <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
-                  <span className="text-xs font-semibold text-text/70">
-                    {t("settings.transcriptionProfiles.overrideSystemPrompt")}
-                  </span>
-                  <InfoTooltip
-                    content={t(
-                      "settings.transcriptionProfiles.voiceModelPromptTooltip",
-                    )}
-                  />
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {/* Status badges */}
-                  {profile.stt_prompt_override_enabled && (
-                    <span
-                      className={`text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ${
-                        (profile.system_prompt || "").trim()
-                          ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
-                          : "bg-amber-500/15 text-amber-400 border-amber-500/25"
-                      }`}
-                    >
-                      {(profile.system_prompt || "").trim()
-                        ? t(
-                            "settings.transcriptionProfiles.badges.sttPromptOverridden",
-                            "System prompt overridden",
-                          )
-                        : t(
-                            "settings.transcriptionProfiles.badges.sttPromptEmpty",
-                            "System prompt is empty",
-                          )}
-                    </span>
-                  )}
-                  <div onClick={(e) => e.stopPropagation()}>
-                    <ToggleSwitch
-                      checked={profile.stt_prompt_override_enabled ?? false}
-                      onChange={handleSttPromptOverrideChange}
-                      disabled={isUpdating}
-                    />
-                  </div>
-                </div>
-              </summary>
-              <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
-                <p className="text-xs text-mid-gray pt-2">
-                  {profile.stt_prompt_override_enabled
-                    ? t(
-                        "settings.transcriptionProfiles.overrideSystemPromptOnDescription",
-                      )
-                    : t(
-                        "settings.transcriptionProfiles.overrideSystemPromptOffDescription",
-                      )}
-                </p>
-                {profile.stt_prompt_override_enabled && (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs font-semibold text-text/70">
-                          {t("settings.transcriptionProfiles.systemPrompt")}
-                        </label>
-                        <InfoTooltip
-                          content={t(
-                            "settings.transcriptionProfiles.voiceModelPromptTooltip",
-                          )}
-                        />
-                      </div>
-                      <span
-                        className={`text-xs ${isOverLimit ? "text-red-400" : "text-mid-gray"}`}
-                      >
-                        {promptLength}
-                        {promptLimit > 0 && ` / ${promptLimit}`}
-                      </span>
-                    </div>
-                    <textarea
-                      value={systemPromptDraft}
-                      onChange={(event) => {
-                        const nextDraft = event.target.value;
-                        systemPromptDirtyRef.current =
-                          nextDraft !== persistedSystemPrompt;
-                        setSystemPromptDraft(nextDraft);
-                      }}
-                      onBlur={() => void handleSystemPromptChange()}
-                      placeholder={t(
-                        "settings.transcriptionProfiles.systemPromptPlaceholder",
-                      )}
-                      disabled={isUpdating}
-                      aria-invalid={isOverLimit}
-                      rows={3}
-                      className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors ${
-                        isOverLimit
-                          ? "border-red-400 focus:border-red-400"
-                          : "border-[#3c3c3c] focus:border-[#4a4a4a]"
-                      } ${isUpdating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
-                    />
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="text-xs text-mid-gray">
-                        {t(
-                          "settings.transcriptionProfiles.systemPromptDescription",
-                        )}
-                      </p>
-                      <TextFileActions
-                        value={systemPromptDraft}
-                        defaultFileName="voice-model-prompt.txt"
-                        maxLength={promptLimit}
-                        disabled={isUpdating}
-                        onOpen={async (text) => {
-                          systemPromptDirtyRef.current =
-                            text !== persistedSystemPrompt;
-                          setSystemPromptDraft(text);
-                          await handleSystemPromptChange(text);
-                        }}
-                      />
-                    </div>
-                    {isOverLimit && (
-                      <p className="text-xs text-red-400">
-                        {t(
-                          "settings.transcriptionProfiles.systemPromptTooLong",
-                          {
-                            limit: promptLimit,
-                          },
-                        )}
-                      </p>
-                    )}
-                  </>
-                )}
-              </div>
-            </WindowDetails>
-          )}
-
-          <ProfileMoreSettings profileId={profile.id}>
-            <ProfileOutputSettings profileId={profile.id} overrides={profile.output_settings} disabled={isUpdating} />
-
-          {/* LLM Post-Processing Section — collapsible */}
-          <WindowDetails stateKey={`profile-${profile.id}-llm`} className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
-              <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
-                <div className="flex items-center gap-2 min-w-0">
-                  <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
-                  <span className="text-xs font-semibold text-text/70">
-                    {t(
-                      "settings.transcriptionProfiles.llmPostProcessing.title",
-                    )}
-                  </span>
-                  <InfoTooltip
-                    content={t(
-                      "settings.transcriptionProfiles.llmPostProcessing.description",
-                    )}
-                  />
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {/* Status badges */}
-                  {effectiveLlmEnabled && (
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 whitespace-nowrap">
-                        {t(
-                          "settings.transcriptionProfiles.badges.llmActive",
-                          "LLM active",
-                        )}
-                      </span>
-                      {profile.llm_prompt_override &&
-                        profile.llm_prompt_override !== defaultLlmPrompt && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 whitespace-nowrap">
-                            {t(
-                              "settings.transcriptionProfiles.badges.promptOverridden",
-                              "Prompt overridden",
-                            )}
-                          </span>
-                        )}
-                      {profile.llm_model_override && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/25 whitespace-nowrap">
-                          {t(
-                            "settings.transcriptionProfiles.badges.modelOverride",
-                            "Model: {{model}}",
-                            { model: profile.llm_model_override },
-                          )}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  <div onClick={(e) => e.stopPropagation()}>
-                    <ToggleSwitch
-                      checked={effectiveLlmEnabled}
-                      onChange={handleLlmEnabledChange}
-                      disabled={isUpdating || !postProcessingAvailable}
-                      ariaLabel={t(
-                        "settings.transcriptionProfiles.llmPostProcessing.title",
-                      )}
-                    />
-                  </div>
-                </div>
-              </summary>
-              <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
-                <p className="text-xs text-mid-gray pt-2">
-                  {t(
-                    "settings.transcriptionProfiles.llmPostProcessing.description",
-                  )}
-                </p>
-
-                {!postProcessingAvailable && (
-                  <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
-                    {t(
-                      "settings.postProcessing.unavailableDirectRealtime",
-                      "LLM post-processing is unavailable while realtime text is inserted directly into the target application. Use Preview or a non-live output route. Your saved choice is preserved for compatible routes.",
-                    )}
-                  </div>
-                )}
-
-                {effectiveLlmEnabled && (
-                  <div className="space-y-3">
-                    {/* Prompt Override */}
-                    <div className="space-y-1">
-                      {/* ${output} Variable Documentation */}
-                      <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs space-y-1">
-                        <div className="font-semibold text-blue-400">
-                          {t(
-                            "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title",
-                          )}
-                        </div>
-                        {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
-                        <p
-                          className="text-text/70"
-                          dangerouslySetInnerHTML={{
-                            __html: t(
-                              "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.description",
-                            ),
-                          }}
-                        />
-                        <WindowDetails stateKey={`profile-${profile.id}-llm-variables`} className="cursor-pointer">
-                          <summary className="text-blue-400 hover:text-blue-300">
-                            {t(
-                              "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.howItWorks",
-                            )}
-                          </summary>
-                          <ol className="list-decimal list-inside text-text/60 mt-1 space-y-0.5 pl-2">
-                            <li>
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1",
-                              )}
-                            </li>
-                            {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
-                            <li
-                              dangerouslySetInnerHTML={{
-                                __html: t(
-                                  "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step2",
-                                ),
-                              }}
-                            />
-                            <li>
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step3",
-                              )}
-                            </li>
-                            <li>
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step4",
-                              )}
-                            </li>
-                          </ol>
-                          <div className="mt-2 space-y-1">
-                            <div className="text-green-400">
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validExample",
-                              )}
-                            </div>
-                            <code className="block bg-green-500/10 px-2 py-1 rounded text-green-300 whitespace-pre-wrap">
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validPrompt",
-                              )}
-                            </code>
-                            <div className="text-red-400 mt-2">
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidExample",
-                              )}
-                            </div>
-                            <code className="block bg-red-500/10 px-2 py-1 rounded text-red-300">
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt",
-                              )}
-                            </code>
-                            {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
-                            <p
-                              className="text-red-400/80"
-                              dangerouslySetInnerHTML={{
-                                __html: t(
-                                  "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidWarning",
-                                ),
-                              }}
-                            />
-                          </div>
-                          {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
-                          <p
-                            className="mt-2 text-text/60"
-                            dangerouslySetInnerHTML={{
-                              __html: t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.tip",
-                              ),
-                            }}
-                          />
-                        </WindowDetails>
-                      </div>
-
-                      <div className="mt-2 space-y-1">
-                        <label className="text-xs text-text/60">
-                          {t(
-                            "settings.transcriptionProfiles.llmPostProcessing.useExistingPrompt",
-                            "Use an existing prompt",
-                          )}
-                        </label>
-                        <p className="text-xs text-mid-gray">
-                          {t(
-                            "settings.transcriptionProfiles.llmPostProcessing.useExistingPromptHint",
-                            "Copy a saved LLM Post-Processing prompt into this profile. Later edits affect only this profile.",
-                          )}
-                        </p>
-                        <NameSortedDropdown
-                          sortKey="profile-prompts"
-                          options={llmPromptSourceOptions}
-                          selectedValue={null}
-                          onSelect={handleLlmPromptSourceSelect}
-                          placeholder={t(
-                            llmPromptSourceOptions.length > 0
-                              ? "settings.transcriptionProfiles.llmPostProcessing.selectExistingPrompt"
-                              : "settings.transcriptionProfiles.llmPostProcessing.noExistingPrompts",
-                            llmPromptSourceOptions.length > 0
-                              ? "Select a saved prompt..."
-                              : "No saved prompts available",
-                          )}
-                          disabled={
-                            llmPromptSourceOptions.length === 0 ||
-                            (isUpdating &&
-                              llmPromptPendingCountRef.current === 0)
-                          }
-                          ariaLabel={t(
-                            "settings.transcriptionProfiles.llmPostProcessing.useExistingPrompt",
-                            "Use an existing prompt",
-                          )}
-                          dropUp={false}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between mt-2">
-                        <div className="flex flex-col">
-                          {!isCustomOverride ? (
-                            <span className="text-[10px] text-purple-400/70 font-medium">
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.usingGlobalPrompt",
-                              )}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-orange-400 font-medium">
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.customPromptActive",
-                                "Custom prompt active",
-                              )}
-                            </span>
-                          )}
-                        </div>
-                        {isCustomOverride && (
-                          <button
-                            type="button"
-                            onClick={handleResetToGlobal}
-                            disabled={isUpdating}
-                            className="flex items-center gap-1.5 px-2 py-1 text-xs bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded-md text-purple-300 transition-colors disabled:opacity-50"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            {t(
-                              "settings.transcriptionProfiles.llmPostProcessing.resetToGlobal",
-                            )}
-                          </button>
-                        )}
-                      </div>
-                      <textarea
-                        value={localLlmPrompt}
-                        onChange={(e) => {
-                          setLocalLlmPrompt(e.target.value);
-                          setIsCustomOverride(true);
-                          isEditingRef.current = true;
-                        }}
-                        onBlur={(e) => {
-                          isEditingRef.current = false;
-                          if (isCustomOverride) {
-                            void handleLlmPromptChange(e.target.value);
-                          }
-                        }}
-                        placeholder={t(
-                          "settings.transcriptionProfiles.llmPostProcessing.promptPlaceholder",
-                        )}
-                        disabled={isUpdating}
-                        rows={6}
-                        className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors border-[#3c3c3c] focus:border-[#4a4a4a] ${isUpdating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
-                      />
-                      <TextFileActions
-                        value={localLlmPrompt}
-                        defaultFileName="llm-prompt.txt"
-                        disabled={isUpdating}
-                        onOpen={async (text) => {
-                          setLocalLlmPrompt(text);
-                          setIsCustomOverride(true);
-                          await handleLlmPromptChange(text);
-                        }}
-                      />
-                    </div>
-
-                    {/* Model Override */}
-                    <div className="space-y-1">
-                      <label className="text-xs text-text/60">
-                        {t(
-                          "settings.transcriptionProfiles.llmPostProcessing.overrideModel",
-                        )}
-                      </label>
-                      <p className="text-xs text-mid-gray">
-                        {t(
-                          "settings.transcriptionProfiles.llmPostProcessing.overrideModelHint",
-                        )}
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <ModelSelect
-                          sortKey={llmModelSortKey}
-                          value={profile.llm_model_override || ""}
-                          options={llmModelOptions}
-                          disabled={isUpdating}
-                          placeholder={
-                            globalLlmModel
-                              ? t(
-                                  "settings.transcriptionProfiles.llmPostProcessing.usingGlobalModel",
-                                  { model: globalLlmModel },
-                                )
-                              : t(
-                                  "settings.transcriptionProfiles.llmPostProcessing.modelPlaceholder",
-                                )
-                          }
-                          onSelect={(value) =>
-                            handleLlmModelChange(value || null)
-                          }
-                          onCreate={(value) => handleLlmModelChange(value)}
-                          onBlur={() => {}}
-                          className="flex-1"
-                        />
-                        <ResetButton
-                          onClick={onRefreshModels}
-                          disabled={isFetchingModels || isUpdating}
-                          title="Fetch Models from Server, then you can type part of model name for searching it in drop-down."
-                        >
-                          <RefreshCcw
-                            className={`w-4 h-4 ${isFetchingModels ? "animate-spin" : ""}`}
-                          />
-                        </ResetButton>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-          </WindowDetails>
-            <ChineseScriptSetting profileId={profile.id} descriptionMode="tooltip" />
-          </ProfileMoreSettings>
+        <div className="px-4 pb-4 pt-3 border-t border-mid-gray/20">
+          <ProfileSettingsForm key={formKey ?? profile.id} profile={profile} scope={scope} settings={settings}
+            onCommit={commitProfilePatch} disabled={isIdentityUpdating}
+            llmModelOptions={llmModelOptions} llmModelSortKey={llmModelSortKey}
+            globalLlmModel={globalLlmModel} onRefreshModels={onRefreshModels} isFetchingModels={isFetchingModels}
+            defaultLlmPrompt={defaultLlmPrompt} llmPromptSourceOptions={llmPromptSourceOptions}
+            globalSonioxLanguageHintsStrict={globalSonioxLanguageHintsStrict}
+            globalGeminiLanguageCode={globalGeminiLanguageCode} globalGeminiVocabulary={globalGeminiVocabulary}
+            localSttModels={localSttModels} globalSttModelSelection={globalSttModelSelection}
+            automaticAppProfilesEnabled={automaticAppProfilesEnabled}
+            shortcut={<HandyShortcut shortcutId={`transcribe_${profile.id}`} grouped={true} />} />
         </div>
       </Collapse>
     </div>
@@ -2025,77 +423,48 @@ export const TranscriptionProfiles: React.FC = () => {
     useWindowState("transcription-automatic-apps-expanded", false);
   const [automaticAppsManuallyCollapsed, setAutomaticAppsManuallyCollapsed] =
     useWindowState("transcription-automatic-apps-manually-collapsed", false);
-  const [isCreating, setIsCreating] = useState(false);
+  const [isCreating, setIsCreating] = useWindowState("profile-new-creating", false);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
-  const [isUpdatingDefaultLlm, setIsUpdatingDefaultLlm] = useState(false);
-  const [showDefaultShortcutMoreOptions, setShowDefaultShortcutMoreOptions] =
-    useWindowState("profile-default-shortcut-more", false);
-  const [newName, setNewName] = useState("");
-  const [newLanguage, setNewLanguage] = useState("auto");
-  const [newTranslate, setNewTranslate] = useState(false);
-  const [newSystemPrompt, setNewSystemPrompt] = useState("");
-  const [newPushToTalk, setNewPushToTalk] = useState(true);
-  const [newPreviewOutputOnly, setNewPreviewOutputOnly] = useState(false);
-  const [newIncludeInCycle, setNewIncludeInCycle] = useState(true);
+  const [newName, setNewName] = useWindowState("profile-new-name", "");
+  const [newLanguage, setNewLanguage] = useWindowState("profile-new-language", "auto");
+  const [newTranslate, setNewTranslate] = useWindowState("profile-new-translate", false);
+  const [newSystemPrompt, setNewSystemPrompt] = useWindowState("profile-new-system-prompt", "");
+  const [newPushToTalk, setNewPushToTalk] = useWindowState("profile-new-push-to-talk", true);
+  const [newPreviewOutputOnly, setNewPreviewOutputOnly] = useWindowState("profile-new-preview", false);
+  const [newIncludeInCycle, setNewIncludeInCycle] = useWindowState("profile-new-cycle", true);
   const [newSttPromptOverrideEnabled, setNewSttPromptOverrideEnabled] =
-    useState(false);
-  const [newLlmEnabledOverride, setNewLlmEnabledOverride] = useState<
+    useWindowState("profile-new-stt-prompt-override", false);
+  const [newLlmEnabledOverride, setNewLlmEnabledOverride] = useWindowState<
     boolean | null
-  >(null);
-  const [newLlmPromptOverride, setNewLlmPromptOverride] = useState("");
-  const [newLlmModelOverride, setNewLlmModelOverride] = useState<string | null>(
-    null,
+  >("profile-new-llm-enabled", null);
+  const [newLlmPromptOverride, setNewLlmPromptOverride] = useWindowState("profile-new-llm-prompt", "");
+  const [newLlmPromptExplicitEmpty, setNewLlmPromptExplicitEmpty] = useWindowState("profile-new-llm-explicit-empty", false);
+  const [newLlmModelOverride, setNewLlmModelOverride] = useWindowState<string | null>(
+    "profile-new-llm-model", null,
   );
   const [newSonioxContextGeneralJson, setNewSonioxContextGeneralJson] =
-    useState("");
-  const [newSonioxContextText, setNewSonioxContextText] = useState("");
-  const [newSonioxContextTerms, setNewSonioxContextTerms] = useState<string[]>(
-    [],
+    useWindowState("profile-new-soniox-general", "");
+  const [newSonioxContextText, setNewSonioxContextText] = useWindowState("profile-new-soniox-text", "");
+  const [newSonioxContextTerms, setNewSonioxContextTerms] = useWindowState<string[]>(
+    "profile-new-soniox-terms", [],
   );
   const [
     newSonioxLanguageHintsStrictMode,
     setNewSonioxLanguageHintsStrictMode,
-  ] = useState<TriStateValue>("global");
+  ] = useWindowState<TriStateValue>("profile-new-soniox-strict", "global");
+  const [draftAdditionalSettings, setDraftAdditionalSettings] = useWindowState<LegacyProfileDraftMetadata | null>(
+    "profile-new-duplicate-settings", null,
+  );
+  const [duplicateSourceName, setDuplicateSourceName] = useWindowState("profile-new-duplicate-source", draftAdditionalSettings?.sourceName ?? "");
+  const [draftRevision, setDraftRevision] = useWindowState("profile-new-form-revision", 0);
+  const [newFormValidationReasons, setNewFormValidationReasons] = useState<ProfileValidationReason[]>([]);
+  const newFormInvalid = newFormValidationReasons.length > 0;
+  const [newFormValues, setNewFormValues] = useWindowState<Partial<ExtendedTranscriptionProfile>>("profile-new-settings-form", {});
+  const profileCommitQueues = useRef(new Map<string, Promise<void>>());
+  const [newAutomaticAppRules, setNewAutomaticAppRules] = useWindowState("profile-new-app-rules", "");
   const [newProfileError, setNewProfileError] = useState<string | null>(null);
+  const [newBackendNameError, setNewBackendNameError] = useState<ProfileNameError | null>(null);
   const globalGeminiVocabulary = ((settings as any)?.gemini_custom_vocabulary ?? []) as string[];
-  const persistedGlobalGeminiVocabulary = JSON.stringify(globalGeminiVocabulary);
-  const persistedGlobalGeminiVocabularyDraft = globalGeminiVocabulary.join("\n");
-  const [globalGeminiVocabularyDraft, setGlobalGeminiVocabularyDraft] = useState(
-    persistedGlobalGeminiVocabularyDraft,
-  );
-  const globalGeminiVocabularyDirtyRef = useRef(false);
-  const globalGeminiVocabularySyncRef = useRef(persistedGlobalGeminiVocabulary);
-  const globalGeminiVocabularyResult = useMemo(
-    () => parseGeminiVocabulary(globalGeminiVocabularyDraft),
-    [globalGeminiVocabularyDraft],
-  );
-  const commitGlobalGeminiVocabularyDraft = async (draft: string) => {
-    const result = parseGeminiVocabulary(draft);
-    if (!result.safeToPersist) return;
-    const normalizedTerms = result.normalizedTerms;
-    try {
-      await updateSetting(
-        "gemini_custom_vocabulary" as any,
-        normalizedTerms as any,
-        { throwOnError: true },
-      );
-      globalGeminiVocabularyDirtyRef.current = false;
-      setGlobalGeminiVocabularyDraft(normalizedTerms.join("\n"));
-    } catch {
-      // Keep the dirty draft so the user can retry or repair it.
-    }
-  };
-
-  useEffect(() => {
-    if (
-      !globalGeminiVocabularyDirtyRef.current &&
-      globalGeminiVocabularySyncRef.current !== persistedGlobalGeminiVocabulary
-    ) {
-      setGlobalGeminiVocabularyDraft(persistedGlobalGeminiVocabularyDraft);
-    }
-    globalGeminiVocabularySyncRef.current = persistedGlobalGeminiVocabulary;
-  }, [persistedGlobalGeminiVocabulary, persistedGlobalGeminiVocabularyDraft]);
-
   const profiles = (settings?.transcription_profiles ||
     []) as ExtendedTranscriptionProfile[];
   const { items: visibleProfiles } = useSortedDisplayNames(
@@ -2152,51 +521,11 @@ export const TranscriptionProfiles: React.FC = () => {
     settings?.selected_model,
   ]);
 
-  // Get model info for prompt configuration (same logic as TranscriptionSystemPrompt)
-  const modelInfo = useMemo(() => {
-    const provider = String(settings?.transcription_provider || "local");
-    if (provider === "remote_soniox" || provider === "remote_deepgram") {
-      return { supportsPrompt: false, charLimit: 0, modelId: "" };
-    }
-
-    if (!activeModelId) {
-      return { supportsPrompt: true, charLimit: 896, modelId: "" };
-    }
-    if (provider === "remote_openai_compatible") {
-      return getModelPromptInfo(activeModelId, undefined, false);
-    }
-    // For local models, get engine_type from model info
-    const localModelInfo = getModelInfo(activeModelId);
-    return getModelPromptInfo(activeModelId, localModelInfo?.engine_type);
-  }, [activeModelId, settings?.transcription_provider, getModelInfo]);
-
-  // Get prompt limit based on active transcription settings
-  const promptLimit = modelInfo.supportsPrompt ? modelInfo.charLimit : 0;
   const hasActivePromptModel = activeModelId.length > 0;
   const activePromptValue = hasActivePromptModel
     ? settings?.transcription_prompts?.[activeModelId] || ""
     : "";
   const activeProvider = String(settings?.transcription_provider || "local");
-  const [remoteSupportsTranslation, setRemoteSupportsTranslation] =
-    useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    setRemoteSupportsTranslation(false);
-    if (activeProvider !== "remote_openai_compatible") return;
-
-    void commands
-      .remoteSttSupportsTranslation()
-      .then((supported) => {
-        if (!cancelled) setRemoteSupportsTranslation(supported);
-      })
-      .catch(() => {
-        if (!cancelled) setRemoteSupportsTranslation(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeProvider, activeModelId]);
   const nativeLiveOutputEnabledForActiveModel = useMemo(() => {
     if (activeProvider !== "local" || !activeModelId) return false;
     const localModelInfo = getModelInfo(activeModelId);
@@ -2213,103 +542,7 @@ export const TranscriptionProfiles: React.FC = () => {
     getModelInfo,
     settings,
   ]);
-  const supportsTranslation = useMemo(() => {
-    if (
-      activeProvider === "remote_soniox" ||
-      activeProvider === "remote_deepgram"
-    ) {
-      return false;
-    }
-    if (activeProvider === "remote_openai_compatible") {
-      return remoteSupportsTranslation;
-    }
-    return getModelInfo(activeModelId)?.supports_translation ?? true;
-  }, [activeModelId, activeProvider, getModelInfo, remoteSupportsTranslation]);
-  const isSonioxProvider = activeProvider === "remote_soniox";
-  const isGeminiProvider =
-    activeProvider === "remote_openai_compatible" &&
-    activeModelId.toLowerCase().includes("gemini-3.5-transcribe");
   const globalGeminiLanguageCode = String((settings as any)?.gemini_language_code ?? "auto");
-  const newPostProcessingAvailability = getPostProcessingAvailability(settings, {
-    profilePreviewOutputOnlyEnabled: newPreviewOutputOnly,
-    profileOutputSettings: null,
-  });
-  const defaultPostProcessingAvailability = getPostProcessingAvailability(
-    settings,
-    {
-      profilePreviewOutputOnlyEnabled: Boolean(
-        settings?.preview_output_only_enabled,
-      ),
-      profileOutputSettings: null,
-    },
-  );
-  const effectiveDefaultLlmEnabled =
-    defaultPostProcessingAvailability.available &&
-    Boolean(settings?.post_process_enabled);
-
-  const filteredLanguages = useMemo(() => {
-    if (isSonioxProvider) {
-      return LANGUAGES.filter((language) =>
-        isLanguageSupportedBySoniox(language.value),
-      );
-    }
-
-    // For local models, limit language choices to model-supported languages.
-    if (settings?.transcription_provider === "local" && activeModelId) {
-      const localModelInfo = getModelInfo(activeModelId);
-      const supported = localModelInfo?.supported_languages;
-      if (supported && supported.length > 0) {
-        return LANGUAGES.filter(
-          (language) =>
-            language.value === "auto" ||
-            language.value === "os_input" ||
-            supportsLanguageCode(supported, language.value),
-        );
-      }
-    }
-
-    return LANGUAGES;
-  }, [
-    isSonioxProvider,
-    settings?.transcription_provider,
-    activeModelId,
-    getModelInfo,
-  ]);
-
-  const selectedGlobalLanguage = settings?.selected_language || "auto";
-  const showDefaultLanguageFallbackWarning = !filteredLanguages.some(
-    (language) => language.value === selectedGlobalLanguage,
-  );
-
-  const defaultProfileLanguageOptions = useMemo(() => {
-    if (
-      filteredLanguages.some(
-        (language) => language.value === selectedGlobalLanguage,
-      )
-    ) {
-      return filteredLanguages;
-    }
-
-    const fallbackLabel =
-      LANGUAGES.find((language) => language.value === selectedGlobalLanguage)
-        ?.label || selectedGlobalLanguage;
-    const fallbackSuffix = isSonioxProvider
-      ? "fallback to auto in Soniox"
-      : "fallback to auto for selected model";
-
-    return [
-      {
-        value: selectedGlobalLanguage,
-        label: `${fallbackLabel} (${fallbackSuffix})`,
-        className: "text-amber-400",
-      },
-      ...filteredLanguages,
-    ];
-  }, [selectedGlobalLanguage, filteredLanguages, isSonioxProvider]);
-
-  const newPromptLength = newSystemPrompt.length;
-  const isNewPromptOverLimit = promptLimit > 0 && newPromptLength > promptLimit;
-
   // LLM Post-Processing configuration
   const currentLlmProviderId = settings?.post_process_provider_id || "";
 
@@ -2363,9 +596,132 @@ export const TranscriptionProfiles: React.FC = () => {
     }
   }, [currentLlmProviderId, fetchPostProcessModels]);
 
+  const newProfileDraft: ExtendedTranscriptionProfile = {
+    id: `new-${draftRevision}`, name: newName, language: newLanguage,
+    translate_to_english: newTranslate, automatic_app_rules: newAutomaticAppRules.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean),
+    system_prompt: newSystemPrompt, stt_prompt_override_enabled: newSttPromptOverrideEnabled,
+    stt_model_selection_override: draftAdditionalSettings?.sttModelSelectionOverride ?? null,
+    push_to_talk: newPushToTalk, auto_shortcut_activation: draftAdditionalSettings?.autoShortcutActivation ?? false,
+    preview_output_only_enabled: newPreviewOutputOnly, include_in_cycle: newIncludeInCycle,
+    llm_post_process_enabled: newLlmEnabled,
+    llm_prompt_override: newLlmPromptExplicitEmpty ? "" : newLlmPromptOverride || null,
+    llm_model_override: newLlmModelOverride,
+    soniox_context_general_json: newSonioxContextGeneralJson, soniox_context_text: newSonioxContextText,
+    soniox_context_terms: newSonioxContextTerms, soniox_language_hints_strict: strictModeToApi(newSonioxLanguageHintsStrictMode),
+    gemini_language_code_override: draftAdditionalSettings?.geminiLanguageCodeOverride ?? null,
+    gemini_custom_vocabulary_override: draftAdditionalSettings?.geminiCustomVocabularyOverride ?? null,
+    chinese_script: draftAdditionalSettings?.chineseScript ?? null,
+    output_settings: draftAdditionalSettings?.outputSettings ?? {},
+    ...newFormValues,
+  };
+  // Blur commits and Create can occur in one event batch; keep the exact current draft synchronously.
+  const newProfileDraftRef = useRef(newProfileDraft);
+  newProfileDraftRef.current = newProfileDraft;
+  const applyNewDraftPatch = (patch: Partial<ExtendedTranscriptionProfile>) => {
+    const next = { ...newProfileDraftRef.current, ...patch,
+      output_settings: { ...newProfileDraftRef.current.output_settings, ...patch.output_settings } };
+    newProfileDraftRef.current = next;
+    setNewFormValues(previous => ({ ...previous, ...patch,
+      ...(patch.output_settings ? { output_settings: next.output_settings } : {}),
+    }));
+  };
+  const commitNewDraftPatch = async (patch: Partial<ExtendedTranscriptionProfile>) => applyNewDraftPatch(patch);
+  const globalProfile: ExtendedTranscriptionProfile = {
+    id: "default", name: t("settings.transcriptionProfiles.defaultProfile"),
+    language: settings?.selected_language ?? "auto", translate_to_english: settings?.translate_to_english ?? false,
+    automatic_app_rules: [], include_in_cycle: false,
+    push_to_talk: settings?.push_to_talk ?? true, auto_shortcut_activation: settings?.auto_shortcut_activation ?? false,
+    preview_output_only_enabled: settings?.preview_output_only_enabled ?? false,
+    system_prompt: activePromptValue, stt_prompt_override_enabled: true, stt_model_selection_override: null,
+    llm_post_process_enabled: settings?.post_process_enabled ?? false, llm_prompt_override: null, llm_model_override: null,
+    soniox_context_general_json: settings?.soniox_context_general_json ?? "", soniox_context_text: settings?.soniox_context_text ?? "",
+    soniox_context_terms: settings?.soniox_context_terms ?? [], soniox_language_hints_strict: settings?.soniox_language_hints_strict ?? false,
+    gemini_language_code_override: globalGeminiLanguageCode, gemini_custom_vocabulary_override: globalGeminiVocabulary,
+    chinese_script: settings?.chinese_script ?? "as_transcribed", output_settings: getGlobalProfileOutputDefaults(settings),
+  };
+  const sharedFormProps = {
+    settings, llmModelOptions, llmModelSortKey, globalLlmModel, onRefreshModels: handleRefreshModels, isFetchingModels,
+    defaultLlmPrompt: globalPromptText, llmPromptSourceOptions,
+    globalSonioxLanguageHintsStrict: Boolean(settings?.soniox_language_hints_strict),
+    globalGeminiLanguageCode, globalGeminiVocabulary, localSttModels, globalSttModelSelection,
+    automaticAppProfilesEnabled: Boolean(settings?.automatic_app_profiles_enabled),
+  };
+
+  const newNameError = profileNameErrorMessage(getProfileNameError(newName, profiles) ?? newBackendNameError, t);
+  const createUnavailableReasons = isCreating
+    ? [t("settings.transcriptionProfiles.creatingProfile", "Creating profile…")]
+    : [
+        ...(newNameError ? [newNameError] : []),
+        ...newFormValidationReasons.map(reason => {
+          switch (reason) {
+            case "system_prompt": return t("settings.transcriptionProfiles.shortenSystemPrompt", "Shorten the voice model prompt.");
+            case "gemini_vocabulary": return t("settings.transcriptionProfiles.fixGeminiVocabulary", "Fix the Gemini vocabulary.");
+            case "soniox_context": return t("settings.transcriptionProfiles.fixSonioxContext", "Fix the Soniox context.");
+            case "output_delay": return t("profileOutput.delayInvalid", "Enter a number from 0 to 5000 ms.");
+          }
+        }),
+      ];
+  const createDisabled = createUnavailableReasons.length > 0;
+
+  const clearNewProfile = () => {
+    setNewName("");
+    setNewLanguage("auto");
+    setNewTranslate(false);
+    setNewSystemPrompt("");
+    setNewSttPromptOverrideEnabled(false);
+    setNewPushToTalk(true);
+    setNewPreviewOutputOnly(false);
+    setNewIncludeInCycle(true);
+    setNewLlmEnabledOverride(null);
+    setNewLlmPromptOverride("");
+    setNewLlmPromptExplicitEmpty(false);
+    setNewLlmModelOverride(null);
+    setNewSonioxContextGeneralJson("");
+    setNewSonioxContextText("");
+    setNewSonioxContextTerms([]);
+    setNewSonioxLanguageHintsStrictMode("global");
+    setNewAutomaticAppRules("");
+    setDraftAdditionalSettings(null);
+    setNewFormValues({});
+    setDuplicateSourceName("");
+    setDraftRevision(revision => revision + 1);
+    setNewFormValidationReasons([]);
+    setNewProfileError(null);
+    setNewBackendNameError(null);
+  };
+
+  const hasNewProfileDraft = Boolean(
+    newName || newLanguage !== "auto" || newTranslate || newSystemPrompt ||
+    !newPushToTalk || newPreviewOutputOnly || !newIncludeInCycle ||
+    newSttPromptOverrideEnabled || newLlmEnabledOverride !== null ||
+    newLlmPromptOverride || newLlmPromptExplicitEmpty || newLlmModelOverride !== null ||
+    newSonioxContextGeneralJson || newSonioxContextText || newSonioxContextTerms.length ||
+    newSonioxLanguageHintsStrictMode !== "global" || newAutomaticAppRules || draftAdditionalSettings || Object.keys(newFormValues).length,
+  );
+
+  const handleDuplicate = (profile: ExtendedTranscriptionProfile) => {
+    if (isCreating) return;
+    setNewName(availableProfileName(t("settings.transcriptionProfiles.copyName", { name: profile.name, defaultValue: "{{name}} — copy" }), profiles));
+    setNewFormValues({ ...cloneProfileSettings(profile), ...(profile.id === "default" ? { include_in_cycle: true } : {}) });
+    setDuplicateSourceName(profile.name);
+    setDraftRevision(revision => revision + 1);
+    setNewFormValidationReasons([]);
+    setNewProfileError(null);
+    setNewBackendNameError(null);
+    requestAnimationFrame(() => {
+      document.getElementById("settings-create-profile")?.scrollIntoView({ block: "start", behavior: "smooth" });
+      requestAnimationFrame(() => {
+        const input = document.getElementById("new-profile-name") as HTMLInputElement | null;
+        input?.focus({ preventScroll: true });
+        input?.select();
+      });
+    });
+  };
+
   const handleCreate = async () => {
-    if (!newName.trim()) return;
-    if (isNewPromptOverLimit) return;
+    if (isCreating || newNameError) return;
+    if (newFormInvalid) return;
+    const draft = newProfileDraftRef.current;
     setNewProfileError(null);
     setIsCreating(true);
     try {
@@ -2373,57 +729,15 @@ export const TranscriptionProfiles: React.FC = () => {
         "add_transcription_profile",
         {
           payload: {
-            name: newName.trim(),
-            language: newLanguage,
-            translateToEnglish: newTranslate,
-            automaticAppRules: [],
-            systemPrompt: newSystemPrompt,
-            sttPromptOverrideEnabled: newSttPromptOverrideEnabled,
-            sttModelSelectionOverride: null,
-            pushToTalk: newPushToTalk,
-            autoShortcutActivation: false,
-            previewOutputOnlyEnabled: newPreviewOutputOnly,
-            includeInCycle: newIncludeInCycle,
-            llmSettings:
-              newLlmEnabledOverride === null &&
-              newLlmPromptOverride === "" &&
-              newLlmModelOverride === null
-                ? null
-                : {
-                    enabled: newLlmEnabled,
-                    promptOverride:
-                      newLlmPromptOverride === ""
-                        ? null
-                        : newLlmPromptOverride,
-                    modelOverride: newLlmModelOverride,
-                  },
-            sonioxContextGeneralJson: newSonioxContextGeneralJson,
-            sonioxContextText: newSonioxContextText,
-            sonioxContextTerms: newSonioxContextTerms,
-            sonioxLanguageHintsStrict: strictModeToApi(
-              newSonioxLanguageHintsStrictMode,
-            ),
-            geminiLanguageCodeOverride: null,
-            geminiCustomVocabularyOverride: null,
+            name: newName.trim(), ...profileSettingsPayload(draft),
+            llmSettings: !["llm_post_process_enabled", "llm_prompt_override", "llm_model_override"].some(field => field in newFormValues) && newLlmEnabledOverride === null &&
+              draft.llm_prompt_override === null && draft.llm_model_override === null
+                ? null : profileSettingsPayload(draft).llmSettings,
           },
         },
       );
       await refreshSettings();
-      setNewName("");
-      setNewLanguage("auto");
-      setNewTranslate(false);
-      setNewSystemPrompt("");
-      setNewSttPromptOverrideEnabled(false);
-      setNewPushToTalk(true);
-      setNewPreviewOutputOnly(false);
-      setNewIncludeInCycle(true);
-      setNewLlmEnabledOverride(null);
-      setNewLlmPromptOverride("");
-      setNewLlmModelOverride(null);
-      setNewSonioxContextGeneralJson("");
-      setNewSonioxContextText("");
-      setNewSonioxContextTerms([]);
-      setNewSonioxLanguageHintsStrictMode("global");
+      clearNewProfile();
       setExpandedIds((prev) => {
         const next = new Set(prev);
         next.add(newProfile.id);
@@ -2431,8 +745,10 @@ export const TranscriptionProfiles: React.FC = () => {
       });
     } catch (error) {
       console.error("Failed to create profile:", error);
+      const nameError = profileNameErrorFromBackend(error);
+      setNewBackendNameError(nameError);
       setNewProfileError(
-        error instanceof Error
+        nameError ? null : error instanceof Error
           ? error.message
           : t(
               "settings.transcriptionProfiles.createFailed",
@@ -2465,42 +781,72 @@ export const TranscriptionProfiles: React.FC = () => {
           ),
         });
       }
-      await invoke("update_transcription_profile", {
-        payload: {
-          id: profile.id,
-          name: profile.name,
-          language: profile.language,
-          translateToEnglish: profile.translate_to_english,
-          automaticAppRules: profile.automatic_app_rules ?? [],
-          systemPrompt: profile.system_prompt || "",
-          sttPromptOverrideEnabled:
-            profile.stt_prompt_override_enabled ?? false,
-          sttModelSelectionOverride:
-            profile.stt_model_selection_override ?? null,
-          includeInCycle: profile.include_in_cycle,
-          pushToTalk: profile.push_to_talk,
-          autoShortcutActivation: profile.auto_shortcut_activation ?? false,
-          previewOutputOnlyEnabled:
-            profile.preview_output_only_enabled ?? false,
-          llmSettings: {
-            enabled: profile.llm_post_process_enabled ?? false,
-            promptOverride: profile.llm_prompt_override ?? null,
-            modelOverride: profile.llm_model_override ?? null,
-          },
-          sonioxContextGeneralJson: profile.soniox_context_general_json || "",
-          sonioxContextText: profile.soniox_context_text || "",
-          sonioxContextTerms: profile.soniox_context_terms || [],
-          sonioxLanguageHintsStrict: profile.soniox_language_hints_strict ?? null,
-          geminiLanguageCodeOverride: profile.gemini_language_code_override ?? null,
-          geminiCustomVocabularyOverride: profile.gemini_custom_vocabulary_override ?? null,
-        },
-      });
+      const { chineseScript: _chineseScript, outputSettings: _outputSettings, ...payload } = profileSettingsPayload(profile);
+      await invoke("update_transcription_profile", { payload: { id: profile.id, name: profile.name, ...payload } });
       await refreshSettings();
     } catch (error) {
       console.error("Failed to update profile:", error);
       throw error;
     }
   };
+
+  const queueProfileCommit = (id: string, commit: () => Promise<void>) => {
+    const previous = profileCommitQueues.current.get(id) ?? Promise.resolve();
+    const pending = previous.catch(() => {}).then(commit);
+    profileCommitQueues.current.set(id, pending);
+    return pending;
+  };
+  const handleSavedProfileCommit = (id: string, patch: Partial<ExtendedTranscriptionProfile>) => queueProfileCommit(id, async () => {
+    const latest = useSettingsStore.getState().settings?.transcription_profiles?.find(profile => profile.id === id) as ExtendedTranscriptionProfile | undefined;
+    if (!latest) throw new Error("Profile no longer exists.");
+    try {
+      if (patch.output_settings) await invoke("change_transcription_output_settings", {
+        profileId: id, output: { ...latest.output_settings, ...patch.output_settings },
+      });
+      if ("chinese_script" in patch) await invoke("change_chinese_script_setting", { profileId: id, script: patch.chinese_script ?? null });
+      const { output_settings: _output, chinese_script: _script, ...settingsPatch } = patch;
+      if (Object.keys(settingsPatch).length) {
+        const current = useSettingsStore.getState().settings?.transcription_profiles?.find(profile => profile.id === id) as ExtendedTranscriptionProfile;
+        await handleUpdate({ ...current, ...settingsPatch });
+      } else await refreshSettings();
+    } catch (error) {
+      const nameError = profileNameErrorFromBackend(error);
+      if (!nameError || !("name" in patch)) toast.error(profileNameErrorMessage(nameError, t) ?? String(error));
+      throw error;
+    }
+  });
+  const handleGlobalProfileCommit = (patch: Partial<ExtendedTranscriptionProfile>) => queueProfileCommit("default", async () => {
+    try {
+      if (patch.output_settings) await invoke("change_transcription_output_settings", {
+        profileId: "default", output: { ...getGlobalProfileOutputDefaults(useSettingsStore.getState().settings), ...patch.output_settings },
+      });
+      if ("chinese_script" in patch) await updateSetting("chinese_script", patch.chinese_script ?? "as_transcribed", { throwOnError: true });
+      if ("system_prompt" in patch) {
+        if (!activeModelId) return;
+        const result = await commands.changeTranscriptionPromptSetting(activeModelId, patch.system_prompt ?? "");
+        if (result.status === "error") throw new Error(String(result.error));
+      }
+      if ("llm_post_process_enabled" in patch) await invoke("change_default_profile_post_process_enabled_setting", { enabled: patch.llm_post_process_enabled });
+      const globalFields = {
+        language: "selected_language", translate_to_english: "translate_to_english", push_to_talk: "push_to_talk",
+        auto_shortcut_activation: "auto_shortcut_activation", preview_output_only_enabled: "preview_output_only_enabled",
+        soniox_language_hints_strict: "soniox_language_hints_strict", soniox_context_general_json: "soniox_context_general_json",
+        soniox_context_text: "soniox_context_text", soniox_context_terms: "soniox_context_terms",
+        gemini_language_code_override: "gemini_language_code", gemini_custom_vocabulary_override: "gemini_custom_vocabulary",
+      } as const;
+      for (const [field, setting] of Object.entries(globalFields)) {
+        if (field in patch) await updateSetting(setting as keyof NonNullable<typeof settings>, patch[field as keyof ExtendedTranscriptionProfile] as never, { throwOnError: true });
+      }
+      if ("preview_output_only_enabled" in patch && activeProfileId === "default") {
+        await invoke("change_soniox_live_preview_enabled_setting", { enabled: patch.preview_output_only_enabled });
+      }
+      await refreshSettings();
+    } catch (error) {
+      await refreshSettings();
+      toast.error(String(error));
+      throw error;
+    }
+  });
 
   const handleDelete = async (id: string) => {
     try {
@@ -2617,30 +963,6 @@ export const TranscriptionProfiles: React.FC = () => {
       } catch (error) {
         toast.error(String(error));
       }
-    }
-  };
-
-  const handleDefaultLlmEnabledChange = async (enabled: boolean) => {
-    setIsUpdatingDefaultLlm(true);
-    try {
-      await invoke("change_default_profile_post_process_enabled_setting", {
-        enabled,
-      });
-      await refreshSettings();
-    } catch (error) {
-      console.error(
-        "Failed to update Default profile LLM post-processing:",
-        error,
-      );
-      await refreshSettings();
-      toast.error(
-        t(
-          "settings.postProcessing.defaultProfileUpdateFailed",
-          "Failed to update Default profile LLM post-processing.",
-        ),
-      );
-    } finally {
-      setIsUpdatingDefaultLlm(false);
     }
   };
 
@@ -2770,641 +1092,24 @@ export const TranscriptionProfiles: React.FC = () => {
         grouped={true}
       >
         <div className="space-y-3">
-          {/* Default Profile Card - Expandable with global settings */}
-          <div
-            id={getTranscriptionProfileAnchorId("default")}
-            tabIndex={-1}
-            className={`min-w-0 border rounded-lg transition-colors ${activeProfileId === "default" ? "border-purple-500/50 bg-purple-500/5" : "border-mid-gray/30 bg-background/50"}`}
-          >
-            {/* Header - clickable to expand */}
-            <div
-              className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer hover:bg-mid-gray/5 transition-colors"
-              data-settings-search-reveal-for={getTranscriptionProfileAnchorId("default")}
-              aria-expanded={isExpanded("default")}
-              onClick={() => toggleExpanded("default")}
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <RefreshCw
-                  className={`w-4 h-4 ${activeProfileId === "default" ? "text-purple-400" : "text-mid-gray"}`}
-                />
-                <div className="flex flex-col min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 min-w-0">
-                    <span className="font-medium text-sm break-words">
-                      {t("settings.transcriptionProfiles.defaultProfile")}
-                    </span>
-                    {activeProfileId === "default" && (
-                      <Badge
-                        variant="secondary"
-                        className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-[10px] px-1.5 py-0"
-                      >
-                        {t("settings.transcriptionProfiles.active")}
-                      </Badge>
-                    )}
-                  </div>
-                  <span className="text-xs text-mid-gray break-words">
-                    {isGeminiProvider ? (
-                      globalGeminiLanguageCode === "auto" ? (
-                        t("settings.gemini.language.auto", "Auto Detect")
-                      ) : globalGeminiLanguageCode === "os_input" ? (
-                        t("settings.gemini.language.osInput", "Follow OS Input Language")
-                      ) : (
-                        globalGeminiLanguageCode
-                      )
-                    ) : (() => {
-                      const selectedLang =
-                        settings?.selected_language || "auto";
-                      const lang = LANGUAGES.find(
-                        (l) => l.value === selectedLang,
-                      );
-                      return lang?.label || t("settings.general.language.auto");
-                    })()}
-                    {supportsTranslation && settings?.translate_to_english && (
-                      <span className="text-purple-400 ml-1">
-                        {t("settings.transcriptionProfiles.toEnglish", "→ EN")}
-                      </span>
-                    )}
-                    {!isGeminiProvider && settings?.selected_language === "os_input" && (
-                      <span
-                        className="text-amber-400/60 ml-2 text-[10px]"
-                        title={t(
-                          "settings.general.language.followOsInputTooltip",
-                        )}
-                      >
-                        ({t("settings.general.language.followOsInputHint")})
-                      </span>
-                    )}
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleSetActive("default");
-                  }}
-                  disabled={activeProfileId === "default"}
-                  variant={
-                    activeProfileId === "default" ? "secondary" : "primary"
-                  }
-                  size="sm"
-                  className={
-                    activeProfileId === "default"
-                      ? "opacity-100 cursor-default"
-                      : ""
-                  }
-                  title={
-                    activeProfileId === "default"
-                      ? t("settings.transcriptionProfiles.active")
-                      : undefined
-                  }
-                >
-                  {activeProfileId === "default" ? (
-                    <Check className="w-4 h-4" />
-                  ) : (
-                    <span className="text-xs">
-                      {t("settings.transcriptionProfiles.setActive")}
-                    </span>
-                  )}
-                </Button>
-                {isExpanded("default") ? (
-                  <ChevronUp className="w-4 h-4 text-mid-gray" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-mid-gray" />
-                )}
-              </div>
-            </div>
-
-            {/* Expanded content - Global settings */}
-            <Collapse open={isExpanded("default")}>
-              <div className="px-4 pb-4 pt-3 border-t border-mid-gray/20 space-y-3">
-                {/* Push-to-Talk + Output to Preview — matches ProfileCard box style */}
-                <div className="grid gap-3 lg:grid-cols-2 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
-                  <div id="settings-dictation-press-mode" tabIndex={-1} className="min-w-0">
-                    <div className="flex items-center gap-2 mb-2">
-                      <label className="text-xs font-semibold text-text/70">
-                        {t("settings.general.pushToTalk.label")}
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setShowDefaultShortcutMoreOptions((shown) => !shown)
-                        }
-                        className="text-[11px] text-[#8b8490] underline underline-offset-2 hover:text-[#aaa3ae] transition-colors"
-                      >
-                        {t(
-                          "settings.general.pushToTalk.moreOptions",
-                          "More options",
-                        )}
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <ToggleSwitch
-                        checked={settings?.push_to_talk ?? true}
-                        onChange={(checked) =>
-                          updateSetting &&
-                          updateSetting("push_to_talk" as any, checked)
-                        }
-                        disabled={
-                          ((settings as any)
-                            ?.auto_shortcut_activation as boolean) ?? false
-                        }
-                      />
-                      <span className="text-xs text-mid-gray leading-snug">
-                        {t("settings.general.pushToTalk.description")}
-                      </span>
-                    </div>
-                    <Collapse open={showDefaultShortcutMoreOptions}>
-                      <div className="mt-3 pt-3 border-t border-mid-gray/15">
-                        <div className="flex items-start gap-2">
-                          <ToggleSwitch
-                            checked={
-                              ((settings as any)
-                                ?.auto_shortcut_activation as boolean) ?? false
-                            }
-                            onChange={(checked) =>
-                              updateSetting &&
-                              updateSetting(
-                                "auto_shortcut_activation" as any,
-                                checked,
-                              )
-                            }
-                          />
-                          <div className="min-w-0">
-                            <div className="text-xs font-medium text-text/80">
-                              {t(
-                                "settings.general.pushToTalk.autoLabel",
-                                "Automatic tap / hold",
-                              )}
-                            </div>
-                            <div className="mt-1 text-[11px] text-mid-gray leading-snug">
-                              {t(
-                                "settings.general.pushToTalk.autoDescription",
-                                "Recording starts immediately. Release within 300 ms to keep recording until the next press, or keep holding and release to stop.",
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </Collapse>
-                  </div>
-
-                  <div className="min-w-0">
-                    <label className="text-xs font-semibold text-text/70 block mb-2">
-                      {t(
-                        "settings.transcriptionProfiles.previewOutputOnly.title",
-                        "Output to Preview",
-                      )}{" "}
-                      <button
-                        type="button"
-                        onClick={openLivePreviewSettings}
-                        className="text-[#8b8490] underline underline-offset-2 font-normal hover:text-[#aaa3ae] transition-colors"
-                      >
-                        (open settings)
-                      </button>
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <ToggleSwitch
-                        checked={
-                          ((settings as any)
-                            ?.preview_output_only_enabled as boolean) ?? false
-                        }
-                        onChange={async (checked) => {
-                          if (updateSetting) {
-                            await updateSetting(
-                              "preview_output_only_enabled" as any,
-                              checked as any,
-                            );
-                          }
-                          if (activeProfileId === "default") {
-                            await invoke("change_soniox_live_preview_enabled_setting", { enabled: checked });
-                            await refreshSettings();
-                          }
-                        }}
-                      />
-                      <span className="text-xs text-mid-gray leading-snug">
-                        {t(
-                          "settings.transcriptionProfiles.previewOutputOnly.description",
-                          "Keep this profile's output in the preview buffer before insertion.",
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Shortcut */}
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-text/70">
-                    {t("settings.transcriptionProfiles.shortcut")}
-                  </label>
-                  <HandyShortcut
-                    shortcutId="transcribe_default"
-                    grouped={true}
-                  />
-                </div>
-
-                {/* Language + Translate to English — same row */}
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                  {!isGeminiProvider && (
-                    <div className="space-y-2 min-w-0">
-                    <label className="text-xs font-semibold text-text/70">
-                      {t("settings.general.language.title")}
-                    </label>
-                    <NameSortedDropdown
-                      sortKey="profile-languages"
-                      fixedDirection="asc"
-                      pinnedValues={["auto", "os_input"]}
-                      selectedValue={settings?.selected_language || "auto"}
-                      onSelect={(value: string) =>
-                        updateSetting &&
-                        updateSetting("selected_language" as any, value)
-                      }
-                      options={defaultProfileLanguageOptions.map((lang) => ({
-                        value: lang.value,
-                        label: lang.label,
-                        className: lang.className,
-                      }))}
-                    />
-                    {isSonioxProvider && (
-                      <div className="flex items-center gap-1.5 mt-1.5">
-                        <Tooltip content={t("settings.advanced.soniox.languageHintsStrict.titleTooltip", "This option only appears if a Soniox model is used")}>
-                          <span className="text-[10px] text-text/60">
-                            {t(
-                              "settings.advanced.soniox.languageHintsStrict.title",
-                              "Strict",
-                            )}
-                            :
-                          </span>
-                        </Tooltip>
-                        <div onClick={(e) => e.stopPropagation()}>
-                          <ToggleSwitch
-                            checked={
-                              (settings as any)
-                                ?.soniox_language_hints_strict ?? false
-                            }
-                            onChange={async (val) => {
-                              updateSetting &&
-                                updateSetting(
-                                  "soniox_language_hints_strict" as any,
-                                  val,
-                                );
-                            }}
-                          />
-                        </div>
-                        <InfoTooltip
-                          content={t(
-                            "settings.advanced.soniox.languageHintsStrict.description",
-                          )}
-                        />
-                      </div>
-                    )}
-                    {showDefaultLanguageFallbackWarning && (
-                      <p className="text-xs text-amber-400/90">
-                        {isSonioxProvider
-                          ? t(
-                              "settings.transcriptionProfiles.sonioxLanguageFallbackWarning",
-                              "This language is not supported by Soniox. Soniox requests will fallback to auto-detect.",
-                            )
-                          : t(
-                              "settings.transcriptionProfiles.localModelLanguageFallbackWarning",
-                              "This language is not supported by the selected local model. Requests will fallback to auto-detect.",
-                            )}
-                      </p>
-                    )}
-                    </div>
-                  )}
-
-                  {supportsTranslation && (
-                    <div id="settings-translate-to-english" tabIndex={-1} className="space-y-2 min-w-0">
-                      <label className="text-xs font-semibold text-text/70">
-                        {t("settings.transcriptionProfiles.translateToEnglish")}
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateSetting &&
-                            updateSetting(
-                              "translate_to_english" as any,
-                              !(settings?.translate_to_english ?? false),
-                            )
-                          }
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
-                            settings?.translate_to_english
-                              ? "bg-purple-500"
-                              : "bg-mid-gray/30"
-                          } cursor-pointer`}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              settings?.translate_to_english
-                                ? "translate-x-6"
-                                : "translate-x-1"
-                            }`}
-                          />
-                        </button>
-                        <span className="text-xs text-mid-gray leading-snug">
-                          {t(
-                            "settings.transcriptionProfiles.translateToEnglishDescription",
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {isGeminiProvider && (
-                  <>
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold text-text/70">
-                        {t("settings.gemini.language.title", "Gemini language")}
-                      </label>
-                      <NameSortedDropdown
-                        sortKey="profile-gemini-languages"
-                        fixedDirection="asc"
-                        pinnedValues={["auto", "os_input"]}
-                        selectedValue={globalGeminiLanguageCode}
-                        options={[
-                          { value: "auto", label: t("settings.gemini.language.auto", "Auto Detect") },
-                          { value: "os_input", label: t("settings.gemini.language.osInput", "Follow OS Input Language") },
-                          ...GEMINI_LOCALES.map(([label, value]) => ({ value, label: `${label} (${value})` })),
-                        ]}
-                        onSelect={value => value && updateSetting("gemini_language_code" as any, value as any)}
-                      />
-                      <p className="text-xs text-mid-gray">
-                        {t(
-                          "settings.gemini.language.mappingHelp",
-                          "If the OS input language does not map unambiguously to an exact supported locale, AivoRelay uses automatic detection and does not send an unsupported hint.",
-                        )}
-                      </p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold text-text/70">
-                        {t("settings.gemini.vocabulary.title", "Gemini Custom Vocabulary")}
-                      </label>
-                      <Textarea
-                        value={globalGeminiVocabularyDraft}
-                        className="w-full"
-                        onChange={event => {
-                          const nextDraft = event.target.value;
-                          globalGeminiVocabularyDirtyRef.current =
-                            nextDraft !== persistedGlobalGeminiVocabularyDraft;
-                          setGlobalGeminiVocabularyDraft(nextDraft);
-                        }}
-                        onBlur={() => void commitGlobalGeminiVocabularyDraft(globalGeminiVocabularyDraft)}
-                        rows={8}
-                        placeholder={'Gemini\nKubernetes\nBigQuery'}
-                      />
-                      <div className="flex items-start justify-between gap-3">
-                        <p className={`text-xs ${globalGeminiVocabularyResult.errors.length ? "text-red-400" : "text-mid-gray"}`}>
-                          {t("settings.gemini.vocabulary.status", "Detected {{format}} · {{count}}/1000 terms", {
-                            format: globalGeminiVocabularyResult.format,
-                            count: globalGeminiVocabularyResult.normalizedTerms.length,
-                          })}
-                        </p>
-                        <TextFileActions
-                          value={globalGeminiVocabularyDraft}
-                          defaultFileName="gemini-vocabulary.txt"
-                          extensions={GEMINI_VOCABULARY_FILE_EXTENSIONS}
-                          validate={validateGeminiVocabularyFile}
-                          onOpen={async text => {
-                            globalGeminiVocabularyDirtyRef.current = true;
-                            setGlobalGeminiVocabularyDraft(text);
-                            await commitGlobalGeminiVocabularyDraft(text);
-                          }}
-                        />
-                      </div>
-                      <p className="text-xs text-mid-gray">
-                        {t(
-                          "settings.gemini.vocabulary.formatHelp",
-                          "Paste one term per line, CSV, quoted CSV, or a JSON string array. Example: Gemini, Kubernetes, BigQuery",
-                        )}
-                      </p>
-                      {globalGeminiVocabularyResult.errors.map(issue => (
-                        <p key={`${issue.code}-${issue.position ?? 0}`} className="text-xs text-red-400">{issue.message}</p>
-                      ))}
-                      {globalGeminiVocabularyResult.warnings.map(issue => (
-                        <p key={`${issue.code}-${issue.position ?? 0}`} className="text-xs text-amber-400">{issue.message}</p>
-                      ))}
-                    </div>
-                  </>
-                )}
-
-                {isSonioxProvider && (
-                  <SonioxContextEditor
-                    stateKey="profile-default-soniox"
-                    generalJson={settings?.soniox_context_general_json || ""}
-                    text={settings?.soniox_context_text || ""}
-                    terms={settings?.soniox_context_terms || []}
-                    onCommitGeneralJson={async (value) => {
-                      const result =
-                        await commands.changeSonioxContextGeneralJsonSetting(
-                          value,
-                        );
-                      if (result.status === "error") {
-                        throw new Error(String(result.error));
-                      }
-                      await refreshSettings();
-                    }}
-                    onCommitText={async (value) => {
-                      const result =
-                        await commands.changeSonioxContextTextSetting(value);
-                      if (result.status === "error") {
-                        throw new Error(String(result.error));
-                      }
-                      await refreshSettings();
-                    }}
-                    onCommitTerms={async (value) => {
-                      const result =
-                        await commands.changeSonioxContextTermsSetting(value);
-                      if (result.status === "error") {
-                        throw new Error(String(result.error));
-                      }
-                      await refreshSettings();
-                    }}
-                  />
-                )}
-
-                {/* Voice Model Prompt — collapsible, matches ProfileCard details style */}
-                {!isSonioxProvider && modelInfo.supportsPrompt && (
-                  <WindowDetails stateKey="profile-default-stt-prompt" id="settings-speech-model-prompt" tabIndex={-1} className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
-                    <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
-                        <span className="text-xs font-semibold text-text/70">
-                          {t(
-                            "settings.transcriptionProfiles.systemPromptGlobal",
-                          )}
-                        </span>
-                        <InfoTooltip
-                          content={t(
-                            "settings.transcriptionProfiles.voiceModelPromptGlobalTooltip",
-                          )}
-                        />
-                      </div>
-                    </summary>
-                    <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
-                      <DefaultModelPromptEditor
-                        key={activeModelId || "no-active-model"}
-                        modelId={activeModelId}
-                        persistedValue={activePromptValue}
-                        promptLimit={promptLimit}
-                        disabled={!hasActivePromptModel}
-                        onSaved={refreshSettings}
-                      />
-                      {!hasActivePromptModel && (
-                        <p className="text-xs text-amber-400/90">
-                          {t(
-                            "settings.transcriptionProfiles.selectModelToEditGlobalPrompt",
-                            "Select an active transcription model to edit this prompt.",
-                          )}
-                        </p>
-                      )}
-                    </div>
-                  </WindowDetails>
-                )}
-
-                <ProfileMoreSettings profileId="default">
-                  <ProfileOutputSettings profileId="default" />
-
-                {/* Global LLM Post-Processing — configuration lives on its dedicated page. */}
-                <WindowDetails stateKey="profile-default-llm" className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
-                  <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
-                      <span className="text-xs font-semibold text-text/70">
-                        {t(
-                          "settings.transcriptionProfiles.llmPostProcessing.title",
-                        )}
-                      </span>
-                      <InfoTooltip
-                        content={t(
-                          "settings.postProcessing.defaultProfileDescription",
-                          "Enable AI-powered text refinement for the Default (Global) transcription profile.",
-                        )}
-                      />
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {effectiveDefaultLlmEnabled && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 whitespace-nowrap">
-                          {t(
-                            "settings.transcriptionProfiles.badges.llmActive",
-                            "LLM active",
-                          )}
-                        </span>
-                      )}
-                      <div onClick={(event) => event.stopPropagation()}>
-                        <ToggleSwitch
-                          checked={effectiveDefaultLlmEnabled}
-                          onChange={handleDefaultLlmEnabledChange}
-                          disabled={
-                            isUpdatingDefaultLlm ||
-                            !defaultPostProcessingAvailability.available
-                          }
-                          isUpdating={isUpdatingDefaultLlm}
-                          ariaLabel={t(
-                            "settings.postProcessing.defaultProfileToggleLabel",
-                            "Default profile LLM post-processing",
-                          )}
-                        />
-                      </div>
-                    </div>
-                  </summary>
-                  <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
-                    <p className="text-xs text-mid-gray pt-2">
-                      {t(
-                        "settings.postProcessing.defaultProfileDescription",
-                        "Enable AI-powered text refinement for the Default (Global) transcription profile.",
-                      )}
-                    </p>
-
-                    {!defaultPostProcessingAvailability.available && (
-                      <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
-                        {t(
-                          "settings.postProcessing.unavailableDirectRealtime",
-                          "LLM post-processing is unavailable while realtime text is inserted directly into the target application. Use Preview or a non-live output route. Your saved choice is preserved for compatible routes.",
-                        )}
-                      </div>
-                    )}
-
-                    <p className="text-xs text-mid-gray">
-                      {t(
-                        "settings.postProcessing.defaultProfileNote",
-                        "Custom profiles keep their own post-processing choice. Provider, model, API key, and prompt configuration are shared.",
-                      )}
-                    </p>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={openPostProcessingSettings}
-                    >
-                      {t(
-                        "settings.postProcessing.openConfiguration",
-                        "Open LLM Post Processing settings",
-                      )}
-                    </Button>
-                  </div>
-                </WindowDetails>
-                  <ChineseScriptSetting descriptionMode="tooltip" />
-                </ProfileMoreSettings>
-              </div>
-            </Collapse>
-          </div>
+          {/* Default Profile Card - shared card with global settings */}
+          <ProfileCard {...sharedFormProps} profile={globalProfile} scope="global"
+            allProfileNames={profiles}
+            formKey={`default-${activeModelId}`}
+            isExpanded={isExpanded("default")} onToggleExpand={() => toggleExpanded("default")}
+            onCommit={handleGlobalProfileCommit}
+            onDuplicate={handleDuplicate} isCreatingProfile={isCreating}
+            isActive={activeProfileId === "default"} onSetActive={handleSetActive} />
 
           {/* Custom Profiles */}
-          {visibleProfiles.map((profile) => {
-            const effectiveSelection =
-              profile.stt_model_selection_override ?? globalSttModelSelection;
-            const presentation = profileSttPresentation(
-              effectiveSelection,
-              localSttModels,
-            );
-            return (
-              <ProfileCard
-                key={profile.id}
-                profile={profile}
-                languageOptions={presentation.languageOptions}
-                isExpanded={isExpanded(profile.id)}
-                onToggleExpand={() => toggleExpanded(profile.id)}
-                onUpdate={handleUpdate}
-                onDelete={handleDelete}
-                canDelete={true}
-                supportsSttPrompt={presentation.supportsSttPrompt}
-                promptLimit={presentation.promptLimit}
-                isActive={activeProfileId === profile.id}
-                onSetActive={handleSetActive}
-                llmModelOptions={llmModelOptions}
-                llmModelSortKey={llmModelSortKey}
-                globalLlmModel={globalLlmModel}
-                onRefreshModels={handleRefreshModels}
-                isFetchingModels={isFetchingModels}
-                defaultLlmPrompt={globalPromptText}
-                llmPromptSourceOptions={llmPromptSourceOptions}
-                isSonioxProvider={presentation.isSonioxProvider}
-                postProcessingAvailable={
-                  getPostProcessingAvailability(settings, {
-                    profilePreviewOutputOnlyEnabled:
-                      profile.preview_output_only_enabled ?? false,
-                    sttSelection: effectiveSelection,
-                    profileOutputSettings: profile.output_settings ?? null,
-                  }).available
-                }
-                globalSonioxLanguageHintsStrict={Boolean((settings as any)?.soniox_language_hints_strict)}
-                isGeminiProvider={presentation.isGeminiProvider}
-                globalGeminiLanguageCode={globalGeminiLanguageCode}
-                globalGeminiVocabulary={globalGeminiVocabulary}
-                localSttModels={localSttModels}
-                globalSttModelSelection={globalSttModelSelection}
-                automaticAppProfilesEnabled={automaticAppProfilesEnabled}
-                showSonioxLanguageFallbackWarning={
-                  !presentation.languageOptions.some(
-                    (language) => language.value === profile.language,
-                  )
-                }
-              />
-            );
-          })}
+          {visibleProfiles.map(profile => (
+            <ProfileCard key={profile.id} {...sharedFormProps} profile={profile} scope="saved"
+              allProfileNames={profiles}
+              isExpanded={isExpanded(profile.id)} onToggleExpand={() => toggleExpanded(profile.id)}
+              onCommit={patch => handleSavedProfileCommit(profile.id, patch)}
+              onDelete={handleDelete} onDuplicate={handleDuplicate} isCreatingProfile={isCreating}
+              isActive={activeProfileId === profile.id} onSetActive={handleSetActive} />
+          ))}
         </div>
       </SettingContainer>
       </SettingsGroup>
@@ -3570,587 +1275,46 @@ export const TranscriptionProfiles: React.FC = () => {
         grouped={true}
       >
         <div className="space-y-3 p-3 border border-dashed border-mid-gray/30 rounded-lg overflow-visible">
+          {hasNewProfileDraft && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-purple-300 rounded border border-purple-500/30 bg-purple-500/10 px-2 py-1">
+                {t("settings.transcriptionProfiles.draft", "Draft")}
+              </span>
+              <button type="button" onClick={clearNewProfile} disabled={isCreating} className="text-xs text-text/70 underline hover:text-text disabled:opacity-50">
+                {t("settings.transcriptionProfiles.clearDraft", "Clear")}
+              </button>
+            </div>
+          )}
           {/* Profile Name */}
           <div className="flex flex-wrap items-center gap-3 min-w-0">
-            <label className="text-sm font-semibold text-text/70">
-              {t("settings.transcriptionProfiles.profileName")}
+            <label htmlFor="new-profile-name" className="text-sm font-semibold text-text/70">
+              {t("settings.transcriptionProfiles.profileName")} *
             </label>
             <Input
+              id="new-profile-name"
               type="text"
               value={newName}
               className="min-w-0 flex-1 basis-64"
-              onChange={(e) => setNewName(e.target.value)}
+              onChange={(e) => { setNewName(e.target.value); setNewBackendNameError(null); setNewProfileError(null); }}
               placeholder={t(
                 "settings.transcriptionProfiles.profileNamePlaceholder",
               )}
               variant="compact"
               disabled={isCreating}
+              required
+              aria-invalid={Boolean(newNameError) && hasNewProfileDraft}
+              aria-describedby={newNameError ? "new-profile-name-hint" : undefined}
             />
           </div>
+          {newNameError && <p id="new-profile-name-hint" className={`text-xs ${newName.trim() ? "text-red-400" : "text-mid-gray"}`} role="status">
+            {newNameError}
+          </p>}
 
-          {/* Cycle & Push-to-Talk & Preview Controls — matches ProfileCard layout */}
-          <div className="grid gap-3 lg:grid-cols-3 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
-            <div className="min-w-0">
-              <label className="text-xs font-semibold text-text/70 block mb-2">
-                {t("settings.transcriptionProfiles.includeInCycle")}
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={newIncludeInCycle}
-                  onChange={(e) => setNewIncludeInCycle(e.target.checked)}
-                  disabled={isCreating}
-                  className="w-4 h-4 rounded border-mid-gray bg-background text-purple-500 focus:ring-purple-500/50"
-                />
-                <span className="text-xs text-mid-gray leading-snug">
-                  {t(
-                    "settings.transcriptionProfiles.includeInCycleDescription",
-                  )}
-                </span>
-              </div>
-            </div>
-
-            <div className="min-w-0">
-              <label className="text-xs font-semibold text-text/70 block mb-2">
-                {t("settings.general.pushToTalk.label")}
-              </label>
-              <div className="flex items-center gap-2">
-                <ToggleSwitch
-                  checked={newPushToTalk}
-                  onChange={setNewPushToTalk}
-                  disabled={isCreating}
-                />
-                <span className="text-xs text-mid-gray leading-snug">
-                  {t("settings.general.pushToTalk.description")}
-                </span>
-              </div>
-            </div>
-
-            <div className="min-w-0">
-              <label className="text-xs font-semibold text-text/70 block mb-2">
-                {t(
-                  "settings.transcriptionProfiles.previewOutputOnly.title",
-                  "Output to Preview",
-                )}{" "}
-                <button
-                  type="button"
-                  onClick={openLivePreviewSettings}
-                  className="text-[#8b8490] underline underline-offset-2 font-normal hover:text-[#aaa3ae] transition-colors"
-                >
-                  (open settings)
-                </button>
-              </label>
-              <div className="flex items-center gap-2">
-                <ToggleSwitch
-                  checked={newPreviewOutputOnly}
-                  onChange={setNewPreviewOutputOnly}
-                  disabled={isCreating}
-                />
-                <span className="text-xs text-mid-gray leading-snug">
-                  {t(
-                    "settings.transcriptionProfiles.previewOutputOnly.description",
-                    "Keep this profile's output in the preview buffer before insertion.",
-                  )}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-3 lg:grid-cols-2">
-            {/* Language Selection */}
-            {!isGeminiProvider && (
-              <div className="space-y-2 relative z-10 min-w-0">
-              <label className="text-xs font-semibold text-text/70">
-                {t("settings.transcriptionProfiles.language")}
-              </label>
-              <NameSortedDropdown
-                sortKey="profile-languages"
-                fixedDirection="asc"
-                pinnedValues={["auto", "os_input"]}
-                selectedValue={newLanguage}
-                options={filteredLanguages.map((l) => ({
-                  value: l.value,
-                  label: l.label,
-                  className: l.className,
-                }))}
-                onSelect={(value) => value && setNewLanguage(value)}
-                placeholder={t("settings.general.language.auto")}
-                disabled={isCreating}
-              />
-              {isSonioxProvider && (
-                <div className="flex items-center gap-1.5 mt-1.5">
-                  <Tooltip content={t("settings.advanced.soniox.languageHintsStrict.titleTooltip", "This option only appears if a Soniox model is used")}>
-                    <span className="text-[10px] text-text/60">
-                      {t(
-                        "settings.advanced.soniox.languageHintsStrict.title",
-                        "Strict",
-                      )}
-                      :
-                    </span>
-                  </Tooltip>
-                  <TriStateToggle
-                    value={newSonioxLanguageHintsStrictMode}
-                    globalValue={Boolean((settings as any)?.soniox_language_hints_strict)}
-                    onChange={setNewSonioxLanguageHintsStrictMode}
-                    disabled={isCreating}
-                  />
-                  <InfoTooltip
-                    content={t(
-                      "settings.advanced.soniox.languageHintsStrict.description",
-                    )}
-                  />
-                </div>
-              )}
-              </div>
-            )}
-
-            {/* Translate to English Toggle — matches ProfileCard layout */}
-            {supportsTranslation && (
-              <div className="space-y-2 min-w-0">
-                <label className="text-xs font-semibold text-text/70">
-                  {t("settings.transcriptionProfiles.translateToEnglish")}
-                </label>
-                <div className="flex flex-col gap-2 rounded-md border border-mid-gray/10 bg-mid-gray/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs text-mid-gray leading-snug">
-                    {t(
-                      "settings.transcriptionProfiles.translateToEnglishDescription",
-                    )}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setNewTranslate(!newTranslate)}
-                    disabled={isCreating}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
-                      newTranslate ? "bg-purple-500" : "bg-mid-gray/30"
-                    } ${isCreating ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        newTranslate ? "translate-x-6" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {isSonioxProvider && (
-            <SonioxContextEditor
-              stateKey="profile-new-soniox"
-              generalJson={newSonioxContextGeneralJson}
-              text={newSonioxContextText}
-              terms={newSonioxContextTerms}
-              disabled={isCreating}
-              onCommitGeneralJson={async (value) => {
-                setNewSonioxContextGeneralJson(value);
-              }}
-              onCommitText={async (value) => {
-                setNewSonioxContextText(value);
-              }}
-              onCommitTerms={async (value) => {
-                setNewSonioxContextTerms(value);
-              }}
-              onDraftGeneralJsonChange={setNewSonioxContextGeneralJson}
-              onDraftTextChange={setNewSonioxContextText}
-              onDraftTermsChange={setNewSonioxContextTerms}
-            />
-          )}
-
-          {/* Voice Model Prompt Override — collapsible */}
-          {!isSonioxProvider && modelInfo.supportsPrompt && (
-            <WindowDetails stateKey="profile-new-stt-prompt" className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
-              <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
-                <div className="flex items-center gap-2 min-w-0">
-                  <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
-                  <span className="text-xs font-semibold text-text/70">
-                    {t("settings.transcriptionProfiles.overrideSystemPrompt")}
-                  </span>
-                  <InfoTooltip
-                    content={t(
-                      "settings.transcriptionProfiles.voiceModelPromptTooltip",
-                    )}
-                  />
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {newSttPromptOverrideEnabled && (
-                    <span
-                      className={`text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ${
-                        newSystemPrompt.trim()
-                          ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
-                          : "bg-amber-500/15 text-amber-400 border-amber-500/25"
-                      }`}
-                    >
-                      {newSystemPrompt.trim()
-                        ? t(
-                            "settings.transcriptionProfiles.badges.sttPromptOverridden",
-                            "System prompt overridden",
-                          )
-                        : t(
-                            "settings.transcriptionProfiles.badges.sttPromptEmpty",
-                            "System prompt is empty",
-                          )}
-                    </span>
-                  )}
-                  {/* stopPropagation prevents details toggle when clicking the switch */}
-                  <div onClick={(e) => e.stopPropagation()}>
-                    <ToggleSwitch
-                      checked={newSttPromptOverrideEnabled}
-                      onChange={setNewSttPromptOverrideEnabled}
-                      disabled={isCreating}
-                    />
-                  </div>
-                </div>
-              </summary>
-              <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
-                <p className="text-xs text-mid-gray pt-2">
-                  {newSttPromptOverrideEnabled
-                    ? t(
-                        "settings.transcriptionProfiles.overrideSystemPromptOnDescription",
-                      )
-                    : t(
-                        "settings.transcriptionProfiles.overrideSystemPromptOffDescription",
-                      )}
-                </p>
-                {newSttPromptOverrideEnabled && (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs font-semibold text-text/70">
-                          {t("settings.transcriptionProfiles.systemPrompt")}
-                        </label>
-                        <InfoTooltip
-                          content={t(
-                            "settings.transcriptionProfiles.voiceModelPromptTooltip",
-                          )}
-                        />
-                      </div>
-                      <span
-                        className={`text-xs ${isNewPromptOverLimit ? "text-red-400" : "text-mid-gray"}`}
-                      >
-                        {newPromptLength}
-                        {promptLimit > 0 && ` / ${promptLimit}`}
-                      </span>
-                    </div>
-                    <textarea
-                      value={newSystemPrompt}
-                      onChange={(e) => setNewSystemPrompt(e.target.value)}
-                      placeholder={t(
-                        "settings.transcriptionProfiles.systemPromptPlaceholder",
-                      )}
-                      disabled={isCreating}
-                      rows={2}
-                      className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors ${
-                        isNewPromptOverLimit
-                          ? "border-red-400 focus:border-red-400"
-                          : "border-[#3c3c3c] focus:border-[#4a4a4a]"
-                      } ${isCreating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
-                    />
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="text-xs text-mid-gray">
-                        {t(
-                          "settings.transcriptionProfiles.systemPromptDescription",
-                        )}
-                      </p>
-                      <TextFileActions
-                        value={newSystemPrompt}
-                        defaultFileName="voice-model-prompt.txt"
-                        maxLength={promptLimit}
-                        disabled={isCreating}
-                        onOpen={setNewSystemPrompt}
-                      />
-                    </div>
-                    {isNewPromptOverLimit && (
-                      <p className="text-xs text-red-400">
-                        {t(
-                          "settings.transcriptionProfiles.systemPromptTooLong",
-                          {
-                            limit: promptLimit,
-                          },
-                        )}
-                      </p>
-                    )}
-                  </>
-                )}
-              </div>
-            </WindowDetails>
-          )}
-
-          {/* LLM Post-Processing Section — collapsible */}
-          <WindowDetails stateKey="profile-new-llm" className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
-              <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
-                <div className="flex items-center gap-2 min-w-0">
-                  <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
-                  <span className="text-xs font-semibold text-text/70">
-                    {t(
-                      "settings.transcriptionProfiles.llmPostProcessing.title",
-                    )}
-                  </span>
-                  <InfoTooltip
-                    content={t(
-                      "settings.transcriptionProfiles.llmPostProcessing.description",
-                    )}
-                  />
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {newPostProcessingAvailability.available && newLlmEnabled && (
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 whitespace-nowrap">
-                        {t(
-                          "settings.transcriptionProfiles.badges.llmActive",
-                          "LLM active",
-                        )}
-                      </span>
-                      {newLlmPromptOverride &&
-                        newLlmPromptOverride !== globalPromptText && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 whitespace-nowrap">
-                            {t(
-                              "settings.transcriptionProfiles.badges.promptOverridden",
-                              "Prompt overridden",
-                            )}
-                          </span>
-                        )}
-                      {newLlmModelOverride && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/25 whitespace-nowrap">
-                          {t(
-                            "settings.transcriptionProfiles.badges.modelOverride",
-                            "Model: {{model}}",
-                            { model: newLlmModelOverride },
-                          )}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {/* stopPropagation prevents details toggle when clicking the switch */}
-                  <div onClick={(e) => e.stopPropagation()}>
-                    <ToggleSwitch
-                      checked={
-                        newPostProcessingAvailability.available && newLlmEnabled
-                      }
-                      onChange={setNewLlmEnabledOverride}
-                      disabled={
-                        isCreating || !newPostProcessingAvailability.available
-                      }
-                    />
-                  </div>
-                </div>
-              </summary>
-              <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
-                <p className="text-xs text-mid-gray pt-2">
-                  {t(
-                    "settings.transcriptionProfiles.llmPostProcessing.description",
-                  )}
-                </p>
-
-                {!newPostProcessingAvailability.available && (
-                  <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
-                    {t(
-                      "settings.postProcessing.unavailableDirectRealtime",
-                      "LLM post-processing is unavailable while realtime text is inserted directly into the target application. Use Preview or a non-live output route. Your saved choice is preserved for compatible routes.",
-                    )}
-                  </div>
-                )}
-
-                {newPostProcessingAvailability.available && newLlmEnabled && (
-                  <div className="space-y-3">
-                    {/* Prompt Override */}
-                    <div className="space-y-1">
-                      {/* ${output} Variable Documentation */}
-                      <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs space-y-1">
-                        <div className="font-semibold text-blue-400">
-                          {t(
-                            "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title",
-                          )}
-                        </div>
-                        {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
-                        <p
-                          className="text-text/70"
-                          dangerouslySetInnerHTML={{
-                            __html: t(
-                              "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.description",
-                            ),
-                          }}
-                        />
-                        <WindowDetails stateKey="profile-new-llm-variables" className="cursor-pointer">
-                          <summary className="text-blue-400 hover:text-blue-300">
-                            {t(
-                              "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.howItWorks",
-                            )}
-                          </summary>
-                          <ol className="list-decimal list-inside text-text/60 mt-1 space-y-0.5 pl-2">
-                            <li>
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1",
-                              )}
-                            </li>
-                            {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
-                            <li
-                              dangerouslySetInnerHTML={{
-                                __html: t(
-                                  "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step2",
-                                ),
-                              }}
-                            />
-                            <li>
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step3",
-                              )}
-                            </li>
-                            <li>
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step4",
-                              )}
-                            </li>
-                          </ol>
-                          <div className="mt-2 space-y-1">
-                            <div className="text-green-400">
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validExample",
-                              )}
-                            </div>
-                            <code className="block bg-green-500/10 px-2 py-1 rounded text-green-300 whitespace-pre-wrap">
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validPrompt",
-                              )}
-                            </code>
-                            <div className="text-red-400 mt-2">
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidExample",
-                              )}
-                            </div>
-                            <code className="block bg-red-500/10 px-2 py-1 rounded text-red-300">
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt",
-                              )}
-                            </code>
-                            {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
-                            <p
-                              className="text-red-400/80"
-                              dangerouslySetInnerHTML={{
-                                __html: t(
-                                  "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidWarning",
-                                ),
-                              }}
-                            />
-                          </div>
-                          {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
-                          <p
-                            className="mt-2 text-text/60"
-                            dangerouslySetInnerHTML={{
-                              __html: t(
-                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.tip",
-                              ),
-                            }}
-                          />
-                        </WindowDetails>
-                      </div>
-
-                      <div className="flex items-center justify-between mt-2">
-                        <div className="flex flex-col">
-                          {!newLlmPromptOverride ? (
-                            <span className="text-[10px] text-purple-400/70 font-medium">
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.usingGlobalPrompt",
-                              )}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-orange-400 font-medium">
-                              {t(
-                                "settings.transcriptionProfiles.llmPostProcessing.customPromptActive",
-                                "Custom prompt active",
-                              )}
-                            </span>
-                          )}
-                        </div>
-                        {newLlmPromptOverride !== "" && (
-                          <button
-                            type="button"
-                            onClick={() => setNewLlmPromptOverride("")}
-                            disabled={isCreating}
-                            className="flex items-center gap-1.5 px-2 py-1 text-xs bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded-md text-purple-300 transition-colors disabled:opacity-50"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            {t(
-                              "settings.transcriptionProfiles.llmPostProcessing.resetToGlobal",
-                            )}
-                          </button>
-                        )}
-                      </div>
-                      <textarea
-                        value={newLlmPromptOverride || globalPromptText}
-                        onChange={(e) =>
-                          setNewLlmPromptOverride(e.target.value)
-                        }
-                        onFocus={() => {
-                          if (!newLlmPromptOverride) {
-                            setNewLlmPromptOverride(globalPromptText);
-                          }
-                        }}
-                        placeholder={t(
-                          "settings.transcriptionProfiles.llmPostProcessing.promptPlaceholder",
-                        )}
-                        disabled={isCreating}
-                        rows={6}
-                        className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors border-[#3c3c3c] focus:border-[#4a4a4a] ${isCreating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
-                      />
-                      <TextFileActions
-                        value={newLlmPromptOverride || globalPromptText}
-                        defaultFileName="llm-prompt.txt"
-                        disabled={isCreating}
-                        onOpen={setNewLlmPromptOverride}
-                      />
-                    </div>
-
-                    {/* Model Override */}
-                    <div className="space-y-1">
-                      <label className="text-xs text-text/60">
-                        {t(
-                          "settings.transcriptionProfiles.llmPostProcessing.overrideModel",
-                        )}
-                      </label>
-                      <p className="text-xs text-mid-gray">
-                        {t(
-                          "settings.transcriptionProfiles.llmPostProcessing.overrideModelHint",
-                        )}
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <ModelSelect
-                          value={newLlmModelOverride || ""}
-                          sortKey={llmModelSortKey}
-                          options={llmModelOptions}
-                          disabled={isCreating}
-                          placeholder={
-                            globalLlmModel
-                              ? t(
-                                  "settings.transcriptionProfiles.llmPostProcessing.usingGlobalModel",
-                                  { model: globalLlmModel },
-                                )
-                              : t(
-                                  "settings.transcriptionProfiles.llmPostProcessing.modelPlaceholder",
-                                )
-                          }
-                          onSelect={(value) =>
-                            setNewLlmModelOverride(value || null)
-                          }
-                          onCreate={(value) => setNewLlmModelOverride(value)}
-                          onBlur={() => {}}
-                          className="flex-1"
-                        />
-                        <ResetButton
-                          onClick={handleRefreshModels}
-                          disabled={isFetchingModels || isCreating}
-                          title="Fetch Models from Server, then you can type part of model name for searching it in drop-down."
-                        >
-                          <RefreshCcw
-                            className={`w-4 h-4 ${isFetchingModels ? "animate-spin" : ""}`}
-                          />
-                        </ResetButton>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-          </WindowDetails>
+          {duplicateSourceName && <p className="text-xs text-text/70">
+            {t("settings.transcriptionProfiles.copyDraftFrom", { name: duplicateSourceName, defaultValue: "Copied from {{name}}. Review settings before creating." })}
+          </p>}
+          <ProfileSettingsForm key={`new-${draftRevision}`} {...sharedFormProps} profile={newProfileDraft} scope="draft"
+            onCommit={commitNewDraftPatch} onDraftChange={applyNewDraftPatch} onValidationReasonsChange={setNewFormValidationReasons} disabled={isCreating} />
 
           {newProfileError && (
             <p className="text-xs text-red-400">{newProfileError}</p>
@@ -4158,16 +1322,33 @@ export const TranscriptionProfiles: React.FC = () => {
 
           {/* Create Button */}
           <div className="flex justify-end pt-1">
-            <Button
-              onClick={handleCreate}
-              variant="primary"
-              size="sm"
-              disabled={!newName.trim() || isCreating || isNewPromptOverLimit}
-              className="inline-flex items-center"
+            <Tooltip
+              className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/50"
+              disabled={!createDisabled}
+              tabIndex={createDisabled ? 0 : undefined}
+              triggerRole={createDisabled ? "button" : undefined}
+              ariaDisabled={createDisabled || undefined}
+              ariaLabel={createDisabled ? t("settings.transcriptionProfiles.addProfile") : undefined}
+              content={createUnavailableReasons.map((reason, index) => (
+                <React.Fragment key={reason}>
+                  {index > 0 && <br />}
+                  <span>{createUnavailableReasons.length > 1 ? "• " : ""}{reason}</span>
+                </React.Fragment>
+              ))}
             >
-              <Plus className="w-3.5 h-3.5 mr-1.5" />
-              {t("settings.transcriptionProfiles.addProfile")}
-            </Button>
+              <Button
+                type="button"
+                onClick={handleCreate}
+                variant="primary"
+                size="sm"
+                disabled={createDisabled}
+                aria-hidden={createDisabled || undefined}
+                className={`inline-flex items-center${createDisabled ? " pointer-events-none" : ""}`}
+              >
+                <Plus className="w-3.5 h-3.5 mr-1.5" />
+                {t("settings.transcriptionProfiles.addProfile")}
+              </Button>
+            </Tooltip>
           </div>
         </div>
         </SettingContainer>

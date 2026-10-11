@@ -4,6 +4,7 @@ import "./ToggleSwitch.css";
 
 interface ToggleSwitchProps {
   id?: string;
+  inputId?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
@@ -18,6 +19,7 @@ interface ToggleSwitchProps {
 
 export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
   id,
+  inputId,
   checked,
   onChange,
   disabled = false,
@@ -56,6 +58,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
       onPointerCancel={release}
     >
       <input
+        id={inputId}
         type="checkbox"
         value=""
         className="aivo-toggle__input sr-only"

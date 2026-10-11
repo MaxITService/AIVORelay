@@ -20,6 +20,7 @@ export interface DropdownOption {
 }
 
 export interface DropdownProps {
+  id?: string;
   options: DropdownOption[];
   className?: string;
   selectedValue: string | null;
@@ -33,6 +34,7 @@ export interface DropdownProps {
 }
 
 export const Dropdown: React.FC<DropdownProps> = ({
+  id,
   options,
   selectedValue,
   onSelect,
@@ -233,7 +235,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
       ref={dropdownRef}
     >
       <button
-        id={triggerId}
+        id={id ?? triggerId}
         type="button"
         role="combobox"
         aria-label={ariaLabel}
@@ -278,7 +280,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
             id={listboxId}
             ref={listRef}
             role="listbox"
-            aria-labelledby={triggerId}
+            aria-labelledby={id ?? triggerId}
             data-state={menuPresence.state}
             data-placement={menuStyle?.bottom !== undefined ? "top" : "bottom"}
             className="app-popover fixed z-[9998] overflow-y-auto rounded-lg border border-[#3c3c3c] bg-[#252525]/98 p-1 shadow-[0_12px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl"

@@ -3,7 +3,7 @@ use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use specta::Type;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
@@ -7245,6 +7245,219 @@ fn ensure_active_profile_exists(settings: &mut AppSettings) -> bool {
     false
 }
 
+/// Custom profile names use the same comparison for validation and legacy repair.
+pub(crate) fn normalize_transcription_profile_name(name: &str) -> String {
+    name.trim().to_lowercase()
+}
+
+/// The built-in profile is not stored in `transcription_profiles`, so its name
+/// is reserved explicitly to keep custom profiles distinguishable from it.
+const RESERVED_DEFAULT_PROFILE_NAME: &str = "default";
+
+pub(crate) fn validate_transcription_profile_name(
+    settings: &AppSettings,
+    name: &str,
+    except_profile_id: Option<&str>,
+) -> Result<(), String> {
+    let normalized = normalize_transcription_profile_name(name);
+    if normalized.is_empty() {
+        return Err("profile_name_required".to_string());
+    }
+    if normalized == RESERVED_DEFAULT_PROFILE_NAME {
+        return Err("profile_name_duplicate".to_string());
+    }
+    if settings.transcription_profiles.iter().any(|profile| {
+        Some(profile.id.as_str()) != except_profile_id
+            && normalize_transcription_profile_name(&profile.name) == normalized
+    }) {
+        return Err("profile_name_duplicate".to_string());
+    }
+    Ok(())
+}
+
+fn ensure_unique_transcription_profile_names(settings: &mut AppSettings) -> bool {
+    // Reserve original names before generating suffixes: an existing "Work (2)"
+    // keeps its name even when a preceding second "Work" needs a new name.
+    let mut reserved: HashSet<String> = settings.transcription_profiles.iter()
+        .map(|profile| normalize_transcription_profile_name(&profile.name))
+        .collect();
+    // The built-in profile already owns its name, so a legacy custom "Default"
+    // is repaired like any other duplicate.
+    let mut seen = HashSet::from([RESERVED_DEFAULT_PROFILE_NAME.to_string()]);
+    let mut changed = false;
+    for profile in &mut settings.transcription_profiles {
+        if seen.insert(normalize_transcription_profile_name(&profile.name)) {
+            continue;
+        }
+        let base = profile.name.trim();
+        let mut suffix = 2u64;
+        let name = loop {
+            let candidate = format!("{base} ({suffix})");
+            if reserved.insert(normalize_transcription_profile_name(&candidate)) {
+                break candidate;
+            }
+            suffix += 1;
+        };
+        profile.name = name;
+        profile.description = if profile.translate_to_english {
+            format!("{} → English", profile.name)
+        } else {
+            profile.name.clone()
+        };
+        if let Some(binding) = settings.bindings.get_mut(&format!("transcribe_{}", profile.id)) {
+            binding.name = profile.name.clone();
+            binding.description = profile.description.clone();
+        }
+        changed = true;
+    }
+    changed
+}
+
+#[cfg(test)]
+mod profile_name_tests {
+    use super::*;
+
+    fn profile(id: &str, name: &str, translate: bool) -> TranscriptionProfile {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "name": name, "language": "auto", "translate_to_english": translate
+        }))
+        .unwrap()
+    }
+
+    /// Builds settings with one custom profile and one shortcut binding per name.
+    fn settings_with(names: &[&str]) -> AppSettings {
+        let mut settings = get_default_settings();
+        settings.transcription_profiles.clear();
+        for (index, name) in names.iter().enumerate() {
+            let id = format!("p{index}");
+            settings.transcription_profiles.push(profile(&id, name, false));
+            settings.bindings.insert(
+                format!("transcribe_{id}"),
+                ShortcutBinding {
+                    id: format!("transcribe_{id}"),
+                    name: name.to_string(),
+                    description: format!("keep {id}"),
+                    default_binding: String::new(),
+                    current_binding: format!("ctrl+{index}"),
+                },
+            );
+        }
+        settings
+    }
+
+    fn names(settings: &AppSettings) -> Vec<String> {
+        settings.transcription_profiles.iter().map(|p| p.name.clone()).collect()
+    }
+
+    #[test]
+    fn validation_rejects_empty_and_duplicate_names_ignoring_case_and_edges() {
+        let settings = settings_with(&["Работа", "Home"]);
+        for empty in ["", "   ", "\t\n"] {
+            assert_eq!(
+                validate_transcription_profile_name(&settings, empty, None),
+                Err("profile_name_required".to_string())
+            );
+        }
+        for taken in ["Работа", "работа", "  РАБОТА  ", "home"] {
+            assert_eq!(
+                validate_transcription_profile_name(&settings, taken, None),
+                Err("profile_name_duplicate".to_string()),
+                "{taken:?} must be rejected"
+            );
+        }
+        assert!(validate_transcription_profile_name(&settings, "Работа (2)", None).is_ok());
+    }
+
+    #[test]
+    fn validation_allows_a_profile_to_keep_or_recase_its_own_name() {
+        let settings = settings_with(&["Работа", "Home"]);
+        assert!(validate_transcription_profile_name(&settings, "Работа", Some("p0")).is_ok());
+        assert!(validate_transcription_profile_name(&settings, "РАБОТА ", Some("p0")).is_ok());
+        // Taking another profile's name is still a duplicate when renaming.
+        assert_eq!(
+            validate_transcription_profile_name(&settings, "home", Some("p0")),
+            Err("profile_name_duplicate".to_string())
+        );
+    }
+
+    #[test]
+    fn migration_leaves_unique_names_and_bindings_untouched() {
+        let mut settings = settings_with(&["Работа", "Home", "Other"]);
+        let before = serde_json::to_value(&settings.bindings).unwrap();
+        assert!(!ensure_unique_transcription_profile_names(&mut settings));
+        assert_eq!(names(&settings), ["Работа", "Home", "Other"]);
+        assert_eq!(serde_json::to_value(&settings.bindings).unwrap(), before);
+    }
+
+    #[test]
+    fn migration_renames_duplicates_without_touching_names_already_taken() {
+        // An existing "Работа (2)" keeps its name; later duplicates skip it.
+        let mut settings = settings_with(&["Работа", "работа", "Работа (2)", " Работа ", "Other"]);
+        assert!(ensure_unique_transcription_profile_names(&mut settings));
+        assert_eq!(
+            names(&settings),
+            ["Работа", "работа (3)", "Работа (2)", "Работа (4)", "Other"]
+        );
+
+        let unique: HashSet<_> = settings
+            .transcription_profiles
+            .iter()
+            .map(|p| normalize_transcription_profile_name(&p.name))
+            .collect();
+        assert_eq!(unique.len(), settings.transcription_profiles.len());
+    }
+
+    #[test]
+    fn migration_keeps_first_profile_hotkeys_and_syncs_renamed_binding_text() {
+        let mut settings = settings_with(&["Работа", "Работа"]);
+        settings.transcription_profiles[1].translate_to_english = true;
+        assert!(ensure_unique_transcription_profile_names(&mut settings));
+
+        let renamed = &settings.transcription_profiles[1];
+        assert_eq!(renamed.name, "Работа (2)");
+        assert_eq!(renamed.description, "Работа (2) → English");
+        let binding = &settings.bindings["transcribe_p1"];
+        assert_eq!(binding.name, "Работа (2)");
+        assert_eq!(binding.description, "Работа (2) → English");
+        // The assigned shortcut must survive the rename.
+        assert_eq!(binding.current_binding, "ctrl+1");
+
+        let first = &settings.bindings["transcribe_p0"];
+        assert_eq!(first.name, "Работа");
+        assert_eq!(first.description, "keep p0");
+        assert_eq!(first.current_binding, "ctrl+0");
+    }
+
+    #[test]
+    fn migration_is_idempotent() {
+        let mut settings = settings_with(&["A", "a", "A", "A (2)"]);
+        assert!(ensure_unique_transcription_profile_names(&mut settings));
+        let after_first = names(&settings);
+        assert!(!ensure_unique_transcription_profile_names(&mut settings));
+        assert_eq!(names(&settings), after_first);
+    }
+
+    #[test]
+    fn built_in_default_name_is_reserved_for_new_names_and_legacy_profiles() {
+        let settings = settings_with(&["Home"]);
+        for taken in ["Default", "default", "  DEFAULT "] {
+            assert_eq!(
+                validate_transcription_profile_name(&settings, taken, None),
+                Err("profile_name_duplicate".to_string()),
+                "{taken:?} must be rejected"
+            );
+        }
+        assert!(validate_transcription_profile_name(&settings, "Default (2)", None).is_ok());
+
+        // A legacy custom "Default" is renamed, keeping its hotkey.
+        let mut legacy = settings_with(&["Default", "Home"]);
+        assert!(ensure_unique_transcription_profile_names(&mut legacy));
+        assert_eq!(names(&legacy), ["Default (2)", "Home"]);
+        assert_eq!(legacy.bindings["transcribe_p0"].current_binding, "ctrl+0");
+        assert!(!ensure_unique_transcription_profile_names(&mut legacy));
+    }
+}
+
 fn repair_soniox_context_portion(
     label: &str,
     general_json: &mut String,
@@ -7337,6 +7550,7 @@ fn repair_runtime_settings(settings: &mut AppSettings) -> bool {
     changed |= normalize_post_process_benchmark_log(settings);
     changed |= ensure_remote_stt_defaults(settings);
     changed |= ensure_active_profile_exists(settings);
+    changed |= ensure_unique_transcription_profile_names(settings);
     changed |= ensure_valid_soniox_contexts(settings);
     changed |= ensure_soniox_v5_model_defaults(settings);
     changed
