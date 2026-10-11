@@ -578,6 +578,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Add managers to Tauri's managed state
     app_handle.manage(recording_manager.clone());
     app_handle.manage(model_manager.clone());
+    app_handle.manage(Arc::new(commands::models::ModelDeletionState::default()));
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(remote_stt_manager.clone());
     app_handle.manage(openai_realtime_whisper_manager.clone());
@@ -1630,6 +1631,9 @@ pub fn run(cli_args: CliArgs) {
         commands::models::rescan_local_models,
         commands::models::download_model,
         commands::models::delete_model,
+        commands::models::schedule_model_deletion,
+        commands::models::cancel_model_deletion,
+        commands::models::get_model_deletion_snapshot,
         commands::models::cancel_download,
         commands::models::set_active_model,
         commands::models::get_current_model,

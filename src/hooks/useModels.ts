@@ -2,6 +2,14 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { commands, type ModelInfo } from "@/bindings";
 import {
+  cancelModelDeletionBeforeSelection,
+  getModelDeletionState,
+  requestModelDeletion,
+  subscribeModelDeletionState,
+} from "@/lib/modelDeletion";
+import i18n from "@/i18n";
+import { sessionToast as toast } from "@/lib/sessionToast";
+import {
   beginModelDownloadActivationIntent,
   cancelModelDownloadActivationIntent,
   invalidateModelDownloadActivationIntent,
@@ -84,6 +92,13 @@ export const useModels = () => {
 
   const selectModel = async (modelId: string) => {
     try {
+      await cancelModelDeletionBeforeSelection(modelId);
+    } catch (err) {
+      setError(String(err));
+      toast.error(i18n.t("modelSelector.deletion.cancelFailed"), { description: String(err) });
+      return false;
+    }
+    try {
       invalidateModelDownloadActivationIntent();
       setError(null);
       const result = await commands.setActiveModel(modelId);
@@ -165,16 +180,11 @@ export const useModels = () => {
   const deleteModel = async (modelId: string) => {
     try {
       setError(null);
-      const result = await commands.deleteModel(modelId);
-      if (result.status === "ok") {
-        await loadModels(); // Refresh the list
-        return true;
-      } else {
-        setError(`Failed to delete model: ${result.error}`);
-        return false;
-      }
+      await requestModelDeletion(modelId);
+      return true;
     } catch (err) {
       setError(`Failed to delete model: ${err}`);
+      toast.error(i18n.t("modelSelector.deletion.failed"), { description: String(err) });
       return false;
     }
   };
@@ -218,6 +228,16 @@ export const useModels = () => {
     loadModels();
     loadCurrentModel();
     checkFirstRun();
+    let deletionRevision = getModelDeletionState().revision;
+    const deletionUnsubscribe = subscribeModelDeletionState(() => {
+      const deletionState = getModelDeletionState();
+      if (deletionState.revision <= deletionRevision) return;
+      deletionRevision = deletionState.revision;
+      if (deletionState.change?.status !== "failed") return;
+      setError(deletionState.change.error);
+      void loadModels();
+      void loadCurrentModel();
+    });
 
     // Listen for download progress
     const progressUnlisten = listen<DownloadProgress>(
@@ -345,6 +365,7 @@ export const useModels = () => {
     });
 
     return () => {
+      deletionUnsubscribe();
       progressUnlisten.then((fn) => fn());
       completeUnlisten.then((fn) => fn());
       cancelUnlisten.then((fn) => fn());

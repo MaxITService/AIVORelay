@@ -1533,6 +1533,17 @@ impl TranscriptionManager {
     }
 
     fn load_model_inner(&self, model_id: &str, device_index: Option<usize>) -> Result<()> {
+        crate::commands::models::cancel_pending_model_deletion_for_use(&self.app_handle, model_id)
+            .map_err(anyhow::Error::msg)?;
+        self.load_model_inner_after_deletion_check(model_id, device_index)
+    }
+
+    /// Only the deletion worker retaining its loading claim may restore its own model.
+    pub(crate) fn restore_model_after_failed_deletion(&self, model_id: &str) -> Result<()> {
+        self.load_model_inner_after_deletion_check(model_id, None)
+    }
+
+    fn load_model_inner_after_deletion_check(&self, model_id: &str, device_index: Option<usize>) -> Result<()> {
         let load_start = std::time::Instant::now();
         debug!("Starting to load model: {}", model_id);
 
@@ -1752,6 +1763,9 @@ impl TranscriptionManager {
             return Err(anyhow::anyhow!("No local transcription model is selected."));
         }
 
+        crate::commands::models::cancel_pending_model_deletion_for_use(&self.app_handle, model_id)
+            .map_err(anyhow::Error::msg)?;
+
         loop {
             {
                 let mut is_loading = self.is_loading.lock().unwrap();
@@ -1789,6 +1803,13 @@ impl TranscriptionManager {
 
         if model_id.is_empty() {
             error!("Failed to load model: no local transcription model is selected");
+            return;
+        }
+
+        if let Err(error) = crate::commands::models::cancel_pending_model_deletion_for_use(
+            &self.app_handle, &model_id,
+        ) {
+            error!("Failed to load model: {}", error);
             return;
         }
 

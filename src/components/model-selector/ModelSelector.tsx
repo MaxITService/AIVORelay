@@ -13,6 +13,8 @@ import ModelDropdown from "./ModelDropdown";
 import DownloadProgressDisplay from "./DownloadProgressDisplay";
 import { isMoonshineStreamingModel } from "./nativeStreamingModel";
 import { useSettings } from "../../hooks/useSettings";
+import { useModelDeletions } from "../../hooks/useModelDeletions";
+import { cancelModelDeletionBeforeSelection, requestModelDeletion } from "@/lib/modelDeletion";
 import { usePresence } from "../../hooks/usePresence";
 import {
   beginModelDownloadActivationIntent,
@@ -61,6 +63,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 }) => {
   const { t } = useTranslation();
   const { settings, getSetting, setTranscriptionProvider, refreshSettings } = useSettings();
+  const modelDeletions = useModelDeletions();
   const supportsRemoteProviders = getOsType() === "windows";
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [currentModelId, setCurrentModelId] = useState<string>("");
@@ -111,6 +114,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     transcriptionProvider === "remote_deepgram";
 
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (modelDeletions.change?.status !== "failed") return;
+    void loadModels();
+    void loadCurrentModel();
+    setModelError(modelDeletions.change.error);
+  }, [modelDeletions.revision]);
 
   useEffect(() => {
     setModelError(null);
@@ -454,6 +464,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 
   const handleModelSelect = async (modelId: string) => {
     try {
+      await cancelModelDeletionBeforeSelection(modelId);
       invalidateModelDownloadActivationIntent();
       setShowModelDropdown(false);
       if (await setActiveProfileModelSelection({
@@ -706,11 +717,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   );
 
   const handleModelDelete = async (modelId: string) => {
-    const result = await commands.deleteModel(modelId);
-    if (result.status === "ok") {
-      await loadModels();
-      setModelError(null);
-    }
+    await requestModelDeletion(modelId);
+    setModelError(null);
   };
 
   return (
@@ -746,6 +754,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
             models={models}
             currentModelId={effectiveModelId}
             downloadProgress={modelDownloadProgress}
+            modelDeletions={modelDeletions}
             onModelSelect={handleModelSelect}
             onModelDownload={handleModelDownload}
             onModelDownloadCancel={async (modelId) => {
