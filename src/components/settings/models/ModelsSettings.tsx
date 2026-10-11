@@ -1,10 +1,12 @@
 import React, { useLayoutEffect, useMemo, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
-import { ask } from "@tauri-apps/plugin-dialog";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { Cloud, Download, Filter, HardDrive, Radio, RotateCcw } from "lucide-react";
 import { useModels } from "../../../hooks/useModels";
+import { useModelDeletions } from "../../../hooks/useModelDeletions";
+import { cancelModelDeletion, cancelModelDeletionBeforeSelection } from "@/lib/modelDeletion";
+import { ModelDeleteAction } from "../../shared/ModelDeleteAction";
 import { useSettings } from "../../../hooks/useSettings";
 import { useSortedDisplayNames } from "../../../hooks/useSortedDisplayNames";
 import { useListSortDirection } from "../../../hooks/useListSortPreference";
@@ -138,6 +140,7 @@ export const ModelsSettings: React.FC = () => {
     cancelDownload,
     deleteModel,
   } = useModels();
+  const modelDeletions = useModelDeletions();
   const {
     settings,
     getSetting,
@@ -353,6 +356,7 @@ export const ModelsSettings: React.FC = () => {
   const handleSelectModel = async (modelId: string) => {
     setSwitchingModelId(modelId);
     try {
+      await cancelModelDeletionBeforeSelection(modelId);
       const selectedModel = allLocalModels.find((model) => model.id === modelId);
       if (
         await setActiveProfileModelSelection(
@@ -401,6 +405,8 @@ export const ModelsSettings: React.FC = () => {
           });
         }
       }
+    } catch (error) {
+      toast.error(String(error));
     } finally {
       setSwitchingModelId(null);
     }
@@ -474,19 +480,6 @@ export const ModelsSettings: React.FC = () => {
     } catch (error) {
       toast.error(String(error));
     }
-  };
-
-  const handleDeleteModel = async (model: ModelInfo) => {
-    const modelName = getTranslatedModelName(model, t);
-    const confirmed = await ask(
-      `${t("modelSelector.deleteModel", { modelName })}?`,
-      {
-        title: t("common.delete"),
-        kind: "warning",
-      },
-    );
-    if (!confirmed) return;
-    await deleteModel(model.id);
   };
 
   const renderRemoteApiRows = (rows: RemoteApiRow[]) =>
@@ -811,6 +804,9 @@ export const ModelsSettings: React.FC = () => {
             const isActive =
               model.id === effectiveLocalModelId && !isRemoteProvider;
             const isSwitching = switchingModelId === model.id;
+            const deletion = modelDeletions.jobs.get(model.id);
+            const secondsRemaining = modelDeletions.secondsRemaining(model.id);
+            const isDeleting = deletion != null && (deletion.status === "deleting" || secondsRemaining === 0);
 
             return (
               <div
@@ -873,20 +869,16 @@ export const ModelsSettings: React.FC = () => {
                       variant="secondary"
                       size="sm"
                       onClick={() => handleSelectModel(model.id)}
-                      disabled={isSwitching}
+                      disabled={isSwitching || isDeleting}
                     >
                       {isSwitching
                         ? t("modelSelector.loadingGeneric")
                         : t("modelSelector.chooseModel")}
                     </Button>
                   )}
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={() => handleDeleteModel(model)}
-                  >
-                    {t("common.delete")}
-                  </Button>
+                  <ModelDeleteAction modelName={modelName} job={deletion} secondsRemaining={secondsRemaining}
+                    busy={modelDeletions.busyModels.has(model.id)} onDelete={() => deleteModel(model.id)}
+                    onUndo={() => cancelModelDeletion(model.id, deletion?.job_id)} />
                 </div>
               </div>
             );

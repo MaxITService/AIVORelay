@@ -1,12 +1,286 @@
 use crate::managers::model::{ModelInfo, ModelManager};
-use crate::managers::transcription::{ModelStateEvent, TranscriptionManager};
+use crate::managers::transcription::{LoadingGuard, ModelStateEvent, TranscriptionManager};
 use crate::settings::{get_settings, write_settings, ModelUnloadTimeout, TranscriptionProvider};
 use crate::tray;
 use serde::Serialize;
 use specta::Type;
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
+
+const MODEL_DELETION_DELAY: Duration = Duration::from_secs(5);
+
+#[derive(Clone, Serialize, Type)]
+pub struct ModelDeletionJob {
+    pub model_id: String,
+    pub job_id: String,
+    pub status: String,
+    pub deadline_unix_ms: u64,
+    pub remaining_ms: u64,
+}
+
+#[derive(Clone, Serialize, Type)]
+pub struct ModelDeletionChange {
+    pub model_id: String,
+    pub job_id: String,
+    pub status: String,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Serialize, Type)]
+pub struct ModelDeletionSnapshot {
+    pub revision: u64,
+    pub jobs: Vec<ModelDeletionJob>,
+    pub change: Option<ModelDeletionChange>,
+}
+
+#[derive(Serialize, Type)]
+pub struct ModelDeletionCancellation {
+    pub outcome: String,
+    pub snapshot: ModelDeletionSnapshot,
+}
+
+struct ScheduledModelDeletion {
+    job: ModelDeletionJob,
+    deadline: Instant,
+    cancel: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+#[derive(Default)]
+struct ModelDeletionInner {
+    revision: u64,
+    next_job_id: u64,
+    jobs: BTreeMap<String, ScheduledModelDeletion>,
+    change: Option<ModelDeletionChange>,
+}
+
+#[derive(Default)]
+pub struct ModelDeletionState {
+    inner: Mutex<ModelDeletionInner>,
+}
+
+impl ModelDeletionInner {
+    fn snapshot(&self) -> ModelDeletionSnapshot {
+        let now = Instant::now();
+        ModelDeletionSnapshot {
+            revision: self.revision,
+            jobs: self.jobs.values().map(|scheduled| {
+                let mut job = scheduled.job.clone();
+                job.remaining_ms = if job.status == "pending" {
+                    scheduled.deadline.saturating_duration_since(now).as_millis() as u64
+                } else {
+                    0
+                };
+                job
+            }).collect(),
+            change: self.change.clone(),
+        }
+    }
+
+    fn changed(
+        &mut self,
+        app: &AppHandle,
+        model_id: &str,
+        job_id: &str,
+        status: &str,
+        error: Option<String>,
+    ) -> ModelDeletionSnapshot {
+        self.revision += 1;
+        self.change = Some(ModelDeletionChange {
+            model_id: model_id.to_string(),
+            job_id: job_id.to_string(),
+            status: status.to_string(),
+            error,
+        });
+        let snapshot = self.snapshot();
+        // Transition and publication share this short lock; no lock crosses an await.
+        let _ = app.emit("model-deletion-state", snapshot.clone());
+        snapshot
+    }
+
+    fn cancel_for_use(&mut self, app: &AppHandle, model_id: &str) -> Result<(), String> {
+        let Some(scheduled) = self.jobs.get(model_id) else {
+            return Ok(());
+        };
+        if scheduled.job.status == "deleting" {
+            return Err("Model deletion has already started".to_string());
+        }
+        let job_id = scheduled.job.job_id.clone();
+        if let Some(mut scheduled) = self.jobs.remove(model_id) {
+            if let Some(cancel) = scheduled.cancel.take() {
+                let _ = cancel.send(());
+            }
+        }
+        self.changed(app, model_id, &job_id, "cancelled", None);
+        Ok(())
+    }
+}
+
+/// Selection and the timer's deleting claim use the same short critical section.
+/// The caller retains the returned loading claim until model/settings work finishes.
+fn claim_model_selection(app: &AppHandle, model_id: &str) -> Result<LoadingGuard, String> {
+    let transcription_manager = app.state::<Arc<TranscriptionManager>>();
+    if let Some(state) = app.try_state::<Arc<ModelDeletionState>>() {
+        let mut inner = state.inner.lock().unwrap_or_else(|error| error.into_inner());
+        inner.cancel_for_use(app, model_id)?;
+        return transcription_manager.try_start_loading()
+            .ok_or_else(|| "Model load already in progress".to_string());
+    }
+    transcription_manager.try_start_loading()
+        .ok_or_else(|| "Model load already in progress".to_string())
+}
+
+pub(crate) fn cancel_pending_model_deletion_for_use(
+    app: &AppHandle,
+    model_id: &str,
+) -> Result<(), String> {
+    let Some(state) = app.try_state::<Arc<ModelDeletionState>>() else {
+        return Ok(());
+    };
+    let mut inner = state.inner.lock().unwrap_or_else(|error| error.into_inner());
+    inner.cancel_for_use(app, model_id)
+}
+
+pub(crate) fn with_model_deletion_cancelled_for_selection<T>(
+    app: &AppHandle,
+    model_id: &str,
+    select: impl FnOnce() -> T,
+) -> Result<T, String> {
+    let Some(state) = app.try_state::<Arc<ModelDeletionState>>() else {
+        return Ok(select());
+    };
+    let mut inner = state.inner.lock().unwrap_or_else(|error| error.into_inner());
+    inner.cancel_for_use(app, model_id)?;
+    Ok(select())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_model_deletion_snapshot(
+    deletion_state: State<'_, Arc<ModelDeletionState>>,
+) -> ModelDeletionSnapshot {
+    let inner = deletion_state.inner.lock().unwrap_or_else(|error| error.into_inner());
+    inner.snapshot()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_model_deletion(
+    app_handle: AppHandle,
+    deletion_state: State<'_, Arc<ModelDeletionState>>,
+    model_id: String,
+    job_id: String,
+) -> ModelDeletionCancellation {
+    let mut inner = deletion_state.inner.lock().unwrap_or_else(|error| error.into_inner());
+    let outcome = match inner.jobs.get(&model_id) {
+        Some(scheduled) if scheduled.job.job_id == job_id => {
+            if scheduled.job.status == "deleting" {
+                "deleting"
+            } else {
+                // This token still owns the pending entry while the mutex is held.
+                let _ = inner.cancel_for_use(&app_handle, &model_id);
+                "cancelled"
+            }
+        }
+        _ => "not_found",
+    };
+    ModelDeletionCancellation { outcome: outcome.to_string(), snapshot: inner.snapshot() }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn schedule_model_deletion(
+    app_handle: AppHandle,
+    deletion_state: State<'_, Arc<ModelDeletionState>>,
+    model_manager: State<'_, Arc<ModelManager>>,
+    model_id: String,
+) -> Result<ModelDeletionSnapshot, String> {
+    let state = deletion_state.inner().clone();
+    let mut inner = state.inner.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some(scheduled) = inner.jobs.get(&model_id) {
+        return if scheduled.job.status == "pending" {
+            Ok(inner.snapshot())
+        } else {
+            Err("Model deletion has already started".to_string())
+        };
+    }
+    let info = model_manager.get_model_info(&model_id)
+        .ok_or_else(|| format!("Model not found: {model_id}"))?;
+    if info.is_downloading {
+        return Err("Cannot delete a model while its download is in progress".to_string());
+    }
+    if !info.is_downloaded {
+        return Err("Model is not downloaded".to_string());
+    }
+    inner.next_job_id += 1;
+    let job_id = inner.next_job_id.to_string();
+    let deadline = Instant::now() + MODEL_DELETION_DELAY;
+    let (cancel, mut cancellation) = tokio::sync::oneshot::channel();
+    inner.jobs.insert(model_id.clone(), ScheduledModelDeletion {
+        job: ModelDeletionJob {
+            model_id: model_id.clone(),
+            job_id: job_id.clone(),
+            status: "pending".to_string(),
+            deadline_unix_ms: unix_ms_now() + MODEL_DELETION_DELAY.as_millis() as u64,
+            remaining_ms: MODEL_DELETION_DELAY.as_millis() as u64,
+        },
+        deadline,
+        cancel: Some(cancel),
+    });
+    let snapshot = inner.changed(&app_handle, &model_id, &job_id, "pending", None);
+    drop(inner);
+
+    tauri::async_runtime::spawn(async move {
+        tokio::select! {
+            _ = &mut cancellation => return,
+            _ = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => {}
+        }
+        let loading_guard = loop {
+            let loading_guard = {
+                let mut inner = state.inner.lock().unwrap_or_else(|error| error.into_inner());
+                let Some(scheduled) = inner.jobs.get(&model_id) else { return; };
+                if scheduled.job.job_id != job_id || scheduled.job.status != "pending" {
+                    return;
+                }
+                let transcription_manager = app_handle.state::<Arc<TranscriptionManager>>();
+                let guard = transcription_manager.try_start_loading();
+                if guard.is_some() {
+                    let scheduled = inner.jobs.get_mut(&model_id).unwrap();
+                    scheduled.job.status = "deleting".to_string();
+                    scheduled.cancel = None;
+                    inner.changed(&app_handle, &model_id, &job_id, "deleting", None);
+                }
+                guard
+            };
+            if let Some(guard) = loading_guard {
+                break guard;
+            }
+            tokio::select! {
+                _ = &mut cancellation => return,
+                _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+            }
+        };
+        let app = app_handle.clone();
+        let delete_id = model_id.clone();
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            delete_model_with_loading_claim(&app, &delete_id, loading_guard)
+        }).await.map_err(|error| format!("Model deletion task failed: {error}"))
+            .and_then(|result| result);
+
+        let mut inner = state.inner.lock().unwrap_or_else(|error| error.into_inner());
+        if inner.jobs.get(&model_id).map(|scheduled| scheduled.job.job_id.as_str())
+            != Some(job_id.as_str()) {
+            return;
+        }
+        inner.jobs.remove(&model_id);
+        match result {
+            Ok(()) => { inner.changed(&app_handle, &model_id, &job_id, "completed", None); }
+            Err(error) => { inner.changed(&app_handle, &model_id, &job_id, "failed", Some(error)); }
+        }
+    });
+    Ok(snapshot)
+}
 
 #[tauri::command]
 #[specta::specta]
@@ -114,68 +388,71 @@ pub(crate) async fn ensure_local_model_downloaded_for_use(
 #[specta::specta]
 pub async fn delete_model(
     app_handle: AppHandle,
-    model_manager: State<'_, Arc<ModelManager>>,
-    transcription_manager: State<'_, Arc<TranscriptionManager>>,
+    _model_manager: State<'_, Arc<ModelManager>>,
+    _transcription_manager: State<'_, Arc<TranscriptionManager>>,
     model_id: String,
 ) -> Result<(), String> {
-    let settings = get_settings(&app_handle);
-    if settings.selected_model != model_id {
-        return model_manager
-            .delete_model(&model_id)
-            .map_err(|e| e.to_string());
-    }
+    cancel_pending_model_deletion_for_use(&app_handle, &model_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        // Immediate callers cancel an older timer before claiming the same loading lane.
+        let loading_guard = claim_model_selection(&app_handle, &model_id)?;
+        delete_model_with_loading_claim(&app_handle, &model_id, loading_guard)
+    }).await.map_err(|error| format!("Model deletion task failed: {error}"))?
+}
 
-    // Serialize deletion of the selected model with model switches so the
-    // rollback below cannot reload over a newer selection.
-    let _loading_guard = transcription_manager
-        .try_start_loading()
-        .ok_or_else(|| "Model load already in progress".to_string())?;
+fn delete_model_with_loading_claim(
+    app_handle: &AppHandle,
+    model_id: &str,
+    _loading_guard: LoadingGuard,
+) -> Result<(), String> {
+    let model_manager = app_handle.state::<Arc<ModelManager>>();
+    let transcription_manager = app_handle.state::<Arc<TranscriptionManager>>();
+    let was_selected = get_settings(app_handle).selected_model == model_id;
 
-    let manager = Arc::clone(&transcription_manager);
-    let unload_id = model_id.clone();
-    let was_loaded = tauri::async_runtime::spawn_blocking(move || {
-        manager.unload_model_for_deletion(&unload_id)
-    })
-        .await
-        .map_err(|e| format!("Failed to unload model: {}", e))?
+    // A custom profile/file override can have a loaded model different from selected_model.
+    // Always use the existing safe unload before touching its files, retaining the lane
+    // through any rollback so no competing load or switch can replace restoration state.
+    let was_loaded = transcription_manager.unload_model_for_deletion(model_id)
         .map_err(|e| format!("Failed to unload model: {}", e))?;
 
-    let mut updated_settings = get_settings(&app_handle);
-    if updated_settings.selected_model != model_id {
-        return Err("Active model changed while deletion was starting".to_string());
+    if was_selected {
+        let mut updated_settings = get_settings(app_handle);
+        if updated_settings.selected_model != model_id {
+            return Err("Active model changed while deletion was starting".to_string());
+        }
+        updated_settings.selected_model = String::new();
+        write_settings(app_handle, updated_settings);
     }
-    updated_settings.selected_model = String::new();
-    write_settings(&app_handle, updated_settings);
 
-    if let Err(delete_error) = model_manager.delete_model(&model_id) {
-        let current_settings = get_settings(&app_handle);
-        if current_settings.selected_model.is_empty() {
+    if let Err(delete_error) = model_manager.delete_model(model_id) {
+        let current_settings = get_settings(app_handle);
+        if !was_selected || current_settings.selected_model.is_empty() {
             if was_loaded {
-                let manager = Arc::clone(&transcription_manager);
-                let restore_id = model_id.clone();
-                let reload = tauri::async_runtime::spawn_blocking(move || manager.load_model(&restore_id))
-                    .await
-                    .map_err(|e| format!("Failed to reload model: {}", e))?;
+                // This operation owns the deleting claim; rollback must bypass the
+                // public load path's rejection of other callers during deletion.
+                let reload = transcription_manager.restore_model_after_failed_deletion(model_id);
                 if let Err(reload_error) = reload {
-                    tray::refresh_tray_menu(&app_handle, None);
+                    tray::refresh_tray_menu(app_handle, None);
                     return Err(format!(
                         "Failed to delete model: {delete_error}. The model also failed to reload: {reload_error}"
                     ));
                 }
             }
 
-            let mut restored_settings = get_settings(&app_handle);
-            if restored_settings.selected_model.is_empty() {
-                restored_settings.selected_model = model_id.clone();
-                write_settings(&app_handle, restored_settings);
+            if was_selected {
+                let mut restored_settings = get_settings(app_handle);
+                if restored_settings.selected_model.is_empty() {
+                    restored_settings.selected_model = model_id.to_string();
+                    write_settings(app_handle, restored_settings);
+                }
             }
         }
 
-        tray::refresh_tray_menu(&app_handle, None);
+        tray::refresh_tray_menu(app_handle, None);
         return Err(delete_error.to_string());
     }
 
-    tray::refresh_tray_menu(&app_handle, None);
+    tray::refresh_tray_menu(app_handle, None);
     Ok(())
 }
 
@@ -187,6 +464,8 @@ pub async fn set_active_model(
     _transcription_manager: State<'_, Arc<TranscriptionManager>>,
     model_id: String,
 ) -> Result<(), String> {
+    // Cancel on receipt, before a busy blocking pool can postpone the selection worker.
+    cancel_pending_model_deletion_for_use(&app_handle, &model_id)?;
     tauri::async_runtime::spawn_blocking(move || switch_active_model(&app_handle, &model_id))
         .await
         .map_err(|error| format!("Failed to switch model: {}", error))?
@@ -196,9 +475,7 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
     let model_manager = app.state::<Arc<ModelManager>>();
     let transcription_manager = app.state::<Arc<TranscriptionManager>>();
 
-    let _loading_guard = transcription_manager
-        .try_start_loading()
-        .ok_or_else(|| "Model load already in progress".to_string())?;
+    let _loading_guard = claim_model_selection(app, model_id)?;
 
     let model_info = model_manager
         .get_model_info(model_id)

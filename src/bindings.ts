@@ -3366,6 +3366,20 @@ async deleteModel(modelId: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async scheduleModelDeletion(modelId: string) : Promise<Result<ModelDeletionSnapshot, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("schedule_model_deletion", { modelId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cancelModelDeletion(modelId: string, jobId: string) : Promise<ModelDeletionCancellation> {
+    return await TAURI_INVOKE("cancel_model_deletion", { modelId, jobId });
+},
+async getModelDeletionSnapshot() : Promise<ModelDeletionSnapshot> {
+    return await TAURI_INVOKE("get_model_deletion_snapshot");
+},
 async cancelDownload(modelId: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("cancel_download", { modelId }) };
@@ -4929,6 +4943,10 @@ export type LlmPostProcessBenchmarkResult = { timestamp_ms: number; provider_id:
 export type LocalTtsKind = "qwen" | "kokoro"
 export type LocalTtsStatus = { kind?: LocalTtsKind; installed: boolean; installing: boolean; phase: string; downloaded_bytes: number; total_bytes: number; percentage: number; runtime_profile: string; model_repository: string; model_revision: string; model_download_bytes: number; install_root?: string; installed_size_bytes?: number; estimated_install_bytes?: number; model_author?: string; model_source_url?: string; model_license_name?: string; model_license_url?: string; model_license_path?: string; model_license_declaration_path?: string; model_license_available?: boolean; error: string | null }
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
+export type ModelDeletionCancellation = { outcome: string; snapshot: ModelDeletionSnapshot }
+export type ModelDeletionChange = { model_id: string; job_id: string; status: string; error: string | null }
+export type ModelDeletionJob = { model_id: string; job_id: string; status: string; deadline_unix_ms: number; remaining_ms: number }
+export type ModelDeletionSnapshot = { revision: number; jobs: ModelDeletionJob[]; change: ModelDeletionChange | null }
 export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; sha256: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; supports_streaming: boolean; native_streaming_latency_kind: NativeStreamingLatencyKind | null; supports_language_detection: boolean; is_recommended: boolean; supported_languages: string[]; is_custom: boolean }
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_5"
 export type NativeRegionCaptureMode =

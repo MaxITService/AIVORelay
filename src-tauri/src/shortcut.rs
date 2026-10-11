@@ -5717,8 +5717,16 @@ pub fn change_active_profile_stt_model_selection_override(
     selection: settings::SttModelSelection,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
+    let local_model_id = (selection.provider == settings::TranscriptionProvider::Local)
+        .then(|| selection.model_id.trim().to_string());
     apply_active_profile_stt_model_selection_override(&mut settings, selection)?;
-    settings::write_settings(&app, settings);
+    if let Some(model_id) = local_model_id {
+        crate::commands::models::with_model_deletion_cancelled_for_selection(
+            &app, &model_id, || settings::write_settings(&app, settings),
+        )?;
+    } else {
+        settings::write_settings(&app, settings);
+    }
     Ok(())
 }
 

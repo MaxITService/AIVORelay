@@ -2040,6 +2040,17 @@
       "cpuWarning": "На CPU этот режим может отставать."
     },
     "deleteModel": "Удалить {{modelName}}",
+    "deletion": {
+      "undo": "Отменить",
+      "seconds": "{{count}}с",
+      "undoModel": "Отменить удаление {{modelName}}",
+      "deleting": "Удаление…",
+      "deletingModel": "Удаляется {{modelName}}",
+      "failed": "Не удалось удалить модель.",
+      "cancelFailed": "Не удалось отменить удаление модели.",
+      "tooLate": "Удаление уже началось или завершилось. Отменить его больше нельзя.",
+      "syncFailed": "Не удалось получить список ожидающих удаления моделей."
+    },
     "custom": "Custom",
     "customModelsHelpTitle": "Custom Whisper Models",
     "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
