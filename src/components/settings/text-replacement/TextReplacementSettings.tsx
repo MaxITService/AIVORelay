@@ -39,6 +39,7 @@ import { getShortcutAnchorId } from "@/lib/shortcutAnchors";
 import { getActiveProfilePostProcessingEnabled } from "@/lib/postProcessingAvailability";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { TextReplacementImportDialog } from "./TextReplacementImportDialog";
+import { TextReplacementPlayground } from "./TextReplacementPlayground";
 import {
   getVisibleTextReplacementRules,
   TEXT_REPLACEMENT_SORT_ORDERS,
@@ -1818,6 +1819,11 @@ export const TextReplacementSettings: React.FC = () => {
             </p>
           </div>
         )}
+        <TextReplacementPlayground
+          rules={replacements}
+          enabled={isEnabled}
+          rulesBusy={isUpdating("text_replacements")}
+        />
       </SettingsGroup>
 
       {/* Speech Clean-up Group */}

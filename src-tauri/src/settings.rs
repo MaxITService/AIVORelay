@@ -1010,10 +1010,21 @@ fn replace_case_insensitive_literal(text: &str, from: &str, to: &str) -> String 
 
 /// Applies all enabled text replacement rules to the given text.
 pub fn apply_text_replacements(text: &str, replacements: &[TextReplacement]) -> String {
+    walk_text_replacements(text, replacements, |_, _, _, _| {})
+}
+
+/// Runs the same ordered replacement pass while optionally observing each rule.
+pub(crate) fn walk_text_replacements(
+    text: &str,
+    replacements: &[TextReplacement],
+    mut observe: impl FnMut(usize, &TextReplacement, &str, &str),
+) -> String {
     let mut result = text.to_string();
-    for replacement in replacements {
+    for (index, replacement) in replacements.iter().enumerate() {
         if replacement.enabled {
-            result = replacement.apply(&result);
+            let next = replacement.apply(&result);
+            observe(index, replacement, &result, &next);
+            result = next;
         }
     }
     result

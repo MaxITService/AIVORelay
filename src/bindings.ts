@@ -2431,6 +2431,17 @@ async changeTextReplacementsSetting(replacements: TextReplacement[]) : Promise<R
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Preview only the replacement pass, using the rules currently shown in Settings.
+ */
+async previewTextReplacements(text: string, replacements: TextReplacement[]) : Promise<Result<TextReplacementPlaygroundResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("preview_text_replacements", { text, replacements }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeTextReplacementsBeforeLlmSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_text_replacements_before_llm_setting", { enabled }) };
@@ -5147,6 +5158,7 @@ case_sensitive?: boolean;
  * Whether the 'from' field is a regular expression (default: false)
  */
 is_regex?: boolean }
+export type TextReplacementPlaygroundResult = { final_text: string; changed_rule_indices: number[]; invalid_regex_indices: number[] }
 /**
  * A custom transcription profile with its own language and translation settings.
  * Each profile creates a separate shortcut binding (e.g., "transcribe_profile_abc123").
