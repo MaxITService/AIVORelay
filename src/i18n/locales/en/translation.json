@@ -1831,6 +1831,13 @@
     "remoteApiActive": "Remote API",
     "remoteSonioxActive": "Remote Soniox",
     "remoteDeepgramActive": "Remote Deepgram",
+    "modelSelectionProfile": {
+      "prefix": "Model for profile:",
+      "compactPrefix": "For profile:",
+      "title": "Model for profile: {{profile}}",
+      "customDescription": "Model choices here apply to this profile.",
+      "defaultDescription": "Changing the Default model also changes profiles without their own model selection."
+    },
     "profileSettingsNotice": {
       "title": "This model has additional settings in transcription profiles",
       "description": "Check <profileLink>Speech / Mic</profileLink> → Manage Profiles. Profile settings override or extend the model settings shown here.",

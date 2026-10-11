@@ -742,6 +742,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         {modelDropdownPresence.isMounted && (
           <ModelDropdown
             presenceState={modelDropdownPresence.state}
+            onProfileNavigate={() => setShowModelDropdown(false)}
             models={models}
             currentModelId={effectiveModelId}
             downloadProgress={modelDownloadProgress}

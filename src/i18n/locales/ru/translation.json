@@ -1981,6 +1981,13 @@
     "remoteApiActive": "Remote API",
     "remoteSonioxActive": "Remote Soniox",
     "remoteDeepgramActive": "Remote Deepgram",
+    "modelSelectionProfile": {
+      "prefix": "Модель для профиля:",
+      "compactPrefix": "Для профиля:",
+      "title": "Модель для профиля: {{profile}}",
+      "customDescription": "Выбор модели здесь применяется к этому профилю.",
+      "defaultDescription": "Изменение модели профиля по умолчанию также затрагивает профили без собственного выбора модели."
+    },
     "profileSettingsNotice": {
       "title": "У этой модели есть дополнительные настройки в профилях транскрипции",
       "description": "Проверьте <profileLink>Speech / Mic</profileLink> → Manage Profiles. Настройки профиля переопределяют или дополняют параметры модели на этой странице.",
