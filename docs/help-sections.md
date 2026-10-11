@@ -14,6 +14,8 @@ history, and control how the app behaves.
 Transcription is the name for turning speech into text. A local model works on
 this computer. A cloud provider processes the recording online.
 
+To find a setting, use the search above the sidebar and click a result.
+
 ## Smart Help
 
 Smart Help gives beginners five direct starting points:
@@ -48,9 +50,11 @@ button for the related settings page.
 
 ## 1. Press a key. Speak. Text appears.
 
-Set a microphone and shortcut in **Speech / Mic**. Choose where speech becomes
-text in **Models**: a local model works on this computer, while a cloud provider
-works online.
+In **Speech / Mic**, choose your microphone, then open **Default (Global)** to
+set a model and shortcut. Press the shortcut and speak. For another setup, click
+**Create New Profile**. In a profile, open **More → Choose how to handle the clipboard,
+insert text, and press keys before and after insertion**. Set **Before insertion** to open chat and
+**After insertion** to send text.
 
 ### Choose a local model or cloud provider.
 
@@ -207,15 +211,17 @@ page.
 
 ## 11. Find your previous transcriptions.
 
-**History** keeps previous transcriptions and recordings. Open it when you want
-to find an older result.
+In **History**, type in **Search transcriptions** to find saved text; matches are
+highlighted. To recognize a saved recording again with your active profile, click
+its circular-arrow button (**Re-transcribe**). Live models work too.
 
 Console commands: no direct command is documented for transcription History.
 
 ## 12. Choose how results appear.
 
-**User Interface** controls how the overlay and results look. These settings
-change what you see while using AivoRelay.
+Open **User Interface → Recording Overlay → Preset Packs** and click a preset to
+change the recording indicator. You can also save your own style and export or
+import it.
 
 Console commands: no direct command is documented for this page.
 

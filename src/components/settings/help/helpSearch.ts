@@ -16,9 +16,9 @@ const HELP_SEARCH_RECORDS: readonly HelpSearchRecord[] = [
     anchor: "help-transcription",
     title: "Press a key. Speak. Text appears.",
     summary:
-      "Set a microphone and shortcut in Speech / Mic. Choose where speech becomes text in Models: a local model works on this computer, while a cloud provider works online.",
+      "In Speech / Mic, choose your microphone, then open Default (Global) to set a model and shortcut. Press the shortcut and speak. For another setup, click Create New Profile. In a profile, open More → Choose how to handle the clipboard, insert text, and press keys before and after insertion. Set Before insertion to open chat and After insertion to send text.",
     destination: "Speech / Mic",
-    keywords: ["speech", "mic", "microphone", "shortcut", "dictation", "voice"],
+    keywords: ["speech", "mic", "microphone", "shortcut", "dictation", "voice", "profile", "text output", "before insertion", "after insertion", "профиль", "вывод текста"],
   },
   {
     anchor: "help-models",
@@ -190,17 +190,17 @@ const HELP_SEARCH_RECORDS: readonly HelpSearchRecord[] = [
     anchor: "help-history",
     title: "Find your previous transcriptions.",
     summary:
-      "History keeps previous transcriptions and recordings. Open it when you want to find an older result.",
+      "In History, type in Search transcriptions to find saved text; matches are highlighted. To recognize a saved recording again with your active profile, click its circular-arrow button (Re-transcribe). Live models work too.",
     destination: "History",
-    keywords: ["history", "previous", "recording", "transcription", "search"],
+    keywords: ["history", "previous", "recording", "transcription", "search", "re-transcribe", "live replay", "история", "поиск", "перетранскрибировать"],
   },
   {
     anchor: "help-user-interface",
     title: "Choose how results appear.",
     summary:
-      "Choose how the overlay and results look. These settings change what you see while using AivoRelay.",
+      "Open User Interface → Recording Overlay → Preset Packs and click a preset to change the recording indicator. You can also save your own style and export or import it.",
     destination: "User Interface",
-    keywords: ["UI", "interface", "overlay", "preview", "appearance"],
+    keywords: ["UI", "interface", "overlay", "preview", "appearance", "preset", "export", "import", "пресет"],
   },
   {
     anchor: "help-debug",

@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "../../ui/Button";
 import { useNavigationStore } from "../../../stores/navigationStore";
-import { scrollAndFocusAnchor } from "../../../lib/anchorNavigation";
+import { navigateToSettingsAnchor, scrollAndFocusAnchor } from "../../../lib/anchorNavigation";
 import {
   HELP_SECTIONS,
   type HelpSectionDefinition,
@@ -63,14 +63,10 @@ const SMART_HELP_ACTIONS = [
 ] as const;
 
 const WHATS_NEW_ITEMS = [
-  "help.whatsNew.items.localReliability",
-  "help.whatsNew.items.modelLoading",
-  "help.whatsNew.items.chineseScript",
-  "help.whatsNew.items.sonioxConnection",
-  "help.whatsNew.items.customSounds",
-  "help.whatsNew.items.legacyModels",
-  "help.whatsNew.items.trayErrors",
-  "help.whatsNew.items.defaultSettings",
+  { key: "help.whatsNew.items.profileOutput", destination: "general", anchor: "profile-output-default" },
+  { key: "help.whatsNew.items.historySearch", destination: "history" },
+  { key: "help.whatsNew.items.chineseScript", destination: "general", anchor: "settings-chinese-script-default" },
+  { key: "help.whatsNew.items.localReliability", destination: "models" },
 ] as const;
 
 export const HelpSettings: React.FC = () => {
@@ -716,13 +712,31 @@ export const HelpSettings: React.FC = () => {
           </div>
         </div>
         <ul className="mt-4 space-y-2 pl-7 text-sm leading-relaxed text-[#b8b8b8]">
-          {WHATS_NEW_ITEMS.map((itemKey) => (
-            <li key={itemKey} className="relative pl-4">
+          {WHATS_NEW_ITEMS.map((item) => (
+            <li key={item.key} className="relative pl-4">
               <span
                 aria-hidden="true"
                 className="absolute left-0 top-[0.65em] h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-[#ff4d8d]"
               />
-              {t(itemKey)}
+              <a
+                href={`#${item.destination}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  if ("anchor" in item) {
+                    navigateToSettingsAnchor({
+                      activateSection: () => setSection(item.destination),
+                      targetId: item.anchor,
+                      readyId: "transcription-profile-default",
+                      expandId: "transcription-profile-default",
+                    });
+                  } else {
+                    setSection(item.destination);
+                  }
+                }}
+                className="rounded-sm underline decoration-[#707070] underline-offset-4 hover:text-[#ffb3c9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/60"
+              >
+                {t(item.key)}
+              </a>
             </li>
           ))}
         </ul>
