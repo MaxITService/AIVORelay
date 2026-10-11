@@ -3813,6 +3813,7 @@ pub fn change_transcription_output_settings(
         // The fields above live on AppSettings; keep only Default-only values
         // here so no stale copy can diverge from the saved global settings.
         settings.transcription_output_defaults = settings::ProfileOutputSettings {
+            check_active_window: output.check_active_window,
             before_insert_key: output.before_insert_key,
             before_insert_delay_ms: output.before_insert_delay_ms,
             auto_submit_delay_ms: output.auto_submit_delay_ms,

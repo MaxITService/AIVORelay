@@ -33,6 +33,7 @@ export const ProfileOutputSettings: React.FC<Props> = ({ profileId, overrides = 
     clipboard_history_allowed: settings?.clipboard_history_allowed ?? true,
     convert_lf_to_crlf: settings?.convert_lf_to_crlf ?? true,
     paste_delay_ms: settings?.paste_delay_ms ?? 60,
+    check_active_window: settings?.transcription_output_defaults?.check_active_window ?? true,
     auto_submit: settings?.auto_submit ?? false,
     auto_submit_key: settings?.auto_submit_key ?? "enter",
     before_insert_key: settings?.transcription_output_defaults?.before_insert_key ?? "",
@@ -180,6 +181,9 @@ export const ProfileOutputSettings: React.FC<Props> = ({ profileId, overrides = 
         {(openingKey !== "" || submitEnabled) && method !== "none" && <p className="px-3 pb-3 text-xs text-mid-gray">{t("profileOutput.bufferedHelp")}</p>}
         <details id={`profile-output-${profileId}-more`} tabIndex={-1} className="mx-3 mb-3 border-t border-mid-gray/15">
           <summary className="py-2 text-xs text-mid-gray cursor-pointer">{t("profileOutput.more")}</summary>
+          {osType === "windows" && <SettingContainer id={`profile-output-${profileId}-check_active_window`} title={t("profileOutput.checkActiveWindow")} description={t("profileOutput.checkActiveWindowHelp")} descriptionMode="tooltip" grouped={true}>
+            <Dropdown options={options(booleanChoices, choiceLabel(booleanChoices, String(defaults.check_active_window)))} selectedValue={ownValue("check_active_window")} disabled={busy || method === "none"} onSelect={value => void save({ check_active_window: value === "inherit" ? null : value === "true" })} />
+          </SettingContainer>}
           {usesClipboard && delay("paste_delay_ms", t("profileOutput.pasteDelay"))}
           {openingKey !== "" && delay("before_insert_delay_ms", t("profileOutput.openDelay"))}
           {submitEnabled && delay("auto_submit_delay_ms", t("profileOutput.submitDelay"))}

@@ -29,6 +29,7 @@ struct StreamingPasteSession {
     paste_method: PasteMethod,
     clipboard_handling: ClipboardHandling,
     paste_delay_ms: u64,
+    check_active_window: bool,
     convert_lf_to_crlf: bool,
     exclude_final_from_history: bool,
     text_backup: String,
@@ -944,6 +945,26 @@ fn restore_streaming_session(
     restore_streaming_session_backup(session, app_handle)
 }
 
+fn delivery_after_clipboard_cleanup(
+    delivery: Result<bool, String>,
+    cleanup: Result<(), String>,
+    report_cleanup_error: impl FnOnce(&str),
+) -> Result<bool, String> {
+    if let Err(error) = cleanup {
+        report_cleanup_error(&error);
+    }
+    delivery
+}
+
+fn streaming_delivery_succeeded(
+    delivered: bool,
+    failed: bool,
+    paste_method: PasteMethod,
+    can_continue: bool,
+) -> bool {
+    !failed && (delivered || paste_method == PasteMethod::None) && can_continue
+}
+
 pub fn begin_streaming_paste_session(
     app_handle: &AppHandle,
     operation_id: u64,
@@ -1022,6 +1043,7 @@ pub fn begin_streaming_paste_session(
         paste_method: settings.paste_method,
         clipboard_handling: settings.clipboard_handling,
         paste_delay_ms: settings.paste_delay_ms,
+        check_active_window: settings.check_active_window,
         convert_lf_to_crlf: settings.convert_lf_to_crlf,
         exclude_final_from_history: exclude_final_write_from_history(&settings),
         text_backup,
@@ -1225,28 +1247,36 @@ fn paste_via_clipboard_guarded(
     // Restore clipboard based on handling mode.
     #[cfg(target_os = "windows")]
     if let Some(backup) = advanced_backup {
-        restore_advanced_clipboard_with_text_fallback(
+        let restore_result = restore_advanced_clipboard_with_text_fallback(
             app_handle,
             backup,
             &text_backup,
             uses_documented_clipboard_owner(clipboard_handling),
             None,
-        )?;
-        return paste_result.map(|sent_at| sent_at.is_some());
+        );
+        return delivery_after_clipboard_cleanup(
+            paste_result.map(|sent_at| sent_at.is_some()), restore_result,
+            |error| warn!("Clipboard restoration failed after paste attempt: {}", error),
+        );
     }
 
     // Text-only restore for RestorePlainText and as the fallback when an advanced
     // backup could not be created (including non-Windows platforms).
-    if matches!(
+    let restore_result = if matches!(
         clipboard_handling,
         ClipboardHandling::RestorePlainText
             | ClipboardHandling::RestoreAdvanced
             | ClipboardHandling::RestoreAdvancedOwned
     ) {
-        restore_plain_text_without_history(app_handle, &text_backup)?;
-    }
+        restore_plain_text_without_history(app_handle, &text_backup)
+    } else {
+        Ok(())
+    };
 
-    paste_result.map(|sent_at| sent_at.is_some())
+    delivery_after_clipboard_cleanup(
+        paste_result.map(|sent_at| sent_at.is_some()), restore_result,
+        |error| warn!("Clipboard restoration failed after paste attempt: {}", error),
+    )
 }
 
 /// Attempts to send a key combination using Linux-native tools.
@@ -1583,6 +1613,14 @@ fn output_target_is_current(target_window: Option<usize>, current_window: Option
         && target_window == current_window
 }
 
+fn output_target_allows_delivery(
+    check_active_window: bool,
+    target_window: Option<usize>,
+    current_window: impl FnOnce() -> Option<usize>,
+) -> bool {
+    !check_active_window || output_target_is_current(target_window, current_window())
+}
+
 fn wait_for_output_delay(delay_ms: u64, can_continue: &impl Fn() -> bool) -> bool {
     let deadline = Instant::now() + Duration::from_millis(delay_ms.min(5000));
     while Instant::now() < deadline {
@@ -1734,10 +1772,13 @@ pub(crate) fn complete_dictation_output(
     }
     // A failed chunk leaves the target incomplete. Still publish the complete
     // transcript so the clipboard/history fallback holds the full text.
-    finalize_streaming_paste_session_if_matches(app, operation_id, final_text)?;
-    Ok(!failed
-        && (delivered || settings.paste_method == PasteMethod::None)
-        && can_continue())
+    let cleanup_result = finalize_streaming_paste_session_if_matches(app, operation_id, final_text)
+        .map(|_| ());
+    let delivered_to_target = streaming_delivery_succeeded(
+        delivered, failed, settings.paste_method, can_continue());
+    delivery_after_clipboard_cleanup(Ok(delivered_to_target), cleanup_result, |error| {
+        warn!("Streaming dictation final clipboard update or restoration failed after chunk delivery: {}", error);
+    })
 }
 
 pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
@@ -1805,8 +1846,9 @@ pub(crate) fn paste_with_output_settings(
         .lock()
         .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
 
-    let target_window = output_foreground_window();
-    let target_is_current = || output_target_is_current(target_window, output_foreground_window());
+    let target_window = settings.check_active_window.then(output_foreground_window).flatten();
+    let target_is_current = || output_target_allows_delivery(
+        settings.check_active_window, target_window, output_foreground_window);
     let output_can_continue = || can_continue() && target_is_current();
     if !settings.before_insert_key.is_empty() {
         if !output_can_continue() { return Ok(false); }
@@ -1923,9 +1965,20 @@ fn paste_stream_chunk_with_output(
                 session.paste_method,
                 session.paste_delay_ms,
                 session.convert_lf_to_crlf,
+                session.check_active_window,
             )
         });
 
+    let fallback_settings = active_stream_config.is_none().then(|| {
+        output.cloned()
+            .unwrap_or_else(|| ResolvedOutputSettings::resolve(&get_settings(&app_handle), None))
+    });
+    if active_stream_config.as_ref().is_some_and(|(method, _, _, _)| *method == PasteMethod::None)
+        || fallback_settings.as_ref().is_some_and(|settings| settings.paste_method == PasteMethod::None)
+    {
+        info!("PasteMethod::None selected - skipping streaming chunk paste");
+        return Ok(());
+    }
     let enigo_state = app_handle
         .try_state::<EnigoState>()
         .ok_or("Enigo state not initialized")?;
@@ -1934,13 +1987,17 @@ fn paste_stream_chunk_with_output(
         .lock()
         .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
 
-    let target_window = output_foreground_window();
-    let target_is_current = || output_target_is_current(target_window, output_foreground_window());
+    let check_active_window = active_stream_config.as_ref()
+        .map(|(_, _, _, check_active_window)| *check_active_window)
+        .unwrap_or_else(|| fallback_settings.as_ref().map_or(true, |settings| settings.check_active_window));
+    let target_window = check_active_window.then(output_foreground_window).flatten();
+    let target_is_current = || output_target_allows_delivery(
+        check_active_window, target_window, output_foreground_window);
     if !target_is_current() {
         return Err("Streaming paste was interrupted because the target window changed".to_string());
     }
 
-    if let Some((paste_method, paste_delay_ms, convert_lf_to_crlf)) = active_stream_config {
+    if let Some((paste_method, paste_delay_ms, convert_lf_to_crlf, _)) = active_stream_config {
         match paste_method {
             PasteMethod::None => {
                 info!("PasteMethod::None selected - skipping streaming chunk paste");
@@ -1984,10 +2041,8 @@ fn paste_stream_chunk_with_output(
                 }
             }
         }
-    } else {
+    } else if let Some(settings) = fallback_settings {
         // No active streaming session: preserve safe fallback behavior.
-        let settings = output.cloned()
-            .unwrap_or_else(|| ResolvedOutputSettings::resolve(&get_settings(&app_handle), None));
         match settings.paste_method {
             PasteMethod::None => {
                 info!("PasteMethod::None selected - skipping streaming chunk paste");
@@ -2196,6 +2251,70 @@ mod tests {
     use super::*;
 
     #[test]
+    fn delivered_paste_keeps_success_when_clipboard_cleanup_fails() {
+        let mut warnings = Vec::new();
+        let result = delivery_after_clipboard_cleanup(
+            Ok(true), Err("clipboard restoration failed".to_string()),
+            |error| warnings.push(error.to_string()),
+        );
+        assert_eq!(result, Ok(true));
+        assert_eq!(warnings, vec!["clipboard restoration failed".to_string()]);
+    }
+
+    #[test]
+    fn failed_paste_keeps_its_delivery_error_when_clipboard_cleanup_fails() {
+        let mut warnings = Vec::new();
+        let result = delivery_after_clipboard_cleanup(
+            Err("paste shortcut failed".to_string()),
+            Err("clipboard restoration failed".to_string()),
+            |error| warnings.push(error.to_string()),
+        );
+        assert_eq!(result, Err("paste shortcut failed".to_string()));
+        assert_eq!(warnings, vec!["clipboard restoration failed".to_string()]);
+    }
+
+    #[test]
+    fn cancelled_paste_stays_cancelled_when_clipboard_cleanup_fails() {
+        let mut warnings = Vec::new();
+        let result = delivery_after_clipboard_cleanup(
+            Ok(false), Err("clipboard restoration failed".to_string()),
+            |error| warnings.push(error.to_string()),
+        );
+        assert_eq!(result, Ok(false));
+        assert_eq!(warnings, vec!["clipboard restoration failed".to_string()]);
+    }
+
+    #[test]
+    fn failed_or_partial_streaming_delivery_stays_failed_after_cleanup_error() {
+        for (delivered, failed, can_continue) in
+            [(false, false, true), (true, true, true), (true, false, false)]
+        {
+            let mut warnings = Vec::new();
+            let delivery = streaming_delivery_succeeded(
+                delivered, failed, PasteMethod::CtrlV, can_continue);
+            let result = delivery_after_clipboard_cleanup(
+                Ok(delivery), Err("final clipboard write failed".to_string()),
+                |error| warnings.push(error.to_string()),
+            );
+            assert_eq!(result, Ok(false));
+            assert_eq!(warnings, vec!["final clipboard write failed".to_string()]);
+        }
+        assert!(!streaming_delivery_succeeded(false, true, PasteMethod::None, true));
+    }
+
+    #[test]
+    fn completed_streaming_delivery_stays_successful_after_cleanup_error() {
+        let delivery = streaming_delivery_succeeded(true, false, PasteMethod::CtrlV, true);
+        let mut warnings = Vec::new();
+        let result = delivery_after_clipboard_cleanup(
+            Ok(delivery), Err("final clipboard write failed".to_string()),
+            |error| warnings.push(error.to_string()),
+        );
+        assert_eq!(result, Ok(true));
+        assert_eq!(warnings, vec!["final clipboard write failed".to_string()]);
+    }
+
+    #[test]
     fn finishing_dictation_output_removes_buffered_configuration_once() {
         let mut settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
         settings.before_insert_key = "enter".to_string();
@@ -2321,6 +2440,33 @@ mod tests {
             checks.get() < 3
         }));
         assert_eq!(checks.get(), 3);
+    }
+
+    #[test]
+    fn output_target_guard_does_not_query_windows_when_disabled() {
+        for target in [None, Some(1)] {
+            assert!(output_target_allows_delivery(false, target,
+                || panic!("Disabled window check must not query Windows")));
+        }
+    }
+
+    #[test]
+    fn output_target_guard_rejects_changed_and_missing_windows() {
+        assert!(output_target_allows_delivery(true, Some(1), || Some(1)));
+        assert!(!output_target_allows_delivery(true, Some(1), || Some(2)));
+        assert!(!output_target_allows_delivery(true, Some(1), || None));
+        assert_eq!(output_target_allows_delivery(true, None, || None), !cfg!(target_os = "windows"));
+    }
+
+    #[test]
+    fn output_target_guard_interrupts_delay_if_windows_loses_focus() {
+        let current_window = std::cell::Cell::new(Some(1));
+        assert!(!wait_for_output_delay(5000, &|| {
+            output_target_allows_delivery(true, Some(1), || current_window.replace(None))
+        }));
+        assert!(wait_for_output_delay(0, &|| {
+            output_target_allows_delivery(false, Some(1), || panic!("Window checking is disabled"))
+        }));
     }
 
     #[test]
