@@ -13,6 +13,52 @@ interface ChineseScriptProps {
   profileId?: string;
 }
 
+export interface ChineseScriptFieldsProps {
+  scopeKey: string;
+  value: ChineseScript | null;
+  allowInherit: boolean;
+  disabled?: boolean;
+  onChange: (value: ChineseScript | null) => void | Promise<void>;
+  descriptionMode?: "inline" | "tooltip";
+  grouped?: boolean;
+}
+
+export const ChineseScriptFields: React.FC<ChineseScriptFieldsProps> = ({
+  scopeKey, value, allowInherit, disabled = false, onChange,
+  descriptionMode = "tooltip", grouped = false,
+}) => {
+  const { t } = useTranslation();
+  const options = [
+    ...(allowInherit ? [{ value: "inherit", label: t("settings.advanced.chineseScript.options.inherit", "Use global setting") }] : []),
+    { value: "as_transcribed", label: t("settings.advanced.chineseScript.options.asTranscribed") },
+    { value: "simplified", label: t("settings.advanced.chineseScript.options.simplified") },
+    { value: "traditional", label: t("settings.advanced.chineseScript.options.traditional") },
+  ];
+  const change = async (nextValue: string) => {
+    if (disabled) return;
+    try {
+      await onChange(nextValue === "inherit" ? null : nextValue as ChineseScript);
+    } catch (error) {
+      toast.error(t("settings.advanced.chineseScript.saveFailed", "Could not save Chinese output script."), {
+        description: String(error),
+      });
+    }
+  };
+  return (
+    <SettingContainer
+      id={`settings-chinese-script-${scopeKey}`}
+      title={t("settings.advanced.chineseScript.title")}
+      description={t("settings.advanced.chineseScript.description")}
+      descriptionMode={descriptionMode}
+      grouped={grouped}
+    >
+      <Dropdown options={options} selectedValue={value ?? (allowInherit ? "inherit" : "as_transcribed")}
+        onSelect={(nextValue) => void change(nextValue)}
+        disabled={disabled} />
+    </SettingContainer>
+  );
+};
+
 export const ChineseScriptSetting: React.FC<ChineseScriptProps> = React.memo(
   ({ descriptionMode = "tooltip", grouped = false, profileId }) => {
     const { t } = useTranslation();
@@ -21,22 +67,17 @@ export const ChineseScriptSetting: React.FC<ChineseScriptProps> = React.memo(
     const profile = settings?.transcription_profiles?.find((item) => item.id === profileId) as
       | { chinese_script?: ChineseScript | null }
       | undefined;
-    const options = [
-      ...(profileId ? [{ value: "inherit", label: t("settings.advanced.chineseScript.options.inherit", "Use global setting") }] : []),
-      { value: "as_transcribed", label: t("settings.advanced.chineseScript.options.asTranscribed") },
-      { value: "simplified", label: t("settings.advanced.chineseScript.options.simplified") },
-      { value: "traditional", label: t("settings.advanced.chineseScript.options.traditional") },
-    ];
-    const selectedScript = profileId ? profile?.chinese_script ?? "inherit" : settings?.chinese_script ?? "as_transcribed";
-    const save = async (value: string) => {
+    const selectedScript = profileId ? profile?.chinese_script ?? null : settings?.chinese_script ?? "as_transcribed";
+    const save = async (value: ChineseScript | null) => {
+      if (saving || isUpdating("chinese_script")) return;
       if (!profileId) {
-        await updateSetting("chinese_script", value as ChineseScript);
+        await updateSetting("chinese_script", value ?? "as_transcribed");
         return;
       }
       setSaving(true);
       try {
         await invoke("change_chinese_script_setting", {
-          script: value === "inherit" ? null : value,
+          script: value,
           profileId,
         });
         await refreshSettings();
@@ -49,17 +90,15 @@ export const ChineseScriptSetting: React.FC<ChineseScriptProps> = React.memo(
       }
     };
     return (
-      <SettingContainer
-        id={`settings-chinese-script-${profileId ?? "default"}`}
-        title={t("settings.advanced.chineseScript.title")}
-        description={t("settings.advanced.chineseScript.description")}
+      <ChineseScriptFields
+        scopeKey={profileId ?? "default"}
+        value={selectedScript}
+        allowInherit={!!profileId}
         descriptionMode={descriptionMode}
         grouped={grouped}
-      >
-        <Dropdown options={options} selectedValue={selectedScript}
-          onSelect={(value) => void save(value)}
-          disabled={saving || isUpdating("chinese_script")} />
-      </SettingContainer>
+        onChange={save}
+        disabled={saving || isUpdating("chinese_script")}
+      />
     );
   },
 );

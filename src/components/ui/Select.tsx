@@ -18,6 +18,7 @@ export type SelectOption = {
 };
 
 type BaseProps = {
+  inputId?: string;
   value: string | null;
   options: SelectOption[];
   placeholder?: string;
@@ -152,6 +153,7 @@ const selectStyles: StylesConfig<
 
 export const Select: React.FC<SelectProps> = React.memo(
   ({
+    inputId,
     value,
     options,
     placeholder,
@@ -202,6 +204,7 @@ export const Select: React.FC<SelectProps> = React.memo(
       ReactSelectProps<SelectOption, false, GroupBase<SelectOption>>
     > = {
       className,
+      inputId,
       classNamePrefix: "app-select",
       value: selectValue,
       options: groupedOptions,

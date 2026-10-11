@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { TellMeMore } from "../ui/TellMeMore";
@@ -139,6 +139,9 @@ function computeContextSize(
   return JSON.stringify(payload).length;
 }
 
+export const isSonioxContextValid = (generalJson: string, text: string, terms: string[]): boolean =>
+  parseGeneralJson(generalJson).valid && computeContextSize(generalJson, text, terms.join("\n")) <= SONIOX_CONTEXT_MAX_CHARS;
+
 function statusClassName(status: "empty" | "valid" | "invalid"): string {
   if (status === "valid") return "text-green-400 border-green-500/40";
   if (status === "invalid") return "text-red-400 border-red-500/40";
@@ -159,9 +162,15 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
   onDraftTermsChange,
 }) => {
   const { t } = useTranslation();
-  const [generalDraft, setGeneralDraft] = useState(generalJson || "");
-  const [textDraft, setTextDraft] = useState(text || "");
-  const [termsDraft, setTermsDraft] = useState((terms || []).join("\n"));
+  const [generalDraft, setGeneralDraft] = useWindowState(`${stateKey}-general-draft`, generalJson || "");
+  const [generalBaseline, setGeneralBaseline] = useWindowState(`${stateKey}-general-baseline`, generalJson || "");
+  const generalDirtyRef = useRef(generalDraft !== generalBaseline);
+  const [textDraft, setTextDraft] = useWindowState(`${stateKey}-text-draft`, text || "");
+  const [textBaseline, setTextBaseline] = useWindowState(`${stateKey}-text-baseline`, text || "");
+  const textDirtyRef = useRef(textDraft !== textBaseline);
+  const [termsDraft, setTermsDraft] = useWindowState(`${stateKey}-terms-draft`, (terms || []).join("\n"));
+  const [termsBaseline, setTermsBaseline] = useWindowState(`${stateKey}-terms-baseline`, (terms || []).join("\n"));
+  const termsDirtyRef = useRef(termsDraft !== termsBaseline);
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [textError, setTextError] = useState<string | null>(null);
   const [termsError, setTermsError] = useState<string | null>(null);
@@ -170,13 +179,16 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
   const [openTerms, setOpenTerms] = useWindowState(`${stateKey}-terms`, false);
 
   useEffect(() => {
-    setGeneralDraft(generalJson || "");
+    if (!generalDirtyRef.current) setGeneralDraft(generalJson || "");
+    setGeneralBaseline(generalJson || "");
   }, [generalJson]);
   useEffect(() => {
-    setTextDraft(text || "");
+    if (!textDirtyRef.current) setTextDraft(text || "");
+    setTextBaseline(text || "");
   }, [text]);
   useEffect(() => {
-    setTermsDraft((terms || []).join("\n"));
+    if (!termsDirtyRef.current) setTermsDraft((terms || []).join("\n"));
+    setTermsBaseline((terms || []).join("\n"));
   }, [terms]);
 
   const generalValidation = useMemo(
@@ -233,9 +245,10 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
       return;
     }
     const next = value.trim();
-    if (next === (generalJson || "").trim()) return;
+    if (next === (generalJson || "").trim()) { generalDirtyRef.current = false; return; }
     try {
       await onCommitGeneralJson(next);
+      generalDirtyRef.current = false;
     } catch (error) {
       setGeneralError(
         error instanceof Error
@@ -257,9 +270,10 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
       return;
     }
     const next = value.trim();
-    if (next === (text || "").trim()) return;
+    if (next === (text || "").trim()) { textDirtyRef.current = false; return; }
     try {
       await onCommitText(next);
+      textDirtyRef.current = false;
     } catch (error) {
       setTextError(
         error instanceof Error
@@ -286,10 +300,12 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
       previous.length === nextTerms.length &&
       previous.every((term, idx) => term === nextTerms[idx])
     ) {
+      termsDirtyRef.current = false;
       return;
     }
     try {
       await onCommitTerms(nextTerms);
+      termsDirtyRef.current = false;
     } catch (error) {
       setTermsError(
         error instanceof Error
@@ -368,6 +384,7 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
               value={generalDraft}
               onChange={(e) => {
                 const nextValue = e.target.value;
+                generalDirtyRef.current = true;
                 setGeneralDraft(nextValue);
                 onDraftGeneralJsonChange?.(nextValue);
               }}
@@ -388,6 +405,7 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
                 return sizeErrorFor(value, textDraft, termsDraft);
               }}
               onOpen={async (value) => {
+                generalDirtyRef.current = true;
                 setGeneralDraft(value);
                 onDraftGeneralJsonChange?.(value);
                 await commitGeneral(value);
@@ -477,6 +495,7 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
               value={textDraft}
               onChange={(e) => {
                 const nextValue = e.target.value;
+                textDirtyRef.current = true;
                 setTextDraft(nextValue);
                 onDraftTextChange?.(nextValue);
               }}
@@ -495,6 +514,7 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
               disabled={disabled}
               validate={(value) => sizeErrorFor(generalDraft, value, termsDraft)}
               onOpen={async (value) => {
+                textDirtyRef.current = true;
                 setTextDraft(value);
                 onDraftTextChange?.(value);
                 await commitText(value);
@@ -564,6 +584,7 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
               value={termsDraft}
               onChange={(e) => {
                 const nextValue = e.target.value;
+                termsDirtyRef.current = true;
                 setTermsDraft(nextValue);
                 onDraftTermsChange?.(normalizeTerms(nextValue));
               }}
@@ -586,7 +607,8 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
                 disabled={disabled}
                 validate={(value) => sizeErrorFor(generalDraft, textDraft, value)}
                 onOpen={async (value) => {
-                  setTermsDraft(value);
+                  termsDirtyRef.current = true;
+                setTermsDraft(value);
                   onDraftTermsChange?.(normalizeTerms(value));
                   await commitTerms(value);
                 }}
