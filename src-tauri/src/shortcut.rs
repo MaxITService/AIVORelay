@@ -7524,6 +7524,55 @@ fn unregister_shortcut_via_rdev(
 // Text Replacement Settings
 // ============================================================================
 
+#[derive(Serialize, Type)]
+pub struct TextReplacementPlaygroundResult {
+    final_text: String,
+    changed_rule_indices: Vec<usize>,
+    invalid_regex_indices: Vec<usize>,
+}
+
+/// Preview only the replacement pass, using the rules currently shown in Settings.
+#[tauri::command]
+#[specta::specta]
+pub fn preview_text_replacements(
+    text: String,
+    replacements: Vec<settings::TextReplacement>,
+) -> Result<TextReplacementPlaygroundResult, String> {
+    if text.len() > 32_768 {
+        return Err("Input is too long for the replacement playground (maximum 32 KB).".into());
+    }
+    let invalid_regex_indices = replacements
+        .iter()
+        .enumerate()
+        .filter_map(|(index, rule)| {
+            if !rule.enabled || !rule.is_regex || rule.from.is_empty() {
+                return None;
+            }
+            let pattern = if rule.case_sensitive {
+                rule.from.clone()
+            } else {
+                format!("(?i){}", rule.from)
+            };
+            regex::Regex::new(&pattern).err().map(|_| index)
+        })
+        .collect();
+    let mut changed_rule_indices = Vec::new();
+    let final_text = settings::walk_text_replacements(
+        &text,
+        &replacements,
+        |index, _, before, after| {
+            if before != after {
+                changed_rule_indices.push(index);
+            }
+        },
+    );
+    Ok(TextReplacementPlaygroundResult {
+        final_text,
+        changed_rule_indices,
+        invalid_regex_indices,
+    })
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn change_text_replacements_enabled_setting(

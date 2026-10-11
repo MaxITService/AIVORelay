@@ -1509,6 +1509,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_voice_button_single_click_close_setting,
         shortcut::change_text_replacements_enabled_setting,
         shortcut::change_text_replacements_setting,
+        shortcut::preview_text_replacements,
         shortcut::change_text_replacements_before_llm_setting,
         shortcut::change_filler_word_filter_enabled_setting,
         settings::change_chinese_script_setting,
