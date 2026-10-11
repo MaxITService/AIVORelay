@@ -37,6 +37,8 @@ import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { TriStateToggle, type TriStateValue } from "../ui/TriStateToggle";
 import { Tooltip } from "../ui/Tooltip";
 import { Collapse } from "../ui/Collapse";
+import { WindowDetails } from "../ui/WindowDetails";
+import { useWindowState } from "../../hooks/useWindowState";
 import { HandyShortcut } from "./HandyShortcut";
 import { ModelSelect } from "./PostProcessingSettingsApi/ModelSelect";
 import { ResetButton } from "../ui/ResetButton";
@@ -90,6 +92,31 @@ const openPostProcessingSettings = () => {
 /** Open Advanced settings section. */
 const openAdvancedSettings = () => {
   useNavigationStore.getState().setSection("advanced");
+};
+
+const ProfileMoreSettings: React.FC<{
+  profileId: string;
+  children: React.ReactNode;
+}> = ({ profileId, children }) => {
+  const { t } = useTranslation();
+
+  return (
+    <WindowDetails
+      stateKey={`profile-${profileId}-more`}
+      id={`profile-more-${profileId}`}
+      className="group/more rounded-lg border border-mid-gray/20 bg-mid-gray/5 transition-colors open:border-purple-500/30 open:bg-purple-500/5"
+    >
+      <summary className="flex items-center gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
+        <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open/more:rotate-180" />
+        <span className="text-xs font-semibold text-text/70">
+          {t("profileOutput.profileMore")}
+        </span>
+      </summary>
+      <div className="px-3 py-3 space-y-3 border-t border-mid-gray/10">
+        {children}
+      </div>
+    </WindowDetails>
+  );
 };
 
 interface DefaultModelPromptEditorProps {
@@ -373,7 +400,8 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const [isUpdating, setIsUpdating] = useState(false);
-  const [showShortcutMoreOptions, setShowShortcutMoreOptions] = useState(false);
+  const [showShortcutMoreOptions, setShowShortcutMoreOptions] =
+    useWindowState(`profile-${profile.id}-shortcut-more`, false);
   const effectiveSttSelection =
     profile.stt_model_selection_override ?? globalSttModelSelection;
   const [remoteSupportsTranslation, setRemoteSupportsTranslation] =
@@ -1266,8 +1294,6 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
             <HandyShortcut shortcutId={bindingId} grouped={true} />
           </div>
 
-          <ChineseScriptSetting profileId={profile.id} descriptionMode="tooltip" />
-
           {/* Language + Translate to English — same row */}
           <div className="grid gap-3 lg:grid-cols-2">
             {/* Language Selection */}
@@ -1505,6 +1531,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
 
           {isSonioxProvider && (
             <SonioxContextEditor
+              stateKey={`profile-${profile.id}-soniox`}
               generalJson={profile.soniox_context_general_json || ""}
               text={profile.soniox_context_text || ""}
               terms={profile.soniox_context_terms || []}
@@ -1515,11 +1542,9 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
             />
           )}
 
-          <ProfileOutputSettings profileId={profile.id} overrides={profile.output_settings} disabled={isUpdating} />
-
           {/* Voice Model Prompt Override — collapsible */}
           {!isSonioxProvider && supportsSttPrompt && (
-            <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+            <WindowDetails stateKey={`profile-${profile.id}-stt-prompt`} className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
               <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
                 <div className="flex items-center gap-2 min-w-0">
                   <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
@@ -1645,11 +1670,14 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   </>
                 )}
               </div>
-            </details>
+            </WindowDetails>
           )}
 
+          <ProfileMoreSettings profileId={profile.id}>
+            <ProfileOutputSettings profileId={profile.id} overrides={profile.output_settings} disabled={isUpdating} />
+
           {/* LLM Post-Processing Section — collapsible */}
-          <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+          <WindowDetails stateKey={`profile-${profile.id}-llm`} className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
               <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
                 <div className="flex items-center gap-2 min-w-0">
                   <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
@@ -1742,7 +1770,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                             ),
                           }}
                         />
-                        <details className="cursor-pointer">
+                        <WindowDetails stateKey={`profile-${profile.id}-llm-variables`} className="cursor-pointer">
                           <summary className="text-blue-400 hover:text-blue-300">
                             {t(
                               "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.howItWorks",
@@ -1813,7 +1841,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                               ),
                             }}
                           />
-                        </details>
+                        </WindowDetails>
                       </div>
 
                       <div className="mt-2 space-y-1">
@@ -1967,7 +1995,9 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   </div>
                 )}
               </div>
-          </details>
+          </WindowDetails>
+            <ChineseScriptSetting profileId={profile.id} descriptionMode="tooltip" />
+          </ProfileMoreSettings>
         </div>
       </Collapse>
     </div>
@@ -1987,16 +2017,19 @@ export const TranscriptionProfiles: React.FC = () => {
   const { models: localSttModels, getModelInfo } = useModels();
   const [profileSortDirection, setProfileSortDirection] =
     useListSortDirection("transcription-profiles");
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(
+  const [expandedIds, setExpandedIds] = useWindowState<Set<string>>(
+    "transcription-profiles-expanded",
     () => new Set(["default"]),
   );
-  const [automaticAppsExpanded, setAutomaticAppsExpanded] = useState(false);
-  const automaticAppsManuallyCollapsedRef = useRef(false);
+  const [automaticAppsExpanded, setAutomaticAppsExpanded] =
+    useWindowState("transcription-automatic-apps-expanded", false);
+  const [automaticAppsManuallyCollapsed, setAutomaticAppsManuallyCollapsed] =
+    useWindowState("transcription-automatic-apps-manually-collapsed", false);
   const [isCreating, setIsCreating] = useState(false);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [isUpdatingDefaultLlm, setIsUpdatingDefaultLlm] = useState(false);
   const [showDefaultShortcutMoreOptions, setShowDefaultShortcutMoreOptions] =
-    useState(false);
+    useWindowState("profile-default-shortcut-more", false);
   const [newName, setNewName] = useState("");
   const [newLanguage, setNewLanguage] = useState("auto");
   const [newTranslate, setNewTranslate] = useState(false);
@@ -2537,24 +2570,25 @@ export const TranscriptionProfiles: React.FC = () => {
   const recordingOverlayShowApp = Boolean(
     settings?.recording_overlay_show_app,
   );
+  const previousAutomaticAppProfilesEnabled = useRef(automaticAppProfilesEnabled);
 
   useEffect(() => {
     if (automaticAppProfilesEnabled) {
-      if (!automaticAppsManuallyCollapsedRef.current) {
+      if (!automaticAppsManuallyCollapsed) {
         setAutomaticAppsExpanded(true);
       }
-    } else {
-      automaticAppsManuallyCollapsedRef.current = false;
+    } else if (previousAutomaticAppProfilesEnabled.current) {
+      setAutomaticAppsManuallyCollapsed(false);
       setAutomaticAppsExpanded(false);
     }
-  }, [automaticAppProfilesEnabled]);
+    previousAutomaticAppProfilesEnabled.current = automaticAppProfilesEnabled;
+  }, [automaticAppProfilesEnabled, automaticAppsManuallyCollapsed, setAutomaticAppsExpanded, setAutomaticAppsManuallyCollapsed]);
 
   const handleAutomaticAppsDisclosureToggle = (
     event: React.SyntheticEvent<HTMLDetailsElement>,
   ) => {
     const expanded = event.currentTarget.open;
-    automaticAppsManuallyCollapsedRef.current =
-      automaticAppProfilesEnabled && !expanded;
+    setAutomaticAppsManuallyCollapsed(automaticAppProfilesEnabled && !expanded);
     setAutomaticAppsExpanded(expanded);
   };
 
@@ -2968,8 +3002,6 @@ export const TranscriptionProfiles: React.FC = () => {
                   />
                 </div>
 
-                <ChineseScriptSetting descriptionMode="tooltip" />
-
                 {/* Language + Translate to English — same row */}
                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                   {!isGeminiProvider && (
@@ -3160,6 +3192,7 @@ export const TranscriptionProfiles: React.FC = () => {
 
                 {isSonioxProvider && (
                   <SonioxContextEditor
+                    stateKey="profile-default-soniox"
                     generalJson={settings?.soniox_context_general_json || ""}
                     text={settings?.soniox_context_text || ""}
                     terms={settings?.soniox_context_terms || []}
@@ -3192,11 +3225,9 @@ export const TranscriptionProfiles: React.FC = () => {
                   />
                 )}
 
-                <ProfileOutputSettings profileId="default" />
-
                 {/* Voice Model Prompt — collapsible, matches ProfileCard details style */}
                 {!isSonioxProvider && modelInfo.supportsPrompt && (
-                  <details id="settings-speech-model-prompt" tabIndex={-1} className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+                  <WindowDetails stateKey="profile-default-stt-prompt" id="settings-speech-model-prompt" tabIndex={-1} className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
                     <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
                       <div className="flex items-center gap-2 min-w-0">
                         <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
@@ -3230,11 +3261,14 @@ export const TranscriptionProfiles: React.FC = () => {
                         </p>
                       )}
                     </div>
-                  </details>
+                  </WindowDetails>
                 )}
 
+                <ProfileMoreSettings profileId="default">
+                  <ProfileOutputSettings profileId="default" />
+
                 {/* Global LLM Post-Processing — configuration lives on its dedicated page. */}
-                <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+                <WindowDetails stateKey="profile-default-llm" className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
                   <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
                     <div className="flex items-center gap-2 min-w-0">
                       <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
@@ -3311,7 +3345,9 @@ export const TranscriptionProfiles: React.FC = () => {
                       )}
                     </Button>
                   </div>
-                </details>
+                </WindowDetails>
+                  <ChineseScriptSetting descriptionMode="tooltip" />
+                </ProfileMoreSettings>
               </div>
             </Collapse>
           </div>
@@ -3534,6 +3570,24 @@ export const TranscriptionProfiles: React.FC = () => {
         grouped={true}
       >
         <div className="space-y-3 p-3 border border-dashed border-mid-gray/30 rounded-lg overflow-visible">
+          {/* Profile Name */}
+          <div className="flex flex-wrap items-center gap-3 min-w-0">
+            <label className="text-sm font-semibold text-text/70">
+              {t("settings.transcriptionProfiles.profileName")}
+            </label>
+            <Input
+              type="text"
+              value={newName}
+              className="min-w-0 flex-1 basis-64"
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder={t(
+                "settings.transcriptionProfiles.profileNamePlaceholder",
+              )}
+              variant="compact"
+              disabled={isCreating}
+            />
+          </div>
+
           {/* Cycle & Push-to-Talk & Preview Controls — matches ProfileCard layout */}
           <div className="grid gap-3 lg:grid-cols-3 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
             <div className="min-w-0">
@@ -3600,23 +3654,6 @@ export const TranscriptionProfiles: React.FC = () => {
                 </span>
               </div>
             </div>
-          </div>
-
-          {/* Profile Name */}
-          <div className="space-y-2 min-w-0">
-            <label className="text-xs font-semibold text-text/70">
-              {t("settings.transcriptionProfiles.profileName")}
-            </label>
-            <Input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder={t(
-                "settings.transcriptionProfiles.profileNamePlaceholder",
-              )}
-              variant="compact"
-              disabled={isCreating}
-            />
           </div>
 
           <div className="grid gap-3 lg:grid-cols-2">
@@ -3700,6 +3737,7 @@ export const TranscriptionProfiles: React.FC = () => {
 
           {isSonioxProvider && (
             <SonioxContextEditor
+              stateKey="profile-new-soniox"
               generalJson={newSonioxContextGeneralJson}
               text={newSonioxContextText}
               terms={newSonioxContextTerms}
@@ -3721,7 +3759,7 @@ export const TranscriptionProfiles: React.FC = () => {
 
           {/* Voice Model Prompt Override — collapsible */}
           {!isSonioxProvider && modelInfo.supportsPrompt && (
-            <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+            <WindowDetails stateKey="profile-new-stt-prompt" className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
               <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
                 <div className="flex items-center gap-2 min-w-0">
                   <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
@@ -3835,11 +3873,11 @@ export const TranscriptionProfiles: React.FC = () => {
                   </>
                 )}
               </div>
-            </details>
+            </WindowDetails>
           )}
 
           {/* LLM Post-Processing Section — collapsible */}
-          <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+          <WindowDetails stateKey="profile-new-llm" className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
               <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
                 <div className="flex items-center gap-2 min-w-0">
                   <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
@@ -3933,7 +3971,7 @@ export const TranscriptionProfiles: React.FC = () => {
                             ),
                           }}
                         />
-                        <details className="cursor-pointer">
+                        <WindowDetails stateKey="profile-new-llm-variables" className="cursor-pointer">
                           <summary className="text-blue-400 hover:text-blue-300">
                             {t(
                               "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.howItWorks",
@@ -4004,7 +4042,7 @@ export const TranscriptionProfiles: React.FC = () => {
                               ),
                             }}
                           />
-                        </details>
+                        </WindowDetails>
                       </div>
 
                       <div className="flex items-center justify-between mt-2">
@@ -4112,7 +4150,7 @@ export const TranscriptionProfiles: React.FC = () => {
                   </div>
                 )}
               </div>
-          </details>
+          </WindowDetails>
 
           {newProfileError && (
             <p className="text-xs text-red-400">{newProfileError}</p>

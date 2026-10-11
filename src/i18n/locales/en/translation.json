@@ -1,6 +1,7 @@
 {
   "profileOutput": {
-    "title": "Text output",
+    "title": "Choose how to handle the clipboard, insert text, and press keys before and after insertion",
+    "profileMore": "More",
     "active": "Key actions enabled",
     "inherit": "Default — {{value}}",
     "defaultHelp": "These output settings are shared by profiles that inherit them.",
@@ -25,7 +26,7 @@
     "disabled": "Disabled",
     "reset": "Use Default for all output settings",
     "saveFailed": "Could not save output settings",
-    "advancedLink": "Configure insertion and key actions in Default → Text output"
+    "advancedLink": "Default → More → Choose how to handle the clipboard, insert text, and press keys before and after insertion"
   },
   "sendSelectedText": {
     "title": "Send selected text to file or command",
@@ -461,7 +462,7 @@
   "help": {
     "title": "Help",
     "definition": "Transcription means turning your voice into text.",
-    "intro": "AivoRelay is a desktop app. Press a key, speak, and it puts the words where you are working.",
+    "intro": "AivoRelay is a desktop app. Press a key, speak, and it puts the words where you are working. To find a setting, use the search above the sidebar and click a result.",
     "aiAssist": {
       "label": "Tip",
       "title": "Ask your favorite AI chat for help.",
@@ -505,7 +506,7 @@
     "sections": {
       "transcription": {
         "title": "Press a key. Speak. Text appears.",
-        "summary": "Set a microphone and shortcut in Speech / Mic. Choose where speech becomes text in Models: a local model works on this computer, while a cloud provider works online.",
+        "summary": "In Speech / Mic, choose your microphone, then open Default (Global) to set a model and shortcut. Press the shortcut and speak. For another setup, click Create New Profile. In a profile, open More → Choose how to handle the clipboard, insert text, and press keys before and after insertion. Set Before insertion to open chat and After insertion to send text.",
         "models": {
           "title": "Choose a local model or cloud provider.",
           "summary": "Local models run on your computer. They usually do not need an online account or usage payments, but they need enough disk space, memory, and processing power. Cloud/API providers run online. You usually need to sign in to the provider’s website or console, enable the service, create an API key, and usually add a payment method or credits. Cloud providers may charge for each request. They can have free plans with limits. AivoRelay does not control provider prices. Check the provider’s pricing and usage limits before using it.",
@@ -561,11 +562,11 @@
       },
       "history": {
         "title": "Find your previous transcriptions.",
-        "summary": "History keeps previous transcriptions and recordings. Open it when you want to find an older result."
+        "summary": "In History, type in Search transcriptions to find saved text; matches are highlighted. To recognize a saved recording again with your active profile, click its circular-arrow button (Re-transcribe). Live models work too."
       },
       "userInterface": {
         "title": "Choose how results appear.",
-        "summary": "Choose how the overlay and results look. These settings change what you see while using AivoRelay."
+        "summary": "Open User Interface → Recording Overlay → Preset Packs and click a preset to change the recording indicator. You can also save your own style and export or import it."
       },
       "debug": {
         "title": "Test features and diagnose problems.",
@@ -577,14 +578,10 @@
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "localReliability": "Local transcription runs separately from the app, helping it stay responsive while a model loads or the speech engine recovers from a failure.",
-        "modelLoading": "The recording overlay and live preview now show when a speech model is loading, instead of appearing stuck on transcription.",
-        "chineseScript": "Choose simplified Chinese, traditional Chinese, or the original recognized text. Each transcription profile can have its own preference.",
-        "sonioxConnection": "Fixed connection authentication for Soniox live transcription.",
-        "customSounds": "New custom sounds appear when you reopen the sound selector.",
-        "legacyModels": "Portable installations can reuse models from earlier download locations, avoiding unnecessary downloads.",
-        "trayErrors": "After an error, the tray briefly shows an error icon and a short explanation in its tooltip.",
-        "defaultSettings": "Settings now show the correct default values."
+        "profileOutput": "Speech / Mic → profile → More: set keys to open chat before insertion and send text afterwards.",
+        "historySearch": "History: search saved text or click the circular arrow to recognize a recording again, including with live models.",
+        "chineseScript": "Speech / Mic → profile → More → Chinese Script: choose simplified, traditional, or unchanged Chinese text.",
+        "localReliability": "Local transcription is less likely to freeze the app; the recording indicator now shows when a model is loading."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"

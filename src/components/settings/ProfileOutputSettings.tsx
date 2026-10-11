@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { invoke } from "@tauri-apps/api/core";
 import { ChevronDown } from "lucide-react";
+import { WindowDetails } from "../ui/WindowDetails";
 import { Dropdown, type DropdownOption } from "../ui/Dropdown";
 import { HotkeyCapture } from "../ui/HotkeyCapture";
 import { Input } from "../ui/Input";
@@ -130,7 +131,7 @@ export const ProfileOutputSettings: React.FC<Props> = ({ profileId, overrides = 
     ? "inherit" : openingKey === "" ? "off" : openingKey === "enter" ? "enter" : "custom";
 
   return (
-    <details id={`profile-output-${profileId}`} tabIndex={-1} className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+    <WindowDetails stateKey={`profile-${profileId}-output`} id={`profile-output-${profileId}`} tabIndex={-1} className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
       <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
         <div className="flex items-center gap-2 min-w-0">
           <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
@@ -179,7 +180,7 @@ export const ProfileOutputSettings: React.FC<Props> = ({ profileId, overrides = 
             : value === "off" ? { auto_submit: false } : { auto_submit: true, auto_submit_key: value as OutputSettings["auto_submit_key"] })} />
         </SettingContainer>
         {(openingKey !== "" || submitEnabled) && method !== "none" && <p className="px-3 pb-3 text-xs text-mid-gray">{t("profileOutput.bufferedHelp")}</p>}
-        <details id={`profile-output-${profileId}-more`} tabIndex={-1} className="mx-3 mb-3 border-t border-mid-gray/15">
+        <WindowDetails stateKey={`profile-${profileId}-output-more`} id={`profile-output-${profileId}-more`} tabIndex={-1} className="mx-3 mb-3 border-t border-mid-gray/15">
           <summary className="py-2 text-xs text-mid-gray cursor-pointer">{t("profileOutput.more")}</summary>
           {osType === "windows" && <SettingContainer id={`profile-output-${profileId}-check_active_window`} title={t("profileOutput.checkActiveWindow")} description={t("profileOutput.checkActiveWindowHelp")} descriptionMode="tooltip" grouped={true}>
             <Dropdown options={options(booleanChoices, choiceLabel(booleanChoices, String(defaults.check_active_window)))} selectedValue={ownValue("check_active_window")} disabled={busy || method === "none"} onSelect={value => void save({ check_active_window: value === "inherit" ? null : value === "true" })} />
@@ -196,8 +197,8 @@ export const ProfileOutputSettings: React.FC<Props> = ({ profileId, overrides = 
             </SettingContainer>
           </>}
           {!isDefault && <button type="button" disabled={busy} className="py-2 text-xs text-mid-gray underline underline-offset-2 hover:text-text disabled:opacity-50" onClick={() => void save(Object.fromEntries(Object.keys(overrides).map(key => [key, null])))}>{t("profileOutput.reset")}</button>}
-        </details>
+        </WindowDetails>
       </div>
-    </details>
+    </WindowDetails>
   );
 };

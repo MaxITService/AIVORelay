@@ -3,10 +3,12 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { TellMeMore } from "../ui/TellMeMore";
 import { TextFileActions } from "../ui/TextFileActions";
+import { useWindowState } from "../../hooks/useWindowState";
 
 const SONIOX_CONTEXT_MAX_CHARS = 10_000;
 
 interface SonioxContextEditorProps {
+  stateKey: string;
   generalJson: string;
   text: string;
   terms: string[];
@@ -144,6 +146,7 @@ function statusClassName(status: "empty" | "valid" | "invalid"): string {
 }
 
 export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
+  stateKey,
   generalJson,
   text,
   terms,
@@ -162,9 +165,9 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [textError, setTextError] = useState<string | null>(null);
   const [termsError, setTermsError] = useState<string | null>(null);
-  const [openGeneral, setOpenGeneral] = useState(false);
-  const [openText, setOpenText] = useState(false);
-  const [openTerms, setOpenTerms] = useState(false);
+  const [openGeneral, setOpenGeneral] = useWindowState(`${stateKey}-general`, false);
+  const [openText, setOpenText] = useWindowState(`${stateKey}-text`, false);
+  const [openTerms, setOpenTerms] = useWindowState(`${stateKey}-terms`, false);
 
   useEffect(() => {
     setGeneralDraft(generalJson || "");
