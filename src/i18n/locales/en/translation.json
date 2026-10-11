@@ -1962,6 +1962,7 @@
       },
       "recordingOverlay": {
         "title": "Recording Overlay",
+        "effectSpaceWarning": "Effects need space around the overlay. Its transparent margin may intercept clicks.",
         "preview": {
           "title": "Recording Overlay Preview",
           "description": "Preview the main overlay style here before using it in live recording."

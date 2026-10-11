@@ -649,6 +649,19 @@ body,
 }
 
 .recording-overlay.recording-overlay-custom .transcribing-text,
+.recording-overlay.recording-overlay-legacy .transcribing-text,
+.recording-overlay.recording-overlay-custom .sending-text,
+.recording-overlay.recording-overlay-legacy .sending-text,
+.recording-overlay.recording-overlay-custom .thinking-text,
+.recording-overlay.recording-overlay-legacy .thinking-text {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recording-overlay.recording-overlay-custom .transcribing-text,
 .recording-overlay.recording-overlay-legacy .transcribing-text {
   color: var(--recording-overlay-ink, white);
   font-size: 12px;

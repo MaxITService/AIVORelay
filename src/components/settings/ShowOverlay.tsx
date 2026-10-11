@@ -12,6 +12,16 @@ import type { OverlayPosition } from "@/bindings";
 const MAX_ERROR_OVERLAY_AUTO_HIDE_MS = 100_000;
 const MAX_CUSTOM_COORDINATE_PX = 100_000;
 
+export const OverlayEffectSpaceNotice: React.FC = () => {
+  const { t } = useTranslation();
+  return (
+    <p className="text-xs leading-relaxed text-amber-400/90">
+      {t("settings.userInterface.recordingOverlay.effectSpaceWarning",
+        "Effects need space around the overlay. Its transparent margin may intercept clicks.")}
+    </p>
+  );
+};
+
 type RecordingOverlayPositionValue = OverlayPosition | "custom";
 
 type AppliedCustomPosition = {
@@ -518,6 +528,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
           descriptionMode={descriptionMode}
           grouped={grouped}
         >
+          <div className="space-y-2">
           <Dropdown
             options={entranceAnimationOptions}
             selectedValue={recordingOverlayEntranceAnimation}
@@ -532,6 +543,8 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
               isUpdating("recording_overlay_entrance_animation")
             }
           />
+          {recordingOverlayEnabled && recordingOverlayEntranceAnimation === "portal" && <OverlayEffectSpaceNotice />}
+          </div>
         </SettingContainer>
 
         <SettingContainer
@@ -547,6 +560,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
           descriptionMode={descriptionMode}
           grouped={grouped}
         >
+          <div className="space-y-2">
           <Dropdown
             options={exitAnimationOptions}
             selectedValue={recordingOverlayExitAnimation}
@@ -561,6 +575,8 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
               isUpdating("recording_overlay_exit_animation")
             }
           />
+          {recordingOverlayEnabled && recordingOverlayExitAnimation === "portal" && <OverlayEffectSpaceNotice />}
+          </div>
         </SettingContainer>
         <p className="px-6 text-xs text-text/60 -mt-2 mb-2">
           {t(
