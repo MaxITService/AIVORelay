@@ -16,7 +16,7 @@ import { useSortedDisplayNames } from "../../../hooks/useSortedDisplayNames";
 import { useListSortDirection } from "../../../hooks/useListSortPreference";
 import { navigateToSettingsAnchor } from "../../../lib/anchorNavigation";
 import { useNavigationStore } from "../../../stores/navigationStore";
-import { ShowOverlay } from "../ShowOverlay";
+import { ShowOverlay, OverlayEffectSpaceNotice } from "../ShowOverlay";
 import { RecordingOverlayPreview } from "./RecordingOverlayPreview";
 import type {
   RecordingOverlayAnimatedBorderMode,
@@ -650,6 +650,16 @@ export const RecordingOverlaySettings: React.FC = () => {
   );
   const depthParallaxPercent = Number(
     (settings as any)?.recording_overlay_depth_parallax_percent ?? 40,
+  );
+  const visualizerNeedsExtraSpace = [
+    "aurora", "glow", "comet", "ember", "wave_line", "spectrum",
+    "bloom_bounce", "daisy", "lotus", "garden_sway", "constellation",
+    "fireflies", "helix", "petals", "petal_rain", "pulse_rings",
+  ].includes(effectiveBarStyle);
+  const presetNeedsExtraSpace = customOverlayEnabled && (
+    visualizerNeedsExtraSpace || centerpieceMode !== "none" || backgroundMode !== "none"
+    || animatedBorderMode !== "none" || materialMode === "clay" || materialMode === "keycap"
+    || (audioReactiveScale && audioReactiveScaleMaxPercent > 0) || depthParallaxPercent > 0
   );
   const opacityPercent = Number(
     (settings as any)?.recording_overlay_opacity_percent ?? 100,
@@ -1793,6 +1803,7 @@ export const RecordingOverlaySettings: React.FC = () => {
               )}
             </div>
           </Collapse>
+          {presetNeedsExtraSpace && <OverlayEffectSpaceNotice />}
         </div>
       </SettingContainer>
           </fieldset>
@@ -2399,6 +2410,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         descriptionMode="tooltip"
         grouped={true}
       >
+        <div className="space-y-2">
         <Dropdown
           options={
             customOverlayEnabled
@@ -2413,6 +2425,8 @@ export const RecordingOverlaySettings: React.FC = () => {
           }
           disabled={isUpdating("recording_overlay_bar_style")}
         />
+        {visualizerNeedsExtraSpace && <OverlayEffectSpaceNotice />}
+        </div>
       </SettingContainer>
 
       <Slider

@@ -1315,6 +1315,22 @@ const RecordingOverlay: React.FC = () => {
       ? appearance.decapitalize_indicator_custom_text.trim() ||
         t("overlay.decapitalizationIndicator", "Decapitalization")
       : t("overlay.decapitalizationIndicator", "Decapitalization");
+  const sendingText = t("overlay.sending", "Processing speech...");
+  const thinkingText = t("overlay.thinking", "Thinking...");
+  const finalizingText = t("overlay.finalizing", "Finalizing...");
+  const transcribingText = modelLoad.loading
+    ? t("overlay.loadingModel", "Loading model...")
+    : t("overlay.transcribing");
+  const geminiLiveCompletionText =
+    `${t("overlay.geminiLiveCompletion.title", "Gemini Live session completed")} ` +
+    `— ${t(
+      geminiLiveCompletionVariant === "partial"
+        ? "overlay.geminiLiveCompletion.partial"
+        : "overlay.geminiLiveCompletion.complete",
+      geminiLiveCompletionVariant === "partial"
+        ? "The model's time limit was reached. A partial transcript was recovered and saved. Review the last words before continuing."
+        : "The model's time limit was reached. Your transcript was finalized and saved. Start a new session to continue.",
+    )}`;
 
   const getIcon = () => {
     switch (state) {
@@ -1489,7 +1505,11 @@ const RecordingOverlay: React.FC = () => {
         ...(customOverlayEnabled ? motionStyle : {}),
         ...(state === "error" ? errorSurfaceStyle : {}),
         width: `${appearance.frame_width_px}px`,
-        minHeight: `${appearance.frame_height_px}px`,
+        height:
+          state === "error"
+            ? undefined
+            : `${DEFAULT_OVERLAY_APPEARANCE.frame_height_px}px`,
+        minHeight: state === "error" ? `${appearance.frame_height_px}px` : undefined,
         ...({
           "--overlay-portal-tilt": `${overlayPortalTiltPx(appearance.frame_width_px).toFixed(2)}px`,
         } as React.CSSProperties),
@@ -1659,25 +1679,23 @@ const RecordingOverlay: React.FC = () => {
           />
         )}
         {state === "sending" && (
-          <div className="sending-text">
-            {t("overlay.sending", "Processing speech...")}
+          <div className="sending-text" title={sendingText}>
+            {sendingText}
           </div>
         )}
         {state === "thinking" && (
-          <div className="thinking-text">
-            {t("overlay.thinking", "Thinking...")}
+          <div className="thinking-text" title={thinkingText}>
+            {thinkingText}
           </div>
         )}
         {state === "finalizing" && (
-          <div className="transcribing-text">
-            {t("overlay.finalizing", "Finalizing...")}
+          <div className="transcribing-text" title={finalizingText}>
+            {finalizingText}
           </div>
         )}
         {state === "transcribing" && (
-          <div className="transcribing-text">
-            {modelLoad.loading
-              ? t("overlay.loadingModel", "Loading model...")
-              : t("overlay.transcribing")}
+          <div className="transcribing-text" title={transcribingText}>
+            {transcribingText}
           </div>
         )}
         {state === "error" && (
@@ -1701,22 +1719,13 @@ const RecordingOverlay: React.FC = () => {
           </div>
         )}
         {state === "profile_switch" && (
-          <div className="transcribing-text">{transientMessage}</div>
+          <div className="transcribing-text" title={transientMessage}>
+            {transientMessage}
+          </div>
         )}
         {state === "gemini_live_completion" && (
-          <div className="transcribing-text">
-            {t(
-              "overlay.geminiLiveCompletion.title",
-              "Gemini Live session completed",
-            )}{" "}
-            — {t(
-              geminiLiveCompletionVariant === "partial"
-                ? "overlay.geminiLiveCompletion.partial"
-                : "overlay.geminiLiveCompletion.complete",
-              geminiLiveCompletionVariant === "partial"
-                ? "The model's time limit was reached. A partial transcript was recovered and saved. Review the last words before continuing."
-                : "The model's time limit was reached. Your transcript was finalized and saved. Start a new session to continue.",
-            )}
+          <div className="transcribing-text" title={geminiLiveCompletionText}>
+            {geminiLiveCompletionText}
           </div>
         )}
         {state === "microphone_switch" && (
