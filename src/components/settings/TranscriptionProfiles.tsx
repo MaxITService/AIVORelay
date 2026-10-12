@@ -26,12 +26,15 @@ import { LANGUAGES } from "../../lib/constants/languages";
 import { useNavigationStore } from "../../stores/navigationStore";
 import { GEMINI_LOCALES } from "../../lib/gemini/geminiConfig";
 import ProfileSettingsForm, { useProfileSttCapabilities, type ProfileSettingsFormProps, type ProfileValidationReason, type ExtendedTranscriptionProfile, type LlmPromptSourceOption, strictModeToApi, DEFAULT_CLEAN_PROMPT } from "./ProfileSettingsForm";
-import { getGlobalProfileOutputDefaults } from "./ProfileOutputSettings";
+import { copyDefaultProfileOutput, getGlobalProfileOutputDefaults } from "./ProfileOutputSettings";
 import type { ProfileOutputSettings as OutputSettings } from "@/lib/profileOutputSettings";
-import { globalSttSelection, type SttModelSelection } from "../../lib/sttModelSelection";
+import { globalSttSelection, sttCatalog, sttProviderId, sttSelectionKey, type SttModelSelection } from "../../lib/sttModelSelection";
+import { getProfileOutputSummary } from "../../lib/postProcessingAvailability";
+import { getLocalizedLanguageLabel } from "./models/ModelMetadataPanel";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { getTranscriptionProfileAnchorId } from "../../lib/transcriptionProfileNavigation";
 import { availableProfileName, getProfileNameError, profileNameErrorFromBackend, type ProfileNameError } from "../../lib/profileNames";
+import { cloneProfileSettings, profileSettingsPayload } from "./profileSettingsPayload";
 
 const profileNameErrorMessage = (reason: ProfileNameError | null, t: ReturnType<typeof useTranslation>["t"]) => {
   if (reason === "required") return t("settings.transcriptionProfiles.nameEmpty", "Enter a profile name.");
@@ -56,32 +59,6 @@ type LegacyProfileDraftMetadata = {
   chineseScript: TranscriptionProfile["chinese_script"];
   outputSettings: OutputSettings;
 };
-
-const cloneProfileSettings = (profile: ExtendedTranscriptionProfile): Partial<ExtendedTranscriptionProfile> => {
-  const { id: _id, name: _name, ...values } = profile;
-  return { ...values, automatic_app_rules: [...(profile.automatic_app_rules ?? [])],
-    soniox_context_terms: [...(profile.soniox_context_terms ?? [])],
-    gemini_custom_vocabulary_override: profile.gemini_custom_vocabulary_override == null ? null : [...profile.gemini_custom_vocabulary_override],
-    stt_model_selection_override: profile.stt_model_selection_override ? { ...profile.stt_model_selection_override } : null,
-    output_settings: { ...profile.output_settings },
-  };
-};
-
-const profileSettingsPayload = (profile: ExtendedTranscriptionProfile) => ({
-  language: profile.language, translateToEnglish: profile.translate_to_english,
-  automaticAppRules: profile.automatic_app_rules ?? [], systemPrompt: profile.system_prompt ?? "",
-  sttPromptOverrideEnabled: profile.stt_prompt_override_enabled ?? false,
-  sttModelSelectionOverride: profile.stt_model_selection_override ?? null,
-  pushToTalk: profile.push_to_talk, autoShortcutActivation: profile.auto_shortcut_activation ?? false,
-  previewOutputOnlyEnabled: profile.preview_output_only_enabled ?? false, includeInCycle: profile.include_in_cycle,
-  llmSettings: { enabled: profile.llm_post_process_enabled ?? false,
-    promptOverride: profile.llm_prompt_override ?? null, modelOverride: profile.llm_model_override ?? null },
-  sonioxContextGeneralJson: profile.soniox_context_general_json ?? "", sonioxContextText: profile.soniox_context_text ?? "",
-  sonioxContextTerms: profile.soniox_context_terms ?? [], sonioxLanguageHintsStrict: profile.soniox_language_hints_strict ?? null,
-  geminiLanguageCodeOverride: profile.gemini_language_code_override ?? null,
-  geminiCustomVocabularyOverride: profile.gemini_custom_vocabulary_override ?? null,
-  chineseScript: profile.chinese_script ?? null, outputSettings: profile.output_settings ?? {},
-});
 
 interface ProfileCardProps extends Omit<ProfileSettingsFormProps, "scope" | "disabled" | "onDraftChange" | "onValidationChange" | "shortcut"> {
   scope: "saved" | "global";
@@ -124,7 +101,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   automaticAppProfilesEnabled,
   allProfileNames,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isDefault = scope === "global";
   const ProfileIcon = isDefault ? RefreshCw : Globe;
   const [isIdentityUpdating, setIsUpdating] = useState(false);
@@ -149,9 +126,8 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   const renameInvalid = getProfileNameError(tempName, allProfileNames, profile.id) ?? renameBackendNameError;
   const renameNameError = profileNameErrorMessage(renameInvalid, t) ?? renameError;
   const renameErrorId = `profile-name-error-${profile.id}`;
-  const { isGeminiProvider, supportsTranslation } = useProfileSttCapabilities(
-    profile.stt_model_selection_override ?? globalSttModelSelection, localSttModels,
-  );
+  const effectiveSttSelection = profile.stt_model_selection_override ?? globalSttModelSelection;
+  const { isGeminiProvider, supportsTranslation } = useProfileSttCapabilities(effectiveSttSelection, localSttModels);
   const languageLabel = useMemo(() => {
     if (!isGeminiProvider) return LANGUAGES.find(option => option.value === profile.language)?.label ?? profile.language;
     const code = profile.gemini_language_code_override ?? globalGeminiLanguageCode;
@@ -160,6 +136,44 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     const locale = GEMINI_LOCALES.find(([, value]) => value === code);
     return locale ? `${locale[0]} (${code})` : code;
   }, [isGeminiProvider, profile.language, profile.gemini_language_code_override, globalGeminiLanguageCode, t]);
+  const modelLabel = useMemo(() => {
+    if (!isDefault && profile.stt_model_selection_override == null) {
+      return t("settings.transcriptionProfiles.summary.modelFromDefault");
+    }
+    const model = sttCatalog("dictation", localSttModels).find(option =>
+      sttSelectionKey(option.selection) === sttSelectionKey(effectiveSttSelection));
+    if (model) return model.localModel ? model.modelLabel : `${model.providerLabel} ${model.modelLabel}`;
+    const providerId = sttProviderId(effectiveSttSelection);
+    const providerLabel = providerId.charAt(0).toUpperCase() + providerId.slice(1);
+    return effectiveSttSelection.model_id
+      ? `${effectiveSttSelection.provider === "local" ? "" : `${providerLabel} `}${effectiveSttSelection.model_id}`
+      : t("settings.sttModelSelector.selectModel");
+  }, [isDefault, profile.stt_model_selection_override, effectiveSttSelection, localSttModels, t]);
+  const summaryLanguageCode = isGeminiProvider
+    ? profile.gemini_language_code_override ?? globalGeminiLanguageCode
+    : profile.language;
+  const summaryLanguageLabel = summaryLanguageCode === "auto"
+    ? t("settings.general.language.auto")
+    : summaryLanguageCode === "os_input"
+      ? t("settings.general.language.followOsInput")
+      : getLocalizedLanguageLabel(summaryLanguageCode, i18n.resolvedLanguage ?? i18n.language);
+  const outputRouteOptions = {
+    sttSelection: effectiveSttSelection,
+    profilePreviewOutputOnlyEnabled: profile.preview_output_only_enabled ?? false,
+    profileOutputSettings: isDefault ? null : profile.output_settings ?? {},
+  };
+  // Null while the inputs are still loading: show neither the output nor the LLM label.
+  const outputSummary = getProfileOutputSummary(settings, outputRouteOptions, localSttModels);
+  const outputLabel = outputSummary && t(`settings.transcriptionProfiles.summary.${outputSummary.route === "preview"
+    ? "preview" : outputSummary.route === "none" ? "noInsertion" : "insertion"}`);
+  const effectiveLlmEnabled = Boolean(profile.llm_post_process_enabled) && Boolean(outputSummary?.llmAvailable);
+  const summary = [
+    modelLabel,
+    `${summaryLanguageLabel}${supportsTranslation && profile.translate_to_english
+      ? ` ${t("settings.transcriptionProfiles.toEnglish", "→ EN")}` : ""}`,
+    ...(outputLabel ? [outputLabel] : []),
+    ...(effectiveLlmEnabled ? ["LLM"] : []),
+  ].join(" · ");
   const handleNameChange = async () => {
     if (isDefault || renamePendingRef.current || cancelRenameRef.current || isUpdating) return;
     if (renameInvalid) return;
@@ -201,11 +215,11 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
         aria-expanded={isExpanded}
         onClick={onToggleExpand}
       >
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex flex-1 items-center gap-3 min-w-0">
           <ProfileIcon
-            className={`w-4 h-4 ${isActive ? "text-purple-400" : isDefault ? "text-mid-gray" : "text-logo-primary"}`}
+            className={`w-4 h-4 shrink-0 ${isActive ? "text-purple-400" : isDefault ? "text-mid-gray" : "text-logo-primary"}`}
           />
-          <div className="flex flex-col min-w-0">
+          <div className="flex flex-1 flex-col min-w-0">
             <div className="flex flex-wrap items-center gap-2 min-w-0">
               {isDefault ? (
                 <span className="font-medium text-sm break-words">
@@ -311,7 +325,11 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   </Badge>
                 )}
             </div>
-            <span className="text-xs text-mid-gray break-words">
+            {!isExpanded ? (
+              <span className="min-w-0 truncate text-xs leading-5 text-mid-gray" title={summary}>
+                {summary}
+              </span>
+            ) : <span className="text-xs text-mid-gray break-words">
               {languageLabel}
               {supportsTranslation && profile.translate_to_english && (
                 <span className="text-purple-400 ml-1">
@@ -326,7 +344,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   ({t("settings.general.language.followOsInputHint")})
                 </span>
               )}
-            </span>
+            </span>}
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -611,7 +629,8 @@ export const TranscriptionProfiles: React.FC = () => {
     gemini_language_code_override: draftAdditionalSettings?.geminiLanguageCodeOverride ?? null,
     gemini_custom_vocabulary_override: draftAdditionalSettings?.geminiCustomVocabularyOverride ?? null,
     chinese_script: draftAdditionalSettings?.chineseScript ?? null,
-    output_settings: draftAdditionalSettings?.outputSettings ?? {},
+    // A new profile starts as a copy of the Default profile's output (without key presses).
+    output_settings: draftAdditionalSettings?.outputSettings ?? copyDefaultProfileOutput(getGlobalProfileOutputDefaults(settings)),
     ...newFormValues,
   };
   // Blur commits and Create can occur in one event batch; keep the exact current draft synchronously.
@@ -1256,7 +1275,13 @@ export const TranscriptionProfiles: React.FC = () => {
                     "settings.transcriptionProfiles.automaticApps.adminNoticeLink",
                     "Autostart with administrator privileges in Advanced settings",
                   )}
-                </button>
+                </button>{" "}
+                <span className="font-semibold text-amber-300">
+                  {t(
+                    "settings.transcriptionProfiles.automaticApps.adminNoticeNotRecommended",
+                    "(NOT recommended)",
+                  )}
+                </span>
                 .
               </div>
             </>

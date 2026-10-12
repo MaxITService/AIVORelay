@@ -1,0 +1,27 @@
+import type { ExtendedTranscriptionProfile } from "./ProfileSettingsForm";
+
+export const cloneProfileSettings = (profile: ExtendedTranscriptionProfile): Partial<ExtendedTranscriptionProfile> => {
+  const { id: _id, name: _name, ...values } = profile;
+  return { ...values, automatic_app_rules: [...(profile.automatic_app_rules ?? [])],
+    soniox_context_terms: [...(profile.soniox_context_terms ?? [])],
+    gemini_custom_vocabulary_override: profile.gemini_custom_vocabulary_override == null ? null : [...profile.gemini_custom_vocabulary_override],
+    stt_model_selection_override: profile.stt_model_selection_override ? { ...profile.stt_model_selection_override } : null,
+    output_settings: { ...profile.output_settings },
+  };
+};
+
+export const profileSettingsPayload = (profile: ExtendedTranscriptionProfile) => ({
+  language: profile.language, translateToEnglish: profile.translate_to_english,
+  automaticAppRules: profile.automatic_app_rules ?? [], systemPrompt: profile.system_prompt ?? "",
+  sttPromptOverrideEnabled: profile.stt_prompt_override_enabled ?? false,
+  sttModelSelectionOverride: profile.stt_model_selection_override ?? null,
+  pushToTalk: profile.push_to_talk, autoShortcutActivation: profile.auto_shortcut_activation ?? false,
+  previewOutputOnlyEnabled: profile.preview_output_only_enabled ?? false, includeInCycle: profile.include_in_cycle,
+  llmSettings: { enabled: profile.llm_post_process_enabled ?? false,
+    promptOverride: profile.llm_prompt_override ?? null, modelOverride: profile.llm_model_override ?? null },
+  sonioxContextGeneralJson: profile.soniox_context_general_json ?? "", sonioxContextText: profile.soniox_context_text ?? "",
+  sonioxContextTerms: profile.soniox_context_terms ?? [], sonioxLanguageHintsStrict: profile.soniox_language_hints_strict ?? null,
+  geminiLanguageCodeOverride: profile.gemini_language_code_override ?? null,
+  geminiCustomVocabularyOverride: profile.gemini_custom_vocabulary_override ?? null,
+  chineseScript: profile.chinese_script ?? null, outputSettings: profile.output_settings ?? {},
+});
