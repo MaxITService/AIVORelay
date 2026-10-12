@@ -2605,6 +2605,12 @@
         "openSettings": "Preview settings",
         "description": "Keep this profile's output in Preview instead of inserting it."
       },
+      "summary": {
+        "modelFromDefault": "Model from Default",
+        "preview": "Preview",
+        "insertion": "Text insertion",
+        "noInsertion": "No insertion"
+      },
       "duplicate": "Duplicate",
       "copyName": "{{name}} — copy",
       "copyDraftFrom": "Copied from {{name}}. Review settings before creating.",
@@ -2659,7 +2665,8 @@
         "saveFailed": "Failed to save automatic application rules.",
         "adminNoticeTitle": "Administrator windows:",
         "adminNoticePrefix": "Windows User Interface Privilege Isolation (UIPI) prevents dictation from typing into administrator/elevated windows unless AivoRelay is also running as administrator. You can configure ",
-        "adminNoticeLink": "Autostart with administrator privileges in Advanced settings"
+        "adminNoticeLink": "Autostart with administrator privileges in Advanced settings",
+        "adminNoticeNotRecommended": "(NOT recommended)"
       },
       "showOverlayOnSwitch": "Show Overlay on Switch",
       "showOverlayOnSwitchDescription": "Show a visual indicator when switching profiles via keyboard.",
