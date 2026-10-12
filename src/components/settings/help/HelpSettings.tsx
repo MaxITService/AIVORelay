@@ -63,10 +63,12 @@ const SMART_HELP_ACTIONS = [
 ] as const;
 
 const WHATS_NEW_ITEMS = [
+  { key: "help.whatsNew.items.profiles", destination: "general", anchor: "transcription-profile-default" },
   { key: "help.whatsNew.items.profileOutput", destination: "general", anchor: "profile-output-default" },
+  { key: "help.whatsNew.items.protectedLiveOutput", destination: "general", anchor: "profile-output-default" },
+  { key: "help.whatsNew.items.modelSelection", destination: "models" },
   { key: "help.whatsNew.items.historySearch", destination: "history" },
-  { key: "help.whatsNew.items.chineseScript", destination: "general", anchor: "settings-chinese-script-default" },
-  { key: "help.whatsNew.items.localReliability", destination: "models" },
+  { key: "help.whatsNew.items.replacementPlayground", destination: "textReplacement" },
 ] as const;
 
 export const HelpSettings: React.FC = () => {
