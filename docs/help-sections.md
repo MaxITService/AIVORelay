@@ -52,9 +52,9 @@ button for the related settings page.
 
 In **Speech / Mic**, choose your microphone, then open **Default (Global)** to
 set a model and shortcut. Press the shortcut and speak. For another setup, click
-**Create New Profile**. In a profile, open **More → Choose how to handle the clipboard,
-insert text, and press keys before and after insertion**. Set **Before insertion** to open chat and
-**After insertion** to send text.
+**Create New Profile**. In a profile, open **More → Key presses before and after
+insertion**. Set **Press this key before insertion** to open chat and
+**Press this key after insertion** to send text.
 
 ### Choose a local model or cloud provider.
 
@@ -82,15 +82,15 @@ Console commands: no direct command is documented for changing this setting.
 
 ### Improve microphone audio.
 
-**Speech Processing** changes the microphone input before transcription. Use it
-when speech is too quiet or background noise is distracting.
+In **Speech / Mic**, adjust microphone input boost and noise cancellation before
+transcription. This can help when speech is too quiet or background noise is distracting.
 
 Console commands: no direct command is documented for these settings.
 
 ### Control advanced application behaviour.
 
-**Advanced** contains less common controls. Use it to change startup, clipboard,
-or other application behaviour.
+**Advanced** contains less common controls. Use it to change startup, recording
+limits, playback muting, or model acceleration.
 
 Console commands: no direct command is documented for these settings.
 

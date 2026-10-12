@@ -16,7 +16,7 @@ const HELP_SEARCH_RECORDS: readonly HelpSearchRecord[] = [
     anchor: "help-transcription",
     title: "Press a key. Speak. Text appears.",
     summary:
-      "In Speech / Mic, choose your microphone, then open Default (Global) to set a model and shortcut. Press the shortcut and speak. For another setup, click Create New Profile. In a profile, open More → Choose how to handle the clipboard, insert text, and press keys before and after insertion. Set Before insertion to open chat and After insertion to send text.",
+      "In Speech / Mic, choose your microphone, then open Default (Global) to set a model and shortcut. Press the shortcut and speak. For another setup, click Create New Profile. In a profile, open More → Key presses before and after insertion. Set “Press this key before insertion” to open chat and “Press this key after insertion” to send text.",
     destination: "Speech / Mic",
     keywords: ["speech", "mic", "microphone", "shortcut", "dictation", "voice", "profile", "text output", "before insertion", "after insertion", "профиль", "вывод текста"],
   },
@@ -53,17 +53,17 @@ const HELP_SEARCH_RECORDS: readonly HelpSearchRecord[] = [
     anchor: "help-speech-processing",
     title: "Improve microphone audio.",
     summary:
-      "Adjust input levels and microphone cleanup before transcription. This can help when speech is too quiet or background noise is distracting.",
-    destination: "Speech Processing",
+      "In Speech / Mic, adjust microphone input boost and noise cancellation before transcription. This can help when speech is too quiet or background noise is distracting.",
+    destination: "Speech / Mic",
     keywords: ["audio", "noise", "cancellation", "boost", "input", "microphone"],
   },
   {
     anchor: "help-advanced",
     title: "Control advanced application behaviour.",
     summary:
-      "Advanced contains less common controls. Use it to change startup, clipboard, or other application behaviour.",
+      "Advanced contains less common controls. Use it to change startup, recording limits, playback muting, or model acceleration.",
     destination: "Advanced",
-    keywords: ["advanced", "startup", "clipboard", "paste", "behaviour"],
+    keywords: ["advanced", "startup", "recording limits", "mute", "acceleration", "behaviour"],
   },
   {
     anchor: "help-post-processing",
