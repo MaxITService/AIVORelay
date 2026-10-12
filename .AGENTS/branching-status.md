@@ -6,10 +6,10 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## release/microsoft-store
 
-Last synced commit from `main`: `7527485d` — chore: bump version to 1.0.47.
+Last synced commit from `main`: `71d9675a` — feat(models): defer deletion with a five-second undo window.
 Maintenance rule: after a successful `main` -> `release/microsoft-store` propagation, update this main-copy cursor and the `release/microsoft-store` worktree copy together.
 Note: the cursor always points to the last propagated `main` state reflected in branch content, not to a docs-only cursor-update commit itself.
-Alignment note: five runtime/UI commits after 1.0.46 and the 1.0.47 release preparation are reflected through the cursor above. Native-worker isolation, loading feedback, Chinese script selection, Soniox connection authentication, tray error feedback and setting fallbacks are propagated. The unsigned certificate-attachment gate is present in both branches. Main-only documentation, dev/Playwright tooling (342b37ed) and standalone frontend tests remain excluded. Store AVX2, updater, signing and existing test-support differences are preserved. Store Cargo.lock was regenerated from its own manifest and verified with locked offline metadata. Release notes and EN/RU What's New describe changes since 1.0.46. The user reported successful testing; no agent build/tests were run.
+Alignment note: 22 runtime/UI commits after 1.0.47 are propagated through the pinned cursor above. Audio fixes, History search and benchmark navigation, recording CLI controls, profile output/window guards and shared forms, model selection/deletion undo, text replacement preview and overlay fixes are included. README and Help changes were reviewed; TESTING includes only the new profile-guard section. Store inline Gemini early-finalization logic retains its implementation with the new buffered-output guard. Packaging, AVX2, updater, dependencies and Cargo.lock are unchanged. Ongoing main edits and later commits are excluded. No agent build/tests were run.
 Sync rule: for this branch, source commits come from `main` only.
 Propagation scope rule: for Microsoft Store Edition propagation, bring over the intended `main` commit set in order unless a commit is store-incompatible. Default exclusions are self-update/auto-update changes and AVX512-only changes; AVX2 is allowed.
 
