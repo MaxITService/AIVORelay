@@ -1,33 +1,140 @@
 {
   "profileOutput": {
     "delayInvalid": "Enter a number from 0 to 5000 ms.",
-    "title": "Choose how to handle the clipboard, insert text, and press keys before and after insertion",
-    "profileMore": "More",
+    "title": "Text insertion and clipboard",
+    "titleHint": "How dictated text gets into the app",
+    "keysPanel": {
+      "title": "Key presses before and after insertion",
+      "hint": "Rarely needed: open a chat before inserting, send it after",
+      "beforeHint": "Opens a chat or field before the text goes in.",
+      "afterHint": "Sends the message after the text is in.",
+      "standardOnly": "Keys are pressed only in the standard scenario: dictation, then insertion. <repaste>Repaste Last</repaste> and retry after a network error insert the text without any key presses."
+    },
+    "sectionHints": {
+      "insertion": "Choose how text is typed or pasted into the active window.",
+      "clipboard": "Pasting uses the clipboard; choose what it holds afterwards.",
+      "window": "What to do if you switch to another window while text is being inserted."
+    },
+    "profileMore": "More (preview, text output, AI processing, Chinese script)",
+    "previewEnabled": "Preview enabled",
     "active": "Key actions enabled",
-    "inherit": "Default — {{value}}",
-    "defaultHelp": "These output settings are shared by profiles that inherit them.",
-    "profileHelp": "Unset values follow the Default profile.",
-    "openDefault": "Open shared output settings",
-    "before": "Before insertion",
+    "defaultHelp": "New profiles start with a copy of these output settings (without key presses). Changing them later does not change other profiles.",
+    "profileHelp": "This profile's output settings are its own: changes to the Default profile do not affect them.",
+    "openDefault": "Open the Default profile's output settings",
+    "before": "Press this key after recording ends, before insertion",
     "clipboard": "Clipboard after insertion",
-    "beforeHelp": "Press a key to open chat immediately before inserting the completed text.",
-    "after": "After insertion",
+    "beforeHelp": "Pressed only after recording finishes and the text is ready, immediately before insertion. This is independent of the key at recording start: you can choose different keys, enable both, or turn either off. With this key enabled, live text accumulates and is inserted once at the end. After the key is pressed, its own pause elapses before the text is inserted.",
+    "after": "Press this key after insertion",
     "noKey": "Do not press a key",
     "customKey": "Choose a key or shortcut…",
     "openingKey": "Opening key",
+    "startKeyPicker": "Recording-start key",
     "unsupportedKey": "{{key}} is not supported. Choose another key, optionally combined with Ctrl, Shift, Alt, or Win/Cmd.",
-    "more": "Additional settings",
     "pasteDelay": "Clipboard paste delay (ms)",
-    "checkActiveWindow": "Cancel insertion when the active window changes",
-    "checkActiveWindowHelp": "Cancel insertion and key actions if the active window changes or Windows cannot identify it. When disabled, output continues to the currently active window.",
+    "checkActiveWindow": "Protect the target window",
+    "checkActiveWindowHelp": "OFF (default)\nThe original window is not captured. Live dictation follows the active window and current cursor position. Switching applications sends subsequent words to the new application. Prepared insertion and key actions may also continue in the new window.\n\nON\nFor immediate live insertion, the window active at recording startup becomes the target. Text is inserted there while it stays active. When you switch away, recognition continues and undelivered text accumulates in the background. It is not automatically inserted into other windows. Returning and waiting for the configured delay inserts only the accumulated remainder, without repeating delivered words. The specific field and cursor position inside the window are not locked.\n\nAT THE END OF RECORDING\nIf you are not in the original window when recording ends, choose whether to leave the remainder for recovery through History, open Preview with only undelivered text, or wait for the original window and paste after the delay. History contains the full dictation; pasting it again can repeat words already inserted. If the waiting window closes or could not be identified, the remainder opens in Preview. Starting another dictation first moves a previous waiting remainder to Preview.\n\nKEY ACTIONS\nThe recording-start key and the key before insertion are independent. With a key before insertion, text accumulates until completion, then that key, its pause, insertion and the after-insertion key run in order. With only a recording-start key, live text can appear after its pause; the after-insertion key runs at the end. The check stops remaining actions if the window changes during preparation or pauses. Already inserted text is not removed. Insertion is blocked when Windows cannot identify the active window.",
+    "liveWindowResumeDelay": "Wait after returning to the window (ms)",
+    "liveWindowResumeDelayHelp": "This pause starts when you return to the original window. Once it ends, accumulated undelivered text is inserted at the current cursor position in that window, without repeating delivered words. If recording continues, subsequent words resume appearing as they are recognized.\n\nSwitching away before the pause ends resets the countdown; it starts again on your next return. 0 ms resumes without an additional wait. After Stop, this pause applies to Wait for the original window and paste. It does not replace the separate clipboard paste delay.",
+    "liveWindowStopAction": "Undelivered live text when you're not in the original window at the end",
+    "liveWindowStopActionHelp": "Applies when recording ends and you are not in the original window, only to text not yet inserted. Delivered text stays in place. Full dictation history follows the application's existing history settings.",
+    "liveWindowStopActions": {
+      "history": "Don't insert the rest (full text stays in History)",
+      "preview": "Open Preview with the undelivered remainder",
+      "wait_for_window": "Wait for the original window and paste after the delay"
+    },
+    "waitLimit": "Stop waiting after",
+    "waitLimitHelp": "How long a finished dictation may wait for the original window. When the time runs out, the remaining text is handled as chosen below. No limit keeps waiting until you return or cancel it.",
+    "waitLimits": {
+      "s0": "No limit",
+      "s60": "1 min",
+      "s120": "2 min",
+      "s300": "5 min",
+      "s600": "10 min",
+      "custom": "{{seconds}} s"
+    },
+    "waitLimitAction": "If it doesn't return in time",
+    "waitLimitActions": {
+      "preview": "Open Preview with the remainder",
+      "history": "Don't insert the rest (full text stays in History)"
+    },
+    "liveWindowNotices": {
+      "paused": "Live insertion paused",
+      "pausedHelp": "The window changed. Text is accumulating; returning and waiting for the configured pause inserts only the remainder.",
+      "waiting": "Remaining text is waiting for the original window",
+      "waitingHelp": "Recording finished. Return to the original window and position the cursor: the remainder will be inserted after the configured pause. Cancel drops it; the full text stays in History.",
+      "history": "Remaining text was not inserted automatically",
+      "historyHelp": "Use dictation History to recover it. Repaste restores the full text, including words already inserted.",
+      "openPreview": "Open Preview",
+      "discard": "Cancel",
+      "busy": "Previous dictation is still being inserted",
+      "busyHelp": "Wait for it to finish, or cancel it, then start a new recording.",
+      "earlyOpenFailed": "The opening key could not be pressed",
+      "earlyOpenFailedHelp": "Nothing is inserted for this recording. The text stays in History."
+    },
+    "startDelay": "Pause after the recording-start key (ms)",
     "openDelay": "Wait after opening chat (ms)",
     "submitDelay": "Wait before sending (ms)",
-    "bufferedHelp": "With key actions enabled, live text is inserted once at completion. Preview updates do not open chat or send text.",
+    "bufferedHelp": "With key actions enabled, the text is inserted once at the end. Preview updates do not open chat or send text.",
+    "earlyOpenHelp": "The first key is pressed at recording start. If a separate key before insertion is enabled, it is pressed after recording ends, then the whole text is inserted. Otherwise live text can appear after the start-key pause. The after-insertion key runs after delivery. Preview updates do not press these keys.",
+    "liveBufferedWarning": "Live text accumulates until recording ends because a key before insertion is selected. Choose “Do not press a key” in <toggle>the key before insertion setting</toggle> to allow live insertion. A recording-start key can be configured separately.",
+    "liveBufferedWarningNoOpeningKey": "Live text accumulates until recording ends because an after-insertion key is enabled without a recording-start key. Choose a key in <toggle>the recording-start setting</toggle> to allow live insertion, or turn off the after-insertion key.",
+    "beforeAtStart": "Press this key when recording starts",
+    "beforeAtStartHelp": "Pressed once at recording start. On Windows, it waits until you release the recording shortcut modifiers (Ctrl, Shift, Alt or Win). This key and its pause are independent of the key before insertion. It is not pressed again at the end. Preview-only recording does not press this key. If you cancel after it was pressed, the optional cancellation key can close the opened chat.",
+    "cancelKey": "Press this key if recording is cancelled or empty",
+    "cancelKeyHelp": "Closes the chat opened at recording start. Leave empty to do nothing.",
+    "cancelKeyPicker": "Cancel key",
+    "sections": {
+      "insertion": "Text insertion",
+      "clipboard": "Clipboard",
+      "window": "Window change"
+    },
+    "planTitle": "What happens with these settings",
+    "planSteps": "In order",
+    "planIfs": "If…",
+    "planPreviewLink": "Open Preview settings",
+    "plan": {
+      "stepPreview": "Finished text is kept in Preview and is not inserted until you insert it from there.",
+      "stepNoInsertion": "Text is not inserted anywhere and no keys are pressed (insertion method: None).",
+      "stepInsertInto": "Text is inserted into the active window using {{method}}.",
+      "stepTargetWindow": "When recording starts, the active window is remembered as the target.",
+      "stepStartKeyWindows": "As soon as you release the shortcut's modifier keys (Ctrl, Shift, Alt, Win), “{{key}}” is pressed.",
+      "stepStartKey": "Right after recording starts, “{{key}}” is pressed.",
+      "stepDuringHeld": "While recording, live text is not inserted; the whole text is inserted once at the end.",
+      "stepDuringLive": "While recording, text is inserted as it is recognized.",
+      "stepDuringLiveEarly": "While recording, text is inserted as it is recognized, starting {{delay}} ms after the key press.",
+      "stepFromPreview": "When you insert the text from Preview:",
+      "stepEndOpen": "At the end, “{{key}}” is pressed.",
+      "stepEndWait": "Then it waits {{delay}} ms.",
+      "stepEndEarlyWait": "At the end, it waits until {{delay}} ms have passed since the key press (usually already over).",
+      "stepEndInsert": "The text is inserted using {{method}}.",
+      "stepEndRest": "At the end, any remaining text is inserted.",
+      "stepEndClipboard": "Clipboard afterwards: {{handling}}.",
+      "stepEndSubmit": "After {{delay}} ms, “{{key}}” is pressed.",
+      "ifEarlyHeld": "While you hold the shortcut's modifier keys, the opening key waits for you to release them (with push-to-talk, that is when you finish recording). Text waits for it.",
+      "ifEarlyFails": "The opening key cannot be pressed at recording start: nothing is inserted, a notice is shown, and the text stays in History.",
+      "ifSubmitNeedsWindow": "The key after insertion is pressed only if all text was inserted and the window that received the opening key is still in front.",
+      "ifSubmitNeedsAllText": "The key after insertion is pressed only if all text was inserted.",
+      "ifCancelKeyWindow": "Recording is cancelled or nothing is recognized: “{{key}}” is pressed, but only while the window that received the opening key is still in front.",
+      "ifCancelKey": "Recording is cancelled or nothing is recognized: “{{key}}” is pressed.",
+      "ifCancelNothingMore": "Recording is cancelled or nothing is recognized: no further key is pressed.",
+      "ifCancelNothing": "Recording is cancelled or nothing is recognized: nothing is inserted and no key is pressed.",
+      "ifSwitchPause": "You switch to another window while recording: insertion pauses and text accumulates. {{delay}} ms after you return, it is inserted without repeating words.",
+      "ifStop_history": "Recording ends while you are not in the original window: the remaining text is not inserted; recover it from History.",
+      "ifStop_preview": "Recording ends while you are not in the original window: the remaining text opens in Preview.",
+      "ifStop_wait_for_window": "Recording ends while you are not in the original window: the remaining text waits for the original window and is inserted {{delay}} ms after you return.",
+      "ifWaitLimit_preview": "If you don't return within {{limit}}: the remaining text opens in Preview.",
+      "ifWaitLimit_history": "If you don't return within {{limit}}: the remaining text is not inserted; recover it from History.",
+      "ifWindowGone": "The original window closes or cannot be identified: the remaining text opens in Preview.",
+      "ifSwitchFollow": "You switch to another window while recording: the following text is inserted into the new window.",
+      "ifKeysWindowChangeStops": "The active window changes during key actions or waits: the remaining actions stop. Text not yet inserted is not inserted, and the key after insertion is not pressed.",
+      "ifKeysWindowChangeContinues": "The active window changes during key actions or waits: the remaining actions continue in the new window.",
+      "ifPasteFails": "Text cannot be pasted: a “Failed to Paste Text” notice appears. The text was already saved to History (when History is enabled)."
+    },
     "enabled": "Enabled",
     "disabled": "Disabled",
-    "reset": "Use Default for all output settings",
+    "reset": "Copy all output settings from the Default profile (without key presses)",
     "saveFailed": "Could not save output settings",
-    "advancedLink": "Default → More → Choose how to handle the clipboard, insert text, and press keys before and after insertion"
+    "advancedLink": "Default → More → Text insertion and clipboard / Key presses before and after insertion"
   },
   "sendSelectedText": {
     "title": "Send selected text to file or command",
@@ -507,7 +614,7 @@
     "sections": {
       "transcription": {
         "title": "Press a key. Speak. Text appears.",
-        "summary": "In Speech / Mic, choose your microphone, then open Default (Global) to set a model and shortcut. Press the shortcut and speak. For another setup, click Create New Profile. In a profile, open More → Choose how to handle the clipboard, insert text, and press keys before and after insertion. Set Before insertion to open chat and After insertion to send text.",
+        "summary": "In Speech / Mic, choose your microphone, then open Default (Global) to set a model and shortcut. Press the shortcut and speak. For another setup, click Create New Profile. In a profile, open More → Key presses before and after insertion. Set “Press this key before insertion” to open chat and “Press this key after insertion” to send text.",
         "models": {
           "title": "Choose a local model or cloud provider.",
           "summary": "Local models run on your computer. They usually do not need an online account or usage payments, but they need enough disk space, memory, and processing power. Cloud/API providers run online. You usually need to sign in to the provider’s website or console, enable the service, create an API key, and usually add a payment method or credits. Cloud providers may charge for each request. They can have free plans with limits. AivoRelay does not control provider prices. Check the provider’s pricing and usage limits before using it.",
@@ -515,11 +622,11 @@
         },
         "speechProcessing": {
           "title": "Improve microphone audio.",
-          "summary": "Adjust input levels and microphone cleanup before transcription. This can help when speech is too quiet or background noise is distracting."
+          "summary": "In Speech / Mic, adjust microphone input boost and noise cancellation before transcription. This can help when speech is too quiet or background noise is distracting."
         },
         "advanced": {
           "title": "Control advanced application behaviour.",
-          "summary": "Advanced contains less common controls. Use it to change startup, clipboard, or other application behaviour."
+          "summary": "Advanced contains less common controls. Use it to change startup, recording limits, playback muting, or model acceleration."
         }
       },
       "postProcessing": {
@@ -2454,6 +2561,9 @@
         "label": "Push To Talk",
         "description": "When ON: hold key to record. When OFF: tap once to start, tap again to stop.",
         "moreOptions": "More options",
+        "showOptions": "Show options",
+        "hideOptions": "Hide options",
+        "autoPttDisabledHelp": "Automatic tap / hold selects the recording behavior. Turn it off to change Push to Talk.",
         "autoLabel": "Automatic tap / hold",
         "autoDescription": "Recording starts immediately. Release within 300 ms to keep recording until the next press, or keep holding and release to stop."
       },
@@ -2490,6 +2600,11 @@
       }
     },
     "transcriptionProfiles": {
+      "previewOutputOnly": {
+        "title": "Output to Preview",
+        "openSettings": "Preview settings",
+        "description": "Keep this profile's output in Preview instead of inserting it."
+      },
       "duplicate": "Duplicate",
       "copyName": "{{name}} — copy",
       "copyDraftFrom": "Copied from {{name}}. Review settings before creating.",

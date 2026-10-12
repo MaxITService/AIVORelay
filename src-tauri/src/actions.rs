@@ -414,14 +414,8 @@ fn prompt_templates_require_current_app(
         .map(|profile| profile.llm_post_process_enabled)
         .unwrap_or(settings.post_process_enabled);
     let output_route_allows_post_process = post_process_allowed_for_output_route(settings, profile);
-    let output_is_buffered = buffers_profile_output(settings, profile);
-    let post_process_can_run = (force_post_process && output_route_allows_post_process)
-        || (llm_enabled
-            && output_route_allows_post_process
-            && (output_is_buffered
-                || (settings.transcription_provider != TranscriptionProvider::RemoteSoniox
-                    && !(settings.transcription_provider == TranscriptionProvider::RemoteDeepgram
-                        && settings.deepgram_live_enabled))));
+    let post_process_can_run =
+        (force_post_process || llm_enabled) && output_route_allows_post_process;
 
     if post_process_can_run && post_process_provider_and_model_are_configured(settings, profile_id)
     {
@@ -1216,17 +1210,9 @@ async fn maybe_post_process_transcription(
         return PostProcessTranscriptionOutcome::Skipped;
     }
 
-    if !force_manual && !buffers_profile_output(settings, profile) {
-        if settings.transcription_provider == TranscriptionProvider::RemoteSoniox {
-            debug!("Skipping post-processing for Soniox streaming transcription");
-            return PostProcessTranscriptionOutcome::Skipped;
-        }
-        if settings.transcription_provider == TranscriptionProvider::RemoteDeepgram
-            && settings.deepgram_live_enabled
-        {
-            debug!("Skipping post-processing for Deepgram live transcription");
-            return PostProcessTranscriptionOutcome::Skipped;
-        }
+    if skips_automatic_post_process_for_output_route(settings, profile, force_manual) {
+        debug!("Skipping post-processing because realtime text was already inserted directly");
+        return PostProcessTranscriptionOutcome::Skipped;
     }
 
     if !force_manual {
@@ -1697,6 +1683,26 @@ fn resolve_history_post_process_requested(
     enabled && post_process_allowed_for_output_route(settings, profile)
 }
 
+/// Settings for the automatic LLM pass of a stopped recording. The Preview LLM button runs
+/// its own pass over the whole Preview text right after, so its last chunk is not processed twice.
+fn automatic_post_process_settings<'a>(
+    settings: &'a AppSettings,
+    profile_id: Option<&str>,
+    stopped_by_preview_llm: bool,
+) -> std::borrow::Cow<'a, AppSettings> {
+    if !stopped_by_preview_llm {
+        return std::borrow::Cow::Borrowed(settings);
+    }
+    let mut settings = settings.clone();
+    settings.post_process_enabled = false;
+    if let Some(profile) = profile_id
+        .and_then(|id| settings.transcription_profiles.iter_mut().find(|p| p.id == id))
+    {
+        profile.llm_post_process_enabled = false;
+    }
+    std::borrow::Cow::Owned(settings)
+}
+
 fn buffers_profile_output(settings: &AppSettings, profile: Option<&TranscriptionProfile>) -> bool {
     crate::settings::ResolvedOutputSettings::resolve(settings, profile.map(|p| p.id.as_str()))
         .buffers_external_output()
@@ -1741,6 +1747,17 @@ fn post_process_allowed_for_output_route(
     };
 
     !inserts_realtime_text_directly
+}
+
+/// Automatic LLM post-processing follows exactly the output-route rule that the
+/// UI and the history flag use, so a provider-specific exception cannot diverge
+/// from it. Manual runs (Preview's LLM action, live-sound LLM) bypass it.
+fn skips_automatic_post_process_for_output_route(
+    settings: &AppSettings,
+    profile: Option<&TranscriptionProfile>,
+    force_manual: bool,
+) -> bool {
+    !force_manual && !post_process_allowed_for_output_route(settings, profile)
 }
 
 fn resolve_forced_post_process_requested(
@@ -1942,6 +1959,9 @@ fn start_recording_with_feedback_with_settings(
     allow_active_app_lookup: bool,
     force_post_process: bool,
 ) -> bool {
+    if crate::live_output_buffer::recover_waiting_before_recording(app) {
+        return false;
+    }
     // Load model in the background if using local transcription
     let tm = app.state::<Arc<TranscriptionManager>>();
     if settings.transcription_provider == TranscriptionProvider::Local {
@@ -2107,12 +2127,43 @@ fn start_recording_with_feedback_with_settings(
     {
         let preview_output = crate::managers::preview_output_mode::is_active_for_binding(binding_id)
             .then(crate::managers::preview_output_mode::output_settings).flatten();
-        Some(preview_output.unwrap_or_else(|| crate::settings::ResolvedOutputSettings::resolve(
+        let mut output = preview_output.unwrap_or_else(|| crate::settings::ResolvedOutputSettings::resolve(
             &settings, captured_profile_id.as_deref(),
-        )))
+        ));
+        // A preview snapshot may predate this recording's whitespace setting.
+        output.trailing_whitespace_mode = settings.output_whitespace_trailing_mode;
+        Some(output)
     } else {
         None
     };
+    // Opening key pressed at recording start: only for output that really goes to the
+    // target window while recording. Preview-held output presses its key at insertion.
+    let early_open_armed = output_settings.as_ref().filter(|output| output.opens_at_start()
+        && !crate::managers::preview_output_mode::is_active_for_binding(binding_id)
+        && (native_stream_direct_output
+            || !should_route_output_to_preview_for_captured_profile(&settings, captured_profile_id.as_ref()))
+    ).map(|output| {
+        let start_window = output.check_active_window
+            .then(crate::clipboard::output_foreground_window).flatten();
+        crate::early_open::arm(app, operation_id, &output.early_opening_key, crate::early_open::EarlyKeyConfig {
+            key: output.recording_start_key.clone(),
+            cancel_key: output.cancel_key_after_early_open.clone(),
+            check_window: output.check_active_window,
+            start_window,
+        });
+    }).is_some();
+    let protected_live_output = output_settings.as_ref().filter(|output|
+        ((cfg!(target_os = "windows") && output.check_active_window) || early_open_armed)
+            && output.paste_method != crate::settings::PasteMethod::None
+            && !output.buffers_external_output()
+            && (should_use_live_streaming(&settings) || native_stream_direct_output)
+            && (!should_route_output_to_preview_for_captured_profile(&settings, captured_profile_id.as_ref())
+                || (early_open_armed && native_stream_direct_output))
+    ).cloned();
+    if let Some(output) = protected_live_output {
+        let target = crate::live_output_buffer::foreground_target();
+        crate::live_output_buffer::begin(operation_id, binding_id, captured_profile_id.clone(), output, target);
+    }
     crate::clipboard::begin_dictation_output_session(operation_id, output_settings);
     *state_guard = session_manager::SessionState::Recording {
         session: Arc::clone(&session),
@@ -2189,7 +2240,9 @@ fn start_recording_with_feedback_with_settings(
                         );
                         return;
                     }
-                    if let Err(error) = crate::clipboard::paste_stream_chunk(chunk, app_for_paste) {
+                    if let Err(error) = crate::clipboard::paste_stream_chunk_for_operation(
+                        chunk, app_for_paste, operation_stamp.operation_id,
+                    ) {
                         warn!("Failed to insert native streaming chunk: {}", error);
                     }
                 }) {
@@ -2319,6 +2372,7 @@ fn start_recording_with_feedback_with_settings(
             }
             let _ = take_recording_app_context(binding_id);
             utils::hide_recording_overlay(app);
+            crate::early_open::finish_operation(operation_id);
             if force_post_process {
                 let _ = take_force_post_process_for_binding(binding_id);
             }
@@ -2332,6 +2386,14 @@ fn start_recording_with_feedback_with_settings(
         // Register cancel shortcut now that recording is confirmed
         session.register_cancel_shortcut();
         crate::recording_auto_stop::start_auto_stop_timer(app, binding_id, operation_id);
+        if early_open_armed {
+            // Presses the opening key once the hotkey modifiers are released; stops
+            // waiting as soon as this recording is cancelled or over.
+            let app_for_worker = app.clone();
+            crate::early_open::spawn_press_worker(operation_id, move || {
+                operation_stamp.is_current(&app_for_worker) && !operation_stamp.was_cancelled(&app_for_worker)
+            });
+        }
         if let Some(ticket) = tray_ticket {
             commit_tray_sync(app, ticket);
         }
@@ -3671,9 +3733,10 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
             return;
         }
 
+        // A retry only inserts the text; the key presses belong to the original dictation.
         let output_settings = crate::settings::ResolvedOutputSettings::resolve(
             &request.recording_settings, request.captured_profile_id.as_deref(),
-        );
+        ).without_key_actions();
         let final_text = match apply_post_processing_and_history(
             &app,
             &request.recording_settings,
@@ -3978,6 +4041,37 @@ mod stt_workflow_tests {
         .unwrap();
         profile.stt_model_selection_override = Some(selection);
         profile
+    }
+
+    #[test]
+    fn shared_model_changes_follow_inheriting_profiles_and_preserve_explicit_overrides() {
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::Local;
+        settings.selected_model = "old-shared".to_string();
+        let explicit = SttModelSelection {
+            provider: TranscriptionProvider::Local, model_id: "pinned-model".to_string(),
+            provider_preset: String::new(),
+        };
+        let overridden = profile_with_selection(explicit.clone());
+        let mut inheriting = overridden.clone();
+        inheriting.id = "profile_inherit".to_string();
+        inheriting.stt_model_selection_override = None;
+        settings.transcription_profiles = vec![inheriting, overridden];
+        crate::settings::apply_stt_model_selection(&mut settings, &SttModelSelection {
+            provider: TranscriptionProvider::Local, model_id: "new-shared".to_string(),
+            provider_preset: String::new(),
+        }).unwrap();
+
+        settings.active_profile_id = "default".to_string();
+        assert_eq!(settings_with_model_override_for_binding(settings.clone(), "transcribe").selected_model, "new-shared");
+        settings.active_profile_id = "profile_inherit".to_string();
+        assert_eq!(settings_with_model_override_for_binding(settings.clone(), "transcribe").selected_model, "new-shared");
+        assert_eq!(settings_with_model_override_for_binding(settings.clone(), "transcribe_profile_inherit").selected_model, "new-shared");
+        settings.active_profile_id = "profile_test".to_string();
+        assert_eq!(settings_with_model_override_for_binding(settings.clone(), "transcribe").selected_model, "pinned-model");
+        assert_eq!(settings_with_model_override_for_binding(settings.clone(), "transcribe_profile_test").selected_model, "pinned-model");
+        assert_eq!(settings.selected_model, "new-shared");
+        assert_eq!(settings.transcription_profiles[1].stt_model_selection_override, Some(explicit));
     }
 
     #[test]
@@ -5661,6 +5755,23 @@ fn replace_preview_text_for_output_mode(app: &AppHandle, text: &str) {
     crate::overlay::emit_live_preview_update(app, text, "");
 }
 
+pub(crate) fn show_retained_live_output_preview(
+    app: &AppHandle,
+    text: String,
+    binding_id: String,
+    profile_id: Option<String>,
+    output_settings: crate::settings::ResolvedOutputSettings,
+) {
+    if text.is_empty() { return; }
+    crate::overlay::begin_live_preview_session();
+    crate::overlay::reset_live_preview(app);
+    crate::managers::preview_output_mode::activate_session(app, binding_id, profile_id,
+        None, false, String::new(), output_settings);
+    crate::managers::preview_output_mode::set_recording(app, false);
+    replace_preview_text_for_output_mode(app, &text);
+    crate::overlay::show_live_preview_window(app);
+}
+
 fn current_preview_buffer_text() -> String {
     let state = crate::overlay::get_live_preview_state();
     format!("{}{}", state.final_text, state.interim_text)
@@ -6056,7 +6167,7 @@ fn finish_dictation_paste_result(
             false
         }
         Err(error) => {
-            if has_text && !cancelled {
+            if has_text && !cancelled && error != crate::clipboard::OPENING_KEY_NOT_PRESSED_ERROR {
                 report_failure(&error);
             }
             false
@@ -6082,7 +6193,7 @@ mod dictation_paste_feedback_tests {
 
     #[test]
     fn cancelled_insertion_and_stream_failure_each_report_once() {
-        for result in [Ok(false), Err("Streaming paste was interrupted because the target window changed".to_string())] {
+        for result in [Ok(false), Err(crate::clipboard::TARGET_WINDOW_CHANGED_ERROR.to_string())] {
             let mut messages = Vec::new();
             assert!(!finish_dictation_paste_result(result, true, false,
                 |error| messages.push(error.to_string())));
@@ -6102,11 +6213,30 @@ mod dictation_paste_feedback_tests {
     }
 
     #[test]
+    fn an_opening_key_that_was_not_pressed_is_not_reported_again() {
+        let result = Err(crate::clipboard::OPENING_KEY_NOT_PRESSED_ERROR.to_string());
+        assert!(!finish_dictation_paste_result(result, true, false,
+            |_| panic!("The failed opening key already has its own notice")));
+    }
+
+    #[test]
     fn delivered_output_does_not_report_an_error_after_focus_or_cancellation_changes() {
         for cancelled in [false, true] {
             assert!(finish_dictation_paste_result(Ok(true), true, cancelled,
                 |_| panic!("Delivered text must not be reported as a failed insertion")));
         }
+    }
+}
+
+/// With the opening key pressed at recording start, final insertion waits (off the main
+/// thread) until that key was pressed, e.g. while the hotkey modifiers are still held.
+/// Returns at once when the feature is off.
+async fn wait_for_early_opening_key(app: &AppHandle, operation_id: u64, operation_stamp: OperationStamp) {
+    while crate::early_open::is_waiting(operation_id)
+        && operation_stamp.is_current(app)
+        && !operation_stamp.was_cancelled(app)
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
 
@@ -6249,13 +6379,25 @@ pub(crate) async fn process_live_sound_transcription_text(app: AppHandle) -> Res
 }
 
 fn stop_transcribe_binding_from_preview(app: &AppHandle, binding_id: &str) -> Result<(), String> {
+    stop_transcribe_binding_from_preview_as(app, binding_id, "preview_output_mode")
+}
+
+/// Stop label of the Preview LLM button. It runs its own LLM pass over the whole Preview
+/// text, so the recording it stops skips the automatic pass on its last chunk.
+const PREVIEW_LLM_STOP_SHORTCUT: &str = "preview_output_mode_llm";
+
+fn stop_transcribe_binding_from_preview_as(
+    app: &AppHandle,
+    binding_id: &str,
+    shortcut: &str,
+) -> Result<(), String> {
     let action = transcribe_action_for_binding(binding_id).ok_or_else(|| {
         format!(
             "No transcription action is registered for binding '{}'",
             binding_id
         )
     })?;
-    action.stop(app, binding_id, "preview_output_mode");
+    action.stop(app, binding_id, shortcut);
     Ok(())
 }
 
@@ -6961,55 +7103,6 @@ fn apply_profile_output_filters(
     apply_transcription_output_filters(settings, profile, text, output_language)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum StreamTrailingAdjustment {
-    None,
-    AppendSpaces(usize),
-    RemoveCharacters(usize),
-}
-
-fn count_trailing_whitespace_chars(text: &str) -> usize {
-    text.chars()
-        .rev()
-        .take_while(|ch| ch.is_whitespace())
-        .count()
-}
-
-fn resolve_stream_trailing_adjustment(
-    settings: &AppSettings,
-    original_text: &str,
-) -> StreamTrailingAdjustment {
-    let adjusted = apply_output_whitespace_policy_for_settings(original_text, settings);
-    let original_trailing_count = count_trailing_whitespace_chars(original_text);
-    let adjusted_trailing_count = count_trailing_whitespace_chars(&adjusted);
-
-    if adjusted_trailing_count > original_trailing_count {
-        StreamTrailingAdjustment::AppendSpaces(adjusted_trailing_count - original_trailing_count)
-    } else if original_trailing_count > adjusted_trailing_count {
-        StreamTrailingAdjustment::RemoveCharacters(
-            original_trailing_count - adjusted_trailing_count,
-        )
-    } else {
-        StreamTrailingAdjustment::None
-    }
-}
-
-fn apply_stream_trailing_adjustment(app: &AppHandle, adjustment: StreamTrailingAdjustment) {
-    match adjustment {
-        StreamTrailingAdjustment::None => {}
-        StreamTrailingAdjustment::AppendSpaces(count) => {
-            if count > 0 {
-                let _ = crate::clipboard::paste_stream_chunk(" ".repeat(count), app.clone());
-            }
-        }
-        StreamTrailingAdjustment::RemoveCharacters(count) => {
-            if count > 0 {
-                let _ = crate::clipboard::delete_last_stream_characters(app.clone(), count);
-            }
-        }
-    }
-}
-
 fn should_run_transcription_post_process(post_process_requested: bool, text: &str) -> bool {
     post_process_requested && !text.trim().is_empty()
 }
@@ -7019,7 +7112,7 @@ mod transcription_post_process_tests {
     use super::{
         empty_transcription_error_category, is_blank_transcription, parse_openai_realtime_keywords,
         post_process_allowed_for_output_route, should_cancel_live_quick_stop_without_finalize,
-        should_run_transcription_post_process,
+        should_run_transcription_post_process, skips_automatic_post_process_for_output_route,
     };
     use crate::plus_overlay_state::OverlayErrorCategory;
     use crate::settings::{get_default_settings, PasteMethod, TranscriptionProfile, TranscriptionProvider};
@@ -7110,6 +7203,46 @@ mod transcription_post_process_tests {
 
         settings.preview_output_only_enabled = true;
         assert!(post_process_allowed_for_output_route(&settings, None));
+    }
+
+    #[test]
+    fn automatic_post_process_follows_output_route_for_soniox_and_deepgram() {
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::RemoteSoniox;
+        settings.soniox_model = "stt-rt-v5".to_string();
+        settings.deepgram_model = "nova-3".to_string();
+        settings.preview_output_only_enabled = false;
+        settings.soniox_live_preview_enabled = false;
+
+        for provider in [
+            TranscriptionProvider::RemoteSoniox,
+            TranscriptionProvider::RemoteDeepgram,
+        ] {
+            settings.transcription_provider = provider;
+            settings.soniox_live_enabled = true;
+            settings.deepgram_live_enabled = true;
+
+            // Realtime text goes straight into the target: nothing may replace it.
+            settings.preview_output_only_enabled = false;
+            assert!(skips_automatic_post_process_for_output_route(&settings, None, false));
+            assert!(!skips_automatic_post_process_for_output_route(&settings, None, true));
+
+            // Held in Preview: still reversible.
+            settings.preview_output_only_enabled = true;
+            assert!(!skips_automatic_post_process_for_output_route(&settings, None, false));
+
+            // Live off: final-only transcription.
+            settings.preview_output_only_enabled = false;
+            settings.soniox_live_enabled = false;
+            settings.deepgram_live_enabled = false;
+            assert!(!skips_automatic_post_process_for_output_route(&settings, None, false));
+        }
+
+        // Non-realtime model with live switched on is a final-only route too.
+        settings.transcription_provider = TranscriptionProvider::RemoteSoniox;
+        settings.soniox_live_enabled = true;
+        settings.soniox_model = "stt-async-v4".to_string();
+        assert!(!skips_automatic_post_process_for_output_route(&settings, None, false));
     }
 
     #[test]
@@ -7217,8 +7350,12 @@ mod transcription_post_process_tests {
         assert!(!post_process_allowed_for_output_route(&settings, Some(&profile)));
         assert!(post_process_allowed_for_output_route(&settings, None));
 
+        // Unset fields use the program defaults (no keys), not the Default profile's keys.
         profile.output_settings.auto_submit = None;
         profile.output_settings.before_insert_key = None;
+        settings.transcription_profiles[0] = profile.clone();
+        assert!(!post_process_allowed_for_output_route(&settings, Some(&profile)));
+        profile.output_settings.auto_submit = Some(true);
         settings.transcription_profiles[0] = profile.clone();
         assert!(post_process_allowed_for_output_route(&settings, Some(&profile)));
     }
@@ -8289,6 +8426,9 @@ impl ShortcutAction for TranscribeAction {
 
     fn stop(&self, app: &AppHandle, binding_id: &str, shortcut_str: &str) {
         let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
+        if let Some(operation_id) = session_manager::recording_operation_id(app, binding_id) {
+            crate::live_output_buffer::stop(operation_id);
+        }
         let deepgram_live_manager = Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
         let openai_realtime_whisper_manager =
             Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
@@ -8296,6 +8436,7 @@ impl ShortcutAction for TranscribeAction {
         let use_live_streaming = should_use_live_for_recording(app, binding_id);
         let invoked_from_preview_action = shortcut_str.contains("preview_output_mode")
             || binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID;
+        let invoked_from_preview_llm = shortcut_str == PREVIEW_LLM_STOP_SHORTCUT;
         let invoked_from_realtime_error = shortcut_str.contains("realtime_provider_error");
         let invoked_from_gemini_time_limit = shortcut_str == "gemini_live_time_limit";
 
@@ -8312,6 +8453,10 @@ impl ShortcutAction for TranscribeAction {
             };
             let recording_settings = stop_context.recording_settings.clone();
             let buffered_output = crate::clipboard::dictation_output_is_buffered(stop_context.operation_id);
+            let protected_live_output = crate::live_output_buffer::enabled(stop_context.operation_id);
+            // An opening key pressed at recording start needs the normal finish (after-insertion
+            // key, no cancel key), so instant stop and Gemini early/background finalization are off.
+            let early_opening_key = crate::early_open::cell_for_operation(stop_context.operation_id).is_some();
             let streaming_clipboard_timeout_ms = crate::settings::ResolvedOutputSettings::resolve(
                 &recording_settings, stop_context.captured_profile_id.as_deref(),
             ).timeout_ms();
@@ -8329,7 +8474,7 @@ impl ShortcutAction for TranscribeAction {
                 should_use_openai_realtime_whisper_live(&recording_settings);
             let is_gemini_live_provider =
                 should_use_gemini_realtime_live(&recording_settings);
-            let live_instant_stop = !buffered_output
+            let live_instant_stop = !buffered_output && !early_opening_key
                 && if is_deepgram_live_provider {
                 recording_settings.deepgram_live_instant_stop
             } else if is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
@@ -8348,7 +8493,7 @@ impl ShortcutAction for TranscribeAction {
             };
             let operation_stamp = stop_context.operation_stamp();
             let recording_operation_id = stop_context.operation_id;
-            let early_gemini_deadline = if is_gemini_live_provider && !buffered_output
+            let early_gemini_deadline = if is_gemini_live_provider && !buffered_output && !protected_live_output && !early_opening_key
                 && recording_settings.gemini_live_early_finalization_enabled
                 && !preview_output_only_enabled
                 && !invoked_from_realtime_error
@@ -8373,7 +8518,7 @@ impl ShortcutAction for TranscribeAction {
                 show_finalizing_overlay(app);
             }
             let pending_gemini_background_finalization =
-                if !buffered_output && early_gemini_deadline.is_none() && can_background_vercel_gemini_finalization(
+                if !buffered_output && !protected_live_output && !early_opening_key && early_gemini_deadline.is_none() && can_background_vercel_gemini_finalization(
                     is_gemini_live_provider,
                     &recording_settings.remote_stt.provider_preset,
                     preview_output_only_enabled,
@@ -8396,6 +8541,7 @@ impl ShortcutAction for TranscribeAction {
             let force_post_process = take_force_post_process_for_binding(&binding_id);
             let preview_output_only_enabled = preview_output_only_enabled;
             let invoked_from_preview_action = invoked_from_preview_action;
+            let invoked_from_preview_llm = invoked_from_preview_llm;
             let invoked_from_gemini_time_limit = invoked_from_gemini_time_limit;
             tauri::async_runtime::spawn(async move {
                 let _gemini_background_finalization_guard =
@@ -8527,7 +8673,7 @@ impl ShortcutAction for TranscribeAction {
                     had_soniox_stream_output
                 };
                 let release_vercel_gemini_after_streamed_output =
-                    !buffered_output && should_release_vercel_gemini_after_streamed_output(
+                    !buffered_output && !protected_live_output && !early_opening_key && should_release_vercel_gemini_after_streamed_output(
                         is_gemini_live_provider,
                         &recording_settings.remote_stt.provider_preset,
                         preview_output_only_enabled,
@@ -8751,6 +8897,7 @@ impl ShortcutAction for TranscribeAction {
                             );
                         }
                     } else {
+                        wait_for_early_opening_key(&ah, recording_operation_id, operation_stamp).await;
                         let output_finalized = finalize_streaming_paste_session_after_main_thread_queue(
                             &ah, recording_operation_id, operation_stamp, streaming_clipboard_timeout_ms, text.clone(),
                         );
@@ -9163,8 +9310,6 @@ impl ShortcutAction for TranscribeAction {
                     return;
                 }
 
-                let stream_trailing_adjustment =
-                    resolve_stream_trailing_adjustment(&recording_settings, &transcription);
                 let transcription_before_post_process = transcription.clone();
                 let preview_processing_before_insert = should_show_preview_processing_before_insert(
                     &recording_settings,
@@ -9176,16 +9321,21 @@ impl ShortcutAction for TranscribeAction {
                     start_preview_processing_before_insert(&ah);
                 }
 
+                let post_process_settings = automatic_post_process_settings(
+                    &recording_settings,
+                    profile_id_for_postprocess.as_deref(),
+                    invoked_from_preview_llm,
+                );
                 let final_text = match apply_post_processing_and_history(
                     &ah,
-                    &recording_settings,
+                    &post_process_settings,
                     transcription,
                     samples,
                     profile_id_for_postprocess,
                     &current_app,
                     None,
                     None,
-                    force_post_process,
+                    force_post_process && !invoked_from_preview_llm,
                     Some(operation_stamp),
                 )
                 .await
@@ -9302,22 +9452,15 @@ impl ShortcutAction for TranscribeAction {
                                     }
                                 }
                             }
-                        } else {
-                            if recovered_from_soniox_replay {
-                                // No stable live chunks reached the target, so the one-shot
-                                // replay owns the complete output.
-                                let _ = crate::clipboard::paste_stream_chunk(
-                                    final_text_for_ui.clone(),
-                                    ah_clone.clone(),
-                                );
-                            } else {
-                                // Soniox live mode already inserted text incrementally while
-                                // chunks arrived. Apply only the final boundary adjustment.
-                                apply_stream_trailing_adjustment(
-                                    &ah_clone,
-                                    stream_trailing_adjustment,
-                                );
-                            }
+                        } else if recovered_from_soniox_replay {
+                            // No stable live chunks reached the target, so the one-shot
+                            // replay owns the complete output. Soniox live mode otherwise
+                            // inserted text incrementally; its trailing whitespace is
+                            // resolved by the session finalizer.
+                            let _ = crate::clipboard::paste_stream_chunk(
+                                final_text_for_ui.clone(),
+                                ah_clone.clone(),
+                            );
                         }
                     }
 
@@ -9369,6 +9512,7 @@ impl ShortcutAction for TranscribeAction {
                 }
 
                 if !preview_output_only_enabled {
+                    wait_for_early_opening_key(&ah, recording_operation_id, operation_stamp).await;
                     let output_finalized = finalize_streaming_paste_session_after_main_thread_queue(
                         &ah,
                         recording_operation_id,
@@ -9412,9 +9556,13 @@ impl ShortcutAction for TranscribeAction {
         let recording_settings = stop_context.recording_settings.clone();
         let operation_stamp = stop_context.operation_stamp();
         let recording_operation_id = stop_context.operation_id;
-        let output_settings = crate::settings::ResolvedOutputSettings::resolve(
+        let mut output_settings = crate::settings::ResolvedOutputSettings::resolve(
             &recording_settings, captured_profile_id.as_deref(),
         );
+        // Opening key pressed at recording start: share that recording's state.
+        if let Some(early_key) = crate::early_open::cell_for_operation(recording_operation_id) {
+            output_settings.early_opening_key = early_key;
+        }
         let streaming_clipboard_timeout_ms = output_settings.timeout_ms();
         let native_streaming_live_output =
             native_streaming_live_output_enabled(&recording_settings)
@@ -9433,6 +9581,7 @@ impl ShortcutAction for TranscribeAction {
         let force_post_process = take_force_post_process_for_binding(&binding_id);
         let preview_output_only_enabled = preview_output_only_enabled;
         let invoked_from_preview_action = invoked_from_preview_action;
+        let invoked_from_preview_llm = invoked_from_preview_llm;
 
         tauri::async_runtime::spawn(async move {
             let mut finish_guard = FinishGuard::new(
@@ -9625,11 +9774,6 @@ impl ShortcutAction for TranscribeAction {
                 return;
             }
 
-            let stream_trailing_adjustment = if is_soniox_streaming_insert {
-                resolve_stream_trailing_adjustment(&recording_settings, &transcription)
-            } else {
-                StreamTrailingAdjustment::None
-            };
             let preview_processing_before_insert = should_show_preview_processing_before_insert(
                 &recording_settings,
                 profile_id_for_postprocess.as_deref(),
@@ -9640,16 +9784,21 @@ impl ShortcutAction for TranscribeAction {
                 start_preview_processing_before_insert(&ah);
             }
 
+            let post_process_settings = automatic_post_process_settings(
+                &recording_settings,
+                profile_id_for_postprocess.as_deref(),
+                invoked_from_preview_llm,
+            );
             let final_text = match apply_post_processing_and_history(
                 &ah,
-                &recording_settings,
+                &post_process_settings,
                 transcription,
                 samples,
                 profile_id_for_postprocess,
                 &current_app,
                 pre_saved_file_name,
                 None,
-                force_post_process,
+                force_post_process && !invoked_from_preview_llm,
                 Some(operation_stamp),
             )
             .await
@@ -9684,6 +9833,7 @@ impl ShortcutAction for TranscribeAction {
                 return;
             }
 
+            wait_for_early_opening_key(&ah, recording_operation_id, operation_stamp).await;
             let ah_clone = ah.clone();
             let final_text_for_ui = final_text.clone();
             let final_text_for_insert =
@@ -9708,12 +9858,10 @@ impl ShortcutAction for TranscribeAction {
                     );
                     return;
                 }
-                if uses_streaming_insert && !preview_output_only_enabled {
-                    // Streaming paths already inserted only committed text incrementally.
-                    // Apply only boundary-level trailing adjustment here; the
-                    // operation-scoped session finalizer owns the clipboard.
-                    apply_stream_trailing_adjustment(&ah_clone, stream_trailing_adjustment);
-                } else if !preview_output_only_enabled {
+                // Streaming paths already inserted only committed text incrementally;
+                // the operation-scoped session finalizer owns trailing whitespace and
+                // the clipboard.
+                if !uses_streaming_insert && !preview_output_only_enabled {
                     let result = utils::paste_with_output_settings(final_text_for_ui.clone(), ah_clone.clone(),
                         &output_settings, || !operation_stamp.was_cancelled(&ah_clone));
                     if report_dictation_paste_result(&ah_clone, result,
@@ -11010,7 +11158,11 @@ impl ShortcutAction for RepastLastAction {
 
                     let ah_clone = ah.clone();
                     ah.run_on_main_thread(move || {
-                        let _ = utils::paste(text_to_paste, ah_clone);
+                        // Repaste only inserts the text, without the profile's key presses.
+                        let output = crate::settings::ResolvedOutputSettings::resolve(
+                            &get_settings(&ah_clone), None,
+                        ).without_key_actions();
+                        let _ = utils::paste_with_output_settings(text_to_paste, ah_clone, &output, || true);
                     })
                     .ok();
                 }
@@ -12107,7 +12259,9 @@ pub async fn preview_llm_process_action(app: AppHandle) -> Result<(), String> {
 
     if was_recording {
         crate::managers::preview_output_mode::set_recording(&app, false);
-        if let Err(err) = stop_transcribe_binding_from_preview(&app, &binding_id) {
+        if let Err(err) =
+            stop_transcribe_binding_from_preview_as(&app, &binding_id, PREVIEW_LLM_STOP_SHORTCUT)
+        {
             final_result = Err(err);
         }
     }

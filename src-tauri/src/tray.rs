@@ -290,6 +290,8 @@ struct TrayShortcutItem {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct MenuInputs {
     busy: bool,
+    /// A finished dictation's remainder waits for its window; "Cancel" discards it.
+    live_output_waiting: bool,
     webviews_disabled: bool,
     show_speech_only_mode_in_tray: bool,
     locale: String,
@@ -759,6 +761,7 @@ fn compute_desired(
         icon_path: desired_icon_path(get_current_theme(app), icon_state, last_error),
         menu: MenuInputs {
             busy: icon_state.is_busy(),
+            live_output_waiting: crate::live_output_buffer::has_waiting_remainder(),
             webviews_disabled: crate::webview_mode::webviews_disabled(),
             show_speech_only_mode_in_tray: settings.show_speech_only_mode_in_tray,
             locale: locale_override
@@ -1018,7 +1021,7 @@ fn build_tray_menu(
     let menu = Menu::new(app)?;
 
     menu.append(&version_i)?;
-    if inputs.busy {
+    if inputs.busy || inputs.live_output_waiting {
         let cancel_i = MenuItem::with_id(app, "cancel", &strings.cancel, true, None::<&str>)?;
         menu.append(&separator()?)?;
         menu.append(&cancel_i)?;
@@ -1637,6 +1640,7 @@ mod tests {
             icon_path: get_icon_path(AppTheme::Dark, icon_state),
             menu: MenuInputs {
                 busy: icon_state.is_busy(),
+                live_output_waiting: false,
                 webviews_disabled: false,
                 show_speech_only_mode_in_tray: false,
                 locale: "en".to_string(),

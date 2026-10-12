@@ -28,7 +28,7 @@ export const isSupportedOutputKey = (value: string, osType: OSType): boolean => 
   return osType !== "macos" && DESKTOP_OUTPUT_KEYS.has(key);
 };
 
-// Absent fields inherit the shared output defaults.
+// Absent fields use the program defaults; profiles never follow the Default profile.
 export interface ProfileOutputSettings {
   paste_method?: PasteMethod | null;
   clipboard_handling?: ClipboardHandling | null;
@@ -36,9 +36,16 @@ export interface ProfileOutputSettings {
   convert_lf_to_crlf?: boolean | null;
   paste_delay_ms?: number | null;
   check_active_window?: boolean | null;
+  live_window_resume_delay_ms?: number | null;
+  live_window_stop_action?: "history" | "preview" | "wait_for_window" | null;
+  live_window_wait_limit_secs?: number | null;
+  live_window_wait_limit_action?: "preview" | "history" | null;
   auto_submit?: boolean | null;
   auto_submit_key?: AutoSubmitKey | null;
   before_insert_key?: string | null;
   before_insert_delay_ms?: number | null;
+  recording_start_key?: string | null;
+  recording_start_delay_ms?: number | null;
   auto_submit_delay_ms?: number | null;
+  cancel_key_after_early_open?: string | null;
 }

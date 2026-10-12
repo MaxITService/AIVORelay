@@ -1,5 +1,5 @@
 use crate::input::{self, EnigoState};
-use crate::settings::{get_settings, AutoSubmitKey, ClipboardHandling, PasteMethod, ResolvedOutputSettings};
+use crate::settings::{get_settings, AutoSubmitKey, ClipboardHandling, OutputWhitespaceMode, PasteMethod, ResolvedOutputSettings};
 use enigo::{Direction, Enigo, Key, Keyboard};
 use log::{debug, info, warn};
 use once_cell::sync::Lazy;
@@ -43,11 +43,47 @@ struct StreamingPasteSession {
 static STREAMING_PASTE_SESSION: Lazy<Mutex<Option<StreamingPasteSession>>> =
     Lazy::new(|| Mutex::new(None));
 
+/// Live chunks never lose text afterwards: their trailing whitespace is held
+/// back and resolved once at finalization, so no deleting keystrokes are needed.
+/// `Preserve` bypasses the hold entirely and inserts chunks unchanged.
+#[derive(Debug, Default)]
+struct HeldTrailingWhitespace {
+    tail: String,
+    saw_text: bool,
+}
+
+impl HeldTrailingWhitespace {
+    /// Returns the part of `held tail + chunk` that may be inserted now.
+    fn push(&mut self, mode: OutputWhitespaceMode, chunk: String) -> String {
+        if mode == OutputWhitespaceMode::Preserve || chunk.is_empty() {
+            return chunk;
+        }
+        self.saw_text = true;
+        let mut text = std::mem::take(&mut self.tail);
+        text.push_str(&chunk);
+        let body_len = text.trim_end_matches(char::is_whitespace).len();
+        self.tail = text.split_off(body_len);
+        text
+    }
+
+    /// Mirrors `apply_output_whitespace_policy`'s trailing rules for the held tail.
+    fn resolve(&mut self, mode: OutputWhitespaceMode) -> String {
+        let tail = std::mem::take(&mut self.tail);
+        match mode {
+            OutputWhitespaceMode::Preserve => tail,
+            OutputWhitespaceMode::RemoveIfPresent => String::new(),
+            OutputWhitespaceMode::AddIfMissing if tail.is_empty() && self.saw_text => " ".to_string(),
+            OutputWhitespaceMode::AddIfMissing => tail,
+        }
+    }
+}
+
 struct DictationOutputSession {
     operation_id: u64,
     settings: ResolvedOutputSettings,
     delivered: bool,
     failed: bool,
+    held_whitespace: HeldTrailingWhitespace,
 }
 
 /// The newest recording owns live chunks. An older operation may still have its
@@ -58,6 +94,16 @@ struct DictationOutputSessions {
     current_operation_id: Option<u64>,
     sessions: Vec<DictationOutputSession>,
 }
+
+/// Error text of a live paste that stopped because the foreground window was no longer the target.
+/// `live_output_buffer` compares against it to tell this pause from a real failure.
+pub(crate) const TARGET_WINDOW_CHANGED_ERROR: &str =
+    "Streaming paste was interrupted because the target window changed";
+
+/// Error of a dictation whose opening key was not pressed at recording start. That failure
+/// already has its own notice, so the generic insertion error is not shown again.
+pub(crate) const OPENING_KEY_NOT_PRESSED_ERROR: &str =
+    "Nothing was inserted because the opening key was not pressed at recording start";
 
 // Bounds entries whose delivery never ran; only a few can be pending at once.
 const MAX_DICTATION_OUTPUT_SESSIONS: usize = 4;
@@ -72,6 +118,7 @@ impl DictationOutputSessions {
             }
             self.sessions.push(DictationOutputSession {
                 operation_id, settings, delivered: false, failed: false,
+                held_whitespace: HeldTrailingWhitespace::default(),
             });
         }
     }
@@ -129,6 +176,9 @@ fn dictation_output_settings(operation_id: u64) -> Option<ResolvedOutputSettings
 
 pub(crate) fn end_dictation_output_session_if_matches(operation_id: u64) {
     lock_dictation_output_sessions().take(operation_id);
+    crate::live_output_buffer::cancel_unfinished(operation_id);
+    // Runs after every queued insertion, so a completed recording never gets the cancel key.
+    crate::early_open::finish_operation(operation_id);
 }
 
 pub(crate) fn dictation_output_is_buffered(operation_id: u64) -> bool {
@@ -1598,7 +1648,7 @@ fn should_send_auto_submit(auto_submit: bool, paste_method: PasteMethod) -> bool
     auto_submit && paste_method != PasteMethod::None
 }
 
-fn output_foreground_window() -> Option<usize> {
+pub(crate) fn output_foreground_window() -> Option<usize> {
     #[cfg(target_os = "windows")]
     {
         let hwnd = unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
@@ -1750,6 +1800,38 @@ fn send_output_key(enigo: &mut Enigo, value: &str) -> Result<(), String> {
     result.and_then(|_| release_error.map_or(Ok(()), Err))
 }
 
+/// Presses a validated key combination with the managed keyboard (opening/cancel keys).
+pub(crate) fn press_output_key_now(app: &AppHandle, value: &str) -> Result<(), String> {
+    let enigo_state = app.try_state::<EnigoState>().ok_or("Enigo state not initialized")?;
+    let mut enigo = enigo_state.0.lock().map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+    send_output_key(&mut enigo, value)
+}
+
+/// After-insertion key for a recording whose opening key was pressed at start. The text
+/// went in live, so this runs only when all of it was delivered and the key's window is
+/// still in front.
+pub(crate) fn send_early_session_submit(
+    app: &AppHandle,
+    settings: &ResolvedOutputSettings,
+    target_window: Option<usize>,
+    can_continue: &impl Fn() -> bool,
+) {
+    let target_is_current = || output_target_allows_delivery(
+        settings.check_active_window, target_window, output_foreground_window);
+    let output_can_continue = || can_continue() && target_is_current();
+    if !should_send_auto_submit(settings.auto_submit, settings.paste_method)
+        || !output_can_continue()
+        || !wait_for_output_delay(settings.auto_submit_delay_ms, &output_can_continue)
+    {
+        return;
+    }
+    let Some(enigo_state) = app.try_state::<EnigoState>() else { return };
+    let Ok(mut enigo) = enigo_state.0.lock() else { return };
+    if let Err(error) = send_return_key(&mut enigo, settings.auto_submit_key) {
+        warn!("Text was inserted, but the submit key failed: {}", error);
+    }
+}
+
 /// Called once at the final delivery boundary, after all queued live chunks.
 pub(crate) fn complete_dictation_output(
     app: &AppHandle,
@@ -1760,25 +1842,74 @@ pub(crate) fn complete_dictation_output(
     // Consume the configuration before delivery so every return path,
     // including an interrupted delay or clipboard error, releases it.
     let config = lock_dictation_output_sessions().take(operation_id);
-    let Some(DictationOutputSession { settings, delivered, failed, .. }) = config else {
+    let Some(DictationOutputSession { settings, mut delivered, failed, mut held_whitespace, .. }) = config else {
         return finalize_streaming_paste_session_if_matches(app, operation_id, final_text);
     };
     if !can_continue() || final_text.trim().is_empty() {
+        // Any held trailing whitespace is dropped with the session.
+        crate::live_output_buffer::cancel_unfinished(operation_id);
         end_streaming_paste_session_if_matches(app, operation_id)?;
         return Ok(false);
     }
     if settings.buffers_external_output() {
         return paste_with_output_settings(final_text.to_string(), app.clone(), &settings, can_continue);
     }
+    // Opening key pressed at recording start: live text went into the opened chat. Only
+    // its delay and the after-insertion key remain. If the key was never pressed, nothing
+    // was inserted and the text stays in History.
+    let early_press = match settings.early_opening_key.state() {
+        crate::early_open::EarlyKeyState::Idle => None,
+        crate::early_open::EarlyKeyState::Pressed { at, window } => Some((at, window)),
+        state => {
+            warn!("Live output skipped: the opening key was not pressed at recording start ({:?})", state);
+            crate::live_output_buffer::cancel_unfinished(operation_id);
+            end_streaming_paste_session_if_matches(app, operation_id)?;
+            return Err(OPENING_KEY_NOT_PRESSED_ERROR.to_string());
+        }
+    };
+    if let Some((at, _)) = early_press {
+        // Held live text is released only after the key's delay; wait it out before `finish`.
+        let remaining = crate::early_open::remaining_delay_ms(settings.recording_start_delay_ms, at.elapsed());
+        if !wait_for_output_delay(remaining, &can_continue) {
+            crate::live_output_buffer::cancel_unfinished(operation_id);
+            end_streaming_paste_session_if_matches(app, operation_id)?;
+            return Ok(false);
+        }
+    }
+    // Same route as chunks, and before `finish`, so ordering and window protection hold.
+    let trailing = held_whitespace.resolve(settings.trailing_whitespace_mode);
+    if !trailing.is_empty() && settings.paste_method != PasteMethod::None {
+        let protected = crate::live_output_buffer::enabled(operation_id)
+            && crate::live_output_buffer::enqueue(app, operation_id, trailing.clone()).is_some();
+        if !protected {
+            // Only trailing whitespace: the dictated text itself is already in, so a failure
+            // here is logged and does not mark the dictation as undelivered.
+            match paste_stream_chunk_with_output(trailing, app.clone(), Some(&settings), Some(operation_id), None) {
+                Ok(()) => delivered = true,
+                Err(error) => warn!("Trailing whitespace after live dictation was not inserted: {}", error),
+            }
+        }
+    }
     // A failed chunk leaves the target incomplete. Still publish the complete
     // transcript so the clipboard/history fallback holds the full text.
     let cleanup_result = finalize_streaming_paste_session_if_matches(app, operation_id, final_text)
         .map(|_| ());
-    let delivered_to_target = streaming_delivery_succeeded(
+    let live_finish = crate::live_output_buffer::finish_detailed(app, operation_id);
+    let retained_live_output = live_finish.is_some();
+    let delivered_to_target = retained_live_output || streaming_delivery_succeeded(
         delivered, failed, settings.paste_method, can_continue());
-    delivery_after_clipboard_cleanup(Ok(delivered_to_target), cleanup_result, |error| {
+    let result = delivery_after_clipboard_cleanup(Ok(delivered_to_target), cleanup_result, |error| {
         warn!("Streaming dictation final clipboard update or restoration failed after chunk delivery: {}", error);
-    })
+    });
+    if let Some((_, window)) = early_press {
+        settings.early_opening_key.mark_completed();
+        // Pressed only after the trailing-whitespace tail above was delivered, and only if
+        // everything reached the window that received the opening key.
+        if live_finish.unwrap_or(!failed) {
+            send_early_session_submit(app, &settings, window, &can_continue);
+        }
+    }
+    result
 }
 
 pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
@@ -1796,6 +1927,7 @@ pub(crate) fn paste_with_method_override(
     output.paste_method = method.unwrap_or(settings.paste_method);
     // Generic pastes (including selection restoration) do not open chat.
     output.before_insert_key.clear();
+    output.recording_start_key.clear();
     if text.is_empty() {
         return Ok(());
     }
@@ -1820,6 +1952,17 @@ pub(crate) fn paste_with_output_settings(
         info!("PasteMethod::None selected - skipping paste action");
         return Ok(true);
     }
+    // Opening key pressed at recording start: it is not pressed again, the target is the
+    // window that received it, and only the rest of its delay is waited. A key that was
+    // never pressed (failed, or the recording ended first) means nothing is inserted.
+    let early_press = match settings.early_opening_key.state() {
+        crate::early_open::EarlyKeyState::Idle => None,
+        crate::early_open::EarlyKeyState::Pressed { at, window } => Some((at, window)),
+        state => {
+            warn!("Insertion skipped: the opening key was not pressed at recording start ({:?})", state);
+            return Err(OPENING_KEY_NOT_PRESSED_ERROR.to_string());
+        }
+    };
     let paste_method = settings.paste_method;
     let clipboard_handling = settings.clipboard_handling;
     let exclude_final_from_history = exclude_final_write_from_history(settings);
@@ -1846,10 +1989,17 @@ pub(crate) fn paste_with_output_settings(
         .lock()
         .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
 
-    let target_window = settings.check_active_window.then(output_foreground_window).flatten();
+    let target_window = match early_press {
+        Some((_, window)) => window,
+        None => settings.check_active_window.then(output_foreground_window).flatten(),
+    };
     let target_is_current = || output_target_allows_delivery(
         settings.check_active_window, target_window, output_foreground_window);
     let output_can_continue = || can_continue() && target_is_current();
+    if let Some((at, _)) = early_press {
+        let remaining = crate::early_open::remaining_delay_ms(settings.recording_start_delay_ms, at.elapsed());
+        if !wait_for_output_delay(remaining, &output_can_continue) { return Ok(false); }
+    }
     if !settings.before_insert_key.is_empty() {
         if !output_can_continue() { return Ok(false); }
         send_output_key(&mut enigo, &settings.before_insert_key)?;
@@ -1883,6 +2033,7 @@ pub(crate) fn paste_with_output_settings(
         }
     }
 
+    settings.early_opening_key.mark_completed();
     if should_send_auto_submit(settings.auto_submit, paste_method) {
         if !wait_for_output_delay(settings.auto_submit_delay_ms, &output_can_continue) {
             // Text already reached the target. Do not retain a preview buffer
@@ -1927,8 +2078,37 @@ fn paste_stream_chunk_for_output(
     if output.as_ref().is_some_and(|(_, settings)| settings.buffers_external_output()) {
         return Ok(());
     }
+    // Opening key pressed at start: chunks wait in the live buffer for the key and its
+    // delay. If the key failed or the recording ended, nothing is inserted (History keeps it).
+    if let Some((operation_id, settings)) = output.as_ref() {
+        match settings.early_opening_key.state() {
+            crate::early_open::EarlyKeyState::Idle | crate::early_open::EarlyKeyState::Pressed { .. } => {}
+            crate::early_open::EarlyKeyState::Waiting
+                if crate::live_output_buffer::enabled(*operation_id) => {}
+            _ => return Ok(()),
+        }
+    }
+    // Hold back trailing whitespace before any protected-window redirect.
+    // Without a session there is no finalizer, so the chunk is inserted whole.
+    let text = match output.as_ref() {
+        Some((operation_id, settings)) => match lock_dictation_output_sessions().get_mut(*operation_id) {
+            Some(session) => session.held_whitespace.push(settings.trailing_whitespace_mode, text),
+            None => text,
+        },
+        None => text,
+    };
+    if text.is_empty() {
+        return Ok(());
+    }
+    if let Some((operation_id, _)) = output.as_ref() {
+        if crate::live_output_buffer::enabled(*operation_id) {
+            if let Some(result) = crate::live_output_buffer::enqueue(&app_handle, *operation_id, text.clone()) {
+                return result;
+            }
+        }
+    }
     let has_text = !text.is_empty();
-    let result = paste_stream_chunk_with_output(text, app_handle, output.as_ref().map(|(_, settings)| settings), operation_id);
+    let result = paste_stream_chunk_with_output(text, app_handle, output.as_ref().map(|(_, settings)| settings), operation_id, None);
     if let Some((operation_id, settings)) = output {
         if let Some(session) = lock_dictation_output_sessions().get_mut(operation_id) {
             session.failed |= result.is_err();
@@ -1938,11 +2118,28 @@ fn paste_stream_chunk_for_output(
     result
 }
 
+pub(crate) fn paste_live_buffer_text(
+    text: String,
+    app: AppHandle,
+    settings: &ResolvedOutputSettings,
+    operation_id: u64,
+    target_window: Option<usize>,
+) -> Result<(), String> {
+    paste_stream_chunk_with_output(text, app, Some(settings), Some(operation_id), target_window)
+}
+
+pub(crate) fn mark_live_buffer_delivered(operation_id: u64) {
+    if let Some(session) = lock_dictation_output_sessions().get_mut(operation_id) {
+        session.delivered = true;
+    }
+}
+
 fn paste_stream_chunk_with_output(
     text: String,
     app_handle: AppHandle,
     output: Option<&ResolvedOutputSettings>,
     operation_id: Option<u64>,
+    pinned_target_window: Option<usize>,
 ) -> Result<(), String> {
     if text.is_empty() {
         return Ok(());
@@ -1989,12 +2186,15 @@ fn paste_stream_chunk_with_output(
 
     let check_active_window = active_stream_config.as_ref()
         .map(|(_, _, _, check_active_window)| *check_active_window)
-        .unwrap_or_else(|| fallback_settings.as_ref().map_or(true, |settings| settings.check_active_window));
-    let target_window = check_active_window.then(output_foreground_window).flatten();
-    let target_is_current = || output_target_allows_delivery(
-        check_active_window, target_window, output_foreground_window);
+        .unwrap_or_else(|| fallback_settings.as_ref().is_some_and(|settings| settings.check_active_window));
+    let target_window = if check_active_window {
+        pinned_target_window.or_else(output_foreground_window)
+    } else { None };
+    let target_is_current = || (pinned_target_window.is_none()
+        || operation_id.is_some_and(crate::live_output_buffer::allows_delivery))
+        && output_target_allows_delivery(check_active_window, target_window, output_foreground_window);
     if !target_is_current() {
-        return Err("Streaming paste was interrupted because the target window changed".to_string());
+        return Err(TARGET_WINDOW_CHANGED_ERROR.to_string());
     }
 
     if let Some((paste_method, paste_delay_ms, convert_lf_to_crlf, _)) = active_stream_config {
@@ -2037,7 +2237,7 @@ fn paste_stream_chunk_with_output(
                     }
                 }
                 if paste_sent_at.is_none() {
-                    return Err("Streaming paste was interrupted because the target window changed".to_string());
+                    return Err(TARGET_WINDOW_CHANGED_ERROR.to_string());
                 }
             }
         }
@@ -2063,43 +2263,13 @@ fn paste_stream_chunk_with_output(
                     true,
                     &target_is_current,
                 )? {
-                    return Err("Streaming paste was interrupted because the target window changed".to_string());
+                    return Err(TARGET_WINDOW_CHANGED_ERROR.to_string());
                 }
             }
         }
     }
 
     drop(stream_session_guard);
-
-    Ok(())
-}
-
-pub fn delete_last_stream_characters(app_handle: AppHandle, count: usize) -> Result<(), String> {
-    if current_dictation_output().is_some_and(|(_, settings)|
-        settings.buffers_external_output() || settings.paste_method == PasteMethod::None)
-    {
-        return Ok(());
-    }
-    if count == 0 {
-        return Ok(());
-    }
-
-    let enigo_state = app_handle
-        .try_state::<EnigoState>()
-        .ok_or("Enigo state not initialized")?;
-    let mut enigo = enigo_state
-        .0
-        .lock()
-        .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
-
-    for _ in 0..count {
-        enigo
-            .key(Key::Backspace, Direction::Press)
-            .map_err(|e| format!("Failed to press Backspace key: {}", e))?;
-        enigo
-            .key(Key::Backspace, Direction::Release)
-            .map_err(|e| format!("Failed to release Backspace key: {}", e))?;
-    }
 
     Ok(())
 }
@@ -2380,6 +2550,75 @@ mod tests {
         assert_eq!(sessions.output_for_chunk(None).unwrap().1.paste_method, PasteMethod::CtrlV);
         sessions.take(7);
         assert!(sessions.output_for_chunk(Some(7)).is_none());
+    }
+
+    fn pushed(held: &mut HeldTrailingWhitespace, mode: OutputWhitespaceMode, chunks: &[&str]) -> Vec<String> {
+        chunks.iter().map(|chunk| held.push(mode, chunk.to_string())).collect()
+    }
+
+    #[test]
+    fn held_trailing_space_is_prepended_to_the_next_chunk() {
+        let mut held = HeldTrailingWhitespace::default();
+        let inserted = pushed(&mut held, OutputWhitespaceMode::RemoveIfPresent, &["Hello ", "world "]);
+        assert_eq!(inserted, ["Hello", " world"]);
+        assert_eq!(held.tail, " ");
+    }
+
+    #[test]
+    fn whitespace_only_chunk_extends_the_held_tail() {
+        let mut held = HeldTrailingWhitespace::default();
+        let inserted = pushed(&mut held, OutputWhitespaceMode::RemoveIfPresent, &["Hi", " ", "\n", "there"]);
+        assert_eq!(inserted, ["Hi", "", "", " \nthere"]);
+        assert!(held.tail.is_empty());
+        pushed(&mut held, OutputWhitespaceMode::RemoveIfPresent, &[" ", "\t"]);
+        assert_eq!(held.tail, " \t");
+    }
+
+    #[test]
+    fn newline_and_unicode_whitespace_tails_are_held_whole() {
+        let mut held = HeldTrailingWhitespace::default();
+        assert_eq!(held.push(OutputWhitespaceMode::AddIfMissing, "line\n\n".to_string()), "line");
+        assert_eq!(held.tail, "\n\n");
+        assert_eq!(held.push(OutputWhitespaceMode::AddIfMissing, "текст\u{00A0}\u{3000}".to_string()), "\n\nтекст");
+        assert_eq!(held.tail, "\u{00A0}\u{3000}");
+        assert_eq!(held.resolve(OutputWhitespaceMode::AddIfMissing), "\u{00A0}\u{3000}");
+    }
+
+    #[test]
+    fn finalization_applies_each_trailing_mode_to_the_held_tail() {
+        for (mode, text, expected) in [
+            (OutputWhitespaceMode::RemoveIfPresent, "done ", ""),
+            (OutputWhitespaceMode::RemoveIfPresent, "done", ""),
+            (OutputWhitespaceMode::AddIfMissing, "done ", " "),
+            (OutputWhitespaceMode::AddIfMissing, "done\n", "\n"),
+            (OutputWhitespaceMode::AddIfMissing, "done", " "),
+        ] {
+            let mut held = HeldTrailingWhitespace::default();
+            held.push(mode, text.to_string());
+            assert_eq!(held.resolve(mode), expected, "{mode:?} {text:?}");
+            assert!(held.tail.is_empty());
+        }
+        let mut held = HeldTrailingWhitespace::default();
+        held.tail = " ".to_string();
+        assert_eq!(held.resolve(OutputWhitespaceMode::Preserve), " ");
+    }
+
+    #[test]
+    fn nothing_is_added_or_inserted_when_no_text_was_delivered() {
+        for mode in [OutputWhitespaceMode::RemoveIfPresent, OutputWhitespaceMode::AddIfMissing, OutputWhitespaceMode::Preserve] {
+            let mut held = HeldTrailingWhitespace::default();
+            assert_eq!(held.push(mode, String::new()), "");
+            assert_eq!(held.resolve(mode), "");
+        }
+    }
+
+    #[test]
+    fn preserve_passes_chunks_through_unchanged_without_holding() {
+        let mut held = HeldTrailingWhitespace::default();
+        let inserted = pushed(&mut held, OutputWhitespaceMode::Preserve, &["a ", " ", "b\n"]);
+        assert_eq!(inserted, ["a ", " ", "b\n"]);
+        assert!(held.tail.is_empty());
+        assert_eq!(held.resolve(OutputWhitespaceMode::Preserve), "");
     }
 
     #[test]

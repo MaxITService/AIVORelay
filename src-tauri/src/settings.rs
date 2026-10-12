@@ -281,7 +281,7 @@ pub struct TranscriptionProfile {
     /// The user explicitly controls when text is inserted via preview actions.
     #[serde(default)]
     pub preview_output_only_enabled: bool,
-    /// Unset output fields inherit Default (Global).
+    /// Unset output fields use the program defaults; profiles never follow the Default profile.
     #[serde(default)]
     pub output_settings: ProfileOutputSettings,
     /// Enforce language hints strictly in Soniox (None = inherit global)
@@ -3352,12 +3352,44 @@ pub struct ProfileOutputSettings {
     pub convert_lf_to_crlf: Option<bool>,
     pub paste_delay_ms: Option<u64>,
     pub check_active_window: Option<bool>,
+    pub live_window_resume_delay_ms: Option<u64>,
+    pub live_window_stop_action: Option<LiveWindowStopAction>,
+    /// Seconds a finished remainder waits for its window before `live_window_wait_limit_action`
+    /// runs. None: the program default (no limit); 0 means no limit.
+    pub live_window_wait_limit_secs: Option<u64>,
+    pub live_window_wait_limit_action: Option<LiveWindowWaitLimitAction>,
     pub auto_submit: Option<bool>,
     pub auto_submit_key: Option<AutoSubmitKey>,
-    /// None inherits; an empty string explicitly disables the opening key.
+    /// An empty string disables the opening key. In a profile, None means the program
+    /// default (no key); profiles never follow the Default profile.
     pub before_insert_key: Option<String>,
     pub before_insert_delay_ms: Option<u64>,
+    /// Pressed once when recording starts, independent of `before_insert_key`.
+    /// None or an empty string: no key.
+    pub recording_start_key: Option<String>,
+    pub recording_start_delay_ms: Option<u64>,
     pub auto_submit_delay_ms: Option<u64>,
+    /// Pressed when a recording is cancelled or empty after the recording-start key was
+    /// pressed. None or an empty string: no key.
+    pub cancel_key_after_early_open: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveWindowStopAction {
+    History,
+    #[default]
+    Preview,
+    WaitForWindow,
+}
+
+/// What happens to a waiting remainder when its time limit runs out.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveWindowWaitLimitAction {
+    #[default]
+    Preview,
+    History,
 }
 
 #[derive(Debug, Clone)]
@@ -3368,30 +3400,62 @@ pub struct ResolvedOutputSettings {
     pub convert_lf_to_crlf: bool,
     pub paste_delay_ms: u64,
     pub check_active_window: bool,
+    pub live_window_resume_delay_ms: u64,
+    pub live_window_stop_action: LiveWindowStopAction,
+    /// 0: wait without a time limit.
+    pub live_window_wait_limit_secs: u64,
+    pub live_window_wait_limit_action: LiveWindowWaitLimitAction,
     pub auto_submit: bool,
     pub auto_submit_key: AutoSubmitKey,
     pub before_insert_key: String,
     pub before_insert_delay_ms: u64,
+    pub recording_start_key: String,
+    pub recording_start_delay_ms: u64,
     pub auto_submit_delay_ms: u64,
+    pub cancel_key_after_early_open: String,
+    /// Applied to live-stream chunks only at finalization; not a profile override.
+    pub trailing_whitespace_mode: OutputWhitespaceMode,
+    /// Runtime state of the early opening key, shared by every clone of this recording's
+    /// settings. Never a setting; a fresh value is idle (key pressed at completion).
+    pub early_opening_key: crate::early_open::EarlyOpeningKey,
 }
 
 impl ResolvedOutputSettings {
     pub fn resolve(settings: &AppSettings, profile_id: Option<&str>) -> Self {
-        let defaults = &settings.transcription_output_defaults;
+        let profile = profile_id.and_then(|id| settings.transcription_profile(id));
+        // A profile lives on its own: it gets the Default profile's values copied when it is
+        // created, and what it does not set uses the program defaults, never the Default profile.
+        let program_defaults;
+        let base = if profile.is_some() {
+            program_defaults = get_default_settings();
+            &program_defaults
+        } else {
+            settings
+        };
+        let defaults = &base.transcription_output_defaults;
         let mut output = Self {
-            paste_method: settings.paste_method,
-            clipboard_handling: settings.clipboard_handling,
-            clipboard_history_allowed: settings.clipboard_history_allowed,
-            convert_lf_to_crlf: settings.convert_lf_to_crlf,
-            paste_delay_ms: settings.paste_delay_ms,
-            check_active_window: defaults.check_active_window.unwrap_or(true),
-            auto_submit: settings.auto_submit,
-            auto_submit_key: settings.auto_submit_key,
+            paste_method: base.paste_method,
+            clipboard_handling: base.clipboard_handling,
+            clipboard_history_allowed: base.clipboard_history_allowed,
+            convert_lf_to_crlf: base.convert_lf_to_crlf,
+            paste_delay_ms: base.paste_delay_ms,
+            check_active_window: defaults.check_active_window.unwrap_or(false),
+            live_window_resume_delay_ms: defaults.live_window_resume_delay_ms.unwrap_or(500),
+            live_window_stop_action: defaults.live_window_stop_action.unwrap_or_default(),
+            live_window_wait_limit_secs: defaults.live_window_wait_limit_secs.unwrap_or(0),
+            live_window_wait_limit_action: defaults.live_window_wait_limit_action.unwrap_or_default(),
+            auto_submit: base.auto_submit,
+            auto_submit_key: base.auto_submit_key,
             before_insert_key: defaults.before_insert_key.clone().unwrap_or_default(),
             before_insert_delay_ms: defaults.before_insert_delay_ms.unwrap_or(150),
+            recording_start_key: defaults.recording_start_key.clone().unwrap_or_default(),
+            recording_start_delay_ms: defaults.recording_start_delay_ms.unwrap_or(150),
             auto_submit_delay_ms: defaults.auto_submit_delay_ms.unwrap_or(50),
+            cancel_key_after_early_open: defaults.cancel_key_after_early_open.clone().unwrap_or_default(),
+            trailing_whitespace_mode: settings.output_whitespace_trailing_mode,
+            early_opening_key: Default::default(),
         };
-        if let Some(profile) = profile_id.and_then(|id| settings.transcription_profile(id)) {
+        if let Some(profile) = profile {
             let overrides = &profile.output_settings;
             macro_rules! override_field {
                 ($($field:ident),+ $(,)?) => { $(
@@ -3400,17 +3464,32 @@ impl ResolvedOutputSettings {
             }
             override_field!(paste_method, clipboard_handling, clipboard_history_allowed,
                 convert_lf_to_crlf, paste_delay_ms, check_active_window, auto_submit, auto_submit_key,
-                before_insert_delay_ms, auto_submit_delay_ms);
+                before_insert_delay_ms, recording_start_delay_ms, auto_submit_delay_ms, live_window_resume_delay_ms,
+                live_window_stop_action, live_window_wait_limit_secs, live_window_wait_limit_action);
             if let Some(key) = &overrides.before_insert_key {
                 output.before_insert_key = key.clone();
+            }
+            if let Some(key) = &overrides.recording_start_key {
+                output.recording_start_key = key.clone();
+            }
+            if let Some(key) = &overrides.cancel_key_after_early_open {
+                output.cancel_key_after_early_open = key.clone();
             }
         }
         output
     }
 
+    /// The start key is independent of the key pressed before inserting completed text.
+    pub fn opens_at_start(&self) -> bool {
+        self.paste_method != PasteMethod::None
+            && !self.recording_start_key.is_empty()
+    }
+
+    /// A completion key always holds text until completion, even with a separate start key.
+    /// Auto-submit alone holds text unless a start key enables live delivery first.
     pub fn buffers_external_output(&self) -> bool {
         self.paste_method != PasteMethod::None
-            && (!self.before_insert_key.is_empty() || self.auto_submit)
+            && (!self.before_insert_key.is_empty() || (self.auto_submit && !self.opens_at_start()))
     }
 
     pub fn apply_to_recording(&self, settings: &mut AppSettings) {
@@ -3422,14 +3501,32 @@ impl ResolvedOutputSettings {
         settings.auto_submit = self.auto_submit;
         settings.auto_submit_key = self.auto_submit_key;
         settings.transcription_output_defaults.before_insert_key = Some(self.before_insert_key.clone());
+        settings.transcription_output_defaults.recording_start_key = Some(self.recording_start_key.clone());
+        settings.transcription_output_defaults.recording_start_delay_ms = Some(self.recording_start_delay_ms);
         settings.transcription_output_defaults.check_active_window = Some(self.check_active_window);
+        settings.transcription_output_defaults.live_window_resume_delay_ms = Some(self.live_window_resume_delay_ms);
+        settings.transcription_output_defaults.live_window_stop_action = Some(self.live_window_stop_action);
+        settings.transcription_output_defaults.live_window_wait_limit_secs = Some(self.live_window_wait_limit_secs);
+        settings.transcription_output_defaults.live_window_wait_limit_action = Some(self.live_window_wait_limit_action);
         settings.transcription_output_defaults.before_insert_delay_ms = Some(self.before_insert_delay_ms);
         settings.transcription_output_defaults.auto_submit_delay_ms = Some(self.auto_submit_delay_ms);
+        settings.transcription_output_defaults.cancel_key_after_early_open = Some(self.cancel_key_after_early_open.clone());
     }
 
     pub fn timeout_ms(&self) -> u64 {
         self.paste_delay_ms.saturating_add(self.before_insert_delay_ms)
-            .saturating_add(self.auto_submit_delay_ms).saturating_add(5000)
+            .saturating_add(self.auto_submit_delay_ms)
+            .saturating_add(if self.opens_at_start() { self.recording_start_delay_ms } else { 0 })
+            .saturating_add(5000)
+    }
+
+    /// Repaste and retry only insert the text: no opening, after-insertion or cancel key.
+    pub fn without_key_actions(mut self) -> Self {
+        self.before_insert_key.clear();
+        self.recording_start_key.clear();
+        self.auto_submit = false;
+        self.cancel_key_after_early_open.clear();
+        self
     }
 }
 
@@ -8080,7 +8177,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn legacy_profiles_inherit_output_without_resetting_saved_defaults() {
+    fn legacy_profiles_use_program_output_defaults_without_resetting_saved_defaults() {
         let profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
             "id": "legacy", "name": "Legacy", "language": "auto", "translate_to_english": false
         })).unwrap();
@@ -8095,43 +8192,48 @@ mod tests {
         document.as_object_mut().unwrap().remove("transcription_output_defaults");
         document["transcription_profiles"][0].as_object_mut().unwrap().remove("output_settings");
         let restored: AppSettings = serde_json::from_value(document).unwrap();
+        // A profile never follows the Default profile: unset fields use the program defaults.
         let output = ResolvedOutputSettings::resolve(&restored, Some("legacy"));
-        assert_eq!(output.paste_method, PasteMethod::ShiftInsert);
-        assert_eq!(output.clipboard_handling, ClipboardHandling::KeepTranscription);
-        assert!(output.auto_submit);
-        assert_eq!(output.auto_submit_key, AutoSubmitKey::CtrlEnter);
+        assert_eq!(output.paste_method, PasteMethod::default());
+        assert_eq!(output.clipboard_handling, ClipboardHandling::default());
+        assert!(!output.auto_submit);
+        assert_eq!(output.auto_submit_key, AutoSubmitKey::Enter);
         assert!(output.before_insert_key.is_empty());
+        let default_profile = ResolvedOutputSettings::resolve(&restored, None);
+        assert_eq!(default_profile.paste_method, PasteMethod::ShiftInsert);
+        assert_eq!(default_profile.clipboard_handling, ClipboardHandling::KeepTranscription);
+        assert!(default_profile.auto_submit);
+        assert_eq!(default_profile.auto_submit_key, AutoSubmitKey::CtrlEnter);
     }
 
     #[test]
-    fn active_window_check_inherits_defaults_and_keeps_the_recording_snapshot() {
+    fn active_window_check_is_per_profile_and_keeps_the_recording_snapshot() {
         let mut settings = get_default_settings();
         let profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
             "id": "editor", "name": "Editor", "language": "auto", "translate_to_english": false
         })).unwrap();
         settings.transcription_profiles.push(profile);
-        assert!(ResolvedOutputSettings::resolve(&settings, Some("editor")).check_active_window);
-
-        settings.transcription_output_defaults.check_active_window = Some(false);
         assert!(!ResolvedOutputSettings::resolve(&settings, Some("editor")).check_active_window);
-        settings.transcription_profiles[0].output_settings.check_active_window = Some(true);
-        assert!(ResolvedOutputSettings::resolve(&settings, Some("editor")).check_active_window);
 
+        // The Default profile's value does not reach other profiles.
         settings.transcription_output_defaults.check_active_window = Some(true);
-        settings.transcription_profiles[0].output_settings.check_active_window = Some(false);
+        assert!(ResolvedOutputSettings::resolve(&settings, None).check_active_window);
+        assert!(!ResolvedOutputSettings::resolve(&settings, Some("editor")).check_active_window);
+
+        settings.transcription_profiles[0].output_settings.check_active_window = Some(true);
         let output = ResolvedOutputSettings::resolve(&settings, Some("editor"));
-        assert!(!output.check_active_window);
+        assert!(output.check_active_window);
         let mut recording = settings.clone();
         output.apply_to_recording(&mut recording);
-        settings.transcription_profiles[0].output_settings.check_active_window = None;
-        assert!(ResolvedOutputSettings::resolve(&settings, Some("editor")).check_active_window);
-        assert!(!ResolvedOutputSettings::resolve(&recording, None).check_active_window);
+        settings.transcription_profiles[0].output_settings.check_active_window = Some(false);
+        assert!(!ResolvedOutputSettings::resolve(&settings, Some("editor")).check_active_window);
+        assert!(ResolvedOutputSettings::resolve(&recording, None).check_active_window);
         let restored: AppSettings = serde_json::from_value(serde_json::to_value(recording).unwrap()).unwrap();
-        assert!(!ResolvedOutputSettings::resolve(&restored, Some("editor")).check_active_window);
+        assert!(ResolvedOutputSettings::resolve(&restored, Some("editor")).check_active_window);
     }
 
     #[test]
-    fn output_overrides_preserve_explicit_off_and_inherit_each_unset_field() {
+    fn output_overrides_preserve_explicit_off_and_use_program_defaults_for_unset_fields() {
         let profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
             "id": "editor", "name": "Editor", "language": "auto", "translate_to_english": false,
             "output_settings": {
@@ -8152,11 +8254,48 @@ mod tests {
         assert!(output.before_insert_key.is_empty());
         assert_eq!(output.before_insert_delay_ms, 0);
         assert!(!output.clipboard_history_allowed);
-        assert_eq!(output.auto_submit_key, AutoSubmitKey::CtrlEnter);
-        assert_eq!(output.paste_delay_ms, 123);
-        assert_eq!(output.auto_submit_delay_ms, 321);
+        assert_eq!(output.auto_submit_key, AutoSubmitKey::Enter);
+        assert_eq!(output.paste_delay_ms, 60);
+        assert_eq!(output.auto_submit_delay_ms, 50);
         assert!(!output.buffers_external_output());
         assert!(ResolvedOutputSettings::resolve(&settings, Some("missing")).auto_submit);
+    }
+
+    #[test]
+    fn live_window_options_are_per_profile_preserve_zero_and_survive_recording_snapshot() {
+        let mut settings = get_default_settings();
+        let profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
+            "id": "editor", "name": "Editor", "language": "auto", "translate_to_english": false
+        })).unwrap();
+        settings.transcription_profiles.push(profile);
+        let defaults = ResolvedOutputSettings::resolve(&settings, Some("editor"));
+        assert_eq!(defaults.live_window_resume_delay_ms, 500);
+        assert_eq!(defaults.live_window_stop_action, LiveWindowStopAction::Preview);
+        assert_eq!(defaults.live_window_wait_limit_secs, 0);
+        assert_eq!(defaults.live_window_wait_limit_action, LiveWindowWaitLimitAction::Preview);
+        // The Default profile's values do not reach other profiles.
+        settings.transcription_output_defaults.live_window_wait_limit_secs = Some(300);
+        settings.transcription_output_defaults.live_window_resume_delay_ms = Some(750);
+        settings.transcription_output_defaults.live_window_stop_action = Some(LiveWindowStopAction::History);
+        let independent = ResolvedOutputSettings::resolve(&settings, Some("editor"));
+        assert_eq!(independent.live_window_wait_limit_secs, 0);
+        assert_eq!(independent.live_window_resume_delay_ms, 500);
+        assert_eq!(independent.live_window_stop_action, LiveWindowStopAction::Preview);
+        settings.transcription_profiles[0].output_settings.live_window_wait_limit_secs = Some(300);
+        settings.transcription_profiles[0].output_settings.live_window_wait_limit_action = Some(LiveWindowWaitLimitAction::History);
+        let limited = ResolvedOutputSettings::resolve(&settings, Some("editor"));
+        assert_eq!(limited.live_window_wait_limit_secs, 300);
+        assert_eq!(limited.live_window_wait_limit_action, LiveWindowWaitLimitAction::History);
+        settings.transcription_profiles[0].output_settings.live_window_resume_delay_ms = Some(0);
+        settings.transcription_profiles[0].output_settings.live_window_stop_action = Some(LiveWindowStopAction::WaitForWindow);
+        let output = ResolvedOutputSettings::resolve(&settings, Some("editor"));
+        output.apply_to_recording(&mut settings);
+        let restored: AppSettings = serde_json::from_value(serde_json::to_value(settings).unwrap()).unwrap();
+        let captured = ResolvedOutputSettings::resolve(&restored, None);
+        assert_eq!(captured.live_window_resume_delay_ms, 0);
+        assert_eq!(captured.live_window_stop_action, LiveWindowStopAction::WaitForWindow);
+        assert_eq!(captured.live_window_wait_limit_secs, 300);
+        assert_eq!(captured.live_window_wait_limit_action, LiveWindowWaitLimitAction::History);
     }
 
     #[test]
@@ -8174,6 +8313,117 @@ mod tests {
         output.paste_method = PasteMethod::None;
         output.auto_submit = true;
         assert!(!output.buffers_external_output());
+    }
+
+    #[test]
+    fn defaults_keep_the_previous_buffering_rule_and_never_arm_the_early_key() {
+        let settings = get_default_settings();
+        let defaults = ResolvedOutputSettings::resolve(&settings, None);
+        assert!(defaults.recording_start_key.is_empty());
+        assert!(defaults.cancel_key_after_early_open.is_empty());
+        assert!(!defaults.opens_at_start());
+        assert_eq!(defaults.early_opening_key.state(), crate::early_open::EarlyKeyState::Idle);
+        assert_eq!(settings.transcription_output_defaults.recording_start_key, None);
+        assert_eq!(settings.transcription_output_defaults.cancel_key_after_early_open, None);
+        // With the option off the rule is exactly the previous one.
+        for method in [PasteMethod::None, PasteMethod::Direct, PasteMethod::CtrlV] {
+            for auto_submit in [false, true] {
+                for key in ["", "enter"] {
+                    let mut output = defaults.clone();
+                    output.paste_method = method;
+                    output.auto_submit = auto_submit;
+                    output.before_insert_key = key.into();
+                    assert_eq!(
+                        output.buffers_external_output(),
+                        method != PasteMethod::None && (!key.is_empty() || auto_submit),
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn recording_start_key_lets_live_text_flow_unless_a_key_before_insertion_is_set() {
+        let settings = get_default_settings();
+        let mut output = ResolvedOutputSettings::resolve(&settings, None);
+        output.paste_method = PasteMethod::Direct;
+        output.auto_submit = true;
+        assert!(output.buffers_external_output());
+        assert!(!output.opens_at_start());
+        output.recording_start_key = "enter".into();
+        assert!(output.opens_at_start());
+        assert!(!output.buffers_external_output());
+        // A key before insertion still holds the text until completion.
+        output.before_insert_key = "enter".into();
+        assert!(output.buffers_external_output());
+        output.before_insert_key.clear();
+        output.paste_method = PasteMethod::None;
+        assert!(!output.opens_at_start());
+        assert!(!output.buffers_external_output());
+    }
+
+    #[test]
+    fn early_opening_options_are_per_profile_and_survive_recording_snapshot() {
+        let mut settings = get_default_settings();
+        let profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
+            "id": "chat", "name": "Chat", "language": "auto", "translate_to_english": false
+        })).unwrap();
+        settings.transcription_profiles.push(profile);
+        let defaults = ResolvedOutputSettings::resolve(&settings, Some("chat"));
+        assert!(defaults.recording_start_key.is_empty());
+        assert!(defaults.cancel_key_after_early_open.is_empty());
+
+        // The Default profile's values do not reach other profiles.
+        settings.transcription_output_defaults.recording_start_key = Some("enter".into());
+        settings.transcription_output_defaults.cancel_key_after_early_open = Some("escape".into());
+        assert!(ResolvedOutputSettings::resolve(&settings, None).opens_at_start());
+        let independent = ResolvedOutputSettings::resolve(&settings, Some("chat"));
+        assert!(independent.recording_start_key.is_empty());
+        assert!(independent.cancel_key_after_early_open.is_empty());
+
+        settings.transcription_profiles[0].output_settings.recording_start_key = Some("enter".into());
+        settings.transcription_profiles[0].output_settings.cancel_key_after_early_open = Some("q".into());
+        let output = ResolvedOutputSettings::resolve(&settings, Some("chat"));
+        let mut recording = settings.clone();
+        output.apply_to_recording(&mut recording);
+        settings.transcription_profiles[0].output_settings.recording_start_key = None;
+        settings.transcription_profiles[0].output_settings.cancel_key_after_early_open = None;
+        let restored: AppSettings = serde_json::from_value(serde_json::to_value(recording).unwrap()).unwrap();
+        let captured = ResolvedOutputSettings::resolve(&restored, None);
+        assert_eq!(captured.recording_start_key, "enter");
+        assert_eq!(captured.cancel_key_after_early_open, "q");
+        assert!(ResolvedOutputSettings::resolve(&settings, Some("chat")).recording_start_key.is_empty());
+    }
+
+    #[test]
+    fn start_and_insertion_keys_are_independent_and_keep_zero_delays() {
+        let mut settings = get_default_settings();
+        assert_eq!(ResolvedOutputSettings::resolve(&settings, None).recording_start_delay_ms, 150);
+        settings.transcription_output_defaults.before_insert_key = Some("enter".into());
+        settings.transcription_output_defaults.before_insert_delay_ms = Some(230);
+        settings.transcription_output_defaults.recording_start_key = Some("tab".into());
+        settings.transcription_output_defaults.recording_start_delay_ms = Some(0);
+        let both = ResolvedOutputSettings::resolve(&settings, None);
+        assert_eq!(both.recording_start_key, "tab");
+        assert_eq!(both.before_insert_key, "enter");
+        assert_eq!(both.recording_start_delay_ms, 0);
+        assert!(both.buffers_external_output());
+        let mut recording = settings.clone();
+        both.apply_to_recording(&mut recording);
+        let restored: AppSettings = serde_json::from_value(serde_json::to_value(recording).unwrap()).unwrap();
+        let captured = ResolvedOutputSettings::resolve(&restored, None);
+        assert_eq!(captured.recording_start_key, "tab");
+        assert_eq!(captured.before_insert_key, "enter");
+        assert_eq!(captured.recording_start_delay_ms, 0);
+        assert_eq!(captured.before_insert_delay_ms, 230);
+
+        settings.transcription_output_defaults.recording_start_key = Some(String::new());
+        let end_only = ResolvedOutputSettings::resolve(&settings, None);
+        assert!(!end_only.opens_at_start());
+        assert_eq!(end_only.before_insert_key, "enter");
+        let no_keys = both.without_key_actions();
+        assert!(no_keys.recording_start_key.is_empty());
+        assert!(no_keys.before_insert_key.is_empty());
     }
 
     #[test]

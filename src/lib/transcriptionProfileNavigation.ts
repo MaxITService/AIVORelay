@@ -29,3 +29,12 @@ export const openActiveTranscriptionProfile = (): void => {
     block: "center",
   });
 };
+
+/** Navigate to the User Interface section and scroll to the Live Preview settings anchor. */
+export const openLivePreviewSettings = (): void => {
+  navigateToSettingsAnchor({
+    activateSection: () => useNavigationStore.getState().setSection("userInterface"),
+    targetId: "live-preview-settings",
+    updateHash: false,
+  });
+};

@@ -3794,12 +3794,26 @@ pub fn change_transcription_output_settings(
             crate::clipboard::validate_output_key(key)?;
         }
     }
-    for delay in [output.paste_delay_ms, output.before_insert_delay_ms, output.auto_submit_delay_ms]
+    if let Some(key) = &mut output.cancel_key_after_early_open {
+        *key = key.trim().to_lowercase();
+        if !key.is_empty() {
+            crate::clipboard::validate_output_key(key)?;
+        }
+    }
+    if let Some(key) = &mut output.recording_start_key {
+        *key = key.trim().to_lowercase();
+        if !key.is_empty() { crate::clipboard::validate_output_key(key)?; }
+    }
+    for delay in [output.paste_delay_ms, output.before_insert_delay_ms, output.auto_submit_delay_ms,
+        output.live_window_resume_delay_ms, output.recording_start_delay_ms]
         .into_iter().flatten()
     {
         if delay > 5000 {
             return Err("Output delays must be between 0 and 5000 milliseconds".into());
         }
+    }
+    if output.live_window_wait_limit_secs.is_some_and(|secs| secs > 3600) {
+        return Err("The window wait limit must be between 0 and 3600 seconds".into());
     }
     let mut settings = settings::get_settings(&app);
     if profile_id == "default" {
@@ -3814,9 +3828,16 @@ pub fn change_transcription_output_settings(
         // here so no stale copy can diverge from the saved global settings.
         settings.transcription_output_defaults = settings::ProfileOutputSettings {
             check_active_window: output.check_active_window,
+            live_window_resume_delay_ms: output.live_window_resume_delay_ms,
+            live_window_stop_action: output.live_window_stop_action,
+            live_window_wait_limit_secs: output.live_window_wait_limit_secs,
+            live_window_wait_limit_action: output.live_window_wait_limit_action,
             before_insert_key: output.before_insert_key,
             before_insert_delay_ms: output.before_insert_delay_ms,
+            recording_start_key: output.recording_start_key,
+            recording_start_delay_ms: output.recording_start_delay_ms,
             auto_submit_delay_ms: output.auto_submit_delay_ms,
+            cancel_key_after_early_open: output.cancel_key_after_early_open,
             ..Default::default()
         };
     } else {
@@ -5516,7 +5537,18 @@ pub fn add_transcription_profile(
             crate::clipboard::validate_output_key(key)?;
         }
     }
-    for delay in [output_settings.paste_delay_ms, output_settings.before_insert_delay_ms, output_settings.auto_submit_delay_ms]
+    if let Some(key) = &mut output_settings.cancel_key_after_early_open {
+        *key = key.trim().to_lowercase();
+        if !key.is_empty() {
+            crate::clipboard::validate_output_key(key)?;
+        }
+    }
+    if let Some(key) = &mut output_settings.recording_start_key {
+        *key = key.trim().to_lowercase();
+        if !key.is_empty() { crate::clipboard::validate_output_key(key)?; }
+    }
+    for delay in [output_settings.paste_delay_ms, output_settings.before_insert_delay_ms,
+        output_settings.auto_submit_delay_ms, output_settings.recording_start_delay_ms]
         .into_iter().flatten()
     {
         if delay > 5000 {
@@ -5736,6 +5768,54 @@ mod stt_profile_model_tests {
     use crate::settings::{
         get_default_settings, SttModelSelection, TranscriptionProfile, TranscriptionProvider,
     };
+
+    #[test]
+    fn profile_model_save_preserves_global_and_other_profiles_after_json_reload() {
+        let mut settings = get_default_settings();
+        settings.selected_model = "shared-local".to_string();
+        let make_profile = |id: &str| -> TranscriptionProfile {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "name": id, "language": "auto", "translate_to_english": false
+            })).unwrap()
+        };
+        settings.transcription_profiles = vec![make_profile("a"), make_profile("b")];
+        let other = SttModelSelection {
+            provider: TranscriptionProvider::Local, model_id: "other-local".to_string(),
+            provider_preset: String::new(),
+        };
+        settings.transcription_profiles[1].stt_model_selection_override = Some(other.clone());
+        settings.active_profile_id = "a".to_string();
+        let selection = SttModelSelection {
+            provider: TranscriptionProvider::RemoteOpenAiCompatible,
+            provider_preset: "groq".to_string(), model_id: "whisper-large-v3-turbo".to_string(),
+        };
+        let shared_remote = serde_json::to_value(&settings.remote_stt).unwrap();
+        let shared_provider = settings.transcription_provider;
+        apply_active_profile_stt_model_selection_override(&mut settings, selection.clone()).unwrap();
+        let reloaded: crate::settings::AppSettings = serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(reloaded.active_profile_id, "a");
+        assert_eq!(reloaded.selected_model, "shared-local");
+        assert_eq!(reloaded.transcription_provider, shared_provider);
+        assert_eq!(serde_json::to_value(&reloaded.remote_stt).unwrap(), shared_remote);
+        assert_eq!(reloaded.transcription_profiles[0].stt_model_selection_override, Some(selection));
+        assert_eq!(reloaded.transcription_profiles[1].stt_model_selection_override, Some(other));
+    }
+
+    #[test]
+    fn invalid_profile_model_selection_does_not_change_saved_settings() {
+        let mut settings = get_default_settings();
+        settings.transcription_profiles.push(serde_json::from_value(serde_json::json!({
+            "id": "a", "name": "A", "language": "auto", "translate_to_english": false
+        })).unwrap());
+        settings.active_profile_id = "a".to_string();
+        let before = serde_json::to_value(&settings).unwrap();
+        let invalid = SttModelSelection {
+            provider: TranscriptionProvider::RemoteOpenAiCompatible,
+            provider_preset: "missing-preset".to_string(), model_id: "model".to_string(),
+        };
+        assert!(apply_active_profile_stt_model_selection_override(&mut settings, invalid).is_err());
+        assert_eq!(serde_json::to_value(&settings).unwrap(), before);
+    }
 
     #[test]
     fn active_profile_model_change_is_scoped_and_default_profile_is_rejected() {
