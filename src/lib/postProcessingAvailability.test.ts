@@ -1,8 +1,9 @@
 import assert from "node:assert";
-import type { AppSettings } from "@/bindings";
+import type { AppSettings, ModelInfo } from "@/bindings";
 import {
   getActiveProfilePostProcessingEnabled,
   getPostProcessingAvailability,
+  getProfileOutputSummary,
 } from "./postProcessingAvailability";
 import type { ProfileOutputSettings } from "./profileOutputSettings";
 
@@ -208,9 +209,11 @@ for (const provider of liveProviders) {
   assert.equal(getPostProcessingAvailability(bufferedSettings, {
     profileOutputSettings: { auto_submit: false, before_insert_key: "" },
   }).available, false);
+  // Unset key fields of a profile mean no key: the Default profile's keys are not inherited.
   assert.equal(getPostProcessingAvailability(bufferedSettings, {
     profileOutputSettings: { auto_submit: null, before_insert_key: null },
-  }).available, true);
+  }).available, false);
+  assert.equal(getPostProcessingAvailability(bufferedSettings).available, true);
 
   const activeProfileSettings = settings({
     ...directSettings, active_profile_id: "buffered",
@@ -220,4 +223,80 @@ for (const provider of liveProviders) {
   assert.equal(getPostProcessingAvailability(activeProfileSettings, {
     profileOutputSettings: null,
   }).available, false);
+
+  // A recording-start key: live text goes into the chat while recording,
+  // so a live provider has no reversible text left to post-process.
+  assert.equal(getPostProcessingAvailability(directSettings, {
+    profileOutputSettings: { recording_start_key: "enter", auto_submit: true },
+  }).available, false);
+  // A key before insertion still holds the text until completion.
+  assert.equal(getPostProcessingAvailability(directSettings, {
+    profileOutputSettings: { recording_start_key: "enter", before_insert_key: "enter" },
+  }).available, true);
+  assert.equal(getPostProcessingAvailability(directSettings, {
+    profileOutputSettings: { recording_start_key: "", auto_submit: true },
+  }).available, true);
 }
+
+// Moonshine streaming never uses native direct output (the backend checks the model id), so
+// a stale list entry must not block post-processing.
+assert.equal(
+  getPostProcessingAvailability(
+    settings({
+      transcription_provider: "local",
+      selected_model: "handy-computer/moonshine-streaming-tiny-gguf",
+      native_streaming_live_output_models: ["handy-computer/moonshine-streaming-tiny-gguf"],
+    }),
+  ).available,
+  true,
+);
+
+// Profile card labels: one decision for the output route and LLM availability.
+const localModel = (id: string, engine_type: string, supports_streaming: boolean) =>
+  ({ id, engine_type, supports_streaming }) as unknown as ModelInfo;
+const streamingModel = localModel("streaming-model", "TranscribeCpp", true);
+const nativeLocal = (overrides: Partial<AppSettings> = {}) => settings({
+  transcription_provider: "local", selected_model: "streaming-model",
+  native_streaming_live_output_models: ["streaming-model"], paste_method: "ctrl_v",
+  auto_submit: false, ...overrides,
+});
+const previewProfile = { profilePreviewOutputOnlyEnabled: true };
+
+// Unknown inputs show neither label.
+assert.equal(getProfileOutputSummary(null, previewProfile, [streamingModel]), null);
+assert.equal(getProfileOutputSummary(nativeLocal(), previewProfile, []), null);
+
+// Native direct output beats Preview and blocks LLM.
+assert.deepEqual(getProfileOutputSummary(nativeLocal(), previewProfile, [streamingModel]),
+  { route: "insertion", llmAvailable: false });
+// A listed model that cannot stream natively (or is gone from the catalog) stays in Preview.
+assert.deepEqual(
+  getProfileOutputSummary(nativeLocal(), previewProfile, [localModel("streaming-model", "Whisper", false)]),
+  { route: "preview", llmAvailable: false });
+assert.deepEqual(
+  getProfileOutputSummary(nativeLocal(), previewProfile, [localModel("other", "TranscribeCpp", true)]),
+  { route: "preview", llmAvailable: false });
+// Moonshine streaming is never direct output, even if listed; no model info is needed to know.
+const moonshine = "handy-computer/moonshine-streaming-tiny-gguf";
+assert.deepEqual(getProfileOutputSummary(nativeLocal({
+  selected_model: moonshine, native_streaming_live_output_models: [moonshine],
+}), previewProfile, []), { route: "preview", llmAvailable: true });
+// Not listed: the route is known without model info.
+assert.deepEqual(getProfileOutputSummary(nativeLocal({ native_streaming_live_output_models: [] }), previewProfile, []),
+  { route: "preview", llmAvailable: true });
+assert.deepEqual(getProfileOutputSummary(nativeLocal(), { profilePreviewOutputOnlyEnabled: false }, []),
+  { route: "insertion", llmAvailable: false });
+assert.deepEqual(getProfileOutputSummary(nativeLocal({ paste_method: "none" }),
+  { profilePreviewOutputOnlyEnabled: false }, [streamingModel]), { route: "none", llmAvailable: false });
+// Key actions buffer the output, so LLM stays available.
+assert.deepEqual(getProfileOutputSummary(nativeLocal({ auto_submit: true }),
+  { profilePreviewOutputOnlyEnabled: false }, [streamingModel]), { route: "insertion", llmAvailable: true });
+// Live remote provider: Preview only with the live preview window; otherwise it types directly.
+const sonioxLive = (overrides: Partial<AppSettings> = {}) => settings({
+  transcription_provider: "remote_soniox", soniox_model: "stt-rt-v5", soniox_live_enabled: true,
+  paste_method: "ctrl_v", auto_submit: false, ...overrides,
+});
+assert.deepEqual(getProfileOutputSummary(sonioxLive({ soniox_live_preview_enabled: true }),
+  { profilePreviewOutputOnlyEnabled: false }, []), { route: "preview", llmAvailable: true });
+assert.deepEqual(getProfileOutputSummary(sonioxLive(), { profilePreviewOutputOnlyEnabled: false }, []),
+  { route: "insertion", llmAvailable: false });

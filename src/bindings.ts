@@ -4151,6 +4151,16 @@ async previewCloseAction() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async showPendingLiveOutputPreview() : Promise<void> {
+    await TAURI_INVOKE("show_pending_live_output_preview");
+},
+/**
+ * Drops a finished remainder that waits for its window, like `cancel()` but without touching
+ * anything else. The full text stays in History; the notice replaces the "waiting" toast.
+ */
+async discardPendingLiveOutput() : Promise<void> {
+    await TAURI_INVOKE("discard_pending_live_output");
+},
 async previewClearAction() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("preview_clear_action") };
@@ -4922,6 +4932,11 @@ export type LiveSoundCaptureSource = "microphone" | "system_output" | "both"
 export type LiveSoundTranscriptSegmentPayload = { speaker_id: number | null; speaker_label: string | null; text: string; is_interim: boolean; timestamp_ms: number }
 export type LiveSoundTranscriptionProvider = "system" | "remote_soniox" | "remote_deepgram" | "remote_openai_compatible"
 export type LiveSoundTranscriptionStatePayload = { active: boolean; recording: boolean; processing_llm: boolean; binding_id: string | null; error_message: string | null; final_text: string; interim_text: string; segments: LiveSoundTranscriptSegmentPayload[]; auto_stop_remaining_seconds: number | null }
+export type LiveWindowStopAction = "history" | "preview" | "wait_for_window"
+/**
+ * What happens to a waiting remainder when its time limit runs out.
+ */
+export type LiveWindowWaitLimitAction = "preview" | "history"
 /**
  * Which feature is requesting LLM access.
  * Used to resolve the correct provider/key/model configuration.
@@ -4990,11 +5005,27 @@ export type PreviewOutputModeStatePayload = { active: boolean; recording: boolea
  * Used as a parameter struct for update_transcription_profile to reduce argument count.
  */
 export type ProfileLlmSettings = { enabled: boolean; promptOverride: string | null; modelOverride: string | null }
-export type ProfileOutputSettings = { paste_method: PasteMethod | null; clipboard_handling: ClipboardHandling | null; clipboard_history_allowed: boolean | null; convert_lf_to_crlf: boolean | null; paste_delay_ms: number | null; check_active_window: boolean | null; auto_submit: boolean | null; auto_submit_key: AutoSubmitKey | null;
+export type ProfileOutputSettings = { paste_method: PasteMethod | null; clipboard_handling: ClipboardHandling | null; clipboard_history_allowed: boolean | null; convert_lf_to_crlf: boolean | null; paste_delay_ms: number | null; check_active_window: boolean | null; live_window_resume_delay_ms: number | null; live_window_stop_action: LiveWindowStopAction | null;
 /**
- * None inherits; an empty string explicitly disables the opening key.
+ * Seconds a finished remainder waits for its window before `live_window_wait_limit_action`
+ * runs. None: the program default (no limit); 0 means no limit.
  */
-before_insert_key: string | null; before_insert_delay_ms: number | null; auto_submit_delay_ms: number | null }
+live_window_wait_limit_secs: number | null; live_window_wait_limit_action: LiveWindowWaitLimitAction | null; auto_submit: boolean | null; auto_submit_key: AutoSubmitKey | null;
+/**
+ * An empty string disables the opening key. In a profile, None means the program
+ * default (no key); profiles never follow the Default profile.
+ */
+before_insert_key: string | null; before_insert_delay_ms: number | null;
+/**
+ * Pressed once when recording starts, independent of `before_insert_key`.
+ * None or an empty string: no key.
+ */
+recording_start_key: string | null; recording_start_delay_ms: number | null; auto_submit_delay_ms: number | null;
+/**
+ * Pressed when a recording is cancelled or empty after the recording-start key was
+ * pressed. None or an empty string: no key.
+ */
+cancel_key_after_early_open: string | null }
 export type RecordingModelLoadingState = { recording_session_id: number | null; provider: string | null; model_id: string | null; loading: boolean; loading_elapsed_ms: number; preview_active: boolean }
 export type RecordingOverlayAnimatedBorderMode = "none" | "shimmer_edge" | "traveling_highlight" | "breathing_contour" | "spectrum_edge"
 export type RecordingOverlayAppearancePayload = { custom_enabled: boolean; theme: string; background_mode: string; material_mode: string; centerpiece_mode: string; animated_border_mode: string; accent_color: string; status_icon_color: string; cancel_icon_color: string; surface_base_color: string; body_background_color: string; show_status_icon: boolean; status_icon_style: string; show_cancel_button: boolean; cancel_button_invisible: boolean; bar_count: number; bar_width_px: number; bar_style: string; show_drag_grip: boolean; entrance_animation: string; exit_animation: string; audio_reactive_scale: boolean; audio_reactive_scale_max_percent: number; voice_sensitivity_percent: number; animation_softness_percent: number; depth_parallax_percent: number; opacity_percent: number; silence_fade: boolean; silence_opacity_percent: number; decapitalize_indicator_mode: string; decapitalize_indicator_custom_text: string; decapitalize_indicator_font_family: string; decapitalize_indicator_font_size_px: number; decapitalize_indicator_color: string; frame_width_px: number; frame_height_px: number }
@@ -5246,7 +5277,7 @@ auto_shortcut_activation?: boolean;
  */
 preview_output_only_enabled?: boolean;
 /**
- * Unset output fields inherit Default (Global).
+ * Unset output fields use the program defaults; profiles never follow the Default profile.
  */
 output_settings?: ProfileOutputSettings;
 /**

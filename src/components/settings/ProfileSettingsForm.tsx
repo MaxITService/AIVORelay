@@ -28,20 +28,10 @@ import { GEMINI_LOCALES } from "../../lib/gemini/geminiConfig";
 import { GEMINI_VOCABULARY_FILE_EXTENSIONS, parseGeminiVocabulary, validateGeminiVocabularyFile } from "../../lib/gemini/vocabulary";
 import { ChineseScriptFields } from "./ChineseScript";
 import { SttModelSelector } from "./SttModelSelector";
-import { ProfileOutputSettingsFields, getGlobalProfileOutputDefaults } from "./ProfileOutputSettings";
+import { KeyActionsBadge, ProfileOutputSettingsFields, getGlobalProfileOutputDefaults, profileKeyActionsEnabled, profileOutputDefaults } from "./ProfileOutputSettings";
 import type { ProfileOutputSettings as OutputSettings } from "@/lib/profileOutputSettings";
 import type { SttModelSelection } from "../../lib/sttModelSelection";
-import { navigateToSettingsAnchor } from "../../lib/anchorNavigation";
-
-/** Navigate to the User Interface section and scroll to the Live Preview settings anchor. */
-const openLivePreviewSettings = () => {
-  navigateToSettingsAnchor({
-    activateSection: () =>
-      useNavigationStore.getState().setSection("userInterface"),
-    targetId: "live-preview-settings",
-    updateHash: false,
-  });
-};
+import { openLivePreviewSettings } from "../../lib/transcriptionProfileNavigation";
 
 /** Open the shared provider, model, key, and prompt configuration. */
 const openPostProcessingSettings = () => {
@@ -50,8 +40,10 @@ const openPostProcessingSettings = () => {
 
 const ProfileMoreSettings: React.FC<{
   profileId: string;
+  previewEnabled: boolean;
+  keyActionsEnabled: boolean;
   children: React.ReactNode;
-}> = ({ profileId, children }) => {
+}> = ({ profileId, previewEnabled, keyActionsEnabled, children }) => {
   const { t } = useTranslation();
 
   return (
@@ -65,6 +57,12 @@ const ProfileMoreSettings: React.FC<{
         <span className="text-xs font-semibold text-text/70">
           {t("profileOutput.profileMore")}
         </span>
+        {(previewEnabled || keyActionsEnabled) && <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+          {keyActionsEnabled && <KeyActionsBadge />}
+          {previewEnabled && <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 whitespace-nowrap group-open/more:hidden">
+            {t("profileOutput.previewEnabled")}
+          </span>}
+        </span>}
       </summary>
       <div className="px-3 py-3 space-y-3 border-t border-mid-gray/10">
         {children}
@@ -253,6 +251,11 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
   const [outputDraftInvalid, setOutputDraftInvalid] = useState(false);
   const [showShortcutMoreOptions, setShowShortcutMoreOptions] =
     useWindowState(`profile-${profile.id}-shortcut-more`, false);
+  const autoShortcutActivationEnabled = profile.auto_shortcut_activation === true;
+  const shortcutOptionsExpanded = autoShortcutActivationEnabled || showShortcutMoreOptions;
+  const pttHelp = t(autoShortcutActivationEnabled
+    ? "settings.general.pushToTalk.autoPttDisabledHelp"
+    : "settings.general.pushToTalk.description");
   const effectiveSttSelection = profile.stt_model_selection_override ?? globalSttModelSelection;
   const { languageOptions, supportsSttPrompt, promptLimit, isSonioxProvider, isGeminiProvider } =
     profileSttPresentation(effectiveSttSelection, localSttModels);
@@ -260,7 +263,7 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
   const postProcessingAvailable = getPostProcessingAvailability(settings, {
     sttSelection: effectiveSttSelection,
     profilePreviewOutputOnlyEnabled: profile.preview_output_only_enabled,
-    profileOutputSettings: isDefault ? null : profile.output_settings ?? null,
+    profileOutputSettings: isDefault ? null : profile.output_settings ?? {},
   }).available;
   const { supportsTranslation } = useProfileSttCapabilities(effectiveSttSelection, localSttModels);
   const effectiveLlmEnabled =
@@ -761,9 +764,7 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
 
   return (
     <div className="space-y-3">
-          {/* Cycle & Push-to-Talk Controls */}
-          <div className={`grid gap-3 ${isDefault ? "lg:grid-cols-2" : "lg:grid-cols-3"} bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10`}>
-            {!isDefault && <div className="min-w-0">
+            {!isDefault && <div className="min-w-0 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
               <label htmlFor={`profile-cycle-${profile.id}`} className="text-xs font-semibold text-text/70 block mb-2">
                 {t("settings.transcriptionProfiles.includeInCycle")}
               </label>
@@ -783,83 +784,6 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
                 </span>
               </div>
             </div>}
-
-            <div id={isDefault ? "settings-dictation-press-mode" : undefined} tabIndex={isDefault ? -1 : undefined} className="min-w-0">
-              <div className="flex items-center gap-2 mb-2">
-                <label htmlFor={`profile-push-to-talk-${profile.id}`} className="text-xs font-semibold text-text/70">
-                  {t("settings.general.pushToTalk.label")}
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setShowShortcutMoreOptions((shown) => !shown)}
-                  className="text-[11px] text-[#8b8490] underline underline-offset-2 hover:text-[#aaa3ae] transition-colors"
-                >
-                  {t("settings.general.pushToTalk.moreOptions", "More options")}
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <ToggleSwitch
-                  inputId={`profile-push-to-talk-${profile.id}`}
-                  checked={profile.push_to_talk ?? true}
-                  onChange={handlePushToTalkChange}
-                  disabled={isUpdating || profile.auto_shortcut_activation === true}
-                />
-                <span className="text-xs text-mid-gray leading-snug">
-                  {t("settings.general.pushToTalk.description")}
-                </span>
-              </div>
-              <Collapse open={showShortcutMoreOptions}>
-                <div className="mt-3 pt-3 border-t border-mid-gray/15">
-                  <div className="flex items-start gap-2">
-                    <ToggleSwitch
-                      inputId={`profile-auto-shortcut-${profile.id}`}
-                      checked={profile.auto_shortcut_activation ?? false}
-                      onChange={handleAutoShortcutActivationChange}
-                      disabled={isUpdating}
-                    />
-                    <div className="min-w-0">
-                      <label htmlFor={`profile-auto-shortcut-${profile.id}`} className="text-xs font-medium text-text/80">
-                        {t(
-                          "settings.general.pushToTalk.autoLabel",
-                          "Automatic tap / hold",
-                        )}
-                      </label>
-                      <div className="mt-1 text-[11px] text-mid-gray leading-snug">
-                        {t(
-                          "settings.general.pushToTalk.autoDescription",
-                          "Recording starts immediately. Release within 300 ms to keep recording until the next press, or keep holding and release to stop.",
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </Collapse>
-            </div>
-
-            <div className="min-w-0">
-              <label htmlFor={`profile-preview-${profile.id}`} className="text-xs font-semibold text-text/70 block mb-2">
-                {t(
-                  "settings.transcriptionProfiles.previewOutputOnly.title",
-                  "Output to Preview",
-                )}
-              </label>
-              <button type="button" onClick={openLivePreviewSettings} className="text-[#8b8490] underline underline-offset-2 font-normal hover:text-[#aaa3ae] transition-colors ml-2">(open settings)</button>
-              <div className="flex items-center gap-2">
-                <ToggleSwitch
-                  inputId={`profile-preview-${profile.id}`}
-                  checked={profile.preview_output_only_enabled ?? false}
-                  onChange={handlePreviewOutputOnlyChange}
-                  disabled={isUpdating}
-                />
-                <span className="text-xs text-mid-gray leading-snug">
-                  {t(
-                    "settings.transcriptionProfiles.previewOutputOnly.description",
-                    "Keep this profile's output in the preview buffer before insertion.",
-                  )}
-                </span>
-              </div>
-            </div>
-          </div>
 
           {!isDefault && automaticAppProfilesEnabled && (
             <div className="space-y-2 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
@@ -944,13 +868,75 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
 
           )}
 
-          {/* Shortcut identity is supplied by the persistence adapter. */}
-          {shortcut && <div className="space-y-2 min-w-0">
-            <label className="text-xs font-semibold text-text/70">
-              {t("settings.transcriptionProfiles.shortcut")}
-            </label>
-            {shortcut}
-          </div>}
+          {/* Shortcut assignment and recording press mode */}
+          <div className="space-y-3 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
+            {/* Shortcut identity is supplied by the persistence adapter. */}
+            {shortcut && <div className="space-y-2 min-w-0">
+              <label className="text-xs font-semibold text-text/70">
+                {t("settings.transcriptionProfiles.shortcut")}
+              </label>
+              {shortcut}
+            </div>}
+
+            <div id={isDefault ? "settings-dictation-press-mode" : undefined} tabIndex={isDefault ? -1 : undefined} className="min-w-0">
+              <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <label htmlFor={`profile-push-to-talk-${profile.id}`} className="text-xs font-semibold text-text/70">
+                  {t("settings.general.pushToTalk.label")}
+                </label>
+                <InfoTooltip content={pttHelp} />
+                {!autoShortcutActivationEnabled && <button
+                  type="button"
+                  onClick={() => setShowShortcutMoreOptions((shown) => !shown)}
+                  aria-expanded={shortcutOptionsExpanded}
+                  aria-controls={`profile-shortcut-options-${profile.id}`}
+                  className="text-[11px] text-[#8b8490] underline underline-offset-2 hover:text-[#aaa3ae] transition-colors"
+                >
+                  {t(shortcutOptionsExpanded ? "settings.general.pushToTalk.hideOptions" : "settings.general.pushToTalk.showOptions")}
+                </button>}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Tooltip content={pttHelp} disabled={!autoShortcutActivationEnabled} className="inline-flex"
+                  tabIndex={autoShortcutActivationEnabled ? 0 : undefined}
+                  ariaLabel={t("settings.general.pushToTalk.label")}
+                  ariaDisabled={autoShortcutActivationEnabled}>
+                  <ToggleSwitch
+                    inputId={`profile-push-to-talk-${profile.id}`}
+                    checked={profile.push_to_talk ?? true}
+                    onChange={handlePushToTalkChange}
+                    disabled={isUpdating || autoShortcutActivationEnabled}
+                  />
+                </Tooltip>
+              </div>
+              </div>
+              <Collapse open={shortcutOptionsExpanded}>
+                <div id={`profile-shortcut-options-${profile.id}`} className="mt-3 pt-3 border-t border-mid-gray/15">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <label htmlFor={`profile-auto-shortcut-${profile.id}`} className="text-xs font-medium text-text/80">
+                        {t(
+                          "settings.general.pushToTalk.autoLabel",
+                          "Automatic tap / hold",
+                        )}
+                      </label>
+                      <div className="mt-1 text-[11px] text-mid-gray leading-snug">
+                        {t(
+                          "settings.general.pushToTalk.autoDescription",
+                          "Recording starts immediately. Release within 300 ms to keep recording until the next press, or keep holding and release to stop.",
+                        )}
+                      </div>
+                    </div>
+                    <ToggleSwitch
+                      inputId={`profile-auto-shortcut-${profile.id}`}
+                      checked={profile.auto_shortcut_activation ?? false}
+                      onChange={handleAutoShortcutActivationChange}
+                      disabled={isUpdating}
+                    />
+                  </div>
+                </div>
+              </Collapse>
+            </div>
+          </div>
 
           {/* Language + Translate to English — same row */}
           <div className="grid gap-3 lg:grid-cols-2">
@@ -1347,12 +1333,43 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
             </WindowDetails>
           )}
 
-          <ProfileMoreSettings profileId={profile.id}>
+          <ProfileMoreSettings profileId={profile.id} previewEnabled={profile.preview_output_only_enabled ?? false}
+            keyActionsEnabled={profileKeyActionsEnabled(profile.output_settings ?? {}, profileOutputDefaults(getGlobalProfileOutputDefaults(settings), isDefault))}>
+            <div className="min-w-0 flex items-center justify-between gap-3 rounded-lg border border-mid-gray/10 bg-mid-gray/5 p-3">
+              <div className="min-w-0 space-y-1">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                  <label htmlFor={`profile-preview-${profile.id}`} className="text-xs font-semibold text-text/70">
+                    {t(
+                      "settings.transcriptionProfiles.previewOutputOnly.title",
+                      "Output to Preview",
+                    )}
+                  </label>
+                  <button type="button" onClick={openLivePreviewSettings} className="text-[11px] text-mid-gray underline underline-offset-2 hover:text-text transition-colors">
+                    {t("settings.transcriptionProfiles.previewOutputOnly.openSettings", "Preview settings")}
+                  </button>
+                </div>
+                <p className="text-xs text-mid-gray leading-snug">
+                  {t(
+                    "settings.transcriptionProfiles.previewOutputOnly.description",
+                    "Keep this profile's output in the preview buffer before insertion.",
+                  )}
+                </p>
+              </div>
+              <ToggleSwitch
+                inputId={`profile-preview-${profile.id}`}
+                checked={profile.preview_output_only_enabled ?? false}
+                onChange={handlePreviewOutputOnlyChange}
+                disabled={isUpdating}
+              />
+            </div>
+
             <ProfileOutputSettingsFields scopeKey={profile.id} values={profile.output_settings ?? {}}
               defaults={getGlobalProfileOutputDefaults(settings)} isDefault={isDefault} disabled={isUpdating}
               onChange={patch => commitFieldsPatch({ output_settings: patch })}
               onDraftChange={scope === "draft" ? patch => onDraftChange?.({ output_settings: patch }) : undefined}
-              onValidationChange={setOutputDraftInvalid} />
+              onValidationChange={setOutputDraftInvalid}
+              sttSelection={effectiveSttSelection} localModels={localSttModels}
+              previewOutputOnly={profile.preview_output_only_enabled ?? false} />
 
           {/* LLM Post-Processing Section — collapsible */}
           <WindowDetails stateKey={`profile-${profile.id}-llm`} className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">

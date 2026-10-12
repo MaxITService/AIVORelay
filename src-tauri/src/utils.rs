@@ -102,6 +102,9 @@ pub(crate) fn cancel_current_operation_guarded(
     _guard: &session_manager::OperationControlGuard,
 ) {
     info!("Initiating operation cancellation...");
+    crate::live_output_buffer::cancel(app);
+    // Armed recordings end without a result; their cancel key (if any) is pressed.
+    crate::early_open::cancel_all();
     crate::recording_auto_stop::cancel_auto_stop_timer(app);
 
     // Take the active session if any - its Drop will handle cleanup

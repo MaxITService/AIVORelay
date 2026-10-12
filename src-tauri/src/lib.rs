@@ -14,6 +14,7 @@ mod cli_local_tts;
 mod cli_tts_history;
 mod clipboard;
 mod commands;
+mod early_open;
 pub mod engine_supervisor;
 mod file_transcription_diarization;
 mod gemini_config;
@@ -22,6 +23,7 @@ mod hotkey_guide;
 mod input;
 mod input_source;
 mod language_resolver;
+mod live_output_buffer;
 mod llm_client;
 mod managers;
 mod memory;
@@ -1733,6 +1735,8 @@ pub fn run(cli_args: CliArgs) {
         commands::key_listener::key_listener_register_shortcut,
         commands::key_listener::key_listener_unregister_shortcut,
         actions::preview_close_action,
+        live_output_buffer::show_pending_live_output_preview,
+        live_output_buffer::discard_pending_live_output,
         actions::preview_clear_action,
         actions::preview_insert_action,
         actions::preview_llm_process_action,

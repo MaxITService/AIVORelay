@@ -358,6 +358,28 @@ function App() {
         description: t("errors.pasteFailed"),
       });
     });
+    const unlistenLiveWindow = listen<{ state: string; pendingChars: number }>("live-window-output-state", ({ payload }) => {
+      const id = "live-window-output";
+      if (payload.state === "resumed" || payload.state === "previewed") {
+        toast.dismiss(id);
+      } else if (["paused", "waiting", "history", "earlyOpenFailed", "busy"].includes(payload.state)) {
+        // A finished remainder waits without a time limit, so its toast stays until the wait ends.
+        const waiting = payload.state === "waiting";
+        toast.info(t(`profileOutput.liveWindowNotices.${payload.state}`), {
+          id,
+          description: t(`profileOutput.liveWindowNotices.${payload.state}Help`),
+          duration: waiting ? Infinity : 6000,
+          action: waiting ? {
+            label: t("profileOutput.liveWindowNotices.openPreview"),
+            onClick: () => { void commands.showPendingLiveOutputPreview(); },
+          } : undefined,
+          cancel: waiting ? {
+            label: t("profileOutput.liveWindowNotices.discard"),
+            onClick: () => { void commands.discardPendingLiveOutput(); },
+          } : undefined,
+        });
+      }
+    });
     const unlistenModelState = listen<ModelStateEvent>(
       "model-state-changed",
       (event) => {
@@ -457,6 +479,7 @@ function App() {
       unlistenVoiceCommand.then((unlisten) => unlisten());
       unlistenRecording.then((unlisten) => unlisten());
       unlistenPaste.then((unlisten) => unlisten());
+      unlistenLiveWindow.then((unlisten) => unlisten());
       unlistenModelState.then((unlisten) => unlisten());
       unlistenModelDownloadFailed.then((unlisten) => unlisten());
       unlistenOnDemandModelDownload.then((unlisten) => unlisten());
