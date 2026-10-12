@@ -11,6 +11,228 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 const MODEL_DELETION_DELAY: Duration = Duration::from_secs(5);
 
+#[cfg(test)]
+mod model_deletion_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    #[derive(Default, Clone)]
+    struct Harness {
+        state: Arc<ModelDeletionState>,
+        events: Arc<Mutex<Vec<ModelDeletionSnapshot>>>,
+        busy: Arc<AtomicBool>,
+        deletions: Arc<AtomicUsize>,
+    }
+
+    struct Claim(Arc<AtomicBool>);
+    impl Drop for Claim {
+        fn drop(&mut self) { self.0.store(false, Ordering::SeqCst); }
+    }
+
+    type Worker = (String, Instant, tokio::sync::oneshot::Receiver<()>);
+
+    impl Harness {
+        fn publish(&self, snapshot: ModelDeletionSnapshot) {
+            self.events.lock().unwrap().push(snapshot);
+        }
+
+        fn queue(&self, model: &str) -> (ModelDeletionSnapshot, Option<Worker>) {
+            self.state.inner.lock().unwrap().schedule(model,
+                || tokio::time::Instant::now().into_std(), || 1000, || Ok(()),
+                &|snapshot| self.publish(snapshot)).unwrap()
+        }
+
+        fn cancel(&self, model: &str, job: &str) -> &'static str {
+            self.state.inner.lock().unwrap().cancel_job(model, job, &|snapshot| self.publish(snapshot))
+        }
+
+        fn start(&self, model: &str, worker: Worker, release: Option<tokio::sync::oneshot::Receiver<()>>,
+            fail: bool) -> tokio::task::JoinHandle<()> {
+            let publisher = self.clone();
+            let claimant = self.clone();
+            let executor = self.clone();
+            tokio::spawn(run_model_deletion(self.state.clone(), model.to_string(), worker.0,
+                worker.1, worker.2, move |snapshot| publisher.publish(snapshot),
+                move || claimant.busy.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                    .ok().map(|_| Claim(claimant.busy.clone())),
+                move |claim| async move {
+                    let _claim = claim;
+                    // The executor only counts calls; it never touches model files or app resources.
+                    executor.deletions.fetch_add(1, Ordering::SeqCst);
+                    if let Some(release) = release { let _ = release.await; }
+                    if fail { Err("disk failure".to_string()) } else { Ok(()) }
+                }))
+        }
+
+        fn snapshot(&self) -> ModelDeletionSnapshot { self.state.inner.lock().unwrap().snapshot() }
+        fn statuses(&self) -> Vec<String> {
+            self.events.lock().unwrap().iter().map(|event| event.change.as_ref().unwrap().status.clone()).collect()
+        }
+    }
+
+    async fn advance(ms: u64) {
+        // Poll newly spawned workers before advancing, then poll expired timers.
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_millis(ms)).await;
+        for _ in 0..3 { tokio::task::yield_now().await; }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn destructive_executor_waits_for_the_full_undo_window() {
+        let h = Harness::default();
+        let (_, worker) = h.queue("a");
+        let task = h.start("a", worker.unwrap(), None, false);
+        advance(4999).await;
+        assert_eq!(h.deletions.load(Ordering::SeqCst), 0);
+        assert_eq!(h.snapshot().jobs[0].status, "pending");
+        advance(1).await;
+        assert_eq!(h.deletions.load(Ordering::SeqCst), 1);
+        task.await.unwrap();
+        assert_eq!(h.deletions.load(Ordering::SeqCst), 1);
+        assert!(h.snapshot().jobs.is_empty());
+        assert_eq!(h.statuses(), ["pending", "deleting", "completed"]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn undo_before_deadline_prevents_deletion() {
+        let h = Harness::default();
+        let (snapshot, worker) = h.queue("a");
+        let task = h.start("a", worker.unwrap(), None, false);
+        advance(4999).await;
+        assert_eq!(h.cancel("a", &snapshot.jobs[0].job_id), "cancelled");
+        advance(5000).await;
+        task.await.unwrap();
+        assert_eq!(h.deletions.load(Ordering::SeqCst), 0);
+        assert_eq!(h.statuses(), ["pending", "cancelled"]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn selecting_a_pending_model_cancels_its_timer() {
+        let h = Harness::default();
+        let (_, worker) = h.queue("a");
+        let task = h.start("a", worker.unwrap(), None, false);
+        h.state.inner.lock().unwrap().cancel_for_use_with("a", &|snapshot| h.publish(snapshot)).unwrap();
+        advance(5000).await;
+        task.await.unwrap();
+        assert_eq!(h.deletions.load(Ordering::SeqCst), 0);
+        assert!(h.snapshot().jobs.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn repeated_request_keeps_one_job_and_its_original_deadline() {
+        let h = Harness::default();
+        let (first, worker) = h.queue("a");
+        let task = h.start("a", worker.unwrap(), None, false);
+        advance(3000).await;
+        let (repeated, worker) = h.queue("a");
+        assert!(worker.is_none());
+        assert_eq!(repeated.revision, first.revision);
+        assert_eq!(repeated.jobs.len(), 1);
+        assert_eq!(repeated.jobs[0].job_id, first.jobs[0].job_id);
+        assert_eq!(repeated.jobs[0].deadline_unix_ms, first.jobs[0].deadline_unix_ms);
+        advance(2000).await;
+        assert_eq!(h.deletions.load(Ordering::SeqCst), 1);
+        task.await.unwrap();
+        assert_eq!(h.deletions.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn stale_undo_and_timer_cannot_touch_a_rescheduled_job() {
+        let h = Harness::default();
+        let (first, old_worker) = h.queue("a");
+        // Retain the old sender so the stale timer must check job ownership,
+        // rather than exiting merely because its cancellation channel closed.
+        let old_sender = h.state.inner.lock().unwrap().jobs.get_mut("a").unwrap().cancel.take();
+        assert_eq!(h.cancel("a", &first.jobs[0].job_id), "cancelled");
+        advance(1000).await;
+        let (second, worker) = h.queue("a");
+        assert_ne!(first.jobs[0].job_id, second.jobs[0].job_id);
+        let old_task = h.start("a", old_worker.unwrap(), None, false);
+        let task = h.start("a", worker.unwrap(), None, false);
+        assert_eq!(h.cancel("a", &first.jobs[0].job_id), "not_found");
+        advance(4000).await;
+        old_task.await.unwrap();
+        assert_eq!(h.deletions.load(Ordering::SeqCst), 0);
+        assert_eq!(h.snapshot().jobs[0].job_id, second.jobs[0].job_id);
+        advance(1000).await;
+        assert_eq!(h.deletions.load(Ordering::SeqCst), 1);
+        task.await.unwrap();
+        drop(old_sender);
+        assert_eq!(h.deletions.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn simultaneous_deletions_wait_for_the_shared_loading_claim() {
+        let h = Harness::default();
+        let (_, a) = h.queue("a");
+        let (_, b) = h.queue("b");
+        let (release, wait) = tokio::sync::oneshot::channel();
+        let first = h.start("a", a.unwrap(), Some(wait), false);
+        advance(5000).await;
+        let second = h.start("b", b.unwrap(), None, false);
+        tokio::task::yield_now().await;
+        assert_eq!(h.deletions.load(Ordering::SeqCst), 1);
+        assert_eq!(h.snapshot().jobs.iter().find(|job| job.model_id == "b").unwrap().status, "pending");
+        release.send(()).unwrap();
+        first.await.unwrap();
+        advance(50).await;
+        second.await.unwrap();
+        assert_eq!(h.deletions.load(Ordering::SeqCst), 2);
+        assert!(h.snapshot().jobs.is_empty());
+        assert!(!h.statuses().iter().any(|status| status == "failed"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn undo_remains_available_while_waiting_for_a_busy_loader() {
+        let h = Harness::default();
+        h.busy.store(true, Ordering::SeqCst);
+        let (snapshot, worker) = h.queue("a");
+        let task = h.start("a", worker.unwrap(), None, false);
+        advance(6000).await;
+        assert_eq!(h.snapshot().jobs[0].status, "pending");
+        assert_eq!(h.cancel("a", &snapshot.jobs[0].job_id), "cancelled");
+        h.busy.store(false, Ordering::SeqCst);
+        advance(50).await;
+        task.await.unwrap();
+        assert_eq!(h.deletions.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn deleting_is_explicitly_too_late_for_undo_or_selection() {
+        let h = Harness::default();
+        let (snapshot, worker) = h.queue("a");
+        let (release, wait) = tokio::sync::oneshot::channel();
+        let task = h.start("a", worker.unwrap(), Some(wait), false);
+        advance(5000).await;
+        assert_eq!(h.cancel("a", &snapshot.jobs[0].job_id), "deleting");
+        assert!(h.state.inner.lock().unwrap().cancel_for_use_with("a", &|snapshot| h.publish(snapshot)).is_err());
+        assert_eq!(h.snapshot().jobs[0].status, "deleting");
+        release.send(()).unwrap();
+        task.await.unwrap();
+        assert_eq!(h.statuses(), ["pending", "deleting", "completed"]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn deletion_failure_reports_error_and_releases_claim_for_next_job() {
+        let h = Harness::default();
+        let (_, worker) = h.queue("a");
+        let task = h.start("a", worker.unwrap(), None, true);
+        advance(5000).await;
+        task.await.unwrap();
+        assert!(h.snapshot().jobs.is_empty());
+        let change = h.snapshot().change.unwrap();
+        assert_eq!(change.status, "failed");
+        assert_eq!(change.error.as_deref(), Some("disk failure"));
+        assert!(!h.busy.load(Ordering::SeqCst));
+        let (_, worker) = h.queue("b");
+        let next = h.start("b", worker.unwrap(), None, false);
+        advance(5000).await;
+        next.await.unwrap();
+        assert_eq!(h.deletions.load(Ordering::SeqCst), 2);
+        assert_eq!(h.snapshot().change.unwrap().status, "completed");
+    }
+}
+
 #[derive(Clone, Serialize, Type)]
 pub struct ModelDeletionJob {
     pub model_id: String,
@@ -61,6 +283,56 @@ pub struct ModelDeletionState {
 }
 
 impl ModelDeletionInner {
+    fn schedule(
+        &mut self,
+        model_id: &str,
+        now: impl FnOnce() -> Instant,
+        unix_ms: impl FnOnce() -> u64,
+        validate: impl FnOnce() -> Result<(), String>,
+        publish: &impl Fn(ModelDeletionSnapshot),
+    ) -> Result<(ModelDeletionSnapshot, Option<(String, Instant, tokio::sync::oneshot::Receiver<()>)>), String> {
+        if let Some(scheduled) = self.jobs.get(model_id) {
+            return if scheduled.job.status == "pending" {
+                Ok((self.snapshot(), None))
+            } else {
+                Err("Model deletion has already started".to_string())
+            };
+        }
+        validate()?;
+        self.next_job_id += 1;
+        let job_id = self.next_job_id.to_string();
+        let deadline = now() + MODEL_DELETION_DELAY;
+        let (cancel, cancellation) = tokio::sync::oneshot::channel();
+        self.jobs.insert(model_id.to_string(), ScheduledModelDeletion {
+            job: ModelDeletionJob {
+                model_id: model_id.to_string(),
+                job_id: job_id.clone(),
+                status: "pending".to_string(),
+                deadline_unix_ms: unix_ms() + MODEL_DELETION_DELAY.as_millis() as u64,
+                remaining_ms: MODEL_DELETION_DELAY.as_millis() as u64,
+            },
+            deadline,
+            cancel: Some(cancel),
+        });
+        let snapshot = self.changed(publish, model_id, &job_id, "pending", None);
+        Ok((snapshot, Some((job_id, deadline, cancellation))))
+    }
+
+    fn cancel_job(&mut self, model_id: &str, job_id: &str, publish: &impl Fn(ModelDeletionSnapshot)) -> &'static str {
+        match self.jobs.get(model_id) {
+            Some(scheduled) if scheduled.job.job_id == job_id => {
+                if scheduled.job.status == "deleting" {
+                    "deleting"
+                } else {
+                    // This token still owns the pending entry while the mutex is held.
+                    let _ = self.cancel_for_use_with(model_id, publish);
+                    "cancelled"
+                }
+            }
+            _ => "not_found",
+        }
+    }
+
     fn snapshot(&self) -> ModelDeletionSnapshot {
         let now = Instant::now();
         ModelDeletionSnapshot {
@@ -80,7 +352,7 @@ impl ModelDeletionInner {
 
     fn changed(
         &mut self,
-        app: &AppHandle,
+        publish: &impl Fn(ModelDeletionSnapshot),
         model_id: &str,
         job_id: &str,
         status: &str,
@@ -95,11 +367,17 @@ impl ModelDeletionInner {
         });
         let snapshot = self.snapshot();
         // Transition and publication share this short lock; no lock crosses an await.
-        let _ = app.emit("model-deletion-state", snapshot.clone());
+        publish(snapshot.clone());
         snapshot
     }
 
     fn cancel_for_use(&mut self, app: &AppHandle, model_id: &str) -> Result<(), String> {
+        self.cancel_for_use_with(model_id, &|snapshot| {
+            let _ = app.emit("model-deletion-state", snapshot);
+        })
+    }
+
+    fn cancel_for_use_with(&mut self, model_id: &str, publish: &impl Fn(ModelDeletionSnapshot)) -> Result<(), String> {
         let Some(scheduled) = self.jobs.get(model_id) else {
             return Ok(());
         };
@@ -112,7 +390,7 @@ impl ModelDeletionInner {
                 let _ = cancel.send(());
             }
         }
-        self.changed(app, model_id, &job_id, "cancelled", None);
+        self.changed(publish, model_id, &job_id, "cancelled", None);
         Ok(())
     }
 }
@@ -173,18 +451,9 @@ pub fn cancel_model_deletion(
     job_id: String,
 ) -> ModelDeletionCancellation {
     let mut inner = deletion_state.inner.lock().unwrap_or_else(|error| error.into_inner());
-    let outcome = match inner.jobs.get(&model_id) {
-        Some(scheduled) if scheduled.job.job_id == job_id => {
-            if scheduled.job.status == "deleting" {
-                "deleting"
-            } else {
-                // This token still owns the pending entry while the mutex is held.
-                let _ = inner.cancel_for_use(&app_handle, &model_id);
-                "cancelled"
-            }
-        }
-        _ => "not_found",
-    };
+    let outcome = inner.cancel_job(&model_id, &job_id, &|snapshot| {
+        let _ = app_handle.emit("model-deletion-state", snapshot);
+    });
     ModelDeletionCancellation { outcome: outcome.to_string(), snapshot: inner.snapshot() }
 }
 
@@ -198,88 +467,86 @@ pub fn schedule_model_deletion(
 ) -> Result<ModelDeletionSnapshot, String> {
     let state = deletion_state.inner().clone();
     let mut inner = state.inner.lock().unwrap_or_else(|error| error.into_inner());
-    if let Some(scheduled) = inner.jobs.get(&model_id) {
-        return if scheduled.job.status == "pending" {
-            Ok(inner.snapshot())
-        } else {
-            Err("Model deletion has already started".to_string())
-        };
-    }
-    let info = model_manager.get_model_info(&model_id)
-        .ok_or_else(|| format!("Model not found: {model_id}"))?;
-    if info.is_downloading {
-        return Err("Cannot delete a model while its download is in progress".to_string());
-    }
-    if !info.is_downloaded {
-        return Err("Model is not downloaded".to_string());
-    }
-    inner.next_job_id += 1;
-    let job_id = inner.next_job_id.to_string();
-    let deadline = Instant::now() + MODEL_DELETION_DELAY;
-    let (cancel, mut cancellation) = tokio::sync::oneshot::channel();
-    inner.jobs.insert(model_id.clone(), ScheduledModelDeletion {
-        job: ModelDeletionJob {
-            model_id: model_id.clone(),
-            job_id: job_id.clone(),
-            status: "pending".to_string(),
-            deadline_unix_ms: unix_ms_now() + MODEL_DELETION_DELAY.as_millis() as u64,
-            remaining_ms: MODEL_DELETION_DELAY.as_millis() as u64,
-        },
-        deadline,
-        cancel: Some(cancel),
-    });
-    let snapshot = inner.changed(&app_handle, &model_id, &job_id, "pending", None);
+    let publisher_app = app_handle.clone();
+    let publish = move |snapshot| { let _ = publisher_app.emit("model-deletion-state", snapshot); };
+    let (snapshot, worker) = inner.schedule(&model_id, Instant::now, unix_ms_now, || {
+        let info = model_manager.get_model_info(&model_id)
+            .ok_or_else(|| format!("Model not found: {model_id}"))?;
+        if info.is_downloading {
+            return Err("Cannot delete a model while its download is in progress".to_string());
+        }
+        if !info.is_downloaded {
+            return Err("Model is not downloaded".to_string());
+        }
+        Ok(())
+    }, &publish)?;
+    let Some((job_id, deadline, cancellation)) = worker else { return Ok(snapshot); };
     drop(inner);
 
-    tauri::async_runtime::spawn(async move {
+    let claim_app = app_handle.clone();
+    let delete_id = model_id.clone();
+    tauri::async_runtime::spawn(run_model_deletion(state, model_id, job_id, deadline, cancellation, publish,
+        move || claim_app.state::<Arc<TranscriptionManager>>().try_start_loading(),
+        move |loading_guard| async move {
+            tauri::async_runtime::spawn_blocking(move || {
+                delete_model_with_loading_claim(&app_handle, &delete_id, loading_guard)
+            }).await.map_err(|error| format!("Model deletion task failed: {error}"))
+                .and_then(|result| result)
+        },
+    ));
+    Ok(snapshot)
+}
+
+async fn run_model_deletion<G, F: std::future::Future<Output = Result<(), String>>>(
+    state: Arc<ModelDeletionState>,
+    model_id: String,
+    job_id: String,
+    deadline: Instant,
+    mut cancellation: tokio::sync::oneshot::Receiver<()>,
+    publish: impl Fn(ModelDeletionSnapshot),
+    claim: impl Fn() -> Option<G>,
+    delete: impl FnOnce(G) -> F,
+) {
+    tokio::select! {
+        _ = &mut cancellation => return,
+        _ = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => {}
+    }
+    let loading_guard = loop {
+        let loading_guard = {
+            let mut inner = state.inner.lock().unwrap_or_else(|error| error.into_inner());
+            let Some(scheduled) = inner.jobs.get(&model_id) else { return; };
+            if scheduled.job.job_id != job_id || scheduled.job.status != "pending" {
+                return;
+            }
+            let guard = claim();
+            if guard.is_some() {
+                let scheduled = inner.jobs.get_mut(&model_id).unwrap();
+                scheduled.job.status = "deleting".to_string();
+                scheduled.cancel = None;
+                inner.changed(&publish, &model_id, &job_id, "deleting", None);
+            }
+            guard
+        };
+        if let Some(guard) = loading_guard {
+            break guard;
+        }
         tokio::select! {
             _ = &mut cancellation => return,
-            _ = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => {}
+            _ = tokio::time::sleep(Duration::from_millis(50)) => {}
         }
-        let loading_guard = loop {
-            let loading_guard = {
-                let mut inner = state.inner.lock().unwrap_or_else(|error| error.into_inner());
-                let Some(scheduled) = inner.jobs.get(&model_id) else { return; };
-                if scheduled.job.job_id != job_id || scheduled.job.status != "pending" {
-                    return;
-                }
-                let transcription_manager = app_handle.state::<Arc<TranscriptionManager>>();
-                let guard = transcription_manager.try_start_loading();
-                if guard.is_some() {
-                    let scheduled = inner.jobs.get_mut(&model_id).unwrap();
-                    scheduled.job.status = "deleting".to_string();
-                    scheduled.cancel = None;
-                    inner.changed(&app_handle, &model_id, &job_id, "deleting", None);
-                }
-                guard
-            };
-            if let Some(guard) = loading_guard {
-                break guard;
-            }
-            tokio::select! {
-                _ = &mut cancellation => return,
-                _ = tokio::time::sleep(Duration::from_millis(50)) => {}
-            }
-        };
-        let app = app_handle.clone();
-        let delete_id = model_id.clone();
-        let result = tauri::async_runtime::spawn_blocking(move || {
-            delete_model_with_loading_claim(&app, &delete_id, loading_guard)
-        }).await.map_err(|error| format!("Model deletion task failed: {error}"))
-            .and_then(|result| result);
+    };
+    let result = delete(loading_guard).await;
 
-        let mut inner = state.inner.lock().unwrap_or_else(|error| error.into_inner());
-        if inner.jobs.get(&model_id).map(|scheduled| scheduled.job.job_id.as_str())
-            != Some(job_id.as_str()) {
-            return;
-        }
-        inner.jobs.remove(&model_id);
-        match result {
-            Ok(()) => { inner.changed(&app_handle, &model_id, &job_id, "completed", None); }
-            Err(error) => { inner.changed(&app_handle, &model_id, &job_id, "failed", Some(error)); }
-        }
-    });
-    Ok(snapshot)
+    let mut inner = state.inner.lock().unwrap_or_else(|error| error.into_inner());
+    if inner.jobs.get(&model_id).map(|scheduled| scheduled.job.job_id.as_str())
+        != Some(job_id.as_str()) {
+        return;
+    }
+    inner.jobs.remove(&model_id);
+    match result {
+        Ok(()) => { inner.changed(&publish, &model_id, &job_id, "completed", None); }
+        Err(error) => { inner.changed(&publish, &model_id, &job_id, "failed", Some(error)); }
+    }
 }
 
 #[tauri::command]
