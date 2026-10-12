@@ -15,6 +15,43 @@ AI Voice Relay
 
 > 🛒 **[Microsoft Store Version](https://apps.microsoft.com/detail/9ppfkfh2zn1l)** — This is the official Microsoft Store listing. Store releases may be published less frequently than the desktop application available here on GitHub, but they do not require administrator rights to install, are signed by Microsoft, and are verified by Microsoft before release.
 
+## 🎙️ Recording Control CLI
+
+With AivoRelay already running, invoke the same executable to control dictation
+without opening or focusing its settings window:
+
+```powershell
+AivoRelay.exe recording start
+AivoRelay.exe recording start --post-process
+AivoRelay.exe recording stop
+AivoRelay.exe recording toggle
+AivoRelay.exe recording toggle --post-process
+AivoRelay.exe recording cancel
+AivoRelay.exe transcript clipboard
+AivoRelay.exe transcript paste
+AivoRelay.exe transcript paste --method ctrl_shift_v
+```
+
+Repeated `start` and `stop` are safe: starting while recording and stopping while
+idle do nothing. Start uses the manually selected transcription profile; stop
+preserves the active recording's profile, settings, and output mode, including
+recordings started by a profile shortcut. Start/stop/toggle do nothing while
+processing or while microphone startup/cleanup is in progress. Cancel uses the
+app's existing operation cancellation behavior.
+
+Transcript commands use the latest completed dictation retained in History,
+prefer its post-processed text, and skip empty results. Paste uses the saved
+clipboard and auto-submit settings. `--method` overrides only that invocation;
+supported methods are `ctrl_v`, `ctrl_shift_v`, `shift_insert`, `direct`, and
+`none` (hyphenated spellings are also accepted).
+
+The existing `--toggle-transcription`, `--toggle-post-process`, and `--cancel`
+flags remain available. Commands are sent through the existing single-instance
+transport; the caller exits after delivery, without a transcription result or
+execution acknowledgement. Structured recording/transcript commands do not
+support `--json`. Launch AivoRelay normally before using them; a command sent
+when no instance is running only launches the app.
+
 ## ⌨️ File Conversion CLI
 
 AivoRelay exposes the same two app-managed file workflows in the current
