@@ -16,6 +16,7 @@ describe("describeProfileOutputPlan", () => {
     const input = base({ streamsLiveText: true, startKey: "tab", startDelayMs: 200, openingKey: "enter", openDelayMs: 300 });
     const plan = describeProfileOutputPlan({ ...input, labels: { ...input.labels, startKey: "Tab" } });
     expect(keys(plan.steps)).toContain("stepDuringHeld");
+    expect(keys(plan.ifs)).toContain("ifKeysWindowChangeContinues");
     expect(keys(plan.steps)).not.toContain("stepDuringLiveEarly");
     expect(plan.steps.find(step => step.key === "stepStartKeyWindows")?.values).toEqual({ key: "Tab" });
     expect(plan.steps.find(step => step.key === "stepEndWait")?.values).toEqual({ delay: 300 });

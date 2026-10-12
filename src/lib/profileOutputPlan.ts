@@ -138,7 +138,8 @@ export const describeProfileOutputPlan = (input: ProfileOutputPlanInput): Profil
       ifs.push({ key: "ifSwitchFollow" });
     }
   }
-  if (input.isWindows && !liveInserting && !earlyOn && (hasOpening || input.autoSubmit)) {
+  // Text inserted at the end goes through the same window check, also after a recording-start key.
+  if (input.isWindows && !liveInserting && (hasOpening || input.autoSubmit || earlyOn)) {
     ifs.push({ key: protection ? "ifKeysWindowChangeStops" : "ifKeysWindowChangeContinues" });
   }
   if (!liveInserting && !held) ifs.push({ key: "ifPasteFails" });
