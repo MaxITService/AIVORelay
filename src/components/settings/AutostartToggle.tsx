@@ -144,6 +144,12 @@ export const AutostartToggle: React.FC<AutostartToggleProps> = React.memo(
               descriptionMode={descriptionMode}
               grouped={grouped}
             />
+            <p className="mx-4 mb-2 text-xs font-semibold text-amber-300">
+              {t(
+                "settings.advanced.autostartAsAdmin.notRecommended",
+                "Not recommended, for IT professionals only: any bug in the application will have a huge blast radius.",
+              )}
+            </p>
             {autostartAsAdmin && (
               <div className="mx-4 mb-2 p-2.5 bg-amber-500/10 border border-amber-500/25 rounded-lg text-xs text-amber-200/90 leading-relaxed">
                 <span className="font-semibold text-amber-300">
