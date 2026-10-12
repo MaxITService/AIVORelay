@@ -117,12 +117,12 @@ it("preserves subsection structural hierarchy, dedicated sub-anchors, and contex
   const subsections = transcriptionSection!.subsections!;
   expect(subsections.length).toBe(3);
 
-  // Subsections map to distinct, specialized sidebar targets
+  // Subsections map to the pages containing the described settings
   const subsectionIds = subsections.map(sub => sub.id);
   expect(subsectionIds).toEqual(["models", "speechProcessing", "advanced"]);
 
   const destinations = subsections.map(sub => sub.destination);
-  expect(destinations).toEqual(["models", "audioProcessing", "advanced"]);
+  expect(destinations).toEqual(["models", "general", "advanced"]);
 
   // Subsection anchors are strictly distinct from parent section anchor
   for (const sub of subsections) {

@@ -43,8 +43,8 @@ export const HELP_SECTIONS: readonly HelpSectionDefinition[] = [
         anchor: "help-speech-processing",
         titleKey: "help.sections.transcription.speechProcessing.title",
         summaryKey: "help.sections.transcription.speechProcessing.summary",
-        destination: "audioProcessing",
-        destinationLabelKey: "sidebar.audioProcessing",
+        destination: "general",
+        destinationLabelKey: "sidebar.general",
       },
       {
         id: "advanced",
