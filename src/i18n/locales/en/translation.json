@@ -94,6 +94,7 @@
     "planPreviewLink": "Open Preview settings",
     "plan": {
       "stepPreview": "Finished text is kept in Preview and is not inserted until you insert it from there.",
+      "stepPreviewNoStartKey": "The recording-start key is not pressed: the text stays in Preview.",
       "stepNoInsertion": "Text is not inserted anywhere and no keys are pressed (insertion method: None).",
       "stepInsertInto": "Text is inserted into the active window using {{method}}.",
       "stepTargetWindow": "When recording starts, the active window is remembered as the target.",
