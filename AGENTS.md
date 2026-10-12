@@ -15,6 +15,7 @@ This is the entry file for AI/code agents working with this fork.
 - rg, sg, Python and lots of dev tools are installed on this Windows machine.
 - For upstream Handy source comparison, `Q:\Handy-upstream` may exist as a read-only local checkout of `cjpais/Handy`; refresh it with `git -C Q:\Handy-upstream pull` when current upstream code matters.
 - something isane in user's request? Ask user first!
+- Before adding settings migration or legacy-compat code, ask the user whether it is needed (unreleased settings need none).
 - When interrupted wiht off topic request, this doed not mean that previous request is cancelled! Ask user.
 - Before build or test ask user if this is needed. User usually builds themselves.
 - When the user is already running `Dev-AivoRelay` or `Fast-Dev-AivoRelay`, treat its live console output as the primary dev-build signal: after edits, carefully inspect the next Vite/Cargo rebuild result when that output is accessible, and separate new errors from pre-existing warnings. Do not start, stop, restart, or compete with the user's dev process; if its console is not accessible, say so instead of claiming the build passed.
