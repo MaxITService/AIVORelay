@@ -178,7 +178,7 @@ Return only the cleaned transcript.
 Transcript:
 \${output}`;
 
-export type ExtendedTranscriptionProfile = TranscriptionProfile & {
+export type ExtendedTranscriptionProfile = Omit<TranscriptionProfile, "output_settings"> & {
   output_settings?: OutputSettings;
   automatic_app_rules: string[];
   include_in_cycle: boolean;

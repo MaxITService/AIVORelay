@@ -104,7 +104,7 @@ export const profileKeyActionsEnabled = (values: OutputSettings, defaults: Outpu
 
 export const KeyActionsBadge: React.FC = () => {
   const { t } = useTranslation();
-  return <span className={`flex shrink-0 items-center gap-1.5 text-[10px] text-emerald-400 whitespace-nowrap"><span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_7px_rgba(52,211,153,0.8)]" aria-hidden="true" />{t("profileOutput.active")}</span>;
+  return <span className="flex shrink-0 items-center gap-1.5 text-[10px] text-emerald-400 whitespace-nowrap"><span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_7px_rgba(52,211,153,0.8)]" aria-hidden="true" />{t("profileOutput.active")}</span>;
 };
 
 const openRepasteShortcut = () => navigateToSettingsAnchor({
@@ -468,7 +468,7 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
           {method !== "none" && osType === "windows" && <>
             <SectionHeading hint={t("profileOutput.sectionHints.window")}>{t("profileOutput.sections.window")}</SectionHeading>
             {osType === "windows" && <SettingContainer id={`profile-output-${scopeKey}-check_active_window`} title={t("profileOutput.checkActiveWindow")} description={t("profileOutput.checkActiveWindowHelp")} descriptionMode="tooltip" tooltipWide grouped={true} compact={true}>
-              <Dropdown className="w-full max-w-full md:w-[200px] [&>button]:min-w-0" options={booleanChoices} selectedValue={selected("check_active_window")} disabled={busy || method === "none"} onSelect={value => void save({ check_active_window: value === "true" })} />
+              <Dropdown className="w-full max-w-full md:w-[200px] [&>button]:min-w-0" options={booleanChoices} selectedValue={selected("check_active_window")} disabled={busy} onSelect={value => void save({ check_active_window: value === "true" })} />
             </SettingContainer>}
             {effective("check_active_window") && <OutputDependencies>
               {delay("live_window_resume_delay_ms", t("profileOutput.liveWindowResumeDelay"), t("profileOutput.liveWindowResumeDelayHelp"))}
@@ -530,7 +530,7 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
             {openingKeyPicker(false)}
             <p className="mx-6 mt-3 mb-1 text-xs text-mid-gray">{t("profileOutput.keysPanel.afterHint")}</p>
             <SettingContainer id={`profile-output-${scopeKey}-after`} title={t("profileOutput.after")} description={t("settings.advanced.autoSubmit.description")} descriptionMode="tooltip" grouped={true}>
-              <Dropdown className="w-full max-w-full md:w-[200px] [&>button]:min-w-0" options={submitChoices} selectedValue={submitValue} disabled={busy || method === "none"} onSelect={value => void save(value === "off" ? { auto_submit: false } : { auto_submit: true, auto_submit_key: value as OutputSettings["auto_submit_key"] })} />
+              <Dropdown className="w-full max-w-full md:w-[200px] [&>button]:min-w-0" options={submitChoices} selectedValue={submitValue} disabled={busy} onSelect={value => void save(value === "off" ? { auto_submit: false } : { auto_submit: true, auto_submit_key: value as OutputSettings["auto_submit_key"] })} />
             </SettingContainer>
             {submitEnabled && <OutputDependencies>
               {delay("auto_submit_delay_ms", t("profileOutput.submitDelay"))}
@@ -562,7 +562,7 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
                 </SettingContainer>
               </OutputDependencies>}
             </>}
-            {(openingKey !== "" || startKey !== "" || submitEnabled) && method !== "none" && (showLiveWarning
+            {(openingKey !== "" || startKey !== "" || submitEnabled) && (showLiveWarning
             ? <div className="mx-6 mb-3 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" aria-hidden="true" />
                 <p className="text-xs text-red-300/90">
