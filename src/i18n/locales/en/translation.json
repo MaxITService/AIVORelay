@@ -682,14 +682,16 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.46",
+      "since": "Since version 1.0.47",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "profileOutput": "Speech / Mic → profile → More: set keys to open chat before insertion and send text afterwards.",
-        "historySearch": "History: search saved text or click the circular arrow to recognize a recording again, including with live models.",
-        "chineseScript": "Speech / Mic → profile → More → Chinese Script: choose simplified, traditional, or unchanged Chinese text.",
-        "localReliability": "Local transcription is less likely to freeze the app; the recording indicator now shows when a model is loading."
+        "profiles": "Speech / Mic: create or duplicate profiles with the same controls as Default. Collapsed cards show a summary of their settings.",
+        "profileOutput": "Speech / Mic → profile → More: each profile has its own text insertion, clipboard, and key-press settings.",
+        "protectedLiveOutput": "Speech / Mic → profile → More: protect the target window so live text waits while you switch apps, then resumes when you return.",
+        "modelSelection": "Models: see which profile you are choosing a model for. Undo a model deletion within five seconds.",
+        "historySearch": "History: search saved text with highlighted matches, or open a transcription in the LLM benchmark to try another prompt.",
+        "replacementPlayground": "Text Processing → Try your rules: preview replacements on sample text and see which rules changed it, in order."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"

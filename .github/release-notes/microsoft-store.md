@@ -5,15 +5,16 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Local transcription runs separately from the app, improving responsiveness and recovery from speech-engine failures.
-- The recording overlay and live preview clearly show when a speech model is loading.
-- Choose simplified or traditional Chinese text, with separate preferences for transcription profiles.
-- Fixed Soniox live-transcription connection authentication.
-- New custom sounds appear when you reopen the sound selector.
-- Portable installations can reuse models from earlier download locations.
-- The tray briefly shows an error icon and explanation after failures.
-- Settings show the correct default values.
-- Included the latest upstream Handy improvements and fixes.
+- Create and duplicate transcription profiles with the same controls as Default, unique names, and a settings summary on collapsed cards.
+- Each profile has its own text insertion and clipboard settings, plus separate keys for recording start, before insertion, after insertion, and cancellation.
+- Protect the target window during live dictation: undelivered text waits while you switch apps. Choose how long to wait and whether to resume insertion, open Preview, or leave the text in History.
+- Model selection follows the active profile and shows its settings. Model deletion gives you five seconds to undo.
+- Search saved transcriptions with highlighted matches, or open them in the LLM benchmark to try another prompt.
+- Preview text replacement rules on sample text and see which rules changed it, in processing order.
+- The recording overlay keeps its normal size after recording stops, while speech is processed.
+- More reliable microphone startup and switching to the system default microphone, an option to mute audio earlier, and smoother playback seeking.
+- Start or stop recording and retrieve transcripts with explicit command-line controls.
+- Use enabled Custom Words in LLM prompt templates to help preserve names and specialist vocabulary.
 
 ---
 
