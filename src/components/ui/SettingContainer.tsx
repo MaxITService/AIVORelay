@@ -21,6 +21,7 @@ interface SettingContainerProps {
   disabled?: boolean;
   tooltipPosition?: "top" | "bottom";
   compact?: boolean;
+  tooltipWide?: boolean;
 }
 
 export const SettingContainer: React.FC<SettingContainerProps> = ({
@@ -34,9 +35,11 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
   disabled = false,
   tooltipPosition = "top",
   compact = false,
+  tooltipWide = false,
 }) => {
   const tooltipId = useId();
   const [showTooltip, setShowTooltip] = useState(false);
+  const hideTimerRef = useRef<number | undefined>(undefined);
   const tooltipRef = useRef<HTMLButtonElement>(null);
   const tooltipContentRef = useRef<HTMLDivElement>(null);
   const [tooltipLayout, setTooltipLayout] = useState<TooltipLayout | null>(
@@ -72,6 +75,8 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
       ) {
         return;
       }
+      if (tooltipWide && tooltipContentRef.current?.contains(event.target as Node)) return;
+      window.clearTimeout(hideTimerRef.current);
       setShowTooltip(false);
     };
 
@@ -86,7 +91,7 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
         window.removeEventListener("resize", updateTooltipLayout);
       };
     }
-  }, [showTooltip, updateTooltipLayout]);
+  }, [showTooltip, updateTooltipLayout, tooltipWide]);
 
   // Update layout when tooltip opens and content is available
   useLayoutEffect(() => {
@@ -97,14 +102,36 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
     }
   }, [showTooltip, updateTooltipLayout, description]);
 
-  const showTooltipFromClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation();
+  useEffect(() => () => window.clearTimeout(hideTimerRef.current), []);
+
+  const showTooltipFromHover = () => {
+    window.clearTimeout(hideTimerRef.current);
     setShowTooltip(true);
   };
 
+  const showTooltipFromClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    showTooltipFromHover();
+  };
+
+  // The portal is a React child of the trigger, so React fires this only when
+  // the pointer leaves both. A wide tooltip is scrollable and sits a few px
+  // away from the icon, so it gets a short grace period to be reached.
   const hideTooltipAfterMouseLeave = () => {
-    if (document.activeElement !== tooltipRef.current) {
-      setShowTooltip(false);
+    window.clearTimeout(hideTimerRef.current);
+    const hide = () => {
+      const active = document.activeElement;
+      if (
+        active !== tooltipRef.current &&
+        !(tooltipWide && tooltipContentRef.current?.contains(active))
+      ) {
+        setShowTooltip(false);
+      }
+    };
+    if (tooltipWide) {
+      hideTimerRef.current = window.setTimeout(hide, 150);
+    } else {
+      hide();
     }
   };
 
@@ -132,14 +159,17 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
       <div
         id={tooltipId}
         role="tooltip"
-        className="fixed z-[9999] pointer-events-none"
+        className={`fixed z-[9999] ${tooltipWide ? "pointer-events-auto" : "pointer-events-none"}`}
         style={wrapperStyle}
       >
         <div
           ref={tooltipContentRef}
-          className="relative px-4 py-2.5 bg-[#323232]/98 backdrop-blur-xl border border-[#4a4a4a] rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.5)] max-w-xs min-w-[200px] whitespace-normal animate-in fade-in-0 zoom-in-95 duration-200"
+          // Focusable by mouse so pressing on the text moves focus here, not away.
+          tabIndex={tooltipWide ? -1 : undefined}
+          className="relative focus:outline-none px-4 py-2.5 bg-[#323232]/98 backdrop-blur-xl border border-[#4a4a4a] rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.5)] max-w-xs min-w-[200px] whitespace-normal animate-in fade-in-0 zoom-in-95 duration-200"
+          style={tooltipWide ? { width: "min(560px, calc(100vw - 32px))", maxWidth: "none", maxHeight: "calc(100vh - 48px)", overflowY: "auto" } : undefined}
         >
-          <p className="text-sm text-[#e8e8e8] text-center leading-relaxed">
+          <p className={`text-sm text-[#e8e8e8] leading-relaxed ${tooltipWide ? "text-left whitespace-pre-line" : "text-center"}`}>
             {description}
           </p>
           {/* Arrow */}
@@ -165,14 +195,29 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
       type="button"
       ref={tooltipRef}
       className="relative flex items-center justify-center rounded p-1 text-[#707070] transition-colors duration-200 hover:text-[#ff4d8d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/60"
-      onMouseEnter={() => setShowTooltip(true)}
+      onMouseEnter={showTooltipFromHover}
       onMouseLeave={hideTooltipAfterMouseLeave}
-      onFocus={() => setShowTooltip(true)}
-      onBlur={() => setShowTooltip(false)}
+      onFocus={showTooltipFromHover}
+      // Also fires for blur inside the portal (React bubbles it), so this closes
+      // the tooltip once focus leaves both the button and a wide tooltip.
+      onBlur={(event) => {
+        const next = event.relatedTarget as Node | null;
+        if (
+          tooltipWide &&
+          next &&
+          (tooltipRef.current?.contains(next) ||
+            tooltipContentRef.current?.contains(next))
+        ) {
+          return;
+        }
+        window.clearTimeout(hideTimerRef.current);
+        setShowTooltip(false);
+      }}
       onClick={showTooltipFromClick}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
+          window.clearTimeout(hideTimerRef.current);
           setShowTooltip(false);
         }
       }}
