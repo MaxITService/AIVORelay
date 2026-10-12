@@ -120,7 +120,7 @@ describe("describeProfileOutputPlan", () => {
       heldInPreview: true, streamsLiveText: true, startKey: "tab", openingKey: "enter", autoSubmit: true,
     }));
     expect(keys(plan.steps)).toEqual([
-      "stepPreview", "stepFromPreview", "stepEndOpen", "stepEndWait", "stepEndInsert", "stepEndClipboard", "stepEndSubmit",
+      "stepPreview", "stepPreviewNoStartKey", "stepFromPreview", "stepEndOpen", "stepEndWait", "stepEndInsert", "stepEndClipboard", "stepEndSubmit",
     ]);
     expect(plan.steps[0].link).toBe("livePreview");
     expect(keys(plan.ifs)).toEqual(["ifKeysWindowChangeContinues"]);

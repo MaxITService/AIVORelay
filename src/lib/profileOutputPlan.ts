@@ -68,6 +68,7 @@ export const describeProfileOutputPlan = (input: ProfileOutputPlanInput): Profil
   } else {
     steps.push({ key: "stepInsertInto", values: { method: labels.method } });
   }
+  if (held && input.startKey !== "") steps.push({ key: "stepPreviewNoStartKey" });
 
   const earlyOn = !held && input.startKey !== "";
   const buffered = buffersOutputForKeyActions(input.pasteMethod, input.openingKey, input.startKey, input.autoSubmit);
