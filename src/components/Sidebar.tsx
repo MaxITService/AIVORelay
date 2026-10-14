@@ -13,7 +13,7 @@ import HandyTextLogo from "./icons/HandyTextLogo";
 import SpeechProcessingIcon from "./icons/SpeechProcessingIcon";
 import { useSettings } from "../hooks/useSettings";
 import { useDragReorder } from "../hooks/useDragReorder";
-import { navigateToSettingsAnchor } from "../lib/anchorNavigation";
+import { navigateToSettingsSearchTarget } from "../lib/anchorNavigation";
 import { SettingsSearch } from "./settings/SettingsSearch";
 import { SETTINGS_SEARCH_ENTRIES } from "./settings/settingsSearchCatalog";
 import {
@@ -244,15 +244,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navigateFromSearch = useCallback(
     (sectionId: string, anchorId?: string, expandAnchorId?: string, fallbackAnchorId?: string) => {
       const section = sectionId as SidebarSection;
-      const sectionAnchorId = `settings-section-${section}`;
-      navigateToSettingsAnchor({
-        activateSection: () => onSectionChange(section),
-        targetId: anchorId ?? sectionAnchorId,
-        readyId: sectionAnchorId,
-        fallbackId: fallbackAnchorId ?? expandAnchorId ?? sectionAnchorId,
-        expandId: expandAnchorId,
-        block: "center",
-      });
+      navigateToSettingsSearchTarget(
+        () => onSectionChange(section), section, anchorId, expandAnchorId, fallbackAnchorId);
     },
     [onSectionChange],
   );
