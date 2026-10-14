@@ -615,7 +615,7 @@
     "sections": {
       "transcription": {
         "title": "Press a key. Speak. Text appears.",
-        "summary": "In Speech / Mic, choose your microphone, then open Default (Global) to set a model and shortcut. Press the shortcut and speak. For another setup, click Create New Profile. In a profile, open More → Key presses before and after insertion. Set “Press this key before insertion” to open chat and “Press this key after insertion” to send text.",
+        "summary": "In Speech / Mic, choose your microphone, then open Default (Global) to set a model and shortcut. Press the shortcut and speak. For another setup, click Create New Profile. In a profile, open More → Key presses before and after insertion. Set “Press this key after recording ends, before insertion” to open chat and “Press this key after insertion” to send text.",
         "models": {
           "title": "Choose a local model or cloud provider.",
           "summary": "Local models run on your computer. They usually do not need an online account or usage payments, but they need enough disk space, memory, and processing power. Cloud/API providers run online. You usually need to sign in to the provider’s website or console, enable the service, create an API key, and usually add a payment method or credits. Cloud providers may charge for each request. They can have free plans with limits. AivoRelay does not control provider prices. Check the provider’s pricing and usage limits before using it.",
