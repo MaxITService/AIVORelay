@@ -128,7 +128,7 @@ export function TextReplacementPlayground({ rules, enabled, rulesBusy }: {
   };
 
   return (
-    <div className="border-t border-white/[0.05] px-4 py-4 space-y-4">
+    <div id="text-replacement-playground" tabIndex={-1} className="border-t border-white/[0.05] px-4 py-4 space-y-4">
       <div className="space-y-1">
         <h3 className="text-sm font-medium text-[#f5f5f5]">{t("textReplacement.playgroundTitle")}</h3>
         <p className="text-xs leading-relaxed text-[#a1a1aa]">{t("textReplacement.playgroundDescription")}</p>
