@@ -90,13 +90,13 @@ export const describeProfileOutputPlan = (input: ProfileOutputPlanInput): Profil
   if (liveHeld) steps.push({ key: "stepDuringHeld" });
   if (liveInserting) {
     steps.push(earlyOn
-      ? { key: "stepDuringLiveEarly", values: { delay: startDelay } }
+      ? { key: "stepDuringLiveEarly", values: { delay: startDelay, key: labels.startKey } }
       : { key: "stepDuringLive" });
   }
 
   // At the end (or when inserting from Preview).
   if (held && (hasOpening || input.autoSubmit)) steps.push({ key: "stepFromPreview" });
-  if (earlyOn && !liveInserting) steps.push({ key: "stepEndEarlyWait", values: { delay: startDelay } });
+  if (earlyOn && !liveInserting) steps.push({ key: "stepEndEarlyWait", values: { delay: startDelay, key: labels.startKey } });
   if (hasOpening) {
     steps.push({ key: "stepEndOpen", values: { key: labels.openingKey } });
     steps.push({ key: "stepEndWait", values: { delay: input.openDelayMs } });

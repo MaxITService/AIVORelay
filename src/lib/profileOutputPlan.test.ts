@@ -105,6 +105,7 @@ describe("describeProfileOutputPlan", () => {
     expect(keys(plan.steps)).toEqual([
       "stepInsertInto", "stepStartKey", "stepEndEarlyWait", "stepEndInsert", "stepEndClipboard",
     ]);
+    expect(plan.steps[2].values).toEqual({ delay: 150, key: "Enter" });
     expect(keys(plan.ifs)).toEqual(["ifEarlyFails", "ifCancelNothingMore", "ifPasteFails"]);
   });
 
