@@ -16,7 +16,7 @@ const HELP_SEARCH_RECORDS: readonly HelpSearchRecord[] = [
     anchor: "help-transcription",
     title: "Press a key. Speak. Text appears.",
     summary:
-      "In Speech / Mic, choose your microphone, then open Default (Global) to set a model and shortcut. Press the shortcut and speak. For another setup, click Create New Profile. In a profile, open More → Key presses before and after insertion. Set “Press this key before insertion” to open chat and “Press this key after insertion” to send text.",
+      "In Speech / Mic, choose your microphone, then open Default (Global) to set a model and shortcut. Press the shortcut and speak. For another setup, click Create New Profile. In a profile, open More → Key presses before and after insertion. Set “Press this key after recording ends, before insertion” to open chat and “Press this key after insertion” to send text.",
     destination: "Speech / Mic",
     keywords: ["speech", "mic", "microphone", "shortcut", "dictation", "voice", "profile", "text output", "before insertion", "after insertion", "профиль", "вывод текста"],
   },

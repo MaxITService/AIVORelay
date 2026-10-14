@@ -53,8 +53,8 @@ button for the related settings page.
 In **Speech / Mic**, choose your microphone, then open **Default (Global)** to
 set a model and shortcut. Press the shortcut and speak. For another setup, click
 **Create New Profile**. In a profile, open **More → Key presses before and after
-insertion**. Set **Press this key before insertion** to open chat and
-**Press this key after insertion** to send text.
+insertion**. Set **Press this key after recording ends, before insertion** to
+open chat and **Press this key after insertion** to send text.
 
 ### Choose a local model or cloud provider.
 
