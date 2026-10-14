@@ -14,7 +14,13 @@ import {
 } from "lucide-react";
 import { Button } from "../../ui/Button";
 import { useNavigationStore } from "../../../stores/navigationStore";
-import { navigateToSettingsAnchor, scrollAndFocusAnchor } from "../../../lib/anchorNavigation";
+import {
+  navigateToSettingsAnchor,
+  navigateToSettingsSearchTarget,
+  scrollAndFocusAnchor,
+} from "../../../lib/anchorNavigation";
+import { SETTINGS_SEARCH_ENTRIES } from "../settingsSearchCatalog";
+import type { SettingsSearchEntry } from "../settingsSearchTypes";
 import {
   HELP_SECTIONS,
   type HelpSectionDefinition,
@@ -62,13 +68,14 @@ const SMART_HELP_ACTIONS = [
   },
 ] as const;
 
+// A settings search entry opens the exact setting the same way settings search does.
 const WHATS_NEW_ITEMS = [
   { key: "help.whatsNew.items.profiles", destination: "general", anchor: "transcription-profile-default" },
-  { key: "help.whatsNew.items.profileOutput", destination: "general", anchor: "profile-output-default" },
-  { key: "help.whatsNew.items.protectedLiveOutput", destination: "general", anchor: "profile-output-default" },
+  { key: "help.whatsNew.items.profileOutput", destination: "general", searchEntryId: "profile-output" },
+  { key: "help.whatsNew.items.protectedLiveOutput", destination: "general", searchEntryId: "profile-check-active-window" },
   { key: "help.whatsNew.items.modelSelection", destination: "models" },
   { key: "help.whatsNew.items.historySearch", destination: "history" },
-  { key: "help.whatsNew.items.replacementPlayground", destination: "textReplacement" },
+  { key: "help.whatsNew.items.replacementPlayground", destination: "textReplacement", searchEntryId: "text-replacement-playground" },
 ] as const;
 
 export const HelpSettings: React.FC = () => {
@@ -724,7 +731,18 @@ export const HelpSettings: React.FC = () => {
                 href={`#${item.destination}`}
                 onClick={(event) => {
                   event.preventDefault();
-                  if ("anchor" in item) {
+                  const searchEntryId = "searchEntryId" in item ? item.searchEntryId : undefined;
+                  const entry: SettingsSearchEntry | undefined =
+                    SETTINGS_SEARCH_ENTRIES.find((candidate) => candidate.id === searchEntryId);
+                  if (entry) {
+                    navigateToSettingsSearchTarget(
+                      () => setSection(item.destination),
+                      entry.section,
+                      entry.anchor,
+                      entry.expandAnchor,
+                      entry.fallbackAnchor,
+                    );
+                  } else if ("anchor" in item) {
                     navigateToSettingsAnchor({
                       activateSection: () => setSection(item.destination),
                       targetId: item.anchor,

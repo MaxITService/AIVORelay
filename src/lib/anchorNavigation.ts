@@ -186,3 +186,22 @@ export const navigateToSettingsAnchor = ({
 
   pendingRevealTimer = window.setTimeout(revealAnchor, 0);
 };
+
+/** Opens a settings search target: its anchor, else its fallback, after expanding its parent. */
+export const navigateToSettingsSearchTarget = (
+  activateSection: () => void,
+  sectionId: string,
+  anchorId?: string,
+  expandAnchorId?: string,
+  fallbackAnchorId?: string,
+): void => {
+  const sectionAnchorId = `settings-section-${sectionId}`;
+  navigateToSettingsAnchor({
+    activateSection,
+    targetId: anchorId ?? sectionAnchorId,
+    readyId: sectionAnchorId,
+    fallbackId: fallbackAnchorId ?? expandAnchorId ?? sectionAnchorId,
+    expandId: expandAnchorId,
+    block: "center",
+  });
+};
