@@ -108,6 +108,13 @@ describe("describeProfileOutputPlan", () => {
     expect(keys(plan.ifs)).toEqual(["ifEarlyFails", "ifCancelNothingMore", "ifPasteFails"]);
   });
 
+  test("a protected recording-start key with end insertion states its window outcome once", () => {
+    const plan = describeProfileOutputPlan(base({ startKey: "enter", autoSubmit: true, checkActiveWindow: true }));
+    expect(keys(plan.ifs)).toEqual([
+      "ifEarlyHeld", "ifEarlyFails", "ifSubmitNeedsAllText", "ifCancelNothingMore", "ifEarlyWindowStops", "ifPasteFails",
+    ]);
+  });
+
   test("without a recording-start key nothing is pressed at start", () => {
     const withoutKey = describeProfileOutputPlan(base({ autoSubmit: true }));
     expect(keys(withoutKey.steps)).not.toContain("stepStartKey");

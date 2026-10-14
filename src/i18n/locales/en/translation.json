@@ -129,6 +129,7 @@
       "ifSwitchFollow": "You switch to another window while recording: the following text is inserted into the new window.",
       "ifKeysWindowChangeStops": "The active window changes during key actions or waits: the remaining actions stop. Text not yet inserted is not inserted, and the key after insertion is not pressed.",
       "ifKeysWindowChangeContinues": "The active window changes during key actions or waits: the remaining actions continue in the new window.",
+      "ifEarlyWindowStops": "At the end, the window that received the recording-start key is not in front, or the active window changes during key actions or waits: the remaining actions stop. Text not yet inserted is not inserted, and no more keys are pressed.",
       "ifPasteFails": "Text cannot be pasted: a “Failed to Paste Text” notice appears. The text was already saved to History (when History is enabled)."
     },
     "enabled": "Enabled",

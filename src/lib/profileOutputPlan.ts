@@ -117,7 +117,8 @@ export const describeProfileOutputPlan = (input: ProfileOutputPlanInput): Profil
   if (earlyOn && input.isWindows) ifs.push({ key: "ifEarlyHeld" });
   if (earlyOn) ifs.push({ key: "ifEarlyFails" });
   if (earlyOn && input.autoSubmit) {
-    ifs.push({ key: protection ? "ifSubmitNeedsWindow" : "ifSubmitNeedsAllText" });
+    // Text inserted at the end gets its window outcome below; only live text needs it here.
+    ifs.push({ key: protection && liveInserting ? "ifSubmitNeedsWindow" : "ifSubmitNeedsAllText" });
   }
   if (earlyOn) {
     ifs.push(input.cancelKey !== ""
@@ -139,9 +140,10 @@ export const describeProfileOutputPlan = (input: ProfileOutputPlanInput): Profil
       ifs.push({ key: "ifSwitchFollow" });
     }
   }
-  // Text inserted at the end goes through the same window check, also after a recording-start key.
+  // Text inserted at the end goes through the same window check. After a recording-start key
+  // the target is the window that received it, so leaving it during recording also stops.
   if (input.isWindows && !liveInserting && (hasOpening || input.autoSubmit || earlyOn)) {
-    ifs.push({ key: protection ? "ifKeysWindowChangeStops" : "ifKeysWindowChangeContinues" });
+    ifs.push({ key: !protection ? "ifKeysWindowChangeContinues" : earlyOn ? "ifEarlyWindowStops" : "ifKeysWindowChangeStops" });
   }
   if (!liveInserting && !held) ifs.push({ key: "ifPasteFails" });
   return { steps, ifs };
