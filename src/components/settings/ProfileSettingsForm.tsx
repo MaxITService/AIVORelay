@@ -31,7 +31,7 @@ import { SttModelSelector } from "./SttModelSelector";
 import { KeyActionsBadge, ProfileOutputSettingsFields, getGlobalProfileOutputDefaults, profileKeyActionsEnabled, profileOutputDefaults } from "./ProfileOutputSettings";
 import type { ProfileOutputSettings as OutputSettings } from "@/lib/profileOutputSettings";
 import type { SttModelSelection } from "../../lib/sttModelSelection";
-import { scrollAndFocusAnchor } from "../../lib/anchorNavigation";
+import { navigateToSettingsAnchor } from "../../lib/anchorNavigation";
 import { openLivePreviewSettings } from "../../lib/transcriptionProfileNavigation";
 
 /** Open the shared provider, model, key, and prompt configuration. */
@@ -1448,10 +1448,13 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
                             type="button"
                             className="underline underline-offset-2 hover:text-red-200"
                             onClick={() => {
-                              const row = document.getElementById(
-                                `profile-preview-row-${profile.id}`,
-                              );
-                              if (row) scrollAndFocusAnchor(row, "center");
+                              // The row is in this form, inside "More", which may be collapsed.
+                              navigateToSettingsAnchor({
+                                activateSection: () => {},
+                                targetId: `profile-preview-row-${profile.id}`,
+                                block: "center",
+                                updateHash: false,
+                              });
                             }}
                           />
                         ),
