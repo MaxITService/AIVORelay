@@ -475,7 +475,6 @@ impl ModelManager {
                 .map(String::from)
                 .collect();
 
-        // TODO this should be read from a JSON file or something..
         available_models.insert(
             "small".to_string(),
             ModelInfo {

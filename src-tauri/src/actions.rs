@@ -2062,9 +2062,8 @@ fn start_recording_with_feedback_with_settings(
         force_post_process_for_next_transcription(binding_id);
     }
 
-    // Mark as recording immediately to prevent concurrent starts
-    // We'll update with the real session once recording actually starts
-    // For now, create a placeholder session
+    // Claim the Recording state before any I/O so concurrent starts see it.
+    // This session owns cleanup of the cancel shortcut and any applied mute.
     let session = Arc::new(session_manager::RecordingSession::new_with_resources(
         app, true, // cancel shortcut will be registered
         true, // mute may be applied (session tracks this for cleanup)
