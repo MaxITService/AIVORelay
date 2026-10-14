@@ -25,6 +25,7 @@ import { usePersistedSettingText } from "../../../hooks/usePersistedSettingText"
 import { ExtendedThinkingSection } from "../ExtendedThinkingSection";
 import { LlmConfigSection } from "../PostProcessingSettingsApi/LlmConfigSection";
 import { getPostProcessingAvailability } from "../../../lib/postProcessingAvailability";
+import { openLivePreviewSettings } from "../../../lib/transcriptionProfileNavigation";
 
 
 
@@ -760,10 +761,19 @@ export const PostProcessingSettings: React.FC = () => {
     <div className="max-w-3xl w-full mx-auto space-y-6">
       {!availability.available && (
         <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-sm text-yellow-400">
-          {t(
-            "settings.postProcessing.unavailableDirectRealtime",
-            "LLM post-processing is unavailable while realtime text is inserted directly into the target application. Use Preview or a non-live output route. Your saved choice is preserved for compatible routes.",
-          )}
+          <Trans
+            i18nKey="settings.postProcessing.unavailableDirectRealtime"
+            defaultValue="LLM post-processing is unavailable while realtime text is inserted directly into the target application. Use <preview>Preview</preview> or a non-live output route. Your saved choice is preserved for compatible routes."
+            components={{
+              preview: (
+                <button
+                  type="button"
+                  className="underline underline-offset-2 hover:text-yellow-200"
+                  onClick={openLivePreviewSettings}
+                />
+              ),
+            }}
+          />
         </div>
       )}
 

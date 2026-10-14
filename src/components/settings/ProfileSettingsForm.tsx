@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { ChevronDown, RefreshCcw, RotateCcw } from "lucide-react";
 import { commands, type TranscriptionProfile, type ModelInfo } from "@/bindings";
 import { sessionToast as toast } from "@/lib/sessionToast";
@@ -31,6 +31,7 @@ import { SttModelSelector } from "./SttModelSelector";
 import { KeyActionsBadge, ProfileOutputSettingsFields, getGlobalProfileOutputDefaults, profileKeyActionsEnabled, profileOutputDefaults } from "./ProfileOutputSettings";
 import type { ProfileOutputSettings as OutputSettings } from "@/lib/profileOutputSettings";
 import type { SttModelSelection } from "../../lib/sttModelSelection";
+import { scrollAndFocusAnchor } from "../../lib/anchorNavigation";
 import { openLivePreviewSettings } from "../../lib/transcriptionProfileNavigation";
 
 /** Open the shared provider, model, key, and prompt configuration. */
@@ -1335,7 +1336,7 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
 
           <ProfileMoreSettings profileId={profile.id} previewEnabled={profile.preview_output_only_enabled ?? false}
             keyActionsEnabled={profileKeyActionsEnabled(profile.output_settings ?? {}, profileOutputDefaults(getGlobalProfileOutputDefaults(settings), isDefault))}>
-            <div className="min-w-0 flex items-center justify-between gap-3 rounded-lg border border-mid-gray/10 bg-mid-gray/5 p-3">
+            <div id={`profile-preview-row-${profile.id}`} tabIndex={-1} className="min-w-0 flex items-center justify-between gap-3 rounded-lg border border-mid-gray/10 bg-mid-gray/5 p-3">
               <div className="min-w-0 space-y-1">
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                   <label htmlFor={`profile-preview-${profile.id}`} className="text-xs font-semibold text-text/70">
@@ -1438,19 +1439,46 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
 
                 {!postProcessingAvailable && (
                   <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
-                    {t(
-                      "settings.postProcessing.unavailableDirectRealtime",
-                      "LLM post-processing is unavailable while realtime text is inserted directly into the target application. Use Preview or a non-live output route. Your saved choice is preserved for compatible routes.",
-                    )}
+                    <Trans
+                      i18nKey="settings.postProcessing.unavailableDirectRealtime"
+                      defaultValue="LLM post-processing is unavailable while realtime text is inserted directly into the target application. Use <preview>Preview</preview> or a non-live output route. Your saved choice is preserved for compatible routes."
+                      components={{
+                        preview: (
+                          <button
+                            type="button"
+                            className="underline underline-offset-2 hover:text-red-200"
+                            onClick={() => {
+                              const row = document.getElementById(
+                                `profile-preview-row-${profile.id}`,
+                              );
+                              if (row) scrollAndFocusAnchor(row, "center");
+                            }}
+                          />
+                        ),
+                      }}
+                    />
                   </div>
                 )}
 
-                {isDefault && <>
-                  <p className="text-xs text-mid-gray">{t("settings.postProcessing.defaultProfileNote", "Custom profiles keep their own post-processing choice. Provider, model, API key, and prompt configuration are shared.")}</p>
-                  <Button type="button" variant="secondary" size="sm" onClick={openPostProcessingSettings}>
-                    {t("settings.postProcessing.openConfiguration", "Open LLM Post Processing settings")}
-                  </Button>
-                </>}
+                {isDefault && (
+                  <p className="text-xs text-mid-gray">
+                    {t(
+                      "settings.postProcessing.defaultProfileNote",
+                      "Custom profiles keep their own post-processing choice. Provider, model, API key, and prompt configuration are shared.",
+                    )}
+                  </p>
+                )}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={openPostProcessingSettings}
+                >
+                  {t(
+                    "settings.postProcessing.openConfiguration",
+                    "Open LLM Post Processing settings",
+                  )}
+                </Button>
                 {!isDefault && effectiveLlmEnabled && (
                   <div className="space-y-3">
                     {/* Prompt Override */}
