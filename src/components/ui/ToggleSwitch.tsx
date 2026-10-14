@@ -10,7 +10,7 @@ interface ToggleSwitchProps {
   disabled?: boolean;
   isUpdating?: boolean;
   label?: string;
-  description?: string;
+  description?: React.ReactNode;
   descriptionMode?: "inline" | "tooltip";
   grouped?: boolean;
   tooltipPosition?: "top" | "bottom";
