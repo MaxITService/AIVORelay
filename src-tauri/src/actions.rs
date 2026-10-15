@@ -7248,13 +7248,47 @@ fn should_run_transcription_post_process(post_process_requested: bool, text: &st
 #[cfg(test)]
 mod transcription_post_process_tests {
     use super::{
-        empty_transcription_error_category, is_blank_transcription, parse_openai_realtime_keywords,
-        post_process_allowed_for_output_route, should_cancel_live_quick_stop_without_finalize,
-        should_run_transcription_post_process, skips_automatic_post_process_for_output_route,
+        empty_transcription_error_category, finish_transcription_output, is_blank_transcription,
+        parse_openai_realtime_keywords, post_process_allowed_for_output_route,
+        should_cancel_live_quick_stop_without_finalize, should_run_transcription_post_process,
+        skips_automatic_post_process_for_output_route,
     };
     use crate::plus_overlay_state::OverlayErrorCategory;
-    use crate::settings::{get_default_settings, PasteMethod, TranscriptionProfile, TranscriptionProvider};
+    use crate::settings::{
+        get_default_settings, PasteMethod, TextReplacement, TranscriptionProfile, TranscriptionProvider,
+    };
     use std::time::Duration;
+
+    #[test]
+    fn history_text_includes_text_replacements_after_the_llm() {
+        let mut settings = get_default_settings();
+        settings.text_replacements_enabled = true;
+        settings.text_replacements_before_llm = false;
+        settings.text_replacements = vec![TextReplacement {
+            id: "tr_test".into(),
+            from: "teh".into(),
+            to: "the".into(),
+            enabled: true,
+            case_sensitive: true,
+            is_regex: false,
+        }];
+        let history = |raw: &str, after_llm: &str, llm: bool| {
+            finish_transcription_output(&settings, raw, after_llm.into(), llm, None, llm)
+                .post_processed_text
+        };
+        // Replacements alone count as processing; the raw transcript stays separate.
+        assert_eq!(history("teh cat", "teh cat", false).as_deref(), Some("the cat"));
+        assert_eq!(history("teh cat sat", "teh cat", true).as_deref(), Some("the cat"));
+        // An LLM pass that changed nothing is still recorded.
+        assert_eq!(history("a cat", "a cat", true).as_deref(), Some("a cat"));
+        assert_eq!(history("a cat", "a cat", false), None);
+
+        // Replacements before the LLM are already in its input.
+        settings.text_replacements_before_llm = true;
+        let before =
+            finish_transcription_output(&settings, "teh cat", "the cat".into(), false, None, false);
+        assert_eq!(before.post_processed_text.as_deref(), Some("the cat"));
+    }
 
     #[test]
     fn empty_dictation_feedback_respects_short_press_boundary_and_reason() {
@@ -7523,7 +7557,7 @@ pub(crate) async fn process_transcription_output(
     force_post_process: bool,
 ) -> Option<ProcessedTranscription> {
     let mut final_text = transcription.to_string();
-    let mut post_processed_text: Option<String> = None;
+    let mut llm_processed = false;
     let mut post_process_prompt: Option<String> = None;
 
     // Look up the profile if a custom profile is being used
@@ -7536,28 +7570,9 @@ pub(crate) async fn process_transcription_output(
         resolve_history_post_process_requested(settings, profile)
     };
 
-    // Helper closure for applying text replacements
-    let apply_replacements = |text: &str| -> String {
-        if settings.text_replacements_enabled && !settings.text_replacements.is_empty() {
-            let original_len = text.len();
-            let result =
-                crate::settings::apply_text_replacements(text, &settings.text_replacements);
-            if result.len() != original_len {
-                debug!(
-                    "Text replacements applied: {} chars -> {} chars",
-                    original_len,
-                    result.len()
-                );
-            }
-            result
-        } else {
-            text.to_string()
-        }
-    };
-
     // Apply text replacements BEFORE LLM if configured
     if settings.text_replacements_before_llm {
-        final_text = apply_replacements(&final_text);
+        final_text = apply_configured_text_replacements(settings, &final_text);
     }
 
     if should_run_transcription_post_process(post_process_requested, &final_text) {
@@ -7573,11 +7588,7 @@ pub(crate) async fn process_transcription_output(
         )
         .await
         {
-            PostProcessTranscriptionOutcome::Skipped => {
-                if final_text != transcription {
-                    post_processed_text = Some(final_text.clone());
-                }
-            }
+            PostProcessTranscriptionOutcome::Skipped => {}
             PostProcessTranscriptionOutcome::Cancelled => {
                 return None;
             }
@@ -7585,19 +7596,62 @@ pub(crate) async fn process_transcription_output(
                 text,
                 prompt_template,
             } => {
-                final_text = text.clone();
-                post_processed_text = Some(text);
+                final_text = text;
+                llm_processed = true;
                 post_process_prompt = Some(prompt_template);
             }
         }
-    } else if final_text != transcription {
-        post_processed_text = Some(final_text.clone());
     }
 
+    let processed = finish_transcription_output(
+        settings,
+        transcription,
+        final_text,
+        llm_processed,
+        post_process_prompt,
+        post_process_requested,
+    );
+
+    // Keep recent transcript context per app for prompt variable ${short_prev_transcript}.
+    // Use raw transcription (before post-processing) to avoid compounding LLM output.
+    update_short_prev_transcript(settings, current_app, transcription);
+
+    Some(processed)
+}
+
+fn apply_configured_text_replacements(settings: &AppSettings, text: &str) -> String {
+    if settings.text_replacements_enabled && !settings.text_replacements.is_empty() {
+        let original_len = text.len();
+        let result = crate::settings::apply_text_replacements(text, &settings.text_replacements);
+        if result.len() != original_len {
+            debug!(
+                "Text replacements applied: {} chars -> {} chars",
+                original_len,
+                result.len()
+            );
+        }
+        result
+    } else {
+        text.to_string()
+    }
+}
+
+/// Output steps after the LLM. History keeps the text after text replacements, so it
+/// shows what the user got; the raw transcript stays available separately.
+fn finish_transcription_output(
+    settings: &AppSettings,
+    transcription: &str,
+    mut final_text: String,
+    llm_processed: bool,
+    post_process_prompt: Option<String>,
+    post_process_requested: bool,
+) -> ProcessedTranscription {
     // Apply text replacements AFTER LLM if NOT configured for before
     if !settings.text_replacements_before_llm {
-        final_text = apply_replacements(&final_text);
+        final_text = apply_configured_text_replacements(settings, &final_text);
     }
+    let post_processed_text =
+        (llm_processed || final_text != transcription).then(|| final_text.clone());
 
     // If the user recently edited text manually (for example with Backspace),
     // lower the first alphabetic uppercase character in the next matching output.
@@ -7606,16 +7660,12 @@ pub(crate) async fn process_transcription_output(
 
     final_text = apply_output_whitespace_policy_for_settings(&final_text, settings);
 
-    // Keep recent transcript context per app for prompt variable ${short_prev_transcript}.
-    // Use raw transcription (before post-processing) to avoid compounding LLM output.
-    update_short_prev_transcript(settings, current_app, transcription);
-
-    Some(ProcessedTranscription {
+    ProcessedTranscription {
         final_text,
         post_processed_text,
         post_process_prompt,
         post_process_requested,
-    })
+    }
 }
 
 /// Applies Chinese conversion, LLM post-processing and saves to history.
