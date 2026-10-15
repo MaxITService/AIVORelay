@@ -225,7 +225,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/commands/models.rs` | Model command surface, including available models, downloads, local model rescan, and `get_active_gpu_vram_status`. |
 | `src/components/footer/VramMeter.tsx` | Frontend VRAM meter UI. |
 | `src/components/footer/Footer.tsx` | Footer integration for VRAM meter. |
-| `src/components/RenderCrashBoundary.tsx`, `SilentCrashBoundary.tsx`, `src/lib/frontendErrorLog.ts` | Every window logs render crashes, uncaught errors, and unhandled rejections to `aivorelay.log` (`log:allow-log`). The main window shows a crash card per settings section or for the whole window (with the updater); other windows render nothing, and command confirm / region capture close themselves. |
+| `src/components/RenderCrashBoundary.tsx`, `SilentCrashBoundary.tsx`, `src/lib/frontendErrorLog.ts` | Every window logs render crashes, uncaught errors, and unhandled rejections to `aivorelay.log` (`log:allow-log`). The main window shows a crash card per settings section or for the whole window (with the updater); other windows render nothing, and command confirm / region capture close themselves. CI uploads hidden frontend sourcemaps as the `<prefix>-<target>-sourcemaps` artifact (90 days); `AIVORELAY_SOURCEMAPS=1 bun run build` regenerates them from a tag into `dist-sourcemaps/`. |
 | `src-tauri/resources/models/gigaam_vocab.txt` | Bundled GigaAM vocab resource for migrating old single-file installs to the transcribe-rs 0.3.x directory layout. |
 
 ## Browser Connector Bundle

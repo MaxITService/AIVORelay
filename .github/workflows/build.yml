@@ -471,6 +471,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Hidden frontend sourcemaps, written outside the app (see vite.config.ts).
+          AIVORELAY_SOURCEMAPS: "1"
           APPLE_ID: ${{ inputs.sign-binaries && secrets.APPLE_ID || '' }}
           APPLE_ID_PASSWORD: ${{ inputs.sign-binaries && secrets.APPLE_ID_PASSWORD || '' }}
           APPLE_PASSWORD: ${{ inputs.sign-binaries && secrets.APPLE_PASSWORD || '' }}
@@ -495,6 +497,16 @@ jobs:
           releaseId: ${{ inputs.release-id }}
           assetNamePattern: ${{ steps.patch-release-name.outputs.platform }}
           args: ${{ inputs.build-args }}
+
+      # Uploaded even for releases: decodes frontend stack traces in user logs.
+      - name: Upload frontend sourcemaps
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: ${{ inputs.asset-prefix }}-${{ inputs.target }}-sourcemaps
+          path: dist-sourcemaps/
+          if-no-files-found: warn
+          retention-days: 90
 
       - name: Upload artifacts (macOS)
         if: inputs.upload-artifacts && contains(inputs.platform, 'macos')
