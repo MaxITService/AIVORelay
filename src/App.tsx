@@ -9,6 +9,7 @@ import Onboarding from "./components/onboarding";
 import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
 import { QuickHelp } from "./components/settings";
 import { HotkeySidebar } from "./components/hotkey-sidebar";
+import { RenderCrashBoundary } from "./components/RenderCrashBoundary";
 import { useSettings } from "./hooks/useSettings";
 import { commands } from "@/bindings";
 import { listen } from "@tauri-apps/api/event";
@@ -60,7 +61,9 @@ const renderSettingsContent = (section: SidebarSection) => {
       tabIndex={-1}
       className="w-full outline-none"
     >
-      <ActiveComponent />
+      <RenderCrashBoundary key={section} section={section}>
+        <ActiveComponent />
+      </RenderCrashBoundary>
     </div>
   );
 };
