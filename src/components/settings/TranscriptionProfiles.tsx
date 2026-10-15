@@ -34,7 +34,7 @@ import { getLocalizedLanguageLabel } from "./models/ModelMetadataPanel";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { getTranscriptionProfileAnchorId } from "../../lib/transcriptionProfileNavigation";
 import { availableProfileName, getProfileNameError, profileNameErrorFromBackend, type ProfileNameError } from "../../lib/profileNames";
-import { cloneProfileSettings, profileSettingsPayload } from "./profileSettingsPayload";
+import { cloneProfileSettings, profileSettingsPayload, profileUpdatePayload } from "./profileSettingsPayload";
 
 const profileNameErrorMessage = (reason: ProfileNameError | null, t: ReturnType<typeof useTranslation>["t"]) => {
   if (reason === "required") return t("settings.transcriptionProfiles.nameEmpty", "Enter a profile name.");
@@ -813,8 +813,7 @@ export const TranscriptionProfiles: React.FC = () => {
           ),
         });
       }
-      const { chineseScript: _chineseScript, outputSettings: _outputSettings, ...payload } = profileSettingsPayload(profile);
-      await invoke("update_transcription_profile", { payload: { id: profile.id, name: profile.name, ...payload } });
+      await invoke("update_transcription_profile", { payload: profileUpdatePayload(profile) });
       await refreshSettings();
     } catch (error) {
       console.error("Failed to update profile:", error);

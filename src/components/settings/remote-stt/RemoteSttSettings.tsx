@@ -31,6 +31,8 @@ import { TellMeMore } from "../../ui/TellMeMore";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { GeminiEarlyFinalizationSettings } from "./GeminiEarlyFinalizationSettings";
 import { getModelPromptInfo } from "../TranscriptionSystemPrompt";
+import type { ExtendedTranscriptionProfile } from "../ProfileSettingsForm";
+import { profileUpdatePayload } from "../profileSettingsPayload";
 import {
   ProfileScopedSttSettingsNotice,
   type ProfileScopedSttFeature,
@@ -119,32 +121,10 @@ const buildProfileUpdatePayload = (
     systemPrompt: string;
     sttPromptOverrideEnabled: boolean;
   }>,
-): UpdateTranscriptionProfilePayload => ({
-  id: profile.id,
-  name: profile.name,
-  language: profile.language,
-  translateToEnglish: profile.translate_to_english,
-  systemPrompt: overrides.systemPrompt ?? profile.system_prompt ?? "",
-  sttPromptOverrideEnabled:
-    overrides.sttPromptOverrideEnabled ??
-    profile.stt_prompt_override_enabled ??
-    false,
-  includeInCycle: profile.include_in_cycle ?? true,
-  pushToTalk: profile.push_to_talk ?? true,
-  autoShortcutActivation: profile.auto_shortcut_activation ?? false,
-  previewOutputOnlyEnabled: profile.preview_output_only_enabled ?? false,
-  sonioxLanguageHintsStrict: profile.soniox_language_hints_strict ?? null,
-  geminiLanguageCodeOverride: (profile as any).gemini_language_code_override ?? null,
-  geminiCustomVocabularyOverride: (profile as any).gemini_custom_vocabulary_override ?? null,
-  llmSettings: {
-    enabled: profile.llm_post_process_enabled ?? false,
-    promptOverride: profile.llm_prompt_override ?? null,
-    modelOverride: profile.llm_model_override ?? null,
-  },
-  sonioxContextGeneralJson: profile.soniox_context_general_json ?? "",
-  sonioxContextText: profile.soniox_context_text ?? "",
-  sonioxContextTerms: profile.soniox_context_terms ?? [],
-} as any);
+): UpdateTranscriptionProfilePayload => profileUpdatePayload(profile as ExtendedTranscriptionProfile, {
+  system_prompt: overrides.systemPrompt ?? profile.system_prompt,
+  stt_prompt_override_enabled: overrides.sttPromptOverrideEnabled ?? profile.stt_prompt_override_enabled,
+});
 
 export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   descriptionMode = "tooltip",

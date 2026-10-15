@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtendedTranscriptionProfile } from "./ProfileSettingsForm";
 
-import { cloneProfileSettings, profileSettingsPayload } from "./profileSettingsPayload";
+import { cloneProfileSettings, profileSettingsPayload, profileUpdatePayload } from "./profileSettingsPayload";
 
 const profile = (): ExtendedTranscriptionProfile => ({
   id: "saved", name: "Custom", language: "auto", translate_to_english: false,
@@ -59,5 +59,15 @@ describe("profile clone and command payload", () => {
     expect(payload.sonioxLanguageHintsStrict).toBeNull();
     expect(payload.outputSettings).toEqual(source.output_settings);
     expect(payload.includeInCycle).toBe(true);
+  });
+
+  test("Preview toggle update keeps the profile's model and Gemini overrides", () => {
+    const override = { provider: "local" as const, provider_preset: "", model_id: "model-a" };
+    const source = { ...profile(), stt_model_selection_override: override,
+      gemini_language_code_override: "de", gemini_custom_vocabulary_override: ["AivoRelay"] };
+    const payload = profileUpdatePayload(source, { preview_output_only_enabled: true });
+    const { chineseScript: _c, outputSettings: _o, ...expected } = profileSettingsPayload(source);
+    expect(payload).toEqual({ id: "saved", name: "Custom", ...expected, previewOutputOnlyEnabled: true });
+    expect(source.preview_output_only_enabled).toBe(false);
   });
 });
