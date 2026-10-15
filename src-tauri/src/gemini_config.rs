@@ -169,6 +169,16 @@ pub fn validate_compatibility(
     Ok(())
 }
 
+pub fn workflow_mode(settings: &AppSettings, workflow: GeminiWorkflow) -> GeminiTranscriptionMode {
+    match workflow {
+        GeminiWorkflow::Live => settings.gemini_live_mode,
+        GeminiWorkflow::Dictation => settings
+            .gemini_dictation_mode
+            .unwrap_or(settings.gemini_file_mode),
+        GeminiWorkflow::File { .. } => settings.gemini_file_mode,
+    }
+}
+
 pub fn resolve_effective_config(
     settings: &AppSettings,
     profile: Option<&TranscriptionProfile>,
@@ -184,13 +194,7 @@ pub fn resolve_effective_config(
         .and_then(|profile| profile.gemini_custom_vocabulary_override.as_ref())
         .unwrap_or(&settings.gemini_custom_vocabulary);
     let custom_vocabulary = validate_vocabulary(vocabulary)?;
-    let mode = match workflow {
-        GeminiWorkflow::Live => settings.gemini_live_mode,
-        GeminiWorkflow::Dictation => settings
-            .gemini_dictation_mode
-            .unwrap_or(settings.gemini_file_mode),
-        GeminiWorkflow::File { .. } => settings.gemini_file_mode,
-    };
+    let mode = workflow_mode(settings, workflow);
     let word_timestamps = matches!(workflow, GeminiWorkflow::File { word_timestamps: true });
     let diarization = matches!(workflow, GeminiWorkflow::File { .. }) && settings.gemini_file_diarization;
     validate_compatibility(workflow, route, mode, diarization)?;

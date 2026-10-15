@@ -1735,7 +1735,28 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                       </>
                     )}
                   </div>
-                  {currentRemoteInterface === "gemini_live" ? (
+                  <SettingContainer
+                    title={t("settings.gemini.dictationMode.title", "Dictation transcription mode")}
+                    description={t("settings.gemini.dictationMode.description", "Used by ordinary Transcribe shortcuts. Transcribe File keeps its own mode.")}
+                    descriptionMode={descriptionMode}
+                    grouped={grouped}
+                    layout="stacked"
+                  >
+                    <Select
+                      value={String((settings as any)?.gemini_dictation_mode ?? (settings as any)?.gemini_file_mode ?? "smart")}
+                      options={[
+                        {
+                          value: "smart",
+                          label: t("settings.gemini.mode.smart", "Smart"),
+                        },
+                        { value: "verbatim", label: t("settings.gemini.mode.verbatim", "Verbatim") },
+                      ]}
+                      onChange={value => value && void invoke("change_gemini_dictation_mode_setting", { mode: value }).then(() => refreshSettings())}
+                      isClearable={false}
+                      className="w-full"
+                    />
+                  </SettingContainer>
+                  {currentRemoteInterface === "gemini_live" && (
                     <>
                       <GeminiEarlyFinalizationSettings />
                       <SettingContainer
@@ -1763,28 +1784,6 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                         )}
                       </div>
                     </>
-                  ) : (
-                    <SettingContainer
-                      title={t("settings.gemini.dictationMode.title", "Dictation transcription mode")}
-                      description={t("settings.gemini.dictationMode.description", "Used by ordinary Transcribe shortcuts. Transcribe File keeps its own mode.")}
-                      descriptionMode={descriptionMode}
-                      grouped={grouped}
-                      layout="stacked"
-                    >
-                      <Select
-                        value={String((settings as any)?.gemini_dictation_mode ?? (settings as any)?.gemini_file_mode ?? "smart")}
-                        options={[
-                          {
-                            value: "smart",
-                            label: t("settings.gemini.mode.smart", "Smart"),
-                          },
-                          { value: "verbatim", label: t("settings.gemini.mode.verbatim", "Verbatim") },
-                        ]}
-                        onChange={value => value && void invoke("change_gemini_dictation_mode_setting", { mode: value }).then(() => refreshSettings())}
-                        isClearable={false}
-                        className="w-full"
-                      />
-                    </SettingContainer>
                   )}
                 </>
               )}
