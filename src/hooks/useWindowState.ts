@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useSyncExternalStore, type Dispatch, type SetStateAction } from "react";
 
 // UI state survives section changes, but is discarded with this window.
 const windowState = new Map<string, unknown>();
-const listeners = new Map<string, Set<(value: unknown) => void>>();
+const listeners = new Map<string, Set<() => void>>();
 
-// Seeds on first read so a key that changes after mount never yields undefined.
-const readWindowState = <T,>(key: string, initialValue: T | (() => T)): T => {
+// Seeds on first read, so whatever key a render asks for already has a value.
+export const readWindowState = <T,>(key: string, initialValue: T | (() => T)): T => {
   if (windowState.has(key)) return windowState.get(key) as T;
   const initial = typeof initialValue === "function"
     ? (initialValue as () => T)()
@@ -14,31 +14,40 @@ const readWindowState = <T,>(key: string, initialValue: T | (() => T)): T => {
   return initial;
 };
 
+export const writeWindowState = <T,>(key: string, nextValue: SetStateAction<T>) => {
+  const next = typeof nextValue === "function"
+    ? (nextValue as (previous: T) => T)(windowState.get(key) as T)
+    : nextValue;
+  windowState.set(key, next);
+  listeners.get(key)?.forEach((listener) => listener());
+};
+
+export const subscribeWindowState = (key: string, listener: () => void) => {
+  const subscribers = listeners.get(key) ?? new Set<() => void>();
+  subscribers.add(listener);
+  listeners.set(key, subscribers);
+  return () => {
+    subscribers.delete(listener);
+    if (subscribers.size === 0 && listeners.get(key) === subscribers) listeners.delete(key);
+  };
+};
+
+// Every render reads the store for its own key, so a key that changes after
+// mount can never serve another key's value or a missing one.
 export const useWindowState = <T,>(
   key: string,
   initialValue: T | (() => T),
 ): [T, Dispatch<SetStateAction<T>>] => {
-  const [value, setValue] = useState<T>(() => readWindowState(key, initialValue));
-  useEffect(() => {
-    const listener = (next: unknown) => setValue(next as T);
-    const subscribers = listeners.get(key) ?? new Set<(value: unknown) => void>();
-    subscribers.add(listener);
-    listeners.set(key, subscribers);
-    setValue(readWindowState(key, initialValue));
-    return () => {
-      subscribers.delete(listener);
-      if (subscribers.size === 0) listeners.delete(key);
-    };
-  }, [key]);
-  const updateValue = useCallback<Dispatch<SetStateAction<T>>>((nextValue) => {
-    const current = windowState.get(key) as T;
-    const next = typeof nextValue === "function"
-      ? (nextValue as (previous: T) => T)(current)
-      : nextValue;
-    windowState.set(key, next);
-    setValue(next);
-    listeners.get(key)?.forEach((listener) => listener(next));
-  }, [key]);
+  const subscribe = useCallback(
+    (onChange: () => void) => subscribeWindowState(key, onChange),
+    [key],
+  );
+  const getSnapshot = () => readWindowState(key, initialValue);
+  const value = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const setValue = useCallback<Dispatch<SetStateAction<T>>>(
+    (nextValue) => writeWindowState(key, nextValue),
+    [key],
+  );
 
-  return [value, updateValue];
+  return [value, setValue];
 };
