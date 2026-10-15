@@ -9131,6 +9131,10 @@ impl ShortcutAction for TranscribeAction {
 
                     match transcription_result {
                         Ok(text) => {
+                            // Live chunks already inserted this text, as in the early-finalization branch.
+                            if !is_blank_transcription(&text) {
+                                before_dictation_final_output(&ah, &text);
+                            }
                             let text = apply_profile_output_filters(
                                 &recording_settings,
                                 text,
