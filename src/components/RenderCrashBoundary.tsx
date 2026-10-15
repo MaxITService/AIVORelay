@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { commands } from "@/bindings";
 import { Button } from "./ui/Button";
+import UpdateChecker from "./update-checker";
 
 const describeError = (error: unknown) =>
   error instanceof Error ? `${error.name}: ${error.message}` : String(error);
@@ -50,6 +51,15 @@ const RenderCrashFallback: React.FC<{ section?: string; error: unknown }> = ({
           {t("errors.renderCrash.openLogs")}
         </Button>
       </div>
+      {!section && (
+        // The footer updater dies with the window, so offer it here: an
+        // update is often the only fix for a crash that survives a reload.
+        <div className="text-sm">
+          <QuietBoundary>
+            <UpdateChecker />
+          </QuietBoundary>
+        </div>
+      )}
     </div>
   );
   if (section) return card;
@@ -59,6 +69,26 @@ const RenderCrashFallback: React.FC<{ section?: string; error: unknown }> = ({
     </div>
   );
 };
+
+/** Renders nothing when an optional crash-screen extra crashes too. */
+class QuietBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown, info: React.ErrorInfo) {
+    logRenderCrash("crash screen extra", error, info.componentStack);
+  }
+
+  render() {
+    return this.state.hasError ? null : this.props.children;
+  }
+}
 
 type RenderCrashBoundaryProps = {
   /** Settings section id; omit for the whole-window boundary. */
