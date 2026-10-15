@@ -12,6 +12,7 @@ package-lock.json
 node_modules
 dist
 dist-ssr
+dist-sourcemaps
 *.local
 *.local.*
 
