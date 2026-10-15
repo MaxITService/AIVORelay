@@ -15,54 +15,6 @@ AI Voice Relay
 
 > 🛒 **[Microsoft Store Version](https://apps.microsoft.com/detail/9ppfkfh2zn1l)** — This is an official listing on the Microsoft Store. Note that the Store version is **not updated as frequently as the desktop application** available here on GitHub, but it does not require administrator rights to install, is signed by Microsoft, and is verified by Microsoft before releasing. It is currently outdated by few months, but will be worked on later. 
 
-## 🎙️ Recording Control CLI
-
-With AivoRelay already running, invoke the same executable to control dictation
-without opening or focusing its settings window:
-
-```powershell
-AivoRelay.exe recording start
-AivoRelay.exe recording start --post-process
-AivoRelay.exe recording stop
-AivoRelay.exe recording toggle
-AivoRelay.exe recording toggle --post-process
-AivoRelay.exe recording cancel
-AivoRelay.exe transcript clipboard
-AivoRelay.exe transcript paste
-AivoRelay.exe transcript paste --method ctrl_shift_v
-```
-
-Repeated `start` and `stop` are safe: starting while recording and stopping while
-idle do nothing. Start uses the manually selected transcription profile; stop
-preserves the active recording's profile, settings, and output mode, including
-recordings started by a profile shortcut. Start/stop/toggle do nothing while
-processing or while microphone startup/cleanup is in progress. Cancel uses the
-app's existing operation cancellation behavior.
-
-Transcript commands use the latest completed dictation retained in History,
-prefer its post-processed text, and skip empty results. Paste uses the saved
-clipboard and auto-submit settings. `--method` overrides only that invocation;
-supported methods are `ctrl_v`, `ctrl_shift_v`, `shift_insert`, `direct`, and
-`none` (hyphenated spellings are also accepted).
-
-The existing `--toggle-transcription`, `--toggle-post-process`, and `--cancel`
-flags remain available. Commands are sent through the existing single-instance
-transport; the caller exits after delivery, without a transcription result or
-execution acknowledgement. Structured recording/transcript commands do not
-support `--json`. Launch AivoRelay normally before using them; a command sent
-when no instance is running only launches the app.
-
-## ⌨️ File Conversion CLI
-
-AivoRelay exposes the same two app-managed file workflows in the current
-terminal:
-
-- [Audio file → text or Markdown](CLI-SPEECH-TO-TEXT.md)
-- [Text or Markdown → MP3, Opus, or WAV](CLI-TEXT-TO-SPEECH.md)
-
-Provider credentials and detailed conversion behavior remain configured in
-the matching app settings pages.
-
 ## ✨ Key Features
 
 ### Place cursor anywhere, press hotkey, speak, and watch your text appear in place!
@@ -161,7 +113,7 @@ The collapsed voice gallery on both TTS pages includes locally playable Opus sam
 
 #### Text file to MP3, Opus, or WAV
 
-Open **Text file to mp3** in the sidebar to convert one or more `.txt` or `.md` documents, scan folders with optional subfolders, or automate a watched folder. Long documents are split at natural boundaries, and interrupted jobs can resume from saved progress. Optional AI cleanup may send text to the configured LLM and incur provider costs. Existing outputs are never overwritten. The workflow is also available from the [TTS file-conversion CLI](CLI-TEXT-TO-SPEECH.md).
+Open **Text file to mp3** in the sidebar to convert one or more `.txt` or `.md` documents, scan folders with optional subfolders, or automate a watched folder. Long documents are split at natural boundaries, and interrupted jobs can resume from saved progress. Optional AI cleanup may send text to the configured LLM and incur provider costs. Existing outputs are never overwritten.
 
 Available choices include Soniox, Deepgram, OpenAI, OpenAI-compatible custom servers, Murf AI (Falcon 2 and Gen2), ElevenLabs (Eleven v3 and Multilingual v2), Cartesia Sonic 3.5, Windows installed voices, the unofficial Microsoft Read Aloud integration, and optional local Qwen or Kokoro models. File conversion and interactive speech keep separate active settings while sharing saved presets.
 
@@ -387,3 +339,53 @@ Bundled and optional runtime components are listed in
 - [Console2Ai: Send PowerShell buffer to AI](https://github.com/MaxITService/Console2Ai)
 - [AI for Complete Beginners: Guide to LLMs](https://medium.com/@maxim.fomins/ai-for-complete-beginners-guide-llms-f19c4b8a8a79)
 - [Ping-Plotter the PowerShell only Ping Plotting script](https://github.com/MaxITService/Ping-Plotter-PS51)
+
+---
+
+## 🎙️ Recording Control CLI
+
+With AivoRelay already running, invoke the same executable to control dictation
+without opening or focusing its settings window:
+
+```powershell
+AivoRelay.exe recording start
+AivoRelay.exe recording start --post-process
+AivoRelay.exe recording stop
+AivoRelay.exe recording toggle
+AivoRelay.exe recording toggle --post-process
+AivoRelay.exe recording cancel
+AivoRelay.exe transcript clipboard
+AivoRelay.exe transcript paste
+AivoRelay.exe transcript paste --method ctrl_shift_v
+```
+
+Repeated `start` and `stop` are safe: starting while recording and stopping while
+idle do nothing. Start uses the manually selected transcription profile; stop
+preserves the active recording's profile, settings, and output mode, including
+recordings started by a profile shortcut. Start/stop/toggle do nothing while
+processing or while microphone startup/cleanup is in progress. Cancel uses the
+app's existing operation cancellation behavior.
+
+Transcript commands use the latest completed dictation retained in History,
+prefer its post-processed text, and skip empty results. Paste uses the saved
+clipboard and auto-submit settings. `--method` overrides only that invocation;
+supported methods are `ctrl_v`, `ctrl_shift_v`, `shift_insert`, `direct`, and
+`none` (hyphenated spellings are also accepted).
+
+The existing `--toggle-transcription`, `--toggle-post-process`, and `--cancel`
+flags remain available. Commands are sent through the existing single-instance
+transport; the caller exits after delivery, without a transcription result or
+execution acknowledgement. Structured recording/transcript commands do not
+support `--json`. Launch AivoRelay normally before using them; a command sent
+when no instance is running only launches the app.
+
+## ⌨️ File Conversion CLI
+
+AivoRelay exposes the same two app-managed file workflows in the current
+terminal:
+
+- [Audio file → text or Markdown](CLI-SPEECH-TO-TEXT.md)
+- [Text or Markdown → MP3, Opus, or WAV (TTS file-conversion CLI)](CLI-TEXT-TO-SPEECH.md)
+
+Provider credentials and detailed conversion behavior remain configured in
+the matching app settings pages.
