@@ -83,6 +83,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/soniox-live-preview/SonioxLivePreview.tsx` | Live preview window UI, drag grip, edge resize handles, persisted geometry, preview delete actions. |
 | `src/lib/utils/previewHotkeys.ts` | Preview hotkeys logic. |
 | `src/components/ui/HotkeyCapture.tsx` | Reusable hotkey field backed by the same browser keyboard-capture hook as Tauri/rdev global shortcuts. |
+| `src/lib/bindingSuspension.ts` | Ref-counted, serialized `suspend_all_bindings`/`resume_all_bindings` while `HotkeyCapture` records, so captured keys do not also fire app shortcuts. |
 | `src/components/ui/Collapse.tsx` | Shared animated height disclosure for expandable sections; clips only while animating so popups inside open sections are not cut off. |
 | `src/hooks/usePresence.ts` | Keeps floating menus mounted while their `.app-popover` exit animation plays. |
 | `src/hooks/useTooltipOpen.ts` | Hover-intent open state shared by `Tooltip` and `InfoTooltip`: first tooltip waits `TOOLTIP_OPEN_DELAY_MS`, a neighbour hovered within `TOOLTIP_SKIP_DELAY_MS` of the last one hiding opens at once; `components/ui/Tooltip.css` grows the box from its arrow tip and fades it out. |
