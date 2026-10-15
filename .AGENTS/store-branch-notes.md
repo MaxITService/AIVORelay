@@ -15,6 +15,7 @@ Canonical inventory of intentional differences from `main`. If code and this fil
 | Detached signature files | Must not be attached to the GitHub release | Updater signature files are generated |
 | In-app updater artifacts | `createUpdaterArtifacts: false` | Enabled |
 | In-app updater endpoints | Empty | GitHub release endpoint configured |
+| Crash recovery screen | Reload window and open logs; no emergency self-update action | Also offers the emergency update checker |
 | CPU baseline | Rust and ggml are forced to AVX2; AVX512/AMX is disabled | The x64 release workflow disables AVX/AVX2/FMA/F16C for older-CPU compatibility |
 
 Before completing a Store release, check that GitHub release assets contain no project certificate, certificate-installation script, or detached signature files. Remove such attachments added to a Store draft by mistake; do not rebuild packages to upload them. Binary signature inspection is not required and an existing binary signature is not a release blocker.
@@ -31,6 +32,7 @@ Implementation anchors:
 - The shared `UpdateChecker` component and Tauri updater plugin still exist in this branch. Do not claim that the updater UI or plugin was completely removed.
 - Store intentionally omits the portable-install fallback command, `portableInstaller.*`, and its translation strings.
 - Updater-only changes from `main` require manual review; do not propagate them automatically.
+- The crash recovery screen must not mount `UpdateChecker` or its optional updater boundary. Keep recovery/log actions, shared frontend logging, and overlay crash boundaries. Later mixed commits must preserve this exclusion.
 - The Store lockfiles currently retain updater `2.10.0` while `main` uses `2.10.1`. This is reviewed version drift, not a permanent API contract.
 
 ## CPU And Architecture Boundary
@@ -40,6 +42,11 @@ Implementation anchors:
 - The Microsoft Store release workflow currently publishes only `x86_64-pc-windows-msvc`.
 - ARM64 paths in reusable build/test workflows do not mean that an ARM64 Store package is published.
 - The x64 workflow audits the portable ZIP and MSI for the transcribe.cpp core DLL, ggml backend modules, and required VC/OpenMP runtimes.
+
+## Frontend Diagnostics
+
+- Shared render recovery, uncaught-error logging, overlay boundaries, and their logging permissions follow `main`, with the crash-screen updater exclusion above.
+- Hidden frontend sourcemaps are written to `dist-sourcemaps/`, outside the packaged `dist`, and uploaded as the separate `aivorelay-store-<target>-sourcemaps` CI artifact with 90-day retention. They are not GitHub release attachments or updater artifacts.
 
 ## Generated And Shared Files
 

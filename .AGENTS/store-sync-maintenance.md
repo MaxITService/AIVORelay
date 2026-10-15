@@ -38,6 +38,15 @@ git reflog release/microsoft-store
 - `AGENTS.md` and `.AGENTS/**`: keep branch-local except for the mirrored cursor and propagation row.
 - Shared `.md` files: defer during runtime propagation. Sync CLI guides; manually review other user-facing documents.
 
+## Mixed Commits And Excluded Features
+
+- Inspect changed hunks and later edits to the same files after excluding a feature; commit titles and `git cherry` alone do not establish eligibility.
+- The emergency crash-screen updater from `927586a9` — Offer update checks on the whole-window crash screen — is intentionally excluded. Later logging and overlay fixes (`fa5a1bee` and `02dbc8e4`) were adapted around it. Preserve that result in future syncs.
+- `src/components/RenderCrashBoundary.tsx` keeps Reload and Open log folder actions, without updater imports, JSX, or its optional boundary. Keep `SilentCrashBoundary` in overlay entrypoints and retain their logging permissions.
+- Apply only eligible hunks from mixed commits. Do not replace divergent files with complete `main` copies or import `main`'s agent code notes. Shared Help changes require the user's authorization.
+- Hidden sourcemaps outside `dist` and the separate CI artifact are eligible diagnostics; preserve Store workflow tags, signing, packaging, and AVX2 settings.
+- Audit the final source/target diff against [[.AGENTS/store-branch-notes|the Store contract]]. Record exclusions, adaptations, approved documents, and verification limits beside the cursor. Do not treat intentionally excluded commits as pending in the next sync.
+
 ## Completion Record
 
 - Keep [[.AGENTS/branching-status|branching-status.md]] and [[.AGENTS/branch-propagation-log|branch-propagation-log.md]] in both `main` and Store.
