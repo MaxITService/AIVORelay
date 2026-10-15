@@ -12,6 +12,7 @@ export interface PostProcessingAvailability {
 
 interface AvailabilityOptions {
   profilePreviewOutputOnlyEnabled?: boolean;
+  // Undefined follows the active profile's model override, then the global model.
   sttSelection?: SttModelSelection;
   // Null selects the Default profile; undefined follows the active profile.
   profileOutputSettings?: ProfileOutputSettings | null;
@@ -49,9 +50,6 @@ const getOutputRouteContext = (
   settings: AppSettings | null | undefined,
   options: AvailabilityOptions = {},
 ) => {
-  const provider = String(
-    options.sttSelection?.provider ?? settings?.transcription_provider ?? "local",
-  );
   const activeProfileId = String(settings?.active_profile_id || "default");
   const activeProfile =
     activeProfileId === "default"
@@ -59,6 +57,11 @@ const getOutputRouteContext = (
       : settings?.transcription_profiles?.find(
           (profile) => profile.id === activeProfileId,
         );
+  const sttSelection = options.sttSelection ?? (options.profileOutputSettings === undefined
+    ? activeProfile?.stt_model_selection_override ?? undefined : undefined);
+  const provider = String(
+    sttSelection?.provider ?? settings?.transcription_provider ?? "local",
+  );
   const profilePreviewEnabled =
     options.profilePreviewOutputOnlyEnabled ??
     activeProfile?.preview_output_only_enabled ??
@@ -78,11 +81,13 @@ const getOutputRouteContext = (
 
   let nativeLiveOutput = false;
   let remoteLiveOutput = false;
+  let localModelId = "";
 
   if (provider === "local") {
     const selectedModel = String(
-      options.sttSelection?.model_id ?? settings?.selected_model ?? "",
+      sttSelection?.model_id?.trim() ?? settings?.selected_model ?? "",
     );
+    localModelId = selectedModel;
     const directOutputModels =
       settings?.native_streaming_live_output_models ?? [];
     // Native direct output takes precedence over Preview in the backend. Mirrors
@@ -92,23 +97,23 @@ const getOutputRouteContext = (
       !isMoonshineStreamingModel({ id: selectedModel, name: "", filename: "" });
   } else if (provider === "remote_soniox") {
     const model = String(
-      options.sttSelection?.model_id ?? settings?.soniox_model ?? "",
+      sttSelection?.model_id ?? settings?.soniox_model ?? "",
     ).trim();
     const realtimeModel = model.length === 0 || model.startsWith("stt-rt");
     remoteLiveOutput = Boolean(settings?.soniox_live_enabled) && realtimeModel;
   } else if (provider === "remote_deepgram") {
     const model = String(
-      options.sttSelection?.model_id ?? settings?.deepgram_model ?? "",
+      sttSelection?.model_id ?? settings?.deepgram_model ?? "",
     ).trim();
     remoteLiveOutput = Boolean(settings?.deepgram_live_enabled) && model.length > 0;
   } else if (provider === "remote_openai_compatible") {
     const preset = String(
-      options.sttSelection?.provider_preset ??
+      sttSelection?.provider_preset ??
         settings?.remote_stt?.provider_preset ??
         "",
     );
     const model = String(
-      options.sttSelection?.model_id ?? settings?.remote_stt?.model_id ?? "",
+      sttSelection?.model_id ?? settings?.remote_stt?.model_id ?? "",
     ).toLowerCase();
     const isOpenAiRealtime =
       preset === "openai" &&
@@ -122,7 +127,7 @@ const getOutputRouteContext = (
 
   return {
     profilePreviewEnabled, livePreviewEnabled, outputIsHeldInPreview,
-    pasteMethod, autoSubmit, openingKey, startKey, nativeLiveOutput, remoteLiveOutput,
+    pasteMethod, autoSubmit, openingKey, startKey, nativeLiveOutput, remoteLiveOutput, localModelId,
   };
 };
 
@@ -141,8 +146,6 @@ export const buffersOutputForKeyActions = (
  */
 const resolveHeldInPreview = (
   route: ReturnType<typeof getOutputRouteContext>,
-  settings: AppSettings | null | undefined,
-  options: AvailabilityOptions,
   localModels: readonly ModelInfo[],
 ): boolean | null => {
   if (!route.profilePreviewEnabled && !(route.livePreviewEnabled && route.remoteLiveOutput)) {
@@ -150,8 +153,7 @@ const resolveHeldInPreview = (
   }
   if (!route.nativeLiveOutput) return true;
   if (localModels.length === 0) return null;
-  const modelId = options.sttSelection?.model_id ?? settings?.selected_model ?? "";
-  const localModel = localModels.find(model => model.id === modelId);
+  const localModel = localModels.find(model => model.id === route.localModelId);
   const nativeDirectOutput =
     localModel?.engine_type === "TranscribeCpp" && localModel.supports_streaming;
   return !nativeDirectOutput;
@@ -160,10 +162,8 @@ const resolveHeldInPreview = (
 // Callers that cannot show "unknown" keep the earlier behaviour: Preview while loading.
 const isHeldInPreview = (
   route: ReturnType<typeof getOutputRouteContext>,
-  settings: AppSettings | null | undefined,
-  options: AvailabilityOptions,
   localModels: readonly ModelInfo[],
-): boolean => resolveHeldInPreview(route, settings, options, localModels) ?? true;
+): boolean => resolveHeldInPreview(route, localModels) ?? true;
 
 /**
  * Where a profile's text goes and whether its speech provider streams text live into the
@@ -176,7 +176,7 @@ export const getOutputProviderInfo = (
 ): { heldInPreview: boolean; streamsLiveText: boolean } => {
   const route = getOutputRouteContext(settings, options);
   return {
-    heldInPreview: isHeldInPreview(route, settings, options, localModels),
+    heldInPreview: isHeldInPreview(route, localModels),
     streamsLiveText: route.nativeLiveOutput || (route.remoteLiveOutput && !route.outputIsHeldInPreview),
   };
 };
@@ -225,7 +225,7 @@ export const getProfileOutputSummary = (
 ): ProfileOutputSummary | null => {
   if (!settings) return null;
   const route = getOutputRouteContext(settings, options);
-  const held = resolveHeldInPreview(route, settings, options, localModels);
+  const held = resolveHeldInPreview(route, localModels);
   if (held === null) return null;
   return {
     route: held ? "preview" : route.pasteMethod === "none" ? "none" : "insertion",

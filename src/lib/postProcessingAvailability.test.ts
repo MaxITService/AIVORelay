@@ -1,7 +1,8 @@
 import assert from "node:assert";
-import type { AppSettings, ModelInfo } from "@/bindings";
+import type { AppSettings, ModelInfo, SttModelSelection } from "@/bindings";
 import {
   getActiveProfilePostProcessingEnabled,
+  getOutputProviderInfo,
   getPostProcessingAvailability,
   getProfileOutputSummary,
 } from "./postProcessingAvailability";
@@ -300,3 +301,21 @@ assert.deepEqual(getProfileOutputSummary(sonioxLive({ soniox_live_preview_enable
   { profilePreviewOutputOnlyEnabled: false }, []), { route: "preview", llmAvailable: true });
 assert.deepEqual(getProfileOutputSummary(sonioxLive(), { profilePreviewOutputOnlyEnabled: false }, []),
   { route: "insertion", llmAvailable: false });
+
+// Without an explicit selection, the active profile's model override decides the route
+// (the general LLM page), not the global model.
+const whisper = localModel("whisper-small", "Whisper", false);
+const profileOverride = (stt_model_selection_override: SttModelSelection, extra = {}) => ({
+  active_profile_id: "custom",
+  transcription_profiles: [{ id: "custom", stt_model_selection_override, ...extra } as any],
+});
+const localWhisper: SttModelSelection = { provider: "local", provider_preset: "", model_id: "whisper-small" };
+const localStreaming: SttModelSelection = { provider: "local", provider_preset: "", model_id: "streaming-model" };
+const sonioxRealtime: SttModelSelection = { provider: "remote_soniox", provider_preset: "", model_id: "stt-rt-v5" };
+assert.equal(getPostProcessingAvailability(sonioxLive(profileOverride(localWhisper))).available, true);
+assert.equal(getPostProcessingAvailability(sonioxLive({
+  transcription_provider: "local", selected_model: "whisper-small", ...profileOverride(sonioxRealtime),
+})).available, false);
+assert.equal(getOutputProviderInfo(nativeLocal({
+  selected_model: "whisper-small", ...profileOverride(localStreaming, { preview_output_only_enabled: true }),
+}), {}, [streamingModel, whisper]).heldInPreview, false);
