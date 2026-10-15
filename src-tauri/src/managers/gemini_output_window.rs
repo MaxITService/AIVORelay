@@ -1,15 +1,53 @@
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tokio::sync::Notify;
+
+/// How long past the deadline delivery may wait for words Gemini has shown but not stabilized.
+pub(crate) const PENDING_WORDS_GRACE: Duration = Duration::from_millis(3_000);
+
+#[derive(Default)]
+struct WindowState {
+    deadline: Option<Instant>,
+    held_separator: String,
+    words_pending: bool,
+}
+
+impl WindowState {
+    fn closes_at(&self) -> Option<Instant> {
+        self.deadline.map(|deadline| match self.words_pending {
+            true => deadline + PENDING_WORDS_GRACE,
+            false => deadline,
+        })
+    }
+}
 
 /// One recording's delivery deadline; never shared with its successor.
 #[derive(Default)]
 pub(crate) struct GeminiOutputWindow {
-    state: Mutex<(Option<Instant>, String)>,
+    state: Mutex<WindowState>,
+    settled: Notify,
 }
 
 impl GeminiOutputWindow {
     pub(crate) fn finish_at(&self, deadline: Instant) {
-        self.state.lock().unwrap().0 = Some(deadline);
+        self.state.lock().unwrap().deadline = Some(deadline);
+    }
+
+    /// Gemini stabilizes the last words only after Stop, often after a slow network
+    /// round trip. While shown words are unstable, delivery stays open past the deadline.
+    pub(crate) fn set_words_pending(&self, pending: bool) {
+        self.state.lock().unwrap().words_pending = pending;
+        if !pending {
+            self.settled.notify_one();
+        }
+    }
+
+    pub(crate) fn closes_at(&self) -> Option<Instant> {
+        self.state.lock().unwrap().closes_at()
+    }
+
+    pub(crate) async fn settled(&self) {
+        self.settled.notified().await;
     }
 
     pub(crate) fn allows_delivery(&self) -> bool {
@@ -17,7 +55,7 @@ impl GeminiOutputWindow {
     }
 
     fn allows_delivery_at(&self, now: Instant) -> bool {
-        self.state.lock().unwrap().0.is_none_or(|deadline| now < deadline)
+        self.closes_at().is_none_or(|closes_at| now < closes_at)
     }
 
     pub(crate) fn accept_chunk(&self, chunk: String) -> String {
@@ -26,17 +64,17 @@ impl GeminiOutputWindow {
 
     fn accept_chunk_at(&self, chunk: String, now: Instant) -> String {
         let mut state = self.state.lock().unwrap();
-        let Some(deadline) = state.0 else { return chunk; };
-        if now >= deadline {
+        let Some(closes_at) = state.closes_at() else { return chunk; };
+        if now >= closes_at {
             return String::new();
         }
         // During the grace period, attach separators to the next real chunk.
         // Never send an isolated segment-completion space to a new selection.
         if chunk.trim().is_empty() {
-            state.1.push_str(&chunk);
+            state.held_separator.push_str(&chunk);
             return String::new();
         }
-        let mut pending = std::mem::take(&mut state.1);
+        let mut pending = std::mem::take(&mut state.held_separator);
         pending.push_str(&chunk);
         pending
     }
@@ -93,5 +131,85 @@ mod tests {
         assert_eq!(old.accept_chunk_at(" ".into(), now), "");
         let new = GeminiOutputWindow::default();
         assert_eq!(new.accept_chunk("New field".into()), "New field");
+    }
+
+    #[test]
+    fn grace_period_keeps_unicode_separators_and_consumes_them_only_once() {
+        let window = GeminiOutputWindow::default();
+        let now = Instant::now();
+        window.finish_at(now + Duration::from_secs(1));
+        assert_eq!(window.accept_chunk_at("\t".into(), now), "");
+        assert_eq!(window.accept_chunk_at("\u{2003}\n".into(), now), "");
+        assert_eq!(window.accept_chunk_at("Привет!".into(), now), "\t\u{2003}\nПривет!");
+        assert_eq!(window.accept_chunk_at("Next".into(), now), "Next");
+    }
+
+    #[test]
+    fn last_nanosecond_is_deliverable_but_exact_cutoff_and_later_are_blocked() {
+        let window = GeminiOutputWindow::default();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        window.finish_at(deadline);
+        let before = deadline - Duration::from_nanos(1);
+        assert!(window.allows_delivery_at(before));
+        assert_eq!(window.accept_chunk_at("last accepted".into(), before), "last accepted");
+        for late in [deadline, deadline + Duration::from_secs(1)] {
+            assert!(!window.allows_delivery_at(late));
+            assert_eq!(window.accept_chunk_at("late revision".into(), late), "");
+            assert_eq!(window.accept_chunk_at(" ".into(), late), "");
+        }
+    }
+
+    #[test]
+    fn buffered_separator_dies_with_old_window_after_cutoff() {
+        let old = GeminiOutputWindow::default();
+        let new = GeminiOutputWindow::default();
+        let now = Instant::now();
+        let deadline = now + Duration::from_millis(500);
+        old.finish_at(deadline);
+        assert_eq!(old.accept_chunk_at(" ".into(), now), "");
+        assert_eq!(old.accept_chunk_at("late text".into(), deadline), "");
+        assert_eq!(new.accept_chunk_at("new target".into(), deadline), "new target");
+        assert_eq!(old.accept_chunk_at("still late".into(), deadline + Duration::from_secs(10)), "");
+    }
+
+    #[test]
+    fn pending_words_keep_delivery_open_past_deadline_until_they_settle() {
+        let window = GeminiOutputWindow::default();
+        let deadline = Instant::now();
+        window.finish_at(deadline);
+        window.set_words_pending(true);
+        let late = deadline + Duration::from_secs(1);
+        assert!(window.allows_delivery_at(late));
+        assert_eq!(window.accept_chunk_at(" ".into(), late), "");
+        assert_eq!(window.accept_chunk_at("late tail".into(), late), " late tail");
+        window.set_words_pending(false);
+        assert_eq!(window.closes_at(), Some(deadline));
+        assert!(!window.allows_delivery_at(late));
+        assert_eq!(window.accept_chunk_at(" ".into(), late), "");
+    }
+
+    #[test]
+    fn pending_words_wait_is_bounded_by_the_grace() {
+        let window = GeminiOutputWindow::default();
+        window.set_words_pending(true);
+        assert_eq!(window.closes_at(), None);
+        let deadline = Instant::now();
+        window.finish_at(deadline);
+        let cap = deadline + PENDING_WORDS_GRACE;
+        assert_eq!(window.closes_at(), Some(cap));
+        assert!(window.allows_delivery_at(cap - Duration::from_nanos(1)));
+        assert!(!window.allows_delivery_at(cap));
+        assert_eq!(window.accept_chunk_at("too late".into(), cap), "");
+    }
+
+    #[test]
+    fn punctuation_is_real_output_and_receives_held_separator_during_grace() {
+        let window = GeminiOutputWindow::default();
+        let now = Instant::now();
+        window.finish_at(now + Duration::from_secs(1));
+        assert_eq!(window.accept_chunk_at(" ".into(), now), "");
+        assert_eq!(window.accept_chunk_at("…".into(), now), " …");
+        assert_eq!(window.accept_chunk_at(String::new(), now), "");
+        assert_eq!(window.accept_chunk_at("!".into(), now), "!");
     }
 }

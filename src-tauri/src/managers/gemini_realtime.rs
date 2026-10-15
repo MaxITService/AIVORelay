@@ -217,6 +217,7 @@ struct SessionEvents {
     setup_complete: Box<dyn Fn() + Send + Sync>,
     time_limit_stop: Box<dyn Fn() + Send + Sync>,
     time_limit_completed: Box<dyn Fn(Value) + Send + Sync>,
+    words_pending: Box<dyn Fn(bool) + Send + Sync>,
 }
 
 struct ActiveSession {
@@ -338,6 +339,7 @@ impl GeminiRealtimeManager {
                 setup_complete: Box::new(|| {}),
                 time_limit_stop: Box::new(|| {}),
                 time_limit_completed: Box::new(|_| {}),
+                words_pending: Box::new(|_| {}),
             },
         );
         replay.run_audio(
@@ -468,6 +470,11 @@ impl GeminiRealtimeManager {
 
         let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_QUEUE_CAPACITY);
         let output_window = Arc::clone(&pending_audio.as_ref().unwrap().output_window);
+        if transport == GeminiLiveTransport::VercelGateway {
+            // The gateway usually sends the first stable text only after Stop.
+            output_window.set_words_pending(true);
+        }
+        let output_window_for_task = Arc::clone(&output_window);
         let (control_tx, control_rx) = mpsc::unbounded_channel::<ControlMessage>();
         let final_text = Arc::new(Mutex::new(String::new()));
         let final_text_for_task = Arc::clone(&final_text);
@@ -549,6 +556,7 @@ impl GeminiRealtimeManager {
                     options.clone(),
                     Duration::from_secs(GEMINI_LIVE_SAFE_FINALIZE_SECS),
                     Arc::clone(&time_limit_completion),
+                    output_window_for_task,
                 )
                 .await
             }
@@ -782,6 +790,7 @@ impl GeminiRealtimeManager {
         completion_options: GeminiRealtimeOptions,
         time_limit_duration: Duration,
         time_limit_completion: Arc<Mutex<Option<GeminiTimeLimitCompletion>>>,
+        output_window: Arc<GeminiOutputWindow>,
     ) -> Result<()>
     where
         S: Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
@@ -821,6 +830,7 @@ impl GeminiRealtimeManager {
             time_limit_completed: Box::new(move |payload| {
                 let _ = app_handle.emit(GEMINI_LIVE_TIME_LIMIT_COMPLETED_EVENT, payload);
             }),
+            words_pending: Box::new(move |pending| output_window.set_words_pending(pending)),
         };
         Self::drive_session_loop(
             write, read, audio_rx, control_rx, final_text, binding_id,
@@ -1021,10 +1031,14 @@ impl GeminiRealtimeManager {
                                         callback(delta);
                                     }
                                     (events.live_text)(accumulated_text.trim());
+                                    (events.words_pending)(false);
                                 }
                             }
                             "transcript-partial" => {
                                 if let Some(partial) = payload.get("text").and_then(Value::as_str) {
+                                    if !partial.trim().is_empty() {
+                                        (events.words_pending)(true);
+                                    }
                                     let display = preserve_gateway_partial_fallback(
                                         &accumulated_text,
                                         partial,
@@ -1059,6 +1073,7 @@ impl GeminiRealtimeManager {
                                     &final_text,
                                 );
                                 gateway_segment_has_delta = false;
+                                (events.words_pending)(false);
                             }
                             "finish" => {
                                 if let Some(text) = payload.get("text").and_then(Value::as_str) {
@@ -1474,22 +1489,36 @@ impl GeminiRealtimeManager {
 impl GeminiFinalizingSession {
     pub(crate) async fn finish_early(self, deadline: Instant) -> Result<String> {
         let Some(session) = self.session else { return Ok(String::new()); };
-        let ActiveSession { audio_tx, control_tx, final_text, mut join_handle, .. } = session;
+        let ActiveSession { audio_tx, control_tx, final_text, mut join_handle, output_window, .. } = session;
         let _ = control_tx.send(ControlMessage::Finish);
         drop(audio_tx);
-        let result = tokio::time::timeout_at(
-            tokio::time::Instant::from_std(deadline), &mut join_handle,
-        ).await;
-        if result.is_err() {
+        let deadline = tokio::time::Instant::from_std(deadline);
+        // Past the deadline, wait only while Gemini still owes stable text for shown words.
+        let result = loop {
+            let closes_at = output_window.closes_at().map_or(deadline, tokio::time::Instant::from_std);
+            if tokio::time::Instant::now() >= closes_at {
+                break None;
+            }
+            tokio::select! {
+                result = &mut join_handle => break Some(result),
+                _ = tokio::time::sleep_until(closes_at) => {}
+                _ = output_window.settled() => {}
+            }
+        };
+        if result.is_none() {
             join_handle.abort();
             // Wait for callbacks already running before scheduling the final UI write.
             let _ = join_handle.await;
         } else {
             // Keep the user-configured insertion time even if the server finishes early.
-            tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await;
+            tokio::time::sleep_until(deadline).await;
         }
         let text = final_text.lock().trim().to_string();
-        info!("Gemini early finalization completed (partial_text={})", !text.is_empty());
+        info!(
+            "Gemini early finalization completed (partial_text={}, waited_past_deadline_ms={})",
+            !text.is_empty(),
+            tokio::time::Instant::now().saturating_duration_since(deadline).as_millis(),
+        );
         if self.active_session.lock().is_none()
             && !crate::managers::preview_output_mode::is_active()
         {
@@ -1498,8 +1527,8 @@ impl GeminiFinalizingSession {
         }
         if text.is_empty() {
             match result {
-                Ok(Ok(Err(error))) => return Err(error),
-                Ok(Err(error)) => return Err(anyhow!("Gemini early finalization task failed: {}", error)),
+                Some(Ok(Err(error))) => return Err(error),
+                Some(Err(error)) => return Err(anyhow!("Gemini early finalization task failed: {}", error)),
                 _ => {}
             }
         }
