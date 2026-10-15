@@ -70,11 +70,10 @@ const SMART_HELP_ACTIONS = [
 
 // A settings search entry opens the exact setting the same way settings search does.
 const WHATS_NEW_ITEMS = [
-  { key: "help.whatsNew.items.profiles", destination: "general", anchor: "transcription-profile-default" },
-  { key: "help.whatsNew.items.profileOutput", destination: "general", searchEntryId: "profile-output" },
-  { key: "help.whatsNew.items.protectedLiveOutput", destination: "general", searchEntryId: "profile-check-active-window" },
-  { key: "help.whatsNew.items.modelSelection", destination: "models" },
-  { key: "help.whatsNew.items.historySearch", destination: "history" },
+  { key: "help.whatsNew.items.profileShortcuts", destination: "general", searchEntryId: "create-profile" },
+  { key: "help.whatsNew.items.crashRecovery", destination: "debug", searchEntryId: "log-directory" },
+  { key: "help.whatsNew.items.outputPlan", destination: "general", searchEntryId: "profile-output" },
+  { key: "help.whatsNew.items.settingsLinks", destination: "postprocessing", searchEntryId: "llm-postprocessing-enabled" },
   { key: "help.whatsNew.items.replacementPlayground", destination: "textReplacement", searchEntryId: "text-replacement-playground" },
 ] as const;
 
@@ -731,7 +730,7 @@ export const HelpSettings: React.FC = () => {
                 href={`#${item.destination}`}
                 onClick={(event) => {
                   event.preventDefault();
-                  const searchEntryId = "searchEntryId" in item ? item.searchEntryId : undefined;
+                  const searchEntryId = item.searchEntryId;
                   const entry: SettingsSearchEntry | undefined =
                     SETTINGS_SEARCH_ENTRIES.find((candidate) => candidate.id === searchEntryId);
                   if (entry) {
@@ -742,13 +741,6 @@ export const HelpSettings: React.FC = () => {
                       entry.expandAnchor,
                       entry.fallbackAnchor,
                     );
-                  } else if ("anchor" in item) {
-                    navigateToSettingsAnchor({
-                      activateSection: () => setSection(item.destination),
-                      targetId: item.anchor,
-                      readyId: "transcription-profile-default",
-                      expandId: "transcription-profile-default",
-                    });
                   } else {
                     setSection(item.destination);
                   }
