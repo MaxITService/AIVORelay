@@ -55,8 +55,8 @@ Common Documentation Handling:
 4. Exclude any documentation file that is clearly `main`-only.
 5. If a documentation file appears branch-shared and looks like it should exist on all branches, ask the user about that specific file before propagating it.
 6. Check the target branch's specific playbook for additional exclusions/inclusions.
-7. Propose the list of commits to propagate, in table, with numbers and ask the user for approval, usually user will reject some nubmers. Table features commits already excluded by logic. When user approves, this means proceed on commits that are not rejected.
-8. Switch to the target branch.
+7. Present a numbered table of the intended commits, including exclusions and adaptations. Obtain approval unless the user has already explicitly instructed you to proceed with this selection. Approval means proceed with all non-rejected items.
+8. Use the existing target-branch worktree when available; otherwise switch to the target branch.
 9. Cherry-pick selected non-documentation `main` commits in order, plus only the documentation files the user explicitly approved, minus branch-specific exclusions.
 10. If conflicts are small and safe, resolve and continue.
 11. If conflicts are many/high-risk, run `git cherry-pick --abort` and switch to diff-path using `.AGENTS/.untracked/<sha>.diff.txt`.
@@ -65,6 +65,15 @@ Common Documentation Handling:
 14. Update [[.AGENTS/branching-status|branching-status.md]] in the target branch worktree after successful propagation.
 15. Mirror the same propagation-log entry and cursor update back into `main`'s `.AGENTS` docs before considering the sync finished.
 16. Return to the original branch if needed.
+
+## Mixed Commits And Excluded Features
+
+- Review changed paths and hunks, not only commit titles. A later runtime fix can depend on an earlier excluded feature.
+- For mixed code/documentation commits, apply only eligible code and explicitly approved documentation. Keep branch-local agent notes separate.
+- After excluding a feature, inspect later edits to the same files and their imports, helpers, UI, permissions, and translations. Adapt those edits without restoring the excluded feature.
+- Do not replace a branch-divergent file with the full `main` version to resolve a conflict; retain only the intended changes and the target's contract.
+- Inspect the final source/target diff and confirm that protected configuration, dependencies, and excluded features retain their intended differences. This read-only audit does not replace builds or tests; run those only with user authorization.
+- Record source-to-target commit provenance, excluded commits, adapted hunks, approved documentation, and verification limits. The cursor covers the reviewed source state, including documented exclusions; intentionally excluded commits are not pending work in the next propagation.
 
 ## Cargo.lock Rules
 
