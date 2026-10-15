@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtendedTranscriptionProfile } from "./ProfileSettingsForm";
 
-import { cloneProfileSettings, profileSettingsPayload, profileUpdatePayload } from "./profileSettingsPayload";
+import { cloneProfileSettings, llmPromptOverrideFromInput, profileSettingsPayload, profileUpdatePayload } from "./profileSettingsPayload";
 
 const profile = (): ExtendedTranscriptionProfile => ({
   id: "saved", name: "Custom", language: "auto", translate_to_english: false,
@@ -48,6 +48,12 @@ describe("profile clone and command payload", () => {
     expect(source).toEqual({ ...profile(), stt_model_selection_override: {
       provider: "local", provider_preset: "", model_id: "model-a",
     }, gemini_custom_vocabulary_override: ["Original"] });
+  });
+
+  test("a blank profile LLM prompt is saved as inherited, not as an empty custom prompt", () => {
+    for (const blank of ["", "  ", "\n\t "]) expect(llmPromptOverrideFromInput(blank)).toBeNull();
+    expect(llmPromptOverrideFromInput(null)).toBeNull();
+    expect(llmPromptOverrideFromInput("  Fix grammar.\n")).toBe("  Fix grammar.\n");
   });
 
   test("Default clone and payload retain nullable STT/LLM inheritance", () => {
