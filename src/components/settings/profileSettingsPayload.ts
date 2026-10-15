@@ -10,6 +10,10 @@ export const cloneProfileSettings = (profile: ExtendedTranscriptionProfile): Par
   };
 };
 
+/** A blank profile LLM prompt is not an override: post-processing then uses the global prompt. */
+export const llmPromptOverrideFromInput = (prompt: string | null | undefined): string | null =>
+  prompt?.trim() ? prompt : null;
+
 export const profileSettingsPayload = (profile: ExtendedTranscriptionProfile) => ({
   language: profile.language, translateToEnglish: profile.translate_to_english,
   automaticAppRules: profile.automatic_app_rules ?? [], systemPrompt: profile.system_prompt ?? "",

@@ -34,6 +34,7 @@ import type { SttModelSelection } from "../../lib/sttModelSelection";
 import { navigateToSettingsAnchor } from "../../lib/anchorNavigation";
 import { getShortcutAnchorId, getShortcutSettingsSection } from "@/lib/shortcutAnchors";
 import { openLivePreviewSettings } from "../../lib/transcriptionProfileNavigation";
+import { llmPromptOverrideFromInput } from "./profileSettingsPayload";
 
 /** Open the shared provider, model, key, and prompt configuration. */
 const openPostProcessingSettings = () => {
@@ -295,16 +296,17 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
     profileId: profile.id,
     persisted: automaticAppRulesBaseline,
   });
-  const [llmPromptBaseline, setLlmPromptBaseline] = useWindowState(`profile-${profile.id}-llm-prompt-baseline`, profile.llm_prompt_override ?? defaultLlmPrompt);
+  const savedLlmPromptOverride = llmPromptOverrideFromInput(profile.llm_prompt_override);
+  const [llmPromptBaseline, setLlmPromptBaseline] = useWindowState(`profile-${profile.id}-llm-prompt-baseline`, savedLlmPromptOverride ?? defaultLlmPrompt);
   // Track whether user has a custom override (non-null) or uses global (null)
   // Local state for LLM prompt
-  const [localLlmPrompt, setLocalLlmPrompt] = useWindowState(`profile-${profile.id}-llm-prompt-draft`, profile.llm_prompt_override ?? defaultLlmPrompt);
+  const [localLlmPrompt, setLocalLlmPrompt] = useWindowState(`profile-${profile.id}-llm-prompt-draft`, savedLlmPromptOverride ?? defaultLlmPrompt);
   const [isCustomOverride, setIsCustomOverride] = useState(
-    profile.llm_prompt_override != null || localLlmPrompt !== llmPromptBaseline,
+    savedLlmPromptOverride != null || localLlmPrompt !== llmPromptBaseline,
   );
   const lastSavedLlmPromptRef = useRef({
-    prompt: profile.llm_prompt_override ?? defaultLlmPrompt,
-    isCustom: profile.llm_prompt_override != null,
+    prompt: savedLlmPromptOverride ?? defaultLlmPrompt,
+    isCustom: savedLlmPromptOverride != null,
   });
   // Track whether user is actively editing to prevent useEffect from clobbering
   const isEditingRef = useRef(localLlmPrompt !== llmPromptBaseline);
@@ -398,8 +400,8 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
   // Sync local prompt when profile or global prompt changes (but not during active editing)
   useEffect(() => {
     if (isEditingRef.current) return;
-    setLlmPromptBaseline(profile.llm_prompt_override ?? defaultLlmPrompt);
-    if (profile.llm_prompt_override == null) {
+    setLlmPromptBaseline(savedLlmPromptOverride ?? defaultLlmPrompt);
+    if (savedLlmPromptOverride == null) {
       // Using global prompt — auto-track global changes
       setLocalLlmPrompt(defaultLlmPrompt);
       setIsCustomOverride(false);
@@ -409,14 +411,14 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
       };
     } else {
       // Custom override — show saved value
-      setLocalLlmPrompt(profile.llm_prompt_override);
+      setLocalLlmPrompt(savedLlmPromptOverride);
       setIsCustomOverride(true);
       lastSavedLlmPromptRef.current = {
-        prompt: profile.llm_prompt_override,
+        prompt: savedLlmPromptOverride,
         isCustom: true,
       };
     }
-  }, [profile.llm_prompt_override, defaultLlmPrompt]);
+  }, [savedLlmPromptOverride, defaultLlmPrompt]);
 
 
   const languageLabel = useMemo(() => {
@@ -682,10 +684,15 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
   };
 
   const handleLlmPromptChange = (newPrompt: string): Promise<void> => {
-    onDraftChange?.({ llm_prompt_override: newPrompt });
+    const promptOverride = llmPromptOverrideFromInput(newPrompt);
+    if (promptOverride == null) {
+      setLocalLlmPrompt(defaultLlmPrompt);
+      setIsCustomOverride(false);
+    }
+    onDraftChange?.({ llm_prompt_override: promptOverride });
     if (
       llmPromptPendingCountRef.current === 0 &&
-      newPrompt === profile.llm_prompt_override
+      promptOverride === (profile.llm_prompt_override ?? null)
     ) {
       return Promise.resolve();
     }
@@ -697,12 +704,13 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
       setIsUpdating(true);
       try {
         await onCommit({
-            llm_prompt_override: newPrompt,
+            llm_prompt_override: promptOverride,
         });
-        setLlmPromptBaseline(newPrompt);
+        const savedPrompt = promptOverride ?? defaultLlmPrompt;
+        setLlmPromptBaseline(savedPrompt);
         lastSavedLlmPromptRef.current = {
-          prompt: newPrompt,
-          isCustom: true,
+          prompt: savedPrompt,
+          isCustom: promptOverride != null,
         };
       } catch (error) {
         saveFailed = true;
