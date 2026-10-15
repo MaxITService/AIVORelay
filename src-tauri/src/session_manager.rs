@@ -203,6 +203,18 @@ pub fn has_current_operation_for_binding(app: &AppHandle, expected_binding_id: &
     )
 }
 
+/// True while no recording or processing owns the session. A background
+/// finalization uses it so its cue never sounds into a newer recording.
+pub fn is_idle(app: &AppHandle) -> bool {
+    let state = app.state::<ManagedSessionState>();
+    let state_guard = lock_session_state(&state, "is_idle");
+    is_idle_state(&state_guard)
+}
+
+fn is_idle_state(state: &SessionState) -> bool {
+    matches!(state, SessionState::Idle)
+}
+
 fn is_operation_current_state(state: &SessionState, expected_operation_id: u64) -> bool {
     matches!(
         state,
@@ -493,7 +505,7 @@ fn exit_processing_state_if_matches(state: &mut SessionState, expected_operation
 
 #[cfg(test)]
 mod tests {
-    use super::{exit_processing_state_if_matches, is_operation_current_state, SessionState};
+    use super::{exit_processing_state_if_matches, is_idle_state, is_operation_current_state, SessionState};
 
     #[test]
     fn startup_guard_blocks_replacement_until_local_cleanup_finishes() {
@@ -516,6 +528,16 @@ mod tests {
         assert!(is_operation_current_state(&processing, 7));
         assert!(!is_operation_current_state(&processing, 8));
         assert!(!is_operation_current_state(&SessionState::Idle, 7));
+    }
+
+    #[test]
+    fn a_newer_operation_keeps_the_session_busy() {
+        assert!(is_idle_state(&SessionState::Idle));
+        let newer = SessionState::Processing {
+            binding_id: "transcribe".to_string(),
+            operation_id: 8,
+        };
+        assert!(!is_idle_state(&newer));
     }
 
     #[test]

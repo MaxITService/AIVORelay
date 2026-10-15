@@ -9183,6 +9183,14 @@ impl ShortcutAction for TranscribeAction {
                         Ok(text) => {
                             // Live chunks already inserted this text, as in the early-finalization branch.
                             if !is_blank_transcription(&text) {
+                                // Same final output step: held trailing whitespace and a failed-insertion notice.
+                                let output_finalized = finalize_streaming_paste_session_after_main_thread_queue(
+                                    &ah, recording_operation_id, operation_stamp, streaming_clipboard_timeout_ms, text.clone(),
+                                );
+                                // A newer recording may already be running; keep the cue out of it.
+                                if output_finalized && session_manager::is_idle(&ah) {
+                                    play_result_ready_sound(&ah);
+                                }
                                 before_dictation_final_output(&ah, &text);
                             }
                             let text = apply_profile_output_filters(
