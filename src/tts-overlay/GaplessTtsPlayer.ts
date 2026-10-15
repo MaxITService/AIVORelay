@@ -1,9 +1,11 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import {
+  clampTtsPlaybackPitch,
   prepareTtsPlaybackBuffer,
   type PreparedTtsPlaybackBuffer,
   type TtsPlaybackEffect,
 } from "../lib/utils/ttsPlaybackEffects";
+import { LivePitchShifter } from "./livePitchShifter";
 
 export type GaplessTtsChunk = {
   index: number;
@@ -65,6 +67,7 @@ const SNAPSHOT_INTERVAL_MS = 50;
 export class GaplessTtsPlayer {
   private callbacks: GaplessPlayerCallbacks;
   private context: AudioContext | null = null;
+  private pitchShifter: LivePitchShifter | null = null;
   private chunks: GaplessTtsChunk[] = [];
   private decoded = new Map<number, PreparedTtsPlaybackBuffer>();
   private scheduled: ScheduledChunk[] = [];
@@ -102,6 +105,13 @@ export class GaplessTtsPlayer {
     this.pitch = pitch;
     this.effect = effect;
     this.playbackRate = playbackRate;
+    this.pitchShifter?.setRatio(this.pitchShiftRatio());
+  }
+
+  // Source nodes resample, so the playback rate also scales pitch. The live
+  // shifter removes that and applies the requested pitch on top.
+  private pitchShiftRatio() {
+    return clampTtsPlaybackPitch(this.pitch) / this.playbackRate;
   }
 
   setChunks(chunks: GaplessTtsChunk[], expectedTotal: number) {
@@ -184,6 +194,8 @@ export class GaplessTtsPlayer {
     this.completionReported = false;
     this.scheduleRequested = false;
     this.stopMonitor();
+    this.pitchShifter?.dispose();
+    this.pitchShifter = null;
     const context = this.context;
     this.context = null;
     if (context && context.state !== "closed") {
@@ -210,6 +222,7 @@ export class GaplessTtsPlayer {
   setPlaybackRate(playbackRate: number) {
     const position = this.currentPosition();
     this.playbackRate = playbackRate;
+    this.pitchShifter?.setRatio(this.pitchShiftRatio());
     if (!position) {
       return;
     }
@@ -226,6 +239,8 @@ export class GaplessTtsPlayer {
         latencyHint: "interactive",
         sampleRate: PLAYBACK_SAMPLE_RATE,
       });
+      this.pitchShifter = new LivePitchShifter(this.context);
+      this.pitchShifter.setRatio(this.pitchShiftRatio());
       this.nextPlayTime = this.context.currentTime;
     }
     return this.context;
@@ -262,9 +277,11 @@ export class GaplessTtsPlayer {
           const controller = new AbortController();
           this.decodeAbort = controller;
           try {
+            // Pitch is shifted live; resampling each chunk here would also
+            // change its duration, which the source rate cannot undo.
             prepared = await prepareTtsPlaybackBuffer(
               convertFileSrc(chunk.path, "asset"),
-              this.pitch,
+              1,
               this.effect,
               context,
               controller.signal,
@@ -288,10 +305,9 @@ export class GaplessTtsPlayer {
 
         const source = context.createBufferSource();
         source.buffer = prepared.buffer;
-        const effectivePlaybackRate =
-          this.playbackRate / prepared.pitchCompensation;
+        const effectivePlaybackRate = this.playbackRate;
         source.playbackRate.value = effectivePlaybackRate;
-        source.connect(context.destination);
+        source.connect(this.pitchShifter?.input ?? context.destination);
         const sourceOffset = Math.min(
           prepared.buffer.duration,
           Math.max(0, this.pendingSourceOffset),
@@ -381,6 +397,7 @@ export class GaplessTtsPlayer {
     this.decodeAbort?.abort();
     this.decodeAbort = null;
     this.stopScheduledSources();
+    this.pitchShifter?.flush();
     this.nextChunkIndex = chunkIndex;
     this.pendingSourceOffset = sourceOffset;
     this.pendingPauseOffset = pauseOffset;
@@ -418,8 +435,7 @@ export class GaplessTtsPlayer {
       const sourceTime = Math.min(
         active.prepared.buffer.duration,
         active.sourceOffset +
-          Math.max(0, now - active.startTime) *
-            (this.playbackRate / active.prepared.pitchCompensation),
+          Math.max(0, now - active.startTime) * this.playbackRate,
       );
       return this.positionOnTimeline(active.chunk.index, sourceTime);
     }
@@ -467,7 +483,7 @@ export class GaplessTtsPlayer {
         target = prepared;
         targetPauseDuration = Math.max(0, chunk.pauseAfterMs) / 1_000;
       }
-      elapsed += prepared.buffer.duration * prepared.pitchCompensation;
+      elapsed += prepared.buffer.duration;
       // History audio encodes this pause as silence; streaming playback
       // schedules it separately, so the visible media timeline must add it.
       elapsed += Math.max(0, chunk.pauseAfterMs) / 1_000;
@@ -489,9 +505,7 @@ export class GaplessTtsPlayer {
       pauseOffset: boundedPauseOffset,
       isPlaying: false,
       playbackTime:
-        targetStart +
-        boundedSourceOffset * target.pitchCompensation +
-        boundedPauseOffset,
+        targetStart + boundedSourceOffset + boundedPauseOffset,
       playbackDuration: elapsed,
       playbackProgress: this.progressForPosition(
         chunkIndex,
@@ -625,7 +639,9 @@ export class GaplessTtsPlayer {
     const last = this.scheduled.find(
       (entry) => entry.chunk.index + 1 === this.expectedTotal,
     );
-    if (!last || this.context.currentTime < last.endTime) {
+    // Suspending sooner would freeze the tail still inside the pitch shifter.
+    const outputLatency = this.pitchShifter?.latencySeconds ?? 0;
+    if (!last || this.context.currentTime < last.endTime + outputLatency) {
       return;
     }
     this.completionReported = true;

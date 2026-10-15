@@ -14,7 +14,7 @@ export type PreparedTtsPlaybackBuffer = {
 const MAX_PROCESSING_INPUT_BYTES = 64 * 1024 * 1024;
 const MAX_RENDERED_SAMPLE_VALUES = 24_000_000;
 
-const clampPitch = (pitch: number) =>
+export const clampTtsPlaybackPitch = (pitch: number) =>
   Number.isFinite(pitch) ? Math.min(2, Math.max(0.5, pitch)) : 1;
 
 export async function prepareTtsPlaybackSource(
@@ -23,7 +23,7 @@ export async function prepareTtsPlaybackSource(
   effect: TtsPlaybackEffect,
   signal: AbortSignal,
 ): Promise<PreparedTtsPlaybackSource> {
-  const normalizedPitch = clampPitch(pitch);
+  const normalizedPitch = clampTtsPlaybackPitch(pitch);
   if (normalizedPitch === 1 && effect === "none") {
     return { url: sourceUrl, objectUrl: null, pitchCompensation: 1 };
   }
@@ -66,7 +66,7 @@ export async function prepareTtsPlaybackBuffer(
   decoder: AudioContext,
   signal: AbortSignal,
 ): Promise<PreparedTtsPlaybackBuffer> {
-  const normalizedPitch = clampPitch(pitch);
+  const normalizedPitch = clampTtsPlaybackPitch(pitch);
   const encoded = await loadEncodedAudio(sourceUrl, signal);
   const decoded = await decoder.decodeAudioData(encoded.slice(0));
   throwIfAborted(signal);

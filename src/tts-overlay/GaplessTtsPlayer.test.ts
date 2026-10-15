@@ -7,6 +7,7 @@ async function scheduleChunks(
   secondDecodeTime: number,
   pauseAfterMs = 0,
   playbackRate = 1,
+  pitch = 1,
 ) {
   const globals = [
     "AudioContext",
@@ -20,6 +21,7 @@ async function scheduleChunks(
   );
   const starts: number[] = [];
   const rates: number[] = [];
+  const shiftCycleFrames: number[] = [];
   let contextOptions: AudioContextOptions | undefined;
   let decodeCount = 0;
 
@@ -27,6 +29,7 @@ async function scheduleChunks(
     currentTime = 0;
     state = "running";
     destination = {};
+    sampleRate = 24_000;
 
     constructor(options: AudioContextOptions) {
       contextOptions = options;
@@ -42,15 +45,40 @@ async function scheduleChunks(
 
     createBufferSource() {
       const playbackRate = { value: 1 };
-      return {
+      const source = {
         playbackRate,
+        loop: false,
         connect() {},
         disconnect() {},
         stop() {},
         start(time: number) {
+          // Looping sources are the pitch shifter's modulators, not chunks.
+          if (source.loop) return;
           starts.push(time);
           rates.push(playbackRate.value);
         },
+      };
+      return source;
+    }
+
+    createGain() {
+      return { gain: { value: 1 }, connect() {}, disconnect() {} };
+    }
+
+    createDelay() {
+      return { delayTime: { value: 0 }, connect() {}, disconnect() {} };
+    }
+
+    createChannelSplitter() {
+      return { connect() {}, disconnect() {} };
+    }
+
+    createBuffer(_channels: number, length: number, sampleRate: number) {
+      shiftCycleFrames.push(length);
+      const channels = [new Float32Array(length), new Float32Array(length)];
+      return {
+        duration: length / sampleRate,
+        getChannelData: (channel: number) => channels[channel],
       };
     }
 
@@ -80,13 +108,13 @@ async function scheduleChunks(
         value: replacements[index],
       });
     });
-    player.configure(1, "none", playbackRate);
+    player.configure(pitch, "none", playbackRate);
     player.setChunks([
       { index: 0, path: "first.wav", pauseAfterMs },
       { index: 1, path: "second.wav", pauseAfterMs: 0 },
     ], 2);
     await player.play();
-    return { starts, rates, contextOptions };
+    return { starts, rates, shiftCycleFrames, contextOptions };
   } finally {
     player.stop();
     globals.forEach((name, index) => {
@@ -120,4 +148,61 @@ test("intentional pauses and faster playback retain their exact join", async () 
   const { starts, rates } = await scheduleChunks(0.235, 100, 2);
   expect(starts[1]).toBeCloseTo(0.245, 10);
   expect(rates).toEqual([2, 2]);
+});
+
+test("half-speed playback doubles chunk duration without adding join silence", async () => {
+  const { starts, rates } = await scheduleChunks(0.51, 0, 0.5);
+  expect(starts[0]).toBeCloseTo(0.02, 10);
+  expect(starts[1]).toBeCloseTo(0.52, 10);
+  expect(rates).toEqual([0.5, 0.5]);
+});
+
+test("four-times playback preserves joins when decoding finishes within the startup margin", async () => {
+  const { starts, rates } = await scheduleChunks(0.08, 0, 4);
+  expect(starts[1]).toBeCloseTo(0.0825, 10);
+  expect(rates).toEqual([4, 4]);
+});
+
+test("half-speed playback preserves the requested pause in wall-clock milliseconds", async () => {
+  const { starts, rates } = await scheduleChunks(0.66, 150, 0.5);
+  expect(starts[1]).toBeCloseTo(0.67, 10);
+  expect(rates).toEqual([0.5, 0.5]);
+});
+
+test("a long intentional pause does not acquire an extra startup margin", async () => {
+  const { starts } = await scheduleChunks(0.56, 300);
+  expect(starts[1]).toBeCloseTo(0.57, 10);
+});
+
+test("negative pause values cannot overlap adjacent chunks", async () => {
+  const { starts } = await scheduleChunks(0.26, -100);
+  expect(starts[1]).toBeCloseTo(0.27, 10);
+});
+
+test("a long decoding underrun reschedules from the current audio clock", async () => {
+  const { starts } = await scheduleChunks(1);
+  expect(starts[0]).toBeCloseTo(0.02, 10);
+  expect(starts[1]).toBeCloseTo(1.02, 10);
+});
+
+test("playback pitch is shifted live instead of being undone by the source rate", async () => {
+  const { starts, rates, shiftCycleFrames } = await scheduleChunks(0, 0, 1, 2);
+  // Pitch must not change duration: chunks keep their decoded length.
+  expect(starts).toEqual([0.02, 0.27]);
+  expect(rates).toEqual([1, 1]);
+  // Ratio 2: one 0.1 s delay sweep per 0.1 s at 24 kHz.
+  expect(shiftCycleFrames).toEqual([2_400]);
+});
+
+test("faster playback is shifted back down to the requested pitch", async () => {
+  const { rates, shiftCycleFrames } = await scheduleChunks(0.235, 100, 2);
+  expect(rates).toEqual([2, 2]);
+  // Ratio 1 / 2: one 0.1 s delay sweep per 0.2 s.
+  expect(shiftCycleFrames).toEqual([4_800]);
+});
+
+test("pitch that matches the playback rate bypasses the shifter", async () => {
+  const { rates, shiftCycleFrames } = await scheduleChunks(0.235, 0, 2, 2);
+  expect(rates).toEqual([2, 2]);
+  expect(shiftCycleFrames).toEqual([]);
 });
