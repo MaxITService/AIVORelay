@@ -28,6 +28,8 @@ import { HotkeyCapture } from "../../ui/HotkeyCapture";
 import { InfoTooltip } from "../../ui/InfoTooltip";
 import { commands } from "@/bindings";
 import { getShortcutAnchorId } from "@/lib/shortcutAnchors";
+import type { ExtendedTranscriptionProfile } from "../ProfileSettingsForm";
+import { profileUpdatePayload } from "../profileSettingsPayload";
 
 const SONIOX_LIVE_PREVIEW_CURSOR_OFFSET_MIN = 24;
 const SONIOX_LIVE_PREVIEW_CURSOR_OFFSET_MAX = 320;
@@ -499,32 +501,11 @@ export const UserInterfaceSettings: React.FC = () => {
                 if (activeProfileId === "default") {
                   await invoke("change_preview_output_only_enabled_setting", { enabled });
                 } else {
-                  const profiles = (settings?.transcription_profiles ?? []) as any[];
-                  const activeProfile = profiles.find((p: any) => p.id === activeProfileId);
+                  const profiles = (settings?.transcription_profiles ?? []) as ExtendedTranscriptionProfile[];
+                  const activeProfile = profiles.find((p) => p.id === activeProfileId);
                   if (activeProfile) {
                     await invoke("update_transcription_profile", {
-                      payload: {
-                        id: activeProfile.id,
-                        name: activeProfile.name,
-                        language: activeProfile.language,
-                        translateToEnglish: activeProfile.translate_to_english,
-                        systemPrompt: activeProfile.system_prompt || "",
-                        sttPromptOverrideEnabled: activeProfile.stt_prompt_override_enabled ?? false,
-                        includeInCycle: activeProfile.include_in_cycle,
-                        pushToTalk: activeProfile.push_to_talk,
-                        autoShortcutActivation:
-                          activeProfile.auto_shortcut_activation ?? false,
-                        previewOutputOnlyEnabled: enabled,
-                        llmSettings: {
-                          enabled: activeProfile.llm_post_process_enabled ?? false,
-                          promptOverride: activeProfile.llm_prompt_override ?? null,
-                          modelOverride: activeProfile.llm_model_override ?? null,
-                        },
-                        sonioxContextGeneralJson: activeProfile.soniox_context_general_json || "",
-                        sonioxContextText: activeProfile.soniox_context_text || "",
-                        sonioxContextTerms: activeProfile.soniox_context_terms || [],
-                        sonioxLanguageHintsStrict: activeProfile.soniox_language_hints_strict ?? null,
-                      },
+                      payload: profileUpdatePayload(activeProfile, { preview_output_only_enabled: enabled }),
                     });
                   }
                 }

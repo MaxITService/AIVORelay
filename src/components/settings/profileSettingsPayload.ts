@@ -25,3 +25,13 @@ export const profileSettingsPayload = (profile: ExtendedTranscriptionProfile) =>
   geminiCustomVocabularyOverride: profile.gemini_custom_vocabulary_override ?? null,
   chineseScript: profile.chinese_script ?? null, outputSettings: profile.output_settings ?? {},
 });
+
+/** update_transcription_profile payload; Chinese script and output settings are saved by their own commands. */
+export const profileUpdatePayload = (
+  profile: ExtendedTranscriptionProfile, patch: Partial<ExtendedTranscriptionProfile> = {},
+) => {
+  const next = { ...profile, ...patch };
+  // Every field is sent: the command stores omitted overrides as cleared.
+  const { chineseScript: _chineseScript, outputSettings: _outputSettings, ...settings } = profileSettingsPayload(next);
+  return { id: next.id, name: next.name, ...settings };
+};
