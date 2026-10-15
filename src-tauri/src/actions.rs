@@ -5979,6 +5979,15 @@ fn before_dictation_final_output(app: &AppHandle, text: &str) {
     );
 }
 
+/// Preview text leaves the Preview only by pasting it. `PasteMethod::None`
+/// reports success without delivering anything, after which the Preview would
+/// be cleared, so insertion is refused while the text is still there.
+fn preview_insert_refusal(paste_method: crate::settings::PasteMethod) -> Option<&'static str> {
+    (paste_method == crate::settings::PasteMethod::None).then_some(
+        "Insert is unavailable because this profile's paste method is None. Copy the text from Preview or choose another paste method.",
+    )
+}
+
 async fn paste_preview_buffer_to_target(
     app: &AppHandle,
     text: String,
@@ -5989,6 +5998,12 @@ async fn paste_preview_buffer_to_target(
     }
     if operation_stamp.is_some_and(|stamp| !stamp.is_current(app) || stamp.was_cancelled(app)) {
         return Ok(false);
+    }
+    if let Some(reason) = crate::managers::preview_output_mode::output_settings()
+        .and_then(|settings| preview_insert_refusal(settings.paste_method))
+    {
+        crate::managers::preview_output_mode::set_error(app, Some(reason.to_string()));
+        return Err(reason.to_string());
     }
 
     before_dictation_final_output(app, &text);
@@ -6223,6 +6238,20 @@ mod dictation_paste_feedback_tests {
         for cancelled in [false, true] {
             assert!(finish_dictation_paste_result(Ok(true), true, cancelled,
                 |_| panic!("Delivered text must not be reported as a failed insertion")));
+        }
+    }
+}
+
+#[cfg(test)]
+mod preview_insert_tests {
+    use super::preview_insert_refusal;
+    use crate::settings::PasteMethod;
+
+    #[test]
+    fn paste_method_none_refuses_preview_insert_instead_of_clearing_the_text() {
+        assert!(preview_insert_refusal(PasteMethod::None).is_some_and(|reason| !reason.is_empty()));
+        for method in [PasteMethod::CtrlV, PasteMethod::Direct, PasteMethod::ShiftInsert, PasteMethod::CtrlShiftV] {
+            assert_eq!(preview_insert_refusal(method), None);
         }
     }
 }
