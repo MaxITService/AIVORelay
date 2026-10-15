@@ -6702,24 +6702,27 @@ pub(crate) fn build_gemini_options_for_live_sound(
     settings: &AppSettings,
 ) -> GeminiRealtimeOptions {
     let profile = resolve_profile_for_binding(settings, LIVE_SOUND_TRANSCRIPTION_BINDING_ID);
-    build_gemini_realtime_options(settings, profile)
+    build_gemini_realtime_options(settings, profile, crate::gemini_config::GeminiWorkflow::Live)
 }
 
 fn build_gemini_realtime_options(
     settings: &AppSettings,
     profile: Option<&crate::settings::TranscriptionProfile>,
+    workflow: crate::gemini_config::GeminiWorkflow,
 ) -> GeminiRealtimeOptions {
     let os_locale = crate::input_source::get_language_from_input_source();
     let effective = crate::gemini_config::resolve_effective_config(
         settings,
         profile,
-        crate::gemini_config::GeminiWorkflow::Live,
+        workflow,
         os_locale.as_deref(),
     );
     let validation_error = effective.as_ref().err().cloned();
     let (language, custom_vocabulary, mode) = effective
         .map(|config| (config.language_code, config.custom_vocabulary, config.mode))
-        .unwrap_or_else(|_| (None, Vec::new(), settings.gemini_live_mode));
+        .unwrap_or_else(|_| {
+            (None, Vec::new(), crate::gemini_config::workflow_mode(settings, workflow))
+        });
     GeminiRealtimeOptions {
         model: settings.remote_stt.model_id.clone(),
         language,
@@ -6727,6 +6730,28 @@ fn build_gemini_realtime_options(
         custom_vocabulary,
         mode,
         validation_error,
+    }
+}
+
+#[cfg(test)]
+mod gemini_realtime_mode_tests {
+    use super::{build_gemini_options_for_live_sound, build_gemini_realtime_options};
+    use crate::gemini_config::GeminiWorkflow;
+    use crate::settings::{get_default_settings, GeminiTranscriptionMode};
+
+    #[test]
+    fn live_dictation_uses_dictation_mode_not_live_monitor_initial_mode() {
+        let mut settings = get_default_settings();
+        settings.remote_stt.provider_preset = "vercel".to_string();
+        settings.remote_stt.model_id = "google/gemini-3.5-transcribe-live".to_string();
+        settings.gemini_live_mode = GeminiTranscriptionMode::Verbatim;
+        settings.gemini_dictation_mode = Some(GeminiTranscriptionMode::Smart);
+
+        let dictation = build_gemini_realtime_options(&settings, None, GeminiWorkflow::Dictation);
+        assert_eq!(dictation.mode, GeminiTranscriptionMode::Smart);
+        assert!(dictation.validation_error.is_none());
+        let live_monitor = build_gemini_options_for_live_sound(&settings);
+        assert_eq!(live_monitor.mode, GeminiTranscriptionMode::Verbatim);
     }
 }
 
@@ -6788,7 +6813,11 @@ pub(crate) async fn perform_history_live_transcription(
             let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
                 .map_err(|error| error.to_string())?;
             if should_use_gemini_realtime_live(settings) {
-                let options = build_gemini_realtime_options(settings, profile);
+                let options = build_gemini_realtime_options(
+                    settings,
+                    profile,
+                    crate::gemini_config::GeminiWorkflow::Dictation,
+                );
                 app.state::<Arc<GeminiRealtimeManager>>().transcribe_history_replay(
                     samples, &api_key, options, replay,
                 ).await
@@ -6931,7 +6960,11 @@ fn setup_and_start_live(
         TranscriptionProvider::RemoteOpenAiCompatible
             if should_use_gemini_realtime_live(settings) =>
         {
-            let options = build_gemini_realtime_options(settings, profile);
+            let options = build_gemini_realtime_options(
+                settings,
+                profile,
+                crate::gemini_config::GeminiWorkflow::Dictation,
+            );
             let gemini_realtime_manager =
                 Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
             let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
@@ -8478,7 +8511,11 @@ impl ShortcutAction for TranscribeAction {
                         &binding_id,
                         Some(recording_operation_id),
                         &api_key,
-                        build_gemini_realtime_options(&settings, profile),
+                        build_gemini_realtime_options(
+                            &settings,
+                            profile,
+                            crate::gemini_config::GeminiWorkflow::Dictation,
+                        ),
                         chunk_callback,
                     );
 
