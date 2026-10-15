@@ -21,6 +21,9 @@ interface GlobalShortcutInputProps {
   disabled?: boolean;
   title?: string;
   description?: string;
+  /** Draft mode: record into this value instead of a saved binding. */
+  draftBinding?: string;
+  onDraftBindingChange?: (binding: string) => void;
 }
 
 interface BindingSuspension {
@@ -36,6 +39,8 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
   disabled = false,
   title,
   description,
+  draftBinding,
+  onDraftBindingChange,
 }) => {
   const { t } = useTranslation();
   const { getSetting, updateBinding, resetBinding, isUpdating, isLoading } =
@@ -46,6 +51,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
   const [originalBinding, setOriginalBinding] = useState<string>("");
   const [osType, setOsType] = useState<OSType>("unknown");
   const suspensionRef = useRef<BindingSuspension | null>(null);
+  const isDraft = onDraftBindingChange !== undefined;
 
   const bindings = getSetting("bindings") || {};
   const configuredShortcutEngine =
@@ -135,14 +141,18 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
   const saveCapturedShortcut = useCallback(
     async (newShortcut: string) => {
       const activeShortcutId = editingShortcutId;
-      if (!activeShortcutId || !bindings[activeShortcutId]) {
+      if (!activeShortcutId || (!onDraftBindingChange && !bindings[activeShortcutId])) {
         await releaseBindingSuspension();
         finishRecording();
         return;
       }
 
       try {
-        await updateBinding(activeShortcutId, newShortcut);
+        if (onDraftBindingChange) {
+          onDraftBindingChange(newShortcut);
+        } else {
+          await updateBinding(activeShortcutId, newShortcut);
+        }
 
         if (
           osType === "windows" &&
@@ -177,6 +187,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
       configuredShortcutEngine,
       editingShortcutId,
       finishRecording,
+      onDraftBindingChange,
       originalBinding,
       osType,
       releaseBindingSuspension,
@@ -224,7 +235,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
     setEditingShortcutId(id);
   };
 
-  if (isLoading) {
+  if (isLoading && !isDraft) {
     return (
       <SettingContainer
         title={t("settings.general.shortcut.title")}
@@ -239,7 +250,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
     );
   }
 
-  if (Object.keys(bindings).length === 0) {
+  if (Object.keys(bindings).length === 0 && !isDraft) {
     return (
       <SettingContainer
         title={t("settings.general.shortcut.title")}
@@ -254,7 +265,9 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
     );
   }
 
-  const binding = bindings[shortcutId];
+  const binding = isDraft
+    ? { name: title ?? "", description: description ?? "", current_binding: draftBinding ?? "" }
+    : bindings[shortcutId];
   if (!binding) {
     return (
       <SettingContainer
@@ -311,8 +324,8 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
           </button>
         )}
         <ResetButton
-          onClick={() => resetBinding(shortcutId)}
-          disabled={isUpdating(`binding_${shortcutId}`)}
+          onClick={() => onDraftBindingChange ? onDraftBindingChange("") : resetBinding(shortcutId)}
+          disabled={isDraft ? !draftBinding : isUpdating(`binding_${shortcutId}`)}
         />
       </div>
     </SettingContainer>

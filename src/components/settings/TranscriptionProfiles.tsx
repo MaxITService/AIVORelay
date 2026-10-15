@@ -426,6 +426,7 @@ export const TranscriptionProfiles: React.FC = () => {
     settings,
     refreshSettings,
     updateSetting,
+    updateBinding,
     isUpdating: isSettingUpdating,
     postProcessModelOptions,
     fetchPostProcessModels,
@@ -450,6 +451,7 @@ export const TranscriptionProfiles: React.FC = () => {
   const [newPushToTalk, setNewPushToTalk] = useWindowState("profile-new-push-to-talk", true);
   const [newPreviewOutputOnly, setNewPreviewOutputOnly] = useWindowState("profile-new-preview", false);
   const [newIncludeInCycle, setNewIncludeInCycle] = useWindowState("profile-new-cycle", true);
+  const [newShortcut, setNewShortcut] = useWindowState("profile-new-shortcut", "");
   const [newSttPromptOverrideEnabled, setNewSttPromptOverrideEnabled] =
     useWindowState("profile-new-stt-prompt-override", false);
   const [newLlmEnabledOverride, setNewLlmEnabledOverride] = useWindowState<
@@ -691,6 +693,7 @@ export const TranscriptionProfiles: React.FC = () => {
     setNewPushToTalk(true);
     setNewPreviewOutputOnly(false);
     setNewIncludeInCycle(true);
+    setNewShortcut("");
     setNewLlmEnabledOverride(null);
     setNewLlmPromptOverride("");
     setNewLlmPromptExplicitEmpty(false);
@@ -711,7 +714,7 @@ export const TranscriptionProfiles: React.FC = () => {
 
   const hasNewProfileDraft = Boolean(
     newName || newLanguage !== "auto" || newTranslate || newSystemPrompt ||
-    !newPushToTalk || newPreviewOutputOnly || !newIncludeInCycle ||
+    !newPushToTalk || newPreviewOutputOnly || !newIncludeInCycle || newShortcut ||
     newSttPromptOverrideEnabled || newLlmEnabledOverride !== null ||
     newLlmPromptOverride || newLlmPromptExplicitEmpty || newLlmModelOverride !== null ||
     newSonioxContextGeneralJson || newSonioxContextText || newSonioxContextTerms.length ||
@@ -756,6 +759,16 @@ export const TranscriptionProfiles: React.FC = () => {
         },
       );
       await refreshSettings();
+      if (newShortcut) {
+        // The binding exists only after creation; a rejected key keeps the profile.
+        try {
+          await updateBinding(`transcribe_${newProfile.id}`, newShortcut);
+        } catch (error) {
+          toast.error(t("settings.transcriptionProfiles.shortcutAssignFailed", {
+            error: error instanceof Error ? error.message : String(error),
+          }));
+        }
+      }
       clearNewProfile();
       setExpandedIds((prev) => {
         const next = new Set(prev);
@@ -1339,7 +1352,10 @@ export const TranscriptionProfiles: React.FC = () => {
             {t("settings.transcriptionProfiles.copyDraftFrom", { name: duplicateSourceName, defaultValue: "Copied from {{name}}. Review settings before creating." })}
           </p>}
           <ProfileSettingsForm key={`new-${draftRevision}`} {...sharedFormProps} profile={newProfileDraft} scope="draft"
-            onCommit={commitNewDraftPatch} onDraftChange={applyNewDraftPatch} onValidationReasonsChange={setNewFormValidationReasons} disabled={isCreating} />
+            onCommit={commitNewDraftPatch} onDraftChange={applyNewDraftPatch} onValidationReasonsChange={setNewFormValidationReasons} disabled={isCreating}
+            shortcut={<HandyShortcut shortcutId="transcribe_new_profile" grouped={true} disabled={isCreating}
+              title={newName.trim() || t("settings.transcriptionProfiles.draft", "Draft")} description={newName.trim() || t("settings.transcriptionProfiles.draft", "Draft")}
+              draftBinding={newShortcut} onDraftBindingChange={setNewShortcut} />} />
 
           {newProfileError && (
             <p className="text-xs text-red-400">{newProfileError}</p>

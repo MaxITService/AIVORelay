@@ -12,6 +12,8 @@ interface HandyShortcutProps {
   disabled?: boolean;
   title?: string;
   description?: string;
+  draftBinding?: string;
+  onDraftBindingChange?: (binding: string) => void;
 }
 
 export const HandyShortcut: React.FC<HandyShortcutProps> = (props) => {

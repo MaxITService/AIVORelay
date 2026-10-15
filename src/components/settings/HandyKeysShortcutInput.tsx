@@ -21,6 +21,9 @@ interface HandyKeysShortcutInputProps {
   disabled?: boolean;
   title?: string;
   description?: string;
+  /** Draft mode: record into this value instead of a saved binding. */
+  draftBinding?: string;
+  onDraftBindingChange?: (binding: string) => void;
 }
 
 interface HandyKeysEvent {
@@ -37,6 +40,8 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
   disabled = false,
   title,
   description,
+  draftBinding,
+  onDraftBindingChange,
 }) => {
   const { t } = useTranslation();
   const { getSetting, updateBinding, resetBinding, isUpdating, isLoading } =
@@ -48,10 +53,16 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
   const shortcutRef = useRef<HTMLDivElement | null>(null);
   const unlistenRef = useRef<(() => void) | null>(null);
   const currentKeysRef = useRef("");
+  const isDraft = onDraftBindingChange !== undefined;
+  const onDraftBindingChangeRef = useRef(onDraftBindingChange);
 
   const bindings = getSetting("bindings") || {};
   const configuredShortcutEngine =
     (getSetting("shortcut_engine") as string | undefined) ?? "handy_keys";
+
+  useEffect(() => {
+    onDraftBindingChangeRef.current = onDraftBindingChange;
+  }, [onDraftBindingChange]);
 
   useEffect(() => {
     try {
@@ -132,7 +143,11 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
             const nextShortcut = currentKeysRef.current;
 
             try {
-              await updateBinding(shortcutId, nextShortcut);
+              if (isDraft) {
+                onDraftBindingChangeRef.current?.(nextShortcut);
+              } else {
+                await updateBinding(shortcutId, nextShortcut);
+              }
 
               if (
                 osType === "windows" &&
@@ -188,6 +203,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     };
   }, [
     cancelRecording,
+    isDraft,
     isRecording,
     originalBinding,
     osType,
@@ -236,7 +252,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     return formatKeyCombination(currentKeys, osType);
   };
 
-  if (isLoading) {
+  if (isLoading && !isDraft) {
     return (
       <SettingContainer
         title={t("settings.general.shortcut.title")}
@@ -251,7 +267,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     );
   }
 
-  if (Object.keys(bindings).length === 0) {
+  if (Object.keys(bindings).length === 0 && !isDraft) {
     return (
       <SettingContainer
         title={t("settings.general.shortcut.title")}
@@ -266,7 +282,9 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     );
   }
 
-  const binding = bindings[shortcutId];
+  const binding = isDraft
+    ? { name: title ?? "", description: description ?? "", current_binding: draftBinding ?? "" }
+    : bindings[shortcutId];
   if (!binding) {
     return (
       <SettingContainer
@@ -323,8 +341,8 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
           </button>
         )}
         <ResetButton
-          onClick={() => resetBinding(shortcutId)}
-          disabled={isUpdating(`binding_${shortcutId}`)}
+          onClick={() => onDraftBindingChange ? onDraftBindingChange("") : resetBinding(shortcutId)}
+          disabled={isDraft ? !draftBinding : isUpdating(`binding_${shortcutId}`)}
         />
       </div>
     </SettingContainer>

@@ -2650,7 +2650,8 @@
       "translateToEnglish": "Translate to English",
       "translateToEnglishDescription": "Translate speech to English during transcription.",
       "translateToEnglishTooltip": "When enabled, the model will attempt to translate the detected speech into English.",
-      "shortcut": "Toggle shortcut",
+      "shortcut": "Direct shortcut (optional): uses this profile even when another one is active",
+      "shortcutHint": "Not needed if you pick profiles with Set Active or the <cycle>cycle shortcut</cycle> and dictate with the <transcribe>main Transcribe shortcut</transcribe>.",
       "includeInCycle": "Include in Cycle",
       "includeInCycleDescription": "Allow switching to this profile via the 'Cycle Profile' shortcut.",
       "automaticApps": {
@@ -2686,6 +2687,7 @@
       "systemPromptGlobal": "Voice Model Prompt (Global)",
       "voiceModelPromptGlobalTooltip": "This is the GLOBAL Voice Model Prompt. It is used by all transcription profiles unless they have 'Override Voice Model Prompt' enabled. When a profile's override is OFF, it inherits this prompt. This prompt provides context hints directly to the Speech-to-Text (STT) model to help it recognize specialized terminology, proper nouns, or formatting before the transcript is created. Unlike LLM Post-Processing, this works at the 'hearing' stage to prevent errors. Note that prompts are saved independently for each specific voice model—switching models will switch the active prompt. Because STT engines have small memory windows for context (often 224-448 tokens), if the input exceeds this limit, it will be automatically truncated from the start. Support depends on the specific model provider (e.g., Whisper models generally support this, while Parakeet does not).",
       "createFailed": "Failed to create profile.",
+      "shortcutAssignFailed": "Profile created, but its shortcut couldn't be set: {{error}}. You can set it in the profile card.",
       "deleteFailed": "Could not delete profile.",
       "sonioxContext": {
         "description": "Soniox context improves recognition for domain terms and names. Fields stay saved when you switch providers.",

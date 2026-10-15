@@ -32,12 +32,20 @@ import { KeyActionsBadge, ProfileOutputSettingsFields, getGlobalProfileOutputDef
 import type { ProfileOutputSettings as OutputSettings } from "@/lib/profileOutputSettings";
 import type { SttModelSelection } from "../../lib/sttModelSelection";
 import { navigateToSettingsAnchor } from "../../lib/anchorNavigation";
+import { getShortcutAnchorId, getShortcutSettingsSection } from "@/lib/shortcutAnchors";
 import { openLivePreviewSettings } from "../../lib/transcriptionProfileNavigation";
 
 /** Open the shared provider, model, key, and prompt configuration. */
 const openPostProcessingSettings = () => {
   useNavigationStore.getState().setSection("postprocessing");
 };
+
+/** Scroll to the main Transcribe or Cycle Profile shortcut row. */
+const openShortcutSettings = (shortcutId: string) => navigateToSettingsAnchor({
+  activateSection: () => useNavigationStore.getState().setSection(getShortcutSettingsSection(shortcutId)),
+  targetId: getShortcutAnchorId(shortcutId),
+  block: "center",
+});
 
 const ProfileMoreSettings: React.FC<{
   profileId: string;
@@ -876,6 +884,12 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
               <label className="text-xs font-semibold text-text/70">
                 {t("settings.transcriptionProfiles.shortcut")}
               </label>
+              <p className="text-xs text-mid-gray leading-snug">
+                <Trans i18nKey="settings.transcriptionProfiles.shortcutHint" components={{
+                  cycle: <button type="button" className="underline underline-offset-2 hover:text-text" onClick={() => openShortcutSettings("cycle_profile")} />,
+                  transcribe: <button type="button" className="underline underline-offset-2 hover:text-text" onClick={() => openShortcutSettings("transcribe")} />,
+                }} />
+              </p>
               {shortcut}
             </div>}
 
