@@ -684,16 +684,15 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.47",
+      "since": "Since version 1.0.48",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "profiles": "Speech / Mic: create or duplicate profiles with the same controls as Default. Collapsed cards show a summary of their settings.",
-        "profileOutput": "Speech / Mic → profile → More: each profile has its own text insertion, clipboard, and key-press settings.",
-        "protectedLiveOutput": "Speech / Mic → profile → More: protect the target window so live text waits while you switch apps, then resumes when you return.",
-        "modelSelection": "Models: see which profile you are choosing a model for. Undo a model deletion within five seconds.",
-        "historySearch": "History: search saved text with highlighted matches, or open a transcription in the LLM benchmark to try another prompt.",
-        "replacementPlayground": "Text Processing → Try your rules: preview replacements on sample text and see which rules changed it, in order."
+        "profileShortcuts": "Set a shortcut while creating a profile, or leave it empty and use Set Active or Cycle Profile.",
+        "crashRecovery": "Fixed a black-window problem. If a page fails, the error screen lets you reload the window or open the logs.",
+        "outputPlan": "Profiles → More: the output plan now names each key and explains delays, Preview, and what happens if you switch windows.",
+        "settingsLinks": "Profile post-processing notices now link directly to Preview and shared LLM settings, opening collapsed controls when needed.",
+        "replacementPlayground": "Find Try your rules through settings search, or open it directly from What's New."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"
