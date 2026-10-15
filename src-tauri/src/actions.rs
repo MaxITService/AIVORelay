@@ -10310,20 +10310,29 @@ fn emit_screenshot_error(app: &AppHandle, message: impl Into<String>) {
 /// On non-Windows platforms, returns the path unchanged.
 #[cfg(target_os = "windows")]
 fn expand_env_vars(path: &str) -> String {
-    let mut result = path.to_string();
-    // Find all %VAR% patterns and replace with actual env values
-    while let Some(start) = result.find('%') {
-        if let Some(end) = result[start + 1..].find('%') {
-            let var_name = &result[start + 1..start + 1 + end];
-            if let Ok(value) = std::env::var(var_name) {
-                result = result.replace(&format!("%{}%", var_name), &value);
-            } else {
-                break; // Unknown variable, stop to avoid infinite loop
+    let mut result = String::with_capacity(path.len());
+    let mut rest = path;
+    // One pass: inserted values are never rescanned, and an unknown %NAME% or
+    // a lone % stays literal without stopping later expansions.
+    while let Some(start) = rest.find('%') {
+        result.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        let known = after.find('%').and_then(|end| {
+            let name = &after[..end];
+            if name.is_empty() {
+                return None;
             }
+            std::env::var(name).ok().map(|value| (value, end))
+        });
+        if let Some((value, end)) = known {
+            result.push_str(&value);
+            rest = &after[end + 1..];
         } else {
-            break; // No closing %, stop
+            result.push('%');
+            rest = after;
         }
     }
+    result.push_str(rest);
     result
 }
 
@@ -10331,6 +10340,25 @@ fn expand_env_vars(path: &str) -> String {
 fn expand_env_vars(path: &str) -> String {
     // On Unix, could expand $VAR or ${VAR} if needed, but for now just return as-is
     path.to_string()
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod expand_env_vars_tests {
+    use super::expand_env_vars;
+
+    #[test]
+    fn unknown_variable_or_lone_percent_does_not_stop_expansion() {
+        let home = std::env::var("USERPROFILE").unwrap();
+        assert_eq!(
+            expand_env_vars(r"%AIVORELAY_UNSET_VAR%\%USERPROFILE%\Pictures"),
+            format!(r"%AIVORELAY_UNSET_VAR%\{home}\Pictures")
+        );
+        assert_eq!(
+            expand_env_vars(r"D:\100%\%USERPROFILE%"),
+            format!(r"D:\100%\{home}")
+        );
+        assert_eq!(expand_env_vars("%%"), "%%");
+    }
 }
 
 /// Collects all image files in a folder into a HashSet for quick existence checks.
