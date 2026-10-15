@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { Toaster } from "sonner";
 import App from "./App";
+import { RenderCrashBoundary } from "./components/RenderCrashBoundary";
 
 // Initialize i18n
 import "./i18n";
@@ -19,6 +20,8 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
         },
       }}
     />
-    <App />
+    <RenderCrashBoundary>
+      <App />
+    </RenderCrashBoundary>
   </React.StrictMode>,
 );

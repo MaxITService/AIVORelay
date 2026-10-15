@@ -4834,6 +4834,14 @@
     "modelLoadFailedUnknown": "Unknown model",
     "settingsResetTitle": "Settings were reset",
     "settingsResetDescription": "The settings file was corrupted and could not be recovered. Default settings were restored and saved.",
+    "renderCrash": {
+      "sectionTitle": "This section failed to open",
+      "sectionDescription": "The error was saved to the app log and your settings were not changed. Other sections still work: open another section and come back, or reload the window.",
+      "appTitle": "AivoRelay's window failed to load",
+      "appDescription": "The error was saved to the app log and your settings were not changed. Reload the window; if it keeps happening, send the log file to the developer.",
+      "reload": "Reload window",
+      "openLogs": "Open log folder"
+    },
     "pasteFailedTitle": "Failed to Paste Text",
     "pasteFailed": "Text could not be pasted into the active application.",
     "modelDownloadFailed": "Failed to download model: {{model}}",
