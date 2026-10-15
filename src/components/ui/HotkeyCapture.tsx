@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { formatKeyCombination, type OSType } from "@/lib/utils/keyboard";
 import { useKeyboardCapture } from "@/hooks/useKeyboardCapture";
+import { holdBindingSuspension } from "@/lib/bindingSuspension";
 import { ResetButton } from "./ResetButton";
 
 interface HotkeyCaptureProps {
@@ -32,6 +33,9 @@ export const HotkeyCapture: React.FC<HotkeyCaptureProps> = ({
     onCaptured,
     onCancel,
   });
+
+  // Keys pressed while capturing must not also run the app's global shortcuts.
+  useEffect(() => (isCapturing ? holdBindingSuspension() : undefined), [isCapturing]);
 
   const formattedValue = value
     ? formatKeyCombination(value, osType)
