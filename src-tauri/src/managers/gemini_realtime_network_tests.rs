@@ -1,5 +1,6 @@
 //! Deterministic transport tests: no desktop, sockets, microphone, or credentials.
 use super::*;
+use crate::managers::gemini_output_window::PENDING_WORDS_GRACE;
 use crate::soniox_stream_processor::SonioxStreamProcessor;
 use std::future::Future;
 use std::pin::Pin;
@@ -118,11 +119,13 @@ impl TestSession {
         let setup_events = Arc::clone(&observed);
         let stop_events = Arc::clone(&observed);
         let completion_events = Arc::clone(&observed);
+        let pending_window = Arc::clone(&window);
         let events = SessionEvents {
             live_text: Box::new(move |text| text_events.lock().live_text.push(text.to_string())),
             setup_complete: Box::new(move || setup_events.lock().setup_count += 1),
             time_limit_stop: Box::new(move || stop_events.lock().stop_count += 1),
             time_limit_completed: Box::new(move |payload| completion_events.lock().completions.push(payload)),
+            words_pending: Box::new(move |pending| pending_window.set_words_pending(pending)),
         };
         let mut write = MockWrite(Arc::clone(&wire));
         let mut read = MockRead(rx);
@@ -667,6 +670,27 @@ fn cutoff_blocks_revised_final_chunks_and_completion_spaces_without_blocking_new
 }
 
 #[test]
+fn vercel_late_stable_text_for_shown_words_is_inserted_after_deadline_then_window_closes() {
+    run_test(async {
+        let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+        session.window.set_words_pending(true);
+        session.frame(json!({ "type": "transcript-delta", "delta": "Stable start." }));
+        session.frame(json!({ "type": "transcript-partial", "text": "late tail" }));
+        session.pending().await;
+        session.window.finish_at(Instant::now());
+        session.finish_input().await;
+        session.frame(json!({ "type": "transcript-delta", "delta": " late tail" }));
+        session.pending().await;
+        assert_eq!(session.observed.lock().inserted, "Stable start. late tail");
+        assert!(!session.window.allows_delivery());
+        session.frame(json!({ "type": "transcript-final", "text": "Stable start. late tail" }));
+        session.frame(json!({ "type": "finish", "text": "Stable start. late tail" }));
+        session.result().await.unwrap();
+        assert_eq!(session.observed.lock().inserted, "Stable start. late tail");
+    });
+}
+
+#[test]
 fn old_socket_failure_cannot_change_new_session_audio_transcript_or_completion_state() {
     run_test(async {
         let mut old = TestSession::new(GeminiLiveTransport::VercelGateway);
@@ -800,6 +824,75 @@ fn early_finish_without_output_returns_empty_on_success_or_cutoff() {
             let deadline = (tokio::time::Instant::now() + Duration::from_millis(500)).into_std();
             assert_eq!(finish_early_session(session, deadline).await.unwrap(), "");
         }
+    });
+}
+
+fn pending_window(deadline: Instant) -> Arc<GeminiOutputWindow> {
+    let window = Arc::new(GeminiOutputWindow::default());
+    window.finish_at(deadline);
+    window.set_words_pending(true);
+    window
+}
+
+#[test]
+fn early_finish_waits_past_deadline_only_until_pending_words_settle() {
+    run_test(async {
+        let started = tokio::time::Instant::now();
+        let deadline = (started + Duration::from_millis(500)).into_std();
+        let window = pending_window(deadline);
+        let task_window = Arc::clone(&window);
+        let mut session = active_fixture(Some(1), "", move |_, _, text| async move {
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            *text.lock() = "late tail".to_string();
+            task_window.set_words_pending(false);
+            std::future::pending::<()>().await;
+            Ok(())
+        });
+        session.output_window = window;
+        assert_eq!(finish_early_session(session, deadline).await.unwrap(), "late tail");
+        let elapsed = tokio::time::Instant::now() - started;
+        assert!(elapsed >= Duration::from_millis(800));
+        assert!(elapsed <= Duration::from_millis(801), "only timer tick rounding is allowed");
+    });
+}
+
+#[test]
+fn early_finish_wait_for_pending_words_is_capped_and_absent_without_them() {
+    run_test(async {
+        for pending in [false, true] {
+            let started = tokio::time::Instant::now();
+            let deadline = (started + Duration::from_millis(500)).into_std();
+            let window = pending_window(deadline);
+            window.set_words_pending(pending);
+            let mut session = active_fixture(Some(1), "shown before stop", |_, _, _| async {
+                std::future::pending::<()>().await;
+                Ok(())
+            });
+            session.output_window = window;
+            assert_eq!(finish_early_session(session, deadline).await.unwrap(), "shown before stop");
+            let expected = Duration::from_millis(500) + if pending { PENDING_WORDS_GRACE } else { Duration::ZERO };
+            let elapsed = tokio::time::Instant::now() - started;
+            assert!(elapsed >= expected);
+            assert!(elapsed <= expected + Duration::from_millis(1), "only timer tick rounding is allowed");
+        }
+    });
+}
+
+#[test]
+fn early_finish_returns_when_provider_finishes_during_pending_words_wait() {
+    run_test(async {
+        let started = tokio::time::Instant::now();
+        let deadline = (started + Duration::from_millis(500)).into_std();
+        let mut session = active_fixture(Some(1), "", |_, _, text| async move {
+            tokio::time::sleep(Duration::from_millis(1200)).await;
+            *text.lock() = "finished by provider".to_string();
+            Ok(())
+        });
+        session.output_window = pending_window(deadline);
+        assert_eq!(finish_early_session(session, deadline).await.unwrap(), "finished by provider");
+        let elapsed = tokio::time::Instant::now() - started;
+        assert!(elapsed >= Duration::from_millis(1200));
+        assert!(elapsed <= Duration::from_millis(1201), "only timer tick rounding is allowed");
     });
 }
 
