@@ -9,6 +9,7 @@ import { CopyFeedbackIcon } from "../../ui/CopyFeedbackIcon";
 import {
   Star,
   Trash2,
+  FileText,
   FolderOpen,
   Wand2,
   AlertTriangle,
@@ -1359,9 +1360,7 @@ export const HistorySettings: React.FC = () => {
                     entry={entry}
                     searchQuery={searchQuery}
                     onToggleSaved={() => toggleSaved(entry.id)}
-                    onCopyText={() => {
-                      return copyToClipboard(historyDisplayText(entry));
-                    }}
+                    onCopyText={copyToClipboard}
                     getAudioUrl={getAudioUrl}
                     deleteAudio={deleteAudioEntry}
                     retryTranscription={retryHistoryEntry}
@@ -1385,7 +1384,7 @@ interface HistoryEntryProps {
   entry: HistoryEntry;
   searchQuery: string;
   onToggleSaved: () => void;
-  onCopyText: () => Promise<boolean>;
+  onCopyText: (text: string) => Promise<boolean>;
   getAudioUrl: (fileName: string) => Promise<string | null>;
   deleteAudio: (id: number) => Promise<void>;
   retryTranscription: (id: number) => Promise<void>;
@@ -1410,6 +1409,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   );
   const [showCopied, setShowCopied] = useState(false);
   const [copyBurst, setCopyBurst] = useState(0);
+  const [showRaw, setShowRaw] = useState(false);
   const copyFeedbackTimeoutRef = useRef<number | null>(null);
   const retrying = retryState !== undefined;
   const replayProgress = retryState?.progress ?? null;
@@ -1421,7 +1421,12 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   } | null>(null);
 
   const isAiReplace = entry.action_type === "ai_replace";
-  const displayText = historyDisplayText(entry);
+  // Processed text is shown by default; the raw transcript is one click away.
+  const hasRawVariant = !isAiReplace && entry.post_processed_text != null &&
+    entry.post_processed_text !== entry.transcription_text;
+  const displayText = hasRawVariant && showRaw
+    ? entry.transcription_text
+    : historyDisplayText(entry);
   const hasDisplayText = displayText.trim().length > 0;
   const hasAudioReference =
     !isAiReplace && entry.file_name.trim().length > 0;
@@ -1502,7 +1507,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
       return;
     }
 
-    if (!(await onCopyText())) {
+    if (!(await onCopyText(displayText))) {
       setShowCopied(false);
       if (copyFeedbackTimeoutRef.current !== null) {
         window.clearTimeout(copyFeedbackTimeoutRef.current);
@@ -1601,6 +1606,17 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
                 <path d="M7 3h6M8 3v7l-4 7.5A2 2 0 0 0 5.8 20h8.4a2 2 0 0 0 1.8-2.5L12 10V3M6 15h8" />
                 <path d="M17 3h4v4m0-4-4 4" />
               </svg>
+            </IconButton>
+          )}
+          {hasRawVariant && (
+            <IconButton
+              onClick={() => setShowRaw((raw) => !raw)}
+              active={showRaw}
+              title={t(showRaw
+                ? "settings.history.showProcessedText"
+                : "settings.history.showRawTranscript")}
+            >
+              <FileText width={16} height={16} />
             </IconButton>
           )}
           <IconButton
