@@ -47,6 +47,10 @@ async function withPendingDecode(
       };
     }
 
+    createGain() {
+      return { gain: { value: 1 }, connect() {}, disconnect() {} };
+    }
+
     async suspend() { this.state = "suspended"; }
     async resume() { this.state = "running"; }
     async close() { this.state = "closed"; }
