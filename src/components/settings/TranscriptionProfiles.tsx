@@ -29,7 +29,7 @@ import ProfileSettingsForm, { useProfileSttCapabilities, type ProfileSettingsFor
 import { copyDefaultProfileOutput, getGlobalProfileOutputDefaults } from "./ProfileOutputSettings";
 import type { ProfileOutputSettings as OutputSettings } from "@/lib/profileOutputSettings";
 import { globalSttSelection, sttCatalog, sttProviderId, sttSelectionKey, type SttModelSelection } from "../../lib/sttModelSelection";
-import { getProfileOutputSummary } from "../../lib/postProcessingAvailability";
+import { getNativeDirectOutputModelId, getProfileOutputSummary } from "../../lib/postProcessingAvailability";
 import { getLocalizedLanguageLabel } from "./models/ModelMetadataPanel";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { getTranscriptionProfileAnchorId } from "../../lib/transcriptionProfileNavigation";
@@ -545,23 +545,19 @@ export const TranscriptionProfiles: React.FC = () => {
   const activePromptValue = hasActivePromptModel
     ? settings?.transcription_prompts?.[activeModelId] || ""
     : "";
-  const activeProvider = String(settings?.transcription_provider || "local");
-  const nativeLiveOutputEnabledForActiveModel = useMemo(() => {
-    if (activeProvider !== "local" || !activeModelId) return false;
-    const localModelInfo = getModelInfo(activeModelId);
-    return (
-      localModelInfo?.engine_type === "TranscribeCpp" &&
-      localModelInfo?.supports_streaming === true &&
-      ((settings as any)?.native_streaming_live_output_models ?? []).includes(
-        activeModelId,
-      )
-    );
-  }, [
-    activeModelId,
-    activeProvider,
-    getModelInfo,
-    settings,
-  ]);
+  // Native direct output wins over Preview, so turning a profile's Preview on turns off
+  // direct output for the model that profile records with.
+  const disableNativeDirectOutputForPreview = async (sttOverride: SttModelSelection | null | undefined) => {
+    const modelId = getNativeDirectOutputModelId(settings, sttOverride, getModelInfo);
+    if (!modelId) return;
+    const result = await commands.changeNativeStreamingLiveOutputModelSetting(modelId, false);
+    if (result.status === "error") throw new Error(result.error);
+    toast.info(t("modelSelector.nativeLiveOutput.directDisabledTitle"), {
+      description: t("modelSelector.nativeLiveOutput.directDisabledDescription", {
+        model: getModelInfo(modelId)?.name || modelId,
+      }),
+    });
+  };
   const globalGeminiLanguageCode = String((settings as any)?.gemini_language_code ?? "auto");
   // LLM Post-Processing configuration
   const currentLlmProviderId = settings?.post_process_provider_id || "";
@@ -794,24 +790,8 @@ export const TranscriptionProfiles: React.FC = () => {
 
   const handleUpdate = async (profile: ExtendedTranscriptionProfile) => {
     try {
-      const enablingPreviewForActiveProfile =
-        profile.id === activeProfileId &&
-        (profile.preview_output_only_enabled ?? false) &&
-        nativeLiveOutputEnabledForActiveModel;
-      if (enablingPreviewForActiveProfile) {
-        const result = await commands.changeNativeStreamingLiveOutputModelSetting(
-          activeModelId,
-          false,
-        );
-        if (result.status === "error") throw new Error(result.error);
-        toast.info(t("modelSelector.nativeLiveOutput.directDisabledTitle"), {
-          description: t(
-            "modelSelector.nativeLiveOutput.directDisabledDescription",
-            {
-              model: getModelInfo(activeModelId)?.name || activeModelId,
-            },
-          ),
-        });
+      if (profile.id === activeProfileId && (profile.preview_output_only_enabled ?? false)) {
+        await disableNativeDirectOutputForPreview(profile.stt_model_selection_override);
       }
       await invoke("update_transcription_profile", { payload: profileUpdatePayload(profile) });
       await refreshSettings();
@@ -907,26 +887,16 @@ export const TranscriptionProfiles: React.FC = () => {
   const handleSetActive = async (id: string) => {
     try {
       let previewEnabled: boolean;
+      let sttOverride: SttModelSelection | null | undefined;
       if (id === "default") {
         previewEnabled = (settings as any)?.preview_output_only_enabled ?? false;
       } else {
         const targetProfile = profiles.find((p) => p.id === id);
         previewEnabled = targetProfile?.preview_output_only_enabled ?? false;
+        sttOverride = targetProfile?.stt_model_selection_override;
       }
-      if (previewEnabled && nativeLiveOutputEnabledForActiveModel) {
-        const result = await commands.changeNativeStreamingLiveOutputModelSetting(
-          activeModelId,
-          false,
-        );
-        if (result.status === "error") throw new Error(result.error);
-        toast.info(t("modelSelector.nativeLiveOutput.directDisabledTitle"), {
-          description: t(
-            "modelSelector.nativeLiveOutput.directDisabledDescription",
-            {
-              model: getModelInfo(activeModelId)?.name || activeModelId,
-            },
-          ),
-        });
+      if (previewEnabled) {
+        await disableNativeDirectOutputForPreview(sttOverride);
       }
       await invoke("set_active_profile", { id });
       await refreshSettings();

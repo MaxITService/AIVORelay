@@ -2,6 +2,7 @@ import assert from "node:assert";
 import type { AppSettings, ModelInfo, SttModelSelection } from "@/bindings";
 import {
   getActiveProfilePostProcessingEnabled,
+  getNativeDirectOutputModelId,
   getOutputProviderInfo,
   getPostProcessingAvailability,
   getProfileOutputSummary,
@@ -319,3 +320,12 @@ assert.equal(getPostProcessingAvailability(sonioxLive({
 assert.equal(getOutputProviderInfo(nativeLocal({
   selected_model: "whisper-small", ...profileOverride(localStreaming, { preview_output_only_enabled: true }),
 }), {}, [streamingModel, whisper]).heldInPreview, false);
+
+// Enabling a profile's Preview turns off direct output of the model that profile records with.
+const modelInfo = (id: string) => [streamingModel, whisper].find((model) => model.id === id);
+const ordinaryGlobal = nativeLocal({ selected_model: "whisper-small" });
+assert.equal(getNativeDirectOutputModelId(ordinaryGlobal, null, modelInfo), null);
+assert.equal(getNativeDirectOutputModelId(ordinaryGlobal, localStreaming, modelInfo), "streaming-model");
+assert.equal(getNativeDirectOutputModelId(nativeLocal(), null, modelInfo), "streaming-model");
+assert.equal(getNativeDirectOutputModelId(nativeLocal(), sonioxRealtime, modelInfo), null);
+assert.equal(getNativeDirectOutputModelId(nativeLocal(), localWhisper, modelInfo), null);

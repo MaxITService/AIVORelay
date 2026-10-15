@@ -28,6 +28,7 @@ import { HotkeyCapture } from "../../ui/HotkeyCapture";
 import { InfoTooltip } from "../../ui/InfoTooltip";
 import { commands } from "@/bindings";
 import { getShortcutAnchorId } from "@/lib/shortcutAnchors";
+import { getNativeDirectOutputModelId } from "@/lib/postProcessingAvailability";
 import type { ExtendedTranscriptionProfile } from "../ProfileSettingsForm";
 import { profileUpdatePayload } from "../profileSettingsPayload";
 
@@ -279,13 +280,6 @@ export const UserInterfaceSettings: React.FC = () => {
   const nativeStreamingShowInterimLonger = Boolean(
     (settings as any)?.native_streaming_show_interim_longer ?? true,
   );
-  const nativeLiveOutputEnabledForSelectedModel =
-    (settings as any)?.transcription_provider === "local" &&
-    selectedLocalModel?.engine_type === "TranscribeCpp" &&
-    Boolean(selectedLocalModel?.supports_streaming) &&
-    ((settings as any)?.native_streaming_live_output_models ?? []).includes(
-      selectedLocalModelId,
-    );
   const slidingLmWindowEnabled = Boolean(
     (settings as any)?.soniox_live_preview_sliding_lm_window_enabled ?? false,
   );
@@ -469,10 +463,18 @@ export const UserInterfaceSettings: React.FC = () => {
             <ToggleSwitch
               checked={sonioxLivePreviewEnabled}
               onChange={async (enabled) => {
-                if (enabled && nativeLiveOutputEnabledForSelectedModel) {
+                const activeProfileId = (settings as any)?.active_profile_id ?? "default";
+                const profiles = (settings?.transcription_profiles ?? []) as ExtendedTranscriptionProfile[];
+                const activeProfile = activeProfileId === "default"
+                  ? undefined : profiles.find((p) => p.id === activeProfileId);
+                const nativeModelId = enabled ? getNativeDirectOutputModelId(
+                  settings, activeProfile?.stt_model_selection_override,
+                  (modelId) => models.find((model) => model.id === modelId),
+                ) : null;
+                if (nativeModelId) {
                   const result =
                     await commands.changeNativeStreamingLiveOutputModelSetting(
-                      selectedLocalModelId,
+                      nativeModelId,
                       false,
                     );
                   if (result.status === "error") {
@@ -487,7 +489,7 @@ export const UserInterfaceSettings: React.FC = () => {
                         "modelSelector.nativeLiveOutput.directDisabledDescription",
                         {
                           model:
-                            selectedLocalModel?.name || selectedLocalModelId,
+                            models.find((model) => model.id === nativeModelId)?.name || nativeModelId,
                         },
                       ),
                     },
@@ -497,17 +499,12 @@ export const UserInterfaceSettings: React.FC = () => {
                   "soniox_live_preview_enabled" as any,
                   enabled as any,
                 );
-                const activeProfileId = (settings as any)?.active_profile_id ?? "default";
                 if (activeProfileId === "default") {
                   await invoke("change_preview_output_only_enabled_setting", { enabled });
-                } else {
-                  const profiles = (settings?.transcription_profiles ?? []) as ExtendedTranscriptionProfile[];
-                  const activeProfile = profiles.find((p) => p.id === activeProfileId);
-                  if (activeProfile) {
-                    await invoke("update_transcription_profile", {
-                      payload: profileUpdatePayload(activeProfile, { preview_output_only_enabled: enabled }),
-                    });
-                  }
+                } else if (activeProfile) {
+                  await invoke("update_transcription_profile", {
+                    payload: profileUpdatePayload(activeProfile, { preview_output_only_enabled: enabled }),
+                  });
                 }
                 await refreshSettings();
               }}

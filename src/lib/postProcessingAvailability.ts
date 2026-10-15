@@ -166,6 +166,23 @@ const isHeldInPreview = (
 ): boolean => resolveHeldInPreview(route, localModels) ?? true;
 
 /**
+ * The local model whose native direct output would win over a profile's Preview, or null.
+ * The profile's model override applies; without one the global model is used.
+ */
+export const getNativeDirectOutputModelId = (
+  settings: AppSettings | null | undefined,
+  sttOverride: SttModelSelection | null | undefined,
+  getModelInfo: (modelId: string) => ModelInfo | null | undefined,
+): string | null => {
+  const provider = String(sttOverride?.provider ?? settings?.transcription_provider ?? "local");
+  const modelId = String(sttOverride ? sttOverride.model_id?.trim() ?? "" : settings?.selected_model ?? "");
+  if (provider !== "local" || !modelId) return null;
+  const model = getModelInfo(modelId);
+  return model?.engine_type === "TranscribeCpp" && model.supports_streaming === true &&
+    (settings?.native_streaming_live_output_models ?? []).includes(modelId) ? modelId : null;
+};
+
+/**
  * Where a profile's text goes and whether its speech provider streams text live into the
  * target application while recording (the same capability rule as post-processing).
  */

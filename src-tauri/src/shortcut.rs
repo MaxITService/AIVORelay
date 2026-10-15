@@ -263,21 +263,30 @@ fn refresh_soniox_live_preview_window(app: &AppHandle) {
 }
 
 fn synchronize_active_profile_preview(settings: &mut settings::AppSettings) {
-    let preview_enabled = if settings.active_profile_id == "default" {
-        settings.preview_output_only_enabled
+    let (preview_enabled, model_override) = if settings.active_profile_id == "default" {
+        (settings.preview_output_only_enabled, None)
     } else {
         settings
             .transcription_profile(&settings.active_profile_id)
-            .map(|profile| profile.preview_output_only_enabled)
-            .unwrap_or(false)
+            .map(|profile| {
+                (
+                    profile.preview_output_only_enabled,
+                    profile.stt_model_selection_override.clone(),
+                )
+            })
+            .unwrap_or((false, None))
+    };
+    // Native direct output wins over Preview: turn it off for the model the profile records with.
+    let (provider, model_id) = match model_override {
+        Some(selection) => (selection.provider, selection.model_id.trim().to_string()),
+        None => (settings.transcription_provider, settings.selected_model.clone()),
     };
 
     settings.soniox_live_preview_enabled = preview_enabled;
-    if preview_enabled && settings.transcription_provider == settings::TranscriptionProvider::Local
-    {
+    if preview_enabled && provider == settings::TranscriptionProvider::Local {
         settings
             .native_streaming_live_output_models
-            .retain(|model_id| model_id != &settings.selected_model);
+            .retain(|id| id != &model_id);
     }
 }
 
@@ -5764,7 +5773,7 @@ pub fn change_active_profile_stt_model_selection_override(
 
 #[cfg(test)]
 mod stt_profile_model_tests {
-    use super::apply_active_profile_stt_model_selection_override;
+    use super::{apply_active_profile_stt_model_selection_override, synchronize_active_profile_preview};
     use crate::settings::{
         get_default_settings, SttModelSelection, TranscriptionProfile, TranscriptionProvider,
     };
@@ -5853,6 +5862,33 @@ mod stt_profile_model_tests {
             settings.transcription_profiles[0].stt_model_selection_override,
             Some(selection)
         );
+    }
+
+    #[test]
+    fn profile_preview_disables_direct_output_of_the_profile_model_only() {
+        let preview_settings = |provider: TranscriptionProvider, model_id: &str| {
+            let mut settings = get_default_settings();
+            settings.transcription_provider = TranscriptionProvider::Local;
+            settings.selected_model = "global-streaming".to_string();
+            settings.native_streaming_live_output_models =
+                vec!["global-streaming".to_string(), "profile-streaming".to_string()];
+            let mut profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
+                "id": "a", "name": "A", "language": "auto", "translate_to_english": false
+            })).unwrap();
+            profile.preview_output_only_enabled = true;
+            profile.stt_model_selection_override = Some(SttModelSelection {
+                provider, model_id: model_id.to_string(), provider_preset: String::new(),
+            });
+            settings.transcription_profiles.push(profile);
+            settings.active_profile_id = "a".to_string();
+            synchronize_active_profile_preview(&mut settings);
+            assert!(settings.soniox_live_preview_enabled);
+            settings.native_streaming_live_output_models
+        };
+        assert_eq!(preview_settings(TranscriptionProvider::Local, "profile-streaming"),
+            vec!["global-streaming".to_string()]);
+        assert_eq!(preview_settings(TranscriptionProvider::RemoteSoniox, "stt-rt-v4"),
+            vec!["global-streaming".to_string(), "profile-streaming".to_string()]);
     }
 }
 
