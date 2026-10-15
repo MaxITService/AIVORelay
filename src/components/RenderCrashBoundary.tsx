@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { commands } from "@/bindings";
 import { describeError, logRenderCrash } from "@/lib/frontendErrorLog";
+import { SilentCrashBoundary } from "./SilentCrashBoundary";
 import { Button } from "./ui/Button";
 import UpdateChecker from "./update-checker";
 
@@ -36,9 +37,9 @@ const RenderCrashFallback: React.FC<{ section?: string; error: unknown }> = ({
         // The footer updater dies with the window, so offer it here: an
         // update is often the only fix for a crash that survives a reload.
         <div className="text-sm">
-          <QuietBoundary>
+          <SilentCrashBoundary where="crash screen update checker">
             <UpdateChecker />
-          </QuietBoundary>
+          </SilentCrashBoundary>
         </div>
       )}
     </div>
@@ -50,26 +51,6 @@ const RenderCrashFallback: React.FC<{ section?: string; error: unknown }> = ({
     </div>
   );
 };
-
-/** Renders nothing when an optional crash-screen extra crashes too. */
-class QuietBoundary extends React.Component<
-  { children: React.ReactNode },
-  { hasError: boolean }
-> {
-  state = { hasError: false };
-
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error: unknown, info: React.ErrorInfo) {
-    logRenderCrash("crash screen extra", error, info.componentStack);
-  }
-
-  render() {
-    return this.state.hasError ? null : this.props.children;
-  }
-}
 
 type RenderCrashBoundaryProps = {
   /** Settings section id; omit for the whole-window boundary. */
