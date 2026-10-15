@@ -211,9 +211,14 @@ pub fn apply_custom_words(
 
 /// Preserves the case pattern of the original word when applying a replacement
 fn preserve_case_pattern(original: &str, replacement: &str) -> String {
-    if original.chars().all(|c| c.is_uppercase()) {
+    let letters: Vec<char> = original.chars().filter(|c| c.is_alphabetic()).collect();
+    // A lone capital ("I phone") is capitalization, not all caps.
+    if letters.len() > 1 && letters.iter().all(|c| c.is_uppercase()) {
         replacement.to_uppercase()
-    } else if original.chars().next().map_or(false, |c| c.is_uppercase()) {
+    } else if letters.first().is_some_and(|c| c.is_uppercase())
+        // Keep deliberate casing such as "iPhone" or "macOS".
+        && !replacement.chars().any(char::is_uppercase)
+    {
         let mut chars: Vec<char> = replacement.chars().collect();
         if let Some(first_char) = chars.get_mut(0) {
             *first_char = first_char.to_uppercase().next().unwrap_or(*first_char);
@@ -593,6 +598,18 @@ mod tests {
         let custom_words = vec!["ChargeBee".to_string()];
         let result = apply_custom_words(text, &custom_words, 0.5, true);
         assert!(result.contains("CHARGEBEE"));
+    }
+
+    #[test]
+    fn test_apply_custom_words_lone_capital_is_not_all_caps() {
+        let custom_words = vec!["iPhone".to_string(), "GitHub".to_string(), "AI".to_string()];
+        // 0.18 is the default threshold.
+        let apply = |text| apply_custom_words(text, &custom_words, 0.18, true);
+        assert_eq!(apply("I bought an I phone today"), "I bought an iPhone today");
+        assert_eq!(apply("Iphone is great"), "iPhone is great");
+        assert_eq!(apply("Github is great"), "GitHub is great");
+        assert_eq!(apply("GITHUB, now"), "GITHUB, now");
+        assert_eq!(apply("use A I tools"), "use AI tools");
     }
 
     #[test]
