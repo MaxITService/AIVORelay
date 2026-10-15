@@ -3,9 +3,12 @@ import ReactDOM from "react-dom/client";
 import { Toaster } from "sonner";
 import App from "./App";
 import { RenderCrashBoundary } from "./components/RenderCrashBoundary";
+import { installFrontendErrorLogging } from "./lib/frontendErrorLog";
 
 // Initialize i18n
 import "./i18n";
+
+installFrontendErrorLogging();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

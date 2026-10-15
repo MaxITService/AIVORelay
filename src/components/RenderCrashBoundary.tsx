@@ -1,27 +1,8 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { invoke } from "@tauri-apps/api/core";
 import { commands } from "@/bindings";
+import { describeError, logRenderCrash } from "@/lib/frontendErrorLog";
 import { Button } from "./ui/Button";
-
-const describeError = (error: unknown) =>
-  error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-
-// tauri-plugin-log's own command (level 5 = Error), so render crashes reach
-// aivorelay.log instead of existing only in the WebView2 DevTools console.
-const logRenderCrash = (
-  where: string,
-  error: unknown,
-  componentStack?: string | null,
-) => {
-  const stack = error instanceof Error && error.stack ? `\n${error.stack}` : "";
-  const components = componentStack ? `\nComponent stack:${componentStack}` : "";
-  void invoke("plugin:log|log", {
-    level: 5,
-    message: `Render crash in ${where}: ${describeError(error)}${stack}${components}`,
-    location: "render-crash",
-  }).catch(() => {});
-};
 
 const RenderCrashFallback: React.FC<{ section?: string; error: unknown }> = ({
   section,
@@ -86,7 +67,7 @@ export class RenderCrashBoundary extends React.Component<
   componentDidCatch(error: unknown, info: React.ErrorInfo) {
     const where = this.props.section
       ? `settings section "${this.props.section}"`
-      : "main window";
+      : "window root";
     logRenderCrash(where, error, info.componentStack);
   }
 
