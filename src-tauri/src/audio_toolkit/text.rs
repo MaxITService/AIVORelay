@@ -161,8 +161,9 @@ pub fn apply_custom_words(
 
         // Consider n-grams up to the configured maximum and choose the closest
         // match. A longest-first match can consume a following ordinary word
-        // when both candidates happen to share a Soundex code.
-        for n in (1..=max_ngram).rev() {
+        // when both candidates happen to share a Soundex code, so on equal
+        // scores the shorter n-gram wins.
+        for n in 1..=max_ngram {
             if i + n > words.len() {
                 continue;
             }
@@ -610,6 +611,14 @@ mod tests {
         assert_eq!(apply("Github is great"), "GitHub is great");
         assert_eq!(apply("GITHUB, now"), "GITHUB, now");
         assert_eq!(apply("use A I tools"), "use AI tools");
+    }
+
+    #[test]
+    fn test_apply_custom_words_equal_score_does_not_consume_next_word() {
+        let custom_words = vec!["ChargeBee".to_string()];
+        // "Charge B" and "Charge B is" score the same; the extra word must stay.
+        let result = apply_custom_words("we use Charge B is great", &custom_words, 0.18, true);
+        assert_eq!(result, "we use ChargeBee is great");
     }
 
     #[test]
