@@ -6,6 +6,16 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-10-16):
+- Reviewed the 12-commit linear corridor after `f6b3f829` through `9e57a0d7`;
+  cursor is now `9e57a0d7`. Took `1b011a19` (exact `=0.4.0` pins; fallible
+  capability reads) and `7b2a28a3` (pre-roll dedup, with a regression test).
+- Deferred `4150a4a8` (vocabulary cannot combine with the fork's whisper base
+  prompt), `14ae9c6b` (fork streams and only warns on `length`; native
+  Anthropic format needs a settings migration), `3985508a`/`9e57a0d7` (fork VAD
+  and file chunking), and `a42131d2` (handy-recorder). Skipped ONNX removal
+  `cfcb6507`/`5197faf0`, covered `57324065`/`53db4cb6`, and Linux-only `48a3d8e9`.
+
 Audit note (2026-10-09):
 - Reviewed the complete 16-commit linear corridor after `29bd2c0d` through
   `f6b3f829` (`docs: keep translation contribution guidance aligned with supported
@@ -285,6 +295,8 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-10-16 | 2026-10-12 | `7b2a28a3` | fix: don't re-emit hangover frames in VAD pre-roll | Stop repeating a moment of audio when speech resumes right after a pause | emitted flag only; regression test |
+| 2026-10-16 | 2026-10-12 | `1b011a19` | transcribe 0.4.0 (#2265) | Update the local speech engine to transcribe-cpp 0.4.0 | exact pins; fallible capabilities; lock regenerated |
 | 2026-10-09 | 2026-10-07 | `417dc6ac` | fix: show model loading in the Live preview when the load is slow | feat(transcription): isolate native engine and adapt upstream updates | captured session/model; elapsed-time retry and preview hydration |
 | 2026-10-09 | 2026-10-07 | `20a6685e` | fix: show that the model is loading instead of a stuck "Transcribing..." (#2227) | feat(transcription): isolate native engine and adapt upstream updates | combined final behavior; 14 translated labels |
 | 2026-10-09 | 2026-10-07 | `c8262ab3` | isolate transcribe.cpp backend in own worker (#2208) | feat(transcription): isolate native engine and adapt upstream updates | fork facade, CPU recovery, generation-safe cancellation/unload |
