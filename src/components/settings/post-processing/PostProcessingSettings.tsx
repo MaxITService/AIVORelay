@@ -7,6 +7,7 @@ import { commands, type LlmPostProcessBenchmarkResult } from "@/bindings";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { SettingContainer } from "../../ui/SettingContainer";
+import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { Button } from "../../ui/Button";
 import { Collapse } from "../../ui/Collapse";
 import { ResetButton } from "../../ui/ResetButton";
@@ -55,6 +56,14 @@ const formatBenchmarkDuration = (durationMs: number) =>
 const formatBenchmarkRate = (charsPerSecond: number) =>
   `${charsPerSecond.toFixed(charsPerSecond >= 100 ? 0 : 1)} chars/sec`;
 
+const formatBenchmarkFirstToken = (item: LlmPostProcessBenchmarkResult) => {
+  if (item.first_token_ms != null) {
+    return `${formatBenchmarkDuration(item.first_token_ms)} to first token`;
+  }
+  if (!item.stream_requested) return "Streaming off";
+  return item.streamed || !item.success ? "No first token" : "Answered without streaming";
+};
+
 const PostProcessingBenchmarkComponent: React.FC = () => {
   const { t } = useTranslation();
   const { getSetting, updateSetting, isUpdating } = useSettings();
@@ -70,6 +79,7 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
   // When true (default), benchmark uses the currently selected post-processing prompt.
   // When false, user can type a custom system prompt.
   const useSelectedPrompt = getSetting("post_process_benchmark_use_selected_prompt") ?? true;
+  const streamBenchmark = getSetting("post_process_benchmark_stream") ?? true;
 
   // Resolve the active post-processing prompt text for display and benchmark use.
   const prompts = getSetting("post_process_prompts") ?? [];
@@ -145,6 +155,12 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
         <div>
           <span className="text-[#a0a0a0]">Duration:</span>{" "}
           {formatBenchmarkDuration(item.duration_ms)}
+        </div>
+        <div>
+          <span className="text-[#a0a0a0]">
+            {t("settings.postProcessing.benchmark.firstToken", "First token:")}
+          </span>{" "}
+          {formatBenchmarkFirstToken(item)}
         </div>
         <div>
           <span className="text-[#a0a0a0]">Input / output:</span>{" "}
@@ -322,6 +338,20 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
         />
       </SettingContainer>
 
+      <ToggleSwitch
+        id="settings-llm-benchmark-stream"
+        checked={streamBenchmark}
+        onChange={(checked) => updateSetting("post_process_benchmark_stream", checked)}
+        isUpdating={isUpdating("post_process_benchmark_stream")}
+        label={t("settings.postProcessing.benchmark.stream.title", "Stream the answer")}
+        description={t(
+          "settings.postProcessing.benchmark.stream.description",
+          "Ask the model to stream its answer and measure the time to the first token. Models that cannot stream answer all at once instead.",
+        )}
+        descriptionMode="inline"
+        grouped={true}
+      />
+
       <SettingContainer
         title={t("settings.postProcessing.benchmark.actions.title", "Run")}
         description={t(
@@ -395,7 +425,7 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
                     className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.03] focus:outline-none focus:ring-2 focus:ring-[#ff4d8d]/35"
                     aria-expanded={expanded}
                   >
-                    <span className="grid min-w-0 flex-1 gap-1 text-xs sm:grid-cols-[1.2fr_1fr_0.8fr_0.8fr_0.7fr] sm:items-center">
+                    <span className="grid min-w-0 flex-1 gap-1 text-xs sm:grid-cols-[1.2fr_1fr_0.8fr_1.1fr_0.8fr_0.7fr] sm:items-center">
                       <span className="truncate font-semibold text-[#f5f5f5]">
                         {item.model || "No model"}
                       </span>
@@ -406,12 +436,15 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
                         {formatBenchmarkDuration(item.duration_ms)}
                       </span>
                       <span className="text-[#d8d8d8]">
+                        {formatBenchmarkFirstToken(item)}
+                      </span>
+                      <span className="text-[#d8d8d8]">
                         {formatBenchmarkRate(item.chars_per_second)}
                       </span>
                       <span className={statusClass}>
                         {item.success ? "Success" : "Error"}
                       </span>
-                      <span className="text-[#a0a0a0] sm:col-span-5">
+                      <span className="text-[#a0a0a0] sm:col-span-6">
                         {formatBenchmarkTimestamp(item.timestamp_ms)}
                       </span>
                     </span>

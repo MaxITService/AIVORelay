@@ -1420,6 +1420,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_post_process_benchmark_user_message_setting,
         shortcut::change_post_process_benchmark_log_setting,
         shortcut::change_post_process_benchmark_use_selected_prompt_setting,
+        shortcut::change_post_process_benchmark_stream_setting,
         shortcut::change_diarization_speaker_name_profiles_setting,
         shortcut::add_transcription_profile,
         shortcut::update_transcription_profile,

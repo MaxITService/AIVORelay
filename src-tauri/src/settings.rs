@@ -2666,6 +2666,15 @@ pub struct LlmPostProcessBenchmarkResult {
     pub provider_label: String,
     pub model: String,
     pub duration_ms: u64,
+    /// Time until the first answer text arrived; only known for streamed answers.
+    #[serde(default)]
+    pub first_token_ms: Option<u64>,
+    /// The run asked the provider to stream its answer.
+    #[serde(default)]
+    pub stream_requested: bool,
+    /// The answer arrived as a stream; false when the model answered all at once.
+    #[serde(default)]
+    pub streamed: bool,
     pub chars_per_second: f64,
     pub input_chars: usize,
     pub output_chars: usize,
@@ -4281,6 +4290,9 @@ pub struct AppSettings {
     /// prompt instead of the separate custom benchmark system prompt field.
     #[serde(default = "default_true")]
     pub post_process_benchmark_use_selected_prompt: bool,
+    /// When true, the benchmark asks for a streamed answer and measures time to first token.
+    #[serde(default = "default_true")]
+    pub post_process_benchmark_stream: bool,
     /// Whether ${short_prev_transcript} is enabled in LLM prompt templates.
     #[serde(default = "default_true")]
     pub llm_context_prev_transcript_enabled: bool,
@@ -6438,6 +6450,7 @@ pub fn get_default_settings() -> AppSettings {
         post_process_benchmark_user_message: default_post_process_benchmark_user_message(),
         post_process_benchmark_log: Vec::new(),
         post_process_benchmark_use_selected_prompt: true,
+        post_process_benchmark_stream: true,
         llm_context_prev_transcript_enabled: true,
         llm_context_prev_transcript_max_words: default_llm_context_prev_transcript_max_words(),
         llm_context_prev_transcript_expiry_seconds:

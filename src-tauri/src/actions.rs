@@ -1463,17 +1463,26 @@ async fn maybe_post_process_transcription(
     }
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+struct LlmBenchmarkTiming {
+    duration_ms: u64,
+    first_token_ms: Option<u64>,
+    stream_requested: bool,
+    streamed: bool,
+}
+
 fn build_llm_post_process_benchmark_result(
     timestamp_ms: i64,
     provider_id: String,
     provider_label: String,
     model: String,
-    duration_ms: u64,
+    timing: LlmBenchmarkTiming,
     system_prompt: String,
     user_message: String,
     response_text: String,
     error: Option<String>,
 ) -> LlmPostProcessBenchmarkResult {
+    let duration_ms = timing.duration_ms;
     let input_chars = system_prompt.chars().count() + user_message.chars().count();
     let output_chars = response_text.chars().count();
     let chars_per_second = if duration_ms > 0 {
@@ -1489,6 +1498,9 @@ fn build_llm_post_process_benchmark_result(
         provider_label,
         model,
         duration_ms,
+        first_token_ms: timing.first_token_ms,
+        stream_requested: timing.stream_requested,
+        streamed: timing.streamed,
         chars_per_second,
         input_chars,
         output_chars,
@@ -1517,7 +1529,7 @@ pub async fn run_llm_post_process_benchmark(
                 String::new(),
                 "No provider".to_string(),
                 String::new(),
-                0,
+                LlmBenchmarkTiming::default(),
                 system_prompt,
                 user_message,
                 String::new(),
@@ -1534,7 +1546,7 @@ pub async fn run_llm_post_process_benchmark(
                 provider.id,
                 provider.label,
                 String::new(),
-                0,
+                LlmBenchmarkTiming::default(),
                 system_prompt,
                 user_message,
                 String::new(),
@@ -1549,7 +1561,7 @@ pub async fn run_llm_post_process_benchmark(
             provider.id,
             provider.label,
             config.model,
-            0,
+            LlmBenchmarkTiming::default(),
             system_prompt,
             user_message,
             String::new(),
@@ -1580,14 +1592,17 @@ pub async fn run_llm_post_process_benchmark(
         let benchmark_response: Result<String, String> =
             Err("Apple Intelligence is not available on this platform.".to_string());
 
-        let duration_ms = started.elapsed().as_millis() as u64;
+        let timing = LlmBenchmarkTiming {
+            duration_ms: started.elapsed().as_millis() as u64,
+            ..Default::default()
+        };
         return Ok(match benchmark_response {
             Ok(response_text) => build_llm_post_process_benchmark_result(
                 timestamp_ms,
                 provider.id,
                 provider.label,
                 config.model,
-                duration_ms,
+                timing,
                 system_prompt,
                 user_message,
                 response_text,
@@ -1598,7 +1613,7 @@ pub async fn run_llm_post_process_benchmark(
                 provider.id,
                 provider.label,
                 config.model,
-                duration_ms,
+                timing,
                 system_prompt,
                 user_message,
                 String::new(),
@@ -1612,17 +1627,42 @@ pub async fn run_llm_post_process_benchmark(
         settings.post_process_reasoning_budget,
     );
 
+    let stream_requested = settings.post_process_benchmark_stream;
+    let mut timing = LlmBenchmarkTiming {
+        stream_requested,
+        ..Default::default()
+    };
     let started = Instant::now();
-    let benchmark_response = crate::llm_client::send_chat_completion_with_system_and_reasoning(
-        &provider,
-        config.api_key,
-        &config.model,
-        system_prompt.clone(),
-        user_message.clone(),
-        reasoning_config,
-    )
-    .await;
-    let duration_ms = started.elapsed().as_millis() as u64;
+    let benchmark_response = if stream_requested {
+        crate::llm_client::stream_chat_completion_with_system_and_reasoning(
+            &provider,
+            config.api_key,
+            &config.model,
+            system_prompt.clone(),
+            user_message.clone(),
+            reasoning_config,
+            &mut |_: &str| true,
+        )
+        .await
+        .map(|completion| {
+            timing.first_token_ms = completion
+                .first_token_at
+                .map(|at| at.saturating_duration_since(started).as_millis() as u64);
+            timing.streamed = completion.streamed;
+            completion.content
+        })
+    } else {
+        crate::llm_client::send_chat_completion_with_system_and_reasoning(
+            &provider,
+            config.api_key,
+            &config.model,
+            system_prompt.clone(),
+            user_message.clone(),
+            reasoning_config,
+        )
+        .await
+    };
+    timing.duration_ms = started.elapsed().as_millis() as u64;
 
     Ok(match benchmark_response {
         Ok(Some(response_text)) => {
@@ -1640,7 +1680,7 @@ pub async fn run_llm_post_process_benchmark(
                 provider.id,
                 provider.label,
                 config.model,
-                duration_ms,
+                timing,
                 system_prompt,
                 user_message,
                 response_text,
@@ -1652,7 +1692,7 @@ pub async fn run_llm_post_process_benchmark(
             provider.id,
             provider.label,
             config.model,
-            duration_ms,
+            timing,
             system_prompt,
             user_message,
             String::new(),
@@ -1663,7 +1703,7 @@ pub async fn run_llm_post_process_benchmark(
             provider.id,
             provider.label,
             config.model,
-            duration_ms,
+            timing,
             system_prompt,
             user_message,
             String::new(),
