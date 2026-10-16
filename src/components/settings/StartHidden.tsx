@@ -13,7 +13,7 @@ export const StartHidden: React.FC<StartHiddenProps> = React.memo(
     const { t } = useTranslation();
     const { getSetting, updateSetting, isUpdating } = useSettings();
 
-    const startHidden = getSetting("start_hidden") ?? false;
+    const startHidden = getSetting("start_hidden") ?? true;
 
     return (
       <ToggleSwitch
