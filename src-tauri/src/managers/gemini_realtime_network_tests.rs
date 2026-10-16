@@ -293,6 +293,23 @@ fn gateway_final_segments_reset_delta_state_and_keep_sentence_boundaries() {
 }
 
 #[test]
+fn gateway_finish_without_sentence_spaces_keeps_the_streamed_boundaries() {
+    run_test(async {
+        let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+        for frame in [
+            json!({ "type": "transcript-delta", "delta": "First sentence." }),
+            json!({ "type": "transcript-final", "text": "First sentence." }),
+            json!({ "type": "transcript-delta", "delta": "Second one." }),
+            json!({ "type": "transcript-final", "text": "Second one." }),
+            json!({ "type": "finish", "text": "First sentence.Second one." }),
+        ] { session.frame(frame); }
+        session.result().await.unwrap();
+        assert_eq!(session.observed.lock().inserted, "First sentence. Second one. ");
+        assert_eq!(*session.final_text.lock(), "First sentence. Second one.");
+    });
+}
+
+#[test]
 fn google_interim_revision_is_replaced_by_final_during_finalization_without_duplicates() {
     run_test(async {
         let mut session = TestSession::new(GeminiLiveTransport::GoogleDirect);
