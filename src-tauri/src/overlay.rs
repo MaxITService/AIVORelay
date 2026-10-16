@@ -334,7 +334,9 @@ fn init_gtk_layer_shell(overlay_window: &tauri::webview::WebviewWindow) -> bool 
     gtk_window.init_layer_shell();
     gtk_window.set_layer(Layer::Overlay);
     gtk_window.set_keyboard_mode(KeyboardMode::None);
-    gtk_window.set_exclusive_zone(0);
+    // -1 ignores other surfaces' exclusive zones (panels): the geometry's margins are
+    // measured from the output's own corner, not from the usable area.
+    gtk_window.set_exclusive_zone(-1);
 
     let initialized = gtk_window.is_layer_window();
     LAYER_SHELL_ACTIVE.store(initialized, Ordering::SeqCst);
