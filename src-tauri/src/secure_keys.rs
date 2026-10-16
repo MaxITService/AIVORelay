@@ -1,8 +1,9 @@
-//! Secure API key storage using Windows Credential Manager.
+//! API key storage.
 //!
-//! On Windows, API keys are stored in the OS credential vault for security.
-//! On other platforms, this module provides stub implementations that return errors,
-//! as secure storage is Windows-only in this fork.
+//! On Windows, API keys are stored in the OS credential vault (Credential Manager).
+//! On Linux and macOS they are stored in the app's settings store file, under a
+//! dedicated entry that is separate from the serialized settings, matching upstream
+//! Handy's plain settings-file storage.
 
 use anyhow::{anyhow, Result};
 use log::{debug, warn};
@@ -97,17 +98,75 @@ pub fn get_api_key(key_type: KeyType, provider_id: Option<&str>) -> Result<Strin
 }
 
 // ============================================================================
-// Non-Windows stubs
+// Non-Windows implementation using the settings store file
 // ============================================================================
 
 #[cfg(not(target_os = "windows"))]
-pub fn set_api_key(_key_type: KeyType, _provider_id: Option<&str>, _key: &str) -> Result<()> {
-    Err(anyhow!("Secure key storage is only available on Windows"))
+static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+/// Registers the app handle used by the non-Windows key store. No-op on Windows.
+pub fn init(app: &tauri::AppHandle) {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = APP_HANDLE.set(app.clone());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = app;
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn get_api_key(_key_type: KeyType, _provider_id: Option<&str>) -> Result<String> {
-    Err(anyhow!("Secure key storage is only available on Windows"))
+const STORE_ENTRY: &str = "provider_api_keys";
+
+#[cfg(not(target_os = "windows"))]
+fn key_store() -> Result<std::sync::Arc<tauri_plugin_store::Store<tauri::Wry>>> {
+    use tauri_plugin_store::StoreExt;
+
+    let app = APP_HANDLE
+        .get()
+        .ok_or_else(|| anyhow!("API key storage is not initialized"))?;
+    app.store(crate::portable::store_path(
+        crate::settings::SETTINGS_STORE_PATH,
+    ))
+    .map_err(|e| anyhow!("Failed to open API key store: {}", e))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn read_key_map(
+    store: &tauri_plugin_store::Store<tauri::Wry>,
+) -> std::collections::HashMap<String, String> {
+    store
+        .get(STORE_ENTRY)
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_api_key(key_type: KeyType, provider_id: Option<&str>, key: &str) -> Result<()> {
+    let credential_name = key_type.credential_name(provider_id);
+    let store = key_store()?;
+    let mut keys = read_key_map(&store);
+
+    if key.trim().is_empty() {
+        keys.remove(&credential_name);
+    } else {
+        keys.insert(credential_name, key.to_string());
+    }
+
+    store.set(STORE_ENTRY, serde_json::to_value(&keys)?);
+    store
+        .save()
+        .map_err(|e| anyhow!("Failed to store API key: {}", e))
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_api_key(key_type: KeyType, provider_id: Option<&str>) -> Result<String> {
+    let credential_name = key_type.credential_name(provider_id);
+    let store = key_store()?;
+    Ok(read_key_map(&store)
+        .remove(&credential_name)
+        .unwrap_or_default())
 }
 
 // ============================================================================
