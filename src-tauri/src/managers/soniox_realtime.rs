@@ -390,7 +390,10 @@ impl SonioxRealtimeManager {
         );
         replay.run_audio(
             samples, audio_tx, frame_16khz_mono_to_pcm_s16le_bytes,
-            || control_tx.send(ControlMessage::Finish).map_err(|_| anyhow!("Soniox Live session closed")),
+            // Soniox confirms the end with <fin> after finalize; an empty frame alone may never finish.
+            || [ControlMessage::Finalize, ControlMessage::Finish].into_iter()
+                .try_for_each(|message| control_tx.send(message))
+                .map_err(|_| anyhow!("Soniox Live session closed")),
             drive, final_text, timeout_ms,
         ).await
     }
