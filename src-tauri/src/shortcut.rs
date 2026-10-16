@@ -4,7 +4,6 @@ use specta::Type;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Listener, Manager, State};
-use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::actions::ACTION_MAP;
@@ -3330,14 +3329,11 @@ pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), Str
     }
 
     // Apply OS-level autostart first so UI/store can roll back on failure.
-    let autostart_manager = app.autolaunch();
     if enabled {
-        autostart_manager
-            .enable()
+        crate::autostart::set_enabled(&app, true)
             .map_err(|e| format!("Failed to enable autostart: {e}"))?;
     } else {
-        autostart_manager
-            .disable()
+        crate::autostart::set_enabled(&app, false)
             .map_err(|e| format!("Failed to disable autostart: {e}"))?;
 
         #[cfg(target_os = "windows")]
@@ -3348,7 +3344,7 @@ pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), Str
             if previous_settings.autostart_enabled
                 && !previous_settings.autostart_as_admin_enabled
             {
-                if let Err(rollback_error) = autostart_manager.enable() {
+                if let Err(rollback_error) = crate::autostart::set_enabled(&app, true) {
                     return Err(format!(
                         "Failed to delete administrator scheduled task: {error}; also failed to restore standard autostart: {rollback_error}"
                     ));
@@ -3367,8 +3363,7 @@ pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), Str
     }
     if let Err(save_error) = settings::write_settings_checked(&app, next_settings) {
         let rollback_result: Result<(), String> = if enabled {
-            autostart_manager
-                .disable()
+            crate::autostart::set_enabled(&app, false)
                 .map_err(|error| format!("Failed to restore disabled autostart: {error}"))
         } else {
             #[cfg(target_os = "windows")]
@@ -3383,7 +3378,7 @@ pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), Str
                         )),
                     }
                 } else if previous_settings.autostart_enabled {
-                    autostart_manager.enable().map_err(|error| {
+                    crate::autostart::set_enabled(&app, true).map_err(|error| {
                         format!("Failed to restore standard autostart: {error}")
                     })
                 } else {
@@ -3393,7 +3388,7 @@ pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), Str
             #[cfg(not(target_os = "windows"))]
             {
                 if previous_settings.autostart_enabled {
-                    autostart_manager.enable().map_err(|error| {
+                    crate::autostart::set_enabled(&app, true).map_err(|error| {
                         format!("Failed to restore standard autostart: {error}")
                     })
                 } else {
@@ -3470,8 +3465,7 @@ pub fn change_autostart_as_admin_setting(app: AppHandle, enabled: bool) -> Resul
             create_admin_autostart_task(&exe_str)?;
 
             // Disable standard registry autostart so the application does not start twice
-            let autostart_manager = app.autolaunch();
-            if let Err(e) = autostart_manager.disable() {
+            if let Err(e) = crate::autostart::set_enabled(&app, false) {
                 if let Err(rollback_error) = delete_admin_autostart_task() {
                     return Err(format!(
                         "Failed to disable standard registry autostart: {e}; also failed to remove the administrator task during rollback: {rollback_error}"
@@ -3485,7 +3479,7 @@ pub fn change_autostart_as_admin_setting(app: AppHandle, enabled: bool) -> Resul
             next_settings.autostart_enabled = true;
             if let Err(save_error) = settings::write_settings_checked(&app, next_settings) {
                 let registry_rollback = if previous_settings.autostart_enabled {
-                    autostart_manager.enable().map_err(|error| error.to_string())
+                    crate::autostart::set_enabled(&app, true).map_err(|error| error.to_string())
                 } else {
                     Ok(())
                 };
@@ -3502,13 +3496,11 @@ pub fn change_autostart_as_admin_setting(app: AppHandle, enabled: bool) -> Resul
                 };
             }
         } else {
-            let autostart_manager = app.autolaunch();
 
             // Transactional rollback sequence:
             // 1. If regular autostart remains enabled, restore registry autostart first
             let restored_registry = if previous_settings.autostart_enabled {
-                autostart_manager
-                    .enable()
+                crate::autostart::set_enabled(&app, true)
                     .map_err(|e| format!("Failed to restore standard registry autostart: {e}"))?;
                 true
             } else {
@@ -3519,7 +3511,7 @@ pub fn change_autostart_as_admin_setting(app: AppHandle, enabled: bool) -> Resul
             if let Err(e) = delete_admin_autostart_task() {
                 // If scheduled task deletion fails and we re-enabled registry autostart, roll it back
                 if restored_registry {
-                    if let Err(rollback_error) = autostart_manager.disable() {
+                    if let Err(rollback_error) = crate::autostart::set_enabled(&app, false) {
                         return Err(format!(
                             "Failed to delete administrator scheduled task: {e}; also failed to roll back standard autostart: {rollback_error}"
                         ));
@@ -3533,7 +3525,7 @@ pub fn change_autostart_as_admin_setting(app: AppHandle, enabled: bool) -> Resul
             if let Err(save_error) = settings::write_settings_checked(&app, next_settings) {
                 let task_rollback = create_admin_autostart_task(&exe_str);
                 let registry_rollback = if task_rollback.is_ok() && restored_registry {
-                    autostart_manager.disable().map_err(|error| error.to_string())
+                    crate::autostart::set_enabled(&app, false).map_err(|error| error.to_string())
                 } else {
                     Ok(())
                 };
