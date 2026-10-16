@@ -622,6 +622,7 @@ export const TranscriptionProfiles: React.FC = () => {
     llm_post_process_enabled: newLlmEnabled,
     llm_prompt_override: newLlmPromptExplicitEmpty ? "" : newLlmPromptOverride || null,
     llm_model_override: newLlmModelOverride,
+    llm_live_stream_insert: settings?.post_process_live_stream_insert ?? false,
     soniox_context_general_json: newSonioxContextGeneralJson, soniox_context_text: newSonioxContextText,
     soniox_context_terms: newSonioxContextTerms, soniox_language_hints_strict: strictModeToApi(newSonioxLanguageHintsStrictMode),
     gemini_language_code_override: draftAdditionalSettings?.geminiLanguageCodeOverride ?? null,
@@ -651,6 +652,7 @@ export const TranscriptionProfiles: React.FC = () => {
     preview_output_only_enabled: settings?.preview_output_only_enabled ?? false,
     system_prompt: activePromptValue, stt_prompt_override_enabled: true, stt_model_selection_override: null,
     llm_post_process_enabled: settings?.post_process_enabled ?? false, llm_prompt_override: null, llm_model_override: null,
+    llm_live_stream_insert: settings?.post_process_live_stream_insert ?? false,
     soniox_context_general_json: settings?.soniox_context_general_json ?? "", soniox_context_text: settings?.soniox_context_text ?? "",
     soniox_context_terms: settings?.soniox_context_terms ?? [], soniox_language_hints_strict: settings?.soniox_language_hints_strict ?? false,
     gemini_language_code_override: globalGeminiLanguageCode, gemini_custom_vocabulary_override: globalGeminiVocabulary,
@@ -748,7 +750,7 @@ export const TranscriptionProfiles: React.FC = () => {
         {
           payload: {
             name: newName.trim(), ...profileSettingsPayload(draft),
-            llmSettings: !["llm_post_process_enabled", "llm_prompt_override", "llm_model_override"].some(field => field in newFormValues) && newLlmEnabledOverride === null &&
+            llmSettings: !["llm_post_process_enabled", "llm_prompt_override", "llm_model_override", "llm_live_stream_insert"].some(field => field in newFormValues) && newLlmEnabledOverride === null &&
               draft.llm_prompt_override === null && draft.llm_model_override === null
                 ? null : profileSettingsPayload(draft).llmSettings,
           },
@@ -844,6 +846,7 @@ export const TranscriptionProfiles: React.FC = () => {
         soniox_language_hints_strict: "soniox_language_hints_strict", soniox_context_general_json: "soniox_context_general_json",
         soniox_context_text: "soniox_context_text", soniox_context_terms: "soniox_context_terms",
         gemini_language_code_override: "gemini_language_code", gemini_custom_vocabulary_override: "gemini_custom_vocabulary",
+        llm_live_stream_insert: "post_process_live_stream_insert",
       } as const;
       for (const [field, setting] of Object.entries(globalFields)) {
         if (field in patch) await updateSetting(setting as keyof NonNullable<typeof settings>, patch[field as keyof ExtendedTranscriptionProfile] as never, { throwOnError: true });

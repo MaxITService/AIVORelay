@@ -21,7 +21,7 @@ enum StreamReplacementRule {
 }
 
 #[derive(Clone, Default)]
-struct StreamChunkReplacementEngine {
+pub(crate) struct StreamChunkReplacementEngine {
     rules: Vec<StreamReplacementRule>,
 }
 
@@ -33,7 +33,7 @@ impl StreamChunkReplacementEngine {
         Self::from_replacements(&settings.text_replacements)
     }
 
-    fn from_replacements(replacements: &[TextReplacement]) -> Option<Self> {
+    pub(crate) fn from_replacements(replacements: &[TextReplacement]) -> Option<Self> {
         let mut rules = Vec::new();
         for replacement in replacements
             .iter()
@@ -81,7 +81,7 @@ impl StreamChunkReplacementEngine {
         }
     }
 
-    fn apply(&self, text: &str) -> String {
+    pub(crate) fn apply(&self, text: &str) -> String {
         let mut result = text.to_string();
         for rule in &self.rules {
             result = match rule {
@@ -319,7 +319,7 @@ fn count_trailing_whitespace_bytes(text: &str) -> usize {
     total
 }
 
-fn stable_prefix_end(text: &str, tail_words: usize) -> usize {
+pub(crate) fn stable_prefix_end(text: &str, tail_words: usize) -> usize {
     if text.is_empty() {
         return 0;
     }

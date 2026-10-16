@@ -17,6 +17,7 @@ import { NameSortedDropdown } from "../../ui/NameSortedDropdown";
 import { Textarea } from "../../ui/Textarea";
 import { TextFileActions } from "../../ui/TextFileActions";
 import { PostProcessingToggle } from "../PostProcessingToggle";
+import { LlmLiveStreamInsertToggle } from "../LlmLiveStreamInsertToggle";
 import { ProviderSelect } from "../PostProcessingSettingsApi/ProviderSelect";
 import { BaseUrlField } from "../PostProcessingSettingsApi/BaseUrlField";
 import { ApiKeyField } from "../PostProcessingSettingsApi/ApiKeyField";
@@ -894,6 +895,7 @@ export const PostProcessingSettings: React.FC = () => {
 
       <SettingsGroup id="settings-postprocess-prompts" title={t("settings.postProcessing.prompts.title")}>
         <PostProcessingToggle descriptionMode="inline" grouped={true} />
+        <LlmLiveStreamInsertToggle grouped={true} />
         <PostProcessingSettingsPrompts />
       </SettingsGroup>
 

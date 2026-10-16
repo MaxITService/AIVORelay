@@ -406,10 +406,7 @@ fn prompt_templates_require_current_app(
     }
 
     // 5. LLM Post-Processing (only if LLM post-processing is actually enabled for this session)
-    let force_post_process = FORCE_POST_PROCESS_BINDINGS
-        .lock()
-        .map(|bindings| bindings.contains(binding_id))
-        .unwrap_or(false);
+    let force_post_process = force_post_process_requested(binding_id);
     let llm_enabled = profile
         .map(|profile| profile.llm_post_process_enabled)
         .unwrap_or(settings.post_process_enabled);
@@ -464,6 +461,13 @@ fn peek_recording_app_context(binding_id: &str) -> String {
         return context.get(binding_id).cloned().unwrap_or_default();
     }
     String::new()
+}
+
+fn force_post_process_requested(binding_id: &str) -> bool {
+    FORCE_POST_PROCESS_BINDINGS
+        .lock()
+        .map(|bindings| bindings.contains(binding_id))
+        .unwrap_or(false)
 }
 
 pub(crate) fn force_post_process_for_next_transcription(binding_id: &str) {
@@ -1189,6 +1193,155 @@ fn is_blank_transcription(transcription: &str) -> bool {
     transcription.trim().is_empty()
 }
 
+/// Inserts a streamed LLM answer while it arrives, through the recording's dictation
+/// output session: window protection, early opening key, held trailing whitespace and
+/// clipboard backup work as for live transcription.
+struct LlmLiveInsert {
+    app: AppHandle,
+    stamp: OperationStamp,
+    processor: crate::llm_live_output::LlmLiveOutputProcessor,
+    clipboard_session: bool,
+    completed: bool,
+    pending: Arc<Mutex<PendingLlmOutput>>,
+}
+
+/// Answer text waiting for the main thread. A clipboard paste blocks it for about
+/// a quarter second, so pieces that arrive meanwhile join the next paste instead of
+/// queueing one paste per token.
+#[derive(Default)]
+struct PendingLlmOutput {
+    text: String,
+    paste_queued: bool,
+}
+
+impl PendingLlmOutput {
+    /// Adds text and returns true when no queued paste will pick it up yet.
+    fn append(&mut self, text: &str) -> bool {
+        self.text.push_str(text);
+        !std::mem::replace(&mut self.paste_queued, true)
+    }
+
+    /// Takes all waiting text for the paste that runs now.
+    fn take(&mut self) -> String {
+        self.paste_queued = false;
+        std::mem::take(&mut self.text)
+    }
+}
+
+fn lock_pending_llm_output(pending: &Mutex<PendingLlmOutput>) -> std::sync::MutexGuard<'_, PendingLlmOutput> {
+    pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+impl LlmLiveInsert {
+    fn new(app: &AppHandle, stamp: OperationStamp, settings: &AppSettings) -> Self {
+        Self {
+            app: app.clone(),
+            stamp,
+            processor: crate::llm_live_output::LlmLiveOutputProcessor::from_settings(settings),
+            clipboard_session: false,
+            completed: false,
+            pending: Arc::default(),
+        }
+    }
+
+    /// Queues the next answer piece for insertion. Returns false once the
+    /// recording was cancelled, which stops the stream.
+    fn deliver(&mut self, piece: &str) -> bool {
+        if self.stamp.was_cancelled(&self.app) {
+            return false;
+        }
+        let text = self.processor.push(piece);
+        self.dispatch(text);
+        true
+    }
+
+    /// Queues the text still held back once the answer has ended.
+    fn complete(&mut self) {
+        let text = self.processor.finish();
+        self.dispatch(text);
+        self.completed = true;
+    }
+
+    fn has_emitted_text(&self) -> bool {
+        self.processor.has_emitted_text()
+    }
+
+    fn dispatch(&mut self, text: String) {
+        if text.is_empty() || self.stamp.was_cancelled(&self.app) {
+            return;
+        }
+        let operation_id = self.stamp.operation_id;
+        if !self.clipboard_session {
+            self.clipboard_session = true;
+            if let Err(error) = crate::clipboard::begin_streaming_paste_session(&self.app, operation_id) {
+                warn!("Failed to begin streaming clipboard session for LLM output: {}", error);
+            }
+        }
+        if !lock_pending_llm_output(&self.pending).append(&text) {
+            return;
+        }
+        let app = self.app.clone();
+        let stamp = self.stamp;
+        let pending = Arc::clone(&self.pending);
+        if let Err(error) = self.app.run_on_main_thread(move || {
+            let text = lock_pending_llm_output(&pending).take();
+            if stamp.was_cancelled(&app) {
+                debug!("Skipping queued LLM output for cancelled operation {}", operation_id);
+                return;
+            }
+            if let Err(error) = crate::clipboard::paste_stream_chunk_for_operation(text, app, operation_id) {
+                warn!("Failed to insert streamed LLM output: {}", error);
+            }
+        }) {
+            // The text stays pending, so the next piece queues it again.
+            lock_pending_llm_output(&self.pending).paste_queued = false;
+            warn!("Failed to queue streamed LLM output insert: {}", error);
+        }
+    }
+}
+
+#[cfg(test)]
+mod llm_live_insert_tests {
+    use super::PendingLlmOutput;
+
+    #[test]
+    fn answer_pieces_join_while_a_paste_is_queued() {
+        let mut pending = PendingLlmOutput::default();
+        assert!(pending.append("Hel"));
+        assert!(!pending.append("lo"));
+        assert!(!pending.append(" world"));
+        assert_eq!(pending.take(), "Hello world");
+        assert!(pending.append("!"), "a piece after the paste took the text queues a new one");
+        assert_eq!(pending.take(), "!");
+        assert_eq!(pending.take(), "");
+    }
+
+    #[test]
+    fn forced_post_processing_plans_live_insertion_for_window_protection() {
+        let mut settings = crate::settings::get_default_settings();
+        settings.transcription_provider = crate::settings::TranscriptionProvider::RemoteDeepgram;
+        settings.deepgram_live_enabled = false;
+        settings.post_process_enabled = false;
+        settings.post_process_live_stream_insert = true;
+        assert!(!super::llm_live_insert_planned(&settings, None, false, false));
+        assert!(super::llm_live_insert_planned(&settings, None, false, true));
+        settings.post_process_live_stream_insert = false;
+        assert!(!super::llm_live_insert_planned(&settings, None, false, true));
+    }
+
+    #[test]
+    fn answer_forced_at_stop_streams_only_into_a_protected_window() {
+        let mut output = crate::settings::ResolvedOutputSettings::resolve(
+            &crate::settings::get_default_settings(), None,
+        );
+        output.check_active_window = false;
+        assert!(super::llm_live_insert_is_protected(&output, false), "nothing to protect");
+        output.check_active_window = true;
+        assert_eq!(super::llm_live_insert_is_protected(&output, false), !cfg!(target_os = "windows"));
+        assert!(super::llm_live_insert_is_protected(&output, true));
+    }
+}
+
 /// Post-process transcription with LLM, optionally using profile-specific settings.
 ///
 /// If `profile` is Some, uses the profile's LLM settings:
@@ -1198,12 +1351,14 @@ fn is_blank_transcription(transcription: &str) -> bool {
 ///
 /// If `profile` is None (default profile), uses global settings.
 /// If `force_manual` is true, the enable flag gates are bypassed.
+/// If `live` is Some, the answer is streamed and inserted while it arrives.
 async fn maybe_post_process_transcription(
     app: &AppHandle,
     settings: &AppSettings,
     profile: Option<&TranscriptionProfile>,
     template_context: &LlmTemplateContext,
     force_manual: bool,
+    live: Option<&mut LlmLiveInsert>,
 ) -> PostProcessTranscriptionOutcome {
     if is_blank_transcription(&template_context.output) {
         debug!("Post-processing skipped because the transcription is empty");
@@ -1393,6 +1548,21 @@ async fn maybe_post_process_transcription(
         settings.post_process_reasoning_budget,
     );
 
+    if let Some(live) = live {
+        return stream_post_process_into_live_insert(
+            live,
+            &provider,
+            api_key,
+            &model,
+            processed_prompt,
+            reasoning_config,
+            llm_tracker.inner(),
+            operation_id,
+            prompt_template,
+        )
+        .await;
+    }
+
     // Send the chat completion request with optional reasoning
     match crate::llm_client::send_chat_completion_with_reasoning(
         &provider,
@@ -1460,6 +1630,74 @@ async fn maybe_post_process_transcription(
             );
             PostProcessTranscriptionOutcome::Skipped
         }
+    }
+}
+
+/// Streams the post-processing answer into `live`. A provider without streaming
+/// answers in one piece, which is inserted the same way. When the answer breaks
+/// off after text was inserted, that text stays and becomes the processed result;
+/// before any text, the original transcription is used as without streaming.
+#[allow(clippy::too_many_arguments)]
+async fn stream_post_process_into_live_insert(
+    live: &mut LlmLiveInsert,
+    provider: &crate::settings::PostProcessProvider,
+    api_key: String,
+    model: &str,
+    prompt: String,
+    reasoning: crate::llm_client::ReasoningConfig,
+    llm_tracker: &Arc<LlmOperationTracker>,
+    operation_id: u64,
+    prompt_template: String,
+) -> PostProcessTranscriptionOutcome {
+    let result = {
+        let mut on_content =
+            |piece: &str| !llm_tracker.is_cancelled(operation_id) && live.deliver(piece);
+        crate::llm_client::stream_chat_completion_with_reasoning(
+            provider,
+            api_key,
+            model,
+            prompt,
+            reasoning,
+            &mut on_content,
+        )
+        .await
+    };
+    if llm_tracker.is_cancelled(operation_id) || live.stamp.was_cancelled(&live.app) {
+        debug!(
+            "LLM post-processing operation {} was cancelled, discarding streamed result",
+            operation_id
+        );
+        return PostProcessTranscriptionOutcome::Cancelled;
+    }
+    match &result {
+        Ok(completion) => debug!(
+            "LLM post-processing finished for provider '{}' (streamed: {}). Output length: {} chars",
+            provider.id,
+            completion.streamed,
+            live.processor.raw_text().len()
+        ),
+        Err(error) => error!(
+            "LLM post-processing failed for provider '{}' while streaming: {}",
+            provider.id, error
+        ),
+    }
+    if result.is_err() && !live.has_emitted_text() {
+        // Nothing was inserted yet, so the transcription is inserted as without streaming.
+        return PostProcessTranscriptionOutcome::Skipped;
+    }
+    if live.processor.raw_text().is_empty() {
+        error!("LLM API response has no content");
+        return PostProcessTranscriptionOutcome::Skipped;
+    }
+    // A valid answer may become empty after replacements. It is still processed;
+    // falling back here would insert the original dictation instead.
+    live.complete();
+    if result.is_err() {
+        warn!("Keeping the part of the LLM answer that was already inserted");
+    }
+    PostProcessTranscriptionOutcome::Processed {
+        text: live.processor.raw_text().to_string(),
+        prompt_template,
     }
 }
 
@@ -1721,6 +1959,32 @@ fn resolve_history_post_process_requested(
         .unwrap_or(settings.post_process_enabled);
 
     enabled && post_process_allowed_for_output_route(settings, profile)
+}
+
+/// Whether the LLM answer of this recording will be inserted while it streams,
+/// including post-processing forced for it from the command line or remote control.
+fn llm_live_insert_planned(
+    settings: &AppSettings,
+    profile: Option<&TranscriptionProfile>,
+    native_stream_direct_output: bool,
+    force_post_process: bool,
+) -> bool {
+    !should_use_live_streaming(settings)
+        && !native_stream_direct_output
+        && crate::llm_live_output::live_stream_insert_enabled(settings, profile)
+        && (resolve_history_post_process_requested(settings, profile)
+            || (force_post_process && post_process_allowed_for_output_route(settings, profile)))
+}
+
+/// Window protection starts with the recording. An answer forced only at stop, where the
+/// window had to be protected, is inserted whole at completion instead of streaming unpinned.
+fn llm_live_insert_is_protected(
+    output: &crate::settings::ResolvedOutputSettings,
+    protection_began: bool,
+) -> bool {
+    protection_began
+        || !((cfg!(target_os = "windows") && output.check_active_window)
+            || output.early_opening_key.state() != crate::early_open::EarlyKeyState::Idle)
 }
 
 /// Settings for the automatic LLM pass of a stopped recording. The Preview LLM button runs
@@ -2191,11 +2455,18 @@ fn start_recording_with_feedback_with_settings(
             start_window,
         });
     }).is_some();
+    // A streamed LLM answer is inserted while it arrives, so it gets the same window protection.
+    let llm_live_insert_planned = llm_live_insert_planned(
+        &settings,
+        captured_profile,
+        native_stream_direct_output,
+        force_post_process_requested(binding_id),
+    );
     let protected_live_output = output_settings.as_ref().filter(|output|
         ((cfg!(target_os = "windows") && output.check_active_window) || early_open_armed)
             && output.paste_method != crate::settings::PasteMethod::None
             && !output.buffers_external_output()
-            && (should_use_live_streaming(&settings) || native_stream_direct_output)
+            && (should_use_live_streaming(&settings) || native_stream_direct_output || llm_live_insert_planned)
             && (!should_route_output_to_preview_for_captured_profile(&settings, captured_profile_id.as_ref())
                 || (early_open_armed && native_stream_direct_output))
     ).cloned();
@@ -3786,6 +4057,7 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
             request.pre_saved_file_name,
             Some(request.failed_history_entry_id),
             false,
+            None,
             None,
         )
         .await
@@ -6430,7 +6702,7 @@ pub(crate) async fn process_live_sound_transcription_text(app: AppHandle) -> Res
     );
 
     let result =
-        match maybe_post_process_transcription(&app, &settings, profile, &template_context, true)
+        match maybe_post_process_transcription(&app, &settings, profile, &template_context, true, None)
             .await
         {
             PostProcessTranscriptionOutcome::Processed { text, .. } => {
@@ -7236,7 +7508,7 @@ mod transcription_post_process_tests {
             is_regex: false,
         }];
         let history = |raw: &str, after_llm: &str, llm: bool| {
-            finish_transcription_output(&settings, raw, after_llm.into(), llm, None, llm)
+            finish_transcription_output(&settings, raw, after_llm.into(), llm, None, llm, None)
                 .post_processed_text
         };
         // Replacements alone count as processing; the raw transcript stays separate.
@@ -7249,8 +7521,58 @@ mod transcription_post_process_tests {
         // Replacements before the LLM are already in its input.
         settings.text_replacements_before_llm = true;
         let before =
-            finish_transcription_output(&settings, "teh cat", "the cat".into(), false, None, false);
+            finish_transcription_output(&settings, "teh cat", "the cat".into(), false, None, false, None);
         assert_eq!(before.post_processed_text.as_deref(), Some("the cat"));
+    }
+
+    fn streamed_output(from: &str, to: &str, pieces: &[&str]) -> super::ProcessedTranscription {
+        let mut settings = get_default_settings();
+        settings.text_replacements_enabled = true;
+        settings.text_replacements_before_llm = false;
+        settings.output_whitespace_leading_mode = crate::settings::OutputWhitespaceMode::Preserve;
+        settings.output_whitespace_trailing_mode = crate::settings::OutputWhitespaceMode::Preserve;
+        settings.text_replacements = vec![TextReplacement {
+            id: "tr_stream".into(),
+            from: from.into(),
+            to: to.into(),
+            enabled: true,
+            case_sensitive: true,
+            is_regex: false,
+        }];
+        let mut processor = crate::llm_live_output::LlmLiveOutputProcessor::from_settings(&settings);
+        for piece in pieces {
+            processor.push(piece);
+        }
+        processor.finish();
+        finish_transcription_output(
+            &settings, "original dictation", processor.replaced_text().to_string(), true,
+            Some("prompt".into()), true, Some(&processor),
+        )
+    }
+
+    #[test]
+    fn streamed_history_does_not_reapply_replacements() {
+        let output = streamed_output("a", "aa", &["a"]);
+        assert_eq!(output.final_text, "aa");
+        assert_eq!(output.post_processed_text.as_deref(), Some("aa"));
+        assert_eq!(output.post_process_prompt.as_deref(), Some("prompt"));
+        assert!(output.post_process_requested);
+    }
+
+    #[test]
+    fn streamed_history_keeps_the_same_result_when_a_replacement_spans_inserted_text() {
+        let output = streamed_output(
+            "one two three four five", "X", &["one ", "two ", "three ", "four ", "five"],
+        );
+        assert_eq!(output.final_text, "one two three four five");
+        assert_eq!(output.post_processed_text.as_deref(), Some(output.final_text.as_str()));
+    }
+
+    #[test]
+    fn streamed_history_keeps_an_answer_removed_by_replacements_empty() {
+        let output = streamed_output("SKIP", "", &["SK", "IP"]);
+        assert!(output.final_text.is_empty());
+        assert_eq!(output.post_processed_text.as_deref(), Some(""));
     }
 
     #[test]
@@ -7519,6 +7841,27 @@ pub(crate) async fn process_transcription_output(
     current_app: &str,
     force_post_process: bool,
 ) -> Option<ProcessedTranscription> {
+    process_transcription_output_with_live_insert(
+        app,
+        settings,
+        transcription,
+        profile_id,
+        current_app,
+        force_post_process,
+        None,
+    )
+    .await
+}
+
+async fn process_transcription_output_with_live_insert(
+    app: &AppHandle,
+    settings: &AppSettings,
+    transcription: &str,
+    profile_id: Option<&str>,
+    current_app: &str,
+    force_post_process: bool,
+    mut live: Option<&mut LlmLiveInsert>,
+) -> Option<ProcessedTranscription> {
     let mut final_text = transcription.to_string();
     let mut llm_processed = false;
     let mut post_process_prompt: Option<String> = None;
@@ -7548,6 +7891,7 @@ pub(crate) async fn process_transcription_output(
             profile,
             &template_context,
             force_post_process,
+            live.as_deref_mut(),
         )
         .await
         {
@@ -7573,6 +7917,7 @@ pub(crate) async fn process_transcription_output(
         llm_processed,
         post_process_prompt,
         post_process_requested,
+        live.as_deref().filter(|live| live.completed).map(|live| &live.processor),
     );
 
     // Keep recent transcript context per app for prompt variable ${short_prev_transcript}.
@@ -7608,7 +7953,18 @@ fn finish_transcription_output(
     llm_processed: bool,
     post_process_prompt: Option<String>,
     post_process_requested: bool,
+    streamed_output: Option<&crate::llm_live_output::LlmLiveOutputProcessor>,
 ) -> ProcessedTranscription {
+    // The stream already owns replacements, leading whitespace and decapitalize.
+    // History and the final clipboard reuse it, including intentionally empty output.
+    if let Some(streamed_output) = streamed_output {
+        return ProcessedTranscription {
+            final_text: streamed_output.final_text(settings),
+            post_processed_text: Some(streamed_output.replaced_text().to_string()),
+            post_process_prompt,
+            post_process_requested,
+        };
+    }
     // Apply text replacements AFTER LLM if NOT configured for before
     if !settings.text_replacements_before_llm {
         final_text = apply_configured_text_replacements(settings, &final_text);
@@ -7650,14 +8006,16 @@ async fn apply_post_processing_and_history(
     failed_history_entry_id: Option<i64>,
     force_post_process: bool,
     operation_stamp: Option<OperationStamp>,
+    live: Option<&mut LlmLiveInsert>,
 ) -> Option<String> {
-    let processed = process_transcription_output(
+    let processed = process_transcription_output_with_live_insert(
         app,
         settings,
         &transcription,
         profile_id.as_deref(),
         current_app,
         force_post_process,
+        live,
     )
     .await?;
 
@@ -9067,7 +9425,7 @@ impl ShortcutAction for TranscribeAction {
                         let text = apply_profile_output_filters(&recording_settings, text, profile_id_for_postprocess.as_deref());
                         let _ = apply_post_processing_and_history(
                             &ah, &recording_settings, text, samples, profile_id_for_postprocess,
-                            &current_app, None, None, force_post_process, None,
+                            &current_app, None, None, force_post_process, None, None,
                         ).await;
                     }
                     return;
@@ -9173,6 +9531,7 @@ impl ShortcutAction for TranscribeAction {
                                     None,
                                     None,
                                     force_post_process,
+                                    None,
                                     None,
                                 )
                                 .await;
@@ -9504,6 +9863,7 @@ impl ShortcutAction for TranscribeAction {
                     None,
                     force_post_process && !invoked_from_preview_llm,
                     Some(operation_stamp),
+                    None,
                 )
                 .await
                 {
@@ -9956,6 +10316,26 @@ impl ShortcutAction for TranscribeAction {
                 profile_id_for_postprocess.as_deref(),
                 invoked_from_preview_llm,
             );
+            // The LLM answer is inserted while it streams only where the text goes straight
+            // to the target window; held, buffered and streamed transcriptions keep their path.
+            let mut llm_live_insert = (!uses_streaming_insert
+                && !preview_output_only_enabled
+                && !invoked_from_preview_action
+                && !preview_processing_before_insert
+                && output_settings.paste_method != crate::settings::PasteMethod::None
+                && !output_settings.buffers_external_output()
+                && llm_live_insert_is_protected(
+                    &output_settings,
+                    crate::live_output_buffer::enabled(recording_operation_id),
+                )
+                && crate::llm_live_output::live_stream_insert_enabled(
+                    &post_process_settings,
+                    profile_id_for_postprocess
+                        .as_deref()
+                        .filter(|id| *id != "default")
+                        .and_then(|id| post_process_settings.transcription_profile(id)),
+                ))
+            .then(|| LlmLiveInsert::new(&ah, operation_stamp, &post_process_settings));
             let final_text = match apply_post_processing_and_history(
                 &ah,
                 &post_process_settings,
@@ -9967,12 +10347,15 @@ impl ShortcutAction for TranscribeAction {
                 None,
                 force_post_process && !invoked_from_preview_llm,
                 Some(operation_stamp),
+                llm_live_insert.as_mut(),
             )
             .await
             {
                 Some(text) => text,
                 None => {
-                    if uses_streaming_insert && !preview_output_only_enabled {
+                    let llm_clipboard_session =
+                        llm_live_insert.as_ref().is_some_and(|live| live.clipboard_session);
+                    if (uses_streaming_insert && !preview_output_only_enabled) || llm_clipboard_session {
                         end_streaming_paste_session_after_main_thread_queue(
                             &ah,
                             recording_operation_id,
@@ -10000,6 +10383,13 @@ impl ShortcutAction for TranscribeAction {
                 return;
             }
 
+            // The streamed LLM answer is already inserted; the session finalizer completes it.
+            let llm_live_final_text = llm_live_insert
+                .as_ref()
+                .filter(|live| live.completed)
+                .map(|live| live.processor.final_text(&post_process_settings));
+            let llm_live_inserted = llm_live_final_text.is_some();
+
             wait_for_early_opening_key(&ah, recording_operation_id, operation_stamp).await;
             let ah_clone = ah.clone();
             let final_text_for_ui = final_text.clone();
@@ -10013,7 +10403,7 @@ impl ShortcutAction for TranscribeAction {
                     None
                 };
             if !preview_output_only_enabled {
-                before_dictation_final_output(&ah, &final_text);
+                before_dictation_final_output(&ah, llm_live_final_text.as_deref().unwrap_or(&final_text));
             }
             let overlay_generation =
                 crate::plus_overlay_state::current_recording_overlay_generation();
@@ -10028,7 +10418,7 @@ impl ShortcutAction for TranscribeAction {
                 // Streaming paths already inserted only committed text incrementally;
                 // the operation-scoped session finalizer owns trailing whitespace and
                 // the clipboard.
-                if !uses_streaming_insert && !preview_output_only_enabled {
+                if !uses_streaming_insert && !preview_output_only_enabled && !llm_live_inserted {
                     let result = utils::paste_with_output_settings(final_text_for_ui.clone(), ah_clone.clone(),
                         &output_settings, || !operation_stamp.was_cancelled(&ah_clone));
                     if report_dictation_paste_result(&ah_clone, result,
@@ -10065,13 +10455,13 @@ impl ShortcutAction for TranscribeAction {
                 }
             }
 
-            if uses_streaming_insert && !preview_output_only_enabled {
+            if (uses_streaming_insert && !preview_output_only_enabled) || llm_live_inserted {
                 let output_finalized = finalize_streaming_paste_session_after_main_thread_queue(
                     &ah,
                     recording_operation_id,
                     operation_stamp,
                     streaming_clipboard_timeout_ms,
-                    final_text.clone(),
+                    llm_live_final_text.unwrap_or_else(|| final_text.clone()),
                 );
                 if output_finalized {
                     play_result_ready_sound(&ah);
@@ -10194,6 +10584,7 @@ impl ShortcutAction for SendToExtensionAction {
                 None,
                 false,
                 Some(operation_stamp),
+                None,
             )
             .await
             {
@@ -10357,6 +10748,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                     None,
                     false,
                     Some(operation_stamp),
+                    None,
                 )
                 .await
                 {
@@ -12499,6 +12891,7 @@ pub async fn preview_llm_process_action(app: AppHandle) -> Result<(), String> {
             profile,
             &template_context,
             true,
+            None,
         )
         .await
         {

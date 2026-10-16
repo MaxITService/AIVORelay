@@ -142,6 +142,7 @@ fn default_file_profile_snapshot(
         llm_post_process_enabled: settings.post_process_enabled,
         llm_prompt_override: None,
         llm_model_override: None,
+        llm_live_stream_insert: false,
         soniox_context_general_json: settings.soniox_context_general_json.clone(),
         soniox_context_text: settings.soniox_context_text.clone(),
         soniox_context_terms: settings.soniox_context_terms.clone(),

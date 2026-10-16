@@ -25,6 +25,7 @@ mod input_source;
 mod language_resolver;
 mod live_output_buffer;
 mod llm_client;
+mod llm_live_output;
 mod managers;
 mod memory;
 mod no_clobber;
@@ -1383,6 +1384,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_log_transcription_text_setting,
         shortcut::change_post_process_enabled_setting,
         shortcut::change_default_profile_post_process_enabled_setting,
+        shortcut::change_post_process_live_stream_insert_setting,
         shortcut::change_post_process_reasoning_enabled_setting,
         shortcut::change_post_process_reasoning_budget_setting,
         shortcut::change_ai_replace_reasoning_enabled_setting,

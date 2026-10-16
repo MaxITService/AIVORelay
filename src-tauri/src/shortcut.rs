@@ -4741,6 +4741,34 @@ pub fn change_default_profile_post_process_enabled_setting(
     Ok(())
 }
 
+#[tauri::command]
+#[specta::specta]
+/// Updates live insertion of the streamed LLM answer for a profile (the active one when `None`).
+/// The default profile owns `post_process_live_stream_insert`; custom profiles own their
+/// individual `llm_live_stream_insert` value.
+pub fn change_post_process_live_stream_insert_setting(
+    app: AppHandle,
+    enabled: bool,
+    profile_id: Option<String>,
+) -> Result<(), String> {
+    let _settings_guard =
+        settings::lock_settings_mutation("changing live insertion of the LLM answer")?;
+    let mut settings = settings::get_settings(&app);
+    let target_profile_id = profile_id.unwrap_or_else(|| settings.active_profile_id.clone());
+    if target_profile_id == "default" {
+        settings.post_process_live_stream_insert = enabled;
+    } else if let Some(profile) = settings
+        .transcription_profiles
+        .iter_mut()
+        .find(|profile| profile.id == target_profile_id)
+    {
+        profile.llm_live_stream_insert = enabled;
+    } else {
+        return Err(format!("Profile '{}' not found", target_profile_id));
+    }
+    settings::write_settings_checked(&app, settings)
+}
+
 // ============================================================================
 // Extended Thinking / Reasoning Settings
 // ============================================================================
@@ -5524,11 +5552,19 @@ pub fn add_transcription_profile(
     };
 
     // Use provided LLM settings or inherit from global default
-    let (llm_post_process_enabled, llm_prompt_override, llm_model_override) =
+    let (llm_post_process_enabled, llm_prompt_override, llm_model_override, llm_live_stream_insert) =
         if let Some(llm) = llm_settings {
-            (llm.enabled, llm.prompt_override, llm.model_override)
+            let live_stream_insert = llm
+                .live_stream_insert
+                .unwrap_or(settings.post_process_live_stream_insert);
+            (llm.enabled, llm.prompt_override, llm.model_override, live_stream_insert)
         } else {
-            (settings.post_process_enabled, None, None)
+            (
+                settings.post_process_enabled,
+                None,
+                None,
+                settings.post_process_live_stream_insert,
+            )
         };
 
     let general_json = soniox_context_general_json.unwrap_or_default();
@@ -5598,6 +5634,7 @@ pub fn add_transcription_profile(
         llm_post_process_enabled,
         llm_prompt_override,
         llm_model_override,
+        llm_live_stream_insert,
         output_settings,
         soniox_context_general_json: general_json.trim().to_string(),
         soniox_context_text: context_text.trim().to_string(),
@@ -5712,6 +5749,9 @@ pub fn update_transcription_profile(
     profile.llm_post_process_enabled = llm_settings.enabled;
     profile.llm_prompt_override = llm_settings.prompt_override;
     profile.llm_model_override = llm_settings.model_override;
+    if let Some(live_stream_insert) = llm_settings.live_stream_insert {
+        profile.llm_live_stream_insert = live_stream_insert;
+    }
     let general_json = soniox_context_general_json.unwrap_or_default();
     let context_text = soniox_context_text.unwrap_or_default();
     let context_terms = settings::normalize_soniox_terms(&soniox_context_terms.unwrap_or_default());

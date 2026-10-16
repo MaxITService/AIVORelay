@@ -683,6 +683,15 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
     }
   };
 
+  const handleLlmLiveStreamInsertChange = async (newValue: boolean) => {
+    setIsUpdating(true);
+    try {
+      await onCommit({ llm_live_stream_insert: newValue });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const handleLlmPromptChange = (newPrompt: string): Promise<void> => {
     const promptOverride = llmPromptOverrideFromInput(newPrompt);
     if (promptOverride == null) {
@@ -1504,6 +1513,27 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
                     "Open LLM Post Processing settings",
                   )}
                 </Button>
+                {effectiveLlmEnabled && (
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-mid-gray/10 bg-mid-gray/5 p-3">
+                    <div className="min-w-0 space-y-1">
+                      <label htmlFor={`profile-llm-live-insert-${profile.id}`} className="text-xs font-semibold text-text/70">
+                        {t("settings.postProcessing.liveStreamInsert.title")}
+                      </label>
+                      <p className="text-xs text-mid-gray leading-snug">
+                        {t("settings.postProcessing.liveStreamInsert.description")}
+                      </p>
+                      <p className="text-xs text-amber-400/90 leading-snug">
+                        {t("settings.postProcessing.liveStreamInsert.replacementWarning")}
+                      </p>
+                    </div>
+                    <ToggleSwitch
+                      inputId={`profile-llm-live-insert-${profile.id}`}
+                      checked={profile.llm_live_stream_insert ?? false}
+                      onChange={handleLlmLiveStreamInsertChange}
+                      disabled={isUpdating}
+                    />
+                  </div>
+                )}
                 {!isDefault && effectiveLlmEnabled && (
                   <div className="space-y-3">
                     {/* Prompt Override */}

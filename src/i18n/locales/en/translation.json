@@ -3816,6 +3816,12 @@
       "defaultProfileToggleLabel": "Default profile LLM post-processing",
       "defaultProfileUpdateFailed": "Failed to update Default profile LLM post-processing.",
       "openConfiguration": "Open LLM Post Processing settings",
+      "liveStreamInsert": {
+        "title": "Insert the answer as it streams",
+        "replacementWarning": "Warning: Text Replacement rules applied after the LLM may not match fully if part of the matching text has already been inserted while streaming.",
+        "description": "Type the LLM answer into the target app while the model is still writing it, with the same window protection and clipboard restore as live transcription. Models that cannot stream insert the whole answer at once. If the answer fails before any text arrives, the transcription is inserted instead.",
+        "activeProfileDescription": "Type the LLM answer into the target app while the model is still writing it. Models that cannot stream insert the whole answer at once. Applies to the <profile>active profile</profile>; each profile keeps its own choice."
+      },
       "disabledNotice": "Post processing is currently disabled. Enable it in Debug settings to configure.",
       "api": {
         "title": "API Configuration",
