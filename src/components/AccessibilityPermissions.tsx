@@ -5,6 +5,14 @@ import {
   checkAccessibilityPermission,
   requestAccessibilityPermission,
 } from "tauri-plugin-macos-permissions-api";
+import { commands } from "@/bindings";
+
+// The backend creates the input system and shortcuts on macOS only once the
+// Accessibility permission exists; both commands are idempotent.
+const initializeInput = async (): Promise<void> => {
+  await commands.initializeEnigo();
+  await commands.initializeShortcuts();
+};
 
 // Define permission state type
 type PermissionState = "request" | "verify" | "granted";
@@ -28,6 +36,9 @@ const AccessibilityPermissions: React.FC = () => {
       const hasPermissions: boolean = await checkAccessibilityPermission();
       setHasAccessibility(hasPermissions);
       setPermissionState(hasPermissions ? "granted" : "verify");
+      if (hasPermissions) {
+        await initializeInput();
+      }
       return hasPermissions;
     } catch (error) {
       console.error("Error checking accessibility permissions:", error);
@@ -71,6 +82,9 @@ const AccessibilityPermissions: React.FC = () => {
         const hasPermissions: boolean = await checkAccessibilityPermission();
         setHasAccessibility(hasPermissions);
         setPermissionState(hasPermissions ? "granted" : "request");
+        if (hasPermissions) {
+          await initializeInput();
+        }
       } catch (error) {
         console.error("Error during initial permission check:", error);
         setPermissionState("request");

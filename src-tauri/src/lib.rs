@@ -519,10 +519,27 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     recording_model_loading::install(app_handle);
     let speech_only = webview_mode::webviews_disabled();
 
+    // On macOS, creating the input state and registering shortcuts needs the
+    // Accessibility permission, so the frontend calls `initialize_enigo` and
+    // `initialize_shortcuts` once the user can grant it. The speech-only runtime
+    // has no frontend and initializes them here.
+    #[cfg(target_os = "macos")]
+    let defer_input_init = !speech_only;
+    #[cfg(not(target_os = "macos"))]
+    let defer_input_init = false;
+
     // Initialize the input state (Enigo singleton for keyboard/mouse simulation)
-    let enigo_state = timed_startup("input state", input::EnigoState::new)
-        .expect("Failed to initialize input state (Enigo)");
-    app_handle.manage(enigo_state);
+    if !defer_input_init {
+        match timed_startup("input state", input::EnigoState::new) {
+            Ok(enigo_state) => {
+                app_handle.manage(enigo_state);
+            }
+            Err(error) if cfg!(target_os = "macos") => {
+                log::warn!("Input state unavailable without Accessibility permission: {error}");
+            }
+            Err(error) => panic!("Failed to initialize input state (Enigo): {error}"),
+        }
+    }
     app_handle.manage(tray::TrayState::new());
 
     let current_settings = settings::get_settings(app_handle);
@@ -672,7 +689,10 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     timed_startup("audio feedback", || audio_feedback::init(app_handle));
 
     // Initialize the shortcuts
-    timed_startup("shortcuts", || shortcut::init_shortcuts(app_handle));
+    if !defer_input_init {
+        timed_startup("shortcuts", || shortcut::init_shortcuts(app_handle));
+        app_handle.manage(commands::ShortcutsInitialized);
+    }
 
     // SIGUSR1 (transcribe with post-processing) is macOS-only: on Linux,
     // WebKitGTK's garbage collector signals its own threads with it.
@@ -1663,6 +1683,8 @@ pub fn run(cli_args: CliArgs) {
         commands::tts_history::export_tts_history_audio,
         commands::tts_history::regenerate_tts_history_entry,
         commands::check_apple_intelligence_available,
+        commands::initialize_enigo,
+        commands::initialize_shortcuts,
         commands::llm_has_stored_api_key,
         commands::debug_show_error_overlay,
         commands::models::get_available_models,

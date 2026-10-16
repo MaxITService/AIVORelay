@@ -3334,6 +3334,33 @@ async checkAppleIntelligenceAvailable() : Promise<boolean> {
     return await TAURI_INVOKE("check_apple_intelligence_available");
 },
 /**
+ * Try to initialize Enigo (keyboard/mouse simulation).
+ * On macOS this fails until Accessibility permission is granted; the frontend
+ * retries after the user grants it. Idempotent, and a no-op elsewhere because
+ * the state is created at startup.
+ */
+async initializeEnigo() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("initialize_enigo") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Initialize keyboard shortcuts.
+ * On macOS, this is called after Accessibility is available. Idempotent, and a
+ * no-op elsewhere because shortcuts are registered at startup.
+ */
+async initializeShortcuts() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("initialize_shortcuts") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Returns whether a feature-specific LLM API key is stored in secure storage.
  * On non-Windows platforms this always returns false.
  */

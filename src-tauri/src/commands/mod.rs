@@ -381,6 +381,57 @@ pub fn check_apple_intelligence_available() -> bool {
     }
 }
 
+/// Try to initialize Enigo (keyboard/mouse simulation).
+/// On macOS this fails until Accessibility permission is granted; the frontend
+/// retries after the user grants it. Idempotent, and a no-op elsewhere because
+/// the state is created at startup.
+#[specta::specta]
+#[tauri::command]
+pub fn initialize_enigo(app: AppHandle) -> Result<(), String> {
+    use crate::input::EnigoState;
+
+    if app.try_state::<EnigoState>().is_some() {
+        log::debug!("Enigo already initialized");
+        return Ok(());
+    }
+
+    match EnigoState::new() {
+        Ok(enigo_state) => {
+            app.manage(enigo_state);
+            log::info!("Enigo initialized successfully");
+            Ok(())
+        }
+        Err(e) => {
+            log::warn!(
+                "Failed to initialize Enigo: {} (accessibility permissions may not be granted)",
+                e
+            );
+            Err(format!("Failed to initialize input system: {}", e))
+        }
+    }
+}
+
+/// Marker state to track if shortcuts have been initialized.
+pub struct ShortcutsInitialized;
+
+/// Initialize keyboard shortcuts.
+/// On macOS, this is called after Accessibility is available. Idempotent, and a
+/// no-op elsewhere because shortcuts are registered at startup.
+#[specta::specta]
+#[tauri::command]
+pub fn initialize_shortcuts(app: AppHandle) -> Result<(), String> {
+    if app.try_state::<ShortcutsInitialized>().is_some() {
+        log::debug!("Shortcuts already initialized");
+        return Ok(());
+    }
+
+    crate::shortcut::init_shortcuts(&app);
+    app.manage(ShortcutsInitialized);
+
+    log::info!("Shortcuts initialized successfully");
+    Ok(())
+}
+
 /// Show an error overlay for debugging purposes.
 /// Takes an error category string and displays the corresponding overlay.
 #[specta::specta]
