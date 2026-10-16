@@ -217,8 +217,10 @@
           "clipboardCtrlShiftV": "Portapapeles (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Portapapeles (Shift+Insert)",
           "direct": "Directo",
-          "none": "Ninguno"
-        }
+          "none": "Ninguno",
+          "externalScript": "Script externo"
+        },
+        "externalScriptPlaceholder": "/ruta/a/su/script.sh"
       },
       "clipboardHandling": {
         "title": "Manejo del Portapapeles",
@@ -279,6 +281,13 @@
           "title": "Dispositivo GPU",
           "description": "Seleccione qué GPU usar para la inferencia de Whisper. Auto elige la GPU dedicada.",
           "auto": "Auto"
+        }
+      },
+      "typingTool": {
+        "title": "Herramienta de escritura",
+        "description": "Elige qué herramienta de escritura de Linux usar para el método de pegado directo. Auto detectará y usará automáticamente la mejor herramienta disponible para tu sistema.",
+        "options": {
+          "auto": "Auto (recomendado)"
         }
       }
     },

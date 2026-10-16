@@ -3333,6 +3333,21 @@ pub enum PasteMethod {
     None,
     ShiftInsert,
     CtrlShiftV,
+    /// Hand the text to a user-configured script as its only argument.
+    ExternalScript,
+}
+
+/// Linux tool used for direct typing. Ignored on other platforms.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TypingTool {
+    #[default]
+    Auto,
+    Wtype,
+    Kwtype,
+    Dotool,
+    Ydotool,
+    Xdotool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -4256,6 +4271,12 @@ pub struct AppSettings {
     pub dictation_character_count_since_ms: Option<i64>,
     #[serde(default)]
     pub paste_method: PasteMethod,
+    /// Linux direct-typing tool; `Auto` picks one for the session type.
+    #[serde(default)]
+    pub typing_tool: TypingTool,
+    /// Script run by the External Script paste method.
+    #[serde(default)]
+    pub external_script_path: Option<String>,
     #[serde(default = "default_paste_delay_ms")]
     pub paste_delay_ms: u64,
     /// Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
@@ -6485,6 +6506,8 @@ pub fn get_default_settings() -> AppSettings {
         dictation_character_count: 0,
         dictation_character_count_since_ms: None,
         paste_method: PasteMethod::default(),
+        typing_tool: TypingTool::default(),
+        external_script_path: None,
         paste_delay_ms: default_paste_delay_ms(),
         convert_lf_to_crlf: true,
         clipboard_handling: ClipboardHandling::default(),

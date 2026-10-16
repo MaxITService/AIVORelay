@@ -217,8 +217,10 @@
           "clipboardCtrlShiftV": "Schránka (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Schránka (Shift+Insert)",
           "direct": "Přímé",
-          "none": "Žádné"
-        }
+          "none": "Žádné",
+          "externalScript": "Externí skript"
+        },
+        "externalScriptPlaceholder": "/cesta/k/vasemu/skriptu.sh"
       },
       "clipboardHandling": {
         "title": "Práce se schránkou",
@@ -279,6 +281,13 @@
           "title": "GPU zařízení",
           "description": "Vyberte, který GPU použít pro Whisper. Automaticky vybere dedikovaný GPU.",
           "auto": "Automaticky"
+        }
+      },
+      "typingTool": {
+        "title": "Nástroj pro psaní",
+        "description": "Vyberte, který linuxový nástroj pro psaní použít pro metodu přímého vložení. Auto automaticky zjistí a použije nejlepší dostupný nástroj pro váš systém.",
+        "options": {
+          "auto": "Auto (Doporučeno)"
         }
       }
     },

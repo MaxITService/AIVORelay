@@ -217,8 +217,10 @@
           "clipboardCtrlShiftV": "Schowek (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Schowek (Shift+Insert)",
           "direct": "Bezpośrednio",
-          "none": "Brak"
-        }
+          "none": "Brak",
+          "externalScript": "Skrypt zewnętrzny"
+        },
+        "externalScriptPlaceholder": "/sciezka/do/twojego/skryptu.sh"
       },
       "clipboardHandling": {
         "title": "Obsługa schowka",
@@ -279,6 +281,13 @@
           "title": "Urządzenie GPU",
           "description": "Wybierz GPU do inferencji Whisper. Auto wybiera dedykowany GPU.",
           "auto": "Auto"
+        }
+      },
+      "typingTool": {
+        "title": "Narzędzie do wpisywania",
+        "description": "Wybierz, którego narzędzia do wpisywania w Linuxie użyć dla metody bezpośredniego wklejania. Auto automatycznie wykryje i użyje najlepszego dostępnego narzędzia dla Twojego systemu.",
+        "options": {
+          "auto": "Auto (Zalecane)"
         }
       }
     },

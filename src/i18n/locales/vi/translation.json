@@ -218,8 +218,10 @@
           "clipboardCtrlShiftV": "Clipboard (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Clipboard (Shift+Insert)",
           "direct": "Trực tiếp",
-          "none": "Không có"
-        }
+          "none": "Không có",
+          "externalScript": "Script bên ngoài"
+        },
+        "externalScriptPlaceholder": "/duong-dan/toi/script.sh"
       },
       "clipboardHandling": {
         "title": "Xử lý Clipboard",
@@ -280,6 +282,13 @@
           "title": "Thiết bị GPU",
           "description": "Chọn GPU để sử dụng cho suy luận Whisper. Tự động chọn GPU chuyên dụng.",
           "auto": "Tự động"
+        }
+      },
+      "typingTool": {
+        "title": "Công cụ gõ",
+        "description": "Chọn công cụ gõ trên Linux cho phương thức dán trực tiếp. Auto sẽ tự động phát hiện và dùng công cụ tốt nhất có sẵn cho hệ thống của bạn.",
+        "options": {
+          "auto": "Auto (Khuyến nghị)"
         }
       }
     },

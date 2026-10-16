@@ -218,8 +218,10 @@
           "clipboardCtrlShiftV": "Presse-papiers (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Presse-papiers (Shift+Insert)",
           "direct": "Direct",
-          "none": "Aucun"
-        }
+          "none": "Aucun",
+          "externalScript": "Script externe"
+        },
+        "externalScriptPlaceholder": "/chemin/vers/votre/script.sh"
       },
       "clipboardHandling": {
         "title": "Gestion du presse-papiers",
@@ -280,6 +282,13 @@
           "title": "Appareil GPU",
           "description": "Sélectionnez le GPU à utiliser pour l'inférence Whisper. Auto choisit le GPU dédié.",
           "auto": "Auto"
+        }
+      },
+      "typingTool": {
+        "title": "Outil de frappe",
+        "description": "Choisissez quel outil de frappe Linux utiliser pour la méthode de collage direct. Auto détectera et utilisera automatiquement le meilleur outil disponible pour votre système.",
+        "options": {
+          "auto": "Auto (Recommandé)"
         }
       }
     },
