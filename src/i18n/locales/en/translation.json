@@ -684,15 +684,19 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.48",
+      "since": "Since version 1.0.49",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "profileShortcuts": "Set a shortcut while creating a profile, or leave it empty and use Set Active or Cycle Profile.",
-        "crashRecovery": "Fixed a black-window problem. If a page fails, the error screen lets you reload the window or open the logs.",
-        "outputPlan": "Profiles → More: the output plan now names each key and explains delays, Preview, and what happens if you switch windows.",
-        "settingsLinks": "Profile post-processing notices now link directly to Preview and shared LLM settings, opening collapsed controls when needed.",
-        "replacementPlayground": "Find Try your rules through settings search, or open it directly from What's New."
+        "llmStreaming": "LLM post-processing can now type the answer into the target window while it streams, and the translated Benchmark shows the time to the first token.",
+        "historyProcessed": "History now shows the text after replacements, switches to the original transcript, notes when processing left the text unchanged, and completes Soniox Live re-transcription without timing out.",
+        "geminiLive": "Gemini Live uses the chosen dictation mode, waits for the last words, keeps sentence spaces through Vercel AI Gateway, and finishes background dictations and counts their words without typing late text into a new recording.",
+        "profileSettings": "Profiles retain their model and Gemini settings. Preview keeps text when insertion is disabled, and cleared custom prompts use the shared prompt.",
+        "customWords": "Custom Words preserves capitalization more reliably and no longer removes the next word when corrections tie.",
+        "hotkeyCapture": "Assigning a shortcut no longer triggers existing app shortcuts while recording, and clicking another shortcut field stops the previous one cleanly.",
+        "playbackPitch": "Playback pitch now changes the voice without changing its speed, including during streamed speech.",
+        "screenshotPath": "Screenshot folders expand all environment variables even when another variable in the path is unknown.",
+        "hiddenStartup": "New installations start in the system tray by default. You can change this with Start Hidden in Advanced."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"
