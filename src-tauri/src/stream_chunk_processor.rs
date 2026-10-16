@@ -106,7 +106,7 @@ impl StreamChunkReplacementEngine {
 }
 
 #[derive(Clone, Default)]
-pub struct SonioxStreamProcessor {
+pub struct StreamChunkProcessor {
     pending_raw: String,
     stable_tail_words: usize,
     fuzzy_enabled: bool,
@@ -119,7 +119,7 @@ pub struct SonioxStreamProcessor {
     last_output_character: Option<char>,
 }
 
-impl SonioxStreamProcessor {
+impl StreamChunkProcessor {
     pub fn from_settings(settings: &AppSettings) -> Self {
         let fuzzy_enabled = settings.custom_words_enabled
             && !settings.custom_words.is_empty()
@@ -368,11 +368,11 @@ fn replace_case_insensitive(text: &str, from: &str, to: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::SonioxStreamProcessor;
+    use super::StreamChunkProcessor;
 
     #[test]
     fn flush_without_standalone_whitespace_discards_provider_separator() {
-        let mut processor = SonioxStreamProcessor::default();
+        let mut processor = StreamChunkProcessor::default();
         processor.pending_raw = " ".to_string();
 
         assert_eq!(processor.flush_without_standalone_whitespace(), "");
@@ -380,7 +380,7 @@ mod tests {
 
     #[test]
     fn flush_without_standalone_whitespace_preserves_real_tail() {
-        let mut processor = SonioxStreamProcessor::default();
+        let mut processor = StreamChunkProcessor::default();
         processor.pending_raw = "late words. ".to_string();
 
         assert_eq!(
