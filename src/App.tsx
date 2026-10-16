@@ -214,6 +214,17 @@ function App() {
     checkOnboardingStatus();
   }, []);
 
+  // On macOS the input system and shortcuts need the Accessibility permission,
+  // so the backend creates them on request. Both commands are idempotent and
+  // no-ops on other platforms, where they exist from startup. A failure just
+  // means the permission is still missing: AccessibilityPermissions retries
+  // after the user grants it.
+  useEffect(() => {
+    if (showOnboarding !== false) return;
+    void commands.initializeEnigo();
+    void commands.initializeShortcuts();
+  }, [showOnboarding]);
+
   useEffect(() => {
     let disposed = false;
 
