@@ -5935,6 +5935,44 @@ fn ensure_remote_stt_defaults(settings: &mut AppSettings) -> bool {
 
 pub const SETTINGS_STORE_PATH: &str = "settings_store.json";
 
+/// Saves the settings store and, on Unix, limits it to its owner. On Linux and
+/// macOS the file can hold API keys, so other local users must not read it.
+pub(crate) fn save_store_privately(
+    app: &AppHandle,
+    store: &tauri_plugin_store::Store<tauri::Wry>,
+) -> Result<(), tauri_plugin_store::Error> {
+    store.save()?;
+    #[cfg(unix)]
+    if let Some(path) = settings_store_disk_path(app) {
+        restrict_to_owner(&path);
+    }
+    #[cfg(not(unix))]
+    let _ = app;
+    Ok(())
+}
+
+/// Limits an existing settings store to its owner, so a file written by an earlier
+/// version stops being readable by other users. No-op off Unix.
+pub(crate) fn restrict_settings_store_permissions(app: &AppHandle) {
+    #[cfg(unix)]
+    if let Some(path) = settings_store_disk_path(app) {
+        if path.exists() {
+            restrict_to_owner(&path);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = app;
+}
+
+#[cfg(unix)]
+fn restrict_to_owner(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    if let Err(error) = fs::set_permissions(path, fs::Permissions::from_mode(0o600)) {
+        warn!("Failed to restrict {} to its owner: {error}", path.display());
+    }
+}
+
 fn settings_store_disk_path(app: &AppHandle) -> Option<PathBuf> {
     crate::portable::resolve_app_data(app, SETTINGS_STORE_PATH).ok()
 }
@@ -6003,9 +6041,15 @@ fn backup_settings_bytes(path: &std::path::Path, bytes: &[u8], reason: &str) {
         SETTINGS_STORE_PATH, timestamp, reason
     ));
 
-    let result = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
+    let mut backup_options = fs::OpenOptions::new();
+    backup_options.write(true).create_new(true);
+    // A backup is a full copy of the store, keys included.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        backup_options.mode(0o600);
+    }
+    let result = backup_options
         .open(&backup_path)
         .and_then(|mut file| {
             file.write_all(bytes)?;
@@ -8041,7 +8085,7 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
             debug!("Settings updated while loading");
             backup_settings_store_before_repair(app, "load-repair");
             store.set("settings", serde_json::to_value(&settings).unwrap());
-            if let Err(e) = store.save() {
+            if let Err(e) = save_store_privately(app, &store) {
                 warn!("Failed to flush repaired settings to disk: {}", e);
             }
         }
@@ -8051,7 +8095,7 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
         let mut default_settings = get_default_settings();
         repair_runtime_settings(&mut default_settings);
         store.set("settings", serde_json::to_value(&default_settings).unwrap());
-        if let Err(e) = store.save() {
+        if let Err(e) = save_store_privately(app, &store) {
             warn!("Failed to flush default settings to disk: {}", e);
         } else if settings_store_was_corrupted {
             SETTINGS_STORE_RESET_NOTICE_PENDING.store(true, Ordering::SeqCst);
@@ -8077,7 +8121,7 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
         if repaired {
             backup_settings_store_before_repair(app, "get-repair");
             store.set("settings", serde_json::to_value(&settings).unwrap());
-            if let Err(e) = store.save() {
+            if let Err(e) = save_store_privately(app, &store) {
                 warn!("Failed to flush repaired settings to disk: {}", e);
             }
         }
@@ -8086,7 +8130,7 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
         let mut default_settings = get_default_settings();
         repair_runtime_settings(&mut default_settings);
         store.set("settings", serde_json::to_value(&default_settings).unwrap());
-        if let Err(e) = store.save() {
+        if let Err(e) = save_store_privately(app, &store) {
             warn!("Failed to flush default settings to disk: {}", e);
         } else if settings_store_was_corrupted {
             SETTINGS_STORE_RESET_NOTICE_PENDING.store(true, Ordering::SeqCst);
@@ -8111,7 +8155,7 @@ pub fn write_settings_checked(app: &AppHandle, mut settings: AppSettings) -> Res
     store.set("settings", serde_json::to_value(&settings).unwrap());
 
     // Explicitly flush to disk to prevent data loss on app restart
-    if let Err(error) = store.save() {
+    if let Err(error) = save_store_privately(app, &store) {
         if let Some(previous_settings) = previous_settings {
             store.set("settings", previous_settings);
         }

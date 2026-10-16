@@ -1893,6 +1893,7 @@ pub fn run(cli_args: CliArgs) {
             #[cfg(target_os = "windows")]
             log::info!(
                 "Vulkan layer policy: VK_LOADER_LAYERS_DISABLE={:?}, AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS={:?}",
+            secure_keys::init(app.handle());
                 std::env::var_os("VK_LOADER_LAYERS_DISABLE"),
                 std::env::var_os("AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS"),
             );
