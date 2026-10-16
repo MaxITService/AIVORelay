@@ -5,6 +5,7 @@ mod active_app;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod apple_intelligence;
 mod audio_feedback;
+mod autostart;
 pub mod audio_toolkit;
 mod catalog;
 mod chinese_script;
@@ -127,8 +128,6 @@ use tauri::tray::TrayIconBuilder;
 use tauri::Emitter;
 use tauri::{AppHandle, Listener, Manager};
 use tauri_plugin_autostart::MacosLauncher;
-#[cfg(not(debug_assertions))]
-use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_log::{
     Builder as LogBuilder, RotationStrategy, Target, TargetKind, TimezoneStrategy,
 };
@@ -973,15 +972,15 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // never replace the installed application's OS autostart registration.
     #[cfg(not(debug_assertions))]
     {
-        let autostart_manager = app_handle.autolaunch();
         let settings = settings::get_settings(&app_handle);
 
-        if settings.autostart_enabled && !settings.autostart_as_admin_enabled {
-            // Enable normal registry autostart only if not running elevated via Task Scheduler
-            let _ = autostart_manager.enable();
-        } else {
-            // Disable registry autostart if user opted out or if elevated autostart handles it
-            let _ = autostart_manager.disable();
+        // Re-applied on every launch, so a transient failure heals itself and
+        // must not block startup.
+        let enabled = settings.autostart_enabled && !settings.autostart_as_admin_enabled;
+        // Enable normal autostart only if not running elevated via Task Scheduler;
+        // disable it if the user opted out or elevated autostart handles it.
+        if let Err(error) = autostart::set_enabled(&app_handle, enabled) {
+            log::warn!("Failed to apply autostart setting (enabled={enabled}): {error}");
         }
     }
 
