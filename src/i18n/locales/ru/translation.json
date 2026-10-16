@@ -4159,7 +4159,8 @@
       },
       "updateChecks": {
         "label": "Проверьте наличие обновлений",
-        "description": "Автоматически проверять наличие новых версий AivoRelay"
+        "description": "Автоматически проверять наличие новых версий AivoRelay",
+        "lockedDescription": "Отключено системной конфигурацией (AIVORELAY_DISABLE_UPDATER)"
       },
       "soundTheme": {
         "label": "Звуковая тема",

@@ -469,7 +469,8 @@
       },
       "updateChecks": {
         "label": "Nach Updates suchen",
-        "description": "Automatisch nach neuen Versionen von AivoRelay suchen"
+        "description": "Automatisch nach neuen Versionen von AivoRelay suchen",
+        "lockedDescription": "Durch Systemkonfiguration deaktiviert (AIVORELAY_DISABLE_UPDATER)"
       },
       "soundTheme": {
         "label": "Sound-Thema",

@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ProgressBar } from "../shared";
 import { useSettings } from "../../hooks/useSettings";
+import { useUpdateChecksLocked } from "../../hooks/useUpdateChecksLocked";
 import { ConfirmationModal } from "../ui/ConfirmationModal";
 import {
   buildPortableInstallerUrl,
@@ -33,7 +34,10 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
 
   const { settings, isLoading } = useSettings();
   const settingsLoaded = !isLoading && settings !== null;
-  const updateChecksEnabled = settings?.update_checks_enabled ?? false;
+  const updateChecksLocked = useUpdateChecksLocked();
+  // Wait for the lock state, so a locked build never fires one real request.
+  const updateChecksEnabled =
+    (settings?.update_checks_enabled ?? false) && updateChecksLocked === false;
 
   const upToDateTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const isManualCheckRef = useRef(false);

@@ -463,7 +463,8 @@
       },
       "updateChecks": {
         "label": "Перевірка оновлень",
-        "description": "Автоматично перевіряти наявність нових версій AivoRelay"
+        "description": "Автоматично перевіряти наявність нових версій AivoRelay",
+        "lockedDescription": "Вимкнено системною конфігурацією (AIVORELAY_DISABLE_UPDATER)"
       },
       "soundTheme": {
         "label": "Звукова тема",

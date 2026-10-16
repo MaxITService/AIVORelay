@@ -463,7 +463,8 @@
       },
       "updateChecks": {
         "label": "Kontrolovat aktualizace",
-        "description": "Automaticky kontrolovat nové verze AivoRelay"
+        "description": "Automaticky kontrolovat nové verze AivoRelay",
+        "lockedDescription": "Zakázáno systémovou konfigurací (AIVORELAY_DISABLE_UPDATER)"
       },
       "soundTheme": {
         "label": "Zvukový motiv",
