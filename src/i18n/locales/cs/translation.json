@@ -338,6 +338,67 @@
         "cancel": "Zrušit",
         "selectToEdit": "Vyberte výše prompt, abyste zobrazili a upravili jeho podrobnosti.",
         "createFirst": "Klikněte nahoře na 'Vytvořit nový prompt' a vytvořte svůj první prompt pro následné zpracování."
+      },
+      "benchmark": {
+        "title": "Benchmark",
+        "description": "Chcete vidět, jak rychle váš model zpracuje váš vlastní příklad oprav? Přidejte sem typické chyby rozpoznávání, spusťte benchmark a porovnejte latenci a kvalitu výstupu mezi modely.",
+        "collapse": "Sbalit",
+        "expand": "Rozbalit",
+        "systemPrompt": {
+          "title": "Systémový prompt",
+          "description": "Pokyny k opravě odeslané jako systémová zpráva pro tento benchmark.",
+          "usingActive": "Používá se aktuálně vybraný prompt pro následné zpracování:",
+          "promptName": "Název promptu:",
+          "noActivePrompt": "Není vybrán žádný prompt pro následné zpracování. Vyberte jej výše nebo přepněte na vlastní.",
+          "customize": "Ne, chci otestovat jiný prompt!",
+          "useActive": "Použít aktivní prompt"
+        },
+        "userMessage": {
+          "title": "Uživatelská zpráva (Tento text benchmark použije, jako byste ho řekli nahlas, a odešle ho k následnému zpracování umělou inteligencí)",
+          "description": "Přidejte chyby rozpoznávání, špatnou interpunkci, opakovaná slova, problémy s velikostí písmen, diktovanou interpunkci nebo jiné příklady odpovídající vašemu skutečnému diktování."
+        },
+        "stream": {
+          "title": "Streamovat odpověď",
+          "description": "Požádá model o streamování odpovědi a změří čas do prvního tokenu. Modely, které streamovat neumí, odpoví místo toho najednou."
+        },
+        "actions": {
+          "title": "Spustit",
+          "description": "Odešle aktuální prompty nastavenému poskytovateli následného zpracování a uloží naměřený výsledek."
+        },
+        "running": "Spouští se...",
+        "run": "Spustit benchmark",
+        "clearLog": "Vymazat log",
+        "log": {
+          "title": "Log",
+          "description": "Nejnovější výsledky benchmarku jsou uvedeny první a ukládají se spolu s nastavením. Maximálně 100 záznamů, poté se začnou přepisovat ty nejstarší.",
+          "empty": "Zatím žádné běhy benchmarku."
+        },
+        "firstToken": "První token:",
+        "result": {
+          "provider": "Poskytovatel:",
+          "model": "Model:",
+          "duration": "Doba trvání:",
+          "inputOutput": "Vstup / výstup:",
+          "inputOutputValue": "{{input}} / {{output}} znaků",
+          "systemPrompt": "Systémový prompt",
+          "userMessage": "Uživatelská zpráva",
+          "response": "Odpověď",
+          "errorDetails": "Podrobnosti chyby",
+          "empty": "(prázdné)",
+          "unknownProvider": "Neznámý",
+          "notConfigured": "Nenastaveno",
+          "noModel": "Žádný model",
+          "success": "Úspěch",
+          "error": "Chyba",
+          "deleteEntry": "Smazat záznam"
+        },
+        "format": {
+          "charsPerSecond": "{{rate}} znaků/s",
+          "toFirstToken": "{{duration}} do prvního tokenu",
+          "streamingOff": "Streamování vypnuto",
+          "noFirstToken": "Žádný první token",
+          "answeredWithoutStreaming": "Odpověď bez streamování"
+        }
       }
     },
     "history": {

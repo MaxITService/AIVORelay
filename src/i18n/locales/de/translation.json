@@ -338,6 +338,67 @@
         "cancel": "Abbrechen",
         "selectToEdit": "Wähle oben einen Prompt aus, um dessen Details anzuzeigen und zu bearbeiten.",
         "createFirst": "Klicke oben auf 'Neuen Prompt erstellen', um deinen ersten Nachbearbeitungs-Prompt zu erstellen."
+      },
+      "benchmark": {
+        "title": "Benchmark",
+        "description": "Möchtest du sehen, wie schnell dein Modell dein eigenes Korrekturbeispiel verarbeitet? Füge hier typische Erkennungsfehler hinzu, starte den Benchmark und vergleiche Latenz und Ausgabequalität verschiedener Modelle.",
+        "collapse": "Einklappen",
+        "expand": "Ausklappen",
+        "systemPrompt": {
+          "title": "System-Prompt",
+          "description": "Die Korrekturanweisungen, die für diesen Benchmark als Systemnachricht gesendet werden.",
+          "usingActive": "Es wird dein aktuell ausgewählter Nachbearbeitungs-Prompt verwendet:",
+          "promptName": "Prompt-Name:",
+          "noActivePrompt": "Es ist kein Nachbearbeitungs-Prompt ausgewählt. Wähle oben einen aus oder wechsle zu „Benutzerdefiniert“.",
+          "customize": "Nein, ich möchte einen anderen Prompt testen!",
+          "useActive": "Aktiven Prompt verwenden"
+        },
+        "userMessage": {
+          "title": "Benutzernachricht (Diesen Text verwendet der Benchmark, als hättest du ihn gesprochen, und er wird zur Nachbearbeitung an die KI gesendet)",
+          "description": "Füge Erkennungsfehler, falsche Zeichensetzung, wiederholte Wörter, Groß-/Kleinschreibungsfehler, gesprochene Satzzeichen oder andere Beispiele hinzu, die zu deinem echten Diktat passen."
+        },
+        "stream": {
+          "title": "Antwort streamen",
+          "description": "Bittet das Modell, seine Antwort zu streamen, und misst die Zeit bis zum ersten Token. Modelle, die nicht streamen können, antworten stattdessen auf einmal."
+        },
+        "actions": {
+          "title": "Ausführen",
+          "description": "Sendet die aktuellen Prompts an den konfigurierten Nachbearbeitungs-Anbieter und speichert das gemessene Ergebnis."
+        },
+        "running": "Läuft...",
+        "run": "Benchmark starten",
+        "clearLog": "Protokoll leeren",
+        "log": {
+          "title": "Protokoll",
+          "description": "Die neuesten Benchmark-Ergebnisse stehen zuerst und werden mit den Einstellungen gespeichert. Maximal 100 Einträge, danach werden die ältesten überschrieben.",
+          "empty": "Noch keine Benchmark-Läufe."
+        },
+        "firstToken": "Erstes Token:",
+        "result": {
+          "provider": "Anbieter:",
+          "model": "Modell:",
+          "duration": "Dauer:",
+          "inputOutput": "Eingabe / Ausgabe:",
+          "inputOutputValue": "{{input}} / {{output}} Zeichen",
+          "systemPrompt": "System-Prompt",
+          "userMessage": "Benutzernachricht",
+          "response": "Antwort",
+          "errorDetails": "Fehlerdetails",
+          "empty": "(leer)",
+          "unknownProvider": "Unbekannt",
+          "notConfigured": "Nicht konfiguriert",
+          "noModel": "Kein Modell",
+          "success": "Erfolg",
+          "error": "Fehler",
+          "deleteEntry": "Eintrag löschen"
+        },
+        "format": {
+          "charsPerSecond": "{{rate}} Zeichen/s",
+          "toFirstToken": "{{duration}} bis zum ersten Token",
+          "streamingOff": "Streaming aus",
+          "noFirstToken": "Kein erstes Token",
+          "answeredWithoutStreaming": "Ohne Streaming geantwortet"
+        }
       }
     },
     "history": {

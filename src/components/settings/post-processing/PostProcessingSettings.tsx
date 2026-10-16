@@ -1,6 +1,7 @@
 import { useSettingsStore } from "@/stores/settingsStore";
 import React, { useEffect, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { ChevronDown, Loader2, RefreshCcw, Trash2 } from "lucide-react";
 import { commands, type LlmPostProcessBenchmarkResult } from "@/bindings";
 
@@ -53,15 +54,23 @@ const formatBenchmarkTimestamp = (timestampMs: number) =>
 const formatBenchmarkDuration = (durationMs: number) =>
   durationMs > 0 ? `${durationMs.toLocaleString()} ms` : "0 ms";
 
-const formatBenchmarkRate = (charsPerSecond: number) =>
-  `${charsPerSecond.toFixed(charsPerSecond >= 100 ? 0 : 1)} chars/sec`;
+const formatBenchmarkRate = (t: TFunction, charsPerSecond: number) =>
+  t("settings.postProcessing.benchmark.format.charsPerSecond", "{{rate}} chars/sec", {
+    rate: charsPerSecond.toFixed(charsPerSecond >= 100 ? 0 : 1),
+  });
 
-const formatBenchmarkFirstToken = (item: LlmPostProcessBenchmarkResult) => {
+const formatBenchmarkFirstToken = (t: TFunction, item: LlmPostProcessBenchmarkResult) => {
   if (item.first_token_ms != null) {
-    return `${formatBenchmarkDuration(item.first_token_ms)} to first token`;
+    return t("settings.postProcessing.benchmark.format.toFirstToken", "{{duration}} to first token", {
+      duration: formatBenchmarkDuration(item.first_token_ms),
+    });
   }
-  if (!item.stream_requested) return "Streaming off";
-  return item.streamed || !item.success ? "No first token" : "Answered without streaming";
+  if (!item.stream_requested) {
+    return t("settings.postProcessing.benchmark.format.streamingOff", "Streaming off");
+  }
+  return item.streamed || !item.success
+    ? t("settings.postProcessing.benchmark.format.noFirstToken", "No first token")
+    : t("settings.postProcessing.benchmark.format.answeredWithoutStreaming", "Answered without streaming");
 };
 
 const PostProcessingBenchmarkComponent: React.FC = () => {
@@ -145,47 +154,63 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
     <div className="space-y-3 border-t border-white/[0.05] px-4 py-3 text-xs text-[#d8d8d8]">
       <div className="grid gap-2 sm:grid-cols-2">
         <div>
-          <span className="text-[#a0a0a0]">Provider:</span>{" "}
-          {item.provider_label || item.provider_id || "Unknown"}
+          <span className="text-[#a0a0a0]">
+            {t("settings.postProcessing.benchmark.result.provider", "Provider:")}
+          </span>{" "}
+          {item.provider_label || item.provider_id || t("settings.postProcessing.benchmark.result.unknownProvider", "Unknown")}
         </div>
         <div>
-          <span className="text-[#a0a0a0]">Model:</span>{" "}
-          {item.model || "Not configured"}
+          <span className="text-[#a0a0a0]">
+            {t("settings.postProcessing.benchmark.result.model", "Model:")}
+          </span>{" "}
+          {item.model || t("settings.postProcessing.benchmark.result.notConfigured", "Not configured")}
         </div>
         <div>
-          <span className="text-[#a0a0a0]">Duration:</span>{" "}
+          <span className="text-[#a0a0a0]">
+            {t("settings.postProcessing.benchmark.result.duration", "Duration:")}
+          </span>{" "}
           {formatBenchmarkDuration(item.duration_ms)}
         </div>
         <div>
           <span className="text-[#a0a0a0]">
             {t("settings.postProcessing.benchmark.firstToken", "First token:")}
           </span>{" "}
-          {formatBenchmarkFirstToken(item)}
+          {formatBenchmarkFirstToken(t, item)}
         </div>
         <div>
-          <span className="text-[#a0a0a0]">Input / output:</span>{" "}
-          {item.input_chars.toLocaleString()} /{" "}
-          {item.output_chars.toLocaleString()} chars
+          <span className="text-[#a0a0a0]">
+            {t("settings.postProcessing.benchmark.result.inputOutput", "Input / output:")}
+          </span>{" "}
+          {t("settings.postProcessing.benchmark.result.inputOutputValue", "{{input}} / {{output}} chars", {
+            input: item.input_chars.toLocaleString(),
+            output: item.output_chars.toLocaleString(),
+          })}
         </div>
       </div>
 
       <div className="space-y-1.5">
-        <div className="font-semibold text-[#f5f5f5]">System Prompt</div>
+        <div className="font-semibold text-[#f5f5f5]">
+          {t("settings.postProcessing.benchmark.result.systemPrompt", "System Prompt")}
+        </div>
         <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-white/[0.06] bg-[#101010]/80 p-3 text-[#d8d8d8]">
-          {item.system_prompt || "(empty)"}
+          {item.system_prompt || t("settings.postProcessing.benchmark.result.empty", "(empty)")}
         </pre>
       </div>
 
       <div className="space-y-1.5">
-        <div className="font-semibold text-[#f5f5f5]">User Message</div>
+        <div className="font-semibold text-[#f5f5f5]">
+          {t("settings.postProcessing.benchmark.result.userMessage", "User Message")}
+        </div>
         <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-white/[0.06] bg-[#101010]/80 p-3 text-[#d8d8d8]">
-          {item.user_message || "(empty)"}
+          {item.user_message || t("settings.postProcessing.benchmark.result.empty", "(empty)")}
         </pre>
       </div>
 
       {item.response_text && (
         <div className="space-y-1.5">
-          <div className="font-semibold text-[#f5f5f5]">Response</div>
+          <div className="font-semibold text-[#f5f5f5]">
+            {t("settings.postProcessing.benchmark.result.response", "Response")}
+          </div>
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-white/[0.06] bg-[#101010]/80 p-3 text-[#d8d8d8]">
             {item.response_text}
           </pre>
@@ -194,7 +219,9 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
 
       {item.error && (
         <div className="space-y-1.5">
-          <div className="font-semibold text-red-300">Error Details</div>
+          <div className="font-semibold text-red-300">
+            {t("settings.postProcessing.benchmark.result.errorDetails", "Error Details")}
+          </div>
           <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-red-500/20 bg-red-500/10 p-3 text-red-200">
             {item.error}
           </pre>
@@ -427,22 +454,24 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
                   >
                     <span className="grid min-w-0 flex-1 gap-1 text-xs sm:grid-cols-[1.2fr_1fr_0.8fr_1.1fr_0.8fr_0.7fr] sm:items-center">
                       <span className="truncate font-semibold text-[#f5f5f5]">
-                        {item.model || "No model"}
+                        {item.model || t("settings.postProcessing.benchmark.result.noModel", "No model")}
                       </span>
                       <span className="truncate text-[#d8d8d8]">
-                        {item.provider_label || item.provider_id || "Unknown"}
+                        {item.provider_label || item.provider_id || t("settings.postProcessing.benchmark.result.unknownProvider", "Unknown")}
                       </span>
                       <span className="text-[#d8d8d8]">
                         {formatBenchmarkDuration(item.duration_ms)}
                       </span>
                       <span className="text-[#d8d8d8]">
-                        {formatBenchmarkFirstToken(item)}
+                        {formatBenchmarkFirstToken(t, item)}
                       </span>
                       <span className="text-[#d8d8d8]">
-                        {formatBenchmarkRate(item.chars_per_second)}
+                        {formatBenchmarkRate(t, item.chars_per_second)}
                       </span>
                       <span className={statusClass}>
-                        {item.success ? "Success" : "Error"}
+                        {item.success
+                          ? t("settings.postProcessing.benchmark.result.success", "Success")
+                          : t("settings.postProcessing.benchmark.result.error", "Error")}
                       </span>
                       <span className="text-[#a0a0a0] sm:col-span-6">
                         {formatBenchmarkTimestamp(item.timestamp_ms)}
@@ -456,8 +485,8 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
                           void removeLogItem(index);
                         }}
                         className="p-1 text-[#a0a0a0] hover:text-red-400 transition-colors"
-                        title="Delete entry"
-                        aria-label="Delete entry"
+                        title={t("settings.postProcessing.benchmark.result.deleteEntry", "Delete entry")}
+                        aria-label={t("settings.postProcessing.benchmark.result.deleteEntry", "Delete entry")}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -847,6 +876,7 @@ export const PostProcessingSettings: React.FC = () => {
               target="_blank"
               rel="noopener noreferrer"
               className="text-accent hover:underline font-medium"
+              // eslint-disable-next-line i18next/no-literal-string
             >
               openrouter.ai
             </a>

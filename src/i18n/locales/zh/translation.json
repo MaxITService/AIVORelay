@@ -338,6 +338,67 @@
         "cancel": "取消",
         "selectToEdit": "选择上方的提示词以查看和编辑其详细信息。",
         "createFirst": "点击上方的「创建新提示词」来创建您的第一个后处理提示词。"
+      },
+      "benchmark": {
+        "title": "基准测试",
+        "description": "想看看你的模型处理你自己的纠错示例有多快吗？在这里添加典型的识别错误，运行基准测试，并比较不同模型的延迟和输出质量。",
+        "collapse": "折叠",
+        "expand": "展开",
+        "systemPrompt": {
+          "title": "系统提示词",
+          "description": "作为系统消息发送给本次基准测试的纠错指令。",
+          "usingActive": "正在使用你当前选中的后处理提示词:",
+          "promptName": "提示词名称:",
+          "noActivePrompt": "未选择后处理提示词。请在上方选择一个，或切换到自定义。",
+          "customize": "不，我想用其他提示词测试！",
+          "useActive": "使用当前提示词"
+        },
+        "userMessage": {
+          "title": "用户消息（基准测试会把这段文字当作你说出的话，并发送给 AI 进行后处理）",
+          "description": "添加识别错误、标点错误、重复词、大小写问题、口述标点，或其他符合你实际听写内容的示例。"
+        },
+        "stream": {
+          "title": "流式输出回答",
+          "description": "要求模型以流式方式输出回答，并测量到首个 token 的时间。不支持流式输出的模型会改为一次性返回回答。"
+        },
+        "actions": {
+          "title": "运行",
+          "description": "将当前提示词发送给已配置的后处理服务商，并保存测得的结果。"
+        },
+        "running": "运行中...",
+        "run": "运行基准测试",
+        "clearLog": "清除日志",
+        "log": {
+          "title": "日志",
+          "description": "最新的基准测试结果排在最前面，并随设置一起保存。最多保留 100 条，超出后最旧的记录会被覆盖。",
+          "empty": "尚无基准测试运行记录。"
+        },
+        "firstToken": "首个 token:",
+        "result": {
+          "provider": "服务商:",
+          "model": "模型:",
+          "duration": "耗时:",
+          "inputOutput": "输入 / 输出:",
+          "inputOutputValue": "{{input}} / {{output}} 个字符",
+          "systemPrompt": "系统提示词",
+          "userMessage": "用户消息",
+          "response": "响应",
+          "errorDetails": "错误详情",
+          "empty": "（空）",
+          "unknownProvider": "未知",
+          "notConfigured": "未配置",
+          "noModel": "无模型",
+          "success": "成功",
+          "error": "错误",
+          "deleteEntry": "删除条目"
+        },
+        "format": {
+          "charsPerSecond": "{{rate}} 字符/秒",
+          "toFirstToken": "到首个 token 用时 {{duration}}",
+          "streamingOff": "流式输出已关闭",
+          "noFirstToken": "无首个 token",
+          "answeredWithoutStreaming": "未使用流式输出直接回答"
+        }
       }
     },
     "history": {

@@ -338,6 +338,67 @@
         "cancel": "キャンセル",
         "selectToEdit": "上からプロンプトを選択して、詳細を表示・編集します。",
         "createFirst": "上の「新しいプロンプトを作成」をクリックして、最初の後処理プロンプトを作成してください。"
+      },
+      "benchmark": {
+        "title": "ベンチマーク",
+        "description": "お使いのモデルが、ご自身の修正例をどれだけ速く処理できるか確認してみませんか？ よくある認識ミスをここに追加してベンチマークを実行し、モデル間でレイテンシと出力品質を比較できます。",
+        "collapse": "折りたたむ",
+        "expand": "展開",
+        "systemPrompt": {
+          "title": "システムプロンプト",
+          "description": "このベンチマークでシステムメッセージとして送信される修正の指示です。",
+          "usingActive": "現在選択している後処理プロンプトを使用しています:",
+          "promptName": "プロンプト名:",
+          "noActivePrompt": "後処理プロンプトが選択されていません。上で選択するか、カスタムに切り替えてください。",
+          "customize": "いいえ、別のプロンプトでテストします！",
+          "useActive": "アクティブなプロンプトを使用"
+        },
+        "userMessage": {
+          "title": "ユーザーメッセージ（ベンチマークが、あなたが話したものとして使用し、AI による後処理のために送信するテキストです）",
+          "description": "認識ミス、不適切な句読点、繰り返された単語、大文字・小文字の問題、音声で入力した句読点など、実際のディクテーションに近い例を追加してください。"
+        },
+        "stream": {
+          "title": "回答をストリーミングする",
+          "description": "モデルに回答をストリーミングするよう依頼し、最初のトークンまでの時間を計測します。ストリーミングに対応していないモデルは、代わりに一括で回答します。"
+        },
+        "actions": {
+          "title": "実行",
+          "description": "現在のプロンプトを設定済みの後処理プロバイダーに送信し、計測結果を保存します。"
+        },
+        "running": "実行中...",
+        "run": "ベンチマークを実行",
+        "clearLog": "ログを消去",
+        "log": {
+          "title": "ログ",
+          "description": "最新のベンチマーク結果が先頭に表示され、設定とともに保存されます。最大 100 件までで、超えると古いものから上書きされます。",
+          "empty": "ベンチマークの実行履歴はまだありません。"
+        },
+        "firstToken": "最初のトークン:",
+        "result": {
+          "provider": "プロバイダー:",
+          "model": "モデル:",
+          "duration": "所要時間:",
+          "inputOutput": "入力 / 出力:",
+          "inputOutputValue": "{{input}} / {{output}} 文字",
+          "systemPrompt": "システムプロンプト",
+          "userMessage": "ユーザーメッセージ",
+          "response": "応答",
+          "errorDetails": "エラーの詳細",
+          "empty": "（空）",
+          "unknownProvider": "不明",
+          "notConfigured": "未設定",
+          "noModel": "モデルなし",
+          "success": "成功",
+          "error": "エラー",
+          "deleteEntry": "エントリを削除"
+        },
+        "format": {
+          "charsPerSecond": "{{rate}} 文字/秒",
+          "toFirstToken": "最初のトークンまで {{duration}}",
+          "streamingOff": "ストリーミングオフ",
+          "noFirstToken": "最初のトークンなし",
+          "answeredWithoutStreaming": "ストリーミングなしで応答"
+        }
       }
     },
     "history": {

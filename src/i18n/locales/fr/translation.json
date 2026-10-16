@@ -339,6 +339,67 @@
         "cancel": "Annuler",
         "selectToEdit": "Sélectionnez un prompt ci-dessus pour voir et modifier ses détails.",
         "createFirst": "Cliquez sur 'Créer un nouveau prompt' ci-dessus pour créer votre premier prompt de post-traitement."
+      },
+      "benchmark": {
+        "title": "Benchmark",
+        "description": "Vous voulez voir à quelle vitesse votre modèle traite votre propre exemple de correction ? Ajoutez ici des erreurs de reconnaissance typiques, lancez le benchmark et comparez la latence et la qualité de sortie entre les modèles.",
+        "collapse": "Réduire",
+        "expand": "Développer",
+        "systemPrompt": {
+          "title": "Prompt système",
+          "description": "Les instructions de correction envoyées comme message système pour ce benchmark.",
+          "usingActive": "Utilisation de votre prompt de post-traitement actuellement sélectionné :",
+          "promptName": "Nom du prompt :",
+          "noActivePrompt": "Aucun prompt de post-traitement n'est sélectionné. Sélectionnez-en un ci-dessus ou passez à Personnalisé.",
+          "customize": "Non, je veux tester un autre prompt !",
+          "useActive": "Utiliser le prompt actif"
+        },
+        "userMessage": {
+          "title": "Message utilisateur (Ce texte sera utilisé par le benchmark comme si vous l'aviez dicté, et il est envoyé à l'IA pour être post-traité)",
+          "description": "Ajoutez des erreurs de reconnaissance, une mauvaise ponctuation, des mots répétés, des problèmes de casse, de la ponctuation dictée ou d'autres exemples correspondant à votre dictée réelle."
+        },
+        "stream": {
+          "title": "Diffuser la réponse en continu",
+          "description": "Demande au modèle de diffuser sa réponse en continu et mesure le délai avant le premier token. Les modèles qui ne peuvent pas diffuser répondent d'un seul coup."
+        },
+        "actions": {
+          "title": "Exécuter",
+          "description": "Envoie les prompts actuels au fournisseur de post-traitement configuré et enregistre le résultat mesuré."
+        },
+        "running": "Exécution...",
+        "run": "Lancer le benchmark",
+        "clearLog": "Effacer le journal",
+        "log": {
+          "title": "Journal",
+          "description": "Les résultats les plus récents du benchmark apparaissent en premier et sont conservés avec les paramètres. Maximum de 100 entrées, ensuite les plus anciennes seront écrasées.",
+          "empty": "Aucune exécution du benchmark pour l'instant."
+        },
+        "firstToken": "Premier token :",
+        "result": {
+          "provider": "Fournisseur :",
+          "model": "Modèle :",
+          "duration": "Durée :",
+          "inputOutput": "Entrée / sortie :",
+          "inputOutputValue": "{{input}} / {{output}} caractères",
+          "systemPrompt": "Prompt système",
+          "userMessage": "Message utilisateur",
+          "response": "Réponse",
+          "errorDetails": "Détails de l'erreur",
+          "empty": "(vide)",
+          "unknownProvider": "Inconnu",
+          "notConfigured": "Non configuré",
+          "noModel": "Aucun modèle",
+          "success": "Succès",
+          "error": "Erreur",
+          "deleteEntry": "Supprimer l'entrée"
+        },
+        "format": {
+          "charsPerSecond": "{{rate}} caractères/s",
+          "toFirstToken": "{{duration}} avant le premier token",
+          "streamingOff": "Diffusion désactivée",
+          "noFirstToken": "Pas de premier token",
+          "answeredWithoutStreaming": "Réponse sans diffusion"
+        }
       }
     },
     "history": {
