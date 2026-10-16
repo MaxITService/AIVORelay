@@ -1366,6 +1366,19 @@ async changeDefaultProfilePostProcessEnabledSetting(enabled: boolean) : Promise<
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Updates live insertion of the streamed LLM answer for a profile (the active one when `None`).
+ * The default profile owns `post_process_live_stream_insert`; custom profiles own their
+ * individual `llm_live_stream_insert` value.
+ */
+async changePostProcessLiveStreamInsertSetting(enabled: boolean, profileId: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_post_process_live_stream_insert_setting", { enabled, profileId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changePostProcessReasoningEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_post_process_reasoning_enabled_setting", { enabled }) };
@@ -1661,6 +1674,14 @@ async changePostProcessBenchmarkLogSetting(log: LlmPostProcessBenchmarkResult[])
 async changePostProcessBenchmarkUseSelectedPromptSetting(useSelectedPrompt: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_post_process_benchmark_use_selected_prompt_setting", { useSelectedPrompt }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changePostProcessBenchmarkStreamSetting(stream: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_post_process_benchmark_stream_setting", { stream }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -4413,12 +4434,20 @@ log_transcription_text?: boolean; custom_words?: string[]; custom_words_enabled?
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
  */
-convert_lf_to_crlf?: boolean; clipboard_handling?: ClipboardHandling; clipboard_history_allowed?: boolean; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; transcription_output_defaults?: ProfileOutputSettings; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; post_process_benchmark_collapsed?: boolean; post_process_benchmark_system_prompt?: string; post_process_benchmark_user_message?: string; post_process_benchmark_log?: LlmPostProcessBenchmarkResult[];
+convert_lf_to_crlf?: boolean; clipboard_handling?: ClipboardHandling; clipboard_history_allowed?: boolean; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; transcription_output_defaults?: ProfileOutputSettings; post_process_enabled?: boolean;
+/**
+ * Insert the streamed LLM answer live into the target window while it is generated.
+ */
+post_process_live_stream_insert?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; post_process_benchmark_collapsed?: boolean; post_process_benchmark_system_prompt?: string; post_process_benchmark_user_message?: string; post_process_benchmark_log?: LlmPostProcessBenchmarkResult[];
 /**
  * When true, the benchmark uses the currently selected post-processing prompt as the system
  * prompt instead of the separate custom benchmark system prompt field.
  */
 post_process_benchmark_use_selected_prompt?: boolean;
+/**
+ * When true, the benchmark asks for a streamed answer and measures time to first token.
+ */
+post_process_benchmark_stream?: boolean;
 /**
  * Whether ${short_prev_transcript} is enabled in LLM prompt templates.
  */
@@ -4954,7 +4983,19 @@ export type LlmFeature =
  * Voice Command LLM fallback
  */
 "voice_command"
-export type LlmPostProcessBenchmarkResult = { timestamp_ms: number; provider_id: string; provider_label: string; model: string; duration_ms: number; chars_per_second: number; input_chars: number; output_chars: number; success: boolean; system_prompt: string; user_message: string; response_text: string; error: string | null }
+export type LlmPostProcessBenchmarkResult = { timestamp_ms: number; provider_id: string; provider_label: string; model: string; duration_ms: number;
+/**
+ * Time until the first answer text arrived; only known for streamed answers.
+ */
+first_token_ms?: number | null;
+/**
+ * The run asked the provider to stream its answer.
+ */
+stream_requested?: boolean;
+/**
+ * The answer arrived as a stream; false when the model answered all at once.
+ */
+streamed?: boolean; chars_per_second: number; input_chars: number; output_chars: number; success: boolean; system_prompt: string; user_message: string; response_text: string; error: string | null }
 export type LocalTtsKind = "qwen" | "kokoro"
 export type LocalTtsStatus = { kind?: LocalTtsKind; installed: boolean; installing: boolean; phase: string; downloaded_bytes: number; total_bytes: number; percentage: number; runtime_profile: string; model_repository: string; model_revision: string; model_download_bytes: number; install_root?: string; installed_size_bytes?: number; estimated_install_bytes?: number; model_author?: string; model_source_url?: string; model_license_name?: string; model_license_url?: string; model_license_path?: string; model_license_declaration_path?: string; model_license_available?: boolean; error: string | null }
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
@@ -5004,7 +5045,11 @@ export type PreviewOutputModeStatePayload = { active: boolean; recording: boolea
  * Per-profile LLM post-processing settings.
  * Used as a parameter struct for update_transcription_profile to reduce argument count.
  */
-export type ProfileLlmSettings = { enabled: boolean; promptOverride: string | null; modelOverride: string | null }
+export type ProfileLlmSettings = { enabled: boolean; promptOverride: string | null; modelOverride: string | null;
+/**
+ * `None` keeps the stored value on update and inherits the global value on creation.
+ */
+liveStreamInsert?: boolean | null }
 export type ProfileOutputSettings = { paste_method: PasteMethod | null; clipboard_handling: ClipboardHandling | null; clipboard_history_allowed: boolean | null; convert_lf_to_crlf: boolean | null; paste_delay_ms: number | null; check_active_window: boolean | null; live_window_resume_delay_ms: number | null; live_window_stop_action: LiveWindowStopAction | null;
 /**
  * Seconds a finished remainder waits for its window before `live_window_wait_limit_action`
@@ -5307,6 +5352,11 @@ llm_prompt_override?: string | null;
  * If Some, uses this model instead of the global model for the current provider
  */
 llm_model_override?: string | null;
+/**
+ * Insert the streamed LLM answer live into the target window while it is generated.
+ * Inherits from global post_process_live_stream_insert when profile is created
+ */
+llm_live_stream_insert?: boolean;
 /**
  * Soniox context.general as JSON array string.
  */
