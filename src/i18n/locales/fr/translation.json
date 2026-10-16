@@ -405,6 +405,32 @@
           "streamingOff": "Diffusion désactivée",
           "noFirstToken": "Pas de premier token",
           "answeredWithoutStreaming": "Réponse sans diffusion"
+        },
+        "columns": {
+          "model": {
+            "title": "Modèle",
+            "tooltip": "Le modèle LLM testé lors de cette exécution du benchmark."
+          },
+          "provider": {
+            "title": "Fournisseur",
+            "tooltip": "Le service API qui a traité la requête."
+          },
+          "totalTime": {
+            "title": "Temps total",
+            "tooltip": "Durée totale en millisecondes entre l'envoi de la requête et la réception de la réponse complète."
+          },
+          "firstToken": {
+            "title": "Premier token",
+            "tooltip": "Temps en millisecondes avant l'arrivée du premier fragment de la réponse diffusée. Indique la raison si la diffusion était désactivée ou non prise en charge."
+          },
+          "speed": {
+            "title": "Vitesse",
+            "tooltip": "Vitesse moyenne de génération en caractères par seconde sur toute la durée de la requête."
+          },
+          "status": {
+            "title": "Statut",
+            "tooltip": "Indique si la requête a réussi ou renvoyé une erreur. Cliquez sur une ligne pour voir le prompt, la réponse ou l'erreur."
+          }
         }
       }
     },

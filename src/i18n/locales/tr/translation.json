@@ -418,6 +418,32 @@
           "streamingOff": "Akış kapalı",
           "noFirstToken": "İlk token yok",
           "answeredWithoutStreaming": "Akış olmadan yanıtlandı"
+        },
+        "columns": {
+          "model": {
+            "title": "Model",
+            "tooltip": "Bu kıyaslama çalışmasında test edilen LLM modeli."
+          },
+          "provider": {
+            "title": "Sağlayıcı",
+            "tooltip": "İsteği işleyen API hizmeti."
+          },
+          "totalTime": {
+            "title": "Toplam süre",
+            "tooltip": "İsteğin gönderilmesinden yanıtın tamamının alınmasına kadar geçen milisaniye cinsinden toplam süre."
+          },
+          "firstToken": {
+            "title": "İlk token",
+            "tooltip": "Akışlı yanıtın ilk parçasının gelmesine kadar geçen milisaniye cinsinden süre. Akış kapalıysa veya desteklenmiyorsa nedenini gösterir."
+          },
+          "speed": {
+            "title": "Hız",
+            "tooltip": "Tüm istek süresi boyunca saniyedeki karakter cinsinden ortalama çıktı hızı."
+          },
+          "status": {
+            "title": "Durum",
+            "tooltip": "İsteğin başarılı olup olmadığını veya hata döndürdüğünü gösterir. İstemi, yanıtı veya hatayı görmek için bir satıra tıklayın."
+          }
         }
       }
     },
