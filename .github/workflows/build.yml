@@ -501,6 +501,79 @@ jobs:
           Add-Content $env:GITHUB_ENV "CMAKE_PREFIX_PATH=$combined"
           Write-Host "CMAKE_PREFIX_PATH=$combined"
 
+      # transcribe-cpp ships as a shared libtranscribe + loadable ggml backend
+      # modules on Linux (the `dynamic-backends` posture). They are produced by
+      # transcribe-cpp-sys's CMake install during the cargo build, but nothing
+      # ships them. Pre-build the app so that install dir exists, then expose it
+      # via LD_LIBRARY_PATH so the AppImage's linuxdeploy can resolve
+      # libtranscribe.so (a NEEDED of `aivorelay`) while bundling. tauri-action
+      # reuses this compile incrementally. build.rs stages the runtime and
+      # dlopen'd modules into transcribe-libs/, which tauri.conf.json includes.
+      - name: Pre-build and locate transcribe-cpp backend libs (Linux)
+        if: contains(inputs.platform, 'ubuntu')
+        shell: bash
+        env:
+          # Same ggml flags as the Tauri build step below, so this compile is reused.
+          GGML_NATIVE: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
+          GGML_AVX: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
+          GGML_AVX2: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
+          GGML_FMA: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
+          GGML_F16C: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
+        run: |
+          set -euo pipefail
+          PROFILE="${{ steps.build-profile.outputs.profile }}"
+          # Frontend must exist for the app crate to compile (generate_context!).
+          bun run build
+          (
+            cd src-tauri
+            if [ "$PROFILE" = "release" ]; then cargo build --release; else cargo build; fi
+          )
+          # The install manifest sits next to libtranscribe in <crate-out>/lib.
+          # Pick the newest match in case a stale build dir lingers in the cache.
+          LIBDIR="$(find "src-tauri/target/$PROFILE/build" \
+            -type f -name transcribe-link.json -path '*transcribe-cpp-sys*/out/lib/*' \
+            -printf '%T@ %h\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
+          if [ -z "${LIBDIR:-}" ] || [ ! -d "$LIBDIR" ]; then
+            echo "ERROR: could not locate transcribe-cpp-sys install lib dir" >&2
+            find src-tauri/target \( -name 'libtranscribe*' -o -name 'libggml*' \) 2>/dev/null >&2 || true
+            exit 1
+          fi
+          LIBDIR="$(cd "$LIBDIR" && pwd)"
+          echo "Located transcribe-cpp libs in: $LIBDIR"
+          ls -la "$LIBDIR"
+          echo "LD_LIBRARY_PATH=$LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          # linuxdeploy resolves `aivorelay`'s NEEDED libs via `ldd` and HARD-FAILS
+          # on an unresolved one (it does not warn-and-skip). libtranscribe.so
+          # lives only in the cargo build tree, so also publish it (and the ggml
+          # libs it pulls in) to the system linker cache — belt-and-suspenders
+          # with LD_LIBRARY_PATH so resolution never hinges on env propagation
+          # into the bundler subprocess. (Only affects the CI host; the AppImage
+          # gets its own co-located copies.)
+          sudo cp -vL "$LIBDIR"/libtranscribe.so* "$LIBDIR"/libggml*.so* /usr/local/lib/ 2>/dev/null || true
+          sudo ldconfig
+
+      # Tauri's mirrored 2024 linuxdeploy predates support for the
+      # LINUXDEPLOY_EXCLUDED_LIBRARIES environment variable. Put a current
+      # upstream build in Tauri's tool cache so the exclusions on the build step
+      # are applied while constructing the original, signed AppImage.
+      - name: Install linuxdeploy with library exclusion support
+        if: contains(inputs.platform, 'ubuntu') && contains(inputs.build-args, 'appimage')
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) arch="x86_64" ;;
+            aarch64|arm64) arch="aarch64" ;;
+            *) echo "Unsupported linuxdeploy architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          tools_dir="${XDG_CACHE_HOME:-$HOME/.cache}/tauri"
+          mkdir -p "$tools_dir"
+          curl -L --fail --show-error --retry 3 \
+            -o "$tools_dir/linuxdeploy-${arch}.AppImage" \
+            "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${arch}.AppImage"
+          chmod +x "$tools_dir/linuxdeploy-${arch}.AppImage"
+          "$tools_dir/linuxdeploy-${arch}.AppImage" --appimage-extract-and-run --version
+
       - name: Build with Tauri
         uses: tauri-apps/tauri-action@v0
         env:
@@ -520,6 +593,15 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ contains(inputs.platform, 'macos') && inputs.sign-binaries && env.CERT_ID || '' }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ !contains(inputs.platform, 'ubuntu') && inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ !contains(inputs.platform, 'ubuntu') && inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          # The Vulkan loader and Wayland client library must come from the host
+          # graphics stack. Bundling Ubuntu's copies ahead of the system libraries can
+          # prevent a newer distro's Vulkan ICD or Mesa stack from loading.
+          # linuxdeploy reads this semicolon-separated glob list before it creates
+          # the AppImage, so the published artifact is already clean.
+          LINUXDEPLOY_EXCLUDED_LIBRARIES: ${{ contains(inputs.platform, 'ubuntu') && 'libvulkan.so*;libwayland-client.so*' || '' }}
+          # linuxdeploy passes this to appimagetool, which writes it as
+          # X-AppImage-Version for desktop integration tools such as Gear Lever.
+          LINUXDEPLOY_OUTPUT_VERSION: ${{ contains(inputs.platform, 'ubuntu') && steps.get-version.outputs.version || '' }}
           # Disable -march=native and all SIMD instruction sets above SSE4.2 for
           # x86_64 builds. Without this, CPUs lacking AVX/FMA (e.g. Celeron N2920,
           # FX-8350) crash with SIGILL. The Vulkan backend handles heavy compute
@@ -546,6 +628,40 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
+      # tauri-action uploads release assets before returning. All AppImage
+      # filtering therefore happens inside linuxdeploy above; this verifies the
+      # exact artifact Tauri signed and uploaded.
+      - name: Verify AppImage version metadata
+        if: contains(inputs.platform, 'ubuntu')
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROFILE="${{ steps.build-profile.outputs.profile }}"
+          APPIMAGE_PATH="$(find "src-tauri/target/${PROFILE}/bundle/appimage" -name '*.AppImage' -print -quit 2>/dev/null || true)"
+          if [ -z "$APPIMAGE_PATH" ]; then
+            echo "No AppImage produced by this Linux build; skipping metadata verification"
+            exit 0
+          fi
+          APPIMAGE_PATH="$(readlink -f "$APPIMAGE_PATH")"
+          WORKDIR="$(mktemp -d)"
+          trap 'rm -rf "$WORKDIR"' EXIT
+          (
+            cd "$WORKDIR"
+            # AppImage integration tools read the root desktop entry. appimagetool
+            # adds X-AppImage-Version there, not to the source copy under usr/share.
+            "$APPIMAGE_PATH" --appimage-extract '*.desktop' >/dev/null
+            DESKTOP_FILE="$(find squashfs-root -maxdepth 1 -type f -name '*.desktop' -print -quit)"
+            if [ -z "$DESKTOP_FILE" ]; then
+              echo "ERROR: AppImage desktop metadata is missing" >&2
+              exit 1
+            fi
+            if ! grep -Fqx 'X-AppImage-Version=${{ steps.get-version.outputs.version }}' "$DESKTOP_FILE"; then
+              echo "ERROR: AppImage version metadata is missing or incorrect:" >&2
+              grep -E '^X-AppImage-Version=' "$DESKTOP_FILE" >&2 || true
+              exit 1
+            fi
+          )
+
       - name: Upload artifacts (macOS)
         if: inputs.upload-artifacts && contains(inputs.platform, 'macos')
         uses: actions/upload-artifact@v4
@@ -556,55 +672,171 @@ jobs:
             src-tauri/target/${{ inputs.target }}/${{ steps.build-profile.outputs.profile }}/bundle/macos/*.app
           retention-days: 30
 
-      - name: Install FUSE for AppImage processing
+      - name: Audit Linux package runtime contents
         if: contains(inputs.platform, 'ubuntu')
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y fuse libfuse2
+          set -euo pipefail
 
-      - name: Remove libwayland-client.so from AppImage
-        if: contains(inputs.platform, 'ubuntu')
-        run: |
-          # Find the AppImage file
-          APPIMAGE_PATH=$(find src-tauri/target/${{ steps.build-profile.outputs.profile }}/bundle/appimage -name "*.AppImage" | head -1)
+          # The runtime smoke test launches the packaged aivorelay binary, which links
+          # GTK (via tao) even for the headless --list-devices path and therefore
+          # needs a display to start. CI runners are headless, so provide a virtual
+          # X server via xvfb-run.
+          if ! command -v xvfb-run >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y xvfb
+          fi
 
-          if [ -n "$APPIMAGE_PATH" ]; then
-            echo "Processing AppImage: $APPIMAGE_PATH"
+          PROFILE="${{ steps.build-profile.outputs.profile }}"
+          BUNDLE_DIR="src-tauri/target/${PROFILE}/bundle"
 
-            # Make AppImage executable
-            chmod +x "$APPIMAGE_PATH"
+          require_pattern() {
+            local listing="$1"
+            local pattern="$2"
+            local label="$3"
+            if ! grep -Eq "$pattern" "$listing"; then
+              echo "ERROR: missing ${label} (${pattern}) in ${listing}" >&2
+              cat "$listing" >&2
+              exit 1
+            fi
+          }
 
-            # Extract AppImage
-            cd "$(dirname "$APPIMAGE_PATH")"
-            APPIMAGE_NAME=$(basename "$APPIMAGE_PATH")
+          require_path() {
+            local path="$1"
+            local label="$2"
+            if [ ! -e "$path" ]; then
+              echo "ERROR: missing ${label}: ${path}" >&2
+              find "$(dirname "$path")" -maxdepth 2 -type f 2>/dev/null >&2 || true
+              exit 1
+            fi
+          }
 
-            # Extract using the AppImage itself
-            "./$APPIMAGE_NAME" --appimage-extract
+          smoke_binary() {
+            local root="$1"
+            local label="$2"
+            local vulkan_icd="${3:-}"
+            # Run under a virtual X server: aivorelay initializes GTK on startup even
+            # on the headless --list-devices path, which fails without a display.
+            # An AppImage audit supplies Mesa's software ICD so GPU registration
+            # is deterministic even on a runner without physical graphics.
+            if [ -n "$vulkan_icd" ]; then
+              export VK_ICD_FILENAMES="$vulkan_icd"
+            fi
+            AIVORELAY_NO_GTK_LAYER_SHELL=1 \
+            LD_LIBRARY_PATH="${root}/usr/lib/AivoRelay:${root}/usr/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+              xvfb-run -a "${root}/usr/bin/aivorelay" --list-devices \
+                >/tmp/aivorelay-package-smoke.log 2>&1
+            echo "${label} --list-devices smoke passed"
+          }
 
-            # Remove libwayland-client.so files
-            echo "Removing libwayland-client.so files..."
-            find squashfs-root -name "libwayland-client.so*" -type f -delete
-
-            # List what was removed for verification
-            echo "Files remaining in lib directories:"
-            find squashfs-root -name "lib*" -type d | head -5 | while read dir; do
-              echo "Contents of $dir:"
-              ls "$dir" | grep -E "(wayland|fuse)" || echo "  No wayland/fuse libraries found"
+          if compgen -G "${BUNDLE_DIR}/deb/*.deb" > /dev/null; then
+            for deb in "${BUNDLE_DIR}"/deb/*.deb; do
+              echo "Auditing deb package: ${deb}"
+              listing="$(mktemp)"
+              dpkg-deb -c "$deb" > "$listing"
+              require_pattern "$listing" 'usr/bin/aivorelay$' "aivorelay binary"
+              require_pattern "$listing" 'usr/lib/AivoRelay/libtranscribe\.so(\.[0-9]+)+$' "transcribe runtime library (SONAME)"
+              require_pattern "$listing" 'usr/lib/AivoRelay/libggml-cpu.*\.so' "ggml CPU backend module"
+              # AivoRelay's libs must stay out of the ldconfig-scanned /usr/lib
+              # (issue #1639): app-private libs belong in /usr/lib/AivoRelay only.
+              # `[^/]+` excludes the AivoRelay/ subdir, so only direct hits match.
+              if grep -Eq 'usr/lib/[^/]+\.so' "$listing"; then
+                echo "ERROR: libraries installed directly into /usr/lib (issue #1639):" >&2
+                grep -E 'usr/lib/[^/]+\.so' "$listing" >&2
+                exit 1
+              fi
+              root="$(mktemp -d)"
+              dpkg-deb -x "$deb" "$root"
+              smoke_binary "$root" "deb"
+              rm -rf "$root" "$listing"
             done
+          fi
 
-            # Get appimagetool
-            wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-            chmod +x appimagetool-x86_64.AppImage
+          if compgen -G "${BUNDLE_DIR}/rpm/*.rpm" > /dev/null; then
+            if ! command -v rpm >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y rpm
+            fi
+            for rpm_pkg in "${BUNDLE_DIR}"/rpm/*.rpm; do
+              echo "Auditing rpm package: ${rpm_pkg}"
+              listing="$(mktemp)"
+              rpm -qpl "$rpm_pkg" > "$listing"
+              require_pattern "$listing" '/usr/bin/aivorelay$' "aivorelay binary"
+              require_pattern "$listing" '/usr/lib/AivoRelay/libtranscribe\.so(\.[0-9]+)+$' "transcribe runtime library (SONAME)"
+              require_pattern "$listing" '/usr/lib/AivoRelay/libggml-cpu.*\.so' "ggml CPU backend module"
+              # Same /usr/lib pollution guard as the deb audit (issue #1639).
+              if grep -Eq 'usr/lib/[^/]+\.so' "$listing"; then
+                echo "ERROR: libraries installed directly into /usr/lib (issue #1639):" >&2
+                grep -E 'usr/lib/[^/]+\.so' "$listing" >&2
+                exit 1
+              fi
+              rm -f "$listing"
+            done
+          fi
 
-            # Repackage AppImage with no-appstream to avoid warnings
-            ARCH=x86_64 ./appimagetool-x86_64.AppImage --no-appstream squashfs-root "$APPIMAGE_NAME"
+          if compgen -G "${BUNDLE_DIR}/appimage/*.AppImage" > /dev/null; then
+            for appimage in "${BUNDLE_DIR}"/appimage/*.AppImage; do
+              echo "Auditing AppImage package: ${appimage}"
+              workdir="$(mktemp -d)"
+              cp "$appimage" "${workdir}/AivoRelay.AppImage"
+              chmod +x "${workdir}/AivoRelay.AppImage"
+              (
+                cd "$workdir"
+                ./AivoRelay.AppImage --appimage-extract >/dev/null
+                require_path "squashfs-root/usr/bin/aivorelay" "AppImage aivorelay binary"
+                # Gear Lever and other integration tools consume the root entry;
+                # appimagetool does not update the copy under usr/share/applications.
+                desktop_file="$(find squashfs-root -maxdepth 1 -type f -name '*.desktop' -print -quit)"
+                require_path "$desktop_file" "AppImage desktop metadata"
+                if ! grep -Fqx 'X-AppImage-Version=${{ steps.get-version.outputs.version }}' "$desktop_file"; then
+                  echo "ERROR: AppImage version metadata is missing or incorrect:" >&2
+                  grep -E '^X-AppImage-Version=' "$desktop_file" >&2 || true
+                  exit 1
+                fi
+                # The SONAME (libtranscribe.so.N) is the name the loader
+                # resolves; the bare .so alias may or may not be present.
+                if ! find "squashfs-root/usr/lib" -name 'libtranscribe.so*' | grep -q .; then
+                  echo "ERROR: missing AppImage transcribe runtime library" >&2
+                  find "squashfs-root/usr/lib" -maxdepth 1 -type f >&2
+                  exit 1
+                fi
+                if ! find "squashfs-root/usr/lib" -name 'libggml-cpu*.so*' | grep -q .; then
+                  echo "ERROR: missing AppImage ggml CPU backend module" >&2
+                  find "squashfs-root/usr/lib" -maxdepth 1 -type f >&2
+                  exit 1
+                fi
+                require_path "squashfs-root/usr/lib/libggml-vulkan.so" "AppImage ggml Vulkan backend module"
 
-            # Clean up
-            rm -rf squashfs-root appimagetool-x86_64.AppImage
+                # These libraries mediate access to the host graphics stack.
+                # Shipping build-host copies ahead of the system versions can
+                # break Vulkan ICD or Mesa loading on newer distributions.
+                for pattern in \
+                  'libvulkan.so*' \
+                  'libwayland-client.so*'; do
+                  forbidden="$(find squashfs-root/usr -name "$pattern" -print -quit)"
+                  if [ -n "$forbidden" ]; then
+                    echo "ERROR: AppImage bundles host graphics loader: $forbidden" >&2
+                    exit 1
+                  fi
+                done
 
-            echo "libwayland-client.so removed from AppImage successfully"
-          else
-            echo "No AppImage found to process"
+                vulkan_icd="$(find /usr/share/vulkan/icd.d -type f -name 'lvp_icd*.json' -print -quit)"
+                if [ -z "$vulkan_icd" ]; then
+                  echo "ERROR: Mesa software Vulkan ICD is unavailable for the AppImage audit" >&2
+                  exit 1
+                fi
+                smoke_binary "$(pwd)/squashfs-root" "AppImage" "$vulkan_icd"
+                # llvmpipe is intentionally not exposed as a compute device by
+                # ggml, but reaching this log proves the module loaded against a
+                # usable system Vulkan loader/ICD instead of failing silently.
+                if ! grep -q 'load_backend: loaded Vulkan backend' /tmp/aivorelay-package-smoke.log; then
+                  echo "ERROR: AppImage could not initialize its Vulkan backend with a usable system ICD" >&2
+                  cat /tmp/aivorelay-package-smoke.log >&2
+                  exit 1
+                fi
+              )
+              rm -rf "$workdir"
+            done
           fi
 
       - name: Upload artifacts (Linux)
