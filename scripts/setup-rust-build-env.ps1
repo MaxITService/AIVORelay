@@ -137,6 +137,54 @@ function Assert-MinimumFreeSpace {
     }
 }
 
+function Get-CargoTargetDirUsers {
+    param([Parameter(Mandatory = $true)][string]$CargoTargetDir)
+
+    $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    $byId = @{}
+    foreach ($process in $processes) {
+        $byId[[int]$process.ProcessId] = $process
+    }
+
+    # This script and the shells/tools that started it are not a competing build.
+    $excluded = @{}
+    $ancestorId = $PID
+    while ($byId.ContainsKey($ancestorId) -and -not $excluded.ContainsKey($ancestorId)) {
+        $excluded[$ancestorId] = $true
+        $ancestorId = [int]$byId[$ancestorId].ParentProcessId
+    }
+
+    # Only builds that write into or run from the same target dir conflict: Cargo
+    # would wait on its lock or rebuild shared artifacts with different features.
+    # Unrelated Bun/Cargo work, including dev builds in another target dir, is fine.
+    $root = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($CargoTargetDir).Replace("/", "\").TrimEnd("\")
+    $mention = "(?i)(?<!\w)" + [regex]::Escape($root) + "(?=[\\""'\s;,]|$)"
+    $toolNames = "^(cargo|tauri|tauri-cli|rustc|rustdoc|clippy-driver|bun|node|MSBuild|cmake|cl|link|lld-link|ninja)(\.exe)?$"
+    $owners = @{}
+    foreach ($process in $processes) {
+        $processId = [int]$process.ProcessId
+        if ($excluded.ContainsKey($processId)) { continue }
+        $path = "$($process.ExecutablePath)".Replace("/", "\")
+        $commandLine = "$($process.CommandLine)".Replace("/", "\")
+        if (-not ($path -match $mention -or ($process.Name -match $toolNames -and $commandLine -match $mention))) { continue }
+
+        # Report the build that owns it (e.g. `cargo test`), not each rustc or test binary.
+        $owner = $process
+        $seen = @{ $processId = $true }
+        while ($true) {
+            $parentId = [int]$owner.ParentProcessId
+            if ($seen.ContainsKey($parentId) -or $excluded.ContainsKey($parentId) -or -not $byId.ContainsKey($parentId)) { break }
+            $parent = $byId[$parentId]
+            if ($parent.CreationDate -gt $owner.CreationDate -or $parent.Name -notmatch $toolNames) { break }
+            $seen[$parentId] = $true
+            $owner = $parent
+        }
+        $owners[[int]$owner.ProcessId] = $owner
+    }
+
+    return @($owners.Values | Sort-Object ProcessId)
+}
+
 function Initialize-RustBuildEnvironment {
     param(
         [switch]$SkipProcessCheck,
@@ -148,24 +196,16 @@ function Initialize-RustBuildEnvironment {
         throw "cargo was not found in PATH."
     }
 
+    $cargoTargetDir = Get-PreferredCargoTargetDir -PreferredPath $PreferredCargoTargetDir
     if (-not $SkipProcessCheck) {
-        $currentProcessId = $PID
-        $currentProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $currentProcessId" -ErrorAction SilentlyContinue
-        $parentProcessId = if ($currentProcess) { [int]$currentProcess.ParentProcessId } else { -1 }
-
-        $runningProcs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-            Where-Object {
-                $_.Name -match "^(cargo|tauri|rustc|bun|MSBuild|cmake|cl|link)(\.exe)?$" -and
-                $_.ProcessId -ne $currentProcessId -and
-                $_.ProcessId -ne $parentProcessId -and
-                -not ($_.Name -match "^MSBuild(\.exe)?$" -and $_.CommandLine -match "/nodemode:1")
-            }
-        if ($runningProcs) {
-            $details = ($runningProcs |
-                Select-Object @{Name = "Name"; Expression = { $_.Name } }, @{Name = "Id"; Expression = { $_.ProcessId } }, CommandLine |
-                Format-Table -HideTableHeaders |
-                Out-String).Trim()
-            throw "Found running cargo/tauri/rustc/bun/MSBuild/cmake/cl/link processes. Stop them before running tests.`n$details"
+        $conflicts = @(Get-CargoTargetDirUsers -CargoTargetDir $cargoTargetDir)
+        if ($conflicts.Count -gt 0) {
+            $details = ($conflicts | ForEach-Object {
+                $commandLine = "$($_.CommandLine)"
+                if ($commandLine.Length -gt 200) { $commandLine = $commandLine.Substring(0, 200) + "..." }
+                "$($_.Name) $($_.ProcessId) $commandLine"
+            }) -join "`n"
+            throw "Another build is using the Cargo target dir $cargoTargetDir. Wait for it to finish, stop it, or use a different target dir.`n$details"
         }
     }
 
@@ -214,7 +254,6 @@ function Initialize-RustBuildEnvironment {
     Set-BindgenWindowsEnv
 
     $previousCargoTargetDir = $env:CARGO_TARGET_DIR
-    $cargoTargetDir = Get-PreferredCargoTargetDir -PreferredPath $PreferredCargoTargetDir
     New-Item -ItemType Directory -Force -Path $cargoTargetDir | Out-Null
     Assert-MinimumFreeSpace -Path $cargoTargetDir -MinimumFreeSpaceGB $MinimumFreeSpaceGB
     $env:CARGO_TARGET_DIR = $cargoTargetDir
