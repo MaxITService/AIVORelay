@@ -70,11 +70,15 @@ const SMART_HELP_ACTIONS = [
 
 // A settings search entry opens the exact setting the same way settings search does.
 const WHATS_NEW_ITEMS = [
-  { key: "help.whatsNew.items.profileShortcuts", destination: "general", searchEntryId: "create-profile" },
-  { key: "help.whatsNew.items.crashRecovery", destination: "debug", searchEntryId: "log-directory" },
-  { key: "help.whatsNew.items.outputPlan", destination: "general", searchEntryId: "profile-output" },
-  { key: "help.whatsNew.items.settingsLinks", destination: "postprocessing", searchEntryId: "llm-postprocessing-enabled" },
-  { key: "help.whatsNew.items.replacementPlayground", destination: "textReplacement", searchEntryId: "text-replacement-playground" },
+  { key: "help.whatsNew.items.llmStreaming", destination: "postprocessing", searchEntryId: "llm-postprocessing-enabled" },
+  { key: "help.whatsNew.items.historyProcessed", destination: "history", searchEntryId: "history" },
+  { key: "help.whatsNew.items.geminiLive", destination: "models", searchEntryId: "api-keys" },
+  { key: "help.whatsNew.items.profileSettings", destination: "general", searchEntryId: "profiles" },
+  { key: "help.whatsNew.items.customWords", destination: "textReplacement", searchEntryId: "custom-words" },
+  { key: "help.whatsNew.items.hotkeyCapture", destination: "general", searchEntryId: "active-profile-shortcut" },
+  { key: "help.whatsNew.items.playbackPitch", destination: "textToSpeech", searchEntryId: "tts-playback" },
+  { key: "help.whatsNew.items.screenshotPath", destination: "browserConnector", searchEntryId: "connector-screenshot" },
+  { key: "help.whatsNew.items.hiddenStartup", destination: "advanced", searchEntryId: "start-hidden" },
 ] as const;
 
 export const HelpSettings: React.FC = () => {
