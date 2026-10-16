@@ -285,6 +285,12 @@
     },
     "postProcessing": {
       "title": "Post-traitement",
+      "liveStreamInsert": {
+        "title": "Insérer la réponse au fil de l'eau",
+        "replacementWarning": "Avertissement : les règles de remplacement de texte (le cas échéant) appliquées après le LLM peuvent ne pas correspondre entièrement si une partie du texte correspondant a déjà été insérée pendant le streaming.",
+        "description": "Saisit la réponse du LLM dans l'application cible pendant que le modèle l'écrit, avec la même protection de fenêtre et restauration du presse-papiers que la transcription en direct. Les modèles sans streaming insèrent toute la réponse en une fois. Si la réponse échoue avant l'arrivée du texte, la transcription est insérée à la place.",
+        "activeProfileDescription": "Saisit la réponse du LLM dans l'application cible pendant que le modèle l'écrit. Les modèles sans streaming insèrent toute la réponse en une fois. S'applique au <profile>profil actif</profile> ; chaque profil conserve son propre choix."
+      },
       "disabledNotice": "Le post-traitement est actuellement désactivé. Activez-le dans les paramètres de débogage pour le configurer.",
       "api": {
         "title": "API (Compatible OpenAI)",

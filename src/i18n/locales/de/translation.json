@@ -284,6 +284,12 @@
     },
     "postProcessing": {
       "title": "Nachbearbeitung",
+      "liveStreamInsert": {
+        "title": "Antwort während des Streamens einfügen",
+        "replacementWarning": "Warnung: Nach dem LLM angewendete Textersetzungsregeln (sofern vorhanden) stimmen möglicherweise nicht vollständig überein, wenn ein Teil des passenden Textes bereits während des Streamens eingefügt wurde.",
+        "description": "Schreibt die LLM-Antwort in die Ziel-App, während das Modell sie noch generiert, mit demselben Fensterschutz und derselben Zwischenablage-Wiederherstellung wie bei der Live-Transkription. Modelle ohne Streaming fügen die gesamte Antwort auf einmal ein. Schlägt die Antwort fehl, bevor Text eintrifft, wird stattdessen die Transkription eingefügt.",
+        "activeProfileDescription": "Schreibt die LLM-Antwort in die Ziel-App, während das Modell sie noch generiert. Modelle ohne Streaming fügen die gesamte Antwort auf einmal ein. Gilt für das <profile>aktive Profil</profile>; jedes Profil behält seine eigene Auswahl."
+      },
       "disabledNotice": "Die Nachbearbeitung ist derzeit deaktiviert. Aktiviere sie in den Debug-Einstellungen, um sie zu konfigurieren.",
       "api": {
         "title": "API (OpenAI-kompatibel)",
