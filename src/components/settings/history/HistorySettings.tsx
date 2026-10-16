@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { platform } from "@tauri-apps/plugin-os";
+import { readFile } from "@tauri-apps/plugin-fs";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { commands, type HistoryEntry } from "@/bindings";
 import { formatDateTime, formatDate } from "@/utils/dateFormat";
@@ -42,6 +44,7 @@ import {
   splitByQuery,
 } from "./search";
 
+const IS_LINUX = platform() === "linux";
 const PAGE_SIZE = 30;
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -1135,6 +1138,12 @@ export const HistorySettings: React.FC = () => {
     try {
       const result = await commands.getAudioFilePath(fileName);
       if (result.status === "ok") {
+        // WebKitGTK cannot stream audio from the asset protocol, so Linux
+        // plays the recording from an in-memory blob instead.
+        if (IS_LINUX) {
+          const fileData = await readFile(result.data);
+          return URL.createObjectURL(new Blob([fileData], { type: "audio/wav" }));
+        }
         return convertFileSrc(`${result.data}`, "asset");
       }
       return null;
@@ -1460,6 +1469,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
     let cancelled = false;
     let metadataAudio: HTMLAudioElement | null = null;
     let timeoutId: number | null = null;
+    let blobUrlToRevoke: string | null = null;
 
     setPlayableAudio(null);
     if (!hasAudioReference) {
@@ -1468,7 +1478,13 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
 
     void getAudioUrl(entry.file_name).then((url) => {
       if (cancelled || !url) {
+        if (url?.startsWith("blob:")) {
+          URL.revokeObjectURL(url);
+        }
         return;
+      }
+      if (url.startsWith("blob:")) {
+        blobUrlToRevoke = url;
       }
 
       metadataAudio = document.createElement("audio");
@@ -1508,6 +1524,9 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
       }
       metadataAudio?.removeAttribute("src");
       metadataAudio?.load();
+      if (blobUrlToRevoke) {
+        URL.revokeObjectURL(blobUrlToRevoke);
+      }
     };
   }, [entry.file_name, getAudioUrl, hasAudioReference]);
 
