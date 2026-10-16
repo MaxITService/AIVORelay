@@ -155,8 +155,10 @@ pub fn set_api_key(key_type: KeyType, provider_id: Option<&str>, key: &str) -> R
     }
 
     store.set(STORE_ENTRY, serde_json::to_value(&keys)?);
-    store
-        .save()
+    let app = APP_HANDLE
+        .get()
+        .ok_or_else(|| anyhow!("API key storage is not initialized"))?;
+    crate::settings::save_store_privately(app, &store)
         .map_err(|e| anyhow!("Failed to store API key: {}", e))
 }
 
