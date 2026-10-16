@@ -204,6 +204,50 @@ pub fn is_wayland() -> bool {
             .unwrap_or(false)
 }
 
+/// Check if running on KDE Plasma desktop environment
+#[cfg(target_os = "linux")]
+pub fn is_kde_plasma() -> bool {
+    std::env::var("XDG_CURRENT_DESKTOP")
+        .map(|v| v.to_uppercase().contains("KDE"))
+        .unwrap_or(false)
+        || std::env::var("KDE_SESSION_VERSION").is_ok()
+}
+
+/// Check if running on KDE Plasma with Wayland
+#[cfg(target_os = "linux")]
+pub fn is_kde_wayland() -> bool {
+    is_wayland() && is_kde_plasma()
+}
+
+/// Check if running on GNOME desktop environment
+#[cfg(target_os = "linux")]
+pub fn is_gnome() -> bool {
+    std::env::var("XDG_CURRENT_DESKTOP")
+        .map(|v| v.to_uppercase().contains("GNOME"))
+        .unwrap_or(false)
+}
+
+/// Check if running on GNOME with Wayland
+#[cfg(target_os = "linux")]
+pub fn is_gnome_wayland() -> bool {
+    is_wayland() && is_gnome()
+}
+
+/// Returns true when the environment variable is set to a truthy value
+/// (e.g. "1", "true", "yes", "on").
+/// "0", "false", "no", "off" and empty string are treated as falsy (case-insensitive).
+/// Returns false when the variable is not set.
+#[cfg(target_os = "linux")]
+pub fn env_flag_enabled(name: &str) -> bool {
+    match std::env::var(name) {
+        Ok(v) => !matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "" | "0" | "false" | "no" | "off"
+        ),
+        Err(_) => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

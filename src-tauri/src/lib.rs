@@ -1324,6 +1324,9 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_debug_mode_setting,
         shortcut::change_word_correction_threshold_setting,
         shortcut::change_paste_method_setting,
+        shortcut::get_available_typing_tools,
+        shortcut::change_typing_tool_setting,
+        shortcut::change_external_script_path_setting,
         shortcut::change_paste_delay_ms_setting,
         shortcut::change_clipboard_handling_setting,
         shortcut::change_clipboard_history_allowed_setting,
@@ -1891,10 +1894,10 @@ pub fn run(cli_args: CliArgs) {
         .manage(std::sync::Mutex::new(settings::ShortcutEngine::default())
             as shortcut::ActiveShortcutEngine)
         .setup(move |app| {
+            secure_keys::init(app.handle());
             #[cfg(target_os = "windows")]
             log::info!(
                 "Vulkan layer policy: VK_LOADER_LAYERS_DISABLE={:?}, AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS={:?}",
-            secure_keys::init(app.handle());
                 std::env::var_os("VK_LOADER_LAYERS_DISABLE"),
                 std::env::var_os("AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS"),
             );

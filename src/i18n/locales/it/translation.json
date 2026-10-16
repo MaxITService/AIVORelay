@@ -217,8 +217,10 @@
           "clipboardCtrlShiftV": "Appunti (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Appunti (Shift+Insert)",
           "direct": "Diretto",
-          "none": "Nessuno"
-        }
+          "none": "Nessuno",
+          "externalScript": "Script esterno"
+        },
+        "externalScriptPlaceholder": "/percorso/del/tuo/script.sh"
       },
       "clipboardHandling": {
         "title": "Gestione Appunti",
@@ -279,6 +281,13 @@
           "title": "Dispositivo GPU",
           "description": "Seleziona quale GPU utilizzare per l'inferenza Whisper. Auto sceglie la GPU dedicata.",
           "auto": "Auto"
+        }
+      },
+      "typingTool": {
+        "title": "Strumento di digitazione",
+        "description": "Scegli quale strumento di digitazione Linux usare per il metodo di incolla diretto. Auto rileverà e userà automaticamente lo strumento migliore disponibile per il tuo sistema.",
+        "options": {
+          "auto": "Auto (Consigliato)"
         }
       }
     },

@@ -217,8 +217,10 @@
           "clipboardCtrlShiftV": "Área de Transferência (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Área de Transferência (Shift+Insert)",
           "direct": "Direto",
-          "none": "Nenhum"
-        }
+          "none": "Nenhum",
+          "externalScript": "Script externo"
+        },
+        "externalScriptPlaceholder": "/caminho/para/seu/script.sh"
       },
       "clipboardHandling": {
         "title": "Manipulação da Área de Transferência",
@@ -279,6 +281,13 @@
           "title": "Dispositivo GPU",
           "description": "Selecione qual GPU usar para inferência do Whisper. Auto escolhe a GPU dedicada.",
           "auto": "Auto"
+        }
+      },
+      "typingTool": {
+        "title": "Ferramenta de digitação",
+        "description": "Escolha qual ferramenta de digitação do Linux usar para o método de colagem direta. Auto detectará e usará automaticamente a melhor ferramenta disponível para o seu sistema.",
+        "options": {
+          "auto": "Auto (Recomendado)"
         }
       }
     },
