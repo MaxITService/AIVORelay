@@ -32,7 +32,6 @@ pub fn update_recording_overlay_enabled_cache(enabled: bool) {
     RECORDING_OVERLAY_ENABLED.store(enabled, Ordering::Relaxed);
 }
 
-#[cfg(not(target_os = "macos"))]
 use log::debug;
 #[cfg(target_os = "windows")]
 use log::info;
@@ -42,6 +41,15 @@ use tauri::WebviewWindowBuilder;
 
 #[cfg(target_os = "macos")]
 use tauri::WebviewUrl;
+
+#[cfg(target_os = "linux")]
+use gtk_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
+
+/// True once the recording overlay window is a GTK layer-shell surface. Layer
+/// surfaces cannot be moved or resized through the window API: they are placed
+/// by anchors and margins and sized by the GTK size request.
+#[cfg(target_os = "linux")]
+static LAYER_SHELL_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 #[cfg(target_os = "macos")]
 use tauri_nspanel::{tauri_panel, CollectionBehavior, PanelBuilder, PanelLevel};
@@ -257,6 +265,81 @@ struct RecordingOverlayWindowGeometry {
     width: f64,
     height: f64,
     scale_factor: f64,
+}
+
+/// Places a layer-shell surface at the geometry's window origin: the top-left
+/// corner is anchored on the output that contains the window, and the origin
+/// becomes the margins from that output's corner. The surface size comes from
+/// the GTK size request; gtk-layer-shell documents the `set_size_request` +
+/// `resize(1, 1)` sequence for forcing a new size, because Tauri's `set_size`
+/// path only calls `gtk_window_resize`.
+#[cfg(target_os = "linux")]
+fn configure_layer_shell_geometry(
+    gtk_window: &gtk::ApplicationWindow,
+    geometry: RecordingOverlayWindowGeometry,
+) {
+    use gtk::gdk::prelude::MonitorExt;
+    use gtk::prelude::{GtkWindowExt, WidgetExt};
+
+    let x = geometry.x.round() as i32;
+    let y = geometry.y.round() as i32;
+    let center_x = x + (geometry.width / 2.0).round() as i32;
+    let center_y = y + (geometry.height / 2.0).round() as i32;
+
+    let (output_x, output_y) = match WidgetExt::display(gtk_window).monitor_at_point(center_x, center_y)
+    {
+        Some(monitor) => {
+            gtk_window.set_monitor(&monitor);
+            let bounds = monitor.geometry();
+            (bounds.x(), bounds.y())
+        }
+        None => (0, 0),
+    };
+
+    gtk_window.set_anchor(Edge::Top, true);
+    gtk_window.set_anchor(Edge::Left, true);
+    gtk_window.set_anchor(Edge::Bottom, false);
+    gtk_window.set_anchor(Edge::Right, false);
+    gtk_window.set_layer_shell_margin(Edge::Top, (y - output_y).max(0));
+    gtk_window.set_layer_shell_margin(Edge::Left, (x - output_x).max(0));
+    gtk_window.set_layer_shell_margin(Edge::Bottom, 0);
+    gtk_window.set_layer_shell_margin(Edge::Right, 0);
+
+    gtk_window.set_size_request(
+        geometry.width.round().max(1.0) as i32,
+        geometry.height.round().max(1.0) as i32,
+    );
+    gtk_window.resize(1, 1);
+}
+
+/// Turns the overlay window into a GTK layer-shell surface when the compositor
+/// supports it. Returns false (leaving a regular window) otherwise, or when
+/// AIVORELAY_NO_GTK_LAYER_SHELL is set.
+#[cfg(target_os = "linux")]
+fn init_gtk_layer_shell(overlay_window: &tauri::webview::WebviewWindow) -> bool {
+    if crate::utils::env_flag_enabled("AIVORELAY_NO_GTK_LAYER_SHELL") {
+        debug!("Skipping GTK layer shell init (AIVORELAY_NO_GTK_LAYER_SHELL is enabled)");
+        return false;
+    }
+
+    if !gtk_layer_shell::is_supported() {
+        return false;
+    }
+
+    let Ok(gtk_window) = overlay_window.gtk_window() else {
+        return false;
+    };
+
+    gtk_window.init_layer_shell();
+    gtk_window.set_layer(Layer::Overlay);
+    gtk_window.set_keyboard_mode(KeyboardMode::None);
+    // -1 ignores other surfaces' exclusive zones (panels): the geometry's margins are
+    // measured from the output's own corner, not from the usable area.
+    gtk_window.set_exclusive_zone(-1);
+
+    let initialized = gtk_window.is_layer_window();
+    LAYER_SHELL_ACTIVE.store(initialized, Ordering::SeqCst);
+    initialized
 }
 
 fn build_overlay_state_payload(
@@ -1518,6 +1601,18 @@ fn apply_recording_overlay_window_geometry(
     #[cfg(not(target_os = "windows"))]
     {
         let _ = show_window;
+
+        #[cfg(target_os = "linux")]
+        if LAYER_SHELL_ACTIVE.load(Ordering::SeqCst) {
+            // GTK objects must be touched on the main thread.
+            let window = overlay_window.clone();
+            let _ = overlay_window.run_on_main_thread(move || match window.gtk_window() {
+                Ok(gtk_window) => configure_layer_shell_geometry(&gtk_window, geometry),
+                Err(error) => log::error!("Failed to access GTK overlay window: {error}"),
+            });
+            return;
+        }
+
         let _ = overlay_window.set_size(tauri::Size::Logical(tauri::LogicalSize {
             width: geometry.width,
             height: geometry.height,
@@ -2107,10 +2202,23 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
         builder = builder.data_directory(data_dir.join("webview"));
     }
 
+    // The overlay must never take keyboard focus from the application being typed into.
+    #[cfg(target_os = "linux")]
+    let builder = builder.focusable(false);
+
     match builder.build() {
         Ok(window) => {
             crate::webview_hardening::disable_browser_accelerator_keys(&window);
             crate::webview_recovery::watch(&window);
+            #[cfg(target_os = "linux")]
+            {
+                // Ignore failure: compositors without layer-shell keep a regular window.
+                if init_gtk_layer_shell(&window) {
+                    debug!("GTK layer shell initialized for overlay window");
+                } else {
+                    debug!("GTK layer shell not available, falling back to regular window");
+                }
+            }
             debug!("Recording overlay window created successfully (hidden)");
         }
         Err(e) => {
@@ -2273,7 +2381,10 @@ pub fn show_tts_overlay_window(app_handle: &AppHandle) {
     if let Some(window) = app_handle.get_webview_window(TTS_OVERLAY_WINDOW_LABEL) {
         let _ = window.unminimize();
         let _ = window.show();
+        #[cfg(target_os = "windows")]
         force_overlay_topmost(&window);
+        #[cfg(not(target_os = "windows"))]
+        let _ = window.set_always_on_top(true);
         let _ = window.set_focus();
     }
 }
