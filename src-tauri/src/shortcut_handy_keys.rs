@@ -30,8 +30,37 @@ pub struct HandyKeysState {
     thread_handle: Mutex<Option<JoinHandle<()>>>,
     registered_bindings: Mutex<HashSet<String>>,
     recording_listener: Mutex<Option<KeyboardListener>>,
-    is_recording: AtomicBool,
-    recording_running: Arc<AtomicBool>,
+    recording: RecordingSession,
+}
+
+/// Run flag of the current recording session. Each session gets its own flag,
+/// so replacing a session stops exactly the old loop.
+#[derive(Default)]
+struct RecordingSession(Mutex<Option<Arc<AtomicBool>>>);
+
+impl RecordingSession {
+    /// Returns the new session's flag and whether a session was still running.
+    fn begin(&self) -> Result<(Arc<AtomicBool>, bool), String> {
+        let running = Arc::new(AtomicBool::new(true));
+        let previous = self.lock()?.replace(Arc::clone(&running));
+        if let Some(previous) = &previous {
+            previous.store(false, Ordering::SeqCst);
+        }
+        Ok((running, previous.is_some()))
+    }
+
+    fn end(&self) -> Result<(), String> {
+        if let Some(running) = self.lock()?.take() {
+            running.store(false, Ordering::SeqCst);
+        }
+        Ok(())
+    }
+
+    fn lock(&self) -> Result<std::sync::MutexGuard<'_, Option<Arc<AtomicBool>>>, String> {
+        self.0
+            .lock()
+            .map_err(|_| "Failed to lock handy-keys recording session".to_string())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -65,8 +94,7 @@ impl HandyKeysState {
             thread_handle: Mutex::new(Some(thread_handle)),
             registered_bindings: Mutex::new(HashSet::new()),
             recording_listener: Mutex::new(None),
-            is_recording: AtomicBool::new(false),
-            recording_running: Arc::new(AtomicBool::new(false)),
+            recording: RecordingSession::default(),
         })
     }
 
@@ -265,10 +293,6 @@ impl HandyKeysState {
     }
 
     pub fn start_recording(&self, app: &AppHandle) -> Result<(), String> {
-        if self.is_recording.load(Ordering::SeqCst) {
-            return Err("HandyKeys recording is already active".to_string());
-        }
-
         let listener = KeyboardListener::new()
             .map_err(|e| format!("Failed to create handy-keys listener: {}", e))?;
 
@@ -280,11 +304,14 @@ impl HandyKeysState {
             *recording_listener = Some(listener);
         }
 
-        self.is_recording.store(true, Ordering::SeqCst);
-        self.recording_running.store(true, Ordering::SeqCst);
+        // A page reload or unmount can skip the stop; refusing here would leave
+        // the shortcut field unusable until restart, so replace that session.
+        let (recording_running, replaced_stale) = self.recording.begin()?;
+        if replaced_stale {
+            warn!("Replaced a HandyKeys recording session that was never stopped");
+        }
 
         let app_clone = app.clone();
-        let recording_running = Arc::clone(&self.recording_running);
         thread::spawn(move || {
             Self::recording_loop(app_clone, recording_running);
         });
@@ -325,8 +352,7 @@ impl HandyKeysState {
     }
 
     pub fn stop_recording(&self) -> Result<(), String> {
-        self.is_recording.store(false, Ordering::SeqCst);
-        self.recording_running.store(false, Ordering::SeqCst);
+        self.recording.end()?;
 
         let mut recording_listener = self
             .recording_listener
@@ -340,8 +366,7 @@ impl HandyKeysState {
 
 impl Drop for HandyKeysState {
     fn drop(&mut self) {
-        self.recording_running.store(false, Ordering::SeqCst);
-        self.is_recording.store(false, Ordering::SeqCst);
+        let _ = self.recording.end();
 
         if let Ok(sender) = self.command_sender.lock() {
             let _ = sender.send(ManagerCommand::Shutdown);
@@ -538,5 +563,20 @@ mod tests {
     #[test]
     fn validate_shortcut_accepts_aliases_after_normalization() {
         assert!(validate_shortcut("Control+Esc").is_ok());
+    }
+
+    #[test]
+    fn a_new_recording_replaces_one_never_stopped() {
+        let session = RecordingSession::default();
+        let (stale, replaced) = session.begin().unwrap();
+        assert!(!replaced);
+
+        let (fresh, replaced) = session.begin().unwrap();
+        assert!(replaced);
+        assert!(!stale.load(Ordering::SeqCst), "the stale loop must exit");
+        assert!(fresh.load(Ordering::SeqCst));
+
+        session.end().unwrap();
+        assert!(!fresh.load(Ordering::SeqCst));
     }
 }
