@@ -6,6 +6,30 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-10-17):
+- Lifted the Linux/macOS skip rule and replayed every upstream Linux/macOS commit
+  since the fork base as its final state (cursor unchanged, `9e57a0d7`). Nothing
+  here compiled on Windows for Linux/macOS: all of it is unverified there.
+- Taken: Linux typing tools, `wl-copy`, ydotool syntax, xdotool latch fix,
+  External Script paste, Typing Tool setting, X11 auto-repeat release grace
+  (`3bd2ad84` `0afd5ec0` `b02873da` `b90077b2` `07a54e29` `e449f69c` `c7a68fed`
+  `fe5b23c4` `99052eef` `438582fc`); layer-shell overlay on the fork's geometry
+  model (`9e538b1c` `9bcb6d9d` `f26fe0dc` `11311bee`); History blob playback
+  (`246fb4e7`); runtime-lib staging and deb/rpm/AppImage mapping (`d1180c42`
+  `66e57ca8`); ARM64 Linux CI (`7e2760ea`); macOS login item, layout-aware Cmd+V,
+  deferred Enigo/shortcut init, activation policy, Reopen, Metal residency, stub
+  fallback, scrollbars, Apple Intelligence alert (`0902937b` `aefc1319`
+  `9b361f66` `e1c6007f` `fbd4e15f` `1d4d6820` `98a4d80c` `485f4ade` `330b2ddb`
+  `5da49515`). Keys: Windows keeps Credential Manager; Linux/macOS use the
+  settings store file for the cloud/TTS keys.
+- Covered or skipped: Secure Input (`d001fcd9` `00d25549`: macOS keyed shortcuts
+  already use Carbon via Tauri global-shortcut here; detection UI not ported),
+  `5a7c0eac`, `96afb0cf`, `133c50c6`, tray commits; appearance theming; Handy-only
+  docs and Homebrew; coordinator (`438582fc` adapted into the shortcut handler).
+  Open: Nix, AppImage linuxdeploy repack (`b428ae4c` `d7fc6a07` `eba5d9e2`).
+- Cargo.lock needs regeneration for `objc2`, `objc2-service-management`,
+  `gtk` and `gtk-layer-shell`.
+
 Audit note (2026-10-16):
 - Reviewed the 12-commit linear corridor after `f6b3f829` through `9e57a0d7`;
   cursor is now `9e57a0d7`. Took `1b011a19` (exact `=0.4.0` pins; fallible

@@ -50,6 +50,7 @@ Take:
 - STT/transcription/core audio pipeline fixes
 - dependency/security updates used by active Windows code paths
 - tray/UI fixes that affect Windows behavior
+- Linux and macOS runtime, packaging, CI and UI fixes, adapted to the fork's own architecture (they cannot be compiled on the Windows dev machine, so report them as unverified)
 
 Optional:
 - pure translations
@@ -59,7 +60,7 @@ Optional:
 Skip:
 - release-only bumps/tags
 - sponsor/template/document-only housekeeping
-- Linux/macOS-only runtime changes unless they contain shared critical fixes
+- Nix packaging (the fork ships no Nix package)
 
 ## Merge Commits
 
