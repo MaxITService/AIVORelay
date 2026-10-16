@@ -196,6 +196,7 @@ tao-macros = { git = "https://github.com/cjpais/tao", rev = "c3bee28c1d446d95f08
 
 [dev-dependencies]
 tokio = { version = "1.43.0", features = ["test-util"] }
+tauri = { version = "2.11.5", features = ["test"] }
 
 [profile.release]
 lto = true

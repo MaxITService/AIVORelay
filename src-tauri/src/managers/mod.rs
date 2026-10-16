@@ -27,6 +27,8 @@ pub mod send_selected_text_history;
 pub mod soniox_realtime;
 pub(crate) mod soniox_auth;
 pub mod soniox_stt;
+#[cfg(test)]
+mod stt_paid_tests;
 pub mod transcription;
 pub mod tts;
 pub mod tts_history;
