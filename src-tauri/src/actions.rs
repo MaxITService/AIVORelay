@@ -186,6 +186,7 @@ struct PendingGeminiBackgroundFinalization {
     delivery_confirmed: AtomicBool,
     session_detached: AtomicBool,
     foreground_released: AtomicBool,
+    output_withheld: AtomicBool,
 }
 static PENDING_GEMINI_BACKGROUND_FINALIZATIONS: Lazy<
     Mutex<HashMap<u64, Arc<PendingGeminiBackgroundFinalization>>>,
@@ -871,6 +872,7 @@ fn register_gemini_background_finalization(
         delivery_confirmed: AtomicBool::new(false),
         session_detached: AtomicBool::new(false),
         foreground_released: AtomicBool::new(false),
+        output_withheld: AtomicBool::new(false),
     });
     if let Ok(mut map) = PENDING_GEMINI_BACKGROUND_FINALIZATIONS.lock() {
         map.insert(operation_id, Arc::clone(&pending));
@@ -891,6 +893,31 @@ fn gemini_background_finalization_can_deliver(operation_id: u64) -> bool {
         .ok()
         .and_then(|map| map.get(&operation_id).cloned())
         .is_some_and(|pending| pending.session_detached.load(Ordering::Acquire))
+}
+
+/// Background text is typed only while no newer recording or transcription owns the
+/// session. After the first skip the rest stays out too, the insertion is reported as
+/// incomplete once, and History keeps the full text.
+fn gemini_background_output_allowed(app: &AppHandle, operation_stamp: OperationStamp) -> bool {
+    let pending = PENDING_GEMINI_BACKGROUND_FINALIZATIONS
+        .lock()
+        .ok()
+        .and_then(|map| map.get(&operation_stamp.operation_id).cloned());
+    let Some(pending) = pending else {
+        return false;
+    };
+    gemini_background_output_may_continue(
+        &pending.output_withheld,
+        || operation_stamp.is_current(app) || session_manager::is_idle(app),
+        || {
+            warn!(
+                "Skipping late Gemini text of operation {}: a newer recording or transcription owns the session",
+                operation_stamp.operation_id
+            );
+            crate::clipboard::drop_held_trailing_whitespace(operation_stamp.operation_id);
+            let _ = app.emit("paste-error", ());
+        },
+    )
 }
 
 fn confirm_gemini_background_delivery(
@@ -4306,6 +4333,21 @@ pub(crate) fn gemini_stream_operation_allows_delivery(
     background_finalization || (is_current() && !was_cancelled())
 }
 
+/// Decision behind `gemini_background_output_allowed`: once withheld, always withheld.
+fn gemini_background_output_may_continue(
+    withheld: &AtomicBool,
+    session_free: impl FnOnce() -> bool,
+    report_withheld: impl FnOnce(),
+) -> bool {
+    if !withheld.load(Ordering::Acquire) && session_free() {
+        return true;
+    }
+    if !withheld.swap(true, Ordering::AcqRel) {
+        report_withheld();
+    }
+    false
+}
+
 fn gemini_early_finalization_delay(
     settings: &AppSettings,
     is_gemini_live_provider: bool,
@@ -4364,7 +4406,7 @@ fn can_background_vercel_gemini_finalization(
 mod stt_workflow_tests {
     use super::{
         preview_transcribe_start_from_snapshot, resolve_active_app_window_title,
-        gemini_stream_operation_allows_delivery,
+        gemini_background_output_may_continue, gemini_stream_operation_allows_delivery,
         gemini_early_finalization_delay,
         settings_with_model_override_for_binding,
         should_release_vercel_gemini_after_streamed_output, LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
@@ -4374,6 +4416,7 @@ mod stt_workflow_tests {
         get_default_settings, SttModelSelection, TranscriptionProfile, TranscriptionProvider,
     };
     use std::cell::Cell;
+    use std::sync::atomic::AtomicBool;
 
     fn profile_with_selection(selection: SttModelSelection) -> TranscriptionProfile {
         let mut profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
@@ -4484,6 +4527,24 @@ mod stt_workflow_tests {
         assert!(!gemini_stream_operation_allows_delivery(
             false, || false, || panic!("stale operation must short-circuit cancellation lookup"),
         ));
+    }
+
+    #[test]
+    fn background_gemini_text_stays_out_of_a_newer_session_and_is_reported_once() {
+        let withheld = AtomicBool::new(false);
+        let reports = Cell::new(0);
+        let report = || reports.set(reports.get() + 1);
+        assert!(gemini_background_output_may_continue(&withheld, || true, report));
+        assert_eq!(reports.get(), 0);
+
+        // A newer recording owns the session: nothing is typed, one notice.
+        assert!(!gemini_background_output_may_continue(&withheld, || false, report));
+        assert!(!gemini_background_output_may_continue(&withheld, || false, report));
+        assert_eq!(reports.get(), 1);
+
+        // Once incomplete, the rest stays out even after that recording ends.
+        assert!(!gemini_background_output_may_continue(&withheld, || true, report));
+        assert_eq!(reports.get(), 1);
     }
 
     #[test]
@@ -6684,6 +6745,11 @@ fn finalize_streaming_paste_session_after_main_thread_queue(
                 );
             }
             return;
+        }
+        // Released in the background or after a timed-out wait: a newer recording or
+        // transcription owns the session, so its window must not get this trailing space.
+        if !operation_stamp.is_current(&app_for_finalize) && !session_manager::is_idle(&app_for_finalize) {
+            crate::clipboard::drop_held_trailing_whitespace(operation_id);
         }
         let result = crate::clipboard::complete_dictation_output(
             &app_for_finalize,
@@ -8908,6 +8974,11 @@ impl ShortcutAction for TranscribeAction {
                                             );
                                             return;
                                         }
+                                        if background_finalization
+                                            && !gemini_background_output_allowed(&ah_for_clip, operation_stamp)
+                                        {
+                                            return;
+                                        }
                                         match crate::clipboard::paste_stream_chunk_for_operation(
                                             delta,
                                             ah_for_clip.clone(),
@@ -9541,6 +9612,9 @@ impl ShortcutAction for TranscribeAction {
                                         );
                                         return;
                                     }
+                                    if !gemini_background_output_allowed(&ah_for_tail, operation_stamp) {
+                                        return;
+                                    }
                                     if let Err(error) = crate::clipboard::paste_stream_chunk_for_operation(
                                         tail_delta,
                                         ah_for_tail,
@@ -9585,8 +9659,12 @@ impl ShortcutAction for TranscribeAction {
                                 let output_finalized = finalize_streaming_paste_session_after_main_thread_queue(
                                     &ah, recording_operation_id, operation_stamp, streaming_clipboard_timeout_ms, text.clone(),
                                 );
-                                // A newer recording may already be running; keep the cue out of it.
-                                if output_finalized && session_manager::is_idle(&ah) {
+                                // A newer recording may already be running; keep the cue out of it,
+                                // and out of a dictation whose late text it kept out.
+                                let output_withheld = pending_gemini_background_finalization
+                                    .as_ref()
+                                    .is_some_and(|pending| pending.output_withheld.load(Ordering::Acquire));
+                                if output_finalized && !output_withheld && session_manager::is_idle(&ah) {
                                     play_result_ready_sound(&ah);
                                 }
                                 before_dictation_final_output(&ah, &text);

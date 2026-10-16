@@ -147,6 +147,13 @@ impl DictationOutputSessions {
         let index = self.sessions.iter().position(|session| session.operation_id == operation_id)?;
         Some(self.sessions.remove(index))
     }
+
+    /// Only whitespace is held, so the dictation itself stays complete without it.
+    fn drop_held_whitespace(&mut self, operation_id: u64) {
+        if let Some(session) = self.get_mut(operation_id) {
+            session.held_whitespace = HeldTrailingWhitespace::default();
+        }
+    }
 }
 
 static DICTATION_OUTPUT_SESSIONS: Lazy<Mutex<DictationOutputSessions>> =
@@ -179,6 +186,12 @@ pub(crate) fn end_dictation_output_session_if_matches(operation_id: u64) {
     crate::live_output_buffer::cancel_unfinished(operation_id);
     // Runs after every queued insertion, so a completed recording never gets the cancel key.
     crate::early_open::finish_operation(operation_id);
+}
+
+/// A finalization that runs while a newer recording or transcription owns the session
+/// must not type its trailing whitespace into that recording's window.
+pub(crate) fn drop_held_trailing_whitespace(operation_id: u64) {
+    lock_dictation_output_sessions().drop_held_whitespace(operation_id);
 }
 
 pub(crate) fn dictation_output_is_buffered(operation_id: u64) -> bool {
@@ -1832,6 +1845,16 @@ pub(crate) fn send_early_session_submit(
     }
 }
 
+/// After a background finalization released the streaming clipboard session, the
+/// whitespace goes through the fallback paste. It must not replace the clipboard there.
+fn trailing_whitespace_output(settings: &ResolvedOutputSettings) -> ResolvedOutputSettings {
+    let mut output = settings.clone();
+    if !restores_clipboard_contents(output.clipboard_handling) {
+        output.clipboard_handling = ClipboardHandling::RestorePlainText;
+    }
+    output
+}
+
 /// Called once at the final delivery boundary, after all queued live chunks.
 pub(crate) fn complete_dictation_output(
     app: &AppHandle,
@@ -1884,7 +1907,8 @@ pub(crate) fn complete_dictation_output(
         if !protected {
             // Only trailing whitespace: the dictated text itself is already in, so a failure
             // here is logged and does not mark the dictation as undelivered.
-            match paste_stream_chunk_with_output(trailing, app.clone(), Some(&settings), Some(operation_id), None) {
+            let output = trailing_whitespace_output(&settings);
+            match paste_stream_chunk_with_output(trailing, app.clone(), Some(&output), Some(operation_id), None) {
                 Ok(()) => delivered = true,
                 Err(error) => warn!("Trailing whitespace after live dictation was not inserted: {}", error),
             }
@@ -2550,6 +2574,29 @@ mod tests {
         assert_eq!(sessions.output_for_chunk(None).unwrap().1.paste_method, PasteMethod::CtrlV);
         sessions.take(7);
         assert!(sessions.output_for_chunk(Some(7)).is_none());
+    }
+
+    #[test]
+    fn late_finalization_types_no_trailing_space_into_a_newer_recording() {
+        let settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
+        let mut sessions = DictationOutputSessions::default();
+        sessions.begin(7, Some(settings.clone()));
+        sessions.get_mut(7).unwrap().held_whitespace.push(OutputWhitespaceMode::AddIfMissing, "done".to_string());
+        sessions.begin(8, Some(settings));
+        sessions.get_mut(8).unwrap().held_whitespace.push(OutputWhitespaceMode::AddIfMissing, "new ".to_string());
+
+        sessions.drop_held_whitespace(7);
+        assert_eq!(sessions.take(7).unwrap().held_whitespace.resolve(OutputWhitespaceMode::AddIfMissing), "");
+        assert_eq!(sessions.take(8).unwrap().held_whitespace.resolve(OutputWhitespaceMode::AddIfMissing), " ");
+    }
+
+    #[test]
+    fn trailing_whitespace_never_replaces_the_clipboard() {
+        let mut settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
+        settings.clipboard_handling = ClipboardHandling::KeepTranscription;
+        assert_eq!(trailing_whitespace_output(&settings).clipboard_handling, ClipboardHandling::RestorePlainText);
+        settings.clipboard_handling = ClipboardHandling::RestoreAdvancedOwned;
+        assert_eq!(trailing_whitespace_output(&settings).clipboard_handling, ClipboardHandling::RestoreAdvancedOwned);
     }
 
     fn pushed(held: &mut HeldTrailingWhitespace, mode: OutputWhitespaceMode, chunks: &[&str]) -> Vec<String> {
