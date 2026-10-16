@@ -314,7 +314,9 @@ fn load(
             .as_ref()
             .map(|d| d.label().to_string())
             .unwrap_or_else(|| "unknown".to_string()),
-        capabilities: model.capabilities(),
+        capabilities: model
+            .capabilities()
+            .map_err(|e| format!("Failed to read model capabilities: {e}"))?,
         supports_initial_prompt: model.supports(Feature::InitialPrompt),
         accepted_stream_extensions: [
             transcribe_cpp::sys::TRANSCRIBE_EXT_KIND_PARAKEET_BUFFERED_STREAM,

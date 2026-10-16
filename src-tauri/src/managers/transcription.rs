@@ -196,7 +196,7 @@ fn transcribe_cpp_transcription_with_prompt(
         effective_language,
         translate_to_english,
         TimestampKind::Segment,
-    );
+    )?;
 
     // transcribe.cpp exposes family extensions through a tagged union. Only
     // Whisper-family models accept the Whisper extension; other GGUF models
@@ -236,9 +236,11 @@ fn transcribe_cpp_run_options(
     effective_language: &str,
     translate_to_english: bool,
     timestamps: TimestampKind,
-) -> RunOptions {
+) -> Result<RunOptions> {
     let model = session.model();
-    let caps = model.capabilities();
+    let caps = model
+        .capabilities()
+        .map_err(|e| anyhow::anyhow!("Failed to read model capabilities: {e}"))?;
     let run_plan = transcribe_cpp_run_plan(
         translate_to_english,
         effective_language,
@@ -246,13 +248,13 @@ fn transcribe_cpp_run_options(
         caps.supports_translate,
     );
 
-    RunOptions {
+    Ok(RunOptions {
         task: run_plan.task,
         language: run_plan.language,
         target_language: run_plan.target_language,
         timestamps: transcribe_cpp_supported_timestamp_kind(timestamps, caps.max_timestamp_kind),
         ..Default::default()
-    }
+    })
 }
 
 fn native_stream_options(
@@ -986,17 +988,25 @@ impl TranscriptionManager {
         };
 
         let supports_streaming = match &engine {
-            LoadedEngine::TranscribeCpp(session) => {
-                let caps = session.model().capabilities();
-                info!(
-                    "Native stream: model '{}' supports_streaming={} supports_translate={} languages={:?}",
-                    model_id,
-                    caps.supports_streaming,
-                    caps.supports_translate,
-                    caps.languages,
-                );
-                caps.supports_streaming
-            }
+            LoadedEngine::TranscribeCpp(session) => match session.model().capabilities() {
+                Ok(caps) => {
+                    info!(
+                        "Native stream: model '{}' supports_streaming={} supports_translate={} languages={:?}",
+                        model_id,
+                        caps.supports_streaming,
+                        caps.supports_translate,
+                        caps.languages,
+                    );
+                    caps.supports_streaming
+                }
+                Err(error) => {
+                    error!(
+                        "Native stream: failed to read capabilities of model '{}': {}; falling back to batch",
+                        model_id, error
+                    );
+                    false
+                }
+            },
             _ => {
                 info!(
                     "Native stream: model '{}' is not a transcribe.cpp model; falling back to batch",
@@ -1024,13 +1034,24 @@ impl TranscriptionManager {
             let backend = model.backend();
             let architecture = model.arch();
             let variant = model.variant();
-            let run_options = transcribe_cpp_run_options(
+            let (run_options, supported_languages) = match transcribe_cpp_run_options(
                 session,
                 &effective_language,
                 translate_to_english,
                 TimestampKind::None,
-            );
-            let supported_languages = model.capabilities().languages;
+            )
+            .and_then(|options| {
+                model
+                    .capabilities()
+                    .map(|caps| (options, caps.languages))
+                    .map_err(|e| anyhow::anyhow!("Failed to read model capabilities: {e}"))
+            }) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    error!("Failed to prepare native transcribe.cpp stream: {}", error);
+                    break 'stream false;
+                }
+            };
             let initial_output_language = resolve_output_language_evidence(
                 &selected_language,
                 run_options.language.as_deref(),
@@ -1632,7 +1653,14 @@ impl TranscriptionManager {
                 })?;
                 let bound_backend = model.backend();
                 let session = model.session()?;
-                let caps = session.model().capabilities();
+                let caps = session.model().capabilities().map_err(|e| {
+                    let error_msg = format!(
+                        "Failed to read capabilities of transcribe.cpp model {}: {}",
+                        model_id, e
+                    );
+                    emit_loading_failed(&error_msg);
+                    anyhow::anyhow!(error_msg)
+                })?;
                 self.model_manager.set_runtime_capabilities(
                     model_id,
                     caps.supports_streaming,
