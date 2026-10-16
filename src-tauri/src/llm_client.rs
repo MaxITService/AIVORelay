@@ -1987,3 +1987,7 @@ mod tests {
         assert!(json.get("reasoning").is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "llm_client_openrouter_tests.rs"]
+mod openrouter_paid_tests;
