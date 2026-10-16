@@ -13,6 +13,7 @@ import { ResetButton } from "../ui/ResetButton";
 import { SettingContainer } from "../ui/SettingContainer";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { showShortcutSetErrorToast } from "../../lib/utils/shortcutEngineErrorToast";
+import { listenForPressOutside } from "../../lib/pressOutside";
 
 interface HandyKeysShortcutInputProps {
   descriptionMode?: "inline" | "tooltip";
@@ -216,17 +217,11 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
   useEffect(() => {
     if (!isRecording) return;
 
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        shortcutRef.current &&
-        !shortcutRef.current.contains(event.target as Node)
-      ) {
-        cancelRecording().catch(console.error);
-      }
-    };
-
-    window.addEventListener("click", handleClickOutside);
-    return () => window.removeEventListener("click", handleClickOutside);
+    return listenForPressOutside(
+      document,
+      (node) => shortcutRef.current?.contains(node) ?? true,
+      () => cancelRecording().catch(console.error),
+    );
   }, [cancelRecording, isRecording]);
 
   const startRecording = async () => {
