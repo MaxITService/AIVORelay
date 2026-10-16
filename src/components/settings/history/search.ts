@@ -17,6 +17,16 @@ export const historyDisplayText = (entry: HistoryEntry): string =>
     ? (entry.ai_response ?? entry.transcription_text)
     : (entry.post_processed_text ?? entry.transcription_text);
 
+/** "unchanged": processing ran but kept the raw text, so there is nothing to switch to. */
+export type RawTranscriptToggle = "none" | "unchanged" | "available";
+
+export const rawTranscriptToggle = (entry: HistoryEntry): RawTranscriptToggle =>
+  entry.action_type === "ai_replace" || entry.post_processed_text == null
+    ? "none"
+    : entry.post_processed_text === entry.transcription_text
+      ? "unchanged"
+      : "available";
+
 export const matchesHistorySearch = (entry: HistoryEntry, query: string): boolean =>
   entry.action_type === "ai_replace"
     ? [
