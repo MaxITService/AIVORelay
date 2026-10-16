@@ -534,8 +534,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
             Ok(enigo_state) => {
                 app_handle.manage(enigo_state);
             }
-            Err(error) if cfg!(target_os = "macos") => {
-                log::warn!("Input state unavailable without Accessibility permission: {error}");
+            // macOS needs the Accessibility permission first. On Linux the input
+            // backend can be missing (for example Wayland without XWayland); a
+            // failed paste then reports an error instead of the app crashing.
+            Err(error) if cfg!(any(target_os = "macos", target_os = "linux")) => {
+                log::warn!("Input state unavailable: {error}");
             }
             Err(error) => panic!("Failed to initialize input state (Enigo): {error}"),
         }
@@ -1377,6 +1380,9 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_debug_mode_setting,
         shortcut::change_word_correction_threshold_setting,
         shortcut::change_paste_method_setting,
+        shortcut::get_available_typing_tools,
+        shortcut::change_typing_tool_setting,
+        shortcut::change_external_script_path_setting,
         shortcut::change_paste_delay_ms_setting,
         shortcut::change_clipboard_handling_setting,
         shortcut::change_clipboard_history_allowed_setting,
@@ -1947,10 +1953,10 @@ pub fn run(cli_args: CliArgs) {
         .manage(std::sync::Mutex::new(settings::ShortcutEngine::default())
             as shortcut::ActiveShortcutEngine)
         .setup(move |app| {
+            secure_keys::init(app.handle());
             #[cfg(target_os = "windows")]
             log::info!(
                 "Vulkan layer policy: VK_LOADER_LAYERS_DISABLE={:?}, AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS={:?}",
-            secure_keys::init(app.handle());
                 std::env::var_os("VK_LOADER_LAYERS_DISABLE"),
                 std::env::var_os("AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS"),
             );

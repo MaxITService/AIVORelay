@@ -22,6 +22,8 @@ import { getShortcutAnchorId, getShortcutSettingsSection } from "@/lib/shortcutA
 import { useNavigationStore } from "@/stores/navigationStore";
 import { buffersOutputForKeyActions, getOutputProviderInfo } from "@/lib/postProcessingAvailability";
 import { ProfileOutputPlanPanel } from "./ProfileOutputPlanPanel";
+import { TypingToolSetting } from "./TypingTool";
+import { usePersistedSettingText } from "../../hooks/usePersistedSettingText";
 
 export const getGlobalProfileOutputDefaults = (settings: Settings | null | undefined): OutputSettings => ({
     paste_method: settings?.paste_method ?? "ctrl_v",
@@ -126,6 +128,7 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
   const { t } = useTranslation();
   const defaults = profileOutputDefaults(defaultProfile, isDefault);
   const { settings } = useSettings();
+  const externalScript = usePersistedSettingText("external_script_path");
   const [capturing, setCapturing] = useState(false);
   const [customKeyRequested, setCustomKeyRequested] = useState(false);
   const [startCapturing, setStartCapturing] = useState(false);
@@ -227,12 +230,18 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
   };
   const pasteChoices: DropdownOption[] = [
     { value: "ctrl_v", label: t("settings.advanced.pasteMethod.options.clipboard", { modifier: osType === "macos" ? "Cmd" : "Ctrl" }) },
-    { value: "direct", label: t("settings.advanced.pasteMethod.options.direct") },
+    // Direct typing is not offered on macOS; a saved selection stays visible so the UI matches it.
+    ...(osType !== "macos" || method === "direct"
+      ? [{ value: "direct", label: t("settings.advanced.pasteMethod.options.direct"), disabled: osType === "macos" }]
+      : []),
     { value: "none", label: t("settings.advanced.pasteMethod.options.none") },
     ...(osType === "macos" ? [] : [
       { value: "ctrl_shift_v", label: t("settings.advanced.pasteMethod.options.clipboardCtrlShiftV") },
       { value: "shift_insert", label: t("settings.advanced.pasteMethod.options.clipboardShiftInsert") },
     ]),
+    ...(osType === "linux" || method === "external_script"
+      ? [{ value: "external_script", label: t("settings.advanced.pasteMethod.options.externalScript"), disabled: osType !== "linux" }]
+      : []),
   ];
   const clipboardChoices: DropdownOption[] = [
     { value: "keep_transcription", label: t("settings.advanced.clipboardHandling.options.keepTranscription") },
@@ -426,8 +435,14 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
             </TellMeMore>
           </div>
           <SettingContainer id={`profile-output-${scopeKey}-paste-method`} title={t("settings.advanced.pasteMethod.title")} description={t("settings.advanced.pasteMethod.description")} descriptionMode="tooltip" grouped={true}>
-            <Dropdown className="w-full max-w-full md:w-[200px] [&>button]:min-w-0" options={pasteChoices} selectedValue={selected("paste_method")} disabled={busy} onSelect={value => void save({ paste_method: value as OutputSettings["paste_method"] })} />
+            <div className="flex w-full max-w-full flex-col gap-2 md:w-[200px]">
+              <Dropdown className="w-full max-w-full [&>button]:min-w-0" options={pasteChoices} selectedValue={selected("paste_method")} disabled={busy} onSelect={value => void save({ paste_method: value as OutputSettings["paste_method"] })} />
+              {method === "external_script" && <Input type="text" value={externalScript.draft} onChange={event => externalScript.setDraft(event.target.value)} onBlur={externalScript.persistDraft} placeholder={t("settings.advanced.pasteMethod.externalScriptPlaceholder")} />}
+            </div>
           </SettingContainer>
+          {method === "direct" && osType === "linux" && <OutputDependencies>
+            <TypingToolSetting grouped={true} />
+          </OutputDependencies>}
           {method !== "none" && usesClipboard && osType === "windows" && <OutputDependencies>
                 <SettingContainer id={`profile-output-${scopeKey}-line-endings`} title={t("settings.advanced.pasteMethod.convertLfToCrlf.label")} description={t("settings.advanced.pasteMethod.convertLfToCrlf.description")} descriptionMode="tooltip" grouped={true} compact={true}>
                   <Dropdown className="w-full max-w-full md:w-[200px] [&>button]:min-w-0" options={booleanChoices} selectedValue={selected("convert_lf_to_crlf")} disabled={busy} onSelect={value => void save({ convert_lf_to_crlf: value === "true" })} />

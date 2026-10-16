@@ -22,7 +22,7 @@ use crate::settings::{
     RecordingOverlayCenterpieceMode, RecordingOverlayDecapitalizeIndicatorMode,
     RecordingOverlayMaterialMode, RecordingOverlayStatusIconStyle, RecordingOverlayTheme,
     RecordingOverlayUserPreset, RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition,
-    SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider,
+    SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider, TypingTool,
     APPLE_INTELLIGENCE_PROVIDER_ID,
     DEEPGRAM_DEFAULT_ENDPOINTING_MS, DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS,
     DEEPGRAM_DEFAULT_MODEL, SONIOX_DEFAULT_ENDPOINT_SENSITIVITY,
@@ -3724,12 +3724,59 @@ pub fn change_paste_method_setting(app: AppHandle, method: String) -> Result<(),
         "none" => PasteMethod::None,
         "shift_insert" => PasteMethod::ShiftInsert,
         "ctrl_shift_v" => PasteMethod::CtrlShiftV,
+        "external_script" => PasteMethod::ExternalScript,
         other => {
             warn!("Invalid paste method '{}', defaulting to ctrl_v", other);
             PasteMethod::CtrlV
         }
     };
     settings.paste_method = parsed;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_available_typing_tools() -> Vec<String> {
+    #[cfg(target_os = "linux")]
+    {
+        crate::clipboard::get_available_typing_tools()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        vec!["auto".to_string()]
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_typing_tool_setting(app: AppHandle, tool: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let parsed = match tool.as_str() {
+        "auto" => TypingTool::Auto,
+        "wtype" => TypingTool::Wtype,
+        "kwtype" => TypingTool::Kwtype,
+        "dotool" => TypingTool::Dotool,
+        "ydotool" => TypingTool::Ydotool,
+        "xdotool" => TypingTool::Xdotool,
+        other => {
+            warn!("Invalid typing tool '{}', defaulting to auto", other);
+            TypingTool::Auto
+        }
+    };
+    settings.typing_tool = parsed;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_external_script_path_setting(
+    app: AppHandle,
+    path: Option<String>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.external_script_path = path;
     settings::write_settings(&app, settings);
     Ok(())
 }

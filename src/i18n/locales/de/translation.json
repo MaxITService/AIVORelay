@@ -217,8 +217,10 @@
           "clipboardCtrlShiftV": "Zwischenablage (Strg+Umschalt+V)",
           "clipboardShiftInsert": "Zwischenablage (Umschalt+Einfg)",
           "direct": "Direkt",
-          "none": "Keine"
-        }
+          "none": "Keine",
+          "externalScript": "Externes Skript"
+        },
+        "externalScriptPlaceholder": "/pfad/zu/ihrem/skript.sh"
       },
       "clipboardHandling": {
         "title": "Zwischenablage-Verhalten",
@@ -279,6 +281,13 @@
           "title": "GPU-Gerät",
           "description": "Wählen Sie die GPU für die Whisper-Inferenz. Auto wählt die dedizierte GPU.",
           "auto": "Auto"
+        }
+      },
+      "typingTool": {
+        "title": "Eingabetool",
+        "description": "Wähle, welches Linux-Eingabetool für die Direkt-Einfügen-Methode verwendet werden soll. Auto erkennt und verwendet automatisch das beste verfügbare Tool für dein System.",
+        "options": {
+          "auto": "Auto (Empfohlen)"
         }
       }
     },

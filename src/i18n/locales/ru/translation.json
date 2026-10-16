@@ -2998,8 +2998,10 @@
           "clipboardCtrlShiftV": "Буфер обмена (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Буфер обмена (Shift+Insert)",
           "direct": "Прямой",
-          "none": "Нет"
-        }
+          "none": "Нет",
+          "externalScript": "Внешний скрипт"
+        },
+        "externalScriptPlaceholder": "/path/to/your/script.sh"
       },
       "clipboardHandling": {
         "title": "После вставки",
@@ -3423,6 +3425,13 @@
           "title": "Устройство GPU",
           "description": "Выберите GPU для инференса Whisper. Авто выбирает выделенный GPU.",
           "auto": "Авто"
+        }
+      },
+      "typingTool": {
+        "title": "Инструмент ввода",
+        "description": "Выберите, какой инструмент ввода в Linux использовать для метода прямой вставки. Auto автоматически определит и использует лучший доступный инструмент для вашей системы.",
+        "options": {
+          "auto": "Auto (Рекомендуется)"
         }
       }
     },

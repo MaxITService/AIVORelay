@@ -217,8 +217,10 @@
           "clipboardCtrlShiftV": "剪贴板 (Ctrl+Shift+V)",
           "clipboardShiftInsert": "剪贴板 (Shift+Insert)",
           "direct": "直接",
-          "none": "无"
-        }
+          "none": "无",
+          "externalScript": "外部脚本"
+        },
+        "externalScriptPlaceholder": "/path/to/your/script.sh"
       },
       "clipboardHandling": {
         "title": "剪贴板处理",
@@ -279,6 +281,13 @@
           "title": "GPU 设备",
           "description": "选择用于 Whisper 推理的 GPU。自动选择独立 GPU。",
           "auto": "自动"
+        }
+      },
+      "typingTool": {
+        "title": "输入工具",
+        "description": "选择在直接粘贴方式下使用的 Linux 输入工具。Auto 会自动检测并使用系统中可用的最佳工具。",
+        "options": {
+          "auto": "Auto（推荐）"
         }
       }
     },

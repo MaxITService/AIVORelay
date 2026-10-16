@@ -3215,7 +3215,8 @@
           "clipboardCtrlShiftV": "Clipboard (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Clipboard (Shift+Insert)",
           "direct": "Direct",
-          "none": "None"
+          "none": "None",
+          "externalScript": "External Script"
         },
         "convertLfToCrlf": {
           "label": "Convert LF to CRLF (Windows)",
@@ -3250,7 +3251,8 @@
             "description": "LLM responses and some APIs use Unix-style line breaks (LF). Windows applications often expect Windows-style line breaks (CRLF). When enabled, this option converts LF to CRLF before pasting, preventing newlines from being ignored or collapsed."
           },
           "tip": "Most users should use Clipboard (Ctrl+V). Try Direct if you experience issues with games or terminals."
-        }
+        },
+        "externalScriptPlaceholder": "/path/to/your/script.sh"
       },
       "clipboardHandling": {
         "title": "After Pasting",
@@ -3776,6 +3778,13 @@
       "lazyStreamClose": {
         "label": "Keep Mic Open Between Transcriptions",
         "description": "Keeps the microphone stream open for 30 seconds after recording stops, reducing latency for back-to-back transcriptions. Applies only to microphone capture and may affect Bluetooth audio quality while active."
+      },
+      "typingTool": {
+        "title": "Typing Tool",
+        "description": "Choose which Linux typing tool to use for Direct paste method. Auto will automatically detect and use the best available tool for your system.",
+        "options": {
+          "auto": "Auto (Recommended)"
+        }
       }
     },
     "postProcessing": {
