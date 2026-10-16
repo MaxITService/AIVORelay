@@ -1637,14 +1637,22 @@ fn reassert_recording_overlay_window_geometry(app_handle: &AppHandle) {
     let app_clone = app_handle.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(50));
-        let metrics =
-            recording_overlay_geometry_metrics(&app_clone, current_recording_overlay_layout());
-        if let Some(overlay_window) = app_clone.get_webview_window("recording_overlay") {
-            if let Some(geometry) = calculate_recording_overlay_window_geometry(&app_clone, metrics)
-            {
-                apply_recording_overlay_window_geometry(&overlay_window, geometry, false);
+        // Monitor and cursor lookups use GDK/Xlib on Linux and NSScreen on
+        // macOS, which are only safe on the main thread.
+        let app_for_main = app_clone.clone();
+        let _ = app_clone.run_on_main_thread(move || {
+            let metrics = recording_overlay_geometry_metrics(
+                &app_for_main,
+                current_recording_overlay_layout(),
+            );
+            if let Some(overlay_window) = app_for_main.get_webview_window("recording_overlay") {
+                if let Some(geometry) =
+                    calculate_recording_overlay_window_geometry(&app_for_main, metrics)
+                {
+                    apply_recording_overlay_window_geometry(&overlay_window, geometry, false);
+                }
             }
-        }
+        });
     });
 }
 
