@@ -64,6 +64,9 @@ jobs:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
           fetch-depth: 0
+          # Nothing here pushes. Leaving the write-scoped token in .git/config
+          # would hand it to every build script and dependency that runs later.
+          persist-credentials: false
 
       - name: Import Certificate to Windows Store
         if: contains(inputs.platform, 'windows') && inputs.sign-binaries
@@ -361,7 +364,8 @@ jobs:
 
       - name: Prepare Vulkan SDK for Ubuntu ARM64
         if: contains(inputs.platform, 'ubuntu') && contains(inputs.platform, 'arm')
-        uses: jakoch/install-vulkan-sdk-action@v1
+        # Third-party action pinned to an immutable commit (v1).
+        uses: jakoch/install-vulkan-sdk-action@d17de7e2f5e50efb5d2123efed18497d3c58c533
         with:
           vulkan_version: 1.4.335.0
           cache: true
@@ -500,18 +504,22 @@ jobs:
       - name: Build with Tauri
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Linux builds receive no secrets at all: the token, the Apple
+          # credentials and the updater signing key stay on the Windows and macOS
+          # jobs that sign. Linux packages are unsigned and build without updater
+          # artifacts (see src-tauri/tauri.linux.conf.json).
+          GITHUB_TOKEN: ${{ !contains(inputs.platform, 'ubuntu') && secrets.GITHUB_TOKEN || '' }}
           # Hidden frontend sourcemaps, written outside the app (see vite.config.ts).
           AIVORELAY_SOURCEMAPS: "1"
-          APPLE_ID: ${{ inputs.sign-binaries && secrets.APPLE_ID || '' }}
-          APPLE_ID_PASSWORD: ${{ inputs.sign-binaries && secrets.APPLE_ID_PASSWORD || '' }}
-          APPLE_PASSWORD: ${{ inputs.sign-binaries && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ inputs.sign-binaries && secrets.APPLE_TEAM_ID || '' }}
-          APPLE_CERTIFICATE: ${{ inputs.sign-binaries && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ inputs.sign-binaries && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_SIGNING_IDENTITY: ${{ inputs.sign-binaries && env.CERT_ID || '' }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ contains(inputs.platform, 'macos') && inputs.sign-binaries && secrets.APPLE_ID || '' }}
+          APPLE_ID_PASSWORD: ${{ contains(inputs.platform, 'macos') && inputs.sign-binaries && secrets.APPLE_ID_PASSWORD || '' }}
+          APPLE_PASSWORD: ${{ contains(inputs.platform, 'macos') && inputs.sign-binaries && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ contains(inputs.platform, 'macos') && inputs.sign-binaries && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_CERTIFICATE: ${{ contains(inputs.platform, 'macos') && inputs.sign-binaries && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ contains(inputs.platform, 'macos') && inputs.sign-binaries && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ contains(inputs.platform, 'macos') && inputs.sign-binaries && env.CERT_ID || '' }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ !contains(inputs.platform, 'ubuntu') && inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ !contains(inputs.platform, 'ubuntu') && inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
           # Disable -march=native and all SIMD instruction sets above SSE4.2 for
           # x86_64 builds. Without this, CPUs lacking AVX/FMA (e.g. Celeron N2920,
           # FX-8350) crash with SIGILL. The Vulkan backend handles heavy compute
