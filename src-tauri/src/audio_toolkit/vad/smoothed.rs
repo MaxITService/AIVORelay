@@ -2,13 +2,20 @@ use super::{VadFrame, VoiceActivityDetector};
 use anyhow::Result;
 use std::collections::VecDeque;
 
+/// One pre-roll buffer slot; `emitted` keeps pre-roll from repeating audio
+/// that already went out as speech or hangover.
+struct BufferedFrame {
+    samples: Vec<f32>,
+    emitted: bool,
+}
+
 pub struct SmoothedVad {
     inner_vad: Box<dyn VoiceActivityDetector>,
     prefill_frames: usize,
     hangover_frames: usize,
     onset_frames: usize,
 
-    frame_buffer: VecDeque<Vec<f32>>,
+    frame_buffer: VecDeque<BufferedFrame>,
     hangover_counter: usize,
     onset_counter: usize,
     in_speech: bool,
@@ -35,12 +42,21 @@ impl SmoothedVad {
             temp_out: Vec::new(),
         }
     }
+
+    fn mark_last_emitted(&mut self) {
+        if let Some(frame) = self.frame_buffer.back_mut() {
+            frame.emitted = true;
+        }
+    }
 }
 
 impl VoiceActivityDetector for SmoothedVad {
     fn push_frame<'a>(&'a mut self, frame: &'a [f32]) -> Result<VadFrame<'a>> {
         // 1. Buffer every incoming frame for possible pre-roll
-        self.frame_buffer.push_back(frame.to_vec());
+        self.frame_buffer.push_back(BufferedFrame {
+            samples: frame.to_vec(),
+            emitted: false,
+        });
         while self.frame_buffer.len() > self.prefill_frames + 1 {
             self.frame_buffer.pop_front();
         }
@@ -60,8 +76,9 @@ impl VoiceActivityDetector for SmoothedVad {
 
                     // Collect prefill + current frame
                     self.temp_out.clear();
-                    for buf in &self.frame_buffer {
-                        self.temp_out.extend(buf);
+                    for buffered in self.frame_buffer.iter_mut().filter(|f| !f.emitted) {
+                        self.temp_out.extend(buffered.samples.iter());
+                        buffered.emitted = true;
                     }
                     Ok(VadFrame::Speech(&self.temp_out))
                 } else {
@@ -73,6 +90,7 @@ impl VoiceActivityDetector for SmoothedVad {
             // Ongoing Speech
             (true, true) => {
                 self.hangover_counter = self.hangover_frames;
+                self.mark_last_emitted();
                 Ok(VadFrame::Speech(frame))
             }
 
@@ -80,6 +98,7 @@ impl VoiceActivityDetector for SmoothedVad {
             (true, false) => {
                 if self.hangover_counter > 0 {
                     self.hangover_counter -= 1;
+                    self.mark_last_emitted();
                     Ok(VadFrame::Speech(frame))
                 } else {
                     self.in_speech = false;
@@ -109,5 +128,39 @@ impl VoiceActivityDetector for SmoothedVad {
     }
     fn set_threshold(&mut self, threshold: f32) {
         self.inner_vad.set_threshold(threshold);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct ScriptedVad(VecDeque<bool>);
+
+    impl VoiceActivityDetector for ScriptedVad {
+        fn push_frame<'a>(&'a mut self, frame: &'a [f32]) -> Result<VadFrame<'a>> {
+            Ok(if self.0.pop_front().unwrap_or(false) {
+                VadFrame::Speech(frame)
+            } else {
+                VadFrame::Noise
+            })
+        }
+
+        fn frame_samples(&self) -> usize {
+            1
+        }
+    }
+
+    #[test]
+    fn pre_roll_does_not_repeat_hangover_audio() {
+        let voice = [true, false, false, true];
+        let mut vad = SmoothedVad::new(Box::new(ScriptedVad(voice.into())), 3, 1, 1);
+        let mut emitted = Vec::new();
+        for sample in 1..=voice.len() {
+            if let VadFrame::Speech(samples) = vad.push_frame(&[sample as f32]).unwrap() {
+                emitted.extend_from_slice(samples);
+            }
+        }
+        assert_eq!(emitted, vec![1.0, 2.0, 3.0, 4.0]);
     }
 }
