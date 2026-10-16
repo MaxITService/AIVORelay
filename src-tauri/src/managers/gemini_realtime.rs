@@ -1077,7 +1077,7 @@ impl GeminiRealtimeManager {
                             }
                             "finish" => {
                                 if let Some(text) = payload.get("text").and_then(Value::as_str) {
-                                    accumulated_text = text.to_string();
+                                    accumulated_text = gateway_finish_text(&accumulated_text, text);
                                     store_gateway_authoritative_text(
                                         &accumulated_text,
                                         &final_text,
@@ -1776,6 +1776,17 @@ fn preserve_gateway_partial_fallback(
     let display = join_transcript_text(accumulated_text, partial);
     *final_text.lock() = display.clone();
     display
+}
+
+/// The gateway's finish text joins segments without the sentence spaces added
+/// to streamed words. Keep the streamed text unless the words were revised.
+fn gateway_finish_text(accumulated_text: &str, finish_text: &str) -> String {
+    let words_only = |text: &str| text.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    if words_only(accumulated_text) == words_only(finish_text) {
+        accumulated_text.trim_end().to_string()
+    } else {
+        finish_text.to_string()
+    }
 }
 
 fn store_gateway_authoritative_text(accumulated_text: &str, final_text: &Arc<Mutex<String>>) {
