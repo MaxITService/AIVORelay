@@ -11,6 +11,7 @@ import { SettingContainer } from "../../ui/SettingContainer";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { Button } from "../../ui/Button";
 import { Collapse } from "../../ui/Collapse";
+import { Tooltip } from "../../ui/Tooltip";
 import { ResetButton } from "../../ui/ResetButton";
 import { Input } from "../../ui/Input";
 import { NameSortedDropdown } from "../../ui/NameSortedDropdown";
@@ -438,6 +439,65 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-2">
+            <div className="hidden sm:flex items-center justify-between gap-3 px-4 pb-1 text-xs font-medium text-[#a0a0a0]">
+              <div className="grid min-w-0 flex-1 gap-1 sm:grid-cols-[1.2fr_1fr_0.8fr_1.1fr_0.8fr_0.7fr] sm:items-center">
+                <Tooltip
+                  content={t(
+                    "settings.postProcessing.benchmark.columns.model.tooltip",
+                    "The LLM model tested in this benchmark run.",
+                  )}
+                  className="w-fit border-b border-dotted border-white/25 transition-colors hover:text-[#e8e8e8]"
+                >
+                  {t("settings.postProcessing.benchmark.columns.model.title", "Model")}
+                </Tooltip>
+                <Tooltip
+                  content={t(
+                    "settings.postProcessing.benchmark.columns.provider.tooltip",
+                    "The API service that processed the request.",
+                  )}
+                  className="w-fit border-b border-dotted border-white/25 transition-colors hover:text-[#e8e8e8]"
+                >
+                  {t("settings.postProcessing.benchmark.columns.provider.title", "Provider")}
+                </Tooltip>
+                <Tooltip
+                  content={t(
+                    "settings.postProcessing.benchmark.columns.totalTime.tooltip",
+                    "Total time in milliseconds from sending the request until the complete answer arrived.",
+                  )}
+                  className="w-fit border-b border-dotted border-white/25 transition-colors hover:text-[#e8e8e8]"
+                >
+                  {t("settings.postProcessing.benchmark.columns.totalTime.title", "Total time")}
+                </Tooltip>
+                <Tooltip
+                  content={t(
+                    "settings.postProcessing.benchmark.columns.firstToken.tooltip",
+                    "Time in milliseconds until the first piece of the streamed answer arrived. Shows why it was not measured when streaming was off or unsupported.",
+                  )}
+                  className="w-fit border-b border-dotted border-white/25 transition-colors hover:text-[#e8e8e8]"
+                >
+                  {t("settings.postProcessing.benchmark.columns.firstToken.title", "First token")}
+                </Tooltip>
+                <Tooltip
+                  content={t(
+                    "settings.postProcessing.benchmark.columns.speed.tooltip",
+                    "Average output speed in characters per second over the full duration of the request.",
+                  )}
+                  className="w-fit border-b border-dotted border-white/25 transition-colors hover:text-[#e8e8e8]"
+                >
+                  {t("settings.postProcessing.benchmark.columns.speed.title", "Speed")}
+                </Tooltip>
+                <Tooltip
+                  content={t(
+                    "settings.postProcessing.benchmark.columns.status.tooltip",
+                    "Whether the request succeeded or returned an error. Click a row to inspect the prompt, response, or error.",
+                  )}
+                  className="w-fit border-b border-dotted border-white/25 transition-colors hover:text-[#e8e8e8]"
+                >
+                  {t("settings.postProcessing.benchmark.columns.status.title", "Status")}
+                </Tooltip>
+              </div>
+              <div className="w-11 shrink-0" aria-hidden="true" />
+            </div>
             {log.map((item, index) => {
               const itemKey = `${item.timestamp_ms}-${index}`;
               const expanded = expandedItems.has(itemKey);

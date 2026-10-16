@@ -399,6 +399,32 @@
           "streamingOff": "Tắt truyền phát",
           "noFirstToken": "Không có token đầu tiên",
           "answeredWithoutStreaming": "Đã trả lời không truyền phát"
+        },
+        "columns": {
+          "model": {
+            "title": "Mô hình",
+            "tooltip": "Mô hình LLM được kiểm tra trong lần chạy benchmark này."
+          },
+          "provider": {
+            "title": "Nhà cung cấp",
+            "tooltip": "Dịch vụ API đã xử lý yêu cầu."
+          },
+          "totalTime": {
+            "title": "Tổng thời gian",
+            "tooltip": "Tổng thời gian tính bằng mili giây từ khi gửi yêu cầu đến khi nhận đủ câu trả lời."
+          },
+          "firstToken": {
+            "title": "Token đầu tiên",
+            "tooltip": "Thời gian tính bằng mili giây cho đến khi phần đầu tiên của câu trả lời truyền phát đến. Hiển thị lý do khi truyền phát bị tắt hoặc không được hỗ trợ."
+          },
+          "speed": {
+            "title": "Tốc độ",
+            "tooltip": "Tốc độ đầu ra trung bình tính bằng ký tự mỗi giây trong toàn bộ thời gian yêu cầu."
+          },
+          "status": {
+            "title": "Trạng thái",
+            "tooltip": "Yêu cầu thành công hay trả về lỗi. Nhấp vào một dòng để xem prompt, câu trả lời hoặc lỗi."
+          }
         }
       }
     },

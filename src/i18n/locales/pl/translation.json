@@ -398,6 +398,32 @@
           "streamingOff": "Strumieniowanie wyłączone",
           "noFirstToken": "Brak pierwszego tokenu",
           "answeredWithoutStreaming": "Odpowiedź bez strumieniowania"
+        },
+        "columns": {
+          "model": {
+            "title": "Model",
+            "tooltip": "Model LLM przetestowany w tym uruchomieniu benchmarku."
+          },
+          "provider": {
+            "title": "Dostawca",
+            "tooltip": "Usługa API, która przetworzyła żądanie."
+          },
+          "totalTime": {
+            "title": "Czas całkowity",
+            "tooltip": "Całkowity czas w milisekundach od wysłania żądania do otrzymania pełnej odpowiedzi."
+          },
+          "firstToken": {
+            "title": "Pierwszy token",
+            "tooltip": "Czas w milisekundach do nadejścia pierwszego fragmentu strumieniowanej odpowiedzi. Pokazuje przyczynę, gdy strumieniowanie było wyłączone lub nieobsługiwane."
+          },
+          "speed": {
+            "title": "Szybkość",
+            "tooltip": "Średnia szybkość generowania w znakach na sekundę w całym czasie trwania żądania."
+          },
+          "status": {
+            "title": "Status",
+            "tooltip": "Informuje, czy żądanie powiodło się, czy zwróciło błąd. Kliknij wiersz, aby zobaczyć prompt, odpowiedź lub błąd."
+          }
         }
       }
     },

@@ -398,6 +398,32 @@
           "streamingOff": "流式输出已关闭",
           "noFirstToken": "无首个 token",
           "answeredWithoutStreaming": "未使用流式输出直接回答"
+        },
+        "columns": {
+          "model": {
+            "title": "模型",
+            "tooltip": "本次基准测试所测试的 LLM 模型。"
+          },
+          "provider": {
+            "title": "提供商",
+            "tooltip": "处理该请求的 API 服务。"
+          },
+          "totalTime": {
+            "title": "总用时",
+            "tooltip": "从发送请求到收到完整回答的总耗时（毫秒）。"
+          },
+          "firstToken": {
+            "title": "首个 token",
+            "tooltip": "收到流式回答第一部分之前的耗时（毫秒）。当流式输出关闭或不受支持时显示原因。"
+          },
+          "speed": {
+            "title": "速度",
+            "tooltip": "整个请求持续时间内的平均输出速度（字符/秒）。"
+          },
+          "status": {
+            "title": "状态",
+            "tooltip": "请求成功还是返回错误。点击行可查看提示词、回答或错误详情。"
+          }
         }
       }
     },

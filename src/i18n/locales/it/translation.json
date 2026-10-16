@@ -398,6 +398,32 @@
           "streamingOff": "Streaming disattivato",
           "noFirstToken": "Nessun primo token",
           "answeredWithoutStreaming": "Risposta senza streaming"
+        },
+        "columns": {
+          "model": {
+            "title": "Modello",
+            "tooltip": "Il modello LLM testato in questa esecuzione del benchmark."
+          },
+          "provider": {
+            "title": "Provider",
+            "tooltip": "Il servizio API che ha elaborato la richiesta."
+          },
+          "totalTime": {
+            "title": "Tempo totale",
+            "tooltip": "Tempo totale in millisecondi dall'invio della richiesta alla ricezione della risposta completa."
+          },
+          "firstToken": {
+            "title": "Primo token",
+            "tooltip": "Tempo in millisecondi prima dell'arrivo della prima parte della risposta in streaming. Mostra il motivo quando lo streaming era disattivato o non supportato."
+          },
+          "speed": {
+            "title": "Velocità",
+            "tooltip": "Velocità media di generazione in caratteri al secondo sull'intera durata della richiesta."
+          },
+          "status": {
+            "title": "Stato",
+            "tooltip": "Indica se la richiesta è riuscita o ha restituito un errore. Fai clic su una riga per vedere prompt, risposta o errore."
+          }
         }
       }
     },

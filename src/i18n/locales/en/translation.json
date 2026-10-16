@@ -3964,6 +3964,32 @@
           "streamingOff": "Streaming off",
           "noFirstToken": "No first token",
           "answeredWithoutStreaming": "Answered without streaming"
+        },
+        "columns": {
+          "model": {
+            "title": "Model",
+            "tooltip": "The LLM model tested in this benchmark run."
+          },
+          "provider": {
+            "title": "Provider",
+            "tooltip": "The API service that processed the request."
+          },
+          "totalTime": {
+            "title": "Total time",
+            "tooltip": "Total time in milliseconds from sending the request until the complete answer arrived."
+          },
+          "firstToken": {
+            "title": "First token",
+            "tooltip": "Time in milliseconds until the first piece of the streamed answer arrived. Shows why it was not measured when streaming was off or unsupported."
+          },
+          "speed": {
+            "title": "Speed",
+            "tooltip": "Average output speed in characters per second over the full duration of the request."
+          },
+          "status": {
+            "title": "Status",
+            "tooltip": "Whether the request succeeded or returned an error. Click a row to inspect the prompt, response, or error."
+          }
         }
       }
     },

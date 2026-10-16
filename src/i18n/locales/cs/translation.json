@@ -398,6 +398,32 @@
           "streamingOff": "Streamování vypnuto",
           "noFirstToken": "Žádný první token",
           "answeredWithoutStreaming": "Odpověď bez streamování"
+        },
+        "columns": {
+          "model": {
+            "title": "Model",
+            "tooltip": "Model LLM testovaný v tomto běhu benchmarku."
+          },
+          "provider": {
+            "title": "Poskytovatel",
+            "tooltip": "Služba API, která požadavek zpracovala."
+          },
+          "totalTime": {
+            "title": "Celkový čas",
+            "tooltip": "Celkový čas v milisekundách od odeslání požadavku do přijetí celé odpovědi."
+          },
+          "firstToken": {
+            "title": "První token",
+            "tooltip": "Čas v milisekundách do příchodu první části streamované odpovědi. Uvádí důvod, pokud bylo streamování vypnuté nebo nepodporované."
+          },
+          "speed": {
+            "title": "Rychlost",
+            "tooltip": "Průměrná rychlost výstupu ve znacích za sekundu za celou dobu požadavku."
+          },
+          "status": {
+            "title": "Stav",
+            "tooltip": "Zda požadavek uspěl nebo vrátil chybu. Kliknutím na řádek zobrazíte prompt, odpověď nebo chybu."
+          }
         }
       }
     },
