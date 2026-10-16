@@ -6,6 +6,79 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-10-23):
+- Reviewed `93c9ee05..5a9451e7` (1 commit); cursor is now `5a9451e7`. Adapted it
+  as `27df9c71`: all output (dictation and streaming pastes, Preview and
+  live-window delivery, opening/cancel/submit keys, remote-control pastes, tray
+  copy, clipboard sessions) runs on one ordered worker off the main thread,
+  replacing the main-thread queue and the Linux script worker. Follow-up
+  `dcc2f197`: a cancel no longer waits on an opening-key press.
+- Covered: upstream's guard against a late paste resetting a newer session's
+  overlay and tray (the overlay generation check already does it).
+- Neither commit records a build or test run; the macOS/Linux main-thread hop
+  is unverified.
+
+Audit note (2026-10-21):
+- Reviewed `9e57a0d7..93c9ee05` (1 commit); cursor is now `93c9ee05`. Ported:
+  the `@handy-computer/models` 0.2.2 catalog (schema 2, Q8_0 defaults,
+  `sync-catalog` and the `check:catalog` CI step; `gen_catalog.py` removed),
+  cache lookup at any snapshot revision, catalog quants in the cache or models
+  folder listed with catalog metadata, deletion of every active-cache copy, and
+  removal of blobs no other file uses.
+- Kept fork behaviour: whisper-large-v3-turbo translation, read-only legacy cache
+  with active-cache priority, shared local-mirror checks, SHA256, zh-Hans/zh-Hant,
+  native streaming latency kinds; deletes follow links only into `blobs/`;
+  settings saved under a v1.0.49 file-stem id move to the quant's catalog id.
+- Skipped: the `portable.rs` comment (legacy cache stays read-only),
+  `mirror_models.py` and the retired-ONNX test (neither exists in the fork), the
+  case-folder discovery test (no synthetic GGUF helper; exact-case match
+  ported). Nix lock hash updated but not built; Windows unit tests pass, but
+  their symlinked-blob cases skip without Developer Mode and stay unverified.
+
+Audit note (2026-10-17):
+- Lifted the Linux/macOS skip rule and replayed every upstream Linux/macOS commit
+  since the fork base as its final state (cursor unchanged, `9e57a0d7`). Nothing
+  here compiled on Windows for Linux/macOS: all of it is unverified there.
+- Taken: Linux typing tools, `wl-copy`, ydotool syntax, xdotool latch fix,
+  External Script paste, Typing Tool setting, X11 auto-repeat release grace
+  (`3bd2ad84` `0afd5ec0` `b02873da` `b90077b2` `07a54e29` `e449f69c` `c7a68fed`
+  `fe5b23c4` `99052eef` `438582fc`); layer-shell overlay on the fork's geometry
+  model (`9e538b1c` `9bcb6d9d` `f26fe0dc` `11311bee`); History blob playback
+  (`246fb4e7`); runtime-lib staging and deb/rpm/AppImage mapping (`d1180c42`
+  `66e57ca8`); ARM64 Linux CI (`7e2760ea`); macOS login item, layout-aware Cmd+V,
+  deferred Enigo/shortcut init, activation policy, Reopen, Metal residency, stub
+  fallback, scrollbars, Apple Intelligence alert (`0902937b` `aefc1319`
+  `9b361f66` `e1c6007f` `fbd4e15f` `1d4d6820` `98a4d80c` `485f4ade` `330b2ddb`
+  `5da49515`). Keys: Windows keeps Credential Manager; Linux/macOS use the
+  settings store file for the cloud/TTS keys.
+- Covered or skipped: Secure Input (`d001fcd9` `00d25549`: macOS keyed shortcuts
+  already use Carbon via Tauri global-shortcut here; detection UI not ported),
+  `5a7c0eac`, `96afb0cf`, `133c50c6`, tray commits; appearance theming; Handy-only
+  docs and Homebrew; coordinator (`438582fc` adapted into the shortcut handler).
+  Also ported: AppImage via linuxdeploy plus a package audit (`b428ae4c`
+  `d7fc6a07` `eba5d9e2`), Nix flake and modules (all `nix` commits,
+  `b0266607` as `AIVORELAY_DISABLE_UPDATER`), and the `cf49ab35` main-thread
+  rule for the delayed overlay reassert. Deferred: reliable paste `a70ac84f`
+  (cross-platform beta), transcribe-file preview playback on Linux.
+- Hardening beyond upstream: Linux CI gets no secrets or write token, the
+  settings store and its backups are owner-only on Unix, and a manual
+  `Platform check` workflow compiles and tests Linux and macOS read-only.
+- Cargo.lock regenerated for `objc2`, `objc2-service-management`, `gtk` and
+  `gtk-layer-shell` (`toml_parser` moves to 1.1.5).
+- Verified on GitHub Actions (manual `Platform check`, `Package check`, `nix build
+  check` on a throwaway branch): Rust compile and tests on Linux, macOS and
+  Windows; deb, rpm and AppImage on Ubuntu 24.04 (x64, ARM64) with the package
+  audit; an unsigned macOS bundle; the Nix package. Linux packages need glibc
+  2.39 (24.04+) because the prebuilt ONNX Runtime does. Not tested on real
+  desktops: hotkeys, paste tools and the layer-shell overlay.
+- Found and fixed by those runs and by file-by-file review: Apple Intelligence
+  provider rewritten on every macOS settings load, macOS 10.15 deployment target,
+  lazy input system for Linux paste, image clipboard restore, key-store hardening,
+  remote STT enabled outside Windows (keys in the key store).
+- Still deferred: SIGUSR2 via the session arbiter, Apple system-prompt API
+  (`0cb8ab21`), reliable paste (`a70ac84f`), Toggle/Auto activation under X11
+  auto-repeat.
+
 Audit note (2026-10-16):
 - Reviewed the 12-commit linear corridor after `f6b3f829` through `9e57a0d7`;
   cursor is now `9e57a0d7`. Took `1b011a19` (exact `=0.4.0` pins; fallible
@@ -295,6 +368,8 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-10-23 | 2026-10-21 | `5a9451e7` | fix: stop blocking the main thread during paste (#2302) | App windows no longer freeze while a paste runs; all output keeps one order | one ordered output worker; follow-up `dcc2f197`; macOS/Linux unverified |
+| 2026-10-21 | 2026-10-20 | `93c9ee05` | catalog from @handy-computer/models package (#2299) | Use the shared model catalog; find, list and fully delete cached models | 5 commits; unshared blobs freed; legacy cache read-only |
 | 2026-10-16 | 2026-10-12 | `7b2a28a3` | fix: don't re-emit hangover frames in VAD pre-roll | Stop repeating a moment of audio when speech resumes right after a pause | emitted flag only; regression test |
 | 2026-10-16 | 2026-10-12 | `1b011a19` | transcribe 0.4.0 (#2265) | Update the local speech engine to transcribe-cpp 0.4.0 | exact pins; fallible capabilities; lock regenerated |
 | 2026-10-09 | 2026-10-07 | `417dc6ac` | fix: show model loading in the Live preview when the load is slow | feat(transcription): isolate native engine and adapt upstream updates | captured session/model; elapsed-time retry and preview hydration |
@@ -318,7 +393,6 @@ Rules:
 | 2026-08-31 | 2026-08-30 | `6fa85061` | fix 'no' not showing up + add ci so shouldnt happen again (#2001) | fix(language): preserve intent across model code aliases | manual runtime/UI adaptation; fork-aware catalog coverage guard added |
 | 2026-08-27 | 2026-08-25 | `df216832` | stop losing tail audio when a recording ends (#1958) | feat(audio): add Earshot and preserve recording output | manual boundary/resampler adaptation; bounded drain and fork framing retained |
 | 2026-08-27 | 2026-08-25 | `20ada47` | experimental earshot vad implementation (#1967) | feat(audio): add Earshot and preserve recording output | manual selectable backend; separate 256-sample VAD stage and transactional runtime swap |
-| 2026-08-27 | 2026-08-25 | `258899a` | redact transcriptions from log in production build | feat(audio): add Earshot and preserve recording output | release redaction retained; explicit independent text-log toggle added |
 
 Entry template:
 
