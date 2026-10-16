@@ -141,6 +141,15 @@ function App() {
     };
   }, [currentSection, showOnboarding]);
 
+  // Classic scrollbars consume layout space. Reserve a matching gutter on the
+  // opposite edge while onboarding is visible so its content stays centered in
+  // the physical window. Overlay scrollbars ignore scrollbar-gutter.
+  useLayoutEffect(() => {
+    const attribute = "data-onboarding-active";
+    document.documentElement.toggleAttribute(attribute, showOnboarding === true);
+    return () => document.documentElement.removeAttribute(attribute);
+  }, [showOnboarding]);
+
   const cancelPendingScrollRestore = () => {
     if (pendingScrollRestore.current === null) return;
     pendingScrollRestore.current = null;
