@@ -39,7 +39,7 @@ A native dependency failure while preparing `cargo test` in `Q:\t\c` does not by
 
 Use `test-local.ps1` for backend tests. If AivoRelay is running, leave its process guard enabled: close the app before runtime tests, or use `-NoRun` when compile-only verification is sufficient. Do not use `-SkipChecks` merely to work around a running production instance.
 
-`-Filter` accepts one or more Rust test-name filters. Pass an array with `-Exact` to compile once and run several exact tests through one test-runner process:
+`-Filter` accepts one or more Rust test-name filters. Pass an array with `-Exact` to compile once and run several exact tests through one test-runner process; call the script in-process as below, because `pwsh -File` mis-binds the array:
 
 ```powershell
 $tests = @(
@@ -57,24 +57,12 @@ If this exact failure occurs, ask the user to run `pwsh -NoProfile -File .\test-
 
 ## Concurrent Build Process Rules
 
-Before any build-related Rust tooling, check for active processes:
-
-```powershell
-Get-CimInstance Win32_Process |
-  Where-Object {
-    $_.Name -match '^(cargo|tauri|rustc|bun|MSBuild|cmake|cl|link)(\.exe)?$' -and
-    -not ($_.Name -match '^MSBuild(\.exe)?$' -and $_.CommandLine -match '/nodemode:1')
-  } |
-  Select-Object ProcessId, Name, CommandLine
-```
+`Initialize-RustBuildEnvironment` (and so `test-local.ps1`) refuses to start only on a real conflict: another build whose compilers, test binaries, or app run in or write into the same Cargo target dir. It reports that build's owning command (for example `cargo test` or `bun x tauri dev`). Check manually with `Get-CargoTargetDirUsers -CargoTargetDir "Q:\t\c"`.
 
 Rules:
 
-- If any `cargo|tauri|rustc|bun|MSBuild|cmake|cl|link` process is already running, do not run `cargo check`, `cargo clippy`, or `cargo fmt`.
-- Ignore an idle MSBuild node with `/nodemode:1 /nodeReuse:true`; that is Visual Studio's reusable worker, not an active Cargo build.
-- Wait for background dev/build processes to finish before starting Rust tooling.
-- If active processes look stale or unrelated, stop and ask the user before killing them.
-- Frontend-only verification is safe anytime when it does not conflict with active work. `bun` dev/build processes still count as conflicts for Rust verification because Tauri may be driving Cargo underneath.
+- Unrelated `bun`/`cargo` processes, `bun test`, and a dev session in `Q:\t\d` do not block Rust tests in `Q:\t\c`; frontend and Rust checks may run in parallel.
+- When the guard reports a conflict, wait for that build to finish. If it looks stale, stop and ask the user before killing it.
 
 ## User-Run Dev Build as Live Verification
 
@@ -100,7 +88,7 @@ These are normally safe when only frontend verification is needed:
 
 ## Rust Verification
 
-Rust verification is allowed only when no conflicting `cargo|tauri|rustc|bun|MSBuild|cmake|cl|link` process is already running.
+Rust verification is allowed only when no other build uses the same Cargo target dir (see the guard above).
 
 Typical commands, wrapped in the helper above:
 
