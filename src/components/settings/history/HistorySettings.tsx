@@ -20,7 +20,7 @@ import {
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { platform } from "@tauri-apps/plugin-os";
-import { readFile } from "@tauri-apps/plugin-fs";
+import { readFile, stat } from "@tauri-apps/plugin-fs";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { commands, type HistoryEntry } from "@/bindings";
 import { formatDateTime, formatDate } from "@/utils/dateFormat";
@@ -45,6 +45,10 @@ import {
 } from "./search";
 
 const IS_LINUX = platform() === "linux";
+
+// Recordings are 16 kHz mono 16-bit WAV files with a 44-byte header.
+const WAV_HEADER_BYTES = 44;
+const WAV_BYTES_PER_SECOND = 16000 * 2;
 const PAGE_SIZE = 30;
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -1138,12 +1142,6 @@ export const HistorySettings: React.FC = () => {
     try {
       const result = await commands.getAudioFilePath(fileName);
       if (result.status === "ok") {
-        // WebKitGTK cannot stream audio from the asset protocol, so Linux
-        // plays the recording from an in-memory blob instead.
-        if (IS_LINUX) {
-          const fileData = await readFile(result.data);
-          return URL.createObjectURL(new Blob([fileData], { type: "audio/wav" }));
-        }
         return convertFileSrc(`${result.data}`, "asset");
       }
       return null;
@@ -1406,6 +1404,17 @@ interface HistoryEntryProps {
   stopReplay: () => Promise<void>;
 }
 
+/** Reads a recording into memory and returns a URL the audio element can play. */
+const readRecordingAsBlobUrl = async (path: string): Promise<string | null> => {
+  try {
+    const fileData = await readFile(path);
+    return URL.createObjectURL(new Blob([fileData], { type: "audio/wav" }));
+  } catch (error) {
+    console.error("Failed to read recording:", error);
+    return null;
+  }
+};
+
 const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   entry,
   searchQuery,
@@ -1430,7 +1439,10 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   const stoppingReplay = retryState?.stopping ?? false;
   const retryMountedRef = useRef(true);
   const [playableAudio, setPlayableAudio] = useState<{
-    url: string;
+    /** Streamable URL; absent on Linux, where the file is read when played. */
+    url?: string;
+    /** Recording file to read into memory on play (Linux). */
+    path?: string;
     durationSeconds: number;
   } | null>(null);
 
@@ -1469,22 +1481,34 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
     let cancelled = false;
     let metadataAudio: HTMLAudioElement | null = null;
     let timeoutId: number | null = null;
-    let blobUrlToRevoke: string | null = null;
 
     setPlayableAudio(null);
     if (!hasAudioReference) {
       return;
     }
 
+    if (IS_LINUX) {
+      // WebKitGTK cannot stream audio from the asset protocol. Learn the length
+      // from the file size, and read the recording only when it is played.
+      void commands
+        .getAudioFilePath(entry.file_name)
+        .then(async (result) => {
+          if (result.status !== "ok") return;
+          const { size } = await stat(result.data);
+          const durationSeconds = (size - WAV_HEADER_BYTES) / WAV_BYTES_PER_SECOND;
+          if (!cancelled && durationSeconds >= 1) {
+            setPlayableAudio({ path: result.data, durationSeconds });
+          }
+        })
+        .catch((error) => console.error("Failed to inspect recording:", error));
+      return () => {
+        cancelled = true;
+      };
+    }
+
     void getAudioUrl(entry.file_name).then((url) => {
       if (cancelled || !url) {
-        if (url?.startsWith("blob:")) {
-          URL.revokeObjectURL(url);
-        }
         return;
-      }
-      if (url.startsWith("blob:")) {
-        blobUrlToRevoke = url;
       }
 
       metadataAudio = document.createElement("audio");
@@ -1524,9 +1548,6 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
       }
       metadataAudio?.removeAttribute("src");
       metadataAudio?.load();
-      if (blobUrlToRevoke) {
-        URL.revokeObjectURL(blobUrlToRevoke);
-      }
     };
   }, [entry.file_name, getAudioUrl, hasAudioReference]);
 
@@ -1802,6 +1823,11 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
           {playableAudio && (
             <AudioPlayer
               src={playableAudio.url}
+              onLoadRequest={
+                playableAudio.path
+                  ? () => readRecordingAsBlobUrl(playableAudio.path as string)
+                  : undefined
+              }
               initialDurationSeconds={playableAudio.durationSeconds}
               className="w-full"
             />
