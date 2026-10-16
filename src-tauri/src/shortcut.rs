@@ -798,6 +798,82 @@ pub(crate) fn handle_shortcut_event(
     shortcut_string: &str,
     pressed: bool,
 ) {
+    handle_shortcut_event_inner(app, binding_id, shortcut_string, pressed, true);
+}
+
+/// Linux push-to-talk release handling. X11 key auto-repeat reports a held key
+/// as repeated release/press pairs, so a release is applied only after a short
+/// grace period and a press arriving within it cancels the release. Without
+/// this, holding the key rapidly stops and restarts the recording.
+#[cfg(target_os = "linux")]
+mod linux_ptt {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::Duration;
+
+    const RELEASE_GRACE: Duration = Duration::from_millis(50);
+
+    static PENDING_RELEASES: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+    static NEXT_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+    fn pending() -> std::sync::MutexGuard<'static, HashMap<String, u64>> {
+        PENDING_RELEASES
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
+    /// A press cancels a pending release for the same binding. Returns true
+    /// when it did, meaning the press is an auto-repeat to swallow.
+    pub(super) fn cancel_pending_release(binding_id: &str) -> bool {
+        pending().remove(binding_id).is_some()
+    }
+
+    /// Defers a push-to-talk release. Returns false when one is already
+    /// pending, so the caller treats the duplicate as handled.
+    pub(super) fn defer_release(
+        app: &tauri::AppHandle,
+        binding_id: &str,
+        shortcut_string: &str,
+    ) -> bool {
+        let generation = NEXT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if pending().insert(binding_id.to_string(), generation).is_some() {
+            return false;
+        }
+
+        let app = app.clone();
+        let binding_id = binding_id.to_string();
+        let shortcut_string = shortcut_string.to_string();
+        std::thread::spawn(move || {
+            std::thread::sleep(RELEASE_GRACE);
+            let still_pending = {
+                let mut pending = pending();
+                match pending.get(&binding_id) {
+                    Some(current) if *current == generation => {
+                        pending.remove(&binding_id);
+                        true
+                    }
+                    _ => false,
+                }
+            };
+            if still_pending {
+                super::handle_shortcut_event_inner(&app, &binding_id, &shortcut_string, false, false);
+            }
+        });
+        true
+    }
+}
+
+fn handle_shortcut_event_inner(
+    app: &AppHandle,
+    binding_id: &str,
+    shortcut_string: &str,
+    pressed: bool,
+    defer_push_to_talk_release: bool,
+) {
+    #[cfg(not(target_os = "linux"))]
+    let _ = defer_push_to_talk_release;
+
     log::debug!(
         "Shortcut event received: binding='{}', shortcut='{}', pressed={}",
         binding_id,
@@ -954,6 +1030,34 @@ pub(crate) fn handle_shortcut_event(
         Ignore,
         Start,
         Stop,
+    }
+
+    #[cfg(target_os = "linux")]
+    if use_push_to_talk && !use_auto_shortcut_activation {
+        if pressed {
+            if linux_ptt::cancel_pending_release(binding_id) {
+                log::debug!(
+                    "Push-to-talk press for '{}' cancelled a pending release (key auto-repeat)",
+                    binding_id
+                );
+                return;
+            }
+        } else if defer_push_to_talk_release {
+            let recording_by_press = {
+                let toggle_state_manager = app.state::<ManagedToggleState>();
+                let states = toggle_state_manager
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                matches!(
+                    states.active_presses.get(binding_id),
+                    Some(ShortcutPressState::PushToTalk)
+                )
+            };
+            if recording_by_press {
+                linux_ptt::defer_release(app, binding_id, shortcut_string);
+                return;
+            }
+        }
     }
 
     let dispatch = {
