@@ -294,6 +294,8 @@ const settingUpdaters: {
     commands.changePostProcessBenchmarkUseSelectedPromptSetting(
       value as boolean,
     ),
+  post_process_benchmark_stream: (value) =>
+    commands.changePostProcessBenchmarkStreamSetting(value as boolean),
   ai_replace_system_prompt: (value) =>
     commands.changeAiReplaceSystemPromptSetting(value as string),
   ai_replace_user_prompt: (value) =>

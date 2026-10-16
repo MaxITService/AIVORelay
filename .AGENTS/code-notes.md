@@ -219,7 +219,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | File | Purpose |
 | --- | --- |
 | `TESTING.md` | Windows backend testing commands, harness notes, and documented test areas. |
-| `src-tauri/src/llm_client.rs` | LLM API client. |
+| `src-tauri/src/llm_client.rs` | LLM API client; SSE streaming with first-token time and a non-streaming retry when a provider or model rejects `stream`. |
 | `src-tauri/src/managers/model.rs` | Local model definitions (`EngineType`), including transcribe.cpp catalog/capability metadata, latency-tuning family classification, custom GGUF discovery, Canary metadata, and GigaAM v3 directory-format migration. |
 | `src-tauri/src/managers/gguf_meta.rs` | GGUF metadata parser used to infer local transcribe.cpp model compatibility and capabilities. |
 | `src-tauri/src/managers/model_capabilities.rs` | Capability probe layer for catalog/custom transcribe.cpp models. |

@@ -5318,6 +5318,18 @@ pub fn change_post_process_benchmark_use_selected_prompt_setting(
     Ok(())
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn change_post_process_benchmark_stream_setting(
+    app: AppHandle,
+    stream: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.post_process_benchmark_stream = stream;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
 // ============================================================================
 // Transcription Profile Management
 // ============================================================================
