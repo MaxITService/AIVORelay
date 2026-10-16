@@ -900,7 +900,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 }
                 "check_updates" => {
                     let settings = settings::get_settings(app);
-                    if settings.update_checks_enabled {
+                    if settings::update_checks_effectively_enabled(&settings) {
                         show_main_window(app);
                         let _ = app.emit("check-for-updates", ());
                     }
@@ -999,7 +999,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 #[specta::specta]
 fn trigger_update_check(app: AppHandle) -> Result<(), String> {
     let settings = settings::get_settings(&app);
-    if !settings.update_checks_enabled {
+    if !settings::update_checks_effectively_enabled(&settings) {
         return Ok(());
     }
     app.emit("check-for-updates", ())
@@ -1685,6 +1685,7 @@ pub fn run(cli_args: CliArgs) {
         commands::tts_history::export_tts_history_audio,
         commands::tts_history::regenerate_tts_history_entry,
         commands::check_apple_intelligence_available,
+        commands::is_update_checks_locked,
         commands::initialize_enigo,
         commands::initialize_shortcuts,
         commands::llm_has_stored_api_key,

@@ -5956,6 +5956,26 @@ fn ensure_remote_stt_defaults(settings: &mut AppSettings) -> bool {
 
 pub const SETTINGS_STORE_PATH: &str = "settings_store.json";
 
+/// True when the packaging forces update checks off (AIVORELAY_DISABLE_UPDATER),
+/// as the Nix package does: its install path is immutable, so self-update cannot
+/// work. This is a runtime overlay and is never written to the stored settings.
+pub fn update_checks_forced_disabled() -> bool {
+    static FORCED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FORCED.get_or_init(|| {
+        std::env::var("AIVORELAY_DISABLE_UPDATER").is_ok_and(|value| {
+            !matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "" | "0" | "false" | "no" | "off"
+            )
+        })
+    })
+}
+
+/// The stored preference with the packaging override applied.
+pub fn update_checks_effectively_enabled(settings: &AppSettings) -> bool {
+    settings.update_checks_enabled && !update_checks_forced_disabled()
+}
+
 /// Saves the settings store and, on Unix, limits it to its owner. On Linux and
 /// macOS the file can hold API keys, so other local users must not read it.
 pub(crate) fn save_store_privately(

@@ -463,7 +463,8 @@
       },
       "updateChecks": {
         "label": "Sprawdzaj aktualizacje",
-        "description": "Automatycznie sprawdzaj nowe wersje AivoRelay"
+        "description": "Automatycznie sprawdzaj nowe wersje AivoRelay",
+        "lockedDescription": "Wyłączone przez konfigurację systemową (AIVORELAY_DISABLE_UPDATER)"
       },
       "soundTheme": {
         "label": "Motyw dźwiękowy",

@@ -483,7 +483,8 @@
       },
       "updateChecks": {
         "label": "Güncellemeleri Kontrol Et",
-        "description": "AivoRelay için yeni sürümleri otomatik olarak kontrol eder"
+        "description": "AivoRelay için yeni sürümleri otomatik olarak kontrol eder",
+        "lockedDescription": "Sistem yapılandırması tarafından devre dışı bırakıldı (AIVORELAY_DISABLE_UPDATER)"
       },
       "soundTheme": {
         "label": "Ses Teması",

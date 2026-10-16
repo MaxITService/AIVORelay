@@ -973,13 +973,18 @@ fn build_tray_menu(
         true,
         None::<&str>,
     )?;
-    let check_updates_i = MenuItem::with_id(
-        app,
-        "check_updates",
-        &strings.check_updates,
-        inputs.update_checks_enabled && !inputs.webviews_disabled,
-        None::<&str>,
-    )?;
+    // The item is dropped entirely, not greyed out, when packaging forbids updates.
+    let check_updates_i = if settings::update_checks_forced_disabled() {
+        None
+    } else {
+        Some(MenuItem::with_id(
+            app,
+            "check_updates",
+            &strings.check_updates,
+            inputs.update_checks_enabled && !inputs.webviews_disabled,
+            None::<&str>,
+        )?)
+    };
     #[cfg(not(debug_assertions))]
     let restart_troubleshoot_i = MenuItem::with_id(
         app,
@@ -1055,7 +1060,9 @@ fn build_tray_menu(
         menu.append(&enter_speech_only_i)?;
     }
     menu.append(&settings_i)?;
-    menu.append(&check_updates_i)?;
+    if let Some(check_updates_i) = &check_updates_i {
+        menu.append(check_updates_i)?;
+    }
     #[cfg(not(debug_assertions))]
     menu.append(&restart_troubleshoot_i)?;
     menu.append(&separator()?)?;

@@ -464,7 +464,8 @@
       },
       "updateChecks": {
         "label": "Kiểm tra cập nhật",
-        "description": "Tự động kiểm tra phiên bản mới của AivoRelay"
+        "description": "Tự động kiểm tra phiên bản mới của AivoRelay",
+        "lockedDescription": "Đã bị vô hiệu hóa bởi cấu hình hệ thống (AIVORELAY_DISABLE_UPDATER)"
       },
       "soundTheme": {
         "label": "Chủ đề âm thanh",

@@ -3353,6 +3353,12 @@ async checkAppleIntelligenceAvailable() : Promise<boolean> {
     return await TAURI_INVOKE("check_apple_intelligence_available");
 },
 /**
+ * Whether packaging forces update checks off (AIVORELAY_DISABLE_UPDATER).
+ */
+async isUpdateChecksLocked() : Promise<boolean> {
+    return await TAURI_INVOKE("is_update_checks_locked");
+},
+/**
  * Try to initialize Enigo (keyboard/mouse simulation).
  * On macOS this fails until Accessibility permission is granted; the frontend
  * retries after the user grants it. Idempotent, and a no-op elsewhere because

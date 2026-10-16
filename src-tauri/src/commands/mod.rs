@@ -381,6 +381,13 @@ pub fn check_apple_intelligence_available() -> bool {
     }
 }
 
+/// Whether packaging forces update checks off (AIVORELAY_DISABLE_UPDATER).
+#[specta::specta]
+#[tauri::command]
+pub fn is_update_checks_locked() -> bool {
+    crate::settings::update_checks_forced_disabled()
+}
+
 /// Try to initialize Enigo (keyboard/mouse simulation).
 /// On macOS this fails until Accessibility permission is granted; the frontend
 /// retries after the user grants it. Idempotent, and a no-op elsewhere because
