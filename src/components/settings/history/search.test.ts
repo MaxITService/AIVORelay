@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import type { HistoryEntry } from "@/bindings";
-import { historyDisplayText, matchesHistorySearch, matchesSearch, splitByQuery } from "./search";
+import {
+  historyDisplayText, matchesHistorySearch, matchesSearch, rawTranscriptToggle, splitByQuery,
+} from "./search";
 
 const entry = (overrides: Partial<HistoryEntry> = {}): HistoryEntry => ({
   id: 1, saved: false, file_name: "recording.wav", timestamp: 100,
@@ -56,6 +58,15 @@ test("dictation search follows the displayed processed text including empty over
   expect(matchesHistorySearch(processed, "raw")).toBe(false);
   expect(matchesHistorySearch(entry(), "raw")).toBe(true);
   expect(matchesHistorySearch(entry({ post_processed_text: "" }), "raw")).toBe(false);
+});
+
+test("the raw transcript toggle tells unchanged processing apart from none", () => {
+  expect(rawTranscriptToggle(entry())).toBe("none");
+  expect(rawTranscriptToggle(entry({ post_processed_text: "raw words" }))).toBe("unchanged");
+  expect(rawTranscriptToggle(entry({ post_processed_text: "Polished words" }))).toBe("available");
+  expect(rawTranscriptToggle(entry({ post_processed_text: "" }))).toBe("available");
+  expect(rawTranscriptToggle(entry({ action_type: "ai_replace", post_processed_text: "raw words" })))
+    .toBe("none");
 });
 
 test("AI Replace searches instructions, full selection, and response", () => {

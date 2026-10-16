@@ -3974,6 +3974,7 @@
       "copyError": "Failed to copy transcription to clipboard.",
       "showRawTranscript": "Show raw transcript",
       "showProcessedText": "Show processed text",
+      "processedTextUnchanged": "Processing made no changes: this is the raw transcript",
       "openLlmBenchmark": "Open in LLM benchmark",
       "openLlmBenchmarkDescription": "Replace the benchmark input with this entry's original transcription and open the benchmark. Run processing manually there.",
       "openLlmBenchmarkError": "Failed to open the transcription in the LLM benchmark. Please try again.",

@@ -35,7 +35,12 @@ import { useNavigationStore } from "@/stores/navigationStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { navigateToSettingsAnchor } from "@/lib/anchorNavigation";
 import { reconcileHistoryPage } from "./historyPage";
-import { historyDisplayText, matchesHistorySearch, splitByQuery } from "./search";
+import {
+  historyDisplayText,
+  matchesHistorySearch,
+  rawTranscriptToggle,
+  splitByQuery,
+} from "./search";
 
 const PAGE_SIZE = 30;
 const SEARCH_DEBOUNCE_MS = 250;
@@ -1422,9 +1427,13 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
 
   const isAiReplace = entry.action_type === "ai_replace";
   // Processed text is shown by default; the raw transcript is one click away.
-  const hasRawVariant = !isAiReplace && entry.post_processed_text != null &&
-    entry.post_processed_text !== entry.transcription_text;
-  const displayText = hasRawVariant && showRaw
+  const rawToggle = rawTranscriptToggle(entry);
+  const rawToggleLabel = t(rawToggle === "unchanged"
+    ? "settings.history.processedTextUnchanged"
+    : showRaw
+      ? "settings.history.showProcessedText"
+      : "settings.history.showRawTranscript");
+  const displayText = rawToggle === "available" && showRaw
     ? entry.transcription_text
     : historyDisplayText(entry);
   const hasDisplayText = displayText.trim().length > 0;
@@ -1608,13 +1617,13 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
               </svg>
             </IconButton>
           )}
-          {hasRawVariant && (
+          {rawToggle !== "none" && (
             <IconButton
               onClick={() => setShowRaw((raw) => !raw)}
-              active={showRaw}
-              title={t(showRaw
-                ? "settings.history.showProcessedText"
-                : "settings.history.showRawTranscript")}
+              disabled={rawToggle === "unchanged"}
+              active={rawToggle === "available" && showRaw}
+              title={rawToggleLabel}
+              tooltip={rawToggle === "unchanged" ? rawToggleLabel : undefined}
             >
               <FileText width={16} height={16} />
             </IconButton>
