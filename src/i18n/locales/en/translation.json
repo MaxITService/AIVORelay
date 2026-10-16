@@ -3898,6 +3898,67 @@
         "cancel": "Cancel",
         "selectToEdit": "Select a prompt above to view and edit its details.",
         "createFirst": "Click 'Create New Prompt' above to create your first post-processing prompt."
+      },
+      "benchmark": {
+        "title": "Benchmark",
+        "description": "Want to see how fast your model processes your own correction example? Add typical recognition mistakes here, run the benchmark, and compare latency and output quality across models.",
+        "collapse": "Collapse",
+        "expand": "Expand",
+        "systemPrompt": {
+          "title": "System Prompt",
+          "description": "The correction instructions sent as the system message for this benchmark.",
+          "usingActive": "Using your currently selected post-processing prompt:",
+          "promptName": "Prompt name:",
+          "noActivePrompt": "No post-processing prompt is selected. Select one above or switch to Custom.",
+          "customize": "No I want to test using different prompt!",
+          "useActive": "Use Active Prompt"
+        },
+        "userMessage": {
+          "title": "User Message (This is the text that benchmark will use as if you would have spoken it and it is sent to be post processed by AI)",
+          "description": "Add recognition mistakes, bad punctuation, repeated words, casing problems, spoken punctuation, or other examples that match your real dictation."
+        },
+        "stream": {
+          "title": "Stream the answer",
+          "description": "Ask the model to stream its answer and measure the time to the first token. Models that cannot stream answer all at once instead."
+        },
+        "actions": {
+          "title": "Run",
+          "description": "Send the current prompts to the configured post-processing provider and save the measured result."
+        },
+        "running": "Running...",
+        "run": "Run Benchmark",
+        "clearLog": "Clear Log",
+        "log": {
+          "title": "Log",
+          "description": "Newest benchmark results are kept first and persisted with settings. Maximum of 100 entries, then they will be overwritten.",
+          "empty": "No benchmark runs yet."
+        },
+        "firstToken": "First token:",
+        "result": {
+          "provider": "Provider:",
+          "model": "Model:",
+          "duration": "Duration:",
+          "inputOutput": "Input / output:",
+          "inputOutputValue": "{{input}} / {{output}} chars",
+          "systemPrompt": "System Prompt",
+          "userMessage": "User Message",
+          "response": "Response",
+          "errorDetails": "Error Details",
+          "empty": "(empty)",
+          "unknownProvider": "Unknown",
+          "notConfigured": "Not configured",
+          "noModel": "No model",
+          "success": "Success",
+          "error": "Error",
+          "deleteEntry": "Delete entry"
+        },
+        "format": {
+          "charsPerSecond": "{{rate}} chars/sec",
+          "toFirstToken": "{{duration}} to first token",
+          "streamingOff": "Streaming off",
+          "noFirstToken": "No first token",
+          "answeredWithoutStreaming": "Answered without streaming"
+        }
       }
     },
     "history": {

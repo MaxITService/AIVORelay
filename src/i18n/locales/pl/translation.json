@@ -338,6 +338,67 @@
         "cancel": "Anuluj",
         "selectToEdit": "Wybierz prompt powyżej, aby zobaczyć i edytować jego szczegóły.",
         "createFirst": "Kliknij 'Utwórz nowy prompt' powyżej, aby utworzyć pierwszy prompt postprocessingu."
+      },
+      "benchmark": {
+        "title": "Benchmark",
+        "description": "Chcesz zobaczyć, jak szybko Twój model przetwarza Twój własny przykład poprawek? Dodaj tutaj typowe błędy rozpoznawania, uruchom benchmark i porównaj opóźnienie oraz jakość wyników między modelami.",
+        "collapse": "Zwiń",
+        "expand": "Rozwiń",
+        "systemPrompt": {
+          "title": "Prompt systemowy",
+          "description": "Instrukcje poprawiania wysyłane jako wiadomość systemowa w tym benchmarku.",
+          "usingActive": "Używany jest aktualnie wybrany prompt postprocessingu:",
+          "promptName": "Nazwa promptu:",
+          "noActivePrompt": "Nie wybrano promptu postprocessingu. Wybierz jeden powyżej lub przełącz na Własny.",
+          "customize": "Nie, chcę przetestować inny prompt!",
+          "useActive": "Użyj aktywnego promptu"
+        },
+        "userMessage": {
+          "title": "Wiadomość użytkownika (Ten tekst benchmark potraktuje tak, jakby został wypowiedziany przez Ciebie, i wyśle go do postprocessingu przez AI)",
+          "description": "Dodaj błędy rozpoznawania, złą interpunkcję, powtórzone słowa, problemy z wielkością liter, interpunkcję podawaną głosem lub inne przykłady zgodne z Twoim rzeczywistym dyktowaniem."
+        },
+        "stream": {
+          "title": "Strumieniuj odpowiedź",
+          "description": "Prosi model o strumieniowanie odpowiedzi i mierzy czas do pierwszego tokenu. Modele, które nie obsługują strumieniowania, odpowiadają zamiast tego jednorazowo."
+        },
+        "actions": {
+          "title": "Uruchom",
+          "description": "Wysyła bieżące prompty do skonfigurowanego dostawcy postprocessingu i zapisuje zmierzony wynik."
+        },
+        "running": "Uruchamianie...",
+        "run": "Uruchom benchmark",
+        "clearLog": "Wyczyść log",
+        "log": {
+          "title": "Log",
+          "description": "Najnowsze wyniki benchmarku są wyświetlane jako pierwsze i zapisywane razem z ustawieniami. Maksymalnie 100 wpisów, potem najstarsze będą nadpisywane.",
+          "empty": "Brak uruchomień benchmarku."
+        },
+        "firstToken": "Pierwszy token:",
+        "result": {
+          "provider": "Dostawca:",
+          "model": "Model:",
+          "duration": "Czas trwania:",
+          "inputOutput": "Wejście / wyjście:",
+          "inputOutputValue": "{{input}} / {{output}} znaków",
+          "systemPrompt": "Prompt systemowy",
+          "userMessage": "Wiadomość użytkownika",
+          "response": "Odpowiedź",
+          "errorDetails": "Szczegóły błędu",
+          "empty": "(puste)",
+          "unknownProvider": "Nieznany",
+          "notConfigured": "Nieskonfigurowany",
+          "noModel": "Brak modelu",
+          "success": "Sukces",
+          "error": "Błąd",
+          "deleteEntry": "Usuń wpis"
+        },
+        "format": {
+          "charsPerSecond": "{{rate}} znaków/s",
+          "toFirstToken": "{{duration}} do pierwszego tokenu",
+          "streamingOff": "Strumieniowanie wyłączone",
+          "noFirstToken": "Brak pierwszego tokenu",
+          "answeredWithoutStreaming": "Odpowiedź bez strumieniowania"
+        }
       }
     },
     "history": {

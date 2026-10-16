@@ -339,6 +339,67 @@
         "cancel": "Hủy",
         "selectToEdit": "Chọn một prompt ở trên để xem và chỉnh sửa chi tiết.",
         "createFirst": "Nhấn 'Tạo Prompt mới' ở trên để tạo prompt xử lý sau đầu tiên của bạn."
+      },
+      "benchmark": {
+        "title": "Benchmark",
+        "description": "Bạn muốn xem mô hình của mình xử lý ví dụ chỉnh sửa của riêng bạn nhanh đến mức nào? Hãy thêm các lỗi nhận dạng điển hình vào đây, chạy benchmark và so sánh độ trễ cùng chất lượng đầu ra giữa các mô hình.",
+        "collapse": "Thu gọn",
+        "expand": "Mở rộng",
+        "systemPrompt": {
+          "title": "Prompt hệ thống",
+          "description": "Các hướng dẫn chỉnh sửa được gửi dưới dạng tin nhắn hệ thống cho benchmark này.",
+          "usingActive": "Đang dùng prompt xử lý sau mà bạn đã chọn:",
+          "promptName": "Tên prompt:",
+          "noActivePrompt": "Chưa chọn prompt xử lý sau nào. Hãy chọn một prompt ở trên hoặc chuyển sang Tùy chỉnh.",
+          "customize": "Không, tôi muốn thử bằng một prompt khác!",
+          "useActive": "Dùng prompt đang hoạt động"
+        },
+        "userMessage": {
+          "title": "Tin nhắn người dùng (Đây là văn bản mà benchmark sẽ dùng như thể bạn đã nói ra, và được gửi cho AI để xử lý sau)",
+          "description": "Thêm các lỗi nhận dạng, dấu câu sai, từ lặp, lỗi viết hoa/viết thường, dấu câu đọc thành lời hoặc các ví dụ khác phù hợp với cách đọc chính tả thực tế của bạn."
+        },
+        "stream": {
+          "title": "Truyền phát câu trả lời",
+          "description": "Yêu cầu mô hình truyền phát câu trả lời và đo thời gian đến token đầu tiên. Các mô hình không thể truyền phát sẽ trả lời một lần duy nhất."
+        },
+        "actions": {
+          "title": "Chạy",
+          "description": "Gửi các prompt hiện tại đến nhà cung cấp xử lý sau đã cấu hình và lưu kết quả đo được."
+        },
+        "running": "Đang chạy...",
+        "run": "Chạy benchmark",
+        "clearLog": "Xóa nhật ký",
+        "log": {
+          "title": "Nhật ký",
+          "description": "Kết quả benchmark mới nhất được giữ ở đầu và được lưu cùng cài đặt. Tối đa 100 mục, sau đó các mục cũ nhất sẽ bị ghi đè.",
+          "empty": "Chưa có lần chạy benchmark nào."
+        },
+        "firstToken": "Token đầu tiên:",
+        "result": {
+          "provider": "Nhà cung cấp:",
+          "model": "Mô hình:",
+          "duration": "Thời lượng:",
+          "inputOutput": "Đầu vào / đầu ra:",
+          "inputOutputValue": "{{input}} / {{output}} ký tự",
+          "systemPrompt": "Prompt hệ thống",
+          "userMessage": "Tin nhắn người dùng",
+          "response": "Phản hồi",
+          "errorDetails": "Chi tiết lỗi",
+          "empty": "(trống)",
+          "unknownProvider": "Không rõ",
+          "notConfigured": "Chưa cấu hình",
+          "noModel": "Không có mô hình",
+          "success": "Thành công",
+          "error": "Lỗi",
+          "deleteEntry": "Xóa mục"
+        },
+        "format": {
+          "charsPerSecond": "{{rate}} ký tự/giây",
+          "toFirstToken": "{{duration}} đến token đầu tiên",
+          "streamingOff": "Tắt truyền phát",
+          "noFirstToken": "Không có token đầu tiên",
+          "answeredWithoutStreaming": "Đã trả lời không truyền phát"
+        }
       }
     },
     "history": {

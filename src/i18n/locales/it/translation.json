@@ -338,6 +338,67 @@
         "cancel": "Annulla",
         "selectToEdit": "Scegli un prompt qui sopra per visualizzare o modificare i dettagli.",
         "createFirst": "Clicca 'Crea un nuovo prompt' qui sopra per creare il tuo primo prompt di post-elaborazione."
+      },
+      "benchmark": {
+        "title": "Benchmark",
+        "description": "Vuoi vedere quanto velocemente il tuo modello elabora il tuo esempio di correzione? Aggiungi qui tipici errori di riconoscimento, esegui il benchmark e confronta latenza e qualità dell'output tra i modelli.",
+        "collapse": "Comprimi",
+        "expand": "Espandi",
+        "systemPrompt": {
+          "title": "Prompt di sistema",
+          "description": "Le istruzioni di correzione inviate come messaggio di sistema per questo benchmark.",
+          "usingActive": "Viene usato il prompt di post-elaborazione attualmente selezionato:",
+          "promptName": "Nome del prompt:",
+          "noActivePrompt": "Nessun prompt di post-elaborazione selezionato. Selezionane uno sopra o passa a Personalizzato.",
+          "customize": "No, voglio provare un prompt diverso!",
+          "useActive": "Usa il prompt attivo"
+        },
+        "userMessage": {
+          "title": "Messaggio utente (Questo è il testo che il benchmark userà come se lo avessi pronunciato tu e che viene inviato all'IA per la post-elaborazione)",
+          "description": "Aggiungi errori di riconoscimento, punteggiatura errata, parole ripetute, problemi di maiuscole e minuscole, punteggiatura dettata o altri esempi che corrispondono al tuo dettato reale."
+        },
+        "stream": {
+          "title": "Streaming della risposta",
+          "description": "Chiede al modello di inviare la risposta in streaming e misura il tempo fino al primo token. I modelli che non supportano lo streaming rispondono invece tutto in una volta."
+        },
+        "actions": {
+          "title": "Esegui",
+          "description": "Invia i prompt attuali al provider di post-elaborazione configurato e salva il risultato misurato."
+        },
+        "running": "In esecuzione...",
+        "run": "Esegui benchmark",
+        "clearLog": "Cancella log",
+        "log": {
+          "title": "Log",
+          "description": "I risultati più recenti del benchmark vengono mostrati per primi e salvati insieme alle impostazioni. Massimo 100 voci, poi quelle più vecchie verranno sovrascritte.",
+          "empty": "Nessuna esecuzione del benchmark finora."
+        },
+        "firstToken": "Primo token:",
+        "result": {
+          "provider": "Provider:",
+          "model": "Modello:",
+          "duration": "Durata:",
+          "inputOutput": "Input / output:",
+          "inputOutputValue": "{{input}} / {{output}} caratteri",
+          "systemPrompt": "Prompt di sistema",
+          "userMessage": "Messaggio utente",
+          "response": "Risposta",
+          "errorDetails": "Dettagli errore",
+          "empty": "(vuoto)",
+          "unknownProvider": "Sconosciuto",
+          "notConfigured": "Non configurato",
+          "noModel": "Nessun modello",
+          "success": "Riuscito",
+          "error": "Errore",
+          "deleteEntry": "Elimina voce"
+        },
+        "format": {
+          "charsPerSecond": "{{rate}} caratteri/s",
+          "toFirstToken": "{{duration}} al primo token",
+          "streamingOff": "Streaming disattivato",
+          "noFirstToken": "Nessun primo token",
+          "answeredWithoutStreaming": "Risposta senza streaming"
+        }
       }
     },
     "history": {

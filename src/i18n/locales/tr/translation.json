@@ -358,6 +358,67 @@
         "cancel": "İptal",
         "selectToEdit": "Ayrıntılarını görüntülemek ve düzenlemek için yukarıdan bir prompt seçin.",
         "createFirst": "İlk son işlem prompt'unuzu oluşturmak için yukarıdaki “Yeni Prompt Oluştur” seçeneğine tıklayın."
+      },
+      "benchmark": {
+        "title": "Benchmark",
+        "description": "Modelinizin kendi düzeltme örneğinizi ne kadar hızlı işlediğini görmek ister misiniz? Buraya tipik tanıma hatalarını ekleyin, benchmark'ı çalıştırın ve modeller arasında gecikme ile çıktı kalitesini karşılaştırın.",
+        "collapse": "Daralt",
+        "expand": "Genişlet",
+        "systemPrompt": {
+          "title": "Sistem Promptu",
+          "description": "Bu benchmark için sistem mesajı olarak gönderilen düzeltme talimatları.",
+          "usingActive": "Şu anda seçili son işlem promptunuz kullanılıyor:",
+          "promptName": "Prompt adı:",
+          "noActivePrompt": "Hiçbir son işlem promptu seçilmedi. Yukarıdan bir tane seçin veya Özel'e geçin.",
+          "customize": "Hayır, farklı bir prompt ile test etmek istiyorum!",
+          "useActive": "Etkin Promptu Kullan"
+        },
+        "userMessage": {
+          "title": "Kullanıcı Mesajı (Bu, benchmark'ın sanki siz konuşmuşsunuz gibi kullanacağı ve yapay zekâ tarafından son işleme tabi tutulmak üzere gönderilen metindir)",
+          "description": "Tanıma hataları, hatalı noktalama, tekrarlanan sözcükler, büyük/küçük harf sorunları, sesli söylenen noktalama veya gerçek dikte kullanımınıza uyan diğer örnekleri ekleyin."
+        },
+        "stream": {
+          "title": "Yanıtı akışla",
+          "description": "Modelden yanıtını akış olarak göndermesini ister ve ilk token'a kadar geçen süreyi ölçer. Akış desteklemeyen modeller bunun yerine yanıtı tek seferde verir."
+        },
+        "actions": {
+          "title": "Çalıştır",
+          "description": "Geçerli promptları yapılandırılmış son işlem sağlayıcısına gönderir ve ölçülen sonucu kaydeder."
+        },
+        "running": "Çalışıyor...",
+        "run": "Benchmark'ı Çalıştır",
+        "clearLog": "Günlüğü Temizle",
+        "log": {
+          "title": "Günlük",
+          "description": "En yeni benchmark sonuçları başta tutulur ve ayarlarla birlikte saklanır. En fazla 100 kayıt tutulur, sonrasında en eskiler üzerine yazılır.",
+          "empty": "Henüz benchmark çalıştırılmadı."
+        },
+        "firstToken": "İlk token:",
+        "result": {
+          "provider": "Sağlayıcı:",
+          "model": "Model:",
+          "duration": "Süre:",
+          "inputOutput": "Girdi / çıktı:",
+          "inputOutputValue": "{{input}} / {{output}} karakter",
+          "systemPrompt": "Sistem Promptu",
+          "userMessage": "Kullanıcı Mesajı",
+          "response": "Yanıt",
+          "errorDetails": "Hata Ayrıntıları",
+          "empty": "(boş)",
+          "unknownProvider": "Bilinmiyor",
+          "notConfigured": "Yapılandırılmadı",
+          "noModel": "Model yok",
+          "success": "Başarılı",
+          "error": "Hata",
+          "deleteEntry": "Kaydı sil"
+        },
+        "format": {
+          "charsPerSecond": "{{rate}} karakter/sn",
+          "toFirstToken": "İlk token'a {{duration}}",
+          "streamingOff": "Akış kapalı",
+          "noFirstToken": "İlk token yok",
+          "answeredWithoutStreaming": "Akış olmadan yanıtlandı"
+        }
       }
     },
     "history": {
