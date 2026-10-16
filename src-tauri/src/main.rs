@@ -17,10 +17,10 @@ fn env_flag_enabled(name: &str) -> bool {
 fn main() {
     #[cfg(target_os = "linux")]
     {
-        if std::path::Path::new("/dev/dri").exists()
-            && std::env::var("WAYLAND_DISPLAY").is_err()
-            && std::env::var("XDG_SESSION_TYPE").unwrap_or_default() == "x11"
-        {
+        // The DMABUF renderer crashes on various GPU/display server configurations
+        // (https://github.com/tauri-apps/tauri/issues/9394). Preserve an explicit
+        // override so affected users can opt out with =0.
+        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
             std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         }
     }

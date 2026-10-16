@@ -1,5 +1,7 @@
 #[cfg(unix)]
 use crate::actions::ACTION_MAP;
+#[cfg(target_os = "macos")]
+use crate::cli::{RecordingCommand, RemoteCommand};
 #[cfg(unix)]
 use crate::ManagedToggleState;
 #[cfg(unix)]
@@ -9,20 +11,35 @@ use std::thread;
 #[cfg(unix)]
 use tauri::{AppHandle, Manager};
 
+#[cfg(target_os = "macos")]
+use signal_hook::consts::SIGUSR1;
 #[cfg(unix)]
 use signal_hook::consts::SIGUSR2;
 #[cfg(unix)]
 use signal_hook::iterator::Signals;
 
+/// SIGUSR2 toggles plain transcription on all Unix platforms. SIGUSR1
+/// (transcription with post-processing) is only handled on macOS: on Linux,
+/// WebKitGTK's JavaScriptCore garbage collector sends SIGUSR1 to its own
+/// threads to suspend them, so handling it would start phantom recordings on
+/// every GC cycle. Linux users should use `--toggle-post-process` instead.
 #[cfg(unix)]
 pub fn setup_signal_handler(app_handle: AppHandle, mut signals: Signals) {
     let app_handle_for_signal = app_handle.clone();
 
-    debug!("SIGUSR2 signal handler registered successfully");
+    debug!("Signal handler registered successfully");
     thread::spawn(move || {
         debug!("SIGUSR2 signal handler thread started");
         for sig in signals.forever() {
             match sig {
+                #[cfg(target_os = "macos")]
+                SIGUSR1 => {
+                    debug!("Received SIGUSR1 signal: toggling transcription with post-processing");
+                    crate::remote_control::dispatch(
+                        &app_handle_for_signal,
+                        RemoteCommand::Recording(RecordingCommand::Toggle { post_process: true }),
+                    );
+                }
                 SIGUSR2 => {
                     debug!("Received SIGUSR2 signal (signal number: {sig})");
 
@@ -72,7 +89,7 @@ pub fn setup_signal_handler(app_handle: AppHandle, mut signals: Signals) {
                         warn!("No action defined in ACTION_MAP for binding ID '{binding_id}'");
                     }
                 }
-                _ => unreachable!(),
+                _ => continue,
             }
         }
     });
