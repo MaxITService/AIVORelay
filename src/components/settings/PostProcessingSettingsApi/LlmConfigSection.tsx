@@ -1,4 +1,5 @@
 import React from "react";
+import { Alert } from "../../ui/Alert";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { RefreshCcw } from "lucide-react";
@@ -82,11 +83,9 @@ export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
       </SettingContainer>
 
       {state.appleIntelligenceUnavailable ? (
-        <div className="p-3 bg-red-500/10 border border-red-500/50">
-          <p className="text-sm text-red-500">
-            {t("settings.postProcessing.api.appleIntelligence.unavailable")}
-          </p>
-        </div>
+        <Alert variant="error" contained>
+          {t("settings.postProcessing.api.appleIntelligence.unavailable")}
+        </Alert>
       ) : null}
 
       {/* If state has useSameAsPostProcess and it's true, show notice and hide rest */}
@@ -216,56 +215,50 @@ export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
             </>
           )}
 
-          <SettingContainer
-            id={`${apiKeyFeature}-llm-model`}
-            title={t("settings.postProcessing.api.model.title")}
-            description={
-              state.isAppleProvider
-                ? t("settings.postProcessing.api.model.descriptionApple")
-                : state.isCustomProvider
+          {!state.isAppleProvider && (
+            <SettingContainer
+              id={`${apiKeyFeature}-llm-model`}
+              title={t("settings.postProcessing.api.model.title")}
+              description={
+                state.isCustomProvider
                   ? t("settings.postProcessing.api.model.descriptionCustom")
                   : t("settings.postProcessing.api.model.descriptionDefault")
-            }
-            descriptionMode="tooltip"
-            layout="stacked"
-            grouped={true}
-          >
-            <div className="flex items-center gap-2">
-              <ModelSelect
-                sortKey={`${apiKeyFeature}-models:${state.selectedProviderId}`}
-                value={state.model || ""}
-                options={state.modelOptions}
-                disabled={state.isModelUpdating}
-                isLoading={state.isFetchingModels}
-                placeholder={
-                  state.isAppleProvider
-                    ? t("settings.postProcessing.api.model.placeholderApple")
-                    : (state.modelOptions?.length || 0) > 0
-                      ? t(
-                          "settings.postProcessing.api.model.placeholderWithOptions",
-                        )
-                      : t(
-                          "settings.postProcessing.api.model.placeholderNoOptions",
-                        )
-                }
-                onSelect={state.handleModelSelect}
-                onCreate={state.handleModelCreate}
-                onBlur={() => {}}
-                className="flex-1 min-w-[380px]"
-              />
-              <ResetButton
-                onClick={state.handleRefreshModels}
-                disabled={state.isFetchingModels || state.isAppleProvider}
-                ariaLabel={t("settings.postProcessing.api.model.refreshModels")}
-                title="Fetch Models from Server, then you can type part of model name for searching it in drop-down."
-                className="flex h-10 w-10 items-center justify-center"
-              >
-                <RefreshCcw
-                  className={`h-4 w-4 ${state.isFetchingModels ? "animate-spin" : ""}`}
+              }
+              descriptionMode="tooltip"
+              layout="stacked"
+              grouped={true}
+            >
+              <div className="flex items-center gap-2">
+                <ModelSelect
+                  sortKey={`${apiKeyFeature}-models:${state.selectedProviderId}`}
+                  value={state.model || ""}
+                  options={state.modelOptions}
+                  disabled={state.isModelUpdating}
+                  isLoading={state.isFetchingModels}
+                  placeholder={
+                    (state.modelOptions?.length || 0) > 0
+                      ? t("settings.postProcessing.api.model.placeholderWithOptions")
+                      : t("settings.postProcessing.api.model.placeholderNoOptions")
+                  }
+                  onSelect={state.handleModelSelect}
+                  onCreate={state.handleModelCreate}
+                  onBlur={() => {}}
+                  className="flex-1 min-w-[380px]"
                 />
-              </ResetButton>
-            </div>
-          </SettingContainer>
+                <ResetButton
+                  onClick={state.handleRefreshModels}
+                  disabled={state.isFetchingModels}
+                  ariaLabel={t("settings.postProcessing.api.model.refreshModels")}
+                  title="Fetch Models from Server, then you can type part of model name for searching it in drop-down."
+                  className="flex h-10 w-10 items-center justify-center"
+                >
+                  <RefreshCcw
+                    className={`h-4 w-4 ${state.isFetchingModels ? "animate-spin" : ""}`}
+                  />
+                </ResetButton>
+              </div>
+            </SettingContainer>
+          )}
 
           {/* Extended Thinking Section - shown for non-Apple providers */}
           {reasoningSettingPrefix && !state.isAppleProvider && (
