@@ -37,6 +37,21 @@ Windows backend tests in this fork must be runnable through the checked-in harne
 - The harness uses a short `CARGO_TARGET_DIR` to reduce Windows path-length pain.
 - By policy, every new test batch must be documented in this file immediately after it is added.
 
+## Streamed LLM Output
+
+The `actions::transcription_post_process_tests::streamed_history_` tests cover
+reusing streamed LLM replacements for History and final output, a rule spanning
+already inserted text, and an answer removed entirely by a replacement. Together
+with `llm_live_output::tests::`, they exercise the output pipeline without network
+requests or clipboard access. Run both filters in one harness invocation:
+
+```powershell
+.\test-local.ps1 -LibOnly -Filter @(
+    'actions::transcription_post_process_tests::'
+    'llm_live_output::tests::'
+)
+```
+
 ## Windows TTS Focused Tests
 
 The `managers::windows_tts::tests` library subset covers installed-voice

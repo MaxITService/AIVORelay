@@ -180,6 +180,9 @@ pub struct ProfileLlmSettings {
     pub enabled: bool,
     pub prompt_override: Option<String>,
     pub model_override: Option<String>,
+    /// `None` keeps the stored value on update and inherits the global value on creation.
+    #[serde(default)]
+    pub live_stream_insert: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
@@ -306,6 +309,10 @@ pub struct TranscriptionProfile {
     /// If Some, uses this model instead of the global model for the current provider
     #[serde(default)]
     pub llm_model_override: Option<String>,
+    /// Insert the streamed LLM answer live into the target window while it is generated.
+    /// Inherits from global post_process_live_stream_insert when profile is created
+    #[serde(default)]
+    pub llm_live_stream_insert: bool,
     /// Soniox context.general as JSON array string.
     #[serde(default)]
     pub soniox_context_general_json: String,
@@ -4266,6 +4273,9 @@ pub struct AppSettings {
     pub transcription_output_defaults: ProfileOutputSettings,
     #[serde(default = "default_post_process_enabled")]
     pub post_process_enabled: bool,
+    /// Insert the streamed LLM answer live into the target window while it is generated.
+    #[serde(default)]
+    pub post_process_live_stream_insert: bool,
     #[serde(default = "default_post_process_provider_id")]
     pub post_process_provider_id: String,
     #[serde(default = "default_post_process_providers")]
@@ -6439,6 +6449,7 @@ pub fn get_default_settings() -> AppSettings {
         auto_submit_key: AutoSubmitKey::default(),
         transcription_output_defaults: ProfileOutputSettings::default(),
         post_process_enabled: default_post_process_enabled(),
+        post_process_live_stream_insert: false,
         post_process_provider_id: default_post_process_provider_id(),
         post_process_providers: default_post_process_providers(),
         post_process_api_keys: default_post_process_api_keys(),

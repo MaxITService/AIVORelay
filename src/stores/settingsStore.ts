@@ -296,6 +296,9 @@ const settingUpdaters: {
     ),
   post_process_benchmark_stream: (value) =>
     commands.changePostProcessBenchmarkStreamSetting(value as boolean),
+  // The global value belongs to the Default profile; custom profiles keep their own.
+  post_process_live_stream_insert: (value) =>
+    commands.changePostProcessLiveStreamInsertSetting(value as boolean, "default"),
   ai_replace_system_prompt: (value) =>
     commands.changeAiReplaceSystemPromptSetting(value as string),
   ai_replace_user_prompt: (value) =>

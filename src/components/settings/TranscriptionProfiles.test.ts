@@ -8,7 +8,7 @@ const profile = (): ExtendedTranscriptionProfile => ({
   push_to_talk: false, include_in_cycle: false, auto_shortcut_activation: false,
   preview_output_only_enabled: false, stt_prompt_override_enabled: false,
   system_prompt: "", stt_model_selection_override: null,
-  llm_post_process_enabled: false, llm_prompt_override: "", llm_model_override: "",
+  llm_post_process_enabled: false, llm_prompt_override: "", llm_model_override: "", llm_live_stream_insert: false,
   automatic_app_rules: ["editor.exe"], soniox_context_general_json: "",
   soniox_context_text: "", soniox_context_terms: ["AivoRelay"], soniox_language_hints_strict: null,
   gemini_language_code_override: "", gemini_custom_vocabulary_override: [], chinese_script: null,
@@ -23,7 +23,7 @@ describe("profile clone and command payload", () => {
       language: "auto", translateToEnglish: false, pushToTalk: false, includeInCycle: false,
       autoShortcutActivation: false, previewOutputOnlyEnabled: false, sttPromptOverrideEnabled: false,
       automaticAppRules: ["editor.exe"], systemPrompt: "", sttModelSelectionOverride: null,
-      llmSettings: { enabled: false, promptOverride: "", modelOverride: "" },
+      llmSettings: { enabled: false, promptOverride: "", modelOverride: "", liveStreamInsert: false },
       sonioxContextGeneralJson: "", sonioxContextText: "", sonioxContextTerms: ["AivoRelay"],
       sonioxLanguageHintsStrict: null, geminiLanguageCodeOverride: "",
       geminiCustomVocabularyOverride: [], chineseScript: null,
@@ -61,7 +61,7 @@ describe("profile clone and command payload", () => {
     const copy = { ...source, ...cloneProfileSettings(source), id: "new", name: "Default copy", include_in_cycle: true };
     const payload = JSON.parse(JSON.stringify(profileSettingsPayload(copy)));
     expect(payload.sttModelSelectionOverride).toBeNull();
-    expect(payload.llmSettings).toEqual({ enabled: false, promptOverride: null, modelOverride: null });
+    expect(payload.llmSettings).toEqual({ enabled: false, promptOverride: null, modelOverride: null, liveStreamInsert: false });
     expect(payload.sonioxLanguageHintsStrict).toBeNull();
     expect(payload.outputSettings).toEqual(source.output_settings);
     expect(payload.includeInCycle).toBe(true);
@@ -75,5 +75,14 @@ describe("profile clone and command payload", () => {
     const { chineseScript: _c, outputSettings: _o, ...expected } = profileSettingsPayload(source);
     expect(payload).toEqual({ id: "saved", name: "Custom", ...expected, previewOutputOnlyEnabled: true });
     expect(source.preview_output_only_enabled).toBe(false);
+  });
+
+  test("live LLM answer insertion is sent with the profile's LLM settings", () => {
+    const payload = profileUpdatePayload(profile(), { llm_live_stream_insert: true });
+    expect(payload.llmSettings).toEqual({ enabled: false, promptOverride: "", modelOverride: "", liveStreamInsert: true });
+    // Without a value the command keeps the stored choice instead of turning it off.
+    const { llm_live_stream_insert: _live, ...withoutLive } = profile();
+    const inherited = JSON.parse(JSON.stringify(profileSettingsPayload(withoutLive as ExtendedTranscriptionProfile)));
+    expect(inherited.llmSettings.liveStreamInsert).toBeNull();
   });
 });
