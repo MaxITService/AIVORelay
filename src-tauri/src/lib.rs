@@ -112,6 +112,8 @@ use managers::soniox_stt::SonioxSttManager;
 use managers::transcription::TranscriptionManager;
 use managers::tts::TtsManager;
 use managers::tts_history::TtsHistoryManager;
+#[cfg(target_os = "macos")]
+use signal_hook::consts::SIGUSR1;
 #[cfg(unix)]
 use signal_hook::consts::SIGUSR2;
 #[cfg(unix)]
@@ -336,6 +338,24 @@ pub(crate) fn create_main_window(
     }
 
     Ok(main_window)
+}
+
+/// The app launches without a Dock icon only when it will start hidden
+/// (setting or speech-only mode) AND a tray icon is available. With no tray the
+/// Dock icon stays as the only way back into the app. Headless one-shot runs
+/// are left alone.
+#[cfg(target_os = "macos")]
+fn apply_startup_activation_policy(app: &mut tauri::App, headless_mode: bool) {
+    if headless_mode {
+        return;
+    }
+
+    let settings = settings::get_settings(app.handle());
+    let should_hide = settings.start_hidden || webview_mode::webviews_disabled();
+    if should_hide && settings.show_tray_icon {
+        log::info!("Starting hidden with tray available: launching as Accessory (no Dock icon)");
+        app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+    }
 }
 
 fn show_main_window(app: &AppHandle) {
@@ -654,20 +674,20 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Initialize the shortcuts
     timed_startup("shortcuts", || shortcut::init_shortcuts(app_handle));
 
-    #[cfg(unix)]
+    // SIGUSR1 (transcribe with post-processing) is macOS-only: on Linux,
+    // WebKitGTK's garbage collector signals its own threads with it.
+    #[cfg(target_os = "macos")]
+    let signals = Signals::new(&[SIGUSR1, SIGUSR2]).unwrap();
+    #[cfg(all(unix, not(target_os = "macos")))]
     let signals = Signals::new(&[SIGUSR2]).unwrap();
-    // Set up SIGUSR2 signal handler for toggling transcription
+    // Set up SIGUSR1/SIGUSR2 signal handler for toggling transcription
     #[cfg(unix)]
     signal_handle::setup_signal_handler(app_handle.clone(), signals);
 
-    // Apply macOS Accessory policy if starting hidden
-    #[cfg(target_os = "macos")]
-    {
-        let settings = settings::get_settings(app_handle);
-        if settings.start_hidden || speech_only {
-            let _ = app_handle.set_activation_policy(tauri::ActivationPolicy::Accessory);
-        }
-    }
+    // The macOS activation policy for a start-hidden launch is applied before
+    // the event loop runs (see `apply_startup_activation_policy`), not here:
+    // by the time `setup` runs the app has already launched as a Regular
+    // (Dock) app, and demoting it at runtime is unreliable.
     // Get the current theme to set the appropriate initial icon
     let initial_theme = tray::get_current_theme(app_handle);
 
@@ -1187,6 +1207,19 @@ fn run_headless_transcription(app: &AppHandle, args: &CliArgs) -> i32 {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run(cli_args: CliArgs) {
+    // Avoid ggml-metal residency-set teardown assertions when a native engine
+    // outlives the Tauri shutdown sequence. This must happen before
+    // transcribe-cpp initializes its Metal device. Advanced users can restore
+    // upstream residency behavior with AIVORELAY_METAL_RESIDENCY=1.
+    #[cfg(target_os = "macos")]
+    if std::env::var("AIVORELAY_METAL_RESIDENCY").as_deref() == Ok("1") {
+        // ggml treats GGML_METAL_NO_RESIDENCY as presence-based, so remove an
+        // inherited value as well when explicitly opting back in.
+        std::env::remove_var("GGML_METAL_NO_RESIDENCY");
+    } else {
+        std::env::set_var("GGML_METAL_NO_RESIDENCY", "1");
+    }
+
     tls::initialize();
     portable::init();
 
@@ -1869,7 +1902,8 @@ pub fn run(cli_args: CliArgs) {
         }));
     }
 
-    builder
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
+    let mut app = builder
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
@@ -2024,8 +2058,15 @@ pub fn run(cli_args: CliArgs) {
                 should_force_show_permissions_window(&app_handle)
             });
 
-            // Show main window only if not starting hidden, unless permission onboarding must be shown
-            if !settings.start_hidden || should_force_show_permissions {
+            // Show main window only if not starting hidden, unless permission onboarding must be shown.
+            // On macOS a hidden start without a tray icon would leave the Dock as the
+            // only way back in, so the window is shown anyway
+            // (keep in sync with `apply_startup_activation_policy`).
+            #[cfg(target_os = "macos")]
+            let tray_unavailable = !settings.show_tray_icon;
+            #[cfg(not(target_os = "macos"))]
+            let tray_unavailable = false;
+            if !settings.start_hidden || should_force_show_permissions || tray_unavailable {
                 show_main_window(&app_handle);
             }
 
@@ -2090,14 +2131,39 @@ pub fn run(cli_args: CliArgs) {
         })
         .invoke_handler(specta_builder.invoke_handler())
         .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|_app, event| {
-            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = &event {
+        .expect("error while building tauri application");
+
+    // Must sit between build() and run(): the policy has to be in place before
+    // the event loop starts.
+    #[cfg(target_os = "macos")]
+    apply_startup_activation_policy(&mut app, headless_mode);
+
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+    app.run(|app, event| {
+        match &event {
+            tauri::RunEvent::ExitRequested { code: None, api, .. } => {
                 // Rebuilding the webviews after a WebView2 crash briefly leaves
                 // the app without windows; that is not "all windows closed".
                 if webview_recovery::is_recovering() {
                     api.prevent_exit();
                 }
             }
-        });
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => {
+                // Fired when the already-running bundle is launched again from
+                // Spotlight/Finder or the Dock icon is clicked. If the window is
+                // hidden the user is likely looking for a tray icon that
+                // vanished: recreate it. A visible window just gets focus.
+                let window_visible = app
+                    .get_webview_window("main")
+                    .and_then(|window| window.is_visible().ok())
+                    .unwrap_or(false);
+                if !window_visible {
+                    tray::recreate_tray_icon(app);
+                }
+                show_main_window(app);
+            }
+            _ => {}
+        }
+    });
 }

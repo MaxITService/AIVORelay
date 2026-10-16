@@ -416,13 +416,35 @@ fn build_apple_intelligence_bridge() {
     // Check if the SDK supports FoundationModels (required for Apple Intelligence)
     let framework_path =
         Path::new(&sdk_path).join("System/Library/Frameworks/FoundationModels.framework");
-    let has_foundation_models = framework_path.exists();
+    // AIVORELAY_FORCE_AI_STUB=1 forces the stub even when the toolchain could
+    // build the real path (for example to skip the Swift compile).
+    let force_stub = env::var("AIVORELAY_FORCE_AI_STUB").as_deref() == Ok("1");
+
+    // A Command-Line-Tools-only toolchain ships FoundationModels.framework in its
+    // SDK, but its `swiftc` has no FoundationModelsMacros plugin (full Xcode
+    // only), so the real Swift path cannot compile. Skipped when SWIFTC is
+    // overridden: that signals a custom toolchain whose capabilities cannot be
+    // inferred from `xcode-select`.
+    let command_line_tools_only = env::var("SWIFTC").is_err() && is_command_line_tools_only();
+    if command_line_tools_only && !force_stub {
+        println!(
+            "cargo:warning=Command Line Tools-only toolchain detected; Apple Intelligence              (FoundationModels) needs full Xcode. Falling back to stubs. Install Xcode and run              `sudo xcode-select -s /Applications/Xcode.app`, or set AIVORELAY_FORCE_AI_STUB=1 to              silence this message."
+        );
+    }
+
+    let has_foundation_models = framework_path.exists() && !force_stub && !command_line_tools_only;
 
     let source_file = if has_foundation_models {
         println!("cargo:warning=Building with Apple Intelligence support.");
         REAL_SWIFT_FILE
     } else {
-        println!("cargo:warning=Apple Intelligence SDK not found. Building with stubs.");
+        // Missing SDK support is only one reason for stubs; CLT-only detection and
+        // AIVORELAY_FORCE_AI_STUB also land here with the framework present.
+        if framework_path.exists() {
+            println!("cargo:warning=Building Apple Intelligence with stubs.");
+        } else {
+            println!("cargo:warning=Apple Intelligence SDK not found. Building with stubs.");
+        }
         STUB_SWIFT_FILE
     };
 
@@ -509,4 +531,21 @@ fn build_apple_intelligence_bridge() {
     }
 
     println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
+}
+
+/// Returns true when the active developer directory is the standalone Command
+/// Line Tools rather than a full Xcode install. On any error this returns false
+/// so the SDK-presence check decides.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn is_command_line_tools_only() -> bool {
+    use std::process::Command;
+
+    Command::new("xcode-select")
+        .arg("-p")
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .map(|path| path.trim().ends_with("CommandLineTools"))
+        .unwrap_or(false)
 }
