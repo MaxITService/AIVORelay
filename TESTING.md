@@ -145,7 +145,7 @@ Run with:
   recording or clear its buffered audio.
 - `managers::gemini_output_window::tests` covers exact deadline boundaries,
   queued delivery checks, Unicode separators, and per-recording isolation.
-- `soniox_stream_processor::tests::gemini_cutoff_` covers buffered tail flushing,
+- `stream_chunk_processor::tests::gemini_cutoff_` covers buffered tail flushing,
   optional final spaces, existing whitespace, empty output, and punctuation.
 - `actions::stt_workflow_tests::gemini_hotkey_cutoff_` covers eligibility and
   configured-delay bounds. The adjacent detached-delivery test covers the
@@ -159,7 +159,7 @@ Run the focused batch through the checked-in harness:
 .\test-local.ps1 -LibOnly -Filter @(
     'managers::gemini_realtime::'
     'managers::gemini_output_window::'
-    'soniox_stream_processor::tests::gemini_cutoff_'
+    'stream_chunk_processor::tests::gemini_cutoff_'
     'actions::stt_workflow_tests::gemini_hotkey_cutoff_'
     'actions::stt_workflow_tests::detached_gemini_delivery_'
 )

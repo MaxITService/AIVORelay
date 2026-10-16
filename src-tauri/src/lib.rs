@@ -44,7 +44,7 @@ mod settings;
 mod shortcut;
 mod shortcut_handy_keys;
 mod signal_handle;
-mod soniox_stream_processor;
+mod stream_chunk_processor;
 pub mod subtitle;
 mod text_output_hooks;
 mod text_replacement_decapitalize;

@@ -35,7 +35,7 @@ use crate::settings::{
     apply_output_whitespace_policy_for_settings, get_settings, AppSettings, LlmFeature,
     LlmPostProcessBenchmarkResult, TranscriptionProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
 };
-use crate::soniox_stream_processor::SonioxStreamProcessor;
+use crate::stream_chunk_processor::StreamChunkProcessor;
 use crate::tray::{change_tray_icon, claim_tray_state, commit_tray_sync, TrayIconState};
 use crate::url_security::{
     REMOTE_STT_PRESET_GOOGLE, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_VERCEL,
@@ -169,8 +169,8 @@ struct LlmTemplateContext {
 /// Tracks the frontmost app captured at recording start, keyed by binding_id.
 static RECORDING_APP_CONTEXT: Lazy<Mutex<HashMap<String, String>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
-type SharedSonioxStreamProcessor = Arc<Mutex<SonioxStreamProcessor>>;
-static SONIOX_STREAM_PROCESSORS: Lazy<Mutex<HashMap<String, SharedSonioxStreamProcessor>>> =
+type SharedStreamChunkProcessor = Arc<Mutex<StreamChunkProcessor>>;
+static STREAM_CHUNK_PROCESSORS: Lazy<Mutex<HashMap<String, SharedStreamChunkProcessor>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static SONIOX_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -783,19 +783,19 @@ fn report_empty_transcription(
     true
 }
 
-fn register_soniox_stream_processor(
+fn register_stream_chunk_processor(
     binding_id: &str,
     settings: &AppSettings,
-) -> SharedSonioxStreamProcessor {
-    let processor = Arc::new(Mutex::new(SonioxStreamProcessor::from_settings(settings)));
-    if let Ok(mut processors) = SONIOX_STREAM_PROCESSORS.lock() {
+) -> SharedStreamChunkProcessor {
+    let processor = Arc::new(Mutex::new(StreamChunkProcessor::from_settings(settings)));
+    if let Ok(mut processors) = STREAM_CHUNK_PROCESSORS.lock() {
         processors.insert(binding_id.to_string(), Arc::clone(&processor));
     }
     processor
 }
 
-fn take_soniox_stream_processor(binding_id: &str) -> Option<SharedSonioxStreamProcessor> {
-    SONIOX_STREAM_PROCESSORS
+fn take_stream_chunk_processor(binding_id: &str) -> Option<SharedStreamChunkProcessor> {
+    STREAM_CHUNK_PROCESSORS
         .lock()
         .ok()
         .and_then(|mut processors| processors.remove(binding_id))
@@ -2739,7 +2739,7 @@ async fn perform_transcription_for_profile_with_retry_action(
         let result = if should_stream_insert {
             let app_handle = app.clone();
             let stream_processor =
-                Arc::new(Mutex::new(SonioxStreamProcessor::from_settings(&settings)));
+                Arc::new(Mutex::new(StreamChunkProcessor::from_settings(&settings)));
             let stream_processor_for_callback = Arc::clone(&stream_processor);
             let soniox_manager_for_callback = Arc::clone(&soniox_manager);
             let streamed_result = soniox_manager
@@ -5999,7 +5999,7 @@ fn drop_preview_recording_without_finalize(
     rm.cancel_recording();
     rm.clear_stream_frame_callback();
 
-    let _ = take_soniox_stream_processor(binding_id);
+    let _ = take_stream_chunk_processor(binding_id);
     let _ = take_soniox_stream_emitted(binding_id);
     let _ = take_deepgram_stream_emitted(binding_id);
     let _ = take_openai_realtime_whisper_stream_emitted(binding_id);
@@ -8155,7 +8155,7 @@ impl ShortcutAction for TranscribeAction {
                 .unwrap_or_else(|| settings.selected_language.clone());
             let binding_id = binding_id.to_string();
             let app_handle = app.clone();
-            let _ = take_soniox_stream_processor(&binding_id);
+            let _ = take_stream_chunk_processor(&binding_id);
             let _ = take_soniox_stream_emitted(&binding_id);
             let _ = take_deepgram_stream_emitted(&binding_id);
             let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
@@ -8163,7 +8163,7 @@ impl ShortcutAction for TranscribeAction {
                 None
             } else {
                 set_soniox_stream_emitted(&binding_id, false);
-                Some(register_soniox_stream_processor(&binding_id, &settings))
+                Some(register_stream_chunk_processor(&binding_id, &settings))
             };
 
             match settings.transcription_provider {
@@ -8222,7 +8222,7 @@ impl ShortcutAction for TranscribeAction {
                     );
 
                     if let Err(err) = start_result {
-                        let _ = take_soniox_stream_processor(&binding_id);
+                        let _ = take_stream_chunk_processor(&binding_id);
                         let _ = take_soniox_stream_emitted(&binding_id);
                         let err_str = format!("{}", err);
                         if !preview_output_only_enabled {
@@ -8306,7 +8306,7 @@ impl ShortcutAction for TranscribeAction {
                     );
 
                     if let Err(err) = start_result {
-                        let _ = take_soniox_stream_processor(&binding_id);
+                        let _ = take_stream_chunk_processor(&binding_id);
                         let _ = take_deepgram_stream_emitted(&binding_id);
                         let err_str = format!("{}", err);
                         if !preview_output_only_enabled {
@@ -8344,7 +8344,7 @@ impl ShortcutAction for TranscribeAction {
                     ) {
                         Ok(api_key) => api_key,
                         Err(err) => {
-                            let _ = take_soniox_stream_processor(&binding_id);
+                            let _ = take_stream_chunk_processor(&binding_id);
                             let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
                             let err_str = format!("{}", err);
                             if !preview_output_only_enabled {
@@ -8426,7 +8426,7 @@ impl ShortcutAction for TranscribeAction {
                     );
 
                     if let Err(err) = start_result {
-                        let _ = take_soniox_stream_processor(&binding_id);
+                        let _ = take_stream_chunk_processor(&binding_id);
                         let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
                         let err_str = format!("{}", err);
                         if !preview_output_only_enabled {
@@ -8467,7 +8467,7 @@ impl ShortcutAction for TranscribeAction {
                     ) {
                         Ok(api_key) => api_key,
                         Err(err) => {
-                            let _ = take_soniox_stream_processor(&binding_id);
+                            let _ = take_stream_chunk_processor(&binding_id);
                             let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
                             let err_str = format!("{}", err);
                             if !preview_output_only_enabled {
@@ -8616,7 +8616,7 @@ impl ShortcutAction for TranscribeAction {
                             debug!("Ignoring Gemini startup for stale operation {}", recording_operation_id);
                             return;
                         }
-                        let _ = take_soniox_stream_processor(&binding_id);
+                        let _ = take_stream_chunk_processor(&binding_id);
                         let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
                         let err_str = format!("{}", err);
                         if !preview_output_only_enabled {
@@ -8677,7 +8677,7 @@ impl ShortcutAction for TranscribeAction {
             let stop_context = match prepare_stop_recording_with_options(app, binding_id, false) {
                 Some(context) => context,
                 None => {
-                    let _ = take_soniox_stream_processor(binding_id);
+                    let _ = take_stream_chunk_processor(binding_id);
                     let _ = take_soniox_stream_emitted(binding_id);
                     let _ = take_deepgram_stream_emitted(binding_id);
                     let _ = take_openai_realtime_whisper_stream_emitted(binding_id);
@@ -8800,7 +8800,7 @@ impl ShortcutAction for TranscribeAction {
                     {
                         return;
                     }
-                    let stream_processor = take_soniox_stream_processor(&binding_id);
+                    let stream_processor = take_stream_chunk_processor(&binding_id);
                     let had_soniox_stream_output =
                         if is_deepgram_live_provider || is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
                             false
@@ -9423,7 +9423,7 @@ impl ShortcutAction for TranscribeAction {
                     let tail_delta = match processor.lock() {
                         Ok(mut processor) => processor.flush(),
                         Err(_) => {
-                            warn!("Failed to lock Soniox stream processor");
+                            warn!("Failed to lock stream chunk processor");
                             String::new()
                         }
                     };

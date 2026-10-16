@@ -106,7 +106,7 @@ impl StreamChunkReplacementEngine {
 }
 
 #[derive(Clone, Default)]
-pub struct SonioxStreamProcessor {
+pub struct StreamChunkProcessor {
     pending_raw: String,
     stable_tail_words: usize,
     fuzzy_enabled: bool,
@@ -119,7 +119,7 @@ pub struct SonioxStreamProcessor {
     last_output_character: Option<char>,
 }
 
-impl SonioxStreamProcessor {
+impl StreamChunkProcessor {
     pub fn from_settings(settings: &AppSettings) -> Self {
         let fuzzy_enabled = settings.custom_words_enabled
             && !settings.custom_words.is_empty()
@@ -368,11 +368,11 @@ fn replace_case_insensitive(text: &str, from: &str, to: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::SonioxStreamProcessor;
+    use super::StreamChunkProcessor;
 
     #[test]
     fn flush_without_standalone_whitespace_discards_provider_separator() {
-        let mut processor = SonioxStreamProcessor::default();
+        let mut processor = StreamChunkProcessor::default();
         processor.pending_raw = " ".to_string();
 
         assert_eq!(processor.flush_without_standalone_whitespace(), "");
@@ -380,7 +380,7 @@ mod tests {
 
     #[test]
     fn flush_without_standalone_whitespace_preserves_real_tail() {
-        let mut processor = SonioxStreamProcessor::default();
+        let mut processor = StreamChunkProcessor::default();
         processor.pending_raw = "late words. ".to_string();
 
         assert_eq!(
@@ -391,7 +391,7 @@ mod tests {
 
     #[test]
     fn gemini_cutoff_adds_one_space_after_confirmed_insertion() {
-        let mut processor = SonioxStreamProcessor::default();
+        let mut processor = StreamChunkProcessor::default();
         let inserted = processor.push_chunk("Already inserted.");
         assert_eq!(inserted, "Already inserted.");
         processor.record_output_ending(inserted.chars().last());
@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn gemini_cutoff_does_not_add_space_when_nothing_was_inserted() {
-        let mut processor = SonioxStreamProcessor::default();
+        let mut processor = StreamChunkProcessor::default();
         assert_eq!(processor.flush_with_trailing_space(), "");
         assert_eq!(processor.flush_without_standalone_whitespace(), "");
     }
@@ -411,7 +411,7 @@ mod tests {
     #[test]
     fn gemini_cutoff_preserves_existing_unicode_whitespace_without_an_extra_space() {
         for ending in [' ', '\n', '\t', '\u{2003}'] {
-            let mut processor = SonioxStreamProcessor::default();
+            let mut processor = StreamChunkProcessor::default();
             processor.record_output_ending(Some(ending));
             assert_eq!(processor.flush_with_trailing_space(), "");
             processor.pending_raw = format!("tail{ending}");
@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn gemini_cutoff_flushes_buffered_tail_once_with_or_without_final_separator() {
         for append_space in [false, true] {
-            let mut processor = SonioxStreamProcessor::default();
+            let mut processor = StreamChunkProcessor::default();
             processor.stable_tail_words = 3;
             assert_eq!(processor.push_chunk("First four words arrive"), "First ");
             let tail = if append_space { processor.flush_with_trailing_space() }
@@ -435,7 +435,7 @@ mod tests {
 
     #[test]
     fn gemini_cutoff_without_separator_discards_all_standalone_unicode_whitespace() {
-        let mut processor = SonioxStreamProcessor::default();
+        let mut processor = StreamChunkProcessor::default();
         processor.pending_raw = " \t\n\u{2003}".to_string();
         assert_eq!(processor.flush_without_standalone_whitespace(), "");
         assert_eq!(processor.flush_without_standalone_whitespace(), "");
@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn gemini_cutoff_treats_pending_punctuation_as_text() {
-        let mut processor = SonioxStreamProcessor::default();
+        let mut processor = StreamChunkProcessor::default();
         processor.pending_raw = "…".to_string();
         assert_eq!(processor.flush_without_standalone_whitespace(), "…");
         processor.pending_raw = "!".to_string();

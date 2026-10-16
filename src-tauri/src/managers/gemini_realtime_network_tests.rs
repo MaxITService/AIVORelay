@@ -1,7 +1,7 @@
 //! Deterministic transport tests: no desktop, sockets, microphone, or credentials.
 use super::*;
 use crate::managers::gemini_output_window::PENDING_WORDS_GRACE;
-use crate::soniox_stream_processor::SonioxStreamProcessor;
+use crate::stream_chunk_processor::StreamChunkProcessor;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -62,7 +62,7 @@ struct Observed {
     setup_count: usize,
     stop_count: usize,
     completions: Vec<Value>,
-    processor: SonioxStreamProcessor,
+    processor: StreamChunkProcessor,
 }
 
 struct TestSession {
