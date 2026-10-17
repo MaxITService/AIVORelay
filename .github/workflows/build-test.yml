@@ -13,31 +13,38 @@ jobs:
           - platform: "macos-26" # for Arm based macs (M1 and above). Uses macOS 26 for Apple Intelligence SDK.
             args: "--target aarch64-apple-darwin"
             target: "aarch64-apple-darwin"
+            sign: false # no Apple signing secrets are configured: macOS builds are ad-hoc signed only
           - platform: "macos-latest" # for Intel based macs.
             args: "--target x86_64-apple-darwin"
             target: "x86_64-apple-darwin"
+            sign: false
           - platform: "ubuntu-22.04" # Build .deb on 22.04
             args: "--bundles deb"
             target: "x86_64-unknown-linux-gnu"
+            sign: false
           - platform: "ubuntu-24.04" # Build AppImage and RPM on 24.04
             args: "--bundles appimage,rpm"
             target: "x86_64-unknown-linux-gnu"
+            sign: false
           - platform: "ubuntu-24.04-arm" # Build AppImage, .deb and RPM for ARM64 Linux
             args: "--bundles appimage,deb,rpm"
             target: "aarch64-unknown-linux-gnu"
+            sign: false
           - platform: "windows-latest"
             args: ""
             target: "x86_64-pc-windows-msvc"
+            sign: true
           - platform: "windows-11-arm" # for ARM64 Windows runner
             args: "--target aarch64-pc-windows-msvc"
             target: "aarch64-pc-windows-msvc"
+            sign: true
 
     uses: ./.github/workflows/build.yml
     with:
       platform: ${{ matrix.platform }}
       target: ${{ matrix.target }}
       build-args: ${{ matrix.args }}
-      sign-binaries: true
+      sign-binaries: ${{ matrix.sign }}
       asset-prefix: "aivorelay-test"
       upload-artifacts: true
       is-debug-build: ${{ contains(matrix.args, '--debug') }}
