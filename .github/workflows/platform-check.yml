@@ -5,6 +5,8 @@ name: "Platform check"
 # nothing else: no secrets, no signing, no uploads, and a read-only token.
 on:
   workflow_dispatch:
+  push:
+    branches: [ci/platform-verify]
 
 permissions:
   contents: read
