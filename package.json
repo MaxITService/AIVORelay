@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "postinstall": "bun scripts/check-nix-deps.ts",
     "test:frontend": "bun test",
     "test:frontend:coverage": "bun test --coverage",
     "tauri": "tauri",

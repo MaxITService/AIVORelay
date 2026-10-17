@@ -1,0 +1,59 @@
+# Nix build check. Manual only, read-only token, no secrets and no binary cache
+# credentials: it evaluates the flake and builds the package in the Nix sandbox.
+#
+# Run it after changing flake.nix, bun.lock, src-tauri/Cargo.lock or the
+# packaging files. The full build is long on a cold cache.
+
+name: "nix build check"
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nix-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+
+      # Third-party action pinned to an immutable commit (v31).
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      # Regenerate .nix/bun.nix from bun.lock and compare with what is
+      # committed. A diff means bun.lock changed without bun.nix being updated.
+      - name: Check bun.nix is up to date
+        id: bun-check
+        run: |
+          bunx bun2nix@2.0.8 -o .nix/bun.nix
+          if ! git diff --quiet .nix/bun.nix; then
+            echo "outdated=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Explain an outdated bun.nix
+        if: steps.bun-check.outputs.outdated == 'true'
+        run: |
+          echo "::warning::.nix/bun.nix is out of sync with bun.lock"
+          echo "Regenerate it with: bun scripts/check-nix-deps.ts (or bunx bun2nix@2.0.8 -o .nix/bun.nix)"
+          echo "Then commit .nix/bun.nix and .nix/bun-lock-hash."
+          git diff .nix/bun.nix
+          exit 1
+
+      # Evaluating the flake catches broken inputs and Nix expression errors.
+      - name: Check flake evaluation
+        run: nix eval .#packages.x86_64-linux.aivorelay.drvPath
+
+      # The full build catches sandbox and compilation failures that evaluation
+      # alone misses.
+      - name: Build aivorelay
+        run: nix build .#aivorelay -L --show-trace
