@@ -17,7 +17,8 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/managers/provider_error.rs` | Shared bounded provider-error parser for concise TTS/STT UI and CLI messages while retaining technical response details in diagnostic logs. |
 | `src-tauri/src/commands/remote_stt.rs` | Commands for remote STT & keys. |
 | `src-tauri/src/managers/deepgram_stt.rs` | Deepgram non-live/live-finalize transcription manager. |
-| `src-tauri/src/secure_keys.rs` | Secure API key storage (Windows). |
+| `src-tauri/src/secure_keys.rs` | API key storage: Credential Manager on Windows; on Linux/macOS a `provider_api_keys` entry in the owner-only settings store file (`save_store_privately`). |
+| `src-tauri/src/autostart.rs` | Launch at login: `SMAppService` login item on macOS 13+, `tauri-plugin-autostart` elsewhere. |
 | `src-tauri/src/plus_overlay_state.rs` | Extended overlay states. |
 | `src-tauri/src/region_capture.rs` | Native region capture overlay. |
 | `src-tauri/src/webview_recovery.rs` | WebView2 `ProcessFailed` watcher for every webview window: logs the failure kind/reason/exit code plus the faulting module from WebView2's latest Crashpad record, reloads a window whose page process died, and after a browser-process death destroys every webview and rebuilds the main window, recording overlay and voice button on a later event-loop turn (never inside the WebView2 callback); the rebuilt main window comes back hidden, minimized or visible exactly as it was and is never activated unless the user asked for it. Automatic repairs are capped at 3 per 10 minutes; after that the dead windows are closed and the next tray "show" rebuilds on request. `lib.rs` prevents the all-windows-closed exit while a rebuild is in flight. |
@@ -214,6 +215,16 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/overlay/RecordingOverlayStatusIcon.tsx` | Custom-overlay status icon frames (capsule, bare, ring, tile, live dot, glass orb, flipping coin), shared by the overlay and the settings preview. `resolveRecordingOverlayStatusIconStyle` maps Auto to a frame by material. |
 | `src/overlay/RecordingOverlayDepthLayers.css` | Pseudo-3D overlay layers (horizon grid, warp stars, tunnel rings, spiral galaxy, dot swell, gyroscope, holo globe, ringed planet, plasma orb) and the CSS of the carousel and twisted-ribbon bars: perspective-shaped CSS animations of transform and opacity only, with resting poses for reduced motion. The ringed planet draws its ring twice, clipped to the far and near halves around the planet, instead of depth sorting. The 3D bar styles live in `RecordingOverlayBars.tsx` (pillars, marbles, carousel, and ribbon animate transforms; cubes project and light SVG faces per frame; the ridgeline builds each sampled ridge once and only transitions its group transform). Pillar, marble, and cube lane widths must match `recording_overlay_default_width` in `overlay.rs`; ridgeline, carousel, and ribbon use the plain bar track width. |
 | `vite.config.ts` | Multi-entry target for live preview and the lazy TTS playback overlay. |
+
+## Linux and macOS
+
+Not compilable on the Windows dev machine; verify with the manual `Platform check` workflow (`.github/workflows/platform-check.yml`).
+
+- Linux paste/typing tools, X11 push-to-talk release grace, layer-shell overlay, History playback: `clipboard.rs`, `shortcut.rs` (`linux_ptt`), `overlay.rs`, `HistorySettings.tsx`.
+- macOS: Enigo and shortcuts are created on request (`initialize_enigo`/`initialize_shortcuts`) once Accessibility exists; `apply_startup_activation_policy` in `lib.rs`.
+- Env switches: `AIVORELAY_NO_GTK_LAYER_SHELL`, `AIVORELAY_METAL_RESIDENCY`, `AIVORELAY_FORCE_AI_STUB`, `AIVORELAY_DISABLE_UPDATER` (Nix sets it), `WEBKIT_DISABLE_DMABUF_RENDERER`.
+- Linux CI jobs get no secrets or write token and build without updater artifacts (`tauri.linux.conf.json`); keep it that way.
+- Nix: `flake.nix`, `.nix/bun.nix` (regenerate with `bun scripts/check-nix-deps.ts`), checked by the manual `nix build check` workflow.
 
 ## Other Context Files
 

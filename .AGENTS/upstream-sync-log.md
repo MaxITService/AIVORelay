@@ -26,9 +26,16 @@ Audit note (2026-10-17):
   already use Carbon via Tauri global-shortcut here; detection UI not ported),
   `5a7c0eac`, `96afb0cf`, `133c50c6`, tray commits; appearance theming; Handy-only
   docs and Homebrew; coordinator (`438582fc` adapted into the shortcut handler).
-  Open: Nix, AppImage linuxdeploy repack (`b428ae4c` `d7fc6a07` `eba5d9e2`).
-- Cargo.lock needs regeneration for `objc2`, `objc2-service-management`,
-  `gtk` and `gtk-layer-shell`.
+  Also ported: AppImage via linuxdeploy plus a package audit (`b428ae4c`
+  `d7fc6a07` `eba5d9e2`), Nix flake and modules (all `nix` commits,
+  `b0266607` as `AIVORELAY_DISABLE_UPDATER`), and the `cf49ab35` main-thread
+  rule for the delayed overlay reassert. Deferred: reliable paste `a70ac84f`
+  (cross-platform beta), transcribe-file preview playback on Linux.
+- Hardening beyond upstream: Linux CI gets no secrets or write token, the
+  settings store and its backups are owner-only on Unix, and a manual
+  `Platform check` workflow compiles and tests Linux and macOS read-only.
+- Cargo.lock regenerated for `objc2`, `objc2-service-management`, `gtk` and
+  `gtk-layer-shell` (`toml_parser` moves to 1.1.5).
 
 Audit note (2026-10-16):
 - Reviewed the 12-commit linear corridor after `f6b3f829` through `9e57a0d7`;
