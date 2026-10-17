@@ -32,7 +32,6 @@ pub fn update_recording_overlay_enabled_cache(enabled: bool) {
     RECORDING_OVERLAY_ENABLED.store(enabled, Ordering::Relaxed);
 }
 
-#[cfg(not(target_os = "macos"))]
 use log::debug;
 #[cfg(target_os = "windows")]
 use log::info;
@@ -279,7 +278,7 @@ fn configure_layer_shell_geometry(
     gtk_window: &gtk::ApplicationWindow,
     geometry: RecordingOverlayWindowGeometry,
 ) {
-    use gtk::gdk::prelude::{DisplayExt, MonitorExt};
+    use gtk::gdk::prelude::MonitorExt;
     use gtk::prelude::{GtkWindowExt, WidgetExt};
 
     let x = geometry.x.round() as i32;
@@ -2390,7 +2389,10 @@ pub fn show_tts_overlay_window(app_handle: &AppHandle) {
     if let Some(window) = app_handle.get_webview_window(TTS_OVERLAY_WINDOW_LABEL) {
         let _ = window.unminimize();
         let _ = window.show();
+        #[cfg(target_os = "windows")]
         force_overlay_topmost(&window);
+        #[cfg(not(target_os = "windows"))]
+        let _ = window.set_always_on_top(true);
         let _ = window.set_focus();
     }
 }
