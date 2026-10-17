@@ -1309,7 +1309,8 @@ mod tests {
             KOKORO_INSTALL_ESTIMATE_BYTES
         );
         assert!(status.model_license_url.starts_with("https://"));
-        assert!(status.model_license_path.ends_with("model\\LICENSE"));
+        assert!(std::path::Path::new(&status.model_license_path)
+            .ends_with(std::path::Path::new("model").join("LICENSE")));
     }
 
     #[test]
