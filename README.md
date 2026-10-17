@@ -1,6 +1,4 @@
 # AivoRelay
-Branch tags: #branch/main #branch/release-microsoft-store
-
 [![Hits](https://hits.sh/github.com/MaxITService/AIVORelay.svg?style=flat)](https://hits.sh/github.com/MaxITService/AIVORelay/)
 
 ![large_logo](Promo/large_logo.jpg)
