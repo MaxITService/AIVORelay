@@ -1,0 +1,45 @@
+name: "Package check"
+
+# Builds debug packages for Linux (deb, rpm, AppImage, x64 and ARM64) and macOS
+# through the shared build workflow, then runs its package audit. Manual only.
+# No secrets are passed to the called workflow, so nothing is signed or
+# published: it proves the packaging steps work, not that a release can ship.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-check:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: "ubuntu-22.04"
+            args: "--debug --bundles deb"
+            target: "x86_64-unknown-linux-gnu"
+          - platform: "ubuntu-24.04"
+            args: "--debug --bundles appimage,rpm"
+            target: "x86_64-unknown-linux-gnu"
+          - platform: "ubuntu-24.04-arm"
+            args: "--debug --bundles appimage,deb,rpm"
+            target: "aarch64-unknown-linux-gnu"
+          - platform: "macos-26"
+            args: "--debug --target aarch64-apple-darwin"
+            target: "aarch64-apple-darwin"
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build.yml
+    with:
+      platform: ${{ matrix.platform }}
+      target: ${{ matrix.target }}
+      build-args: ${{ matrix.args }}
+      sign-binaries: false
+      asset-prefix: "aivorelay-package-check"
+      upload-artifacts: false
+      is-debug-build: true
