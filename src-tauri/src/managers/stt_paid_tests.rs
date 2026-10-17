@@ -42,8 +42,12 @@ fn app() -> &'static AppHandle {
     static APP: OnceLock<AppHandle> = OnceLock::new();
     APP.get_or_init(|| {
         crate::tls::initialize();
-        let app = tauri::Builder::default()
-            .any_thread()
+        let builder = tauri::Builder::default();
+        // `any_thread` exists only on Windows and Linux; macOS tests must stay on
+        // the main thread.
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        let builder = builder.any_thread();
+        let app = builder
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("test app");
         let handle = app.handle().clone();
