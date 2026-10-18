@@ -1,7 +1,7 @@
 name: "Platform check"
 
-# Compiles and tests the Rust backend on Linux and macOS, which cannot be built
-# on the Windows development machine. Manual only. It reads the repository and
+# Compiles and tests the Rust backend on Linux, macOS and Windows. Manual only.
+# Linux and macOS cannot be built on the Windows development machine. Reads the repository and
 # nothing else: no secrets, no signing, no uploads, and a read-only token.
 on:
   workflow_dispatch:
@@ -117,6 +117,8 @@ jobs:
           $targetDir = "$drive\t"
           New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
           "CARGO_TARGET_DIR=$targetDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $cacheTarget = [System.IO.Path]::GetRelativePath("$env:GITHUB_WORKSPACE/src-tauri", $targetDir) -replace '\\', '/'
+          "RUST_CACHE_TARGET=$cacheTarget" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       # Third-party action pinned to an immutable commit, as in the build workflow.
       - name: Install Vulkan SDK
@@ -139,6 +141,12 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Set-Content -Path dist/index.html -Value '<!doctype html>'
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> ${{ env.RUST_CACHE_TARGET }}"
+          key: platform-check-windows
 
       - name: cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml --lib --locked
