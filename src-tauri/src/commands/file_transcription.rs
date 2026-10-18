@@ -1124,11 +1124,7 @@ pub async fn transcribe_audio_file(
             enable_language_identification: Some(enable_language_identification),
         };
 
-        #[cfg(target_os = "windows")]
         let api_key = crate::secure_keys::get_soniox_api_key();
-
-        #[cfg(not(target_os = "windows"))]
-        let api_key = String::new();
 
         let transcript = soniox_manager
             .transcribe_file_async(
@@ -1205,11 +1201,7 @@ pub async fn transcribe_audio_file(
             .map(|p| p.language.clone())
             .unwrap_or_else(|| settings.selected_language.clone());
 
-        #[cfg(target_os = "windows")]
         let api_key = crate::secure_keys::get_deepgram_api_key();
-
-        #[cfg(not(target_os = "windows"))]
-        let api_key = String::new();
 
         let deepgram_options = DeepgramTranscriptionOptions {
             interim_results: Some(settings.deepgram_interim_results),
