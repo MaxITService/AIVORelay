@@ -104,6 +104,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "Live Monitor sử dụng micrô trên nền tảng này. Tính năng thu âm thanh hệ thống hiện chỉ có trên Windows."
+      }
+    },
     "general": {
       "title": "Chung",
       "shortcut": {
@@ -211,6 +216,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "Tập lệnh nhận toàn bộ bản chép lời một lần sau khi kết thúc ghi âm. Thời gian thực hiện tối đa là 30 giây.",
         "title": "Phương thức dán",
         "description": "Chọn cách chèn văn bản. Trực tiếp: mô phỏng gõ phím qua đầu vào hệ thống. Không có: bỏ qua dán, chỉ cập nhật lịch sử/clipboard.",
         "options": {
@@ -578,6 +584,7 @@
     "portableUpdateButton": "Tải trình cài đặt"
   },
   "common": {
+    "retry": "Thử lại",
     "loading": "Đang tải...",
     "save": "Lưu",
     "cancel": "Hủy",

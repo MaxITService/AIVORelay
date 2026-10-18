@@ -2889,6 +2889,7 @@
       "audio": {
         "microphoneTitle": "Microphone to listen to",
         "microphoneToggle": "Listen to microphone",
+        "microphoneOnly": "Live Monitor uses the microphone on this platform. System audio capture is currently available on Windows.",
         "microphoneToggleDescription": "Include microphone input in the live transcription stream.",
         "outputTitle": "Output to listen to",
         "outputToggle": "Listen to system output",
@@ -3252,6 +3253,7 @@
           },
           "tip": "Most users should use Clipboard (Ctrl+V). Try Direct if you experience issues with games or terminals."
         },
+        "externalScriptHelp": "The script receives the complete transcript once, after recording finishes. It has up to 30 seconds to finish.",
         "externalScriptPlaceholder": "/path/to/your/script.sh"
       },
       "clipboardHandling": {
@@ -4897,6 +4899,7 @@
     "vramTooltipSystemFree": "System free: {{free}} / {{total}} GB (total is physical VRAM)"
   },
   "common": {
+    "retry": "Retry",
     "loading": "Loading...",
     "save": "Save",
     "cancel": "Cancel",

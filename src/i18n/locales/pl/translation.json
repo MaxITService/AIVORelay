@@ -103,6 +103,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "Live Monitor używa mikrofonu na tej platformie. Przechwytywanie dźwięku systemowego jest obecnie dostępne tylko w Windows."
+      }
+    },
     "general": {
       "title": "Ogólne",
       "shortcut": {
@@ -210,6 +215,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "Skrypt otrzymuje całą transkrypcję raz po zakończeniu nagrywania. Ma maksymalnie 30 sekund na wykonanie.",
         "title": "Metoda wklejania",
         "description": "Wybierz sposób wstawiania tekstu. Direct: symuluje wpisywanie. None: pomija wklejanie, tylko aktualizuje historię/clipboard.",
         "options": {
@@ -577,6 +583,7 @@
     "portableUpdateButton": "Pobierz instalator"
   },
   "common": {
+    "retry": "Ponów",
     "loading": "Wczytywanie...",
     "save": "Zapisz",
     "cancel": "Anuluj",
