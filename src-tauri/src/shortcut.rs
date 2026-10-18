@@ -823,6 +823,11 @@ mod linux_ptt {
             .unwrap_or_else(|error| error.into_inner())
     }
 
+    /// Forgets every pending release (a cancel ends the recording they belong to).
+    pub(super) fn clear() {
+        pending().clear();
+    }
+
     /// A press cancels a pending release for the same binding. Returns true
     /// when it did, meaning the press is an auto-repeat to swallow.
     pub(super) fn cancel_pending_release(binding_id: &str) -> bool {
@@ -862,6 +867,12 @@ mod linux_ptt {
         });
         true
     }
+}
+
+/// Drops push-to-talk releases still waiting out their grace period.
+pub(crate) fn clear_pending_push_to_talk_releases() {
+    #[cfg(target_os = "linux")]
+    linux_ptt::clear();
 }
 
 fn handle_shortcut_event_inner(

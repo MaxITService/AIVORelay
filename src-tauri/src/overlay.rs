@@ -289,7 +289,10 @@ fn configure_layer_shell_geometry(
     let (output_x, output_y) = match WidgetExt::display(gtk_window).monitor_at_point(center_x, center_y)
     {
         Some(monitor) => {
-            gtk_window.set_monitor(&monitor);
+            // Re-assigning the same output would remap a visible surface.
+            if gtk_window.monitor().as_ref() != Some(&monitor) {
+                gtk_window.set_monitor(&monitor);
+            }
             let bounds = monitor.geometry();
             (bounds.x(), bounds.y())
         }
