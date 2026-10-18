@@ -1712,6 +1712,24 @@ fn type_text_via_xdotool(text: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// dotool reads one command per line, so text containing a newline would run its
+/// later lines as commands. Type each line on its own and press Enter between them.
+#[cfg(target_os = "linux")]
+fn dotool_script(text: &str) -> String {
+    let mut script = String::new();
+    for (index, line) in text.replace('\r', "").split('\n').enumerate() {
+        if index > 0 {
+            script.push_str("key enter\n");
+        }
+        if !line.is_empty() {
+            script.push_str("type ");
+            script.push_str(line);
+            script.push('\n');
+        }
+    }
+    script
+}
+
 /// Type text directly via dotool (works on both Wayland and X11 via uinput).
 #[cfg(target_os = "linux")]
 fn type_text_via_dotool(text: &str) -> Result<(), String> {
@@ -1724,8 +1742,8 @@ fn type_text_via_dotool(text: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to spawn dotool: {}", e))?;
 
     if let Some(mut stdin) = child.stdin.take() {
-        // dotool uses "type <text>" command
-        writeln!(stdin, "type {}", text)
+        stdin
+            .write_all(dotool_script(text).as_bytes())
             .map_err(|e| format!("Failed to write to dotool stdin: {}", e))?;
     }
 
@@ -1915,6 +1933,9 @@ fn send_key_combo_via_xdotool(paste_method: &PasteMethod) -> Result<(), String> 
     Ok(())
 }
 
+/// Longest an external paste script may run before it is killed.
+const EXTERNAL_SCRIPT_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Pastes text by invoking an external script.
 /// The script receives the text to paste as a single argument.
 fn paste_via_external_script(text: &str, script_path: &str) -> Result<(), String> {
@@ -1926,13 +1947,37 @@ fn paste_via_external_script(text: &str, script_path: &str) -> Result<(), String
     // clipboard selection is replaced instead of returning after the script
     // itself exits.
     use std::process::Stdio;
-    let status = Command::new(script_path)
+    let mut child = Command::new(script_path)
         .arg(text)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
+        .spawn()
         .map_err(|e| format!("Failed to execute external script '{}': {}", script_path, e))?;
+
+    // A hung script must not block output (and the input system) forever.
+    let deadline = Instant::now() + EXTERNAL_SCRIPT_TIMEOUT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "External script '{}' did not finish within {} seconds",
+                    script_path,
+                    EXTERNAL_SCRIPT_TIMEOUT.as_secs()
+                ));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(e) => {
+                return Err(format!(
+                    "Failed to wait for external script '{}': {}",
+                    script_path, e
+                ))
+            }
+        }
+    };
 
     if !status.success() {
         return Err(format!(
@@ -2632,8 +2677,7 @@ fn restore_cut_selection_from_backup(app_handle: &AppHandle, text: &str) -> Resu
         return Ok(());
     }
 
-    let clipboard = app_handle.clipboard();
-    clipboard.write_text(text).map_err(|e| {
+    write_plain_clipboard_text(app_handle, text).map_err(|e| {
         format!(
             "Failed to restore clipboard text for selection recovery: {}",
             e
@@ -2647,7 +2691,7 @@ fn restore_cut_selection_from_backup(app_handle: &AppHandle, text: &str) -> Resu
         .0
         .lock()
         .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
-    input::send_paste_ctrl_v(&mut enigo)?;
+    send_paste_shortcut(&mut enigo, &PasteMethod::CtrlV)?;
 
     Ok(())
 }
@@ -2688,7 +2732,7 @@ pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> 
         }
     }
 
-    if let Err(err) = clipboard.write_text(&clipboard_backup) {
+    if let Err(err) = write_plain_clipboard_text(app_handle, &clipboard_backup) {
         warn!(
             "Failed to restore clipboard after selection capture: {}",
             err
@@ -2759,7 +2803,7 @@ pub fn capture_selection_text_copy(app_handle: &AppHandle) -> Result<String, Str
         return capture_result;
     }
 
-    if let Err(err) = clipboard.write_text(&clipboard_backup) {
+    if let Err(err) = write_plain_clipboard_text(app_handle, &clipboard_backup) {
         warn!(
             "Failed to restore clipboard after selection copy capture: {}",
             err
@@ -2847,6 +2891,19 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
         assert_eq!(
             ydotool_key_args(&PasteMethod::ShiftInsert, YdotoolKeySyntax::RawKeycodes).unwrap(),
             ["key", "42:1", "110:1", "110:0", "42:0"]
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn dotool_script_never_turns_text_lines_into_commands() {
+        assert_eq!(
+            dotool_script("hello\nkey ctrl+c"),
+            "type hello\nkey enter\ntype key ctrl+c\n"
+        );
+        assert_eq!(
+            dotool_script("a\r\n\r\nb"),
+            "type a\nkey enter\nkey enter\ntype b\n"
         );
     }
 

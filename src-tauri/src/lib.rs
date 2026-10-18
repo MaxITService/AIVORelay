@@ -533,8 +533,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
             Ok(enigo_state) => {
                 app_handle.manage(enigo_state);
             }
-            Err(error) if cfg!(target_os = "macos") => {
-                log::warn!("Input state unavailable without Accessibility permission: {error}");
+            // macOS needs the Accessibility permission first. On Linux the input
+            // backend can be missing (for example Wayland without XWayland); a
+            // failed paste then reports an error instead of the app crashing.
+            Err(error) if cfg!(any(target_os = "macos", target_os = "linux")) => {
+                log::warn!("Input state unavailable: {error}");
             }
             Err(error) => panic!("Failed to initialize input state (Enigo): {error}"),
         }
