@@ -6,6 +6,8 @@ name: "Package check"
 # published: it proves the packaging steps work, not that a release can ship.
 on:
   workflow_dispatch:
+  push:
+    branches: [ci/platform-verify]
 
 permissions:
   contents: read
