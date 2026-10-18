@@ -103,6 +103,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "Live Monitor verwendet auf dieser Plattform das Mikrofon. Die Aufnahme von Systemaudio ist derzeit nur unter Windows verfügbar."
+      }
+    },
     "general": {
       "title": "Allgemein",
       "shortcut": {
@@ -210,6 +215,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "Das Skript erhält nach Aufnahmeende einmal den vollständigen Text. Es hat bis zu 30 Sekunden Zeit.",
         "title": "Einfügemethode",
         "description": "Wähle, wie Text eingefügt wird. Direkt: simuliert Tippen über Systemeingabe. Keine: überspringt Einfügen, aktualisiert nur Verlauf/Zwischenablage.",
         "options": {
@@ -579,6 +585,7 @@
     "checkForUpdates": "Nach Updates suchen"
   },
   "common": {
+    "retry": "Erneut versuchen",
     "loading": "Wird geladen...",
     "save": "Speichern",
     "cancel": "Abbrechen",

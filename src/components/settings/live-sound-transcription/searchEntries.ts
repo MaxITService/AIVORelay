@@ -1,9 +1,18 @@
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import type { SettingsSearchEntry } from "../settingsSearchTypes";
 import {
   legacyLiveSttSelection,
   sttModelCapabilities,
   sttSupports,
 } from "../../../lib/sttModelSelection";
+
+const isWindows = (() => {
+  try {
+    return getOsType() === "windows";
+  } catch {
+    return false;
+  }
+})();
 
 const liveSelectionSupportsDiarization = (
   settings: Parameters<NonNullable<SettingsSearchEntry["isAvailable"]>>[0],
@@ -27,5 +36,5 @@ export const liveSoundSearchEntries = [
   { id: "live-endpoint-settings", section: "liveSoundTranscription", anchor: "settings-live-endpoint-settings", labelKey: "settings.liveSoundTranscription.sessionOverrides.title", fallbackLabel: "Session Settings", isAvailable: liveSelectionSupportsDiarization, unavailableReasonKey: "settingsSearch.unavailable.diarization", unavailableReasonFallback: "Select a model or provider that supports speaker diarization.", keywords: ["endpoint detection","endpoint delay","endpointing","live endpoint","определение конца речи","задержка окончания"] },
   { id: "live-speaker-names", section: "liveSoundTranscription", anchor: "settings-live-speaker-names", labelKey: "settings.liveSoundTranscription.speakerNames.title", fallbackLabel: "Speaker Names", isAvailable: liveSelectionSupportsDiarization, unavailableReasonKey: "settingsSearch.unavailable.diarization", unavailableReasonFallback: "Select a model or provider that supports speaker diarization.", keywords: ["speaker names","speaker name sets","rename speakers","speaker profiles","имена спикеров","набор имен","переименовать спикеров"] },
   { id: "live-microphone-source", section: "liveSoundTranscription", anchor: "settings-live-microphone-source", labelKey: "settings.liveSoundTranscription.audio.microphoneToggle", fallbackLabel: "Listen to microphone", keywords: ["listen microphone","live microphone","input source","слушать микрофон","источник микрофон"] },
-  { id: "live-output-source", section: "liveSoundTranscription", anchor: "settings-live-output-source", labelKey: "settings.liveSoundTranscription.audio.outputToggle", fallbackLabel: "Listen to system output", keywords: ["system audio","system output","loopback","computer audio","звук компьютера","системный звук"] },
+  { id: "live-output-source", section: "liveSoundTranscription", anchor: "settings-live-output-source", labelKey: "settings.liveSoundTranscription.audio.outputToggle", fallbackLabel: "Listen to system output", unavailableReasonKey: "settingsSearch.unavailable.windowsOnly", unavailableReasonFallback: "Available on Windows only.", isAvailable: () => isWindows, keywords: ["system audio","system output","loopback","computer audio","звук компьютера","системный звук"] },
 ] as const satisfies readonly SettingsSearchEntry[];

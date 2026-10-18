@@ -104,6 +104,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "Live Monitor utilise le microphone sur cette plateforme. La capture du son du système est actuellement disponible sous Windows uniquement."
+      }
+    },
     "general": {
       "title": "Général",
       "shortcut": {
@@ -211,6 +216,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "Le script reçoit une seule fois la transcription complète après la fin de l’enregistrement. Il dispose de 30 secondes maximum.",
         "title": "Méthode de collage",
         "description": "Choisissez comment le texte est inséré. Direct : simule la frappe via l'entrée système. Aucun : ignore le collage, met uniquement à jour l'historique/presse-papiers.",
         "options": {
@@ -580,6 +586,7 @@
     "checkForUpdates": "Rechercher des mises à jour"
   },
   "common": {
+    "retry": "Réessayer",
     "loading": "Chargement...",
     "save": "Enregistrer",
     "cancel": "Annuler",

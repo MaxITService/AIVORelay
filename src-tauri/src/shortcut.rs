@@ -834,6 +834,16 @@ mod linux_ptt {
         pending().remove(binding_id).is_some()
     }
 
+    fn insert_release(pending: &mut HashMap<String, u64>, binding_id: &str, generation: u64) -> bool {
+        match pending.entry(binding_id.to_string()) {
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(generation);
+                true
+            }
+            std::collections::hash_map::Entry::Occupied(_) => false,
+        }
+    }
+
     /// Defers a push-to-talk release. Returns false when one is already
     /// pending, so the caller treats the duplicate as handled.
     pub(super) fn defer_release(
@@ -842,7 +852,8 @@ mod linux_ptt {
         shortcut_string: &str,
     ) -> bool {
         let generation = NEXT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        if pending().insert(binding_id.to_string(), generation).is_some() {
+        // A duplicate must not replace the generation owned by the existing timer.
+        if !insert_release(&mut pending(), binding_id, generation) {
             return false;
         }
 
@@ -866,6 +877,20 @@ mod linux_ptt {
             }
         });
         true
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn duplicate_release_keeps_the_generation_that_will_stop_recording() {
+            let mut releases = HashMap::new();
+            assert!(insert_release(&mut releases, "transcribe", 1));
+            assert!(!insert_release(&mut releases, "transcribe", 2));
+            assert_eq!(releases.remove("transcribe"), Some(1));
+            assert!(insert_release(&mut releases, "transcribe", 3));
+        }
     }
 }
 

@@ -103,6 +103,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "Live Monitor na této platformě používá mikrofon. Záznam systémového zvuku je zatím dostupný pouze ve Windows."
+      }
+    },
     "general": {
       "title": "Obecné",
       "shortcut": {
@@ -210,6 +215,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "Skript obdrží celý přepis jednou po dokončení nahrávání. Na dokončení má nejvýše 30 sekund.",
         "title": "Způsob vložení",
         "description": "Vyberte, jak se text vkládá. Přímé: simuluje psaní přes systémový vstup. Žádné: přeskočí vložení a aktualizuje pouze historii/schránku.",
         "options": {
@@ -573,6 +579,7 @@
     "checkForUpdates": "Zkontrolovat aktualizace"
   },
   "common": {
+    "retry": "Zkusit znovu",
     "loading": "Načítání...",
     "save": "Uložit",
     "cancel": "Zrušit",

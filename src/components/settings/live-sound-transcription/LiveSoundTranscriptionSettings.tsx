@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import { Copy, Check, FileCode2, FileText, ChevronDown } from "lucide-react";
 import { save } from "@tauri-apps/plugin-dialog";
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import { commands } from "@/bindings";
 import { Button } from "../../ui/Button";
 import { Collapse } from "../../ui/Collapse";
@@ -210,6 +211,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const { t } = useTranslation();
   const whatIsThisContentId = React.useId();
   const { settings, refreshSettings } = useSettings();
+  const supportsSystemAudio = getOsType() === "windows";
   const [finalText, setFinalText] = useState("");
   const [interimText, setInterimText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -345,9 +347,9 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const liveModeEnabled = providerLiveModeEnabled;
   const autoStopMinutes = Number((settings as any)?.live_sound_auto_stop_minutes ?? 60);
 
-  const liveSoundCaptureSource = String(
+  const liveSoundCaptureSource = supportsSystemAudio ? String(
     (settings as any)?.live_sound_capture_source ?? "system_output",
-  );
+  ) : "microphone";
   const micEnabled = liveSoundCaptureSource === "microphone" || liveSoundCaptureSource === "both";
   const outputEnabled = liveSoundCaptureSource === "system_output" || liveSoundCaptureSource === "both";
 
@@ -1548,6 +1550,11 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       )}
 
       <SettingsGroup title={t("settings.sound.title")}>
+        {!supportsSystemAudio && (
+          <p className="px-4 py-3 text-sm text-[#9a9a9a]">
+            {t("settings.liveSoundTranscription.audio.microphoneOnly", "Live Monitor uses the microphone on this platform. System audio capture is currently available on Windows.")}
+          </p>
+        )}
         <div className={micEnabled ? "rounded-xl ring-2 ring-emerald-500/40" : undefined}>
           {micEnabled && (
             <div className="px-4 pt-3 pb-0">
@@ -1583,7 +1590,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
             </Button>
           </SettingContainer>
         </div>
-        <div className={outputEnabled ? "rounded-xl ring-2 ring-emerald-500/40" : undefined}>
+        {supportsSystemAudio && <div className={outputEnabled ? "rounded-xl ring-2 ring-emerald-500/40" : undefined}>
           {outputEnabled && (
             <div className="px-4 pt-3 pb-0">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-semibold text-emerald-400">
@@ -1616,7 +1623,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                   : t("settings.liveSoundTranscription.audio.sourceEnable")}
             </Button>
           </SettingContainer>
-        </div>
+        </div>}
       </SettingsGroup>
     </div>
   );

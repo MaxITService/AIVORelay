@@ -15,7 +15,6 @@ import { commands } from "@/bindings";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { type } from "@tauri-apps/plugin-os";
-import { checkAccessibilityPermission } from "tauri-plugin-macos-permissions-api";
 import { useNavigationStore } from "./stores/navigationStore";
 import { OPEN_FIRST_START_WIZARD_EVENT } from "./constants/appEvents";
 import type { ModelStateEvent } from "./lib/types/events";
@@ -214,34 +213,6 @@ function App() {
   useEffect(() => {
     checkOnboardingStatus();
   }, []);
-
-  // On macOS the input system and shortcuts need the Accessibility permission,
-  // so the backend creates them on request. Both commands are idempotent and
-  // no-ops on other platforms, where they exist from startup. A failure just
-  // means the permission is still missing: AccessibilityPermissions retries
-  // after the user grants it.
-  useEffect(() => {
-    if (showOnboarding !== false) return;
-    let cancelled = false;
-    void (async () => {
-      // macOS: creating the input system and the key listener without the
-      // Accessibility permission fails and is never retried, so wait for the grant
-      // (AccessibilityPermissions initializes them as soon as it is given).
-      if (type() === "macos") {
-        try {
-          if (!(await checkAccessibilityPermission())) return;
-        } catch {
-          return;
-        }
-      }
-      if (cancelled) return;
-      await commands.initializeEnigo();
-      await commands.initializeShortcuts();
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [showOnboarding]);
 
   useEffect(() => {
     let disposed = false;

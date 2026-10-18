@@ -103,6 +103,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "Live Monitor usa il microfono su questa piattaforma. L’acquisizione dell’audio di sistema è attualmente disponibile solo su Windows."
+      }
+    },
     "general": {
       "title": "Generale",
       "shortcut": {
@@ -210,6 +215,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "Lo script riceve la trascrizione completa una sola volta al termine della registrazione. Ha fino a 30 secondi per completarsi.",
         "title": "Metodo di Incolla",
         "description": "Scegli come viene inserito il testo. Diretto: simula l'input da tastiera. Nessuno: non incolla, aggiorna solo la cronologia/appunti.",
         "options": {
@@ -573,6 +579,7 @@
     "checkForUpdates": "Controlla aggiornamenti"
   },
   "common": {
+    "retry": "Riprova",
     "loading": "Caricamento...",
     "save": "Salva",
     "cancel": "Annulla",

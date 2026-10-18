@@ -153,7 +153,7 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
   const provider = getOutputProviderInfo(settings, {
     sttSelection, profilePreviewOutputOnlyEnabled: previewOutputOnly,
   }, localModels);
-  const showLiveWarning = keyActionsBuffer && provider.streamsLiveText;
+  const showLiveWarning = method !== "external_script" && keyActionsBuffer && provider.streamsLiveText;
   const delayApplicable = (key: DelayKey): boolean => key === "paste_delay_ms" ? usesClipboard
     : key === "live_window_resume_delay_ms" ? method !== "none" && Boolean(effective("check_active_window"))
     : key === "recording_start_delay_ms" ? method !== "none" && startKey !== ""
@@ -437,7 +437,10 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
           <SettingContainer id={`profile-output-${scopeKey}-paste-method`} title={t("settings.advanced.pasteMethod.title")} description={t("settings.advanced.pasteMethod.description")} descriptionMode="tooltip" grouped={true}>
             <div className="flex w-full max-w-full flex-col gap-2 md:w-[200px]">
               <Dropdown className="w-full max-w-full [&>button]:min-w-0" options={pasteChoices} selectedValue={selected("paste_method")} disabled={busy} onSelect={value => void save({ paste_method: value as OutputSettings["paste_method"] })} />
-              {method === "external_script" && <Input type="text" value={externalScript.draft} onChange={event => externalScript.setDraft(event.target.value)} onBlur={externalScript.persistDraft} placeholder={t("settings.advanced.pasteMethod.externalScriptPlaceholder")} />}
+              {method === "external_script" && <>
+                <Input type="text" value={externalScript.draft} onChange={event => externalScript.setDraft(event.target.value)} onBlur={externalScript.persistDraft} placeholder={t("settings.advanced.pasteMethod.externalScriptPlaceholder")} />
+                <p className="text-xs text-mid-gray">{t("settings.advanced.pasteMethod.externalScriptHelp")}</p>
+              </>}
             </div>
           </SettingContainer>
           {method === "direct" && osType === "linux" && <OutputDependencies>

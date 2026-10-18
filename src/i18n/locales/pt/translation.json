@@ -103,6 +103,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "O Live Monitor usa o microfone nesta plataforma. A captura do áudio do sistema está atualmente disponível apenas no Windows."
+      }
+    },
     "general": {
       "title": "Geral",
       "shortcut": {
@@ -210,6 +215,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "O script recebe a transcrição completa uma vez após o fim da gravação. Tem até 30 segundos para terminar.",
         "title": "Método de Colar",
         "description": "Escolha como o texto é inserido. Direto: simula digitação via entrada do sistema. Nenhum: ignora colar, apenas atualiza histórico/área de transferência.",
         "options": {
@@ -576,6 +582,7 @@
     "portableUpdateButton": "Abrir GitHub Releases"
   },
   "common": {
+    "retry": "Tentar novamente",
     "loading": "Carregando...",
     "save": "Salvar",
     "cancel": "Cancelar",

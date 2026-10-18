@@ -103,6 +103,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "Live Monitor usa el micrófono en esta plataforma. La captura de audio del sistema solo está disponible en Windows."
+      }
+    },
     "general": {
       "title": "General",
       "shortcut": {
@@ -210,6 +215,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "El script recibe la transcripción completa una vez al finalizar la grabación. Tiene hasta 30 segundos para terminar.",
         "title": "Método de Pegado",
         "description": "Elige cómo se inserta el texto. Directo: simula escritura mediante entrada del sistema. Ninguno: omite el pegado, solo actualiza historial/portapapeles.",
         "options": {
@@ -578,6 +584,7 @@
     "checkForUpdates": "Buscar actualizaciones"
   },
   "common": {
+    "retry": "Reintentar",
     "loading": "Cargando...",
     "save": "Guardar",
     "cancel": "Cancelar",

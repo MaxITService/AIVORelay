@@ -182,7 +182,7 @@ fn current_dictation_output() -> Option<(u64, ResolvedOutputSettings)> {
     lock_dictation_output_sessions().output_for_chunk(None)
 }
 
-fn dictation_output_settings(operation_id: u64) -> Option<ResolvedOutputSettings> {
+pub(crate) fn dictation_output_settings(operation_id: u64) -> Option<ResolvedOutputSettings> {
     lock_dictation_output_sessions().get(operation_id).map(|session| session.settings.clone())
 }
 
@@ -2042,11 +2042,16 @@ fn send_key_combo_via_xdotool(paste_method: &PasteMethod) -> Result<(), String> 
 }
 
 /// Longest an external paste script may run before it is killed.
-const EXTERNAL_SCRIPT_TIMEOUT: Duration = Duration::from_secs(30);
+const EXTERNAL_SCRIPT_TIMEOUT: Duration = Duration::from_millis(crate::settings::EXTERNAL_SCRIPT_TIMEOUT_MS);
 
 /// Pastes text by invoking an external script.
 /// The script receives the text to paste as a single argument.
-fn paste_via_external_script(text: &str, script_path: &str) -> Result<(), String> {
+fn paste_via_external_script(
+    text: &str,
+    script_path: &str,
+    timeout: Duration,
+    can_continue: impl Fn() -> bool,
+) -> Result<bool, String> {
     info!("Pasting via external script: {}", script_path);
 
     // Do not capture the script's stdio. Wayland clipboard helpers such as
@@ -2055,30 +2060,40 @@ fn paste_via_external_script(text: &str, script_path: &str) -> Result<(), String
     // clipboard selection is replaced instead of returning after the script
     // itself exits.
     use std::process::Stdio;
-    let mut child = Command::new(script_path)
-        .arg(text)
+    if !can_continue() { return Ok(false); }
+    let mut command = Command::new(script_path);
+    command.arg(text)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
+        .stderr(Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut child = command.spawn()
         .map_err(|e| format!("Failed to execute external script '{}': {}", script_path, e))?;
 
     // A hung script must not block output (and the input system) forever.
-    let deadline = Instant::now() + EXTERNAL_SCRIPT_TIMEOUT;
+    let deadline = Instant::now() + timeout;
     let status = loop {
+        if !can_continue() || crate::output_dispatch::is_cancelled() {
+            terminate_external_script(&mut child);
+            return Ok(false);
+        }
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
+                terminate_external_script(&mut child);
                 return Err(format!(
                     "External script '{}' did not finish within {} seconds",
                     script_path,
-                    EXTERNAL_SCRIPT_TIMEOUT.as_secs()
+                    timeout.as_secs_f64()
                 ));
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(20)),
             Err(e) => {
+                terminate_external_script(&mut child);
                 return Err(format!(
                     "Failed to wait for external script '{}': {}",
                     script_path, e
@@ -2095,7 +2110,18 @@ fn paste_via_external_script(text: &str, script_path: &str) -> Result<(), String
         ));
     }
 
-    Ok(())
+    Ok(true)
+}
+
+fn terminate_external_script(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        // The script may have spawned a delayed paste helper. Kill the whole
+        // process group so it cannot insert after cancellation or a timeout.
+        unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL); }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// Types text directly by simulating individual key presses.
@@ -2114,12 +2140,12 @@ fn paste_direct(enigo: &mut LazyEnigo, app_handle: &AppHandle, text: &str) -> Re
 }
 
 /// Hands text to the user's configured external paste script.
-fn paste_external_script(app_handle: &AppHandle, text: &str) -> Result<(), String> {
+fn paste_external_script(app_handle: &AppHandle, text: &str, can_continue: impl Fn() -> bool) -> Result<bool, String> {
     let script_path = get_settings(app_handle)
         .external_script_path
         .filter(|path| !path.trim().is_empty())
         .ok_or("External script path is not configured")?;
-    paste_via_external_script(text, &script_path)
+    paste_via_external_script(text, &script_path, EXTERNAL_SCRIPT_TIMEOUT, can_continue)
 }
 
 fn send_return_key(enigo: &mut LazyEnigo, key_type: AutoSubmitKey) -> Result<(), String> {
@@ -2509,7 +2535,9 @@ pub(crate) fn paste_with_output_settings(
             paste_direct(&mut enigo, &app_handle, &text)?;
         }
         PasteMethod::ExternalScript => {
-            paste_external_script(&app_handle, &text)?;
+            if !paste_external_script(&app_handle, &text, &output_can_continue)? {
+                return Ok(false);
+            }
         }
         PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
             if !paste_via_clipboard_guarded(
@@ -2696,7 +2724,9 @@ fn paste_stream_chunk_with_output(
                 paste_direct(&mut enigo, &app_handle, &text)?;
             }
             PasteMethod::ExternalScript => {
-                paste_external_script(&app_handle, &text)?;
+                if !paste_external_script(&app_handle, &text, &target_is_current)? {
+                    return Err(TARGET_WINDOW_CHANGED_ERROR.to_string());
+                }
             }
             PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
                 // Do not overwrite a previous chunk until the target has had a
@@ -2744,7 +2774,9 @@ fn paste_stream_chunk_with_output(
                 paste_direct(&mut enigo, &app_handle, &text)?;
             }
             PasteMethod::ExternalScript => {
-                paste_external_script(&app_handle, &text)?;
+                if !paste_external_script(&app_handle, &text, &target_is_current)? {
+                    return Err(TARGET_WINDOW_CHANGED_ERROR.to_string());
+                }
             }
             PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
                 // Streaming chunks are always excluded from the clipboard history.
@@ -3432,6 +3464,42 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
     }
 
     #[cfg(unix)]
+    fn delayed_external_script() -> (std::path::PathBuf, std::path::PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let path = std::env::temp_dir().join(format!("aivorelay-script-{}-{}.sh", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::write(&path, "#!/bin/sh\n(sleep 0.4; printf late > \"$1\") &\nwait\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let marker = path.with_extension("late");
+        (path, marker)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_script_timeout_stops_delayed_child_insertion() {
+        let (script, marker) = delayed_external_script();
+        let result = paste_via_external_script(marker.to_str().unwrap(), script.to_str().unwrap(),
+            Duration::from_millis(80), || true);
+        assert!(result.is_err());
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(!marker.exists(), "a descendant inserted after the script timed out");
+        std::fs::remove_file(script).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_script_cancellation_stops_delayed_child_insertion() {
+        let (script, marker) = delayed_external_script();
+        let started = Instant::now();
+        let result = paste_via_external_script(marker.to_str().unwrap(), script.to_str().unwrap(),
+            EXTERNAL_SCRIPT_TIMEOUT, || started.elapsed() < Duration::from_millis(80));
+        assert_eq!(result.unwrap(), false);
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(!marker.exists(), "a descendant inserted after cancellation");
+        std::fs::remove_file(script).unwrap();
+    }
+
+    #[cfg(unix)]
     #[test]
     fn external_script_does_not_wait_for_inherited_stdio() {
         use std::fs;
@@ -3458,7 +3526,7 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
         let script_path_for_thread = script_path.clone();
         thread::spawn(move || {
             let result =
-                paste_via_external_script("test", script_path_for_thread.to_str().unwrap());
+                paste_via_external_script("test", script_path_for_thread.to_str().unwrap(), EXTERNAL_SCRIPT_TIMEOUT, || true);
             sender.send(result).expect("send script result");
         });
 
