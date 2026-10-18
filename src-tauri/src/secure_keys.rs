@@ -154,7 +154,19 @@ fn read_key_map(
 
 #[cfg(not(target_os = "windows"))]
 pub fn set_api_key(key_type: KeyType, provider_id: Option<&str>, key: &str) -> Result<()> {
-    let credential_name = key_type.credential_name(provider_id);
+    set_named_key(&key_type.credential_name(provider_id), key)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_api_key(key_type: KeyType, provider_id: Option<&str>) -> Result<String> {
+    get_named_key(&key_type.credential_name(provider_id))
+}
+
+/// Stores a key under an arbitrary name (an empty value deletes it). Used for keys
+/// whose naming lives elsewhere, such as the remote OpenAI-compatible STT key.
+#[cfg(not(target_os = "windows"))]
+pub fn set_named_key(credential_name: &str, key: &str) -> Result<()> {
+    let credential_name = credential_name.to_string();
     let _guard = KEY_STORE_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -187,14 +199,13 @@ pub fn set_api_key(key_type: KeyType, provider_id: Option<&str>, key: &str) -> R
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn get_api_key(key_type: KeyType, provider_id: Option<&str>) -> Result<String> {
-    let credential_name = key_type.credential_name(provider_id);
+pub fn get_named_key(credential_name: &str) -> Result<String> {
     let _guard = KEY_STORE_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let store = key_store()?;
     Ok(read_key_map(&store)?
-        .remove(&credential_name)
+        .remove(credential_name)
         .unwrap_or_default())
 }
 
