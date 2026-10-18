@@ -877,6 +877,25 @@ async changePasteMethodSetting(method: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async getAvailableTypingTools() : Promise<string[]> {
+    return await TAURI_INVOKE("get_available_typing_tools");
+},
+async changeTypingToolSetting(tool: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_typing_tool_setting", { tool }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeExternalScriptPathSetting(path: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_external_script_path_setting", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changePasteDelayMsSetting(delay: number) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_paste_delay_ms_setting", { delay }) };
@@ -3331,6 +3350,33 @@ async checkAppleIntelligenceAvailable() : Promise<boolean> {
     return await TAURI_INVOKE("check_apple_intelligence_available");
 },
 /**
+ * Try to initialize Enigo (keyboard/mouse simulation).
+ * On macOS this fails until Accessibility permission is granted; the frontend
+ * retries after the user grants it. Idempotent, and a no-op elsewhere because
+ * the state is created at startup.
+ */
+async initializeEnigo() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("initialize_enigo") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Initialize keyboard shortcuts.
+ * On macOS, this is called after Accessibility is available. Idempotent, and a
+ * no-op elsewhere because shortcuts are registered at startup.
+ */
+async initializeShortcuts() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("initialize_shortcuts") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Returns whether a feature-specific LLM API key is stored in secure storage.
  * On non-Windows platforms this always returns false.
  */
@@ -4427,7 +4473,15 @@ native_streaming_latency_presets?: Partial<{ [key in string]: NativeStreamingLat
  * Allow recognized speech to appear in release diagnostic logs.
  * API-key/secret logging is controlled independently.
  */
-log_transcription_text?: boolean; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; dictation_stats_enabled?: boolean; dictation_word_count?: number; dictation_word_count_since_ms?: number | null; dictation_character_count?: number; dictation_character_count_since_ms?: number | null; paste_method?: PasteMethod; paste_delay_ms?: number;
+log_transcription_text?: boolean; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; dictation_stats_enabled?: boolean; dictation_word_count?: number; dictation_word_count_since_ms?: number | null; dictation_character_count?: number; dictation_character_count_since_ms?: number | null; paste_method?: PasteMethod;
+/**
+ * Linux direct-typing tool; `Auto` picks one for the session type.
+ */
+typing_tool?: TypingTool;
+/**
+ * Script run by the External Script paste method.
+ */
+external_script_path?: string | null; paste_delay_ms?: number;
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
  */
@@ -5034,7 +5088,11 @@ export type OutputFormat =
 export type OutputWhitespaceMode = "preserve" | "remove_if_present" | "add_if_missing"
 export type OverlayPosition = "none" | "top" | "top_left" | "top_right" | "bottom" | "bottom_left" | "bottom_right"
 export type PaginatedHistory = { entries: HistoryEntry[]; has_more: boolean }
-export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v"
+export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v" |
+/**
+ * Hand the text to a user-configured script as its only argument.
+ */
+"external_script"
 export type PermissionAccess = "allowed" | "denied" | "unknown"
 export type PostProcessProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; allow_insecure_http?: boolean; models_endpoint?: string | null }
 export type PreviewOutputModeStatePayload = { active: boolean; recording: boolean; processing_llm: boolean; flush_visible: boolean; is_realtime: boolean; binding_id: string | null; profile_id: string | null; error_message: string | null }
@@ -5454,6 +5512,10 @@ export type TtsSynthesisPreset = { id: string; name: string; config: TtsSynthesi
 export type TtsVoiceCatalog = { provider: TtsProvider; voices: TtsVoiceCatalogEntry[]; source: string; supports_live_refresh: boolean; replace_builtin: boolean; warning: string | null }
 export type TtsVoiceCatalogEntry = { id: string; label: string; group: string; language: string; gender: string; description: string; locales?: TtsVoiceCatalogLocale[] }
 export type TtsVoiceCatalogLocale = { locale: string; label: string; styles: string[] }
+/**
+ * Linux tool used for direct typing. Ignored on other platforms.
+ */
+export type TypingTool = "auto" | "wtype" | "kwtype" | "dotool" | "ydotool" | "xdotool"
 export type UiFileJobProgressStage = "ai_cleanup" | "speech"
 export type UiFileJobStatus = "planned" | "preparing" | "running" | "retrying" | "paused" | "interrupted" | "failed" | "completed"
 export type UiFileJobSummary = { jobId: string; sourcePath: string; outputPath: string; provider: TtsProvider; outputFormat: TtsOutputFormat; status: UiFileJobStatus; completedChunks: number; totalChunks: number; progressStage: UiFileJobProgressStage; partialAvailable: boolean; lastError: string | null; createdAtMs: number; updatedAtMs: number }

@@ -104,6 +104,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "Live Monitor sử dụng micrô trên nền tảng này. Tính năng thu âm thanh hệ thống hiện chỉ có trên Windows."
+      }
+    },
     "general": {
       "title": "Chung",
       "shortcut": {
@@ -211,6 +216,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "Tập lệnh nhận toàn bộ bản chép lời một lần sau khi kết thúc ghi âm. Thời gian thực hiện tối đa là 30 giây.",
         "title": "Phương thức dán",
         "description": "Chọn cách chèn văn bản. Trực tiếp: mô phỏng gõ phím qua đầu vào hệ thống. Không có: bỏ qua dán, chỉ cập nhật lịch sử/clipboard.",
         "options": {
@@ -218,8 +224,10 @@
           "clipboardCtrlShiftV": "Clipboard (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Clipboard (Shift+Insert)",
           "direct": "Trực tiếp",
-          "none": "Không có"
-        }
+          "none": "Không có",
+          "externalScript": "Script bên ngoài"
+        },
+        "externalScriptPlaceholder": "/duong-dan/toi/script.sh"
       },
       "clipboardHandling": {
         "title": "Xử lý Clipboard",
@@ -280,6 +288,13 @@
           "title": "Thiết bị GPU",
           "description": "Chọn GPU để sử dụng cho suy luận Whisper. Tự động chọn GPU chuyên dụng.",
           "auto": "Tự động"
+        }
+      },
+      "typingTool": {
+        "title": "Công cụ gõ",
+        "description": "Chọn công cụ gõ trên Linux cho phương thức dán trực tiếp. Auto sẽ tự động phát hiện và dùng công cụ tốt nhất có sẵn cho hệ thống của bạn.",
+        "options": {
+          "auto": "Auto (Khuyến nghị)"
         }
       }
     },
@@ -565,6 +580,7 @@
     "checkForUpdates": "Kiểm tra cập nhật"
   },
   "common": {
+    "retry": "Thử lại",
     "loading": "Đang tải...",
     "save": "Lưu",
     "cancel": "Hủy",

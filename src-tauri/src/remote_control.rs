@@ -75,6 +75,11 @@ pub(crate) fn dispatch(app: &AppHandle, command: RemoteCommand) {
 }
 
 fn execute_recording(app: &AppHandle, action: RecordingCommand) -> Result<(), String> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    if action != RecordingCommand::Cancel {
+        crate::platform_shortcuts::send_recording(app, action);
+        return Ok(());
+    }
     if action == RecordingCommand::Cancel {
         utils::cancel_current_operation(app);
         return Ok(());
@@ -175,7 +180,8 @@ fn execute_transcript(app: &AppHandle, action: TranscriptCommand) -> Result<(), 
         }
         TranscriptCommand::Paste { method } => {
             let handle = app.clone();
-            app.run_on_main_thread(move || {
+            let paste_method = method.map(Into::into).unwrap_or_else(|| crate::settings::get_settings(app).paste_method);
+            crate::output_dispatch::dispatch(app, paste_method, move || {
                 if let Err(error) = clipboard::paste_with_method_override(
                     text, handle.clone(), method.map(Into::into),
                 ) {

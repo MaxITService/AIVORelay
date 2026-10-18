@@ -103,6 +103,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "Live Monitor usa il microfono su questa piattaforma. L’acquisizione dell’audio di sistema è attualmente disponibile solo su Windows."
+      }
+    },
     "general": {
       "title": "Generale",
       "shortcut": {
@@ -210,6 +215,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "Lo script riceve la trascrizione completa una sola volta al termine della registrazione. Ha fino a 30 secondi per completarsi.",
         "title": "Metodo di Incolla",
         "description": "Scegli come viene inserito il testo. Diretto: simula l'input da tastiera. Nessuno: non incolla, aggiorna solo la cronologia/appunti.",
         "options": {
@@ -217,8 +223,10 @@
           "clipboardCtrlShiftV": "Appunti (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Appunti (Shift+Insert)",
           "direct": "Diretto",
-          "none": "Nessuno"
-        }
+          "none": "Nessuno",
+          "externalScript": "Script esterno"
+        },
+        "externalScriptPlaceholder": "/percorso/del/tuo/script.sh"
       },
       "clipboardHandling": {
         "title": "Gestione Appunti",
@@ -279,6 +287,13 @@
           "title": "Dispositivo GPU",
           "description": "Seleziona quale GPU utilizzare per l'inferenza Whisper. Auto sceglie la GPU dedicata.",
           "auto": "Auto"
+        }
+      },
+      "typingTool": {
+        "title": "Strumento di digitazione",
+        "description": "Scegli quale strumento di digitazione Linux usare per il metodo di incolla diretto. Auto rileverà e userà automaticamente lo strumento migliore disponibile per il tuo sistema.",
+        "options": {
+          "auto": "Auto (Consigliato)"
         }
       }
     },
@@ -564,6 +579,7 @@
     "checkForUpdates": "Controlla aggiornamenti"
   },
   "common": {
+    "retry": "Riprova",
     "loading": "Caricamento...",
     "save": "Salva",
     "cancel": "Annulla",

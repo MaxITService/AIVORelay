@@ -211,7 +211,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const { t } = useTranslation();
   const whatIsThisContentId = React.useId();
   const { settings, refreshSettings } = useSettings();
-  const supportsRemoteLiveSound = getOsType() === "windows";
+  const supportsSystemAudio = getOsType() === "windows";
   const [finalText, setFinalText] = useState("");
   const [interimText, setInterimText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -271,8 +271,8 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   useEffect(() => {
     let active = true;
     setLiveSelectionReady(false);
-    if (!liveSelection || !supportsRemoteLiveSound) {
-      if (settings && supportsRemoteLiveSound && !liveSelection) {
+    if (!liveSelection) {
+      if (settings) {
         setSessionSettingsCollapsed(false);
       }
       return () => {
@@ -298,7 +298,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [liveSelection, settings, supportsRemoteLiveSound]);
+  }, [liveSelection, settings]);
   const handleModelSelectionChange = async (selection: SttModelSelection) => {
     setSourceBusy(true);
     setLiveSelectionReady(false);
@@ -344,17 +344,16 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
         : provider === "remote_openai_compatible"
           ? remoteLiveReady
           : false;
-  const liveModeEnabled = supportsRemoteLiveSound && providerLiveModeEnabled;
+  const liveModeEnabled = providerLiveModeEnabled;
   const autoStopMinutes = Number((settings as any)?.live_sound_auto_stop_minutes ?? 60);
 
-  const liveSoundCaptureSource = String(
+  const liveSoundCaptureSource = supportsSystemAudio ? String(
     (settings as any)?.live_sound_capture_source ?? "system_output",
-  );
+  ) : "microphone";
   const micEnabled = liveSoundCaptureSource === "microphone" || liveSoundCaptureSource === "both";
   const outputEnabled = liveSoundCaptureSource === "system_output" || liveSoundCaptureSource === "both";
 
   const liveProviderReady =
-    supportsRemoteLiveSound &&
     Boolean(liveSelection) &&
     (provider === "remote_soniox" ||
       provider === "remote_deepgram" ||
@@ -856,7 +855,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       <SettingsGroup
         id="settings-live-session"
         title={t("settings.liveSoundTranscription.title")}
-        description={t("settings.liveSoundTranscription.description")}
+        description={t(supportsSystemAudio ? "settings.liveSoundTranscription.description" : "settings.liveSoundTranscription.audio.microphoneOnly")}
       >
         <SettingContainer
           title={t("settings.liveSoundTranscription.session.title")}
@@ -865,11 +864,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
           layout="stacked"
         >
           <div className="space-y-4">
-            {!supportsRemoteLiveSound ? (
-              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                {t("settings.liveSoundTranscription.session.windowsOnly")}
-              </div>
-            ) : !liveSelection ? (
+            {!liveSelection ? (
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                 {t("settings.liveSoundTranscription.session.selectModel")}
               </div>
@@ -1027,7 +1022,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                   selection={liveSelection}
                   onChange={handleModelSelectionChange}
                   disabled={
-                    !supportsRemoteLiveSound ||
                     sourceBusy ||
                     isRecording ||
                     actionBusy !== null
@@ -1556,6 +1550,11 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       )}
 
       <SettingsGroup title={t("settings.sound.title")}>
+        {!supportsSystemAudio && (
+          <p className="px-4 py-3 text-sm text-[#9a9a9a]">
+            {t("settings.liveSoundTranscription.audio.microphoneOnly", "Live Monitor uses the microphone on this platform. System audio capture is currently available on Windows.")}
+          </p>
+        )}
         <div className={micEnabled ? "rounded-xl ring-2 ring-emerald-500/40" : undefined}>
           {micEnabled && (
             <div className="px-4 pt-3 pb-0">
@@ -1591,7 +1590,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
             </Button>
           </SettingContainer>
         </div>
-        <div className={outputEnabled ? "rounded-xl ring-2 ring-emerald-500/40" : undefined}>
+        {supportsSystemAudio && <div className={outputEnabled ? "rounded-xl ring-2 ring-emerald-500/40" : undefined}>
           {outputEnabled && (
             <div className="px-4 pt-3 pb-0">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-semibold text-emerald-400">
@@ -1624,7 +1623,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                   : t("settings.liveSoundTranscription.audio.sourceEnable")}
             </Button>
           </SettingContainer>
-        </div>
+        </div>}
       </SettingsGroup>
     </div>
   );

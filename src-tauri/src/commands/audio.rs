@@ -358,6 +358,9 @@ pub fn change_live_sound_capture_source_setting(
     source: LiveSoundCaptureSource,
 ) -> Result<(), String> {
     let mut settings = get_settings(&app);
+    if source != source.effective_for_platform() {
+        return Err("System audio capture is currently available on Windows only. Select Microphone instead.".to_string());
+    }
     settings.live_sound_capture_source = source;
     write_settings(&app, settings);
     Ok(())

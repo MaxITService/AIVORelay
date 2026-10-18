@@ -103,6 +103,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "このプラットフォームでは、Live Monitor はマイクを使用します。システム音声のキャプチャは現在 Windows でのみ利用できます。"
+      }
+    },
     "general": {
       "title": "一般",
       "shortcut": {
@@ -210,6 +215,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "録音終了後、スクリプトに文字起こし全文が一度だけ渡されます。実行時間の上限は30秒です。",
         "title": "貼り付け方法",
         "description": "テキストの挿入方法を選択。直接：システム入力でタイピングをシミュレート。なし：貼り付けをスキップし、履歴/クリップボードのみ更新。",
         "options": {
@@ -217,8 +223,10 @@
           "clipboardCtrlShiftV": "クリップボード (Ctrl+Shift+V)",
           "clipboardShiftInsert": "クリップボード (Shift+Insert)",
           "direct": "直接",
-          "none": "なし"
-        }
+          "none": "なし",
+          "externalScript": "外部スクリプト"
+        },
+        "externalScriptPlaceholder": "/path/to/your/script.sh"
       },
       "clipboardHandling": {
         "title": "クリップボードの処理",
@@ -279,6 +287,13 @@
           "title": "GPUデバイス",
           "description": "Whisper推論に使用するGPUを選択します。自動は専用GPUを選択します。",
           "auto": "自動"
+        }
+      },
+      "typingTool": {
+        "title": "タイピングツール",
+        "description": "直接貼り付け方式で使用する Linux のタイピングツールを選択します。Auto は自動的に最適なツールを検出して使用します。",
+        "options": {
+          "auto": "自動 (推奨)"
         }
       }
     },
@@ -564,6 +579,7 @@
     "checkForUpdates": "アップデートを確認"
   },
   "common": {
+    "retry": "再試行",
     "loading": "読み込み中...",
     "save": "保存",
     "cancel": "キャンセル",

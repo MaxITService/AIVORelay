@@ -123,6 +123,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "Live Monitor bu platformda mikrofonu kullanır. Sistem sesi yakalama şu anda yalnızca Windows’ta kullanılabilir."
+      }
+    },
     "general": {
       "title": "Genel",
       "shortcut": {
@@ -230,6 +235,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "Betik, kayıt tamamlandıktan sonra tam metni bir kez alır. Tamamlanması için en fazla 30 saniyesi vardır.",
         "title": "Yapıştırma Yöntemi",
         "description": "Metnin nasıl ekleneceğini seçin. Doğrudan: sistem girişiyle yazmayı simüle eder. Yok: yapıştırmayı atlar, sadece geçmişi/panoyu günceller.",
         "options": {
@@ -237,8 +243,10 @@
           "clipboardCtrlShiftV": "Pano (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Pano (Shift+Insert)",
           "direct": "Doğrudan",
-          "none": "Yok"
-        }
+          "none": "Yok",
+          "externalScript": "Harici Betik"
+        },
+        "externalScriptPlaceholder": "/dosya/yolu/betik.sh"
       },
       "clipboardHandling": {
         "title": "Pano Yönetimi",
@@ -299,6 +307,13 @@
           "title": "GPU Aygıtı",
           "description": "Whisper çıkarımı için hangi GPU'nun kullanılacağını seçin. Otomatik, özel GPU'yu seçer.",
           "auto": "Otomatik"
+        }
+      },
+      "typingTool": {
+        "title": "Yazma Aracı",
+        "description": "Doğrudan yapıştırma yöntemi için hangi Linux yazma aracının kullanılacağını seçin. Otomatik seçeneği, sisteminiz için mevcut en iyi aracı algılar ve kullanır.",
+        "options": {
+          "auto": "Otomatik (Önerilen)"
         }
       }
     },
@@ -584,6 +599,7 @@
     "checkForUpdates": "Güncellemeleri kontrol et"
   },
   "common": {
+    "retry": "Yeniden dene",
     "loading": "Yükleniyor...",
     "save": "Kaydet",
     "cancel": "İptal",

@@ -137,7 +137,7 @@ const getOutputRouteContext = (
  */
 export const buffersOutputForKeyActions = (
   pasteMethod: string, openingKey: string, startKey: string, autoSubmit: boolean,
-): boolean => pasteMethod !== "none" && (openingKey !== "" || (autoSubmit && startKey === ""));
+): boolean => pasteMethod !== "none" && (pasteMethod === "external_script" || openingKey !== "" || (autoSubmit && startKey === ""));
 
 /**
  * Mirrors should_route_output_to_preview_for_captured_profile minus native direct output.

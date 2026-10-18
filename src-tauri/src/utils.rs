@@ -102,6 +102,9 @@ pub(crate) fn cancel_current_operation_guarded(
     _guard: &session_manager::OperationControlGuard,
 ) {
     info!("Initiating operation cancellation...");
+    // A release still waiting out its X11 auto-repeat grace belongs to the
+    // recording being cancelled and must not swallow the next press.
+    crate::shortcut::clear_pending_push_to_talk_releases();
     crate::live_output_buffer::cancel(app);
     // Armed recordings end without a result; their cancel key (if any) is pressed.
     crate::early_open::cancel_all();
@@ -191,6 +194,8 @@ pub(crate) fn cancel_current_operation_guarded(
     tm.cancel_file_transcription();
     crate::commands::file_transcription::cancel_file_transcription();
     tm.maybe_unload_immediately("cancellation");
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    crate::platform_shortcuts::notify_cancel(app);
 
     info!("Operation cancellation completed - returned to idle state");
 }
@@ -202,6 +207,50 @@ pub fn is_wayland() -> bool {
         || std::env::var("XDG_SESSION_TYPE")
             .map(|v| v.to_lowercase() == "wayland")
             .unwrap_or(false)
+}
+
+/// Check if running on KDE Plasma desktop environment
+#[cfg(target_os = "linux")]
+pub fn is_kde_plasma() -> bool {
+    std::env::var("XDG_CURRENT_DESKTOP")
+        .map(|v| v.to_uppercase().contains("KDE"))
+        .unwrap_or(false)
+        || std::env::var("KDE_SESSION_VERSION").is_ok()
+}
+
+/// Check if running on KDE Plasma with Wayland
+#[cfg(target_os = "linux")]
+pub fn is_kde_wayland() -> bool {
+    is_wayland() && is_kde_plasma()
+}
+
+/// Check if running on GNOME desktop environment
+#[cfg(target_os = "linux")]
+pub fn is_gnome() -> bool {
+    std::env::var("XDG_CURRENT_DESKTOP")
+        .map(|v| v.to_uppercase().contains("GNOME"))
+        .unwrap_or(false)
+}
+
+/// Check if running on GNOME with Wayland
+#[cfg(target_os = "linux")]
+pub fn is_gnome_wayland() -> bool {
+    is_wayland() && is_gnome()
+}
+
+/// Returns true when the environment variable is set to a truthy value
+/// (e.g. "1", "true", "yes", "on").
+/// "0", "false", "no", "off" and empty string are treated as falsy (case-insensitive).
+/// Returns false when the variable is not set.
+#[cfg(target_os = "linux")]
+pub fn env_flag_enabled(name: &str) -> bool {
+    match std::env::var(name) {
+        Ok(v) => !matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "" | "0" | "false" | "no" | "off"
+        ),
+        Err(_) => false,
+    }
 }
 
 #[cfg(test)]

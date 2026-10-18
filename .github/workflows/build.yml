@@ -51,7 +51,7 @@ on:
 jobs:
   build:
     permissions:
-      contents: write
+      contents: read
     runs-on: ${{ inputs.platform }}
     steps:
       - name: Enable long paths (Windows)

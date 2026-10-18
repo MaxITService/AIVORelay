@@ -103,6 +103,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "Live Monitor verwendet auf dieser Plattform das Mikrofon. Die Aufnahme von Systemaudio ist derzeit nur unter Windows verfügbar."
+      }
+    },
     "general": {
       "title": "Allgemein",
       "shortcut": {
@@ -210,6 +215,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "Das Skript erhält nach Aufnahmeende einmal den vollständigen Text. Es hat bis zu 30 Sekunden Zeit.",
         "title": "Einfügemethode",
         "description": "Wähle, wie Text eingefügt wird. Direkt: simuliert Tippen über Systemeingabe. Keine: überspringt Einfügen, aktualisiert nur Verlauf/Zwischenablage.",
         "options": {
@@ -217,8 +223,10 @@
           "clipboardCtrlShiftV": "Zwischenablage (Strg+Umschalt+V)",
           "clipboardShiftInsert": "Zwischenablage (Umschalt+Einfg)",
           "direct": "Direkt",
-          "none": "Keine"
-        }
+          "none": "Keine",
+          "externalScript": "Externes Skript"
+        },
+        "externalScriptPlaceholder": "/pfad/zu/ihrem/skript.sh"
       },
       "clipboardHandling": {
         "title": "Zwischenablage-Verhalten",
@@ -279,6 +287,13 @@
           "title": "GPU-Gerät",
           "description": "Wählen Sie die GPU für die Whisper-Inferenz. Auto wählt die dedizierte GPU.",
           "auto": "Auto"
+        }
+      },
+      "typingTool": {
+        "title": "Eingabetool",
+        "description": "Wähle, welches Linux-Eingabetool für die Direkt-Einfügen-Methode verwendet werden soll. Auto erkennt und verwendet automatisch das beste verfügbare Tool für dein System.",
+        "options": {
+          "auto": "Auto (Empfohlen)"
         }
       }
     },
@@ -570,6 +585,7 @@
     "checkForUpdates": "Nach Updates suchen"
   },
   "common": {
+    "retry": "Erneut versuchen",
     "loading": "Wird geladen...",
     "save": "Speichern",
     "cancel": "Abbrechen",

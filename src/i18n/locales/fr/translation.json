@@ -104,6 +104,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "Live Monitor utilise le microphone sur cette plateforme. La capture du son du système est actuellement disponible sous Windows uniquement."
+      }
+    },
     "general": {
       "title": "Général",
       "shortcut": {
@@ -211,6 +216,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "Le script reçoit une seule fois la transcription complète après la fin de l’enregistrement. Il dispose de 30 secondes maximum.",
         "title": "Méthode de collage",
         "description": "Choisissez comment le texte est inséré. Direct : simule la frappe via l'entrée système. Aucun : ignore le collage, met uniquement à jour l'historique/presse-papiers.",
         "options": {
@@ -218,8 +224,10 @@
           "clipboardCtrlShiftV": "Presse-papiers (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Presse-papiers (Shift+Insert)",
           "direct": "Direct",
-          "none": "Aucun"
-        }
+          "none": "Aucun",
+          "externalScript": "Script externe"
+        },
+        "externalScriptPlaceholder": "/chemin/vers/votre/script.sh"
       },
       "clipboardHandling": {
         "title": "Gestion du presse-papiers",
@@ -280,6 +288,13 @@
           "title": "Appareil GPU",
           "description": "Sélectionnez le GPU à utiliser pour l'inférence Whisper. Auto choisit le GPU dédié.",
           "auto": "Auto"
+        }
+      },
+      "typingTool": {
+        "title": "Outil de frappe",
+        "description": "Choisissez quel outil de frappe Linux utiliser pour la méthode de collage direct. Auto détectera et utilisera automatiquement le meilleur outil disponible pour votre système.",
+        "options": {
+          "auto": "Auto (Recommandé)"
         }
       }
     },
@@ -571,6 +586,7 @@
     "checkForUpdates": "Rechercher des mises à jour"
   },
   "common": {
+    "retry": "Réessayer",
     "loading": "Chargement...",
     "save": "Enregistrer",
     "cancel": "Annuler",

@@ -173,7 +173,6 @@ const Onboarding: React.FC<OnboardingProps> = ({
   };
 
   const handleSelectRemote = async () => {
-    if (!isWindows) return;
     try {
       invalidateModelDownloadActivationIntent();
       await commands.changeTranscriptionProviderSetting(
@@ -358,11 +357,8 @@ const Onboarding: React.FC<OnboardingProps> = ({
                   </div>
                 </button>
                 <button
-                  className={`glass-panel-interactive flex justify-between items-center rounded-xl p-5 text-left group ${
-                    !isWindows ? "opacity-40 cursor-not-allowed" : ""
-                  }`}
+                  className="glass-panel-interactive flex justify-between items-center rounded-xl p-5 text-left group"
                   onClick={handleSelectRemote}
-                  disabled={!isWindows}
                 >
                   <div>
                     <h3 className="text-lg font-semibold text-[#f5f5f5] group-hover:text-[#ff4d8d] transition-colors">
@@ -371,13 +367,8 @@ const Onboarding: React.FC<OnboardingProps> = ({
                     <p className="text-[#a0a0a0] text-sm mt-1">
                       {t("onboarding.mode.remote.description")}
                     </p>
-                    {!isWindows && (
-                      <p className="text-xs text-[#6b6b6b] mt-2">
-                        {t("onboarding.mode.remote.windowsOnly")}
-                      </p>
-                    )}
                   </div>
-                  {isWindows && (
+                  {(
                     <div className="w-10 h-10 rounded-full bg-[#9b5de5] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                       <svg
                         className="w-5 h-5 text-white"

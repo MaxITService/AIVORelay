@@ -103,6 +103,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "Live Monitor używa mikrofonu na tej platformie. Przechwytywanie dźwięku systemowego jest obecnie dostępne tylko w Windows."
+      }
+    },
     "general": {
       "title": "Ogólne",
       "shortcut": {
@@ -210,6 +215,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "Skrypt otrzymuje całą transkrypcję raz po zakończeniu nagrywania. Ma maksymalnie 30 sekund na wykonanie.",
         "title": "Metoda wklejania",
         "description": "Wybierz sposób wstawiania tekstu. Direct: symuluje wpisywanie. None: pomija wklejanie, tylko aktualizuje historię/clipboard.",
         "options": {
@@ -217,8 +223,10 @@
           "clipboardCtrlShiftV": "Schowek (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Schowek (Shift+Insert)",
           "direct": "Bezpośrednio",
-          "none": "Brak"
-        }
+          "none": "Brak",
+          "externalScript": "Skrypt zewnętrzny"
+        },
+        "externalScriptPlaceholder": "/sciezka/do/twojego/skryptu.sh"
       },
       "clipboardHandling": {
         "title": "Obsługa schowka",
@@ -279,6 +287,13 @@
           "title": "Urządzenie GPU",
           "description": "Wybierz GPU do inferencji Whisper. Auto wybiera dedykowany GPU.",
           "auto": "Auto"
+        }
+      },
+      "typingTool": {
+        "title": "Narzędzie do wpisywania",
+        "description": "Wybierz, którego narzędzia do wpisywania w Linuxie użyć dla metody bezpośredniego wklejania. Auto automatycznie wykryje i użyje najlepszego dostępnego narzędzia dla Twojego systemu.",
+        "options": {
+          "auto": "Auto (Zalecane)"
         }
       }
     },
@@ -564,6 +579,7 @@
     "checkForUpdates": "Sprawdź aktualizacje"
   },
   "common": {
+    "retry": "Ponów",
     "loading": "Wczytywanie...",
     "save": "Zapisz",
     "cancel": "Anuluj",

@@ -1,10 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { platform } from "@tauri-apps/plugin-os";
 import {
   checkAccessibilityPermission,
   requestAccessibilityPermission,
 } from "tauri-plugin-macos-permissions-api";
+import { commands } from "@/bindings";
+import { initializeInputSystem } from "@/lib/initializeInput";
+
+// The backend creates the input system and shortcuts on macOS only once the
+// Accessibility permission exists; both commands are idempotent.
+const initializeInput = async (): Promise<void> => {
+  await initializeInputSystem(commands);
+};
 
 // Define permission state type
 type PermissionState = "request" | "verify" | "granted";
@@ -21,19 +29,36 @@ const AccessibilityPermissions: React.FC = () => {
   const [permissionState, setPermissionState] =
     useState<PermissionState>("request");
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
+  const [inputReady, setInputReady] = useState(false);
+  const [inputError, setInputError] = useState<string | null>(null);
+  const checking = useRef(false);
 
   // Check permissions without requesting (with error handling)
-  const checkPermissions = async (): Promise<boolean> => {
+  const checkPermissions = async (initial = false): Promise<boolean> => {
+    if (checking.current) return false;
+    checking.current = true;
+    let granted = false;
     try {
       const hasPermissions: boolean = await checkAccessibilityPermission();
+      granted = hasPermissions;
       setHasAccessibility(hasPermissions);
-      setPermissionState(hasPermissions ? "granted" : "verify");
+      setPermissionState(hasPermissions ? "granted" : initial ? "request" : "verify");
+      if (hasPermissions) {
+        await initializeInput();
+        setInputReady(true);
+        setInputError(null);
+      }
       return hasPermissions;
     } catch (error) {
       console.error("Error checking accessibility permissions:", error);
-      // On error, assume no permissions - user can retry
-      setPermissionState("verify");
+      if (granted) {
+        setInputError(error instanceof Error ? error.message : String(error));
+      } else {
+        setPermissionState(initial ? "request" : "verify");
+      }
       return false;
+    } finally {
+      checking.current = false;
     }
   };
 
@@ -48,7 +73,7 @@ const AccessibilityPermissions: React.FC = () => {
         console.error("Error requesting permissions:", error);
         setPermissionState("verify");
       }
-    } else if (permissionState === "verify") {
+    } else {
       // State is "verify" - check if permission was granted
       await checkPermissions();
     }
@@ -67,18 +92,21 @@ const AccessibilityPermissions: React.FC = () => {
         return;
       }
 
-      try {
-        const hasPermissions: boolean = await checkAccessibilityPermission();
-        setHasAccessibility(hasPermissions);
-        setPermissionState(hasPermissions ? "granted" : "request");
-      } catch (error) {
-        console.error("Error during initial permission check:", error);
-        setPermissionState("request");
-      }
+      await checkPermissions(true);
     };
 
     initialSetup();
   }, []);
+
+  // The user grants the permission in System Settings, outside this window. Poll
+  // quietly (never prompting) so input and shortcuts start without another click.
+  useEffect(() => {
+    if (isMacOS !== true || inputReady) return;
+    const interval = window.setInterval(() => {
+      void checkPermissions();
+    }, 2000);
+    return () => window.clearInterval(interval);
+  }, [isMacOS, inputReady]);
 
   // Don't render on non-macOS platforms or while checking platform
   if (isMacOS === null || !isMacOS) {
@@ -86,7 +114,7 @@ const AccessibilityPermissions: React.FC = () => {
   }
 
   // Don't render if permissions granted (also prevents null config issue)
-  if (hasAccessibility || permissionState === "granted") {
+  if (hasAccessibility && inputReady) {
     return null;
   }
 
@@ -104,21 +132,21 @@ const AccessibilityPermissions: React.FC = () => {
     },
   };
 
-  const config = buttonConfig[permissionState];
+  const config = buttonConfig[permissionState === "granted" ? "verify" : permissionState];
 
   return (
     <div className="p-5 w-full rounded-xl glass-panel border border-[#ff6b9d]/30">
       <div className="flex justify-between items-center gap-4">
         <div>
           <p className="text-sm font-medium text-[#e8e8e8]">
-            {t("accessibility.permissionsDescription")}
+            {hasAccessibility ? inputError ?? t("common.loading") : t("accessibility.permissionsDescription")}
           </p>
         </div>
         <button
           onClick={handleButtonClick}
           className={`min-h-10 shrink-0 ${config.className}`}
         >
-          {config.text}
+          {hasAccessibility ? t("common.retry") : config.text}
         </button>
       </div>
     </div>

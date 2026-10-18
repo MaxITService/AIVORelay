@@ -1564,6 +1564,23 @@ pub fn set_tray_visibility(app: &AppHandle, visible: bool) {
     }
 }
 
+/// Toggle the existing tray icon's visibility off and on to bring back an icon
+/// macOS dropped from the menu bar. Called when the already-running app is
+/// launched again, the natural "where did my icon go?" moment.
+#[cfg(target_os = "macos")]
+pub fn recreate_tray_icon(app: &AppHandle) {
+    if !settings::get_settings(app).show_tray_icon {
+        return;
+    }
+    let Some(tray) = app.try_state::<TrayIcon>() else {
+        return;
+    };
+    info!("Recreating tray icon on relaunch");
+    if let Err(e) = tray.set_visible(false).and_then(|_| tray.set_visible(true)) {
+        error!("Failed to recreate tray icon: {}", e);
+    }
+}
+
 pub(crate) fn last_transcript_text(entry: &HistoryEntry) -> &str {
     entry
         .post_processed_text

@@ -184,10 +184,7 @@ fn start_live_session(
                 manager_cb.push_audio_frame(frame);
             })));
 
-            #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_soniox_api_key();
-            #[cfg(not(target_os = "windows"))]
-            let api_key = String::new();
 
             let options = crate::actions::build_soniox_options_for_live_sound(settings);
             manager
@@ -214,10 +211,7 @@ fn start_live_session(
                 manager_cb.push_audio_frame(frame);
             })));
 
-            #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_deepgram_api_key();
-            #[cfg(not(target_os = "windows"))]
-            let api_key = String::new();
 
             let options = crate::actions::build_deepgram_options_for_live_sound(settings);
             manager
@@ -443,9 +437,10 @@ pub fn start(app: &AppHandle, session_id: u64) -> Result<(), String> {
     let settings = effective_live_sound_settings(get_settings(app))?;
     let use_live = crate::actions::live_sound_use_live_streaming(&settings);
 
-    let is_both = settings.live_sound_capture_source == LiveSoundCaptureSource::Both;
+    let capture_source = settings.live_sound_capture_source.effective_for_platform();
+    let is_both = capture_source == LiveSoundCaptureSource::Both;
 
-    let (source, device_name) = match settings.live_sound_capture_source {
+    let (source, device_name) = match capture_source {
         LiveSoundCaptureSource::SystemOutput | LiveSoundCaptureSource::Both => (
             AudioCaptureSource::SystemOutputLoopback,
             settings.selected_output_device.clone(),

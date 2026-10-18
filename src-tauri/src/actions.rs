@@ -2199,6 +2199,8 @@ impl FinishGuard {
 impl Drop for FinishGuard {
     fn drop(&mut self) {
         self.finish();
+        // Return the freed audio buffers to the OS (no-op off Linux/glibc).
+        crate::memory::trim_freed_memory();
     }
 }
 
@@ -2995,11 +2997,7 @@ async fn perform_transcription_for_profile_with_retry_action(
             .map(|p| p.language.clone())
             .unwrap_or_else(|| settings.selected_language.clone());
 
-        #[cfg(target_os = "windows")]
         let api_key = crate::secure_keys::get_soniox_api_key();
-
-        #[cfg(not(target_os = "windows"))]
-        let api_key = String::new();
 
         if let Some(p) = &profile {
             log::info!(
@@ -3281,10 +3279,7 @@ async fn perform_transcription_for_profile_with_retry_action(
             .map(|p| p.language.clone())
             .unwrap_or_else(|| settings.selected_language.clone());
 
-        #[cfg(target_os = "windows")]
         let api_key = crate::secure_keys::get_deepgram_api_key();
-        #[cfg(not(target_os = "windows"))]
-        let api_key = String::new();
 
         if let Some(p) = &profile {
             log::info!(
@@ -4105,7 +4100,7 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
         before_dictation_final_output(&app, &final_text);
         let app_for_main_thread = app.clone();
         let overlay_generation = crate::plus_overlay_state::current_recording_overlay_generation();
-        if let Err(error) = app.run_on_main_thread(move || {
+        if let Err(error) = crate::output_dispatch::dispatch(&app, output_settings.paste_method, move || {
             if !remote_recording_retry_is_in_flight(Some(retry_id)) {
                 return;
             }
@@ -6393,7 +6388,7 @@ async fn paste_preview_buffer_to_target(
     let output_settings = crate::managers::preview_output_mode::output_settings()
         .ok_or_else(|| "The preview output settings are no longer available".to_string())?;
     let main_thread_timeout_ms = output_settings.timeout_ms();
-    let paste_result = run_on_main_thread_sync_with_result(app, main_thread_timeout_ms, move || {
+    let paste_result = run_output_task_sync_with_result(app, output_settings.paste_method, main_thread_timeout_ms, move || {
         if operation_stamp.is_some_and(|stamp| stamp.was_cancelled(&ah_for_paste)) {
             return Ok(false);
         }
@@ -6504,9 +6499,34 @@ where
         let _ = tx.send(f());
     })
     .map_err(|err| format!("Failed to dispatch main-thread task: {}", err))?;
-
     rx.recv_timeout(Duration::from_millis(timeout_ms))
         .map_err(|err| format!("Timed out waiting for main-thread task: {}", err))
+}
+
+fn run_output_task_sync_with_result<F, T>(
+    app: &AppHandle,
+    method: crate::settings::PasteMethod,
+    timeout_ms: u64,
+    f: F,
+) -> Result<T, String>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    if !cfg!(target_os = "linux") || method != crate::settings::PasteMethod::ExternalScript {
+        return run_on_main_thread_sync_with_result(app, timeout_ms, f);
+    }
+    let (tx, rx) = std::sync::mpsc::channel::<T>();
+    let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    crate::output_dispatch::dispatch_cancellable(app, method, Arc::clone(&cancelled), move || {
+        let _ = tx.send(f());
+    })
+    .map_err(|err| format!("Failed to dispatch main-thread task: {}", err))?;
+
+    rx.recv_timeout(Duration::from_millis(timeout_ms)).map_err(|err| {
+        cancelled.store(true, Ordering::Release);
+        format!("Timed out waiting for output task: {}", err)
+    })
 }
 
 /// Queue clipboard restoration behind every previously dispatched main-thread
@@ -6656,7 +6676,9 @@ fn finalize_streaming_paste_session_after_main_thread_queue(
     let app_for_finalize = app.clone();
     let output_finalized = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let output_finalized_in_queue = Arc::clone(&output_finalized);
-    if let Err(err) = run_on_main_thread_sync(app, timeout_ms, move || {
+    let method = crate::clipboard::dictation_output_settings(operation_id)
+        .map(|output| output.paste_method).unwrap_or(crate::settings::PasteMethod::CtrlV);
+    if let Err(err) = run_output_task_sync_with_result(app, method, timeout_ms, move || {
         if operation_stamp.was_cancelled(&app_for_finalize) {
             output_finalized_in_queue.store(false, std::sync::atomic::Ordering::Release);
             if let Err(restore_err) = crate::clipboard::end_streaming_paste_session_if_matches(
@@ -7090,10 +7112,7 @@ pub(crate) async fn perform_history_live_transcription(
         .unwrap_or(settings.selected_language.as_str());
     let result = match settings.transcription_provider {
         TranscriptionProvider::RemoteSoniox => {
-            #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_soniox_api_key();
-            #[cfg(not(target_os = "windows"))]
-            let api_key = String::new();
             let options = build_soniox_realtime_options(settings, language, profile, "transcribe");
             app.state::<Arc<SonioxRealtimeManager>>().transcribe_history_replay(
                 samples, &api_key, &settings.soniox_model, options, replay,
@@ -7101,10 +7120,7 @@ pub(crate) async fn perform_history_live_transcription(
             ).await
         }
         TranscriptionProvider::RemoteDeepgram => {
-            #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_deepgram_api_key();
-            #[cfg(not(target_os = "windows"))]
-            let api_key = String::new();
             let options = build_deepgram_realtime_options(settings, language, "transcribe");
             app.state::<Arc<DeepgramRealtimeManager>>().transcribe_history_replay(
                 samples, &api_key, &settings.deepgram_model, options, replay,
@@ -7210,10 +7226,7 @@ fn setup_and_start_live(
         TranscriptionProvider::RemoteSoniox => {
             let options = build_soniox_realtime_options(settings, &language, profile, binding_id);
             let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
-            #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_soniox_api_key();
-            #[cfg(not(target_os = "windows"))]
-            let api_key = String::new();
             soniox_live_manager
                 .start_session(binding_id, &api_key, &settings.soniox_model, options, None)
                 .map_err(|e| {
@@ -7225,10 +7238,7 @@ fn setup_and_start_live(
         TranscriptionProvider::RemoteDeepgram => {
             let options = build_deepgram_realtime_options(settings, &language, binding_id);
             let deepgram_live_manager = Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
-            #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_deepgram_api_key();
-            #[cfg(not(target_os = "windows"))]
-            let api_key = String::new();
             deepgram_live_manager
                 .start_session(
                     binding_id,
@@ -8460,10 +8470,7 @@ impl ShortcutAction for TranscribeAction {
             let binding_id = binding_id.to_string();
             let app_handle = app.clone();
             let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
-            #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_soniox_api_key();
-            #[cfg(not(target_os = "windows"))]
-            let api_key = String::new();
 
             soniox_live_manager.cancel();
             let mut options =
@@ -8518,10 +8525,7 @@ impl ShortcutAction for TranscribeAction {
                 TranscriptionProvider::RemoteSoniox => {
                     let soniox_live_manager =
                         Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
-                    #[cfg(target_os = "windows")]
                     let api_key = crate::secure_keys::get_soniox_api_key();
-                    #[cfg(not(target_os = "windows"))]
-                    let api_key = String::new();
 
                     let chunk_callback = stream_processor.clone().map(|stream_processor| {
                         let binding_id_for_cb = binding_id.clone();
@@ -8601,10 +8605,7 @@ impl ShortcutAction for TranscribeAction {
                 TranscriptionProvider::RemoteDeepgram => {
                     let deepgram_live_manager =
                         Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
-                    #[cfg(target_os = "windows")]
                     let api_key = crate::secure_keys::get_deepgram_api_key();
-                    #[cfg(not(target_os = "windows"))]
-                    let api_key = String::new();
 
                     set_deepgram_stream_emitted(&binding_id, false);
                     let chunk_callback = stream_processor.map(|stream_processor| {
@@ -10486,7 +10487,8 @@ impl ShortcutAction for TranscribeAction {
             }
             let overlay_generation =
                 crate::plus_overlay_state::current_recording_overlay_generation();
-            ah.run_on_main_thread(move || {
+            let output_method = output_settings.paste_method;
+            let final_output = move || {
                 if operation_stamp.was_cancelled(&ah_clone) {
                     debug!(
                         "Skipping queued dictation output for cancelled operation {}",
@@ -10509,8 +10511,18 @@ impl ShortcutAction for TranscribeAction {
                     &ah_clone,
                     overlay_generation,
                 );
-            })
-            .ok();
+            };
+            if cfg!(target_os = "linux") && output_method == crate::settings::PasteMethod::ExternalScript {
+                // Keep ownership (and Cancel) until the script finishes, without
+                // blocking GTK or allowing another recording to overtake delivery.
+                if let Err(error) = run_output_task_sync_with_result(
+                    &ah, output_method, streaming_clipboard_timeout_ms, final_output,
+                ) {
+                    warn!("Failed to finish external script output: {error}");
+                }
+            } else {
+                crate::output_dispatch::dispatch(&ah, output_method, final_output).ok();
+            }
 
             if !finish_guard.is_current() {
                 finish_guard.finish();
@@ -11823,11 +11835,11 @@ impl ShortcutAction for RepastLastAction {
                         .await;
 
                     let ah_clone = ah.clone();
-                    ah.run_on_main_thread(move || {
-                        // Repaste only inserts the text, without the profile's key presses.
-                        let output = crate::settings::ResolvedOutputSettings::resolve(
-                            &get_settings(&ah_clone), None,
-                        ).without_key_actions();
+                    // Repaste only inserts the text, without the profile's key presses.
+                    let output = crate::settings::ResolvedOutputSettings::resolve(
+                        &get_settings(&ah), None,
+                    ).without_key_actions();
+                    crate::output_dispatch::dispatch(&ah, output.paste_method, move || {
                         let _ = utils::paste_with_output_settings(text_to_paste, ah_clone, &output, || true);
                     })
                     .ok();

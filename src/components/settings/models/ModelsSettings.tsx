@@ -1,7 +1,6 @@
 import React, { useLayoutEffect, useMemo, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
-import { type as getOsType } from "@tauri-apps/plugin-os";
 import { Cloud, Download, Filter, HardDrive, Radio, RotateCcw } from "lucide-react";
 import { useModels } from "../../../hooks/useModels";
 import { useModelDeletions } from "../../../hooks/useModelDeletions";
@@ -127,7 +126,6 @@ const ModelFilterSummaryBar: React.FC<ModelFilterSummaryBarProps> = ({
 
 export const ModelsSettings: React.FC = () => {
   const { t } = useTranslation();
-  const supportsRemoteProviders = getOsType() === "windows";
   const {
     models,
     currentModel,
@@ -722,8 +720,7 @@ export const ModelsSettings: React.FC = () => {
           label={t("listSorting.modelsLabel", "Sort models")}
         />
       </div>
-      {/* Remote providers depend on Windows Credential Manager. */}
-      {supportsRemoteProviders && (
+      {(
         <SettingsGroup id="settings-api-keys" title={t("modelSelector.remoteMode")}>
         {visibleRemoteEntries.map((entry) =>
           entry.kind === "api"

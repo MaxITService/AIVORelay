@@ -103,6 +103,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "На цій платформі Live Monitor використовує мікрофон. Захоплення системного звуку наразі доступне лише у Windows."
+      }
+    },
     "general": {
       "title": "Загальні",
       "shortcut": {
@@ -210,6 +215,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "Скрипт отримує весь текст один раз після завершення запису. На виконання відводиться до 30 секунд.",
         "title": "Метод вставки",
         "description": "Оберіть спосіб вставки тексту. Прямий: емулює набір тексту. Немає: пропускає вставку, оновлює лише історію/буфер обміну.",
         "options": {
@@ -217,8 +223,10 @@
           "clipboardCtrlShiftV": "Буфер обміну (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Буфер обміну (Shift+Insert)",
           "direct": "Прямий",
-          "none": "Немає"
-        }
+          "none": "Немає",
+          "externalScript": "Зовнішній скрипт"
+        },
+        "externalScriptPlaceholder": "/path/to/your/script.sh"
       },
       "clipboardHandling": {
         "title": "Робота з буфером обміну",
@@ -279,6 +287,13 @@
           "title": "Пристрій GPU",
           "description": "Виберіть GPU для інференсу Whisper. Автоматично обирає виділений GPU.",
           "auto": "Авто"
+        }
+      },
+      "typingTool": {
+        "title": "Інструмент введення",
+        "description": "Виберіть, який інструмент введення в Linux використовувати для методу прямого вставлення. Auto автоматично визначить і використає найкращий доступний інструмент для вашої системи.",
+        "options": {
+          "auto": "Auto (Рекомендовано)"
         }
       }
     },
@@ -564,6 +579,7 @@
     "checkForUpdates": "Перевірити оновлення"
   },
   "common": {
+    "retry": "Повторити",
     "loading": "Завантаження...",
     "save": "Зберегти",
     "cancel": "Скасувати",

@@ -2185,6 +2185,11 @@
     }
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "На этой платформе Live Monitor использует микрофон. Захват системного звука пока доступен только в Windows."
+      }
+    },
     "sttModelSelector": {
       "provider": "Провайдер",
       "model": "Модель",
@@ -2991,6 +2996,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "Скрипт получает весь текст один раз после завершения записи. На выполнение отводится до 30 секунд.",
         "title": "Метод вставки",
         "description": "Выбрать способ вставки текста. Прямой: имитирует набор текста через системный ввод. Нет: пропуск вставки, обновление только истории/буфера обмена.",
         "options": {
@@ -2998,8 +3004,10 @@
           "clipboardCtrlShiftV": "Буфер обмена (Ctrl+Shift+V)",
           "clipboardShiftInsert": "Буфер обмена (Shift+Insert)",
           "direct": "Прямой",
-          "none": "Нет"
-        }
+          "none": "Нет",
+          "externalScript": "Внешний скрипт"
+        },
+        "externalScriptPlaceholder": "/path/to/your/script.sh"
       },
       "clipboardHandling": {
         "title": "После вставки",
@@ -3423,6 +3431,13 @@
           "title": "Устройство GPU",
           "description": "Выберите GPU для инференса Whisper. Авто выбирает выделенный GPU.",
           "auto": "Авто"
+        }
+      },
+      "typingTool": {
+        "title": "Инструмент ввода",
+        "description": "Выберите, какой инструмент ввода в Linux использовать для метода прямой вставки. Auto автоматически определит и использует лучший доступный инструмент для вашей системы.",
+        "options": {
+          "auto": "Auto (Рекомендуется)"
         }
       }
     },
@@ -4369,6 +4384,7 @@
     "checkForUpdates": "Проверьте наличие обновлений"
   },
   "common": {
+    "retry": "Повторить",
     "loading": "Загрузка...",
     "save": "Сохранять",
     "cancel": "Отмена",

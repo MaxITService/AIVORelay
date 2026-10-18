@@ -4,7 +4,6 @@ use specta::Type;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Listener, Manager, State};
-use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::actions::ACTION_MAP;
@@ -22,7 +21,7 @@ use crate::settings::{
     RecordingOverlayCenterpieceMode, RecordingOverlayDecapitalizeIndicatorMode,
     RecordingOverlayMaterialMode, RecordingOverlayStatusIconStyle, RecordingOverlayTheme,
     RecordingOverlayUserPreset, RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition,
-    SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider,
+    SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider, TypingTool,
     APPLE_INTELLIGENCE_PROVIDER_ID,
     DEEPGRAM_DEFAULT_ENDPOINTING_MS, DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS,
     DEEPGRAM_DEFAULT_MODEL, SONIOX_DEFAULT_ENDPOINT_SENSITIVITY,
@@ -477,7 +476,7 @@ fn sync_decapitalize_monitor_shortcut(
 }
 
 /// Whether a binding should be active based on feature toggle settings.
-fn is_binding_enabled_for_settings(settings: &settings::AppSettings, binding_id: &str) -> bool {
+pub(crate) fn is_binding_enabled_for_settings(settings: &settings::AppSettings, binding_id: &str) -> bool {
     if let Some(preset_id) = binding_id.strip_prefix(settings::SEND_SELECTED_TEXT_BINDING_PREFIX) {
         return settings
             .send_selected_text
@@ -683,12 +682,8 @@ pub fn init_shortcuts(app: &AppHandle) {
         }
     }
 
-    // On non-Windows platforms, always start rdev as fallback for unsupported shortcuts
-    #[cfg(not(target_os = "windows"))]
-    {
-        start_rdev_listener(app);
-        setup_rdev_shortcut_handler(app);
-    }
+    #[cfg(target_os = "macos")]
+    crate::platform_shortcuts::init_macos_backend(app);
 
     // Register all default shortcuts, applying user customizations
     for (id, default_binding) in default_bindings {
@@ -799,6 +794,118 @@ pub(crate) fn handle_shortcut_event(
     shortcut_string: &str,
     pressed: bool,
 ) {
+    handle_shortcut_event_inner(app, binding_id, shortcut_string, pressed, true);
+}
+
+/// Linux push-to-talk release handling. X11 key auto-repeat reports a held key
+/// as repeated release/press pairs, so a release is applied only after a short
+/// grace period and a press arriving within it cancels the release. Without
+/// this, holding the key rapidly stops and restarts the recording.
+#[cfg(target_os = "linux")]
+mod linux_ptt {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::Duration;
+
+    const RELEASE_GRACE: Duration = Duration::from_millis(50);
+
+    static PENDING_RELEASES: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+    static NEXT_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+    fn pending() -> std::sync::MutexGuard<'static, HashMap<String, u64>> {
+        PENDING_RELEASES
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
+    /// Forgets every pending release (a cancel ends the recording they belong to).
+    pub(super) fn clear() {
+        pending().clear();
+    }
+
+    /// A press cancels a pending release for the same binding. Returns true
+    /// when it did, meaning the press is an auto-repeat to swallow.
+    pub(super) fn cancel_pending_release(binding_id: &str) -> bool {
+        pending().remove(binding_id).is_some()
+    }
+
+    fn insert_release(pending: &mut HashMap<String, u64>, binding_id: &str, generation: u64) -> bool {
+        match pending.entry(binding_id.to_string()) {
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(generation);
+                true
+            }
+            std::collections::hash_map::Entry::Occupied(_) => false,
+        }
+    }
+
+    /// Defers a push-to-talk release. Returns false when one is already
+    /// pending, so the caller treats the duplicate as handled.
+    pub(super) fn defer_release(
+        app: &tauri::AppHandle,
+        binding_id: &str,
+        shortcut_string: &str,
+    ) -> bool {
+        let generation = NEXT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // A duplicate must not replace the generation owned by the existing timer.
+        if !insert_release(&mut pending(), binding_id, generation) {
+            return false;
+        }
+
+        let app = app.clone();
+        let binding_id = binding_id.to_string();
+        let shortcut_string = shortcut_string.to_string();
+        std::thread::spawn(move || {
+            std::thread::sleep(RELEASE_GRACE);
+            let still_pending = {
+                let mut pending = pending();
+                match pending.get(&binding_id) {
+                    Some(current) if *current == generation => {
+                        pending.remove(&binding_id);
+                        true
+                    }
+                    _ => false,
+                }
+            };
+            if still_pending {
+                super::handle_shortcut_event_inner(&app, &binding_id, &shortcut_string, false, false);
+            }
+        });
+        true
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn duplicate_release_keeps_the_generation_that_will_stop_recording() {
+            let mut releases = HashMap::new();
+            assert!(insert_release(&mut releases, "transcribe", 1));
+            assert!(!insert_release(&mut releases, "transcribe", 2));
+            assert_eq!(releases.remove("transcribe"), Some(1));
+            assert!(insert_release(&mut releases, "transcribe", 3));
+        }
+    }
+}
+
+/// Drops push-to-talk releases still waiting out their grace period.
+pub(crate) fn clear_pending_push_to_talk_releases() {
+    #[cfg(target_os = "linux")]
+    linux_ptt::clear();
+}
+
+fn handle_shortcut_event_inner(
+    app: &AppHandle,
+    binding_id: &str,
+    shortcut_string: &str,
+    pressed: bool,
+    defer_push_to_talk_release: bool,
+) {
+    #[cfg(not(target_os = "linux"))]
+    let _ = defer_push_to_talk_release;
+
     log::debug!(
         "Shortcut event received: binding='{}', shortcut='{}', pressed={}",
         binding_id,
@@ -938,6 +1045,13 @@ pub(crate) fn handle_shortcut_event(
         _ => false,
     };
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    if crate::platform_shortcuts::is_transcribe_binding(binding_id) {
+        crate::platform_shortcuts::send_input(app, binding_id, shortcut_string, pressed,
+            use_push_to_talk, use_auto_shortcut_activation);
+        return;
+    }
+
     if action.is_instant() {
         let should_fire = if action.instant_fire_on_release() {
             !pressed
@@ -955,6 +1069,34 @@ pub(crate) fn handle_shortcut_event(
         Ignore,
         Start,
         Stop,
+    }
+
+    #[cfg(target_os = "linux")]
+    if use_push_to_talk && !use_auto_shortcut_activation {
+        if pressed {
+            if linux_ptt::cancel_pending_release(binding_id) {
+                log::debug!(
+                    "Push-to-talk press for '{}' cancelled a pending release (key auto-repeat)",
+                    binding_id
+                );
+                return;
+            }
+        } else if defer_push_to_talk_release {
+            let recording_by_press = {
+                let toggle_state_manager = app.state::<ManagedToggleState>();
+                let states = toggle_state_manager
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                matches!(
+                    states.active_presses.get(binding_id),
+                    Some(ShortcutPressState::PushToTalk)
+                )
+            };
+            if recording_by_press {
+                linux_ptt::defer_release(app, binding_id, shortcut_string);
+                return;
+            }
+        }
     }
 
     let dispatch = {
@@ -1335,18 +1477,6 @@ pub fn change_transcription_provider_setting(
             TranscriptionProvider::Local
         }
     };
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        if matches!(
-            parsed,
-            TranscriptionProvider::RemoteOpenAiCompatible
-                | TranscriptionProvider::RemoteSoniox
-                | TranscriptionProvider::RemoteDeepgram
-        ) {
-            return Err("Remote transcription providers are only available on Windows".to_string());
-        }
-    }
 
     let mut settings = settings::get_settings(&app);
     settings.transcription_provider = parsed;
@@ -3330,14 +3460,11 @@ pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), Str
     }
 
     // Apply OS-level autostart first so UI/store can roll back on failure.
-    let autostart_manager = app.autolaunch();
     if enabled {
-        autostart_manager
-            .enable()
+        crate::autostart::set_enabled(&app, true)
             .map_err(|e| format!("Failed to enable autostart: {e}"))?;
     } else {
-        autostart_manager
-            .disable()
+        crate::autostart::set_enabled(&app, false)
             .map_err(|e| format!("Failed to disable autostart: {e}"))?;
 
         #[cfg(target_os = "windows")]
@@ -3348,7 +3475,7 @@ pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), Str
             if previous_settings.autostart_enabled
                 && !previous_settings.autostart_as_admin_enabled
             {
-                if let Err(rollback_error) = autostart_manager.enable() {
+                if let Err(rollback_error) = crate::autostart::set_enabled(&app, true) {
                     return Err(format!(
                         "Failed to delete administrator scheduled task: {error}; also failed to restore standard autostart: {rollback_error}"
                     ));
@@ -3367,8 +3494,7 @@ pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), Str
     }
     if let Err(save_error) = settings::write_settings_checked(&app, next_settings) {
         let rollback_result: Result<(), String> = if enabled {
-            autostart_manager
-                .disable()
+            crate::autostart::set_enabled(&app, false)
                 .map_err(|error| format!("Failed to restore disabled autostart: {error}"))
         } else {
             #[cfg(target_os = "windows")]
@@ -3383,7 +3509,7 @@ pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), Str
                         )),
                     }
                 } else if previous_settings.autostart_enabled {
-                    autostart_manager.enable().map_err(|error| {
+                    crate::autostart::set_enabled(&app, true).map_err(|error| {
                         format!("Failed to restore standard autostart: {error}")
                     })
                 } else {
@@ -3393,7 +3519,7 @@ pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), Str
             #[cfg(not(target_os = "windows"))]
             {
                 if previous_settings.autostart_enabled {
-                    autostart_manager.enable().map_err(|error| {
+                    crate::autostart::set_enabled(&app, true).map_err(|error| {
                         format!("Failed to restore standard autostart: {error}")
                     })
                 } else {
@@ -3470,8 +3596,7 @@ pub fn change_autostart_as_admin_setting(app: AppHandle, enabled: bool) -> Resul
             create_admin_autostart_task(&exe_str)?;
 
             // Disable standard registry autostart so the application does not start twice
-            let autostart_manager = app.autolaunch();
-            if let Err(e) = autostart_manager.disable() {
+            if let Err(e) = crate::autostart::set_enabled(&app, false) {
                 if let Err(rollback_error) = delete_admin_autostart_task() {
                     return Err(format!(
                         "Failed to disable standard registry autostart: {e}; also failed to remove the administrator task during rollback: {rollback_error}"
@@ -3485,7 +3610,7 @@ pub fn change_autostart_as_admin_setting(app: AppHandle, enabled: bool) -> Resul
             next_settings.autostart_enabled = true;
             if let Err(save_error) = settings::write_settings_checked(&app, next_settings) {
                 let registry_rollback = if previous_settings.autostart_enabled {
-                    autostart_manager.enable().map_err(|error| error.to_string())
+                    crate::autostart::set_enabled(&app, true).map_err(|error| error.to_string())
                 } else {
                     Ok(())
                 };
@@ -3502,13 +3627,11 @@ pub fn change_autostart_as_admin_setting(app: AppHandle, enabled: bool) -> Resul
                 };
             }
         } else {
-            let autostart_manager = app.autolaunch();
 
             // Transactional rollback sequence:
             // 1. If regular autostart remains enabled, restore registry autostart first
             let restored_registry = if previous_settings.autostart_enabled {
-                autostart_manager
-                    .enable()
+                crate::autostart::set_enabled(&app, true)
                     .map_err(|e| format!("Failed to restore standard registry autostart: {e}"))?;
                 true
             } else {
@@ -3519,7 +3642,7 @@ pub fn change_autostart_as_admin_setting(app: AppHandle, enabled: bool) -> Resul
             if let Err(e) = delete_admin_autostart_task() {
                 // If scheduled task deletion fails and we re-enabled registry autostart, roll it back
                 if restored_registry {
-                    if let Err(rollback_error) = autostart_manager.disable() {
+                    if let Err(rollback_error) = crate::autostart::set_enabled(&app, false) {
                         return Err(format!(
                             "Failed to delete administrator scheduled task: {e}; also failed to roll back standard autostart: {rollback_error}"
                         ));
@@ -3533,7 +3656,7 @@ pub fn change_autostart_as_admin_setting(app: AppHandle, enabled: bool) -> Resul
             if let Err(save_error) = settings::write_settings_checked(&app, next_settings) {
                 let task_rollback = create_admin_autostart_task(&exe_str);
                 let registry_rollback = if task_rollback.is_ok() && restored_registry {
-                    autostart_manager.disable().map_err(|error| error.to_string())
+                    crate::autostart::set_enabled(&app, false).map_err(|error| error.to_string())
                 } else {
                     Ok(())
                 };
@@ -3724,12 +3847,59 @@ pub fn change_paste_method_setting(app: AppHandle, method: String) -> Result<(),
         "none" => PasteMethod::None,
         "shift_insert" => PasteMethod::ShiftInsert,
         "ctrl_shift_v" => PasteMethod::CtrlShiftV,
+        "external_script" => PasteMethod::ExternalScript,
         other => {
             warn!("Invalid paste method '{}', defaulting to ctrl_v", other);
             PasteMethod::CtrlV
         }
     };
     settings.paste_method = parsed;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_available_typing_tools() -> Vec<String> {
+    #[cfg(target_os = "linux")]
+    {
+        crate::clipboard::get_available_typing_tools()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        vec!["auto".to_string()]
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_typing_tool_setting(app: AppHandle, tool: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let parsed = match tool.as_str() {
+        "auto" => TypingTool::Auto,
+        "wtype" => TypingTool::Wtype,
+        "kwtype" => TypingTool::Kwtype,
+        "dotool" => TypingTool::Dotool,
+        "ydotool" => TypingTool::Ydotool,
+        "xdotool" => TypingTool::Xdotool,
+        other => {
+            warn!("Invalid typing tool '{}', defaulting to auto", other);
+            TypingTool::Auto
+        }
+    };
+    settings.typing_tool = parsed;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_external_script_path_setting(
+    app: AppHandle,
+    path: Option<String>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.external_script_path = path;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -7193,7 +7363,12 @@ pub fn get_current_shortcut_engine(app: AppHandle) -> ShortcutEngine {
     {
         active_shortcut_engine(&app)
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        if crate::platform_shortcuts::macos_uses_handy_keys(&app) { ShortcutEngine::HandyKeys }
+        else { ShortcutEngine::Tauri }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = app;
         ShortcutEngine::Tauri
@@ -7326,6 +7501,10 @@ fn validate_shortcut_string(app: &AppHandle, raw: &str) -> Result<(), String> {
 
     #[cfg(not(target_os = "windows"))]
     {
+        #[cfg(target_os = "macos")]
+        if crate::platform_shortcuts::macos_uses_handy_keys(app) {
+            return shortcut_handy_keys::validate_shortcut(raw);
+        }
         let _ = app;
         let normalized = normalize_shortcut_binding(raw);
         let modifiers = [
@@ -7440,10 +7619,14 @@ static CANCEL_SHORTCUT_REQUEST: std::sync::atomic::AtomicU64 = std::sync::atomic
 static CANCEL_SHORTCUT_MUTATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 pub fn register_cancel_shortcut(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    crate::platform_shortcuts::secure_input::register_cancel_fallback(app);
     set_cancel_shortcut_registered(app, true);
 }
 
 pub fn unregister_cancel_shortcut(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    crate::platform_shortcuts::secure_input::unregister_cancel_fallback(app);
     set_cancel_shortcut_registered(app, false);
 }
 
@@ -7514,7 +7697,11 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
     // On other platforms, use tauri-plugin-global-shortcut with rdev fallback
     #[cfg(not(target_os = "windows"))]
     {
-        register_shortcut_tauri(app, binding)
+        #[cfg(target_os = "macos")]
+        if crate::platform_shortcuts::macos_uses_handy_keys(app) {
+            return shortcut_handy_keys::register_shortcut(app, binding);
+        }
+        crate::platform_shortcuts::tauri_backend::register_shortcut(app, binding)
     }
 }
 
@@ -7624,6 +7811,15 @@ fn register_shortcut_tauri(app: &AppHandle, binding: ShortcutBinding) -> Result<
 }
 
 pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        if binding.current_binding.trim().is_empty() { return Ok(()); }
+        #[cfg(target_os = "macos")]
+        if shortcut_handy_keys::is_registered(app, &binding.id) {
+            return shortcut_handy_keys::unregister_shortcut(app, binding);
+        }
+        return crate::platform_shortcuts::tauri_backend::unregister_shortcut(app, binding);
+    }
     // Check if this is an rdev shortcut first
     if let Some(rdev_set) = app.try_state::<RdevShortcutsSet>() {
         let mut rdev_shortcuts = rdev_set.lock().expect("Failed to lock rdev shortcuts");

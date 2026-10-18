@@ -5,6 +5,10 @@ mod active_app;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod apple_intelligence;
 mod audio_feedback;
+mod output_dispatch;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod platform_shortcuts;
+mod autostart;
 pub mod audio_toolkit;
 mod catalog;
 mod chinese_script;
@@ -112,6 +116,8 @@ use managers::soniox_stt::SonioxSttManager;
 use managers::transcription::TranscriptionManager;
 use managers::tts::TtsManager;
 use managers::tts_history::TtsHistoryManager;
+#[cfg(target_os = "macos")]
+use signal_hook::consts::SIGUSR1;
 #[cfg(unix)]
 use signal_hook::consts::SIGUSR2;
 #[cfg(unix)]
@@ -125,8 +131,6 @@ use tauri::tray::TrayIconBuilder;
 use tauri::Emitter;
 use tauri::{AppHandle, Listener, Manager};
 use tauri_plugin_autostart::MacosLauncher;
-#[cfg(not(debug_assertions))]
-use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_log::{
     Builder as LogBuilder, RotationStrategy, Target, TargetKind, TimezoneStrategy,
 };
@@ -338,6 +342,28 @@ pub(crate) fn create_main_window(
     Ok(main_window)
 }
 
+/// The app launches without a Dock icon only when it will start hidden
+/// (setting or speech-only mode) AND a tray icon is available. With no tray the
+/// Dock icon stays as the only way back into the app. Headless one-shot runs
+/// are left alone.
+#[cfg(target_os = "macos")]
+fn apply_startup_activation_policy(app: &mut tauri::App, headless_mode: bool) {
+    if headless_mode {
+        return;
+    }
+
+    let settings = settings::get_settings(app.handle());
+    // `webview_mode` is only initialized in `setup`, which runs after this, so the
+    // speech-only (never launch WebView) setting is read directly. Speech-only
+    // always has the native tray.
+    let should_hide = settings.start_hidden || settings.never_launch_webview;
+    let tray_available = settings.show_tray_icon || settings.never_launch_webview;
+    if should_hide && tray_available {
+        log::info!("Starting hidden with tray available: launching as Accessory (no Dock icon)");
+        app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+    }
+}
+
 fn show_main_window(app: &AppHandle) {
     if webview_mode::webviews_disabled() {
         log::info!(
@@ -496,13 +522,35 @@ fn timed_startup<T>(label: &str, operation: impl FnOnce() -> T) -> T {
 }
 
 fn initialize_core_logic(app_handle: &AppHandle) {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    platform_shortcuts::install(app_handle);
     recording_model_loading::install(app_handle);
     let speech_only = webview_mode::webviews_disabled();
 
+    // On macOS, creating the input state and registering shortcuts needs the
+    // Accessibility permission, so the frontend calls `initialize_enigo` and
+    // `initialize_shortcuts` once the user can grant it. The speech-only runtime
+    // has no frontend and initializes them here.
+    #[cfg(target_os = "macos")]
+    let defer_input_init = !speech_only;
+    #[cfg(not(target_os = "macos"))]
+    let defer_input_init = false;
+
     // Initialize the input state (Enigo singleton for keyboard/mouse simulation)
-    let enigo_state = timed_startup("input state", input::EnigoState::new)
-        .expect("Failed to initialize input state (Enigo)");
-    app_handle.manage(enigo_state);
+    if !defer_input_init {
+        match timed_startup("input state", input::EnigoState::new) {
+            Ok(enigo_state) => {
+                app_handle.manage(enigo_state);
+            }
+            // macOS needs the Accessibility permission first. On Linux the input
+            // backend can be missing (for example Wayland without XWayland); a
+            // failed paste then reports an error instead of the app crashing.
+            Err(error) if cfg!(any(target_os = "macos", target_os = "linux")) => {
+                log::warn!("Input state unavailable: {error}");
+            }
+            Err(error) => panic!("Failed to initialize input state (Enigo): {error}"),
+        }
+    }
     app_handle.manage(tray::TrayState::new());
 
     let current_settings = settings::get_settings(app_handle);
@@ -652,29 +700,32 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     timed_startup("audio feedback", || audio_feedback::init(app_handle));
 
     // Initialize the shortcuts
-    timed_startup("shortcuts", || shortcut::init_shortcuts(app_handle));
+    if !defer_input_init {
+        timed_startup("shortcuts", || shortcut::init_shortcuts(app_handle));
+        app_handle.manage(commands::ShortcutsInitialized);
+    }
 
-    #[cfg(unix)]
+    // SIGUSR1 (transcribe with post-processing) is macOS-only: on Linux,
+    // WebKitGTK's garbage collector signals its own threads with it.
+    #[cfg(target_os = "macos")]
+    let signals = Signals::new(&[SIGUSR1, SIGUSR2]).unwrap();
+    #[cfg(all(unix, not(target_os = "macos")))]
     let signals = Signals::new(&[SIGUSR2]).unwrap();
-    // Set up SIGUSR2 signal handler for toggling transcription
+    // Set up SIGUSR1/SIGUSR2 signal handler for toggling transcription
     #[cfg(unix)]
     signal_handle::setup_signal_handler(app_handle.clone(), signals);
 
-    // Apply macOS Accessory policy if starting hidden
-    #[cfg(target_os = "macos")]
-    {
-        let settings = settings::get_settings(app_handle);
-        if settings.start_hidden || speech_only {
-            let _ = app_handle.set_activation_policy(tauri::ActivationPolicy::Accessory);
-        }
-    }
+    // The macOS activation policy for a start-hidden launch is applied before
+    // the event loop runs (see `apply_startup_activation_policy`), not here:
+    // by the time `setup` runs the app has already launched as a Regular
+    // (Dock) app, and demoting it at runtime is unreliable.
     // Get the current theme to set the appropriate initial icon
     let initial_theme = tray::get_current_theme(app_handle);
 
     // Choose the appropriate initial icon based on theme
     let initial_icon_path = tray::get_icon_path(initial_theme, tray::TrayIconState::Idle);
 
-    let tray = TrayIconBuilder::new()
+    let tray_builder = TrayIconBuilder::new()
         .icon(
             Image::from_path(
                 app_handle
@@ -685,8 +736,13 @@ fn initialize_core_logic(app_handle: &AppHandle) {
             .unwrap(),
         )
         .tooltip(tray::tray_tooltip())
-        .show_menu_on_left_click(false)
-        .icon_as_template(true)
+        .icon_as_template(true);
+    // Windows notification-area convention: left click opens the app and the menu
+    // is on the right button. Elsewhere (macOS menu bar, Linux) the menu stays on
+    // left click.
+    #[cfg(target_os = "windows")]
+    let tray_builder = tray_builder.show_menu_on_left_click(false);
+    let tray = tray_builder
         .on_tray_icon_event(|tray, event| match event {
             tauri::tray::TrayIconEvent::Enter { .. } => {
                 tray::refresh_tray_menu(tray.app_handle(), None);
@@ -933,15 +989,15 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // never replace the installed application's OS autostart registration.
     #[cfg(not(debug_assertions))]
     {
-        let autostart_manager = app_handle.autolaunch();
         let settings = settings::get_settings(&app_handle);
 
-        if settings.autostart_enabled && !settings.autostart_as_admin_enabled {
-            // Enable normal registry autostart only if not running elevated via Task Scheduler
-            let _ = autostart_manager.enable();
-        } else {
-            // Disable registry autostart if user opted out or if elevated autostart handles it
-            let _ = autostart_manager.disable();
+        // Re-applied on every launch, so a transient failure heals itself and
+        // must not block startup.
+        let enabled = settings.autostart_enabled && !settings.autostart_as_admin_enabled;
+        // Enable normal autostart only if not running elevated via Task Scheduler;
+        // disable it if the user opted out or elevated autostart handles it.
+        if let Err(error) = autostart::set_enabled(&app_handle, enabled) {
+            log::warn!("Failed to apply autostart setting (enabled={enabled}): {error}");
         }
     }
 
@@ -1187,6 +1243,24 @@ fn run_headless_transcription(app: &AppHandle, args: &CliArgs) -> i32 {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run(cli_args: CliArgs) {
+    // Avoid ggml-metal residency-set teardown assertions when a native engine
+    // outlives the Tauri shutdown sequence. This must happen before
+    // transcribe-cpp initializes its Metal device. Advanced users can restore
+    // upstream residency behavior with AIVORELAY_METAL_RESIDENCY=1.
+    #[cfg(target_os = "macos")]
+    if std::env::var("AIVORELAY_METAL_RESIDENCY").as_deref() == Ok("1") {
+        // ggml treats GGML_METAL_NO_RESIDENCY as presence-based, so remove an
+        // inherited value as well when explicitly opting back in.
+        std::env::remove_var("GGML_METAL_NO_RESIDENCY");
+    } else {
+        std::env::set_var("GGML_METAL_NO_RESIDENCY", "1");
+    }
+
+    // Pin glibc's dynamic mmap threshold before the first large allocation, so the
+    // per-dictation audio buffers are returned to the OS on free instead of piling
+    // up in malloc arenas. No-op off Linux/glibc.
+    memory::init_allocator();
+
     tls::initialize();
     portable::init();
 
@@ -1324,6 +1398,9 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_debug_mode_setting,
         shortcut::change_word_correction_threshold_setting,
         shortcut::change_paste_method_setting,
+        shortcut::get_available_typing_tools,
+        shortcut::change_typing_tool_setting,
+        shortcut::change_external_script_path_setting,
         shortcut::change_paste_delay_ms_setting,
         shortcut::change_clipboard_handling_setting,
         shortcut::change_clipboard_history_allowed_setting,
@@ -1629,6 +1706,8 @@ pub fn run(cli_args: CliArgs) {
         commands::tts_history::export_tts_history_audio,
         commands::tts_history::regenerate_tts_history_entry,
         commands::check_apple_intelligence_available,
+        commands::initialize_enigo,
+        commands::initialize_shortcuts,
         commands::llm_has_stored_api_key,
         commands::debug_show_error_overlay,
         commands::models::get_available_models,
@@ -1857,6 +1936,9 @@ pub fn run(cli_args: CliArgs) {
                     } else if let Some(command) = args.remote_command() {
                         remote_control::dispatch(app, command);
                     } else {
+                        // Relaunching is the natural "where did my icon go?" moment.
+                        #[cfg(target_os = "macos")]
+                        tray::recreate_tray_icon(app);
                         show_main_window(app);
                     }
                 }
@@ -1865,7 +1947,8 @@ pub fn run(cli_args: CliArgs) {
         }));
     }
 
-    builder
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
+    let mut app = builder
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
@@ -1890,6 +1973,21 @@ pub fn run(cli_args: CliArgs) {
         .manage(std::sync::Mutex::new(settings::ShortcutEngine::default())
             as shortcut::ActiveShortcutEngine)
         .setup(move |app| {
+            secure_keys::init(app.handle());
+            // History playback on Linux reads recordings through the file plugin.
+            // Scope it to the real recordings folder, which moves in portable mode.
+            #[cfg(target_os = "linux")]
+            {
+                use tauri_plugin_fs::FsExt;
+                match portable::app_data_dir(app.handle()) {
+                    Ok(dir) => {
+                        if let Err(error) = app.fs_scope().allow_directory(dir.join("recordings"), true) {
+                            log::warn!("Could not allow the recordings folder for playback: {error}");
+                        }
+                    }
+                    Err(error) => log::warn!("Could not resolve the app data folder: {error}"),
+                }
+            }
             #[cfg(target_os = "windows")]
             log::info!(
                 "Vulkan layer policy: VK_LOADER_LAYERS_DISABLE={:?}, AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS={:?}",
@@ -2018,8 +2116,15 @@ pub fn run(cli_args: CliArgs) {
                 should_force_show_permissions_window(&app_handle)
             });
 
-            // Show main window only if not starting hidden, unless permission onboarding must be shown
-            if !settings.start_hidden || should_force_show_permissions {
+            // Show main window only if not starting hidden, unless permission onboarding must be shown.
+            // On macOS a hidden start without a tray icon would leave the Dock as the
+            // only way back in, so the window is shown anyway
+            // (keep in sync with `apply_startup_activation_policy`).
+            #[cfg(target_os = "macos")]
+            let tray_unavailable = !settings.show_tray_icon;
+            #[cfg(not(target_os = "macos"))]
+            let tray_unavailable = false;
+            if !settings.start_hidden || should_force_show_permissions || tray_unavailable {
                 show_main_window(&app_handle);
             }
 
@@ -2084,14 +2189,39 @@ pub fn run(cli_args: CliArgs) {
         })
         .invoke_handler(specta_builder.invoke_handler())
         .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|_app, event| {
-            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = &event {
+        .expect("error while building tauri application");
+
+    // Must sit between build() and run(): the policy has to be in place before
+    // the event loop starts.
+    #[cfg(target_os = "macos")]
+    apply_startup_activation_policy(&mut app, headless_mode);
+
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+    app.run(|app, event| {
+        match &event {
+            tauri::RunEvent::ExitRequested { code: None, api, .. } => {
                 // Rebuilding the webviews after a WebView2 crash briefly leaves
                 // the app without windows; that is not "all windows closed".
                 if webview_recovery::is_recovering() {
                     api.prevent_exit();
                 }
             }
-        });
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => {
+                // Fired when the already-running bundle is launched again from
+                // Spotlight/Finder or the Dock icon is clicked. If the window is
+                // hidden the user is likely looking for a tray icon that
+                // vanished: recreate it. A visible window just gets focus.
+                let window_visible = app
+                    .get_webview_window("main")
+                    .and_then(|window| window.is_visible().ok())
+                    .unwrap_or(false);
+                if !window_visible {
+                    tray::recreate_tray_icon(app);
+                }
+                show_main_window(app);
+            }
+            _ => {}
+        }
+    });
 }
