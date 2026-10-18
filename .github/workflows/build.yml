@@ -575,7 +575,11 @@ jobs:
           chmod +x "$tools_dir/linuxdeploy-${arch}.AppImage"
           "$tools_dir/linuxdeploy-${arch}.AppImage" --appimage-extract-and-run --version
 
+      # Tauri treats a signing variable that is set but empty as "sign with this
+      # certificate" and fails, so the unsigned macOS build below leaves them
+      # undefined. This step covers every other build.
       - name: Build with Tauri
+        if: ${{ !(contains(inputs.platform, 'macos') && !inputs.sign-binaries) }}
         uses: tauri-apps/tauri-action@v0
         env:
           # Linux builds receive no secrets at all: the token, the Apple
@@ -607,6 +611,26 @@ jobs:
           # x86_64 builds. Without this, CPUs lacking AVX/FMA (e.g. Celeron N2920,
           # FX-8350) crash with SIGILL. The Vulkan backend handles heavy compute
           # so disabling these has negligible performance impact.
+          GGML_NATIVE: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
+          GGML_AVX: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
+          GGML_AVX2: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
+          GGML_FMA: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
+          GGML_F16C: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
+        with:
+          tagName: ${{ inputs.release-id && inputs.release-tag || (inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '') }}
+          releaseName: ${{ inputs.release-id && inputs.release-tag || (inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '') }}
+          releaseId: ${{ inputs.release-id }}
+          assetNamePattern: ${{ steps.patch-release-name.outputs.platform }}
+          args: ${{ inputs.build-args }}
+
+      - name: Build with Tauri (macOS, unsigned)
+        if: ${{ contains(inputs.platform, 'macos') && !inputs.sign-binaries }}
+        uses: tauri-apps/tauri-action@v0
+        env:
+          # No signing material is defined here: an unsigned macOS build is ad-hoc signed.
+          GITHUB_TOKEN: ${{ !contains(inputs.platform, 'ubuntu') && secrets.GITHUB_TOKEN || '' }}
+          # Hidden frontend sourcemaps, written outside the app (see vite.config.ts).
+          AIVORELAY_SOURCEMAPS: "1"
           GGML_NATIVE: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
           GGML_AVX: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
           GGML_AVX2: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
