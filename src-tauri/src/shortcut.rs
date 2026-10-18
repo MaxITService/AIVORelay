@@ -476,7 +476,7 @@ fn sync_decapitalize_monitor_shortcut(
 }
 
 /// Whether a binding should be active based on feature toggle settings.
-fn is_binding_enabled_for_settings(settings: &settings::AppSettings, binding_id: &str) -> bool {
+pub(crate) fn is_binding_enabled_for_settings(settings: &settings::AppSettings, binding_id: &str) -> bool {
     if let Some(preset_id) = binding_id.strip_prefix(settings::SEND_SELECTED_TEXT_BINDING_PREFIX) {
         return settings
             .send_selected_text
@@ -509,7 +509,7 @@ fn is_binding_currently_registered(app: &AppHandle, binding: &ShortcutBinding) -
         }
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     if shortcut_handy_keys::is_registered(app, &binding.id) {
         return true;
     }
@@ -682,12 +682,8 @@ pub fn init_shortcuts(app: &AppHandle) {
         }
     }
 
-    // On non-Windows platforms, always start rdev as fallback for unsupported shortcuts
-    #[cfg(not(target_os = "windows"))]
-    {
-        start_rdev_listener(app);
-        setup_rdev_shortcut_handler(app);
-    }
+    #[cfg(target_os = "macos")]
+    crate::platform_shortcuts::init_macos_backend(app);
 
     // Register all default shortcuts, applying user customizations
     for (id, default_binding) in default_bindings {
@@ -1048,6 +1044,13 @@ fn handle_shortcut_event_inner(
             .unwrap_or(false),
         _ => false,
     };
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    if crate::platform_shortcuts::is_transcribe_binding(binding_id) {
+        crate::platform_shortcuts::send_input(app, binding_id, shortcut_string, pressed,
+            use_push_to_talk, use_auto_shortcut_activation);
+        return;
+    }
 
     if action.is_instant() {
         let should_fire = if action.instant_fire_on_release() {
@@ -7360,7 +7363,12 @@ pub fn get_current_shortcut_engine(app: AppHandle) -> ShortcutEngine {
     {
         active_shortcut_engine(&app)
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        if crate::platform_shortcuts::macos_uses_handy_keys(&app) { ShortcutEngine::HandyKeys }
+        else { ShortcutEngine::Tauri }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = app;
         ShortcutEngine::Tauri
@@ -7493,6 +7501,10 @@ fn validate_shortcut_string(app: &AppHandle, raw: &str) -> Result<(), String> {
 
     #[cfg(not(target_os = "windows"))]
     {
+        #[cfg(target_os = "macos")]
+        if crate::platform_shortcuts::macos_uses_handy_keys(app) {
+            return shortcut_handy_keys::validate_shortcut(raw);
+        }
         let _ = app;
         let normalized = normalize_shortcut_binding(raw);
         let modifiers = [
@@ -7607,10 +7619,14 @@ static CANCEL_SHORTCUT_REQUEST: std::sync::atomic::AtomicU64 = std::sync::atomic
 static CANCEL_SHORTCUT_MUTATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 pub fn register_cancel_shortcut(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    crate::platform_shortcuts::secure_input::register_cancel_fallback(app);
     set_cancel_shortcut_registered(app, true);
 }
 
 pub fn unregister_cancel_shortcut(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    crate::platform_shortcuts::secure_input::unregister_cancel_fallback(app);
     set_cancel_shortcut_registered(app, false);
 }
 
@@ -7681,7 +7697,11 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
     // On other platforms, use tauri-plugin-global-shortcut with rdev fallback
     #[cfg(not(target_os = "windows"))]
     {
-        register_shortcut_tauri(app, binding)
+        #[cfg(target_os = "macos")]
+        if crate::platform_shortcuts::macos_uses_handy_keys(app) {
+            return shortcut_handy_keys::register_shortcut(app, binding);
+        }
+        crate::platform_shortcuts::tauri_backend::register_shortcut(app, binding)
     }
 }
 
@@ -7734,6 +7754,7 @@ fn normalize_shortcut_binding(raw: &str) -> String {
 }
 
 /// Register shortcut via tauri-plugin-global-shortcut (used on macOS/Linux, and Windows when Tauri engine selected)
+#[cfg(target_os = "windows")]
 fn register_shortcut_tauri(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
     // Try to parse shortcut for tauri-plugin-global-shortcut
     let shortcut_result = binding.current_binding.parse::<Shortcut>();
@@ -7791,6 +7812,21 @@ fn register_shortcut_tauri(app: &AppHandle, binding: ShortcutBinding) -> Result<
 }
 
 pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        if binding.current_binding.trim().is_empty() { return Ok(()); }
+        #[cfg(target_os = "macos")]
+        if shortcut_handy_keys::is_registered(app, &binding.id) {
+            return shortcut_handy_keys::unregister_shortcut(app, binding);
+        }
+        return crate::platform_shortcuts::tauri_backend::unregister_shortcut(app, binding);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    unregister_shortcut_legacy(app, binding)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn unregister_shortcut_legacy(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
     // Check if this is an rdev shortcut first
     if let Some(rdev_set) = app.try_state::<RdevShortcutsSet>() {
         let mut rdev_shortcuts = rdev_set.lock().expect("Failed to lock rdev shortcuts");

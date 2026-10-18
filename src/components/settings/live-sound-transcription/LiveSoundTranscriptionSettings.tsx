@@ -855,7 +855,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       <SettingsGroup
         id="settings-live-session"
         title={t("settings.liveSoundTranscription.title")}
-        description={t("settings.liveSoundTranscription.description")}
+        description={t(supportsSystemAudio ? "settings.liveSoundTranscription.description" : "settings.liveSoundTranscription.audio.microphoneOnly")}
       >
         <SettingContainer
           title={t("settings.liveSoundTranscription.session.title")}

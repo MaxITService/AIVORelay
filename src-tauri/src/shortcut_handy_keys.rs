@@ -74,10 +74,12 @@ pub struct FrontendKeyEvent {
 impl HandyKeysState {
     pub fn new(app: AppHandle) -> Result<Self, String> {
         let (cmd_tx, cmd_rx) = mpsc::channel::<ManagerCommand>();
+        #[cfg(target_os = "macos")]
+        let (ready_sender, ready_receiver) = mpsc::channel::<Result<(), String>>();
         let app_clone = app.clone();
         let thread_handle = thread::spawn(move || {
             let result = catch_unwind(AssertUnwindSafe(|| {
-                Self::manager_thread(cmd_rx, app_clone);
+                Self::manager_thread(cmd_rx, app_clone, #[cfg(target_os = "macos")] ready_sender);
             }));
 
             if let Err(panic) = result {
@@ -89,6 +91,10 @@ impl HandyKeysState {
             }
         });
 
+        #[cfg(target_os = "macos")]
+        ready_receiver.recv_timeout(std::time::Duration::from_secs(10))
+            .map_err(|error| format!("macOS shortcut backend did not initialize: {error}"))??;
+
         Ok(Self {
             command_sender: Mutex::new(cmd_tx),
             thread_handle: Mutex::new(Some(thread_handle)),
@@ -98,16 +104,23 @@ impl HandyKeysState {
         })
     }
 
-    fn manager_thread(cmd_rx: Receiver<ManagerCommand>, app: AppHandle) {
+    fn manager_thread(cmd_rx: Receiver<ManagerCommand>, app: AppHandle,
+        #[cfg(target_os = "macos")] ready: Sender<Result<(), String>>,
+    ) {
         info!("handy-keys manager thread started");
 
         let manager = match HotkeyManager::new_with_blocking() {
             Ok(manager) => manager,
             Err(err) => {
                 error!("Failed to create handy-keys manager: {}", err);
+                #[cfg(target_os = "macos")]
+                let _ = ready.send(Err(err.to_string()));
                 return;
             }
         };
+
+        #[cfg(target_os = "macos")]
+        if ready.send(Ok(())).is_err() { return; }
 
         let mut binding_to_hotkey: HashMap<String, HotkeyId> = HashMap::new();
         let mut hotkey_to_binding: HashMap<HotkeyId, (String, String)> = HashMap::new();
@@ -481,8 +494,13 @@ pub fn is_registered(app: &AppHandle, binding_id: &str) -> bool {
 #[tauri::command]
 #[specta::specta]
 pub fn start_handy_keys_recording(app: AppHandle, binding_id: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    if crate::platform_shortcuts::secure_input::is_enabled_now() {
+        crate::platform_shortcuts::secure_input::note_recorder_blocked(&app);
+        return Err("macOS Secure Input is active. Close the password field or disable Secure Keyboard Entry before recording a shortcut.".into());
+    }
     let settings = get_settings(&app);
-    if settings.shortcut_engine != settings::ShortcutEngine::HandyKeys {
+    if !cfg!(target_os = "macos") && settings.shortcut_engine != settings::ShortcutEngine::HandyKeys {
         return Err("HandyKeys is not the configured shortcut engine".to_string());
     }
 
@@ -505,7 +523,7 @@ pub fn start_handy_keys_recording(app: AppHandle, binding_id: String) -> Result<
 #[specta::specta]
 pub fn stop_handy_keys_recording(app: AppHandle) -> Result<(), String> {
     let settings = get_settings(&app);
-    if settings.shortcut_engine != settings::ShortcutEngine::HandyKeys {
+    if !cfg!(target_os = "macos") && settings.shortcut_engine != settings::ShortcutEngine::HandyKeys {
         return Err("HandyKeys is not the configured shortcut engine".to_string());
     }
 
