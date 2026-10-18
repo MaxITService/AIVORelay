@@ -36,6 +36,8 @@ struct StreamingPasteSession {
     convert_lf_to_crlf: bool,
     exclude_final_from_history: bool,
     text_backup: String,
+    #[cfg(not(target_os = "windows"))]
+    image_backup: ClipboardImageBackup,
     last_clipboard_paste_sent_at: Option<Instant>,
     #[cfg(target_os = "windows")]
     last_clipboard_sequence: Option<u32>,
@@ -832,7 +834,52 @@ fn convert_text_for_clipboard(text: &str, convert_lf_to_crlf: bool) -> String {
     text.to_string()
 }
 
-fn send_paste_shortcut(enigo: &mut Enigo, paste_method: &PasteMethod) -> Result<(), String> {
+/// Serializes everything that types or pastes into the foreground application (a
+/// paste, a streamed chunk, an opening or submit key) so they never interleave.
+/// Holding the input system's own lock for a whole paste used to do this, which
+/// also made every paste depend on the input system existing.
+static OUTPUT_SERIALIZER: Mutex<()> = Mutex::new(());
+
+fn lock_output() -> MutexGuard<'static, ()> {
+    OUTPUT_SERIALIZER
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+}
+
+/// Takes the input system only when a key press really needs it. Methods that run
+/// an external tool, or none at all, then work where it is unavailable (for
+/// example Wayland without XWayland).
+struct LazyEnigo<'a> {
+    app: &'a AppHandle,
+    guard: Option<MutexGuard<'a, Enigo>>,
+}
+
+impl<'a> LazyEnigo<'a> {
+    fn new(app: &'a AppHandle) -> Self {
+        Self { app, guard: None }
+    }
+
+    fn get(&mut self) -> Result<&mut Enigo, String> {
+        if self.guard.is_none() {
+            let state: &'a EnigoState = self
+                .app
+                .try_state::<EnigoState>()
+                .ok_or("Enigo state not initialized")?
+                .inner();
+            let guard = state
+                .0
+                .lock()
+                .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+            self.guard = Some(guard);
+        }
+        match self.guard.as_mut() {
+            Some(guard) => Ok(&mut **guard),
+            None => Err("Enigo state not initialized".to_string()),
+        }
+    }
+}
+
+fn send_paste_shortcut(enigo: &mut LazyEnigo, paste_method: &PasteMethod) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     let key_combo_sent = try_send_key_combo_linux(paste_method)?;
 
@@ -842,9 +889,9 @@ fn send_paste_shortcut(enigo: &mut Enigo, paste_method: &PasteMethod) -> Result<
     // Fall back to enigo if no native tool handled it.
     if !key_combo_sent {
         match paste_method {
-            PasteMethod::CtrlV => input::send_paste_ctrl_v(enigo)?,
-            PasteMethod::CtrlShiftV => input::send_paste_ctrl_shift_v(enigo)?,
-            PasteMethod::ShiftInsert => input::send_paste_shift_insert(enigo)?,
+            PasteMethod::CtrlV => input::send_paste_ctrl_v(enigo.get()?)?,
+            PasteMethod::CtrlShiftV => input::send_paste_ctrl_shift_v(enigo.get()?)?,
+            PasteMethod::ShiftInsert => input::send_paste_shift_insert(enigo.get()?)?,
             _ => return Err("Invalid paste method for clipboard paste".into()),
         }
     }
@@ -909,6 +956,54 @@ fn write_final_transcription_text(
     write_transcription_text(app_handle, text, exclude_from_history)
 }
 
+/// Image content worth restoring off Windows (a screenshot, say). Windows restores
+/// every clipboard format through its own backup instead.
+#[cfg(not(target_os = "windows"))]
+type ClipboardImageBackup = Option<tauri::image::Image<'static>>;
+
+/// Probes for an image only when there is no text to restore: reading one decodes
+/// the whole bitmap, and text is by far the common case.
+#[cfg(not(target_os = "windows"))]
+fn backup_clipboard_image(
+    app_handle: &AppHandle,
+    text_backup: &str,
+    handling: ClipboardHandling,
+) -> ClipboardImageBackup {
+    let restores = matches!(
+        handling,
+        ClipboardHandling::RestorePlainText
+            | ClipboardHandling::RestoreAdvanced
+            | ClipboardHandling::RestoreAdvancedOwned
+    );
+    if !restores || !text_backup.is_empty() {
+        return None;
+    }
+    app_handle
+        .clipboard()
+        .read_image()
+        .ok()
+        .map(|image| image.to_owned())
+}
+
+/// Restores the saved clipboard off Windows: the text if there was any, else the
+/// image, else an empty clipboard. Without this a screenshot was silently wiped.
+#[cfg(not(target_os = "windows"))]
+fn restore_clipboard_backup(
+    app_handle: &AppHandle,
+    text: &str,
+    image: &ClipboardImageBackup,
+) -> Result<(), String> {
+    if text.is_empty() {
+        if let Some(image) = image {
+            return app_handle
+                .clipboard()
+                .write_image(image)
+                .map_err(|e| format!("Failed to restore clipboard image: {}", e));
+        }
+    }
+    restore_plain_text_without_history(app_handle, text)
+}
+
 fn restore_plain_text_without_history(app_handle: &AppHandle, text: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
@@ -922,7 +1017,7 @@ fn restore_plain_text_without_history(app_handle: &AppHandle, text: &str) -> Res
 }
 
 fn paste_via_clipboard_no_restore_guarded(
-    enigo: &mut Enigo,
+    enigo: &mut LazyEnigo,
     text: &str,
     app_handle: &AppHandle,
     paste_method: &PasteMethod,
@@ -1007,7 +1102,7 @@ fn restore_streaming_session_backup(
             &session.text_backup, true, session.last_clipboard_sequence,
         )?;
         #[cfg(not(target_os = "windows"))]
-        restore_plain_text_without_history(app_handle, &session.text_backup)?;
+        restore_clipboard_backup(app_handle, &session.text_backup, &session.image_backup)?;
     }
 
     Ok(())
@@ -1091,6 +1186,8 @@ pub fn begin_streaming_paste_session(
     } else {
         String::new()
     };
+    #[cfg(not(target_os = "windows"))]
+    let image_backup = backup_clipboard_image(app_handle, &text_backup, settings.clipboard_handling);
 
     #[cfg(target_os = "windows")]
     let advanced_backup = if restores_all_clipboard_formats(settings.clipboard_handling) {
@@ -1123,6 +1220,8 @@ pub fn begin_streaming_paste_session(
         convert_lf_to_crlf: settings.convert_lf_to_crlf,
         exclude_final_from_history: exclude_final_write_from_history(&settings),
         text_backup,
+        #[cfg(not(target_os = "windows"))]
+        image_backup,
         last_clipboard_paste_sent_at: None,
         #[cfg(target_os = "windows")]
         last_clipboard_sequence: None,
@@ -1259,7 +1358,7 @@ pub fn finalize_streaming_paste_session_if_matches(
 
 /// Pastes text using the clipboard: saves current content, writes text, sends paste keystroke, restores clipboard.
 fn paste_via_clipboard_guarded(
-    enigo: &mut Enigo,
+    enigo: &mut LazyEnigo,
     text: &str,
     app_handle: &AppHandle,
     paste_method: &PasteMethod,
@@ -1304,6 +1403,8 @@ fn paste_via_clipboard_guarded(
     } else {
         String::new()
     };
+    #[cfg(not(target_os = "windows"))]
+    let image_backup = backup_clipboard_image(app_handle, &text_backup, clipboard_handling);
 
     // The non-streaming paste write is also the final write.
     let paste_result = paste_via_clipboard_no_restore_guarded(
@@ -1344,7 +1445,14 @@ fn paste_via_clipboard_guarded(
             | ClipboardHandling::RestoreAdvanced
             | ClipboardHandling::RestoreAdvancedOwned
     ) {
-        restore_plain_text_without_history(app_handle, &text_backup)
+        #[cfg(target_os = "windows")]
+        {
+            restore_plain_text_without_history(app_handle, &text_backup)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            restore_clipboard_backup(app_handle, &text_backup, &image_backup)
+        }
     } else {
         Ok(())
     };
@@ -1712,6 +1820,24 @@ fn type_text_via_xdotool(text: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// dotool reads one command per line, so text containing a newline would run its
+/// later lines as commands. Type each line on its own and press Enter between them.
+#[cfg(target_os = "linux")]
+fn dotool_script(text: &str) -> String {
+    let mut script = String::new();
+    for (index, line) in text.replace('\r', "").split('\n').enumerate() {
+        if index > 0 {
+            script.push_str("key enter\n");
+        }
+        if !line.is_empty() {
+            script.push_str("type ");
+            script.push_str(line);
+            script.push('\n');
+        }
+    }
+    script
+}
+
 /// Type text directly via dotool (works on both Wayland and X11 via uinput).
 #[cfg(target_os = "linux")]
 fn type_text_via_dotool(text: &str) -> Result<(), String> {
@@ -1724,8 +1850,8 @@ fn type_text_via_dotool(text: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to spawn dotool: {}", e))?;
 
     if let Some(mut stdin) = child.stdin.take() {
-        // dotool uses "type <text>" command
-        writeln!(stdin, "type {}", text)
+        stdin
+            .write_all(dotool_script(text).as_bytes())
             .map_err(|e| format!("Failed to write to dotool stdin: {}", e))?;
     }
 
@@ -1915,6 +2041,9 @@ fn send_key_combo_via_xdotool(paste_method: &PasteMethod) -> Result<(), String> 
     Ok(())
 }
 
+/// Longest an external paste script may run before it is killed.
+const EXTERNAL_SCRIPT_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Pastes text by invoking an external script.
 /// The script receives the text to paste as a single argument.
 fn paste_via_external_script(text: &str, script_path: &str) -> Result<(), String> {
@@ -1926,13 +2055,37 @@ fn paste_via_external_script(text: &str, script_path: &str) -> Result<(), String
     // clipboard selection is replaced instead of returning after the script
     // itself exits.
     use std::process::Stdio;
-    let status = Command::new(script_path)
+    let mut child = Command::new(script_path)
         .arg(text)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
+        .spawn()
         .map_err(|e| format!("Failed to execute external script '{}': {}", script_path, e))?;
+
+    // A hung script must not block output (and the input system) forever.
+    let deadline = Instant::now() + EXTERNAL_SCRIPT_TIMEOUT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "External script '{}' did not finish within {} seconds",
+                    script_path,
+                    EXTERNAL_SCRIPT_TIMEOUT.as_secs()
+                ));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(e) => {
+                return Err(format!(
+                    "Failed to wait for external script '{}': {}",
+                    script_path, e
+                ))
+            }
+        }
+    };
 
     if !status.success() {
         return Err(format!(
@@ -1946,7 +2099,7 @@ fn paste_via_external_script(text: &str, script_path: &str) -> Result<(), String
 }
 
 /// Types text directly by simulating individual key presses.
-fn paste_direct(enigo: &mut Enigo, app_handle: &AppHandle, text: &str) -> Result<(), String> {
+fn paste_direct(enigo: &mut LazyEnigo, app_handle: &AppHandle, text: &str) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         if try_direct_typing_linux(text, get_settings(app_handle).typing_tool)? {
@@ -1957,7 +2110,7 @@ fn paste_direct(enigo: &mut Enigo, app_handle: &AppHandle, text: &str) -> Result
     #[cfg(not(target_os = "linux"))]
     let _ = app_handle;
 
-    input::paste_text_direct(enigo, text)
+    input::paste_text_direct(enigo.get()?, text)
 }
 
 /// Hands text to the user's configured external paste script.
@@ -1969,7 +2122,7 @@ fn paste_external_script(app_handle: &AppHandle, text: &str) -> Result<(), Strin
     paste_via_external_script(text, &script_path)
 }
 
-fn send_return_key(enigo: &mut Enigo, key_type: AutoSubmitKey) -> Result<(), String> {
+fn send_return_key(enigo: &mut LazyEnigo, key_type: AutoSubmitKey) -> Result<(), String> {
     send_output_key(enigo, match key_type {
         AutoSubmitKey::Enter => "enter",
         AutoSubmitKey::CtrlEnter => "ctrl+enter",
@@ -2114,8 +2267,9 @@ pub(crate) fn validate_output_key(value: &str) -> Result<(), String> {
     parse_output_key(value).map(|_| ())
 }
 
-fn send_output_key(enigo: &mut Enigo, value: &str) -> Result<(), String> {
+fn send_output_key(enigo: &mut LazyEnigo, value: &str) -> Result<(), String> {
     let (modifiers, key) = parse_output_key(value)?;
+    let enigo = enigo.get()?;
     let mut pressed = Vec::new();
     let result = (|| {
         for modifier in modifiers {
@@ -2135,9 +2289,8 @@ fn send_output_key(enigo: &mut Enigo, value: &str) -> Result<(), String> {
 
 /// Presses a validated key combination with the managed keyboard (opening/cancel keys).
 pub(crate) fn press_output_key_now(app: &AppHandle, value: &str) -> Result<(), String> {
-    let enigo_state = app.try_state::<EnigoState>().ok_or("Enigo state not initialized")?;
-    let mut enigo = enigo_state.0.lock().map_err(|e| format!("Failed to lock Enigo: {}", e))?;
-    send_output_key(&mut enigo, value)
+    let _output_guard = lock_output();
+    send_output_key(&mut LazyEnigo::new(app), value)
 }
 
 /// After-insertion key for a recording whose opening key was pressed at start. The text
@@ -2158,8 +2311,8 @@ pub(crate) fn send_early_session_submit(
     {
         return;
     }
-    let Some(enigo_state) = app.try_state::<EnigoState>() else { return };
-    let Ok(mut enigo) = enigo_state.0.lock() else { return };
+    let _output_guard = lock_output();
+    let mut enigo = LazyEnigo::new(app);
     if let Err(error) = send_return_key(&mut enigo, settings.auto_submit_key) {
         warn!("Text was inserted, but the submit key failed: {}", error);
     }
@@ -2324,14 +2477,9 @@ pub(crate) fn paste_with_output_settings(
     .then(|| lock_clipboard_transaction("pasting text"))
     .transpose()?;
 
-    // Get the managed Enigo instance
-    let enigo_state = app_handle
-        .try_state::<EnigoState>()
-        .ok_or("Enigo state not initialized")?;
-    let mut enigo = enigo_state
-        .0
-        .lock()
-        .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+    // The input system is taken lazily, on the first key press that needs it.
+    let _output_guard = lock_output();
+    let mut enigo = LazyEnigo::new(&app_handle);
 
     let target_window = match early_press {
         Some((_, window)) => window,
@@ -2523,13 +2671,8 @@ fn paste_stream_chunk_with_output(
         info!("PasteMethod::None selected - skipping streaming chunk paste");
         return Ok(());
     }
-    let enigo_state = app_handle
-        .try_state::<EnigoState>()
-        .ok_or("Enigo state not initialized")?;
-    let mut enigo = enigo_state
-        .0
-        .lock()
-        .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+    let _output_guard = lock_output();
+    let mut enigo = LazyEnigo::new(&app_handle);
 
     let check_active_window = active_stream_config.as_ref()
         .map(|(_, _, _, check_active_window)| *check_active_window)
@@ -2632,22 +2775,16 @@ fn restore_cut_selection_from_backup(app_handle: &AppHandle, text: &str) -> Resu
         return Ok(());
     }
 
-    let clipboard = app_handle.clipboard();
-    clipboard.write_text(text).map_err(|e| {
+    write_plain_clipboard_text(app_handle, text).map_err(|e| {
         format!(
             "Failed to restore clipboard text for selection recovery: {}",
             e
         )
     })?;
 
-    let enigo_state = app_handle
-        .try_state::<EnigoState>()
-        .ok_or("Enigo state not initialized")?;
-    let mut enigo = enigo_state
-        .0
-        .lock()
-        .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
-    input::send_paste_ctrl_v(&mut enigo)?;
+    let _output_guard = lock_output();
+    let mut enigo = LazyEnigo::new(app_handle);
+    send_paste_shortcut(&mut enigo, &PasteMethod::CtrlV)?;
 
     Ok(())
 }
@@ -2688,7 +2825,7 @@ pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> 
         }
     }
 
-    if let Err(err) = clipboard.write_text(&clipboard_backup) {
+    if let Err(err) = write_plain_clipboard_text(app_handle, &clipboard_backup) {
         warn!(
             "Failed to restore clipboard after selection capture: {}",
             err
@@ -2759,7 +2896,7 @@ pub fn capture_selection_text_copy(app_handle: &AppHandle) -> Result<String, Str
         return capture_result;
     }
 
-    if let Err(err) = clipboard.write_text(&clipboard_backup) {
+    if let Err(err) = write_plain_clipboard_text(app_handle, &clipboard_backup) {
         warn!(
             "Failed to restore clipboard after selection copy capture: {}",
             err
@@ -2847,6 +2984,19 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
         assert_eq!(
             ydotool_key_args(&PasteMethod::ShiftInsert, YdotoolKeySyntax::RawKeycodes).unwrap(),
             ["key", "42:1", "110:1", "110:0", "42:0"]
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn dotool_script_never_turns_text_lines_into_commands() {
+        assert_eq!(
+            dotool_script("hello\nkey ctrl+c"),
+            "type hello\nkey enter\ntype key ctrl+c\n"
+        );
+        assert_eq!(
+            dotool_script("a\r\n\r\nb"),
+            "type a\nkey enter\nkey enter\ntype b\n"
         );
     }
 

@@ -1,14 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "linux",
-  "description": "Linux-only: lets the main window read the size of and play its own recordings in History",
+  "description": "Linux-only: lets the main window read the size of its own recordings for History playback; the readable folder itself is allowed at runtime",
   "windows": ["main"],
   "platforms": ["linux"],
-  "permissions": [
-    "fs:allow-stat",
-    {
-      "identifier": "fs:scope",
-      "allow": [{ "path": "$APPDATA" }, { "path": "$APPDATA/**/*" }]
-    }
-  ]
+  "permissions": ["fs:allow-stat"]
 }

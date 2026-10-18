@@ -94,6 +94,23 @@ const AccessibilityPermissions: React.FC = () => {
     initialSetup();
   }, []);
 
+  // The user grants the permission in System Settings, outside this window. Poll
+  // quietly (never prompting) so input and shortcuts start without another click.
+  useEffect(() => {
+    if (isMacOS !== true || hasAccessibility) return;
+    const interval = window.setInterval(() => {
+      void checkAccessibilityPermission()
+        .then(async (granted) => {
+          if (!granted) return;
+          setHasAccessibility(true);
+          setPermissionState("granted");
+          await initializeInput();
+        })
+        .catch(() => undefined);
+    }, 2000);
+    return () => window.clearInterval(interval);
+  }, [isMacOS, hasAccessibility]);
+
   // Don't render on non-macOS platforms or while checking platform
   if (isMacOS === null || !isMacOS) {
     return null;

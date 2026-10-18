@@ -15,6 +15,7 @@ import { commands } from "@/bindings";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { type } from "@tauri-apps/plugin-os";
+import { checkAccessibilityPermission } from "tauri-plugin-macos-permissions-api";
 import { useNavigationStore } from "./stores/navigationStore";
 import { OPEN_FIRST_START_WIZARD_EVENT } from "./constants/appEvents";
 import type { ModelStateEvent } from "./lib/types/events";
@@ -221,8 +222,25 @@ function App() {
   // after the user grants it.
   useEffect(() => {
     if (showOnboarding !== false) return;
-    void commands.initializeEnigo();
-    void commands.initializeShortcuts();
+    let cancelled = false;
+    void (async () => {
+      // macOS: creating the input system and the key listener without the
+      // Accessibility permission fails and is never retried, so wait for the grant
+      // (AccessibilityPermissions initializes them as soon as it is given).
+      if (type() === "macos") {
+        try {
+          if (!(await checkAccessibilityPermission())) return;
+        } catch {
+          return;
+        }
+      }
+      if (cancelled) return;
+      await commands.initializeEnigo();
+      await commands.initializeShortcuts();
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [showOnboarding]);
 
   useEffect(() => {

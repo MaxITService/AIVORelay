@@ -10,7 +10,7 @@
 //   1. Computes sha256 of bun.lock
 //   2. Compares with stored hash in .nix/bun-lock-hash
 //   3. If they match — nothing to do (~2ms)
-//   4. If they differ — runs `bunx bun2nix` to regenerate .nix/bun.nix
+//   4. If they differ — runs `bunx bun2nix@2.0.8` (the version flake.nix pins) to regenerate .nix/bun.nix
 //
 // When it runs:
 //   - Automatically via "postinstall" in package.json — triggers after every
@@ -57,7 +57,7 @@ console.log(
   `[check-nix-deps] bun.lock has changed, regenerating ${nixFile}...`,
 );
 
-const result = Bun.spawnSync(["bunx", "bun2nix", "-o", nixFile], {
+const result = Bun.spawnSync(["bunx", "bun2nix@2.0.8", "-o", nixFile], {
   cwd: root,
   stdio: ["inherit", "inherit", "inherit"],
 });
@@ -67,7 +67,7 @@ if (result.exitCode !== 0) {
     "[check-nix-deps] Warning: bunx bun2nix failed. .nix/bun.nix may be outdated.",
   );
   console.warn(
-    "[check-nix-deps] Nix users: run `bunx bun2nix -o .nix/bun.nix` manually.",
+    "[check-nix-deps] Nix users: run `bunx bun2nix@2.0.8 -o .nix/bun.nix` manually.",
   );
   console.warn(
     "[check-nix-deps] Non-Nix users: this is safe to ignore, CI will catch it.",

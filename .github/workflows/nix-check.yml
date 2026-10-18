@@ -37,7 +37,7 @@ jobs:
       - name: Check bun.nix is up to date
         id: bun-check
         run: |
-          bunx bun2nix -o .nix/bun.nix
+          bunx bun2nix@2.0.8 -o .nix/bun.nix
           if ! git diff --quiet .nix/bun.nix; then
             echo "outdated=true" >> "$GITHUB_OUTPUT"
           fi
@@ -46,7 +46,7 @@ jobs:
         if: steps.bun-check.outputs.outdated == 'true'
         run: |
           echo "::warning::.nix/bun.nix is out of sync with bun.lock"
-          echo "Regenerate it with: bun scripts/check-nix-deps.ts (or bunx bun2nix -o .nix/bun.nix)"
+          echo "Regenerate it with: bun scripts/check-nix-deps.ts (or bunx bun2nix@2.0.8 -o .nix/bun.nix)"
           echo "Then commit .nix/bun.nix and .nix/bun-lock-hash."
           git diff .nix/bun.nix
           exit 1
