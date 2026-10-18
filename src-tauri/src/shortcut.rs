@@ -7754,6 +7754,7 @@ fn normalize_shortcut_binding(raw: &str) -> String {
 }
 
 /// Register shortcut via tauri-plugin-global-shortcut (used on macOS/Linux, and Windows when Tauri engine selected)
+#[cfg(target_os = "windows")]
 fn register_shortcut_tauri(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
     // Try to parse shortcut for tauri-plugin-global-shortcut
     let shortcut_result = binding.current_binding.parse::<Shortcut>();
@@ -7820,6 +7821,12 @@ pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<
         }
         return crate::platform_shortcuts::tauri_backend::unregister_shortcut(app, binding);
     }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    unregister_shortcut_legacy(app, binding)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn unregister_shortcut_legacy(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
     // Check if this is an rdev shortcut first
     if let Some(rdev_set) = app.try_state::<RdevShortcutsSet>() {
         let mut rdev_shortcuts = rdev_set.lock().expect("Failed to lock rdev shortcuts");

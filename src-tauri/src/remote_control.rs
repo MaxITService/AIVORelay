@@ -180,10 +180,9 @@ fn execute_transcript(app: &AppHandle, action: TranscriptCommand) -> Result<(), 
         }
         TranscriptCommand::Paste { method } => {
             let handle = app.clone();
-            let paste_method = method.map(Into::into).unwrap_or_else(|| crate::settings::get_settings(app).paste_method);
-            crate::output_dispatch::dispatch(app, paste_method, move || {
+            crate::output_dispatch::dispatch_generic(app, method.map(Into::into), move |method| {
                 if let Err(error) = clipboard::paste_with_method_override(
-                    text, handle.clone(), method.map(Into::into),
+                    text, handle.clone(), method,
                 ) {
                     error!("Failed to paste transcript from CLI: {error}");
                     let _ = handle.emit("paste-error", ());
