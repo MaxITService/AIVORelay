@@ -36,6 +36,8 @@ struct StreamingPasteSession {
     convert_lf_to_crlf: bool,
     exclude_final_from_history: bool,
     text_backup: String,
+    #[cfg(not(target_os = "windows"))]
+    image_backup: ClipboardImageBackup,
     last_clipboard_paste_sent_at: Option<Instant>,
     #[cfg(target_os = "windows")]
     last_clipboard_sequence: Option<u32>,
@@ -909,6 +911,54 @@ fn write_final_transcription_text(
     write_transcription_text(app_handle, text, exclude_from_history)
 }
 
+/// Image content worth restoring off Windows (a screenshot, say). Windows restores
+/// every clipboard format through its own backup instead.
+#[cfg(not(target_os = "windows"))]
+type ClipboardImageBackup = Option<tauri::image::Image<'static>>;
+
+/// Probes for an image only when there is no text to restore: reading one decodes
+/// the whole bitmap, and text is by far the common case.
+#[cfg(not(target_os = "windows"))]
+fn backup_clipboard_image(
+    app_handle: &AppHandle,
+    text_backup: &str,
+    handling: ClipboardHandling,
+) -> ClipboardImageBackup {
+    let restores = matches!(
+        handling,
+        ClipboardHandling::RestorePlainText
+            | ClipboardHandling::RestoreAdvanced
+            | ClipboardHandling::RestoreAdvancedOwned
+    );
+    if !restores || !text_backup.is_empty() {
+        return None;
+    }
+    app_handle
+        .clipboard()
+        .read_image()
+        .ok()
+        .map(|image| image.to_owned())
+}
+
+/// Restores the saved clipboard off Windows: the text if there was any, else the
+/// image, else an empty clipboard. Without this a screenshot was silently wiped.
+#[cfg(not(target_os = "windows"))]
+fn restore_clipboard_backup(
+    app_handle: &AppHandle,
+    text: &str,
+    image: &ClipboardImageBackup,
+) -> Result<(), String> {
+    if text.is_empty() {
+        if let Some(image) = image {
+            return app_handle
+                .clipboard()
+                .write_image(image)
+                .map_err(|e| format!("Failed to restore clipboard image: {}", e));
+        }
+    }
+    restore_plain_text_without_history(app_handle, text)
+}
+
 fn restore_plain_text_without_history(app_handle: &AppHandle, text: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
@@ -1007,7 +1057,7 @@ fn restore_streaming_session_backup(
             &session.text_backup, true, session.last_clipboard_sequence,
         )?;
         #[cfg(not(target_os = "windows"))]
-        restore_plain_text_without_history(app_handle, &session.text_backup)?;
+        restore_clipboard_backup(app_handle, &session.text_backup, &session.image_backup)?;
     }
 
     Ok(())
@@ -1091,6 +1141,8 @@ pub fn begin_streaming_paste_session(
     } else {
         String::new()
     };
+    #[cfg(not(target_os = "windows"))]
+    let image_backup = backup_clipboard_image(app_handle, &text_backup, settings.clipboard_handling);
 
     #[cfg(target_os = "windows")]
     let advanced_backup = if restores_all_clipboard_formats(settings.clipboard_handling) {
@@ -1123,6 +1175,8 @@ pub fn begin_streaming_paste_session(
         convert_lf_to_crlf: settings.convert_lf_to_crlf,
         exclude_final_from_history: exclude_final_write_from_history(&settings),
         text_backup,
+        #[cfg(not(target_os = "windows"))]
+        image_backup,
         last_clipboard_paste_sent_at: None,
         #[cfg(target_os = "windows")]
         last_clipboard_sequence: None,
@@ -1304,6 +1358,8 @@ fn paste_via_clipboard_guarded(
     } else {
         String::new()
     };
+    #[cfg(not(target_os = "windows"))]
+    let image_backup = backup_clipboard_image(app_handle, &text_backup, clipboard_handling);
 
     // The non-streaming paste write is also the final write.
     let paste_result = paste_via_clipboard_no_restore_guarded(
@@ -1344,7 +1400,14 @@ fn paste_via_clipboard_guarded(
             | ClipboardHandling::RestoreAdvanced
             | ClipboardHandling::RestoreAdvancedOwned
     ) {
-        restore_plain_text_without_history(app_handle, &text_backup)
+        #[cfg(target_os = "windows")]
+        {
+            restore_plain_text_without_history(app_handle, &text_backup)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            restore_clipboard_backup(app_handle, &text_backup, &image_backup)
+        }
     } else {
         Ok(())
     };
