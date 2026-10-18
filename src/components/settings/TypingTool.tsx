@@ -47,7 +47,9 @@ export const TypingToolSetting: React.FC<TypingToolProps> = React.memo(
         <Dropdown
           options={options}
           selectedValue={(getSetting("typing_tool") || "auto") as TypingTool}
-          onSelect={(value) => updateSetting("typing_tool", value as TypingTool)}
+          onSelect={(value) =>
+            updateSetting("typing_tool", value as TypingTool)
+          }
           disabled={isUpdating("typing_tool")}
         />
       </SettingContainer>

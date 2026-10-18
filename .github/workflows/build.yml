@@ -46,8 +46,9 @@ on:
 
 jobs:
   build:
-    permissions:
-      contents: write
+    # No permissions block: the token is exactly what the calling job grants, so a
+    # read-only caller (the package check) builds with a read-only token while the
+    # release callers keep the write access they declare.
     runs-on: ${{ inputs.platform }}
     steps:
       - name: Enable long paths (Windows)

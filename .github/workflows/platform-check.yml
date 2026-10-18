@@ -94,3 +94,60 @@ jobs:
 
       - name: cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Enable long paths
+        shell: pwsh
+        run: |
+          New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+            -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+          git config --system core.longpaths true
+
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Prepare short Rust target dir
+        shell: pwsh
+        run: |
+          $drive = Split-Path -Qualifier $env:GITHUB_WORKSPACE
+          $targetDir = "$drive\t"
+          New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+          "CARGO_TARGET_DIR=$targetDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      # Third-party action pinned to an immutable commit, as in the build workflow.
+      - name: Install Vulkan SDK
+        uses: humbletim/install-vulkan-sdk@abf95d9696226559c5024544c4a072d50eb007bd
+        with:
+          version: 1.4.309.0
+          cache: true
+
+      - name: Install SPIRV-Headers for the Vulkan backend
+        shell: pwsh
+        run: |
+          vcpkg install spirv-headers:x64-windows
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg install spirv-headers failed" }
+          $prefix = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows" -replace '\\','/'
+          $combined = if ($env:CMAKE_PREFIX_PATH) { "$prefix;$env:CMAKE_PREFIX_PATH" } else { $prefix }
+          Add-Content $env:GITHUB_ENV "CMAKE_PREFIX_PATH=$combined"
+
+      - name: Stub frontend build output
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Set-Content -Path dist/index.html -Value '<!doctype html>'
+
+      - name: cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml --lib --locked
+
+      - name: cargo test
+        shell: pwsh
+        run: |
+          # build.rs stages the transcribe and ggml DLLs here; tests need them on PATH.
+          $env:PATH = "$env:GITHUB_WORKSPACE\src-tauri\transcribe-libs;$env:PATH"
+          cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
