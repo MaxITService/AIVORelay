@@ -2199,6 +2199,8 @@ impl FinishGuard {
 impl Drop for FinishGuard {
     fn drop(&mut self) {
         self.finish();
+        // Return the freed audio buffers to the OS (no-op off Linux/glibc).
+        crate::memory::trim_freed_memory();
     }
 }
 
