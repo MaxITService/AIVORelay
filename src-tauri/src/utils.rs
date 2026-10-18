@@ -102,6 +102,9 @@ pub(crate) fn cancel_current_operation_guarded(
     _guard: &session_manager::OperationControlGuard,
 ) {
     info!("Initiating operation cancellation...");
+    // A release still waiting out its X11 auto-repeat grace belongs to the
+    // recording being cancelled and must not swallow the next press.
+    crate::shortcut::clear_pending_push_to_talk_releases();
     crate::live_output_buffer::cancel(app);
     // Armed recordings end without a result; their cancel key (if any) is pressed.
     crate::early_open::cancel_all();

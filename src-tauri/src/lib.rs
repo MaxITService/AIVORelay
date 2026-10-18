@@ -1251,6 +1251,11 @@ pub fn run(cli_args: CliArgs) {
 
     // Headless commands must not perform GUI-only startup work such as
     // regenerating TypeScript bindings. In particular, a directly invoked
+    // Pin glibc's dynamic mmap threshold before the first large allocation, so the
+    // per-dictation audio buffers are returned to the OS on free instead of piling
+    // up in malloc arenas. No-op off Linux/glibc.
+    memory::init_allocator();
+
     // debug executable must behave the same regardless of its working
     // directory.
     let headless_mode = cli_args.transcribe_file.is_some()
@@ -1964,6 +1969,20 @@ pub fn run(cli_args: CliArgs) {
                 if cli_local_tts::is_local_tts_requested(&cli_args) {
                     let handle = app_handle.clone();
                     let args = cli_args.clone();
+            // History playback on Linux reads recordings through the file plugin.
+            // Scope it to the real recordings folder, which moves in portable mode.
+            #[cfg(target_os = "linux")]
+            {
+                use tauri_plugin_fs::FsExt;
+                match portable::app_data_dir(app.handle()) {
+                    Ok(dir) => {
+                        if let Err(error) = app.fs_scope().allow_directory(dir.join("recordings"), true) {
+                            log::warn!("Could not allow the recordings folder for playback: {error}");
+                        }
+                    }
+                    Err(error) => log::warn!("Could not resolve the app data folder: {error}"),
+                }
+            }
                     std::thread::spawn(move || {
                         let code = run_headless_guarded("tts_local", args.json, || {
                             cli_local_tts::run_local_tts(&handle, &args)
