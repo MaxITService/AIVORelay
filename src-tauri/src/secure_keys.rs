@@ -6,6 +6,7 @@
 //! Handy's plain settings-file storage.
 
 use anyhow::{anyhow, Result};
+#[cfg(target_os = "windows")]
 use log::{debug, warn};
 
 const SERVICE_NAME: &str = "fi.maxits.aivorelay";
@@ -109,6 +110,8 @@ pub fn init(app: &tauri::AppHandle) {
     #[cfg(not(target_os = "windows"))]
     {
         let _ = APP_HANDLE.set(app.clone());
+        // A store written by an earlier version may still be readable by others.
+        crate::settings::restrict_settings_store_permissions(app);
     }
     #[cfg(target_os = "windows")]
     {
@@ -132,21 +135,32 @@ fn key_store() -> Result<std::sync::Arc<tauri_plugin_store::Store<tauri::Wry>>> 
     .map_err(|e| anyhow!("Failed to open API key store: {}", e))
 }
 
+/// Serializes read-modify-write cycles so concurrent saves cannot lose a key.
+#[cfg(not(target_os = "windows"))]
+static KEY_STORE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The stored keys. An entry of the wrong shape is an error, not an empty map:
+/// treating it as empty would let the next save silently wipe every key.
 #[cfg(not(target_os = "windows"))]
 fn read_key_map(
     store: &tauri_plugin_store::Store<tauri::Wry>,
-) -> std::collections::HashMap<String, String> {
-    store
-        .get(STORE_ENTRY)
-        .and_then(|value| serde_json::from_value(value).ok())
-        .unwrap_or_default()
+) -> Result<std::collections::HashMap<String, String>> {
+    match store.get(STORE_ENTRY) {
+        None => Ok(Default::default()),
+        Some(value) => serde_json::from_value(value)
+            .map_err(|e| anyhow!("Stored API keys are unreadable: {}", e)),
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
 pub fn set_api_key(key_type: KeyType, provider_id: Option<&str>, key: &str) -> Result<()> {
     let credential_name = key_type.credential_name(provider_id);
+    let _guard = KEY_STORE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let store = key_store()?;
-    let mut keys = read_key_map(&store);
+    let previous = store.get(STORE_ENTRY);
+    let mut keys = read_key_map(&store)?;
 
     if key.trim().is_empty() {
         keys.remove(&credential_name);
@@ -158,15 +172,28 @@ pub fn set_api_key(key_type: KeyType, provider_id: Option<&str>, key: &str) -> R
     let app = APP_HANDLE
         .get()
         .ok_or_else(|| anyhow!("API key storage is not initialized"))?;
-    crate::settings::save_store_privately(app, &store)
-        .map_err(|e| anyhow!("Failed to store API key: {}", e))
+    if let Err(error) = crate::settings::save_store_privately(app, &store) {
+        // Keep memory and disk in agreement: a key that was not saved must not
+        // look saved until the next restart.
+        match previous {
+            Some(value) => store.set(STORE_ENTRY, value),
+            None => {
+                store.delete(STORE_ENTRY);
+            }
+        }
+        return Err(anyhow!("Failed to store API key: {}", error));
+    }
+    Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]
 pub fn get_api_key(key_type: KeyType, provider_id: Option<&str>) -> Result<String> {
     let credential_name = key_type.credential_name(provider_id);
+    let _guard = KEY_STORE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let store = key_store()?;
-    Ok(read_key_map(&store)
+    Ok(read_key_map(&store)?
         .remove(&credential_name)
         .unwrap_or_default())
 }
@@ -177,6 +204,15 @@ pub fn get_api_key(key_type: KeyType, provider_id: Option<&str>) -> Result<Strin
 
 /// Get a post-processing API key for a specific provider
 pub fn get_post_process_api_key(provider_id: &str) -> String {
+    // Outside Windows these keys live in the settings JSON, as before.
+    #[cfg(not(target_os = "windows"))]
+    if let Some(app) = APP_HANDLE.get() {
+        return crate::settings::get_settings(app)
+            .post_process_api_keys
+            .get(provider_id)
+            .cloned()
+            .unwrap_or_default();
+    }
     get_api_key(KeyType::PostProcess, Some(provider_id)).unwrap_or_default()
 }
 
@@ -187,6 +223,14 @@ pub fn set_post_process_api_key(provider_id: &str, key: &str) -> Result<()> {
 
 /// Get an AI Replace API key for a specific provider
 pub fn get_ai_replace_api_key(provider_id: &str) -> String {
+    #[cfg(not(target_os = "windows"))]
+    if let Some(app) = APP_HANDLE.get() {
+        return crate::settings::get_settings(app)
+            .ai_replace_api_keys
+            .get(provider_id)
+            .cloned()
+            .unwrap_or_default();
+    }
     get_api_key(KeyType::AiReplace, Some(provider_id)).unwrap_or_default()
 }
 
@@ -197,6 +241,14 @@ pub fn set_ai_replace_api_key(provider_id: &str, key: &str) -> Result<()> {
 
 /// Get a Voice Command API key for a specific provider (returns Option for fallback logic)
 pub fn get_voice_command_api_key(provider_id: &str) -> Option<String> {
+    #[cfg(not(target_os = "windows"))]
+    if let Some(app) = APP_HANDLE.get() {
+        return crate::settings::get_settings(app)
+            .voice_command_api_keys
+            .get(provider_id)
+            .cloned()
+            .filter(|key| !key.is_empty());
+    }
     get_api_key(KeyType::VoiceCommand, Some(provider_id))
         .ok()
         .filter(|k| !k.is_empty())

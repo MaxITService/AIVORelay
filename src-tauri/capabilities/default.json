@@ -19,7 +19,6 @@
     "core:window:allow-set-always-on-top",
     "opener:default",
     "opener:allow-open-path",
-    "store:default",
     "updater:default",
     "process:default",
     "dialog:default",

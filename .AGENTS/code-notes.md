@@ -223,6 +223,7 @@ Not compilable on the Windows dev machine; verify with the manual `Platform chec
 - Linux paste/typing tools, X11 push-to-talk release grace, layer-shell overlay, History playback: `clipboard.rs`, `shortcut.rs` (`linux_ptt`), `overlay.rs`, `HistorySettings.tsx`.
 - macOS: Enigo and shortcuts are created on request (`initialize_enigo`/`initialize_shortcuts`) once Accessibility exists; `apply_startup_activation_policy` in `lib.rs`.
 - Env switches: `AIVORELAY_NO_GTK_LAYER_SHELL`, `AIVORELAY_METAL_RESIDENCY`, `AIVORELAY_FORCE_AI_STUB`, `AIVORELAY_DISABLE_UPDATER` (Nix sets it), `WEBKIT_DISABLE_DMABUF_RENDERER`.
+- Off Windows the post-process, AI Replace and voice-command keys stay in the settings JSON (and `get_app_settings` returns them to the webview); Soniox, Deepgram, TTS and TTS-LLM keys use `secure_keys`. Remote STT providers remain blocked there.
 - Linux CI jobs get no secrets or write token and build without updater artifacts (`tauri.linux.conf.json`); keep it that way.
 - Nix: `flake.nix`, `.nix/bun.nix` (regenerate with `bun scripts/check-nix-deps.ts`), checked by the manual `nix build check` workflow.
 

@@ -5992,6 +5992,19 @@ pub(crate) fn save_store_privately(
     Ok(())
 }
 
+/// Limits an existing settings store to its owner, so a file written by an earlier
+/// version stops being readable by other users. No-op off Unix.
+pub(crate) fn restrict_settings_store_permissions(app: &AppHandle) {
+    #[cfg(unix)]
+    if let Some(path) = settings_store_disk_path(app) {
+        if path.exists() {
+            restrict_to_owner(&path);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = app;
+}
+
 #[cfg(unix)]
 fn restrict_to_owner(path: &std::path::Path) {
     use std::os::unix::fs::PermissionsExt;
