@@ -16,8 +16,10 @@ use tauri_plugin_autostart::ManagerExt;
 pub fn set_enabled(app: &AppHandle, enabled: bool) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     if macos::login_item_api_available() {
+        // A failed registration must not remove the user's working login entry.
+        macos::set_login_item(enabled)?;
         macos::remove_plugin_launch_agent(app);
-        return macos::set_login_item(enabled);
+        return Ok(());
     }
 
     let manager = app.autolaunch();

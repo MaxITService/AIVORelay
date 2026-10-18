@@ -6,6 +6,7 @@ import {
   getOutputProviderInfo,
   getPostProcessingAvailability,
   getProfileOutputSummary,
+  buffersOutputForKeyActions,
 } from "./postProcessingAvailability";
 import type { ProfileOutputSettings } from "./profileOutputSettings";
 
@@ -298,6 +299,8 @@ const sonioxLive = (overrides: Partial<AppSettings> = {}) => settings({
   transcription_provider: "remote_soniox", soniox_model: "stt-rt-v5", soniox_live_enabled: true,
   paste_method: "ctrl_v", auto_submit: false, ...overrides,
 });
+assert.equal(buffersOutputForKeyActions("external_script", "", "", false), true);
+assert.equal(getPostProcessingAvailability(sonioxLive({ paste_method: "external_script" })).available, true);
 assert.deepEqual(getProfileOutputSummary(sonioxLive({ soniox_live_preview_enabled: true }),
   { profilePreviewOutputOnlyEnabled: false }, []), { route: "preview", llmAvailable: true });
 assert.deepEqual(getProfileOutputSummary(sonioxLive(), { profilePreviewOutputOnlyEnabled: false }, []),

@@ -3337,6 +3337,8 @@ pub enum PasteMethod {
     ExternalScript,
 }
 
+pub(crate) const EXTERNAL_SCRIPT_TIMEOUT_MS: u64 = 30_000;
+
 /// Linux tool used for direct typing. Ignored on other platforms.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
 #[serde(rename_all = "snake_case")]
@@ -3516,11 +3518,12 @@ impl ResolvedOutputSettings {
             && !self.recording_start_key.is_empty()
     }
 
-    /// A completion key always holds text until completion, even with a separate start key.
-    /// Auto-submit alone holds text unless a start key enables live delivery first.
+    /// Scripts receive the complete transcript once. A completion key holds text
+    /// until completion; auto-submit alone allows live text with a separate start key.
     pub fn buffers_external_output(&self) -> bool {
         self.paste_method != PasteMethod::None
-            && (!self.before_insert_key.is_empty() || (self.auto_submit && !self.opens_at_start()))
+            && (self.paste_method == PasteMethod::ExternalScript
+                || !self.before_insert_key.is_empty() || (self.auto_submit && !self.opens_at_start()))
     }
 
     pub fn apply_to_recording(&self, settings: &mut AppSettings) {
@@ -3548,6 +3551,7 @@ impl ResolvedOutputSettings {
         self.paste_delay_ms.saturating_add(self.before_insert_delay_ms)
             .saturating_add(self.auto_submit_delay_ms)
             .saturating_add(if self.opens_at_start() { self.recording_start_delay_ms } else { 0 })
+            .saturating_add(if self.paste_method == PasteMethod::ExternalScript { EXTERNAL_SCRIPT_TIMEOUT_MS } else { 0 })
             .saturating_add(5000)
     }
 
@@ -3624,6 +3628,14 @@ pub enum LiveSoundCaptureSource {
 impl Default for LiveSoundCaptureSource {
     fn default() -> Self {
         Self::SystemOutput
+    }
+}
+
+impl LiveSoundCaptureSource {
+    /// CPAL's output-device-as-input loopback path is implemented by WASAPI only.
+    /// Keep saved preferences intact when the same configuration is used elsewhere.
+    pub(crate) fn effective_for_platform(self) -> Self {
+        if cfg!(target_os = "windows") { self } else { Self::Microphone }
     }
 }
 
@@ -8563,6 +8575,24 @@ mod tests {
         assert_eq!(recording.transcription_output_defaults.before_insert_delay_ms, Some(5000));
         assert_eq!(settings.paste_delay_ms, 10);
         assert_eq!(output.timeout_ms(), 20000);
+    }
+
+    #[test]
+    fn external_scripts_receive_one_final_transcript_with_a_full_execution_budget() {
+        let mut settings = get_default_settings();
+        settings.paste_method = PasteMethod::ExternalScript;
+        let output = ResolvedOutputSettings::resolve(&settings, None);
+        assert!(output.buffers_external_output());
+        assert!(output.timeout_ms() > EXTERNAL_SCRIPT_TIMEOUT_MS);
+        assert!(!output.opens_at_start());
+    }
+
+    #[test]
+    fn live_sound_sources_only_use_supported_platform_capture() {
+        for source in [LiveSoundCaptureSource::Microphone, LiveSoundCaptureSource::SystemOutput, LiveSoundCaptureSource::Both] {
+            let expected = if cfg!(target_os = "windows") { source } else { LiveSoundCaptureSource::Microphone };
+            assert_eq!(source.effective_for_platform(), expected);
+        }
     }
 
     #[test]

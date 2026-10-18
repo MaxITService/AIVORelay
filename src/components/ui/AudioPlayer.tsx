@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react";
 import { Play, Pause } from "lucide-react";
+import { loadAudioSource } from "@/lib/loadAudioSource";
 
 interface AudioPlayerProps {
   /** Audio source URL. If not provided, onLoadRequest must be provided. */
@@ -83,6 +84,8 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const src = loadedSrc;
   const animationRef = useRef<number>();
   const dragTimeRef = useRef<number>(0);
+  const sourceGeneration = useRef(0);
+  const ownedBlob = useRef<string | null>(null);
 
   // Use refs to avoid stale closures in animation loop
   const isPlayingRef = useRef(false);
@@ -98,14 +101,16 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   }, [isDragging]);
 
   useEffect(() => {
-    setLoadedSrc((previousSrc) => {
-      if (previousSrc?.startsWith("blob:") && previousSrc !== initialSrc) {
-        URL.revokeObjectURL(previousSrc);
-      }
-      return initialSrc ?? null;
-    });
+    sourceGeneration.current++;
+    setLoadedSrc(initialSrc ?? null);
+    setIsLoading(false);
     setDuration(initialDurationSeconds);
     setCurrentTime(0);
+    return () => {
+      sourceGeneration.current++;
+      if (ownedBlob.current) URL.revokeObjectURL(ownedBlob.current);
+      ownedBlob.current = null;
+    };
   }, [initialDurationSeconds, initialSrc]);
 
   // Stable animation loop with no dependencies
@@ -174,6 +179,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     audio.addEventListener("pause", handlePause);
 
     return () => {
+      audio.pause();
       group?.releasePlayback(audio);
       audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
       audio.removeEventListener("ended", handleEnded);
@@ -227,15 +233,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     }
   }, [isDragging, handleMouseUp]);
 
-  // Cleanup blob URLs on unmount
-  useEffect(() => {
-    return () => {
-      if (loadedSrc?.startsWith("blob:")) {
-        URL.revokeObjectURL(loadedSrc);
-      }
-    };
-  }, [loadedSrc]);
-
   const togglePlay = async () => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -248,11 +245,16 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         // If no src loaded yet, request it
         if (!src && onLoadRequest) {
           setIsLoading(true);
-          const newSrc = await onLoadRequest();
-          setIsLoading(false);
-          if (newSrc) {
-            setLoadedSrc(newSrc);
-            // Playback will be triggered by the useEffect watching loadedSrc
+          const generation = sourceGeneration.current;
+          try {
+            const newSrc = await loadAudioSource(onLoadRequest, () => generation === sourceGeneration.current);
+            if (newSrc) {
+              ownedBlob.current = newSrc.startsWith("blob:") ? newSrc : null;
+              setLoadedSrc(newSrc);
+              // Playback will be triggered by the useEffect watching loadedSrc.
+            }
+          } finally {
+            if (generation === sourceGeneration.current) setIsLoading(false);
           }
         } else if (src) {
           await audio.play();

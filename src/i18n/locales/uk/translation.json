@@ -103,6 +103,11 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "liveSoundTranscription": {
+      "audio": {
+        "microphoneOnly": "На цій платформі Live Monitor використовує мікрофон. Захоплення системного звуку наразі доступне лише у Windows."
+      }
+    },
     "general": {
       "title": "Загальні",
       "shortcut": {
@@ -210,6 +215,7 @@
         }
       },
       "pasteMethod": {
+        "externalScriptHelp": "Скрипт отримує весь текст один раз після завершення запису. На виконання відводиться до 30 секунд.",
         "title": "Метод вставки",
         "description": "Оберіть спосіб вставки тексту. Прямий: емулює набір тексту. Немає: пропускає вставку, оновлює лише історію/буфер обміну.",
         "options": {
@@ -577,6 +583,7 @@
     "portableUpdateButton": "Завантажити інсталятор"
   },
   "common": {
+    "retry": "Повторити",
     "loading": "Завантаження...",
     "save": "Зберегти",
     "cancel": "Скасувати",
