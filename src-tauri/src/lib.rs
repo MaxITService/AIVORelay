@@ -350,8 +350,12 @@ fn apply_startup_activation_policy(app: &mut tauri::App, headless_mode: bool) {
     }
 
     let settings = settings::get_settings(app.handle());
-    let should_hide = settings.start_hidden || webview_mode::webviews_disabled();
-    if should_hide && settings.show_tray_icon {
+    // `webview_mode` is only initialized in `setup`, which runs after this, so the
+    // speech-only (never launch WebView) setting is read directly. Speech-only
+    // always has the native tray.
+    let should_hide = settings.start_hidden || settings.never_launch_webview;
+    let tray_available = settings.show_tray_icon || settings.never_launch_webview;
+    if should_hide && tray_available {
         log::info!("Starting hidden with tray available: launching as Accessory (no Dock icon)");
         app.set_activation_policy(tauri::ActivationPolicy::Accessory);
     }
@@ -716,7 +720,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Choose the appropriate initial icon based on theme
     let initial_icon_path = tray::get_icon_path(initial_theme, tray::TrayIconState::Idle);
 
-    let tray = TrayIconBuilder::new()
+    let tray_builder = TrayIconBuilder::new()
         .icon(
             Image::from_path(
                 app_handle
@@ -727,8 +731,13 @@ fn initialize_core_logic(app_handle: &AppHandle) {
             .unwrap(),
         )
         .tooltip(tray::tray_tooltip())
-        .show_menu_on_left_click(false)
-        .icon_as_template(true)
+        .icon_as_template(true);
+    // Windows notification-area convention: left click opens the app and the menu
+    // is on the right button. Elsewhere (macOS menu bar, Linux) the menu stays on
+    // left click.
+    #[cfg(target_os = "windows")]
+    let tray_builder = tray_builder.show_menu_on_left_click(false);
+    let tray = tray_builder
         .on_tray_icon_event(|tray, event| match event {
             tauri::tray::TrayIconEvent::Enter { .. } => {
                 tray::refresh_tray_menu(tray.app_handle(), None);
@@ -1242,6 +1251,11 @@ pub fn run(cli_args: CliArgs) {
         std::env::set_var("GGML_METAL_NO_RESIDENCY", "1");
     }
 
+    // Pin glibc's dynamic mmap threshold before the first large allocation, so the
+    // per-dictation audio buffers are returned to the OS on free instead of piling
+    // up in malloc arenas. No-op off Linux/glibc.
+    memory::init_allocator();
+
     tls::initialize();
     portable::init();
 
@@ -1251,11 +1265,6 @@ pub fn run(cli_args: CliArgs) {
 
     // Headless commands must not perform GUI-only startup work such as
     // regenerating TypeScript bindings. In particular, a directly invoked
-    // Pin glibc's dynamic mmap threshold before the first large allocation, so the
-    // per-dictation audio buffers are returned to the OS on free instead of piling
-    // up in malloc arenas. No-op off Linux/glibc.
-    memory::init_allocator();
-
     // debug executable must behave the same regardless of its working
     // directory.
     let headless_mode = cli_args.transcribe_file.is_some()
@@ -1922,6 +1931,9 @@ pub fn run(cli_args: CliArgs) {
                     } else if let Some(command) = args.remote_command() {
                         remote_control::dispatch(app, command);
                     } else {
+                        // Relaunching is the natural "where did my icon go?" moment.
+                        #[cfg(target_os = "macos")]
+                        tray::recreate_tray_icon(app);
                         show_main_window(app);
                     }
                 }
@@ -1957,18 +1969,6 @@ pub fn run(cli_args: CliArgs) {
             as shortcut::ActiveShortcutEngine)
         .setup(move |app| {
             secure_keys::init(app.handle());
-            #[cfg(target_os = "windows")]
-            log::info!(
-                "Vulkan layer policy: VK_LOADER_LAYERS_DISABLE={:?}, AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS={:?}",
-                std::env::var_os("VK_LOADER_LAYERS_DISABLE"),
-                std::env::var_os("AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS"),
-            );
-
-            if headless_mode {
-                let app_handle = app.handle().clone();
-                if cli_local_tts::is_local_tts_requested(&cli_args) {
-                    let handle = app_handle.clone();
-                    let args = cli_args.clone();
             // History playback on Linux reads recordings through the file plugin.
             // Scope it to the real recordings folder, which moves in portable mode.
             #[cfg(target_os = "linux")]
@@ -1983,6 +1983,18 @@ pub fn run(cli_args: CliArgs) {
                     Err(error) => log::warn!("Could not resolve the app data folder: {error}"),
                 }
             }
+            #[cfg(target_os = "windows")]
+            log::info!(
+                "Vulkan layer policy: VK_LOADER_LAYERS_DISABLE={:?}, AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS={:?}",
+                std::env::var_os("VK_LOADER_LAYERS_DISABLE"),
+                std::env::var_os("AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS"),
+            );
+
+            if headless_mode {
+                let app_handle = app.handle().clone();
+                if cli_local_tts::is_local_tts_requested(&cli_args) {
+                    let handle = app_handle.clone();
+                    let args = cli_args.clone();
                     std::thread::spawn(move || {
                         let code = run_headless_guarded("tts_local", args.json, || {
                             cli_local_tts::run_local_tts(&handle, &args)
