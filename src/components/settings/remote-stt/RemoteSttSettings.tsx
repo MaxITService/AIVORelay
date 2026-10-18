@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { type } from "@tauri-apps/plugin-os";
 import { RefreshCw } from "lucide-react";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import {
@@ -133,7 +132,6 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   hideRemoteInterfaceSelector = false,
 }) => {
   const { t } = useTranslation();
-  const isWindows = type() === "windows";
   const {
     settings,
     isUpdating,
@@ -559,11 +557,6 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
   useEffect(() => {
     setHasKeyStatusLoaded(false);
-    if (!isWindows) {
-      setHasApiKey(false);
-      setHasKeyStatusLoaded(true);
-      return;
-    }
 
     const loadApiKeyStatus = async () => {
       try {
@@ -586,7 +579,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     };
 
     loadApiKeyStatus();
-  }, [isWindows, provider, remotePreset, isSonioxProvider, isDeepgramProvider]);
+  }, [provider, remotePreset, isSonioxProvider, isDeepgramProvider]);
 
   useEffect(() => {
     if (!hasKeyStatusLoaded) {
@@ -605,7 +598,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   }, [baseUrlInput, hasApiKey, provider, remotePreset, remoteSettings?.model_id]);
 
   useEffect(() => {
-    if (!isWindows || !isRemoteOpenAiProvider) {
+    if (!isRemoteOpenAiProvider) {
       setDebugLines([]);
       return;
     }
@@ -622,10 +615,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     };
 
     loadDebugDump();
-  }, [isWindows, isRemoteOpenAiProvider, debugCap]);
+  }, [isRemoteOpenAiProvider, debugCap]);
 
   useEffect(() => {
-    if (!isWindows || !isRemoteOpenAiProvider) {
+    if (!isRemoteOpenAiProvider) {
       return;
     }
 
@@ -642,7 +635,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     return () => {
       unlistenPromise.then((unlisten) => unlisten());
     };
-  }, [isWindows, isRemoteOpenAiProvider, debugCap]);
+  }, [isRemoteOpenAiProvider, debugCap]);
 
   useEffect(() => {
     if (!debugCapture) {
@@ -659,12 +652,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       {
         value: "remote_openai_compatible",
         label: t("settings.advanced.transcriptionProvider.options.remote"),
-        isDisabled: !isWindows,
       },
       {
         value: "remote_soniox",
         label: t("settings.advanced.transcriptionProvider.options.soniox"),
-        isDisabled: !isWindows,
       },
       {
         value: "remote_deepgram",
@@ -672,10 +663,9 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           "settings.advanced.transcriptionProvider.options.deepgram",
           "Remote (Deepgram Cloud API)",
         ),
-        isDisabled: !isWindows,
       },
     ];
-  }, [t, isWindows]);
+  }, [t]);
 
   const deepgramModelOptions = useMemo<SelectOption[]>(() => {
     const options: SelectOption[] = [
@@ -1436,11 +1426,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     }
   };
 
-  const showRemoteFields =
-    isWindows && isCloudProvider;
-  const showOpenAiFields = isWindows && isRemoteOpenAiProvider;
-  const showSonioxFields = isWindows && isSonioxProvider;
-  const showDeepgramFields = isWindows && isDeepgramProvider;
+  const showRemoteFields = isCloudProvider;
+  const showOpenAiFields = isRemoteOpenAiProvider;
+  const showSonioxFields = isSonioxProvider;
+  const showDeepgramFields = isDeepgramProvider;
   const profileScopedFeatures = useMemo<ProfileScopedSttFeature[]>(() => {
     if (isSonioxProvider) {
       return [
@@ -1513,11 +1502,6 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
               placeholder={t("settings.advanced.transcriptionProvider.placeholder")}
               isClearable={false}
             />
-            {!isWindows && (
-              <p className="text-xs text-text/60">
-                {t("settings.advanced.transcriptionProvider.windowsOnly")}
-              </p>
-            )}
           </div>
         </SettingContainer>
       )}

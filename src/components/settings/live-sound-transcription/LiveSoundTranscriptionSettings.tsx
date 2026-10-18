@@ -4,7 +4,6 @@ import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import { Copy, Check, FileCode2, FileText, ChevronDown } from "lucide-react";
 import { save } from "@tauri-apps/plugin-dialog";
-import { type as getOsType } from "@tauri-apps/plugin-os";
 import { commands } from "@/bindings";
 import { Button } from "../../ui/Button";
 import { Collapse } from "../../ui/Collapse";
@@ -211,7 +210,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const { t } = useTranslation();
   const whatIsThisContentId = React.useId();
   const { settings, refreshSettings } = useSettings();
-  const supportsRemoteLiveSound = getOsType() === "windows";
   const [finalText, setFinalText] = useState("");
   const [interimText, setInterimText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -271,8 +269,8 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   useEffect(() => {
     let active = true;
     setLiveSelectionReady(false);
-    if (!liveSelection || !supportsRemoteLiveSound) {
-      if (settings && supportsRemoteLiveSound && !liveSelection) {
+    if (!liveSelection) {
+      if (settings) {
         setSessionSettingsCollapsed(false);
       }
       return () => {
@@ -298,7 +296,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [liveSelection, settings, supportsRemoteLiveSound]);
+  }, [liveSelection, settings]);
   const handleModelSelectionChange = async (selection: SttModelSelection) => {
     setSourceBusy(true);
     setLiveSelectionReady(false);
@@ -344,7 +342,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
         : provider === "remote_openai_compatible"
           ? remoteLiveReady
           : false;
-  const liveModeEnabled = supportsRemoteLiveSound && providerLiveModeEnabled;
+  const liveModeEnabled = providerLiveModeEnabled;
   const autoStopMinutes = Number((settings as any)?.live_sound_auto_stop_minutes ?? 60);
 
   const liveSoundCaptureSource = String(
@@ -354,7 +352,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const outputEnabled = liveSoundCaptureSource === "system_output" || liveSoundCaptureSource === "both";
 
   const liveProviderReady =
-    supportsRemoteLiveSound &&
     Boolean(liveSelection) &&
     (provider === "remote_soniox" ||
       provider === "remote_deepgram" ||
@@ -865,11 +862,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
           layout="stacked"
         >
           <div className="space-y-4">
-            {!supportsRemoteLiveSound ? (
-              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                {t("settings.liveSoundTranscription.session.windowsOnly")}
-              </div>
-            ) : !liveSelection ? (
+            {!liveSelection ? (
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                 {t("settings.liveSoundTranscription.session.selectModel")}
               </div>
@@ -1027,7 +1020,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                   selection={liveSelection}
                   onChange={handleModelSelectionChange}
                   disabled={
-                    !supportsRemoteLiveSound ||
                     sourceBusy ||
                     isRecording ||
                     actionBusy !== null
