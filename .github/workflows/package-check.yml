@@ -20,11 +20,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: "ubuntu-22.04"
-            args: "--debug --bundles deb"
-            target: "x86_64-unknown-linux-gnu"
+          # 24.04 only: the prebuilt ONNX Runtime needs a newer glibc than 22.04.
           - platform: "ubuntu-24.04"
-            args: "--debug --bundles appimage,rpm"
+            args: "--debug --bundles appimage,deb,rpm"
             target: "x86_64-unknown-linux-gnu"
           - platform: "ubuntu-24.04-arm"
             args: "--debug --bundles appimage,deb,rpm"
