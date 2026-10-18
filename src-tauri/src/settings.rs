@@ -6756,7 +6756,18 @@ fn merge_json_with_defaults(default_value: &Value, current_value: &Value) -> Val
                 Value::Array(
                     current_items
                         .iter()
-                        .map(|item| merge_json_with_defaults(default_item, item))
+                        .map(|item| {
+                            // Items that carry an `id` merge against their own default,
+                            // not the first one: providers differ in which optional
+                            // fields are null (Apple Intelligence has no models endpoint).
+                            let template = item
+                                .get("id")
+                                .and_then(|id| {
+                                    default_items.iter().find(|default| default.get("id") == Some(id))
+                                })
+                                .unwrap_or(default_item);
+                            merge_json_with_defaults(template, item)
+                        })
                         .collect(),
                 )
             } else {
@@ -8988,6 +8999,17 @@ mod tests {
             settings.whisper_accelerator,
             WhisperAcceleratorSetting::Auto
         );
+    }
+
+    #[test]
+    fn list_items_merge_against_the_default_with_the_same_id() {
+        let defaults = json!([
+            { "id": "openai", "models_endpoint": "/models" },
+            { "id": "apple", "models_endpoint": null },
+        ]);
+        let current = json!([{ "id": "apple", "models_endpoint": null }]);
+
+        assert_eq!(merge_json_with_defaults(&defaults, &current), current);
     }
 
     #[test]
