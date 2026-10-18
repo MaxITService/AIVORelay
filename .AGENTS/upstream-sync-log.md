@@ -36,6 +36,19 @@ Audit note (2026-10-17):
   `Platform check` workflow compiles and tests Linux and macOS read-only.
 - Cargo.lock regenerated for `objc2`, `objc2-service-management`, `gtk` and
   `gtk-layer-shell` (`toml_parser` moves to 1.1.5).
+- Verified on GitHub Actions (manual `Platform check`, `Package check`, `nix build
+  check` on a throwaway branch): Rust compile and tests on Linux, macOS and
+  Windows; deb, rpm and AppImage on Ubuntu 24.04 (x64, ARM64) with the package
+  audit; an unsigned macOS bundle; the Nix package. Linux packages need glibc
+  2.39 (24.04+) because the prebuilt ONNX Runtime does. Not tested on real
+  desktops: hotkeys, paste tools and the layer-shell overlay.
+- Found and fixed by those runs and by file-by-file review: Apple Intelligence
+  provider rewritten on every macOS settings load, macOS 10.15 deployment target,
+  lazy input system for Linux paste, image clipboard restore, key-store hardening,
+  remote STT enabled outside Windows (keys in the key store).
+- Still deferred: SIGUSR2 via the session arbiter, Apple system-prompt API
+  (`0cb8ab21`), reliable paste (`a70ac84f`), Toggle/Auto activation under X11
+  auto-repeat.
 
 Audit note (2026-10-16):
 - Reviewed the 12-commit linear corridor after `f6b3f829` through `9e57a0d7`;
