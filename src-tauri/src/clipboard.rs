@@ -834,7 +834,52 @@ fn convert_text_for_clipboard(text: &str, convert_lf_to_crlf: bool) -> String {
     text.to_string()
 }
 
-fn send_paste_shortcut(enigo: &mut Enigo, paste_method: &PasteMethod) -> Result<(), String> {
+/// Serializes everything that types or pastes into the foreground application (a
+/// paste, a streamed chunk, an opening or submit key) so they never interleave.
+/// Holding the input system's own lock for a whole paste used to do this, which
+/// also made every paste depend on the input system existing.
+static OUTPUT_SERIALIZER: Mutex<()> = Mutex::new(());
+
+fn lock_output() -> MutexGuard<'static, ()> {
+    OUTPUT_SERIALIZER
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+}
+
+/// Takes the input system only when a key press really needs it. Methods that run
+/// an external tool, or none at all, then work where it is unavailable (for
+/// example Wayland without XWayland).
+struct LazyEnigo<'a> {
+    app: &'a AppHandle,
+    guard: Option<MutexGuard<'a, Enigo>>,
+}
+
+impl<'a> LazyEnigo<'a> {
+    fn new(app: &'a AppHandle) -> Self {
+        Self { app, guard: None }
+    }
+
+    fn get(&mut self) -> Result<&mut Enigo, String> {
+        if self.guard.is_none() {
+            let state: &'a EnigoState = self
+                .app
+                .try_state::<EnigoState>()
+                .ok_or("Enigo state not initialized")?
+                .inner();
+            let guard = state
+                .0
+                .lock()
+                .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+            self.guard = Some(guard);
+        }
+        match self.guard.as_mut() {
+            Some(guard) => Ok(&mut **guard),
+            None => Err("Enigo state not initialized".to_string()),
+        }
+    }
+}
+
+fn send_paste_shortcut(enigo: &mut LazyEnigo, paste_method: &PasteMethod) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     let key_combo_sent = try_send_key_combo_linux(paste_method)?;
 
@@ -844,9 +889,9 @@ fn send_paste_shortcut(enigo: &mut Enigo, paste_method: &PasteMethod) -> Result<
     // Fall back to enigo if no native tool handled it.
     if !key_combo_sent {
         match paste_method {
-            PasteMethod::CtrlV => input::send_paste_ctrl_v(enigo)?,
-            PasteMethod::CtrlShiftV => input::send_paste_ctrl_shift_v(enigo)?,
-            PasteMethod::ShiftInsert => input::send_paste_shift_insert(enigo)?,
+            PasteMethod::CtrlV => input::send_paste_ctrl_v(enigo.get()?)?,
+            PasteMethod::CtrlShiftV => input::send_paste_ctrl_shift_v(enigo.get()?)?,
+            PasteMethod::ShiftInsert => input::send_paste_shift_insert(enigo.get()?)?,
             _ => return Err("Invalid paste method for clipboard paste".into()),
         }
     }
@@ -972,7 +1017,7 @@ fn restore_plain_text_without_history(app_handle: &AppHandle, text: &str) -> Res
 }
 
 fn paste_via_clipboard_no_restore_guarded(
-    enigo: &mut Enigo,
+    enigo: &mut LazyEnigo,
     text: &str,
     app_handle: &AppHandle,
     paste_method: &PasteMethod,
@@ -1313,7 +1358,7 @@ pub fn finalize_streaming_paste_session_if_matches(
 
 /// Pastes text using the clipboard: saves current content, writes text, sends paste keystroke, restores clipboard.
 fn paste_via_clipboard_guarded(
-    enigo: &mut Enigo,
+    enigo: &mut LazyEnigo,
     text: &str,
     app_handle: &AppHandle,
     paste_method: &PasteMethod,
@@ -2054,7 +2099,7 @@ fn paste_via_external_script(text: &str, script_path: &str) -> Result<(), String
 }
 
 /// Types text directly by simulating individual key presses.
-fn paste_direct(enigo: &mut Enigo, app_handle: &AppHandle, text: &str) -> Result<(), String> {
+fn paste_direct(enigo: &mut LazyEnigo, app_handle: &AppHandle, text: &str) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         if try_direct_typing_linux(text, get_settings(app_handle).typing_tool)? {
@@ -2065,7 +2110,7 @@ fn paste_direct(enigo: &mut Enigo, app_handle: &AppHandle, text: &str) -> Result
     #[cfg(not(target_os = "linux"))]
     let _ = app_handle;
 
-    input::paste_text_direct(enigo, text)
+    input::paste_text_direct(enigo.get()?, text)
 }
 
 /// Hands text to the user's configured external paste script.
@@ -2077,7 +2122,7 @@ fn paste_external_script(app_handle: &AppHandle, text: &str) -> Result<(), Strin
     paste_via_external_script(text, &script_path)
 }
 
-fn send_return_key(enigo: &mut Enigo, key_type: AutoSubmitKey) -> Result<(), String> {
+fn send_return_key(enigo: &mut LazyEnigo, key_type: AutoSubmitKey) -> Result<(), String> {
     send_output_key(enigo, match key_type {
         AutoSubmitKey::Enter => "enter",
         AutoSubmitKey::CtrlEnter => "ctrl+enter",
@@ -2222,8 +2267,9 @@ pub(crate) fn validate_output_key(value: &str) -> Result<(), String> {
     parse_output_key(value).map(|_| ())
 }
 
-fn send_output_key(enigo: &mut Enigo, value: &str) -> Result<(), String> {
+fn send_output_key(enigo: &mut LazyEnigo, value: &str) -> Result<(), String> {
     let (modifiers, key) = parse_output_key(value)?;
+    let enigo = enigo.get()?;
     let mut pressed = Vec::new();
     let result = (|| {
         for modifier in modifiers {
@@ -2243,9 +2289,8 @@ fn send_output_key(enigo: &mut Enigo, value: &str) -> Result<(), String> {
 
 /// Presses a validated key combination with the managed keyboard (opening/cancel keys).
 pub(crate) fn press_output_key_now(app: &AppHandle, value: &str) -> Result<(), String> {
-    let enigo_state = app.try_state::<EnigoState>().ok_or("Enigo state not initialized")?;
-    let mut enigo = enigo_state.0.lock().map_err(|e| format!("Failed to lock Enigo: {}", e))?;
-    send_output_key(&mut enigo, value)
+    let _output_guard = lock_output();
+    send_output_key(&mut LazyEnigo::new(app), value)
 }
 
 /// After-insertion key for a recording whose opening key was pressed at start. The text
@@ -2266,8 +2311,8 @@ pub(crate) fn send_early_session_submit(
     {
         return;
     }
-    let Some(enigo_state) = app.try_state::<EnigoState>() else { return };
-    let Ok(mut enigo) = enigo_state.0.lock() else { return };
+    let _output_guard = lock_output();
+    let mut enigo = LazyEnigo::new(app);
     if let Err(error) = send_return_key(&mut enigo, settings.auto_submit_key) {
         warn!("Text was inserted, but the submit key failed: {}", error);
     }
@@ -2432,14 +2477,9 @@ pub(crate) fn paste_with_output_settings(
     .then(|| lock_clipboard_transaction("pasting text"))
     .transpose()?;
 
-    // Get the managed Enigo instance
-    let enigo_state = app_handle
-        .try_state::<EnigoState>()
-        .ok_or("Enigo state not initialized")?;
-    let mut enigo = enigo_state
-        .0
-        .lock()
-        .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+    // The input system is taken lazily, on the first key press that needs it.
+    let _output_guard = lock_output();
+    let mut enigo = LazyEnigo::new(&app_handle);
 
     let target_window = match early_press {
         Some((_, window)) => window,
@@ -2631,13 +2671,8 @@ fn paste_stream_chunk_with_output(
         info!("PasteMethod::None selected - skipping streaming chunk paste");
         return Ok(());
     }
-    let enigo_state = app_handle
-        .try_state::<EnigoState>()
-        .ok_or("Enigo state not initialized")?;
-    let mut enigo = enigo_state
-        .0
-        .lock()
-        .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+    let _output_guard = lock_output();
+    let mut enigo = LazyEnigo::new(&app_handle);
 
     let check_active_window = active_stream_config.as_ref()
         .map(|(_, _, _, check_active_window)| *check_active_window)
@@ -2747,13 +2782,8 @@ fn restore_cut_selection_from_backup(app_handle: &AppHandle, text: &str) -> Resu
         )
     })?;
 
-    let enigo_state = app_handle
-        .try_state::<EnigoState>()
-        .ok_or("Enigo state not initialized")?;
-    let mut enigo = enigo_state
-        .0
-        .lock()
-        .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+    let _output_guard = lock_output();
+    let mut enigo = LazyEnigo::new(app_handle);
     send_paste_shortcut(&mut enigo, &PasteMethod::CtrlV)?;
 
     Ok(())
