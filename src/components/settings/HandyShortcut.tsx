@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useSettings } from "../../hooks/useSettings";
 import { GlobalShortcutInput } from "./GlobalShortcutInput";
 import { HandyKeysShortcutInput } from "./HandyKeysShortcutInput";
@@ -29,9 +30,15 @@ export const HandyShortcut: React.FC<HandyShortcutProps> = (props) => {
     );
 
   useEffect(() => {
-    invoke<string>("get_current_shortcut_engine")
-      .then((engine) => setActiveEngine(engine))
-      .catch(() => setActiveEngine(configuredEngine));
+    let disposed = false;
+    const refresh = () => {
+      void invoke<string>("get_current_shortcut_engine")
+        .then((engine) => { if (!disposed) setActiveEngine(engine); })
+        .catch(() => { if (!disposed) setActiveEngine(configuredEngine); });
+    };
+    const unlisten = listen("shortcuts-initialized", refresh);
+    refresh();
+    return () => { disposed = true; void unlisten.then((stop) => stop()).catch(() => undefined); };
   }, [configuredEngine]);
 
   return (

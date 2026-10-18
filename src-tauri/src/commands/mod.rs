@@ -435,6 +435,12 @@ pub fn initialize_shortcuts(app: AppHandle) -> Result<(), String> {
     crate::shortcut::init_shortcuts(&app);
     app.manage(ShortcutsInitialized);
 
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Emitter;
+        let _ = app.emit("shortcuts-initialized", ());
+    }
+
     log::info!("Shortcuts initialized successfully");
     Ok(())
 }

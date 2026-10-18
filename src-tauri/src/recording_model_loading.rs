@@ -128,6 +128,8 @@ pub(crate) fn begin_recording(app: &AppHandle, operation_id: u64, settings: &App
 }
 
 pub(crate) fn notify_session_changed(app: &AppHandle) {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    crate::platform_shortcuts::notify_session_changed(app);
     emit(app);
 }
 
