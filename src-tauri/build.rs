@@ -562,7 +562,10 @@ fn build_apple_intelligence_bridge() {
     let command_line_tools_only = env::var("SWIFTC").is_err() && is_command_line_tools_only();
     if command_line_tools_only && !force_stub {
         println!(
-            "cargo:warning=Command Line Tools-only toolchain detected; Apple Intelligence              (FoundationModels) needs full Xcode. Falling back to stubs. Install Xcode and run              `sudo xcode-select -s /Applications/Xcode.app`, or set AIVORELAY_FORCE_AI_STUB=1 to              silence this message."
+            "cargo:warning=Command Line Tools-only toolchain detected; Apple Intelligence \
+             (FoundationModels) needs full Xcode. Falling back to stubs. Install Xcode and run \
+             `sudo xcode-select -s /Applications/Xcode.app`, or set AIVORELAY_FORCE_AI_STUB=1 to \
+             silence this message."
         );
     }
 
