@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
-import { type as getOsType } from "@tauri-apps/plugin-os";
 import { commands, type ModelInfo, type RemoteSttSettings, type SttModelSelection } from "@/bindings";
 import { resolveRemoteApiRow, type RemoteApiRow } from "@/lib/remoteApiModels";
 import { sttSelectionKey } from "@/lib/sttModelSelection";
@@ -64,7 +63,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   const { t } = useTranslation();
   const { settings, getSetting, setTranscriptionProvider, refreshSettings } = useSettings();
   const modelDeletions = useModelDeletions();
-  const supportsRemoteProviders = getOsType() === "windows";
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [currentModelId, setCurrentModelId] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<ModelStatus>("unloaded");
@@ -679,16 +677,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 
   const handleRemoteProviderSelect = useCallback(
     async (provider: string) => {
-      if (!supportsRemoteProviders) {
-        const errorMsg = t(
-          "modelSelector.remoteWindowsOnly",
-          "Remote transcription providers are only available on Windows.",
-        );
-        setModelError(errorMsg);
-        setModelStatus("error");
-        onError?.(errorMsg);
-        return;
-      }
       try {
         invalidateModelDownloadActivationIntent();
         setShowModelDropdown(false);
@@ -713,7 +701,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         onError?.(errorMsg);
       }
     },
-    [onError, setTranscriptionProvider, supportsRemoteProviders, t, setActiveProfileModelSelection, profileModelSelection, getSetting],
+    [onError, setTranscriptionProvider, t, setActiveProfileModelSelection, profileModelSelection, getSetting],
   );
 
   const handleModelDelete = async (modelId: string) => {
@@ -768,12 +756,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
             onError={onError}
             currentProvider={transcriptionProvider}
             remoteStt={remoteStt}
-            onRemoteApiSelect={
-              supportsRemoteProviders ? handleRemoteApiSelect : undefined
-            }
-            onRemoteProviderSelect={
-              supportsRemoteProviders ? handleRemoteProviderSelect : undefined
-            }
+            onRemoteApiSelect={handleRemoteApiSelect}
+            onRemoteProviderSelect={handleRemoteProviderSelect}
           />
         )}
       </div>
