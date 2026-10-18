@@ -184,10 +184,7 @@ fn start_live_session(
                 manager_cb.push_audio_frame(frame);
             })));
 
-            #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_soniox_api_key();
-            #[cfg(not(target_os = "windows"))]
-            let api_key = String::new();
 
             let options = crate::actions::build_soniox_options_for_live_sound(settings);
             manager
@@ -214,10 +211,7 @@ fn start_live_session(
                 manager_cb.push_audio_frame(frame);
             })));
 
-            #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_deepgram_api_key();
-            #[cfg(not(target_os = "windows"))]
-            let api_key = String::new();
 
             let options = crate::actions::build_deepgram_options_for_live_sound(settings);
             manager

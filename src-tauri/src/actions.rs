@@ -2997,11 +2997,7 @@ async fn perform_transcription_for_profile_with_retry_action(
             .map(|p| p.language.clone())
             .unwrap_or_else(|| settings.selected_language.clone());
 
-        #[cfg(target_os = "windows")]
         let api_key = crate::secure_keys::get_soniox_api_key();
-
-        #[cfg(not(target_os = "windows"))]
-        let api_key = String::new();
 
         if let Some(p) = &profile {
             log::info!(
@@ -3283,10 +3279,7 @@ async fn perform_transcription_for_profile_with_retry_action(
             .map(|p| p.language.clone())
             .unwrap_or_else(|| settings.selected_language.clone());
 
-        #[cfg(target_os = "windows")]
         let api_key = crate::secure_keys::get_deepgram_api_key();
-        #[cfg(not(target_os = "windows"))]
-        let api_key = String::new();
 
         if let Some(p) = &profile {
             log::info!(
@@ -7092,10 +7085,7 @@ pub(crate) async fn perform_history_live_transcription(
         .unwrap_or(settings.selected_language.as_str());
     let result = match settings.transcription_provider {
         TranscriptionProvider::RemoteSoniox => {
-            #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_soniox_api_key();
-            #[cfg(not(target_os = "windows"))]
-            let api_key = String::new();
             let options = build_soniox_realtime_options(settings, language, profile, "transcribe");
             app.state::<Arc<SonioxRealtimeManager>>().transcribe_history_replay(
                 samples, &api_key, &settings.soniox_model, options, replay,
@@ -7103,10 +7093,7 @@ pub(crate) async fn perform_history_live_transcription(
             ).await
         }
         TranscriptionProvider::RemoteDeepgram => {
-            #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_deepgram_api_key();
-            #[cfg(not(target_os = "windows"))]
-            let api_key = String::new();
             let options = build_deepgram_realtime_options(settings, language, "transcribe");
             app.state::<Arc<DeepgramRealtimeManager>>().transcribe_history_replay(
                 samples, &api_key, &settings.deepgram_model, options, replay,
@@ -7212,10 +7199,7 @@ fn setup_and_start_live(
         TranscriptionProvider::RemoteSoniox => {
             let options = build_soniox_realtime_options(settings, &language, profile, binding_id);
             let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
-            #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_soniox_api_key();
-            #[cfg(not(target_os = "windows"))]
-            let api_key = String::new();
             soniox_live_manager
                 .start_session(binding_id, &api_key, &settings.soniox_model, options, None)
                 .map_err(|e| {
@@ -7227,10 +7211,7 @@ fn setup_and_start_live(
         TranscriptionProvider::RemoteDeepgram => {
             let options = build_deepgram_realtime_options(settings, &language, binding_id);
             let deepgram_live_manager = Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
-            #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_deepgram_api_key();
-            #[cfg(not(target_os = "windows"))]
-            let api_key = String::new();
             deepgram_live_manager
                 .start_session(
                     binding_id,
@@ -8462,10 +8443,7 @@ impl ShortcutAction for TranscribeAction {
             let binding_id = binding_id.to_string();
             let app_handle = app.clone();
             let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
-            #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_soniox_api_key();
-            #[cfg(not(target_os = "windows"))]
-            let api_key = String::new();
 
             soniox_live_manager.cancel();
             let mut options =
@@ -8520,10 +8498,7 @@ impl ShortcutAction for TranscribeAction {
                 TranscriptionProvider::RemoteSoniox => {
                     let soniox_live_manager =
                         Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
-                    #[cfg(target_os = "windows")]
                     let api_key = crate::secure_keys::get_soniox_api_key();
-                    #[cfg(not(target_os = "windows"))]
-                    let api_key = String::new();
 
                     let chunk_callback = stream_processor.clone().map(|stream_processor| {
                         let binding_id_for_cb = binding_id.clone();
@@ -8603,10 +8578,7 @@ impl ShortcutAction for TranscribeAction {
                 TranscriptionProvider::RemoteDeepgram => {
                     let deepgram_live_manager =
                         Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
-                    #[cfg(target_os = "windows")]
                     let api_key = crate::secure_keys::get_deepgram_api_key();
-                    #[cfg(not(target_os = "windows"))]
-                    let api_key = String::new();
 
                     set_deepgram_stream_emitted(&binding_id, false);
                     let chunk_callback = stream_processor.map(|stream_processor| {

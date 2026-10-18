@@ -1450,18 +1450,6 @@ pub fn change_transcription_provider_setting(
         }
     };
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        if matches!(
-            parsed,
-            TranscriptionProvider::RemoteOpenAiCompatible
-                | TranscriptionProvider::RemoteSoniox
-                | TranscriptionProvider::RemoteDeepgram
-        ) {
-            return Err("Remote transcription providers are only available on Windows".to_string());
-        }
-    }
-
     let mut settings = settings::get_settings(&app);
     settings.transcription_provider = parsed;
     settings::write_settings(&app, settings);

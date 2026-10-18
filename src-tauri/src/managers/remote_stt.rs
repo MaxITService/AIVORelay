@@ -2328,7 +2328,29 @@ fn delete_remote_stt_api_key_user(user: &str) -> Result<()> {
     }
 }
 
-#[cfg(target_os = "windows")]
+/// Off Windows the key lives in the app's key store, under a name that cannot
+/// collide with the other key families.
+#[cfg(not(target_os = "windows"))]
+fn remote_stt_store_name(user: &str) -> String {
+    format!("{}/{}", REMOTE_STT_SERVICE, user)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_remote_stt_api_key(settings: &RemoteSttSettings, key: &str) -> Result<()> {
+    let user = remote_stt_api_key_user(settings);
+    crate::secure_keys::set_named_key(&remote_stt_store_name(&user), key)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn read_remote_stt_api_key_user(user: &str) -> Result<String> {
+    crate::secure_keys::get_named_key(&remote_stt_store_name(user))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn delete_remote_stt_api_key_user(user: &str) -> Result<()> {
+    crate::secure_keys::set_named_key(&remote_stt_store_name(user), "")
+}
+
 fn get_remote_stt_api_key_for_request(settings: &RemoteSttSettings) -> Result<RemoteSttApiKey> {
     let scoped_user = remote_stt_api_key_user(settings);
     let scoped_key = read_remote_stt_api_key_user(&scoped_user)?;
@@ -2346,7 +2368,6 @@ fn get_remote_stt_api_key_for_request(settings: &RemoteSttSettings) -> Result<Re
         .ok_or_else(|| anyhow!(missing_remote_stt_api_key_message(settings)))
 }
 
-#[cfg(target_os = "windows")]
 fn migrate_remote_stt_legacy_api_key_after_success(
     settings: &RemoteSttSettings,
     api_key: &RemoteSttApiKey,
@@ -2359,12 +2380,10 @@ fn migrate_remote_stt_legacy_api_key_after_success(
     delete_remote_stt_api_key_user(legacy_remote_stt_api_key_user())
 }
 
-#[cfg(target_os = "windows")]
 pub fn get_remote_stt_api_key(settings: &RemoteSttSettings) -> Result<String> {
     get_remote_stt_api_key_for_request(settings).map(|api_key| api_key.value)
 }
 
-#[cfg(target_os = "windows")]
 pub fn clear_remote_stt_api_key(settings: &RemoteSttSettings) -> Result<()> {
     let scoped_user = remote_stt_api_key_user(settings);
     let legacy_user = legacy_remote_stt_api_key_user();
@@ -2386,44 +2405,10 @@ pub fn clear_remote_stt_api_key(settings: &RemoteSttSettings) -> Result<()> {
     Ok(())
 }
 
-#[cfg(target_os = "windows")]
 pub fn has_remote_stt_api_key(settings: &RemoteSttSettings) -> bool {
     get_remote_stt_api_key(settings)
         .map(|key| !key.trim().is_empty())
         .unwrap_or(false)
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn set_remote_stt_api_key(_settings: &RemoteSttSettings, _key: &str) -> Result<()> {
-    Err(anyhow!("Remote STT is only available on Windows"))
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn get_remote_stt_api_key(_settings: &RemoteSttSettings) -> Result<String> {
-    Err(anyhow!("Remote STT is only available on Windows"))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn get_remote_stt_api_key_for_request(_settings: &RemoteSttSettings) -> Result<RemoteSttApiKey> {
-    Err(anyhow!("Remote STT is only available on Windows"))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn migrate_remote_stt_legacy_api_key_after_success(
-    _settings: &RemoteSttSettings,
-    _api_key: &RemoteSttApiKey,
-) -> Result<()> {
-    Ok(())
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn clear_remote_stt_api_key(_settings: &RemoteSttSettings) -> Result<()> {
-    Err(anyhow!("Remote STT is only available on Windows"))
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn has_remote_stt_api_key(_settings: &RemoteSttSettings) -> bool {
-    false
 }
 
 #[cfg(test)]
