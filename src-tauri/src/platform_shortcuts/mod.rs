@@ -16,7 +16,37 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 use crate::cli::RecordingCommand;
 
-enum Command { Input(InputEvent), Recording(RecordingCommand), SessionChanged, Cancel }
+struct QueuedInput { event: InputEvent, received_at: Instant }
+enum Command { Input(QueuedInput), Recording(RecordingCommand), SessionChanged, Cancel }
+
+fn apply_input(machine: &mut CoordinatorState, input: QueuedInput) -> Option<Effect> {
+    // Fork microphone/model startup may block the executor. A quick tap must
+    // remain a tap even when its release is dequeued after a long cold start.
+    machine.on_input(input.event, input.received_at)
+}
+
+fn activation_mode(ptt: bool, auto: bool) -> ShortcutActivation {
+    if auto { ShortcutActivation::HoldOrToggle } else if ptt { ShortcutActivation::PushToTalk } else { ShortcutActivation::Toggle }
+}
+
+fn captured_activation(settings: &crate::settings::AppSettings, profile_id: Option<&str>) -> ShortcutActivation {
+    let profile = profile_id.and_then(|id| settings.transcription_profile(id));
+    activation_mode(
+        profile.map(|profile| profile.push_to_talk).unwrap_or(settings.push_to_talk),
+        profile.map(|profile| profile.auto_shortcut_activation).unwrap_or(settings.auto_shortcut_activation),
+    )
+}
+
+fn use_captured_activation(app: &AppHandle, input: &mut QueuedInput) {
+    if input.event.external { return; }
+    let session = app.state::<ManagedSessionState>();
+    let session = session_manager::lock_session_state(&session, "Unix captured activation");
+    if let SessionState::Recording { binding_id, captured_settings, captured_profile_id, .. } = &*session {
+        if binding_id == &input.event.binding_id {
+            input.event.mode = captured_activation(captured_settings, captured_profile_id.as_deref());
+        }
+    }
+}
 
 pub(crate) struct Coordinator(Sender<Command>);
 
@@ -163,11 +193,13 @@ pub(crate) fn install(app: &AppHandle) {
             }
             let input = match command {
                 Command::Input(input) => Some(input),
-                Command::Recording(action) => external_input(action, &snapshot(&app)),
+                Command::Recording(action) => external_input(action, &snapshot(&app))
+                    .map(|event| QueuedInput { event, received_at: Instant::now() }),
                 _ => None,
             };
-            if let Some(input) = input {
-                if let Some(effect) = runtime.machine.on_input(input, Instant::now()) {
+            if let Some(mut input) = input {
+                use_captured_activation(&app, &mut input);
+                if let Some(effect) = apply_input(&mut runtime.machine, input) {
                     run_effect(&app, &mut runtime, effect);
                 }
             }
@@ -180,9 +212,10 @@ pub(crate) fn is_transcribe_binding(binding: &str) -> bool {
 }
 
 pub(crate) fn send_input(app: &AppHandle, binding: &str, source: &str, pressed: bool, ptt: bool, auto: bool) {
-    let mode = if auto { ShortcutActivation::HoldOrToggle } else if ptt { ShortcutActivation::PushToTalk } else { ShortcutActivation::Toggle };
-    send(app, Command::Input(InputEvent { binding_id: binding.into(), hotkey_string: source.into(),
-        is_pressed: pressed, mode, hold_threshold: Duration::from_millis(300), external: false }));
+    let mode = activation_mode(ptt, auto);
+    send(app, Command::Input(QueuedInput { received_at: Instant::now(), event: InputEvent {
+        binding_id: binding.into(), hotkey_string: source.into(), is_pressed: pressed,
+        mode, hold_threshold: Duration::from_millis(300), external: false } }));
 }
 
 fn external_input(action: RecordingCommand, snapshot: &Snapshot) -> Option<InputEvent> {
@@ -246,5 +279,34 @@ mod tests {
         assert!(external_input(RecordingCommand::Start { post_process: false }, &active).is_none());
         assert_eq!(external_input(RecordingCommand::Stop, &active).unwrap().binding_id, "transcribe_work");
         assert!(external_input(RecordingCommand::Stop, &Snapshot::Idle).is_none());
+    }
+
+    #[test]
+    fn cold_start_delay_does_not_turn_a_queued_tap_into_a_hold() {
+        let mut machine = CoordinatorState::new();
+        let pressed_at = Instant::now();
+        let input = |pressed, received_at| QueuedInput { received_at, event: InputEvent {
+            binding_id: "transcribe".into(), hotkey_string: "test".into(), is_pressed: pressed,
+            mode: ShortcutActivation::HoldOrToggle, hold_threshold: Duration::from_millis(300), external: false } };
+        assert!(matches!(apply_input(&mut machine, input(true, pressed_at)), Some(Effect::Start { .. })));
+        let release = input(false, pressed_at + Duration::from_millis(50));
+        // This represents blocking startup after the OS already delivered the release.
+        std::thread::sleep(Duration::from_millis(350));
+        assert!(apply_input(&mut machine, release).is_none());
+        assert!(machine.on_grace_expired().is_none(), "a short physical tap must lock recording on");
+        assert!(matches!(apply_input(&mut machine, input(true, Instant::now())), Some(Effect::Stop { .. })));
+    }
+
+    #[test]
+    fn automatic_profile_activation_is_kept_for_the_matching_recording() {
+        let mut captured = crate::settings::get_default_settings();
+        captured.push_to_talk = false;
+        captured.auto_shortcut_activation = false;
+        captured.transcription_profiles.push(serde_json::from_value(serde_json::json!({
+            "id": "profile_work", "name": "Work", "language": "auto", "translate_to_english": false,
+            "push_to_talk": true, "auto_shortcut_activation": true,
+        })).unwrap());
+        assert_eq!(captured_activation(&captured, Some("profile_work")), ShortcutActivation::HoldOrToggle);
+        assert_eq!(captured_activation(&captured, None), ShortcutActivation::Toggle);
     }
 }

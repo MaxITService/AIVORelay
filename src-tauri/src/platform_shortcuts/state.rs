@@ -1,5 +1,5 @@
 //! Upstream Handy coordinator state machine, from 9e57a0d7.
-//! Only visibility and the local activation enum differ from the pure upstream logic.
+//! Visibility, a local activation enum and external-session observers adapt the upstream logic.
 //! The platform adapter owns fork profiles and operation-generation reconciliation.
 
 use log::debug;
