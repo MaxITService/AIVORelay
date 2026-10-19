@@ -18,6 +18,10 @@ struct DecapitalizeState {
 static DECAPITALIZE_STATE: Lazy<Mutex<DecapitalizeState>> =
     Lazy::new(|| Mutex::new(DecapitalizeState::default()));
 
+// Tests that consume this state must share the same guard as tests that arm it.
+#[cfg(test)]
+pub(crate) static TEST_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
 #[derive(Clone, Copy)]
 enum ApplyMode {
     RealtimeChunk,
@@ -214,8 +218,6 @@ fn find_first_alphabetic_char(text: &str) -> Option<(usize, char)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    static TEST_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
     fn reset_global_state() {
         *DECAPITALIZE_STATE.lock().unwrap() = DecapitalizeState::default();

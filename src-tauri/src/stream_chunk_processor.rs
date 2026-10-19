@@ -372,6 +372,7 @@ mod tests {
 
     #[test]
     fn flush_without_standalone_whitespace_discards_provider_separator() {
+        let _guard = crate::text_replacement_decapitalize::TEST_MUTEX.lock().unwrap();
         let mut processor = StreamChunkProcessor::default();
         processor.pending_raw = " ".to_string();
 
@@ -380,6 +381,7 @@ mod tests {
 
     #[test]
     fn flush_without_standalone_whitespace_preserves_real_tail() {
+        let _guard = crate::text_replacement_decapitalize::TEST_MUTEX.lock().unwrap();
         let mut processor = StreamChunkProcessor::default();
         processor.pending_raw = "late words. ".to_string();
 
@@ -391,6 +393,7 @@ mod tests {
 
     #[test]
     fn gemini_cutoff_adds_one_space_after_confirmed_insertion() {
+        let _guard = crate::text_replacement_decapitalize::TEST_MUTEX.lock().unwrap();
         let mut processor = StreamChunkProcessor::default();
         let inserted = processor.push_chunk("Already inserted.");
         assert_eq!(inserted, "Already inserted.");
@@ -403,6 +406,7 @@ mod tests {
 
     #[test]
     fn gemini_cutoff_does_not_add_space_when_nothing_was_inserted() {
+        let _guard = crate::text_replacement_decapitalize::TEST_MUTEX.lock().unwrap();
         let mut processor = StreamChunkProcessor::default();
         assert_eq!(processor.flush_with_trailing_space(), "");
         assert_eq!(processor.flush_without_standalone_whitespace(), "");
@@ -410,6 +414,7 @@ mod tests {
 
     #[test]
     fn gemini_cutoff_preserves_existing_unicode_whitespace_without_an_extra_space() {
+        let _guard = crate::text_replacement_decapitalize::TEST_MUTEX.lock().unwrap();
         for ending in [' ', '\n', '\t', '\u{2003}'] {
             let mut processor = StreamChunkProcessor::default();
             processor.record_output_ending(Some(ending));
@@ -421,6 +426,7 @@ mod tests {
 
     #[test]
     fn gemini_cutoff_flushes_buffered_tail_once_with_or_without_final_separator() {
+        let _guard = crate::text_replacement_decapitalize::TEST_MUTEX.lock().unwrap();
         for append_space in [false, true] {
             let mut processor = StreamChunkProcessor::default();
             processor.stable_tail_words = 3;
@@ -435,6 +441,7 @@ mod tests {
 
     #[test]
     fn gemini_cutoff_without_separator_discards_all_standalone_unicode_whitespace() {
+        let _guard = crate::text_replacement_decapitalize::TEST_MUTEX.lock().unwrap();
         let mut processor = StreamChunkProcessor::default();
         processor.pending_raw = " \t\n\u{2003}".to_string();
         assert_eq!(processor.flush_without_standalone_whitespace(), "");
@@ -443,6 +450,7 @@ mod tests {
 
     #[test]
     fn gemini_cutoff_treats_pending_punctuation_as_text() {
+        let _guard = crate::text_replacement_decapitalize::TEST_MUTEX.lock().unwrap();
         let mut processor = StreamChunkProcessor::default();
         processor.pending_raw = "…".to_string();
         assert_eq!(processor.flush_without_standalone_whitespace(), "…");
