@@ -5,6 +5,8 @@
 //! ownership, including CLI, auto-stop, profile recordings, and cancellation.
 
 mod state;
+#[cfg(target_os = "linux")]
+mod linux_admission;
 pub(crate) mod tauri_backend;
 #[cfg(target_os = "macos")]
 pub(crate) mod secure_input;
@@ -70,6 +72,20 @@ enum Snapshot {
     Processing { operation: u64 },
 }
 
+#[cfg(target_os = "linux")]
+fn ignore_busy_input(snapshot: &Snapshot, blocked: bool) -> bool {
+    matches!(snapshot, Snapshot::Processing { .. })
+        || (matches!(snapshot, Snapshot::Idle) && blocked)
+}
+
+#[cfg(target_os = "linux")]
+fn allow_linux_input(input: &QueuedInput, snapshot: &Snapshot, blocked: bool) -> bool {
+    static ADMISSION: std::sync::OnceLock<std::sync::Mutex<linux_admission::InputAdmission>> = std::sync::OnceLock::new();
+    ADMISSION.get_or_init(|| std::sync::Mutex::new(linux_admission::InputAdmission::default()))
+        .lock().unwrap_or_else(|error| error.into_inner())
+        .allows(&input.event, input.received_at, ignore_busy_input(snapshot, blocked))
+}
+
 struct RuntimeState {
     machine: CoordinatorState,
     operation: Option<u64>,
@@ -78,6 +94,17 @@ struct RuntimeState {
 
 impl RuntimeState {
     fn new() -> Self { Self { machine: CoordinatorState::new(), operation: None, processing: false } }
+
+    fn on_input(&mut self, input: QueuedInput, snapshot: &Snapshot, blocked: bool) -> Option<Effect> {
+        // Linux follows Windows admission: busy presses are discarded, not
+        // remembered for an automatic start after the previous operation.
+        // Recording releases must still pass while microphone startup owns its guard.
+        #[cfg(target_os = "linux")]
+        if ignore_busy_input(snapshot, blocked) { return None; }
+        #[cfg(not(target_os = "linux"))]
+        let _ = (snapshot, blocked);
+        apply_input(&mut self.machine, input)
+    }
 
     fn reconcile(&mut self, snapshot: Snapshot, blocked: bool) -> Option<Effect> {
         match snapshot {
@@ -198,8 +225,12 @@ pub(crate) fn install(app: &AppHandle) {
                 _ => None,
             };
             if let Some(mut input) = input {
+                let current = snapshot(&app);
+                let blocked = session_manager::recording_start_is_blocked();
+                #[cfg(target_os = "linux")]
+                if !allow_linux_input(&input, &current, blocked) { continue; }
                 use_captured_activation(&app, &mut input);
-                if let Some(effect) = apply_input(&mut runtime.machine, input) {
+                if let Some(effect) = runtime.on_input(input, &current, blocked) {
                     run_effect(&app, &mut runtime, effect);
                 }
             }
@@ -213,9 +244,14 @@ pub(crate) fn is_transcribe_binding(binding: &str) -> bool {
 
 pub(crate) fn send_input(app: &AppHandle, binding: &str, source: &str, pressed: bool, ptt: bool, auto: bool) {
     let mode = activation_mode(ptt, auto);
-    send(app, Command::Input(QueuedInput { received_at: Instant::now(), event: InputEvent {
+    let input = QueuedInput { received_at: Instant::now(), event: InputEvent {
         binding_id: binding.into(), hotkey_string: source.into(), is_pressed: pressed,
-        mode, hold_threshold: Duration::from_millis(300), external: false } }));
+        mode, hold_threshold: Duration::from_millis(300), external: false } };
+    // Check arrival as well as execution: a busy event must not become a
+    // fresh start just because the executor reads it after drain.
+    #[cfg(target_os = "linux")]
+    if !allow_linux_input(&input, &snapshot(app), session_manager::recording_start_is_blocked()) { return; }
+    send(app, Command::Input(input));
 }
 
 fn external_input(action: RecordingCommand, snapshot: &Snapshot) -> Option<InputEvent> {
@@ -237,7 +273,12 @@ fn external_input(action: RecordingCommand, snapshot: &Snapshot) -> Option<Input
         is_pressed: true, mode: ShortcutActivation::Toggle, hold_threshold: Duration::ZERO, external: true })
 }
 
-pub(crate) fn send_recording(app: &AppHandle, action: RecordingCommand) { send(app, Command::Recording(action)); }
+pub(crate) fn send_recording(app: &AppHandle, action: RecordingCommand) {
+    #[cfg(target_os = "linux")]
+    if action != RecordingCommand::Cancel
+        && ignore_busy_input(&snapshot(app), session_manager::recording_start_is_blocked()) { return; }
+    send(app, Command::Recording(action));
+}
 
 pub(crate) fn notify_session_changed(app: &AppHandle) { send(app, Command::SessionChanged); }
 pub(crate) fn notify_cancel(app: &AppHandle) { send(app, Command::Cancel); }
@@ -253,6 +294,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn queued_start_waits_for_the_fork_completion_guard() {
         let mut runtime = RuntimeState::new();
         runtime.reconcile(Snapshot::Processing { operation: 7 }, false);
@@ -260,6 +302,66 @@ mod tests {
             is_pressed: true, mode: ShortcutActivation::Toggle, hold_threshold: Duration::ZERO, external: false }, Instant::now());
         assert!(runtime.reconcile(Snapshot::Idle, true).is_none());
         assert!(matches!(runtime.reconcile(Snapshot::Idle, false), Some(Effect::Start { binding_id, .. }) if binding_id == "transcribe_profile"));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn busy_linux_presses_never_start_after_processing_drains() {
+        for mode in [ShortcutActivation::Toggle, ShortcutActivation::PushToTalk, ShortcutActivation::HoldOrToggle] {
+            for external in [false, true] {
+                let mut runtime = RuntimeState::new();
+                runtime.reconcile(Snapshot::Processing { operation: 7 }, false);
+                let input = |pressed| QueuedInput { received_at: Instant::now(), event: InputEvent {
+                    binding_id: "transcribe_work".into(), hotkey_string: "test".into(),
+                    is_pressed: pressed, mode, hold_threshold: Duration::from_millis(300), external } };
+                assert!(runtime.on_input(input(true), &Snapshot::Processing { operation: 7 }, false).is_none());
+                assert!(runtime.on_input(input(false), &Snapshot::Processing { operation: 7 }, false).is_none());
+                assert!(runtime.machine.grace_deadline().is_none());
+                assert!(runtime.reconcile(Snapshot::Idle, false).is_none(), "busy input must not queue a start");
+                assert!(matches!(runtime.on_input(input(true), &Snapshot::Idle, false), Some(Effect::Start { .. })),
+                    "a new press after processing must still start");
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn linux_completion_guard_does_not_remember_a_new_press() {
+        let mut runtime = RuntimeState::new();
+        runtime.reconcile(Snapshot::Processing { operation: 7 }, false);
+        assert!(runtime.reconcile(Snapshot::Idle, true).is_none());
+        let input = QueuedInput { received_at: Instant::now(), event: InputEvent {
+            binding_id: "transcribe".into(), hotkey_string: "test".into(), is_pressed: true,
+            mode: ShortcutActivation::Toggle, hold_threshold: Duration::ZERO, external: false } };
+        assert!(runtime.on_input(input, &Snapshot::Idle, true).is_none());
+        assert!(runtime.reconcile(Snapshot::Idle, false).is_none());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn linux_busy_admission_keeps_recording_releases_and_late_releases_safe() {
+        let recording = Snapshot::Recording { binding: "transcribe".into(), operation: 8 };
+        assert!(ignore_busy_input(&Snapshot::Processing { operation: 7 }, false));
+        assert!(ignore_busy_input(&Snapshot::Idle, true));
+        assert!(!ignore_busy_input(&Snapshot::Idle, false));
+        assert!(!ignore_busy_input(&recording, true), "startup guard must not swallow an accepted key-up");
+
+        let input = |pressed| QueuedInput { received_at: Instant::now(), event: InputEvent {
+            binding_id: "transcribe".into(), hotkey_string: "test".into(), is_pressed: pressed,
+            mode: ShortcutActivation::PushToTalk, hold_threshold: Duration::ZERO, external: false } };
+        let mut accepted = RuntimeState::new();
+        assert!(matches!(accepted.on_input(input(true), &Snapshot::Idle, false), Some(Effect::Start { .. })));
+        assert!(accepted.on_input(input(false), &recording, true).is_none());
+        assert!(matches!(accepted.machine.on_grace_expired(), Some(Effect::Stop { .. })),
+            "a valid recording must stop on release even while startup owns its guard");
+
+        let mut runtime = RuntimeState::new();
+        runtime.reconcile(recording, true);
+        let release = QueuedInput { received_at: Instant::now(), event: InputEvent {
+            binding_id: "transcribe".into(), hotkey_string: "test".into(), is_pressed: false,
+            mode: ShortcutActivation::PushToTalk, hold_threshold: Duration::ZERO, external: false } };
+        assert!(runtime.on_input(release, &Snapshot::Recording { binding: "transcribe".into(), operation: 8 }, true).is_none());
+        assert!(runtime.machine.on_grace_expired().is_none(), "an ignored old press cannot stop a separately started recording");
     }
 
     #[test]
