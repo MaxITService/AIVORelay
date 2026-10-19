@@ -372,6 +372,7 @@ mod tests {
 
     #[test]
     fn flush_without_standalone_whitespace_discards_provider_separator() {
+        let _guard = crate::text_replacement_decapitalize::TEST_MUTEX.lock().unwrap();
         let mut processor = StreamChunkProcessor::default();
         processor.pending_raw = " ".to_string();
 
@@ -380,6 +381,7 @@ mod tests {
 
     #[test]
     fn flush_without_standalone_whitespace_preserves_real_tail() {
+        let _guard = crate::text_replacement_decapitalize::TEST_MUTEX.lock().unwrap();
         let mut processor = StreamChunkProcessor::default();
         processor.pending_raw = "late words. ".to_string();
 
