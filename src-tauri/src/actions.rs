@@ -2251,8 +2251,8 @@ fn maybe_restore_ai_replace_selection(
     let ah = app.clone();
     let restore_text = original_text.to_string();
     let reason_owned = reason.to_string();
-    if let Err(err) = app.run_on_main_thread(move || {
-        if let Err(paste_err) = utils::paste(restore_text, ah.clone()) {
+    if let Err(err) = crate::output_dispatch::dispatch_generic(app, None, move |method| {
+        if let Err(paste_err) = utils::paste_with_method_override(restore_text, ah.clone(), method) {
             error!(
                 "Failed to restore original selection after {}: {}",
                 reason_owned, paste_err
@@ -11720,7 +11720,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
                     let operation_id_for_apply = operation_id;
                     let overlay_generation =
                         crate::plus_overlay_state::current_recording_overlay_generation();
-                    ah.run_on_main_thread(move || {
+                    crate::output_dispatch::dispatch_generic(&ah, None, move |method| {
                         if llm_tracker_for_apply.is_cancelled(operation_id_for_apply) {
                             debug!(
                                 "LLM operation {} was cancelled before applying output",
@@ -11728,7 +11728,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
                             );
                             if restore_on_error && !restore_text.is_empty() {
                                 if let Err(restore_err) =
-                                    utils::paste(restore_text.clone(), ah_clone.clone())
+                                    utils::paste_with_method_override(restore_text.clone(), ah_clone.clone(), method)
                                 {
                                     error!(
                                         "Failed to restore original selection after cancellation: {}",
@@ -11739,11 +11739,11 @@ impl ShortcutAction for AiReplaceSelectionAction {
                             return;
                         }
 
-                        if let Err(e) = utils::paste(output, ah_clone.clone()) {
+                        if let Err(e) = utils::paste_with_method_override(output, ah_clone.clone(), method) {
                             error!("Failed to paste AI Replace output: {}", e);
                             if restore_on_error && !restore_text.is_empty() {
                                 if let Err(restore_err) =
-                                    utils::paste(restore_text.clone(), ah_clone.clone())
+                                    utils::paste_with_method_override(restore_text.clone(), ah_clone.clone(), method)
                                 {
                                     error!(
                                         "Failed to restore original selection after paste error: {}",

@@ -1,6 +1,6 @@
 name: "Package check"
 
-# Builds debug packages for Linux (deb, rpm, AppImage, x64 and ARM64) and macOS
+# Builds debug packages for Linux (deb, rpm, AppImage, x64 and ARM64), macOS and Windows
 # through the shared build workflow, then runs its package audit. Manual only.
 # No secrets are passed to the called workflow, so nothing is signed or
 # published: it proves the packaging steps work, not that a release can ship.
@@ -32,6 +32,9 @@ jobs:
           - platform: "macos-26"
             args: "--debug --target aarch64-apple-darwin"
             target: "aarch64-apple-darwin"
+          - platform: "windows-latest"
+            args: "--debug --bundles msi --config src-tauri/tauri.package-check.conf.json"
+            target: "x86_64-pc-windows-msvc"
     permissions:
       contents: read
     uses: ./.github/workflows/build.yml

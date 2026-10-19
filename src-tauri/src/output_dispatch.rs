@@ -65,6 +65,18 @@ pub(crate) fn dispatch(
     app.run_on_main_thread(task).map_err(|error| error.to_string())
 }
 
+/// Freeze Linux's generic paste method before choosing its executor. Windows
+/// keeps the existing main-thread task and execution-time settings resolution.
+pub(crate) fn dispatch_generic(
+    app: &AppHandle,
+    method: Option<PasteMethod>,
+    task: impl FnOnce(Option<PasteMethod>) + Send + 'static,
+) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    let method = Some(method.unwrap_or_else(|| crate::settings::get_settings(app).paste_method));
+    dispatch(app, method.unwrap_or(PasteMethod::CtrlV), move || task(method))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
