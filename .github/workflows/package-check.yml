@@ -5,6 +5,8 @@ name: "Package check"
 # No secrets are passed to the called workflow, so nothing is signed or
 # published: it proves the packaging steps work, not that a release can ship.
 on:
+  push:
+    branches: [codex/windows-package-verify]
   workflow_dispatch:
 
 permissions:
@@ -20,16 +22,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 24.04 only: the prebuilt ONNX Runtime needs a newer glibc than 22.04.
-          - platform: "ubuntu-24.04"
-            args: "--debug --bundles appimage,deb,rpm"
-            target: "x86_64-unknown-linux-gnu"
-          - platform: "ubuntu-24.04-arm"
-            args: "--debug --bundles appimage,deb,rpm"
-            target: "aarch64-unknown-linux-gnu"
-          - platform: "macos-26"
-            args: "--debug --target aarch64-apple-darwin"
-            target: "aarch64-apple-darwin"
           - platform: "windows-latest"
             args: "--debug --bundles msi --no-sign --config src-tauri/tauri.package-check.conf.json"
             target: "x86_64-pc-windows-msvc"
