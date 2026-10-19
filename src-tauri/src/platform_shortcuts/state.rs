@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 pub(super) enum ShortcutActivation { Toggle, PushToTalk, HoldOrToggle }
 
 const DEBOUNCE: Duration = Duration::from_millis(30);
-const RELEASE_GRACE: Duration = Duration::from_millis(50);
+pub(super) const RELEASE_GRACE: Duration = Duration::from_millis(50);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PttAction {

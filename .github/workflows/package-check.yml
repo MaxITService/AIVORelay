@@ -33,7 +33,7 @@ jobs:
             args: "--debug --target aarch64-apple-darwin"
             target: "aarch64-apple-darwin"
           - platform: "windows-latest"
-            args: "--debug --bundles msi --config src-tauri/tauri.package-check.conf.json"
+            args: "--debug --bundles msi --no-sign --config src-tauri/tauri.package-check.conf.json"
             target: "x86_64-pc-windows-msvc"
     permissions:
       contents: read
