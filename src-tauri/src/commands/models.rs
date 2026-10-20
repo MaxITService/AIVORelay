@@ -667,50 +667,97 @@ pub async fn delete_model(
     }).await.map_err(|error| format!("Model deletion task failed: {error}"))?
 }
 
+pub(super) fn delete_model_for_cleanup(app: &AppHandle, model_id: &str, selected: &std::collections::HashSet<String>) -> Result<(), String> {
+    if !selected.contains(model_id) { return Err("The model was not selected for cleanup".into()); }
+    // The same startup claim used by recording closes the check/start race.
+    // Active work is rejected; cleanup never cancels a recording or inference.
+    let _startup = {
+        let state = app.state::<crate::session_manager::ManagedSessionState>();
+        let session = state.lock().map_err(|error| error.to_string())?;
+        if !matches!(*session, crate::session_manager::SessionState::Idle)
+            || crate::session_manager::recording_start_is_blocked()
+        {
+            return Err("Wait for recording and processing to finish before cleaning up STT models".into());
+        }
+        crate::session_manager::try_begin_recording_startup()
+            .ok_or_else(|| "Recording is starting; try cleanup again when idle".to_string())?
+    };
+    super::file_transcription::with_file_transcription_idle(|| {
+        let manager = app.state::<Arc<ModelManager>>();
+        // A preceding selected alias may already have removed the same files.
+        let Some(model) = manager.get_model_info(model_id) else { return Ok(()); };
+        if model.is_downloading {
+            return Err("Cancel the active model download and wait for it to stop before cleanup".into());
+        }
+        cancel_pending_model_deletion_for_use(app, model_id)?;
+        let claim = claim_model_selection(app, model_id)?;
+        delete_model_with_loading_claim_scoped(app, model_id, claim, selected)
+    })
+}
+
 fn delete_model_with_loading_claim(
     app_handle: &AppHandle,
     model_id: &str,
-    _loading_guard: LoadingGuard,
+    loading_guard: LoadingGuard,
+) -> Result<(), String> {
+    delete_model_with_loading_claim_scoped(app_handle, model_id, loading_guard,
+        &std::collections::HashSet::from([model_id.to_string()]))
+}
+
+fn delete_model_with_loading_claim_scoped(
+    app_handle: &AppHandle, model_id: &str, _loading_guard: LoadingGuard,
+    selected: &std::collections::HashSet<String>,
 ) -> Result<(), String> {
     let model_manager = app_handle.state::<Arc<ModelManager>>();
     let transcription_manager = app_handle.state::<Arc<TranscriptionManager>>();
-    let was_selected = get_settings(app_handle).selected_model == model_id;
+    let selected_before = get_settings(app_handle).selected_model;
+    let local_path = model_manager.local_model_file_path(model_id).ok();
+    let affected = |id: &str| id == model_id || (selected.contains(id)
+        && local_path.as_ref().is_some_and(|local| model_manager.get_model_path(id).ok()
+            .is_some_and(|path| path.canonicalize().ok().zip(local.canonicalize().ok()).is_some_and(|(a, b)| a == b))));
+    let was_selected = affected(&selected_before);
+    let unload_id = transcription_manager.get_current_model().filter(|id| affected(id))
+        .unwrap_or_else(|| model_id.to_string());
 
     // A custom profile/file override can have a loaded model different from selected_model.
     // Always use the existing safe unload before touching its files, retaining the lane
     // through any rollback so no competing load or switch can replace restoration state.
-    let was_loaded = transcription_manager.unload_model_for_deletion(model_id)
+    let was_loaded = transcription_manager.unload_model_for_deletion(&unload_id)
         .map_err(|e| format!("Failed to unload model: {}", e))?;
 
     if was_selected {
         let mut updated_settings = get_settings(app_handle);
-        if updated_settings.selected_model != model_id {
+        if updated_settings.selected_model != selected_before {
             return Err("Active model changed while deletion was starting".to_string());
         }
         updated_settings.selected_model = String::new();
         write_settings(app_handle, updated_settings);
     }
 
-    if let Err(delete_error) = model_manager.delete_model(model_id) {
+    if let Err(delete_error) = model_manager.delete_model_in_scope(model_id, selected) {
+        let model_survived = model_manager.get_model_info(&unload_id)
+            .is_some_and(|model| model.is_downloaded)
+            && model_manager.get_model_path(&unload_id).is_ok();
         let current_settings = get_settings(app_handle);
-        if !was_selected || current_settings.selected_model.is_empty() {
+        if was_selected && current_settings.selected_model.is_empty()
+            && model_manager.get_model_info(&selected_before).is_some_and(|model| model.is_downloaded)
+            && model_manager.get_model_path(&selected_before).is_ok() {
+            let mut restored_settings = get_settings(app_handle);
+            if restored_settings.selected_model.is_empty() {
+                restored_settings.selected_model = selected_before.clone();
+                write_settings(app_handle, restored_settings);
+            }
+        }
+        if model_survived && (!was_selected || current_settings.selected_model.is_empty()) {
             if was_loaded {
                 // This operation owns the deleting claim; rollback must bypass the
                 // public load path's rejection of other callers during deletion.
-                let reload = transcription_manager.restore_model_after_failed_deletion(model_id);
+                let reload = transcription_manager.restore_model_after_failed_deletion(&unload_id);
                 if let Err(reload_error) = reload {
                     tray::refresh_tray_menu(app_handle, None);
                     return Err(format!(
                         "Failed to delete model: {delete_error}. The model also failed to reload: {reload_error}"
                     ));
-                }
-            }
-
-            if was_selected {
-                let mut restored_settings = get_settings(app_handle);
-                if restored_settings.selected_model.is_empty() {
-                    restored_settings.selected_model = model_id.to_string();
-                    write_settings(app_handle, restored_settings);
                 }
             }
         }

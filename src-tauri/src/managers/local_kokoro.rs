@@ -326,6 +326,11 @@ impl KokoroTtsRuntime {
                 "Cancel the active Kokoro installation before deleting it"
             ));
         }
+        if let Some(parent) = self.root.parent() {
+            super::model_storage::reject_link(parent)?;
+        }
+        super::model_storage::reject_link(&self.root)?;
+        super::model_storage::reject_link(&self.root.join(".aivorelay-local-tts"))?;
         self.stop_worker().await;
         if self.root.exists() {
             if !self.root.join(".aivorelay-local-tts").is_file() {
@@ -333,7 +338,7 @@ impl KokoroTtsRuntime {
                     "Refusing to delete a directory without an AivoRelay ownership marker"
                 ));
             }
-            fs::remove_dir_all(&self.root).context("Failed to delete Kokoro files")?;
+            super::model_storage::remove_owned_model_tree(&self.root).context("Failed to delete Kokoro files")?;
         }
         self.set_status("not_installed", false, 0, KOKORO_MODEL_DOWNLOAD_BYTES, None);
         Ok(())

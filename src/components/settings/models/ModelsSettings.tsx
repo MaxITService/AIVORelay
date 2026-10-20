@@ -6,6 +6,7 @@ import { useModels } from "../../../hooks/useModels";
 import { useModelDeletions } from "../../../hooks/useModelDeletions";
 import { cancelModelDeletion, cancelModelDeletionBeforeSelection } from "@/lib/modelDeletion";
 import { ModelDeleteAction } from "../../shared/ModelDeleteAction";
+import { LocalModelCleanup } from "../../shared/LocalModelCleanup";
 import { useSettings } from "../../../hooks/useSettings";
 import { useSortedDisplayNames } from "../../../hooks/useSortedDisplayNames";
 import { useListSortDirection } from "../../../hooks/useListSortPreference";
@@ -713,7 +714,8 @@ export const ModelsSettings: React.FC = () => {
         </div>
       </TellMeMore>
 
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-3">
+        <LocalModelCleanup onCleaned={() => void refreshSettings()} />
         <NameSortControl
           direction={modelSortDirection}
           onChange={setModelSortDirection}
