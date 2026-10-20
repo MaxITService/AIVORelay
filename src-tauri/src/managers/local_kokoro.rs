@@ -338,7 +338,7 @@ impl KokoroTtsRuntime {
                     "Refusing to delete a directory without an AivoRelay ownership marker"
                 ));
             }
-            fs::remove_dir_all(&self.root).context("Failed to delete Kokoro files")?;
+            super::model_storage::remove_owned_model_tree(&self.root).context("Failed to delete Kokoro files")?;
         }
         self.set_status("not_installed", false, 0, KOKORO_MODEL_DOWNLOAD_BYTES, None);
         Ok(())

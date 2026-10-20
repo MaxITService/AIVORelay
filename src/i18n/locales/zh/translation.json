@@ -1,5 +1,7 @@
 {
   "modelCleanup": {
+    "remaining": "仍有文件保留",
+    "unknownSize": "未测量",
     "open": "清理本地模型…",
     "title": "清理本地模型",
     "description": "选择要删除的本地 STT 和 TTS 模型，包括未完成的下载和 TTS 运行环境。模型可以重新下载。",

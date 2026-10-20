@@ -1,5 +1,7 @@
 {
   "modelCleanup": {
+    "remaining": "Dosyalar kaldı",
+    "unknownSize": "Ölçülmedi",
     "open": "Yerel modelleri temizle…",
     "title": "Yerel model temizliği",
     "description": "Tamamlanmamış indirmeler ve TTS çalışma ortamları dahil, kaldırılacak yerel STT ve TTS modellerini seçin. Modeller yeniden indirilebilir.",

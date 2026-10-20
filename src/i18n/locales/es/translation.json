@@ -1,5 +1,7 @@
 {
   "modelCleanup": {
+    "remaining": "Quedan archivos",
+    "unknownSize": "Sin medir",
     "open": "Limpiar modelos locales…",
     "title": "Limpieza de modelos locales",
     "description": "Selecciona los modelos STT y TTS que deseas eliminar, incluidas las descargas incompletas y los entornos TTS. Puedes descargar los modelos de nuevo.",

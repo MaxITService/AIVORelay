@@ -1370,7 +1370,7 @@ impl ModelManager {
                     let _ = fs::remove_dir_all(&extracting_path);
                 }
 
-                model.is_downloaded = model_path.exists() && model_path.is_dir();
+                model.is_downloaded = super::model_storage::model_directory_is_complete(&model_path);
                 model.is_downloading = false;
 
                 // Get partial file size if it exists (for the .tar.gz being downloaded)
@@ -2215,6 +2215,9 @@ impl ModelManager {
             .join(format!("{}.partial", &model_info.filename));
 
         if model_path.exists() {
+            if model_info.is_directory && !super::model_storage::model_directory_is_complete(&model_path) {
+                anyhow::bail!("Model cleanup is incomplete; finish removing its files before downloading it again");
+            }
             if partial_path.exists() {
                 let _ = fs::remove_file(&partial_path);
             }
@@ -2376,16 +2379,22 @@ impl ModelManager {
     pub(crate) fn local_model_storage(&self) -> Vec<super::model_storage::LocalModelStorageEntry> {
         use super::model_storage::{managed_child, storage_bytes, LocalModelStorageEntry};
 
-        self.get_available_models().into_iter().filter_map(|model| {
+        let models = self.get_available_models();
+        models.iter().cloned().filter_map(|model| {
+            let owns_local_files = !models.iter().any(|other| other.id != model.id
+                && (model_hf_source(other).is_some(), &other.id) < (model_hf_source(&model).is_some(), &model.id)
+                && super::model_storage::local_mirror_is_shared(&self.models_dir, &model.filename, [other.filename.as_str()]));
             let mut entry = LocalModelStorageEntry {
                 id: model.id.clone(), name: model.name.clone(), kind: "stt".into(),
-                bytes: 0, shared_cache_bytes: 0, blocked_reason: None,
+                bytes: 0, bytes_known: true, shared_cache_bytes: 0, blocked_reason: None,
             };
-            let measure = || -> Result<(u64, u64)> {
+            let measure = || -> Result<(u64, u64, bool)> {
                 let mut bytes = 0_u64;
+                let mut local_files_present = false;
                 for suffix in ["", ".partial", ".extracting"] {
                     let path = managed_child(&self.models_dir, &format!("{}{suffix}", model.filename))?;
-                    bytes = bytes.saturating_add(storage_bytes(&path)?);
+                    local_files_present |= path.try_exists()?;
+                    if owns_local_files { bytes = bytes.saturating_add(storage_bytes(&path)?); }
                 }
                 let mut shared = 0;
                 if let Some((repo, revision, filename)) = model_hf_source(&model) {
@@ -2400,21 +2409,27 @@ impl ModelManager {
                         anyhow::bail!("This model uses a read-only legacy Hugging Face cache");
                     }
                 }
-                Ok((bytes, shared))
+                Ok((bytes, shared, local_files_present))
             };
+            let mut local_files_present = false;
             match measure() {
-                Ok((bytes, shared)) => { entry.bytes = bytes; entry.shared_cache_bytes = shared; }
-                Err(error) => entry.blocked_reason = Some(error.to_string()),
+                Ok((bytes, shared, present)) => { entry.bytes = bytes; entry.shared_cache_bytes = shared; local_files_present = present; }
+                Err(error) => { entry.bytes_known = false; entry.blocked_reason = Some(error.to_string()); }
             }
             if model.is_downloading {
                 entry.blocked_reason = Some("Wait for the model download or extraction to finish, or cancel it first".into());
             }
-            (entry.bytes > 0 || entry.shared_cache_bytes > 0 || model.is_downloaded || model.is_downloading)
+            (local_files_present || entry.bytes > 0 || entry.shared_cache_bytes > 0 || model.is_downloaded || model.is_downloading || entry.blocked_reason.is_some())
                 .then_some(entry)
         }).collect()
     }
 
-    pub fn delete_model(&self, model_id: &str) -> Result<()> {
+    pub(crate) fn local_model_file_path(&self, model_id: &str) -> Result<PathBuf> {
+        let model = self.get_model_info(model_id).ok_or_else(|| anyhow::anyhow!("Model not found"))?;
+        Ok(super::model_storage::managed_child(&self.models_dir, &model.filename)?)
+    }
+
+    pub(crate) fn delete_model_in_scope(&self, model_id: &str, selected_model_ids: &HashSet<String>) -> Result<()> {
         debug!("ModelManager: delete_model called for: {}", model_id);
 
         // Serialize removal with download admission, including extraction and
@@ -2424,9 +2439,12 @@ impl ModelManager {
             anyhow::bail!("Cancel the active model download and wait for it to stop before cleanup");
         }
 
-        let model_info = {
+        let (model_info, local_file_owners) = {
             let models = self.available_models.lock().unwrap();
-            models.get(model_id).cloned()
+            let model = models.get(model_id).cloned();
+            let owners: Vec<String> = models.values().filter(|other| !selected_model_ids.contains(&other.id))
+                .map(|other| other.filename.clone()).collect();
+            (model, owners)
         };
 
         let model_info =
@@ -2435,9 +2453,8 @@ impl ModelManager {
         debug!("ModelManager: Found model info: {:?}", model_info);
 
         if let Some((repo_id, revision, filename)) = model_hf_source(&model_info) {
+            let removal = (|| -> Result<bool> {
             let mut deleted_something = false;
-            let local_path = super::model_storage::managed_child(&self.models_dir, &filename)?;
-            let partial_path = super::model_storage::managed_child(&self.models_dir, &format!("{}.partial", &filename))?;
             let active_path = hf_cached_path_in(
                 &[Cache::from_env()], &repo_id, &revision, &filename,
             );
@@ -2446,26 +2463,20 @@ impl ModelManager {
                     "This model is stored in the read-only legacy Hugging Face cache. Remove it from that cache manually if needed."
                 ));
             }
+            if active_path.is_none() && super::model_storage::local_mirror_is_shared(
+                &self.models_dir, &filename, local_file_owners.iter().map(String::as_str),
+            ) {
+                anyhow::bail!("This local file is used by another unselected model; select its model too before deleting it");
+            }
+            deleted_something |= super::model_storage::remove_hf_local_files(
+                &self.models_dir, &filename, local_file_owners.iter().map(String::as_str),
+            )?;
             if let Some(model_path) = active_path {
                 // The snapshot entry belongs to this model; the repository and
                 // its blobs may also serve other models, revisions, or apps.
                 // Remove the entry itself without following its symlink.
                 info!("Deleting HF cached model entry at: {:?}", model_path);
                 fs::remove_file(model_path)?;
-                deleted_something = true;
-            }
-
-            if local_path.exists() {
-                info!("Deleting mirrored model file at: {:?}", local_path);
-                fs::remove_file(&local_path)?;
-                deleted_something = true;
-            }
-            if partial_path.exists() {
-                info!(
-                    "Deleting partial mirrored model file at: {:?}",
-                    partial_path
-                );
-                fs::remove_file(&partial_path)?;
                 deleted_something = true;
             }
 
@@ -2476,15 +2487,39 @@ impl ModelManager {
                 );
             }
 
+            Ok(deleted_something)
+            })();
             drop(tokens);
             self.update_download_status_inner(false)?;
+            if let Err(error) = removal {
+                let _ = self.app_handle.emit("models-updated", ());
+                return Err(error);
+            }
             let _ = self.app_handle.emit("model-deleted", model_id);
             return Ok(());
         }
 
-        let deleted_something = super::model_storage::remove_model_files(
+        if super::model_storage::local_mirror_is_shared(&self.models_dir, &model_info.filename,
+            local_file_owners.iter().map(String::as_str)) {
+            anyhow::bail!("This local file is used by another unselected model; select its model too before deleting it");
+        }
+        let removal = super::model_storage::remove_model_files(
             &self.models_dir, &model_info.filename, model_info.is_directory,
-        )?;
+        );
+        if removal.is_err() {
+            drop(tokens);
+            // A failed removal may already have removed the complete model.
+            let refresh = self.update_download_status_inner(false);
+            if model_info.is_directory {
+                // A partially removed directory is not a usable installation,
+                // even when its top-level folder survived a locked child.
+                self.mark_model_unavailable(model_id);
+            }
+            let _ = self.app_handle.emit("models-updated", ());
+            refresh?;
+            return removal.map(|_| ()).map_err(Into::into);
+        }
+        let deleted_something = removal?;
 
         if !deleted_something {
             debug!(

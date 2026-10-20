@@ -5,7 +5,7 @@ import {
 } from "./localModelCleanup";
 
 const entry = (id: string, kind: "stt" | "tts" = "stt", bytes = 100): LocalModelStorageEntry => ({
-  id, kind, bytes, name: id, shared_cache_bytes: 0, blocked_reason: null,
+  id, kind, bytes, bytes_known: true, name: id, shared_cache_bytes: 0, blocked_reason: null,
 });
 const snapshot = (entries: LocalModelStorageEntry[]): LocalModelStorageSnapshot => ({
   entries, total_bytes: entries.reduce((sum, model) => sum + model.bytes, 0), disk_free_bytes: null,
@@ -37,6 +37,24 @@ describe("local model cleanup", () => {
     expect(results.length).toBe(1);
   });
 
+  test("forwards the complete selected STT scope to each cleanup command", async () => {
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const calls: { command: string; args: Record<string, unknown> }[] = [];
+    Object.defineProperty(globalThis, "window", { configurable: true, value: {
+      __TAURI_INTERNALS__: { invoke: async (command: string, args: Record<string, unknown>) => { calls.push({ command, args }); } },
+    } });
+    try {
+      await cleanSelectedLocalModels([entry("a"), entry("alias"), entry("qwen", "tts"),
+        { ...entry("busy"), blocked_reason: "Downloading" }]);
+      expect(calls.map(call => call.args.modelId)).toEqual(["a", "alias", "qwen"]);
+      expect(calls.every(call => call.command === "cleanup_local_model"
+        && JSON.stringify(call.args.selectedSttModelIds) === JSON.stringify(["a", "alias"]))).toBe(true);
+    } finally {
+      if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+      else Reflect.deleteProperty(globalThis, "window");
+    }
+  });
+
   test("reports measured partial removal even when the operation failed", () => {
     const before = snapshot([entry("partial", "stt", 1000), entry("unselected", "tts", 500)]);
     const after = snapshot([entry("partial", "stt", 300)]);
@@ -47,7 +65,7 @@ describe("local model cleanup", () => {
     const before = snapshot([{ ...entry("shared", "stt", 0), shared_cache_bytes: 1000000 }, entry("other", "tts", 200)]);
     expect(removedModelBytes(before, snapshot([]), new Set(["stt:shared"]))).toBe(0);
     expect(removedModelBytes(snapshot([entry("growing")]), snapshot([entry("growing", "stt", 200)]), new Set(["stt:growing"]))).toBe(0);
-    expect(removedModelBytes(snapshot([entry("unreadable")]), snapshot([{ ...entry("unreadable", "stt", 0), blocked_reason: "Permission denied" }]), new Set(["stt:unreadable"]))).toBe(0);
+    expect(removedModelBytes(snapshot([entry("unreadable")]), snapshot([{ ...entry("unreadable", "stt", 0), bytes_known: false, blocked_reason: "Permission denied" }]), new Set(["stt:unreadable"]))).toBeNull();
   });
 
   test("uses binary units and handles empty sizes", () => {

@@ -5,13 +5,14 @@ export type LocalModelStorageEntry = {
   name: string;
   kind: "stt" | "tts";
   bytes: number;
+  bytes_known: boolean;
   shared_cache_bytes: number;
   blocked_reason: string | null;
 };
 
 export type LocalModelStorageSnapshot = {
   entries: LocalModelStorageEntry[];
-  total_bytes: number;
+  total_bytes: number | null;
   disk_free_bytes: number | null;
 };
 
@@ -26,17 +27,18 @@ export const modelStorageKey = (entry: Pick<LocalModelStorageEntry, "kind" | "id
 export const getLocalModelStorage = () =>
   invoke<LocalModelStorageSnapshot>("get_local_model_storage");
 
-export const cleanupLocalModel = (entry: LocalModelStorageEntry) =>
-  invoke<void>("cleanup_local_model", { kind: entry.kind, modelId: entry.id });
+export const cleanupLocalModel = (entry: LocalModelStorageEntry, selectedSttModelIds = [entry.id]) =>
+  invoke<void>("cleanup_local_model", { kind: entry.kind, modelId: entry.id, selectedSttModelIds });
 
 // Keep removal sequential: STT unloads share one loading lane, and TTS workers
 // share one foreground lane. One failure must not hide the remaining results.
 export const cleanSelectedLocalModels = async (
   entries: LocalModelStorageEntry[],
-  remove = cleanupLocalModel,
+  remove?: (entry: LocalModelStorageEntry) => Promise<void>,
   onProgress: (key: string, outcome?: ModelCleanupOutcome) => void = () => {},
 ): Promise<ModelCleanupOutcome[]> => {
   const outcomes: ModelCleanupOutcome[] = [];
+  const selectedSttModelIds = entries.filter(entry => entry.kind === "stt" && !entry.blocked_reason).map(entry => entry.id);
   const seen = new Set<string>();
   for (const entry of entries) {
     const key = modelStorageKey(entry);
@@ -45,7 +47,8 @@ export const cleanSelectedLocalModels = async (
     onProgress(key);
     let error: string | null = null;
     try {
-      await remove(entry);
+      if (remove) await remove(entry);
+      else await cleanupLocalModel(entry, selectedSttModelIds);
     } catch (failure) {
       error = String(failure);
     }
@@ -60,11 +63,11 @@ export const removedModelBytes = (
   before: LocalModelStorageSnapshot,
   after: LocalModelStorageSnapshot,
   attemptedKeys: Set<string>,
-) => before.entries.reduce((total, entry) => {
+) => before.entries.reduce<number | null>((total, entry) => {
   const key = modelStorageKey(entry);
   if (!attemptedKeys.has(key)) return total;
   const remaining = after.entries.find((candidate) => modelStorageKey(candidate) === key);
-  if (remaining?.blocked_reason) return total;
+  if (total === null || !entry.bytes_known || (remaining && !remaining.bytes_known)) return null;
   return total + Math.max(0, entry.bytes - (remaining?.bytes ?? 0));
 }, 0);
 

@@ -1,5 +1,7 @@
 {
   "modelCleanup": {
+    "remaining": "Soubory zůstávají",
+    "unknownSize": "Nezměřeno",
     "open": "Vyčistit místní modely…",
     "title": "Čištění místních modelů",
     "description": "Vyberte modely STT a TTS k odstranění, včetně nedokončených stahování a prostředí TTS. Modely lze stáhnout znovu.",

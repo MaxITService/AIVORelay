@@ -516,6 +516,7 @@ pub struct TtsManager {
     watched_conversion_lock: tokio::sync::Mutex<()>,
     foreground_operation_lock: Arc<tokio::sync::Mutex<()>>,
     active_batch: parking_lot::Mutex<Option<ActiveTtsBatch>>,
+    local_model_cleanup_active: AtomicBool,
     next_batch_id: AtomicU64,
     ui_jobs_lock: parking_lot::Mutex<()>,
     active_ui_job: parking_lot::Mutex<Option<String>>,
@@ -550,6 +551,7 @@ impl TtsManager {
             watched_conversion_lock: tokio::sync::Mutex::new(()),
             foreground_operation_lock: Arc::new(tokio::sync::Mutex::new(())),
             active_batch: parking_lot::Mutex::new(None),
+            local_model_cleanup_active: AtomicBool::new(false),
             next_batch_id: AtomicU64::new(0),
             ui_jobs_lock: parking_lot::Mutex::new(()),
             active_ui_job: parking_lot::Mutex::new(None),
@@ -1060,6 +1062,10 @@ impl TtsManager {
     pub async fn delete_local_tts(&self, kind: LocalTtsKind) -> Result<()> {
         // Idle workers may be stopped, but an active synthesis must finish first.
         let _operation_guard = self.try_reserve_foreground_operation()?;
+        let _cleanup_guard = {
+            let active = self.active_batch.lock();
+            super::model_storage::claim_model_cleanup(&self.local_model_cleanup_active, active.is_some())?
+        };
         match kind {
             LocalTtsKind::Qwen => self.local_tts.delete().await,
             LocalTtsKind::Kokoro => self.local_kokoro.delete().await,
@@ -1072,6 +1078,9 @@ impl TtsManager {
 
     pub(crate) fn begin_batch(self: &Arc<Self>) -> Result<TtsBatchLease> {
         let mut active = self.active_batch.lock();
+        if self.local_model_cleanup_active.load(Ordering::SeqCst) {
+            return Err(anyhow!("Wait for local model cleanup to finish before starting a TTS batch"));
+        }
         if active.is_some() {
             return Err(anyhow!(
                 "Another batch text-to-speech conversion is already running"

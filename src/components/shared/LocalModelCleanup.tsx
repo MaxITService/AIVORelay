@@ -107,6 +107,7 @@ export const LocalModelCleanupDialog: React.FC<{ onClose: () => void; onCleaned?
     if (!confirming) { setConfirming(true); return; }
     busyRef.current = true;
     setBusy(true);
+    setAfter(null);
     setError(null);
     setConfirming(false);
     try {
@@ -129,6 +130,7 @@ export const LocalModelCleanupDialog: React.FC<{ onClose: () => void; onCleaned?
   const attempted = new Set(Object.keys(outcomes));
   const removed = snapshot && after ? removedModelBytes(snapshot, after, attempted) : null;
   const shared = snapshot?.entries.some(entry => entry.shared_cache_bytes > 0);
+  const sizeLabel = (bytes: number | null) => bytes == null ? t("modelCleanup.unknownSize") : formatStorageBytes(bytes);
   return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/65 p-4"
     onClick={() => { if (!busyRef.current) onClose(); }}>
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}
@@ -161,20 +163,23 @@ export const LocalModelCleanupDialog: React.FC<{ onClose: () => void; onCleaned?
               {snapshot?.entries.map(entry => {
                 const key = modelStorageKey(entry);
                 const outcome = outcomes[key];
+                const remains = after?.entries.some(current => modelStorageKey(current) === key);
+                const deleted = outcome && !outcome.error && after && !remains;
                 const message = outcome?.error ?? entry.blocked_reason;
                 return <tr key={key} className="border-t border-mid-gray/15 hover:bg-white/[0.025]">
                   <td className="px-3 py-2 align-top"><input type="checkbox" aria-label={entry.name}
                     checked={!outcome && selected.has(key)} disabled={busy || !!entry.blocked_reason || !!outcome}
                     onChange={() => { setSelected(current => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; }); setConfirming(false); }} /></td>
                   <td className="py-1.5 pr-2">
-                    <span className={outcome && !outcome.error ? "text-text/45 line-through" : ""}>{entry.name}</span>
+                    <span className={deleted ? "text-text/45 line-through" : ""}>{entry.name}</span>
                     {activeKey === key && <span role="status" className="ml-2 text-text/60">{t("modelCleanup.deleting")}</span>}
-                    {outcome && !outcome.error && <span className="ml-2 text-emerald-400">{t("modelCleanup.deleted")}</span>}
+                    {deleted && <span className="ml-2 text-emerald-400">{t("modelCleanup.deleted")}</span>}
+                    {outcome && !outcome.error && remains && <span className="ml-2 text-text/60">{t("modelCleanup.remaining")}</span>}
                     {message && <div role={outcome?.error ? "alert" : undefined} className="mt-0.5 break-words text-[11px] text-amber-300/90">{message}</div>}
                     {entry.shared_cache_bytes > 0 && <div className="text-[10px] text-text/45">{t("modelCleanup.shared", { size: formatStorageBytes(entry.shared_cache_bytes) })}</div>}
                   </td>
                   <td className="py-2 align-top text-[10px] text-text/50">{entry.kind.toUpperCase()}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right align-top tabular-nums text-text/75">{formatStorageBytes(entry.bytes)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right align-top tabular-nums text-text/75">{sizeLabel(entry.bytes_known ? entry.bytes : null)}</td>
                 </tr>;
               })}
               {snapshot?.entries.length === 0 && <tr><td colSpan={4} className="p-6 text-center text-text/60">{t("modelCleanup.empty")}</td></tr>}
@@ -183,8 +188,8 @@ export const LocalModelCleanupDialog: React.FC<{ onClose: () => void; onCleaned?
         </div>}
       <div aria-live="polite" className="space-y-1 px-4 py-3 text-xs text-text/65">
         {snapshot && <div className="flex flex-wrap justify-between gap-2 tabular-nums">
-          <span>{t("modelCleanup.before", { size: formatStorageBytes(snapshot.total_bytes) })}</span>
-          {after ? <><span className="text-emerald-400">{t("modelCleanup.removed", { size: formatStorageBytes(removed ?? 0) })}</span><span>{t("modelCleanup.after", { size: formatStorageBytes(after.total_bytes) })}</span></> :
+          <span>{t("modelCleanup.before", { size: sizeLabel(snapshot.total_bytes) })}</span>
+          {after ? <><span className="text-emerald-400">{t("modelCleanup.removed", { size: sizeLabel(removed) })}</span><span>{t("modelCleanup.after", { size: sizeLabel(after.total_bytes) })}</span></> :
             <span>{t("modelCleanup.selected", { count: selectedEntries.length, size: formatStorageBytes(selectedBytes) })}</span>}
         </div>}
         {snapshot?.disk_free_bytes != null && <div className="text-[11px] text-text/45">{t("modelCleanup.diskFree", { size: formatStorageBytes(snapshot.disk_free_bytes) })}{after?.disk_free_bytes != null && ` → ${formatStorageBytes(after.disk_free_bytes)}`}</div>}

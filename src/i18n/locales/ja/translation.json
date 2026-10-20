@@ -1,5 +1,7 @@
 {
   "modelCleanup": {
+    "remaining": "ファイルが残っています",
+    "unknownSize": "未計測",
     "open": "ローカルモデルを整理…",
     "title": "ローカルモデルの整理",
     "description": "削除するSTT・TTSモデルを選択します。未完了のダウンロードとTTS実行環境も含みます。モデルは再ダウンロードできます。",

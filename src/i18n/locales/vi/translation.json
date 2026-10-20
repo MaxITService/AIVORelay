@@ -1,5 +1,7 @@
 {
   "modelCleanup": {
+    "remaining": "Vẫn còn tệp",
+    "unknownSize": "Chưa đo",
     "open": "Dọn mô hình cục bộ…",
     "title": "Dọn mô hình cục bộ",
     "description": "Chọn mô hình STT và TTS cần xóa, gồm các bản tải chưa hoàn tất và môi trường TTS. Có thể tải lại mô hình.",

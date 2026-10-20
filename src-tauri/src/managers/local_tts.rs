@@ -357,7 +357,7 @@ impl LocalTtsRuntime {
                     "Refusing to delete a directory without an AivoRelay ownership marker"
                 ));
             }
-            fs::remove_dir_all(&self.root).context("Failed to delete local TTS files")?;
+            super::model_storage::remove_owned_model_tree(&self.root).context("Failed to delete local TTS files")?;
         }
         self.set_status("not_installed", false, 0, LOCAL_TTS_MODEL_BYTES, None);
         Ok(())

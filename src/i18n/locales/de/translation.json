@@ -1,5 +1,7 @@
 {
   "modelCleanup": {
+    "remaining": "Dateien verbleiben",
+    "unknownSize": "Nicht gemessen",
     "open": "Lokale Modelle bereinigen…",
     "title": "Lokale Modelle bereinigen",
     "description": "Lokale STT- und TTS-Modelle entfernen, einschließlich unvollständiger Downloads und TTS-Laufzeitumgebungen. Modelle können erneut heruntergeladen werden.",
