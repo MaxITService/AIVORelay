@@ -1326,6 +1326,10 @@ impl ModelManager {
     }
 
     fn update_download_status(&self) -> Result<()> {
+        self.update_download_status_inner(true)
+    }
+
+    fn update_download_status_inner(&self, clean_stale_extractions: bool) -> Result<()> {
         // Reserve the worker registry throughout scanning and stale cleanup.
         // A live extraction is not an interrupted installation.
         let tokens = self.cancellation_tokens.lock().unwrap();
@@ -1361,7 +1365,7 @@ impl ModelManager {
                     .join(format!("{}.extracting", &model.filename));
 
                 // Clean up any leftover .extracting directories from interrupted extractions
-                if extracting_path.exists() {
+                if clean_stale_extractions && extracting_path.exists() {
                     warn!("Cleaning up interrupted extraction for model: {}", model.id);
                     let _ = fs::remove_dir_all(&extracting_path);
                 }
@@ -2473,49 +2477,14 @@ impl ModelManager {
             }
 
             drop(tokens);
-            self.update_download_status()?;
+            self.update_download_status_inner(false)?;
             let _ = self.app_handle.emit("model-deleted", model_id);
             return Ok(());
         }
 
-        let model_path = super::model_storage::managed_child(&self.models_dir, &model_info.filename)?;
-        let partial_path = super::model_storage::managed_child(&self.models_dir, &format!("{}.partial", &model_info.filename))?;
-        let extracting_path = super::model_storage::managed_child(&self.models_dir, &format!("{}.extracting", &model_info.filename))?;
-        debug!("ModelManager: Model path: {:?}", model_path);
-        debug!("ModelManager: Partial path: {:?}", partial_path);
-
-        let mut deleted_something = false;
-
-        if model_info.is_directory {
-            // Delete complete model directory if it exists
-            if model_path.exists() && model_path.is_dir() {
-                info!("Deleting model directory at: {:?}", model_path);
-                fs::remove_dir_all(&model_path)?;
-                info!("Model directory deleted successfully");
-                deleted_something = true;
-            }
-        } else {
-            // Delete complete model file if it exists
-            if model_path.exists() {
-                info!("Deleting model file at: {:?}", model_path);
-                fs::remove_file(&model_path)?;
-                info!("Model file deleted successfully");
-                deleted_something = true;
-            }
-        }
-
-        // Delete partial file if it exists (same for both types)
-        if partial_path.exists() {
-            info!("Deleting partial file at: {:?}", partial_path);
-            fs::remove_file(&partial_path)?;
-            info!("Partial file deleted successfully");
-            deleted_something = true;
-        }
-
-        if model_info.is_directory && extracting_path.exists() {
-            fs::remove_dir_all(&extracting_path)?;
-            deleted_something = true;
-        }
+        let deleted_something = super::model_storage::remove_model_files(
+            &self.models_dir, &model_info.filename, model_info.is_directory,
+        )?;
 
         if !deleted_something {
             debug!(
@@ -2531,7 +2500,7 @@ impl ModelManager {
             models.remove(model_id);
             debug!("ModelManager: removed custom model from available models");
         } else {
-            self.update_download_status()?;
+            self.update_download_status_inner(false)?;
             debug!("ModelManager: download status updated");
         }
 

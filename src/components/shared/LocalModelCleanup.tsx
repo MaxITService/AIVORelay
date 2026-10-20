@@ -30,6 +30,7 @@ export const LocalModelCleanupDialog: React.FC<{ onClose: () => void; onCleaned?
   const selectAllRef = useRef<HTMLInputElement>(null);
   const busyRef = useRef(false);
   const mounted = useRef(true);
+  const scanGeneration = useRef(0);
   const [snapshot, setSnapshot] = useState<LocalModelStorageSnapshot | null>(null);
   const [after, setAfter] = useState<LocalModelStorageSnapshot | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -43,21 +44,22 @@ export const LocalModelCleanupDialog: React.FC<{ onClose: () => void; onCleaned?
   onCloseRef.current = onClose;
 
   const refresh = async () => {
+    const generation = ++scanGeneration.current;
     setLoading(true);
     setSnapshot(null);
     setError(null);
     setConfirming(false);
     try {
       const current = await getLocalModelStorage();
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== scanGeneration.current) return;
       setSnapshot(current);
       setAfter(null);
       setOutcomes({});
       setSelected(new Set(current.entries.filter(entry => !entry.blocked_reason).map(modelStorageKey)));
     } catch (failure) {
-      if (mounted.current) setError(String(failure));
+      if (mounted.current && generation === scanGeneration.current) setError(String(failure));
     } finally {
-      if (mounted.current) setLoading(false);
+      if (mounted.current && generation === scanGeneration.current) setLoading(false);
     }
   };
 
@@ -85,6 +87,7 @@ export const LocalModelCleanupDialog: React.FC<{ onClose: () => void; onCleaned?
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       mounted.current = false;
+      scanGeneration.current++;
       window.clearTimeout(timer);
       window.removeEventListener("keydown", handleKeyDown);
       previous?.focus();

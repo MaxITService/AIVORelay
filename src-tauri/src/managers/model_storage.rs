@@ -77,6 +77,32 @@ pub(crate) fn reject_link(path: &Path) -> io::Result<()> {
     }
 }
 
+pub(crate) fn remove_model_files(root: &Path, filename: &str, is_directory: bool) -> io::Result<bool> {
+    // Validate every target before the first removal. No caller-supplied
+    // absolute paths, parent traversal, or linked model roots are accepted.
+    let model = managed_child(root, filename)?;
+    let partial = managed_child(root, &format!("{filename}.partial"))?;
+    let extracting = managed_child(root, &format!("{filename}.extracting"))?;
+    let mut removed = false;
+    if model.exists() {
+        if is_directory {
+            fs::remove_dir_all(model)?;
+        } else {
+            fs::remove_file(model)?;
+        }
+        removed = true;
+    }
+    if partial.exists() {
+        fs::remove_file(partial)?;
+        removed = true;
+    }
+    if is_directory && extracting.exists() {
+        fs::remove_dir_all(extracting)?;
+        removed = true;
+    }
+    Ok(removed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,6 +143,35 @@ mod tests {
         assert_eq!(managed_child(&temp.0, "model/weights").unwrap(), temp.0.join("model/weights"));
     }
 
+    #[test]
+    fn cleanup_removes_only_selected_model_and_its_partial_files() {
+        let temp = Temp::new();
+        for folder in ["selected", "selected.extracting", "keep", "keep.extracting"] {
+            fs::create_dir(temp.0.join(folder)).unwrap();
+            fs::write(temp.0.join(folder).join("weights"), [0; 7]).unwrap();
+        }
+        for file in ["selected.partial", "keep.partial", "recording.wav"] {
+            fs::write(temp.0.join(file), [0; 3]).unwrap();
+        }
+        assert!(remove_model_files(&temp.0, "selected", true).unwrap());
+        assert!(!temp.0.join("selected").exists());
+        assert!(!temp.0.join("selected.partial").exists());
+        assert!(!temp.0.join("selected.extracting").exists());
+        assert!(temp.0.join("keep/weights").is_file());
+        assert!(temp.0.join("keep.extracting/weights").is_file());
+        assert!(temp.0.join("keep.partial").is_file());
+        assert!(temp.0.join("recording.wav").is_file());
+        assert!(!remove_model_files(&temp.0, "selected", true).unwrap());
+    }
+
+    #[test]
+    fn invalid_cleanup_target_leaves_existing_files_untouched() {
+        let temp = Temp::new();
+        fs::write(temp.0.join("keep"), [0; 5]).unwrap();
+        assert!(remove_model_files(&temp.0, "../keep", false).is_err());
+        assert_eq!(storage_bytes(&temp.0).unwrap(), 5);
+    }
+
     #[cfg(windows)]
     #[test]
     fn junctions_are_not_counted_or_followed_for_cleanup() {
@@ -132,6 +187,7 @@ mod tests {
         assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
         assert_eq!(storage_bytes(&temp.0).unwrap(), 0);
         assert!(managed_child(&temp.0, "linked/keep").is_err());
+        assert!(remove_model_files(&temp.0, "linked", true).is_err());
         fs::remove_dir_all(&temp.0).unwrap();
         assert!(outside.0.join("keep").is_file());
     }
@@ -145,6 +201,7 @@ mod tests {
         std::os::unix::fs::symlink(&outside.0, temp.0.join("linked")).unwrap();
         assert_eq!(storage_bytes(&temp.0).unwrap(), 0);
         assert!(managed_child(&temp.0, "linked/keep").is_err());
+        assert!(remove_model_files(&temp.0, "linked", true).is_err());
         fs::remove_dir_all(&temp.0).unwrap();
         assert!(outside.0.join("keep").is_file());
     }
