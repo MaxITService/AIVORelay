@@ -17,6 +17,7 @@ pub mod local_tts;
 pub mod microphone_auto_switch;
 pub mod model;
 pub mod model_capabilities;
+pub(crate) mod model_storage;
 pub(crate) mod moonshine_streaming_shim;
 mod native_streaming_latency;
 pub mod openai_realtime_whisper;
