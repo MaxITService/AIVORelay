@@ -6006,6 +6006,7 @@ pub(crate) fn save_store_privately(
 
 /// Limits an existing settings store to its owner, so a file written by an earlier
 /// version stops being readable by other users. No-op off Unix.
+#[cfg(not(target_os = "windows"))]
 pub(crate) fn restrict_settings_store_permissions(app: &AppHandle) {
     #[cfg(unix)]
     if let Some(path) = settings_store_disk_path(app) {
