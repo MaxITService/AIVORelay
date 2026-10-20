@@ -588,6 +588,18 @@ const FILE_TRANSCRIPTION_MODEL_LOAD_POLL_INTERVAL: Duration = Duration::from_mil
 // it must never mutate the microphone session or its provider operations.
 static ACTIVE_FILE_OPERATION: Mutex<Option<Arc<FileOperation>>> = Mutex::new(None);
 
+/// Keep file conversion admission closed while an idle local model is removed.
+/// This runs only on the cleanup blocking worker, never across an await.
+pub(super) fn with_file_transcription_idle<T>(run: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let active = ACTIVE_FILE_OPERATION.lock().map_err(|error| error.to_string())?;
+    if active.is_some() {
+        return Err("Wait for file transcription to finish before cleaning up STT models".into());
+    }
+    let result = run();
+    drop(active);
+    result
+}
+
 struct FileOperation {
     cancelled: AtomicBool,
     remote: Option<(RemoteSttManager, u64)>,

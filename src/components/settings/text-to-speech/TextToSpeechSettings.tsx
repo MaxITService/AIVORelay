@@ -51,6 +51,7 @@ import {
   type TtsLlmPreprocessingSettings,
 } from "./TtsAiCleanup";
 import { Button } from "@/components/ui/Button";
+import { LocalModelCleanup } from "@/components/shared/LocalModelCleanup";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { HotkeyCapture } from "@/components/ui/HotkeyCapture";
 import { Input } from "@/components/ui/Input";
@@ -4187,6 +4188,9 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           </div>
         </SettingsGroup>
 
+        <div className="flex justify-end">
+          <LocalModelCleanup onCleaned={() => void refreshLocalTtsStatus()} />
+        </div>
         {(tts.provider === "local_qwen" || tts.provider === "local_kokoro") && (
           <SettingsGroup
             id="tts-local-model"
