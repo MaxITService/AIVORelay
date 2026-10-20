@@ -2435,10 +2435,6 @@ pub(crate) fn complete_dictation_output(
     result
 }
 
-pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
-    paste_with_method_override(text, app_handle, None)
-}
-
 /// Override only this paste operation, without changing saved settings.
 pub(crate) fn paste_with_method_override(
     text: String,
