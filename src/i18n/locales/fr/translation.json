@@ -1,4 +1,28 @@
 {
+  "modelCleanup": {
+    "open": "Nettoyer les modèles locaux…",
+    "title": "Nettoyage des modèles locaux",
+    "description": "Sélectionnez les modèles STT et TTS à supprimer, y compris les téléchargements incomplets et les environnements TTS. Les modèles peuvent être téléchargés à nouveau.",
+    "refresh": "Actualiser le stockage",
+    "selectAll": "Tout sélectionner",
+    "model": "Modèle",
+    "type": "Type",
+    "size": "Taille",
+    "deleting": "Suppression…",
+    "deleted": "Supprimé",
+    "shared": "Cache partagé : {{size}} conservés",
+    "empty": "Aucun fichier de modèle local à nettoyer.",
+    "before": "Avant : {{size}}",
+    "removed": "Fichiers supprimés : {{size}}",
+    "after": "Après : {{size}}",
+    "selected": "Sélection : {{count}} · {{size}}",
+    "diskFree": "Espace libre (données) : {{size}}",
+    "sharedNote": "Les fichiers partagés du cache Hugging Face sont conservés. Seuls l’entrée du modèle et ses propres fichiers sont supprimés.",
+    "confirm": "Supprimer définitivement les {{count}} modèles sélectionnés et leurs environnements locaux ? Cette action est irréversible. Tout enregistrement ou synthèse en cours doit d’abord se terminer.",
+    "confirmButton": "Confirmer la suppression",
+    "deleteAll": "Tout supprimer",
+    "deleteSelected": "Supprimer la sélection"
+  },
   "_comment": "French translation for AivoRelay. Contribute at: https://github.com/cjpais/AivoRelay",
   "tray": {
     "settings": "Paramètres...",

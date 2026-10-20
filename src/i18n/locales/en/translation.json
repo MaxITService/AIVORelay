@@ -1,4 +1,28 @@
 {
+  "modelCleanup": {
+    "open": "Clean up local models…",
+    "title": "Local model cleanup",
+    "description": "Select local STT and TTS models to remove, including unfinished downloads and TTS runtimes. Models can be downloaded again.",
+    "refresh": "Refresh storage",
+    "selectAll": "Select all models",
+    "model": "Model",
+    "type": "Type",
+    "size": "Size",
+    "deleting": "Deleting…",
+    "deleted": "Deleted",
+    "shared": "Shared cache: {{size}} retained",
+    "empty": "No local model files to clean up.",
+    "before": "Before: {{size}}",
+    "removed": "Files removed: {{size}}",
+    "after": "After: {{size}}",
+    "selected": "Selected: {{count}} · {{size}}",
+    "diskFree": "Disk free (app data): {{size}}",
+    "sharedNote": "Shared Hugging Face blobs are retained. Only the model entry and its own files are removed.",
+    "confirm": "Permanently remove {{count}} selected models and their local runtimes? This cannot be undone. Active recording or synthesis must finish first.",
+    "confirmButton": "Confirm deletion",
+    "deleteAll": "Delete all",
+    "deleteSelected": "Delete selected"
+  },
   "profileOutput": {
     "delayInvalid": "Enter a number from 0 to 5000 ms.",
     "title": "Text insertion and clipboard",

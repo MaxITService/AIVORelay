@@ -326,6 +326,11 @@ impl KokoroTtsRuntime {
                 "Cancel the active Kokoro installation before deleting it"
             ));
         }
+        if let Some(parent) = self.root.parent() {
+            super::model_storage::reject_link(parent)?;
+        }
+        super::model_storage::reject_link(&self.root)?;
+        super::model_storage::reject_link(&self.root.join(".aivorelay-local-tts"))?;
         self.stop_worker().await;
         if self.root.exists() {
             if !self.root.join(".aivorelay-local-tts").is_file() {

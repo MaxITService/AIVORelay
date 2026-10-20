@@ -1058,6 +1058,8 @@ impl TtsManager {
     }
 
     pub async fn delete_local_tts(&self, kind: LocalTtsKind) -> Result<()> {
+        // Idle workers may be stopped, but an active synthesis must finish first.
+        let _operation_guard = self.try_reserve_foreground_operation()?;
         match kind {
             LocalTtsKind::Qwen => self.local_tts.delete().await,
             LocalTtsKind::Kokoro => self.local_kokoro.delete().await,

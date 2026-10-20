@@ -1,4 +1,28 @@
 {
+  "modelCleanup": {
+    "open": "Lokale Modelle bereinigen…",
+    "title": "Lokale Modelle bereinigen",
+    "description": "Lokale STT- und TTS-Modelle entfernen, einschließlich unvollständiger Downloads und TTS-Laufzeitumgebungen. Modelle können erneut heruntergeladen werden.",
+    "refresh": "Speicher aktualisieren",
+    "selectAll": "Alle Modelle auswählen",
+    "model": "Modell",
+    "type": "Typ",
+    "size": "Größe",
+    "deleting": "Wird gelöscht…",
+    "deleted": "Gelöscht",
+    "shared": "Gemeinsamer Cache: {{size}} bleibt erhalten",
+    "empty": "Keine lokalen Modelldateien zum Bereinigen.",
+    "before": "Vorher: {{size}}",
+    "removed": "Entfernte Dateien: {{size}}",
+    "after": "Nachher: {{size}}",
+    "selected": "Ausgewählt: {{count}} · {{size}}",
+    "diskFree": "Freier Speicher (App-Daten): {{size}}",
+    "sharedNote": "Gemeinsame Hugging-Face-Cachedateien bleiben erhalten. Nur der Modelleintrag und eigene Dateien werden entfernt.",
+    "confirm": "{{count}} ausgewählte Modelle und ihre Laufzeitumgebungen dauerhaft löschen? Dies kann nicht rückgängig gemacht werden. Aktive Aufnahmen oder Sprachausgaben müssen zuerst beendet werden.",
+    "confirmButton": "Löschen bestätigen",
+    "deleteAll": "Alle löschen",
+    "deleteSelected": "Auswahl löschen"
+  },
   "tray": {
     "settings": "Einstellungen...",
     "checkUpdates": "Nach Updates suchen...",

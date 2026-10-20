@@ -1,4 +1,28 @@
 {
+  "modelCleanup": {
+    "open": "清理本地模型…",
+    "title": "清理本地模型",
+    "description": "选择要删除的本地 STT 和 TTS 模型，包括未完成的下载和 TTS 运行环境。模型可以重新下载。",
+    "refresh": "刷新存储",
+    "selectAll": "选择所有模型",
+    "model": "模型",
+    "type": "类型",
+    "size": "大小",
+    "deleting": "正在删除…",
+    "deleted": "已删除",
+    "shared": "共享缓存：保留 {{size}}",
+    "empty": "没有可清理的本地模型文件。",
+    "before": "清理前：{{size}}",
+    "removed": "已删除文件：{{size}}",
+    "after": "清理后：{{size}}",
+    "selected": "已选择：{{count}} · {{size}}",
+    "diskFree": "可用空间（应用数据）：{{size}}",
+    "sharedNote": "Hugging Face 共享缓存文件会保留。仅删除模型条目及其专用文件。",
+    "confirm": "永久删除选中的 {{count}} 个模型及其本地运行环境？此操作无法撤销。请先等待当前录音或语音合成完成。",
+    "confirmButton": "确认删除",
+    "deleteAll": "全部删除",
+    "deleteSelected": "删除所选"
+  },
   "tray": {
     "settings": "设置...",
     "checkUpdates": "检查更新...",

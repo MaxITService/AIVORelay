@@ -344,6 +344,11 @@ impl LocalTtsRuntime {
                 "Cancel the active local TTS installation before deleting it"
             ));
         }
+        if let Some(parent) = self.root.parent() {
+            super::model_storage::reject_link(parent)?;
+        }
+        super::model_storage::reject_link(&self.root)?;
+        super::model_storage::reject_link(&self.root.join(".aivorelay-local-tts"))?;
         self.stop_worker().await;
         if self.root.exists() {
             let marker = self.root.join(".aivorelay-local-tts");
@@ -1293,6 +1298,9 @@ pub(super) fn directory_size_bytes(root: &Path) -> u64 {
     let mut files = Vec::new();
     let mut size_counts = std::collections::HashMap::<u64, usize>::new();
     while let Some(directory) = pending.pop() {
+        if fs::symlink_metadata(&directory).map(|metadata| super::model_storage::is_link(&metadata)).unwrap_or(true) {
+            continue;
+        }
         let Ok(entries) = fs::read_dir(directory) else {
             continue;
         };
@@ -1301,6 +1309,9 @@ pub(super) fn directory_size_bytes(root: &Path) -> u64 {
             let Ok(metadata) = path.symlink_metadata() else {
                 continue;
             };
+            if super::model_storage::is_link(&metadata) {
+                continue;
+            }
             if metadata.is_dir() {
                 pending.push(path);
             } else if metadata.is_file() {

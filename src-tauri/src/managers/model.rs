@@ -2369,8 +2369,56 @@ impl ModelManager {
         result
     }
 
+    pub(crate) fn local_model_storage(&self) -> Vec<super::model_storage::LocalModelStorageEntry> {
+        use super::model_storage::{managed_child, storage_bytes, LocalModelStorageEntry};
+
+        self.get_available_models().into_iter().filter_map(|model| {
+            let mut entry = LocalModelStorageEntry {
+                id: model.id.clone(), name: model.name.clone(), kind: "stt".into(),
+                bytes: 0, shared_cache_bytes: 0, blocked_reason: None,
+            };
+            let measure = || -> Result<(u64, u64)> {
+                let mut bytes = 0_u64;
+                for suffix in ["", ".partial", ".extracting"] {
+                    let path = managed_child(&self.models_dir, &format!("{}{suffix}", model.filename))?;
+                    bytes = bytes.saturating_add(storage_bytes(&path)?);
+                }
+                let mut shared = 0;
+                if let Some((repo, revision, filename)) = model_hf_source(&model) {
+                    let active = hf_cached_path_in(&[Cache::from_env()], &repo, &revision, &filename);
+                    if let Some(path) = active {
+                        let own_bytes = storage_bytes(&path)?;
+                        bytes = bytes.saturating_add(own_bytes);
+                        if own_bytes == 0 {
+                            shared = path.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+                        }
+                    } else if hf_cached_path(&repo, &revision, &filename).is_some() {
+                        anyhow::bail!("This model uses a read-only legacy Hugging Face cache");
+                    }
+                }
+                Ok((bytes, shared))
+            };
+            match measure() {
+                Ok((bytes, shared)) => { entry.bytes = bytes; entry.shared_cache_bytes = shared; }
+                Err(error) => entry.blocked_reason = Some(error.to_string()),
+            }
+            if model.is_downloading {
+                entry.blocked_reason = Some("Wait for the model download or extraction to finish, or cancel it first".into());
+            }
+            (entry.bytes > 0 || entry.shared_cache_bytes > 0 || model.is_downloaded || model.is_downloading)
+                .then_some(entry)
+        }).collect()
+    }
+
     pub fn delete_model(&self, model_id: &str) -> Result<()> {
         debug!("ModelManager: delete_model called for: {}", model_id);
+
+        // Serialize removal with download admission, including extraction and
+        // cancelled workers that have not finished cleaning up yet.
+        let tokens = self.cancellation_tokens.lock().unwrap();
+        if tokens.contains_key(model_id) {
+            anyhow::bail!("Cancel the active model download and wait for it to stop before cleanup");
+        }
 
         let model_info = {
             let models = self.available_models.lock().unwrap();
@@ -2384,6 +2432,8 @@ impl ModelManager {
 
         if let Some((repo_id, revision, filename)) = model_hf_source(&model_info) {
             let mut deleted_something = false;
+            let local_path = super::model_storage::managed_child(&self.models_dir, &filename)?;
+            let partial_path = super::model_storage::managed_child(&self.models_dir, &format!("{}.partial", &filename))?;
             let active_path = hf_cached_path_in(
                 &[Cache::from_env()], &repo_id, &revision, &filename,
             );
@@ -2401,8 +2451,6 @@ impl ModelManager {
                 deleted_something = true;
             }
 
-            let local_path = self.models_dir.join(&filename);
-            let partial_path = self.models_dir.join(format!("{}.partial", &filename));
             if local_path.exists() {
                 info!("Deleting mirrored model file at: {:?}", local_path);
                 fs::remove_file(&local_path)?;
@@ -2424,15 +2472,15 @@ impl ModelManager {
                 );
             }
 
+            drop(tokens);
             self.update_download_status()?;
             let _ = self.app_handle.emit("model-deleted", model_id);
             return Ok(());
         }
 
-        let model_path = self.models_dir.join(&model_info.filename);
-        let partial_path = self
-            .models_dir
-            .join(format!("{}.partial", &model_info.filename));
+        let model_path = super::model_storage::managed_child(&self.models_dir, &model_info.filename)?;
+        let partial_path = super::model_storage::managed_child(&self.models_dir, &format!("{}.partial", &model_info.filename))?;
+        let extracting_path = super::model_storage::managed_child(&self.models_dir, &format!("{}.extracting", &model_info.filename))?;
         debug!("ModelManager: Model path: {:?}", model_path);
         debug!("ModelManager: Partial path: {:?}", partial_path);
 
@@ -2464,6 +2512,11 @@ impl ModelManager {
             deleted_something = true;
         }
 
+        if model_info.is_directory && extracting_path.exists() {
+            fs::remove_dir_all(&extracting_path)?;
+            deleted_something = true;
+        }
+
         if !deleted_something {
             debug!(
                 "ModelManager: no files found on disk for {}; clearing stale state",
@@ -2471,6 +2524,7 @@ impl ModelManager {
             );
         }
 
+        drop(tokens);
         // Custom models have no download URL and should disappear after deletion.
         if model_info.is_custom {
             let mut models = self.available_models.lock().unwrap();

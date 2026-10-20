@@ -1,4 +1,28 @@
 {
+  "modelCleanup": {
+    "open": "Limpar modelos locais…",
+    "title": "Limpeza de modelos locais",
+    "description": "Selecione modelos STT e TTS para remover, incluindo downloads incompletos e ambientes TTS. Os modelos podem ser baixados novamente.",
+    "refresh": "Atualizar armazenamento",
+    "selectAll": "Selecionar todos os modelos",
+    "model": "Modelo",
+    "type": "Tipo",
+    "size": "Tamanho",
+    "deleting": "Excluindo…",
+    "deleted": "Excluído",
+    "shared": "Cache compartilhado: {{size}} mantidos",
+    "empty": "Nenhum arquivo de modelo local para limpar.",
+    "before": "Antes: {{size}}",
+    "removed": "Arquivos removidos: {{size}}",
+    "after": "Depois: {{size}}",
+    "selected": "Selecionados: {{count}} · {{size}}",
+    "diskFree": "Espaço livre (dados): {{size}}",
+    "sharedNote": "Os arquivos compartilhados do cache Hugging Face são mantidos. Apenas a entrada do modelo e seus próprios arquivos são removidos.",
+    "confirm": "Excluir permanentemente {{count}} modelos selecionados e seus ambientes locais? Esta ação não pode ser desfeita. Qualquer gravação ou síntese ativa deve terminar primeiro.",
+    "confirmButton": "Confirmar exclusão",
+    "deleteAll": "Excluir tudo",
+    "deleteSelected": "Excluir selecionados"
+  },
   "tray": {
     "settings": "Configurações...",
     "checkUpdates": "Verificar Atualizações...",

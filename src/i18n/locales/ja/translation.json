@@ -1,4 +1,28 @@
 {
+  "modelCleanup": {
+    "open": "ローカルモデルを整理…",
+    "title": "ローカルモデルの整理",
+    "description": "削除するSTT・TTSモデルを選択します。未完了のダウンロードとTTS実行環境も含みます。モデルは再ダウンロードできます。",
+    "refresh": "容量を更新",
+    "selectAll": "すべてのモデルを選択",
+    "model": "モデル",
+    "type": "種類",
+    "size": "サイズ",
+    "deleting": "削除中…",
+    "deleted": "削除済み",
+    "shared": "共有キャッシュ：{{size}}を保持",
+    "empty": "整理するローカルモデルファイルはありません。",
+    "before": "削除前：{{size}}",
+    "removed": "削除したファイル：{{size}}",
+    "after": "削除後：{{size}}",
+    "selected": "選択：{{count}}件 · {{size}}",
+    "diskFree": "空き容量（アプリデータ）：{{size}}",
+    "sharedNote": "Hugging Faceの共有キャッシュは保持されます。モデルの登録と固有のファイルのみを削除します。",
+    "confirm": "選択した{{count}}件のモデルと実行環境を完全に削除しますか？元に戻せません。録音や音声合成の完了を待ってください。",
+    "confirmButton": "削除を確認",
+    "deleteAll": "すべて削除",
+    "deleteSelected": "選択項目を削除"
+  },
   "tray": {
     "settings": "設定...",
     "checkUpdates": "アップデートを確認...",

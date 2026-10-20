@@ -667,6 +667,32 @@ pub async fn delete_model(
     }).await.map_err(|error| format!("Model deletion task failed: {error}"))?
 }
 
+pub(super) fn delete_model_for_cleanup(app: &AppHandle, model_id: &str) -> Result<(), String> {
+    // The same startup claim used by recording closes the check/start race.
+    // Active work is rejected; cleanup never cancels a recording or inference.
+    let _startup = {
+        let state = app.state::<crate::session_manager::ManagedSessionState>();
+        let session = state.lock().map_err(|error| error.to_string())?;
+        if !matches!(*session, crate::session_manager::SessionState::Idle)
+            || crate::session_manager::recording_start_is_blocked()
+        {
+            return Err("Wait for recording and processing to finish before cleaning up STT models".into());
+        }
+        crate::session_manager::try_begin_recording_startup()
+            .ok_or_else(|| "Recording is starting; try cleanup again when idle".to_string())?
+    };
+    super::file_transcription::with_file_transcription_idle(|| {
+        let manager = app.state::<Arc<ModelManager>>();
+        let model = manager.get_model_info(model_id).ok_or_else(|| "Model no longer exists".to_string())?;
+        if model.is_downloading {
+            return Err("Cancel the active model download and wait for it to stop before cleanup".into());
+        }
+        cancel_pending_model_deletion_for_use(app, model_id)?;
+        let claim = claim_model_selection(app, model_id)?;
+        delete_model_with_loading_claim(app, model_id, claim)
+    })
+}
+
 fn delete_model_with_loading_claim(
     app_handle: &AppHandle,
     model_id: &str,
