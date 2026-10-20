@@ -2442,6 +2442,14 @@ impl ModelManager {
         let (model_info, local_file_owners) = {
             let models = self.available_models.lock().unwrap();
             let model = models.get(model_id).cloned();
+            if let Some(target) = &model {
+                // A selected alias can start downloading after the UI scan.
+                // Its worker owns the same mirror/partial even under another ID.
+                if super::model_storage::local_mirror_is_shared(&self.models_dir, &target.filename,
+                    models.values().filter(|other| tokens.contains_key(&other.id)).map(|other| other.filename.as_str())) {
+                    anyhow::bail!("Wait for downloads sharing this model's files to stop before cleanup");
+                }
+            }
             let owners: Vec<String> = models.values().filter(|other| !selected_model_ids.contains(&other.id))
                 .map(|other| other.filename.clone()).collect();
             (model, owners)
