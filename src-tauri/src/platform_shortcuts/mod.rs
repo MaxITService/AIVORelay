@@ -285,8 +285,9 @@ pub(crate) fn send_input(app: &AppHandle, binding: &str, source: &str, pressed: 
     let input = QueuedInput { received_at: Instant::now(), event: InputEvent {
         binding_id: binding.into(), hotkey_string: source.into(), is_pressed: pressed,
         mode, hold_threshold: Duration::from_millis(300), external: false } };
-    // Check arrival as well as execution: a busy event must not become a
-    // fresh start just because the executor reads it after drain.
+    // Check arrival as well as execution: an event rejected as busy must not
+    // become a fresh start just because the executor reads it after drain.
+    // With the queue on, a press during processing is admitted and remembered.
     let current = snapshot(app);
     let queue = queue_applies(app, &current);
     if !allow_input(&input, &current, session_manager::recording_start_is_blocked(), queue) { return; }
