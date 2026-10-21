@@ -2473,7 +2473,7 @@ impl ModelManager {
                     local_files_present |= path.try_exists()?;
                     if owns_local_files { bytes = bytes.saturating_add(storage_bytes(&path)?); }
                 }
-                let mut shared = 0;
+                let mut shared = 0_u64;
                 if let Some((repo, revision, filename)) = model_hf_source(&model) {
                     let active: Vec<PathBuf> = hf_cached_paths_in(&[Cache::from_env()], &repo, &revision, &filename)
                         .into_iter().filter(|path| path.is_file()).collect();
