@@ -204,6 +204,126 @@ fn remove_file_if_present(path: &Path) -> io::Result<bool> {
     }
 }
 
+/// The `models--org--name` dir a cached file lives in.
+fn hf_repo_dir(cached_file: &Path) -> Option<PathBuf> {
+    cached_file
+        .ancestors()
+        .find(|dir| {
+            dir.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("models--"))
+        })
+        .map(Path::to_path_buf)
+}
+
+/// The blob a snapshot pointer owns, if it may be deleted along with it:
+/// `None` for plain files (on Windows hf-hub's symlink fallback renames the
+/// blob into the snapshot), dangling pointers (copies at other pins can share
+/// a blob that's already gone), targets outside the repo's `blobs/`, and blobs
+/// another filename still references.
+fn unshared_blob(pointer: &Path, deleting: &HashSet<PathBuf>) -> io::Result<Option<PathBuf>> {
+    let is_symlink = fs::symlink_metadata(pointer)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false);
+    let Some(repo_dir) = hf_repo_dir(pointer).filter(|_| is_symlink) else {
+        return Ok(None);
+    };
+    let blob = match fs::canonicalize(pointer) {
+        Ok(blob) => blob,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    // Only delete actual HF blobs, not arbitrary symlink targets.
+    let blobs = fs::canonicalize(repo_dir.join("blobs"))?;
+    if blob.parent() != Some(blobs.as_path())
+        || blob_is_shared(&repo_dir.join("snapshots"), &blob, deleting)?
+    {
+        return Ok(None);
+    }
+    Ok(Some(blob))
+}
+
+/// Preserve blobs referenced by another filename, including files in subfolders.
+/// Listing errors are returned rather than guessing that a blob is unshared.
+fn blob_is_shared(dir: &Path, blob: &Path, deleting: &HashSet<PathBuf>) -> io::Result<bool> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if deleting.contains(&path) {
+            continue;
+        }
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            if blob_is_shared(&path, blob, deleting)? {
+                return Ok(true);
+            }
+        } else if kind.is_symlink() {
+            match fs::canonicalize(&path) {
+                Ok(target) if target == blob => return Ok(true),
+                Ok(_) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// Remove these cached copies of one file, with each blob no other file uses.
+/// Entries are removed without following their symlinks.
+fn remove_hf_cached_copies(pointers: &[PathBuf]) -> io::Result<bool> {
+    let deleting: HashSet<PathBuf> = pointers.iter().cloned().collect();
+    let mut deleted = false;
+    for pointer in pointers {
+        // The blob goes first: if it can't be removed, the pointer still
+        // marks the model as downloaded, which stays true.
+        match unshared_blob(pointer, &deleting) {
+            Ok(Some(blob)) => {
+                info!("Deleting HF cache blob at: {:?}", blob);
+                deleted |= remove_file_if_present(&blob)?;
+            }
+            Ok(None) => {}
+            // Can't tell which blob it is or whether it's shared (e.g.
+            // canonicalize is unsupported on some Windows volumes): keep
+            // the blob rather than fail the delete or guess. At worst
+            // its space stays used.
+            Err(e) => warn!("Keeping HF cache blob for {:?}: {}", pointer, e),
+        }
+        info!("Deleting HF cached model entry at: {:?}", pointer);
+        deleted |= remove_file_if_present(pointer)?;
+    }
+    Ok(deleted)
+}
+
+/// Bytes `remove_hf_cached_copies` frees for these copies, and bytes it keeps
+/// in blobs other files still use.
+fn hf_cached_copies_bytes(pointers: &[PathBuf]) -> io::Result<(u64, u64)> {
+    let deleting: HashSet<PathBuf> = pointers.iter().cloned().collect();
+    let (mut freed, mut kept) = (0_u64, 0_u64);
+    // Revisions with unchanged bytes point at the same blob.
+    let mut blobs = HashSet::new();
+    for pointer in pointers.iter().filter(|path| path.is_file()) {
+        let own_bytes = super::model_storage::storage_bytes(pointer)?;
+        if own_bytes > 0 {
+            freed = freed.saturating_add(own_bytes);
+            continue;
+        }
+        // A blob the delete can't check stays, like a shared one.
+        let owned = unshared_blob(pointer, &deleting).ok().flatten();
+        let blob = owned.clone().or_else(|| fs::canonicalize(pointer).ok());
+        if !blobs.insert(blob.unwrap_or_else(|| pointer.clone())) {
+            continue;
+        }
+        let len = pointer.metadata().map(|m| m.len()).unwrap_or(0);
+        if owned.is_some() {
+            freed = freed.saturating_add(len);
+        } else {
+            kept = kept.saturating_add(len);
+        }
+    }
+    Ok((freed, kept))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ModelInfo {
     pub id: String,
@@ -2475,18 +2595,11 @@ impl ModelManager {
                 }
                 let mut shared = 0_u64;
                 if let Some((repo, revision, filename)) = model_hf_source(&model) {
-                    let active: Vec<PathBuf> = hf_cached_paths_in(&[Cache::from_env()], &repo, &revision, &filename)
-                        .into_iter().filter(|path| path.is_file()).collect();
-                    // Revisions with unchanged bytes point at the same blob.
-                    let mut shared_blobs = HashSet::new();
-                    for path in &active {
-                        let own_bytes = storage_bytes(path)?;
-                        bytes = bytes.saturating_add(own_bytes);
-                        if own_bytes == 0 && shared_blobs.insert(fs::canonicalize(path).unwrap_or_else(|_| path.clone())) {
-                            shared = shared.saturating_add(path.metadata().map(|metadata| metadata.len()).unwrap_or(0));
-                        }
-                    }
-                    if active.is_empty() && hf_cached_path(&repo, &revision, &filename).is_some() {
+                    let active = hf_cached_paths_in(&[Cache::from_env()], &repo, &revision, &filename);
+                    let (freed, kept) = hf_cached_copies_bytes(&active)?;
+                    bytes = bytes.saturating_add(freed);
+                    shared = kept;
+                    if !active.iter().any(|path| path.is_file()) && hf_cached_path(&repo, &revision, &filename).is_some() {
                         anyhow::bail!("This model uses a read-only legacy Hugging Face cache");
                     }
                 }
@@ -2561,14 +2674,10 @@ impl ModelManager {
             deleted_something |= super::model_storage::remove_hf_local_files(
                 &self.models_dir, &filename, local_file_owners.iter().map(String::as_str),
             )?;
-            for model_path in active_paths {
-                // Every snapshot's entry for this filename belongs to this model,
-                // or it would stay downloaded through another revision. The
-                // repository and its blobs may also serve other models,
-                // revisions, or apps. Remove each entry without following its symlink.
-                info!("Deleting HF cached model entry at: {:?}", model_path);
-                deleted_something |= remove_file_if_present(&model_path)?;
-            }
+            // Every snapshot's entry for this filename belongs to this model,
+            // or it would stay downloaded through another revision. Blobs that
+            // other files in the repository still use stay for them.
+            deleted_something |= remove_hf_cached_copies(&active_paths)?;
 
             if !deleted_something {
                 debug!(
@@ -2860,7 +2969,7 @@ mod tests {
     }
 
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
     use tokio_util::sync::CancellationToken;
 
@@ -2895,6 +3004,23 @@ mod tests {
             let file = snapshot.join("model.gguf");
             fs::write(&file, commit).unwrap();
             file
+        }
+
+        /// A snapshot entry linked to `target`, as hf-hub stores files where
+        /// symlinks work. `false` where they don't, as on Windows without
+        /// Developer Mode.
+        fn link(&self, cache: &hf_hub::Cache, commit: &str, filename: &str, target: &Path) -> bool {
+            let snapshot = cache
+                .path()
+                .join("models--test--model")
+                .join("snapshots")
+                .join(commit);
+            fs::create_dir_all(&snapshot).unwrap();
+            #[cfg(unix)]
+            let linked = std::os::unix::fs::symlink(target, snapshot.join(filename));
+            #[cfg(windows)]
+            let linked = std::os::windows::fs::symlink_file(target, snapshot.join(filename));
+            linked.is_ok()
         }
     }
 
@@ -2995,12 +3121,60 @@ mod tests {
         let caches = [active];
         let copies = super::hf_cached_paths_in(&caches, "test/model", "pinned", "model.gguf");
         assert_eq!(copies.len(), 2);
+        // Plain files, as hf-hub stores them where symlinks fail.
+        let file_bytes = ("main-commit".len() + "pinned-commit".len()) as u64;
+        assert_eq!(
+            super::hf_cached_copies_bytes(&copies).unwrap(),
+            (file_bytes, 0)
+        );
 
-        for path in &copies {
-            assert!(super::remove_file_if_present(path).unwrap());
-            assert!(!super::remove_file_if_present(path).unwrap());
-        }
+        assert!(super::remove_hf_cached_copies(&copies).unwrap());
+        assert!(!super::remove_hf_cached_copies(&copies).unwrap());
         assert!(copies.iter().all(|path| !path.exists()));
+    }
+
+    #[test]
+    fn hf_cache_removal_frees_only_blobs_no_other_file_uses() {
+        let fixture = HfCacheFixture::new();
+        let active = fixture.cache("active");
+        let repository = active.path().join("models--test--model");
+        let blob = repository.join("blobs").join("shared");
+        fs::create_dir_all(blob.parent().unwrap()).unwrap();
+        fs::write(&blob, "shared").unwrap();
+        let outside = fixture.0.join("outside.gguf");
+        fs::write(&outside, "outside").unwrap();
+        if !fixture.link(&active, "first", "model.gguf", &blob) {
+            eprintln!("skipped: this system can't create file symlinks");
+            return;
+        }
+        assert!(fixture.link(&active, "first", "other.gguf", &blob));
+        assert!(fixture.link(&active, "second", "other.gguf", &blob));
+        assert!(fixture.link(&active, "first", "stray.gguf", &outside));
+        let caches = [active];
+        let copies = |filename| super::hf_cached_paths_in(&caches, "test/model", "main", filename);
+
+        // other.gguf still uses the blob.
+        let model = copies("model.gguf");
+        assert_eq!(super::hf_cached_copies_bytes(&model).unwrap(), (0, 6));
+        assert!(super::remove_hf_cached_copies(&model).unwrap());
+        assert!(copies("model.gguf").is_empty());
+        assert!(blob.is_file());
+
+        // Both revisions share the blob: it's counted and removed once, and
+        // the second entry is removed although it dangles by then.
+        let other = copies("other.gguf");
+        assert_eq!(other.len(), 2);
+        assert_eq!(super::hf_cached_copies_bytes(&other).unwrap(), (6, 0));
+        assert!(super::remove_hf_cached_copies(&other).unwrap());
+        assert!(copies("other.gguf").is_empty());
+        assert!(!blob.exists());
+
+        // A link to anything but the repository's blobs loses only the link.
+        let stray = copies("stray.gguf");
+        assert_eq!(super::hf_cached_copies_bytes(&stray).unwrap(), (0, 7));
+        assert!(super::remove_hf_cached_copies(&stray).unwrap());
+        assert!(copies("stray.gguf").is_empty());
+        assert!(outside.is_file());
     }
 
     #[test]
