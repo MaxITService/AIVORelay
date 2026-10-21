@@ -3132,8 +3132,10 @@ mod tests {
     fn hf_cache_removal_takes_every_snapshot_copy_and_tolerates_missing_ones() {
         let fixture = HfCacheFixture::new();
         let active = fixture.cache("active");
-        fixture.snapshot(&active, "main", "main-commit");
+        let main_file = fixture.snapshot(&active, "main", "main-commit");
         fixture.snapshot(&active, "pinned", "pinned-commit");
+        let readme = main_file.with_file_name("README.md");
+        fs::write(&readme, "readme").unwrap();
         let caches = [active];
         let copies = super::hf_cached_paths_in(&caches, "test/model", "pinned", "model.gguf");
         assert_eq!(copies.len(), 2);
@@ -3147,6 +3149,77 @@ mod tests {
         assert!(super::remove_hf_cached_copies(&copies).unwrap());
         assert!(!super::remove_hf_cached_copies(&copies).unwrap());
         assert!(copies.iter().all(|path| !path.exists()));
+        assert!(readme.is_file());
+    }
+
+    /// Blocks deleting `file` until dropped: Windows refuses to delete a file
+    /// held open without delete sharing, unix to unlink from a read-only dir.
+    struct DeleteBlocker {
+        #[cfg(windows)]
+        _file: fs::File,
+        #[cfg(unix)]
+        dir: PathBuf,
+    }
+
+    impl DeleteBlocker {
+        fn new(file: &Path) -> Self {
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::OpenOptionsExt;
+                let file = fs::OpenOptions::new().read(true).share_mode(0).open(file);
+                Self {
+                    _file: file.unwrap(),
+                }
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let dir = file.parent().unwrap().to_path_buf();
+                fs::set_permissions(&dir, fs::Permissions::from_mode(0o555)).unwrap();
+                Self { dir }
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for DeleteBlocker {
+        fn drop(&mut self) {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&self.dir, fs::Permissions::from_mode(0o755));
+        }
+    }
+
+    #[cfg(any(windows, unix))]
+    #[test]
+    fn hf_cache_removal_reports_a_copy_it_cant_remove() {
+        // A delete that leaves the model on disk must fail, not report success.
+        let fixture = HfCacheFixture::new();
+        let active = fixture.cache("active");
+        let file = fixture.snapshot(&active, "main", "main-commit");
+        let caches = [active.clone()];
+        let copies = super::hf_cached_paths_in(&caches, "test/model", "main", "model.gguf");
+        let blocker = DeleteBlocker::new(&file);
+        assert!(super::remove_hf_cached_copies(&copies).is_err());
+        drop(blocker);
+        assert!(file.is_file());
+        assert!(super::remove_hf_cached_copies(&copies).unwrap());
+
+        // A blob that stays keeps its pointer, so the model still reads as
+        // downloaded, which remains true.
+        let blob = active.path().join("models--test--model/blobs/hash");
+        fs::create_dir_all(blob.parent().unwrap()).unwrap();
+        fs::write(&blob, "blob").unwrap();
+        if !fixture.link(&active, "linked", "linked.gguf", &blob) {
+            eprintln!("skipped: this system can't create file symlinks");
+            return;
+        }
+        let copies = super::hf_cached_paths_in(&caches, "test/model", "main", "linked.gguf");
+        let blocker = DeleteBlocker::new(&blob);
+        assert!(super::remove_hf_cached_copies(&copies).is_err());
+        drop(blocker);
+        assert!(blob.is_file() && copies[0].is_symlink());
+        assert!(super::remove_hf_cached_copies(&copies).unwrap());
+        assert!(!blob.exists());
     }
 
     #[test]
