@@ -98,6 +98,17 @@ fn allow_input(input: &QueuedInput, snapshot: &Snapshot, blocked: bool, queue: b
         .allows(&input.event, input.received_at, ignore_busy_input(snapshot, blocked, queue))
 }
 
+/// A press can open a recording only from Idle, or from Processing when the
+/// queue remembers it; other presses keep the running recording's captured mode.
+fn press_may_start_for(snapshot: &Snapshot, blocked: bool, queue: bool) -> bool {
+    !matches!(snapshot, Snapshot::Recording { .. }) && !ignore_busy_input(snapshot, blocked, queue)
+}
+
+pub(crate) fn press_may_start(app: &AppHandle) -> bool {
+    let current = snapshot(app);
+    press_may_start_for(&current, session_manager::recording_start_is_blocked(), queue_applies(app, &current))
+}
+
 struct RuntimeState {
     machine: CoordinatorState,
     operation: Option<u64>,
@@ -179,7 +190,10 @@ fn run_effect(app: &AppHandle, runtime: &mut RuntimeState, effect: Effect) {
         Effect::Start { binding_id, hotkey_string } => {
             // Resolve application-aware profiles when the remembered press is
             // actually admitted, rather than retaining a stale busy-time choice.
-            crate::actions::prepare_transcribe_settings(app, &binding_id);
+            // CLI starts ignore application profiles, so they skip the inspection.
+            if hotkey_string != "CLI" && hotkey_string != "CLI_POST_PROCESS" {
+                crate::actions::prepare_transcribe_settings(app, &binding_id);
+            }
             if let Some(action) = crate::actions::transcribe_action_for_binding(&binding_id) {
                 action.start(app, &binding_id, &hotkey_string);
             }
@@ -317,6 +331,17 @@ fn send(app: &AppHandle, command: Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_presses_that_can_start_resolve_an_application_profile() {
+        let recording = Snapshot::Recording { binding: "transcribe".into(), operation: 1 };
+        let processing = Snapshot::Processing { operation: 1 };
+        assert!(press_may_start_for(&Snapshot::Idle, false, false));
+        assert!(!press_may_start_for(&Snapshot::Idle, true, false));
+        assert!(!press_may_start_for(&recording, false, true));
+        assert!(!press_may_start_for(&processing, false, false));
+        assert!(press_may_start_for(&processing, false, true));
+    }
 
     #[test]
     fn queued_start_waits_for_the_fork_completion_guard() {

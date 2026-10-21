@@ -972,8 +972,12 @@ fn handle_shortcut_event_inner(
     }
 
     // Resolve an application-aware profile so a fresh start's activation mode
-    // matches that profile. A running recording keeps its captured mode.
-    if pressed && crate::platform_shortcuts::is_transcribe_binding(binding_id) {
+    // matches that profile. A running recording keeps its captured mode, and
+    // presses that cannot start skip the foreground-app inspection.
+    if pressed
+        && crate::platform_shortcuts::is_transcribe_binding(binding_id)
+        && crate::platform_shortcuts::press_may_start(app)
+    {
         settings = crate::actions::resolve_transcribe_settings(app, binding_id);
     }
 
