@@ -456,4 +456,111 @@ mod tests {
         assert_eq!(captured_activation(&captured, Some("profile_work")), ShortcutActivation::HoldOrToggle);
         assert_eq!(captured_activation(&captured, None), ShortcutActivation::Toggle);
     }
+
+    #[test]
+    fn queued_ptt_tap_during_processing_starts_nothing_after_the_drain() {
+        let processing = Snapshot::Processing { operation: 7 };
+        let base = Instant::now();
+        let input = |pressed, offset_ms| QueuedInput { received_at: base + Duration::from_millis(offset_ms), event: InputEvent {
+            binding_id: "transcribe_work".into(), hotkey_string: "test".into(), is_pressed: pressed,
+            mode: ShortcutActivation::PushToTalk, hold_threshold: Duration::from_millis(300), external: false } };
+        let mut runtime = RuntimeState::new();
+        runtime.reconcile(Snapshot::Processing { operation: 7 }, false, || true);
+        assert!(runtime.on_input(input(true, 0), &processing, false, true).is_none());
+        assert!(runtime.on_input(input(false, 40), &processing, false, true).is_none());
+        assert!(runtime.machine.grace_deadline().is_some(), "the busy release waits out the auto-repeat grace");
+        assert!(runtime.machine.on_grace_expired().is_none());
+        assert!(runtime.reconcile(Snapshot::Idle, false, || true).is_none(), "a push-to-talk tap that ended while busy has nothing left to start");
+    }
+
+    #[test]
+    fn queued_ptt_press_still_held_at_the_drain_starts_that_binding() {
+        let processing = Snapshot::Processing { operation: 7 };
+        let mut runtime = RuntimeState::new();
+        runtime.reconcile(Snapshot::Processing { operation: 7 }, false, || true);
+        let press = QueuedInput { received_at: Instant::now(), event: InputEvent {
+            binding_id: "transcribe_work".into(), hotkey_string: "test".into(), is_pressed: true,
+            mode: ShortcutActivation::PushToTalk, hold_threshold: Duration::from_millis(300), external: false } };
+        assert!(runtime.on_input(press, &processing, false, true).is_none());
+        assert_eq!(runtime.reconcile(Snapshot::Idle, false, || true),
+            Some(Effect::Start { binding_id: "transcribe_work".into(), hotkey_string: "test".into() }),
+            "a key held through the drain must start recording");
+    }
+
+    #[test]
+    fn queued_hold_or_toggle_tap_during_processing_starts_after_the_drain() {
+        let processing = Snapshot::Processing { operation: 7 };
+        let base = Instant::now();
+        let input = |pressed, offset_ms| QueuedInput { received_at: base + Duration::from_millis(offset_ms), event: InputEvent {
+            binding_id: "transcribe_work".into(), hotkey_string: "test".into(), is_pressed: pressed,
+            mode: ShortcutActivation::HoldOrToggle, hold_threshold: Duration::from_millis(300), external: false } };
+        let mut runtime = RuntimeState::new();
+        runtime.reconcile(Snapshot::Processing { operation: 7 }, false, || true);
+        assert!(runtime.on_input(input(true, 0), &processing, false, true).is_none());
+        assert!(runtime.on_input(input(false, 100), &processing, false, true).is_none());
+        assert!(runtime.machine.on_grace_expired().is_none());
+        assert!(matches!(runtime.reconcile(Snapshot::Idle, false, || true), Some(Effect::Start { binding_id, .. }) if binding_id == "transcribe_work"),
+            "a tap shorter than the hold threshold queues a start");
+    }
+
+    #[test]
+    fn dropped_queued_start_leaves_no_stale_release_behind() {
+        let processing = Snapshot::Processing { operation: 7 };
+        let base = Instant::now();
+        let input = |pressed, offset_ms| QueuedInput { received_at: base + Duration::from_millis(offset_ms), event: InputEvent {
+            binding_id: "transcribe_work".into(), hotkey_string: "test".into(), is_pressed: pressed,
+            mode: ShortcutActivation::PushToTalk, hold_threshold: Duration::from_millis(300), external: false } };
+        let mut runtime = RuntimeState::new();
+        runtime.reconcile(Snapshot::Processing { operation: 7 }, false, || true);
+        assert!(runtime.on_input(input(true, 0), &processing, false, true).is_none());
+        assert!(runtime.on_input(input(false, 40), &processing, false, true).is_none());
+        assert!(runtime.machine.grace_deadline().is_some());
+        assert!(runtime.reconcile(Snapshot::Idle, false, || false).is_none(), "the queued start is dropped at the drain");
+        assert!(runtime.machine.grace_deadline().is_none(), "dropping the queued start also drops its deferred release");
+        assert!(matches!(runtime.on_input(input(true, 2000), &Snapshot::Idle, false, true), Some(Effect::Start { .. })));
+        assert!(runtime.machine.on_grace_expired().is_none(), "an old release must not stop the next recording");
+    }
+
+    #[test]
+    fn keep_queued_is_asked_only_when_processing_drains() {
+        let calls = std::cell::Cell::new(0);
+        let keep = || { calls.set(calls.get() + 1); true };
+        let mut runtime = RuntimeState::new();
+        assert!(runtime.reconcile(Snapshot::Idle, false, keep).is_none());
+        runtime.reconcile(Snapshot::Recording { binding: "transcribe".into(), operation: 6 }, false, keep);
+        runtime.reconcile(Snapshot::Idle, true, keep);
+        runtime.reconcile(Snapshot::Processing { operation: 6 }, false, keep);
+        runtime.reconcile(Snapshot::Processing { operation: 6 }, false, keep);
+        runtime.reconcile(Snapshot::Idle, true, keep);
+        assert_eq!(calls.get(), 0, "settings must not be read before processing drains, or while the completion guard blocks");
+        assert!(runtime.reconcile(Snapshot::Idle, false, keep).is_none());
+        assert_eq!(calls.get(), 1, "the real drain asks exactly once");
+        assert!(runtime.reconcile(Snapshot::Idle, false, keep).is_none());
+        assert_eq!(calls.get(), 1, "an idle session with no tracked operation never asks");
+    }
+
+    #[test]
+    fn queued_external_toggle_during_processing_starts_after_the_drain_with_its_hotkey() {
+        let processing = Snapshot::Processing { operation: 7 };
+        for (post_process, hotkey) in [(false, "CLI"), (true, "CLI_POST_PROCESS")] {
+            let toggle = QueuedInput { received_at: Instant::now(),
+                event: external_input(RecordingCommand::Toggle { post_process }, &processing).unwrap() };
+            let mut runtime = RuntimeState::new();
+            runtime.reconcile(Snapshot::Processing { operation: 7 }, false, || true);
+            assert!(runtime.on_input(toggle, &processing, false, true).is_none());
+            assert_eq!(runtime.reconcile(Snapshot::Idle, false, || true),
+                Some(Effect::Start { binding_id: "transcribe".into(), hotkey_string: hotkey.into() }),
+                "the remembered CLI press must start the default binding and keep its post-process marker");
+        }
+    }
+
+    #[test]
+    fn external_input_never_controls_a_non_transcribe_recording() {
+        for binding in ["voice_command", "send_to_extension"] {
+            let active = Snapshot::Recording { binding: binding.into(), operation: 4 };
+            assert!(external_input(RecordingCommand::Stop, &active).is_none(), "{binding} is owned by its own action");
+            assert!(external_input(RecordingCommand::Toggle { post_process: false }, &active).is_none());
+            assert!(external_input(RecordingCommand::Toggle { post_process: true }, &active).is_none());
+        }
+    }
 }
