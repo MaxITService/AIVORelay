@@ -207,6 +207,10 @@
         "label": "Wycisz natychmiast",
         "description": "Wycisz dźwięk systemowy zaraz po rozpoczęciu przechwytywania mikrofonu i pomiń dźwięk rozpoczęcia, aby ograniczyć dźwięki tła na początku. Dotyczy tylko nagrań z mikrofonu."
       },
+      "queueRecordingDuringProcessing": {
+        "label": "Kolejkuj następne nagranie",
+        "description": "Jeśli nowe nagranie zostanie zażądane, gdy poprzednie jest jeszcze przetwarzane, rozpocznie się zaraz po zakończeniu przetwarzania. Zostanie pominięte, jeśli przetwarzanie się nie powiedzie lub Preview jest nadal otwarty. Po wyłączeniu takie żądania są ignorowane."
+      },
       "chineseScript": {
         "title": "Pismo chińskie",
         "description": "Zapisuje transkrypcje w języku mandaryńskim i kantońskim znakami uproszczonymi lub tradycyjnymi. Inne języki pozostają bez zmian.",

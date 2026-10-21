@@ -208,6 +208,10 @@
         "label": "Couper le son immédiatement",
         "description": "Couper le son du système dès le début de la capture du microphone et ignorer le son de démarrage pour réduire les sons de fond au début. S’applique uniquement aux enregistrements du microphone."
       },
+      "queueRecordingDuringProcessing": {
+        "label": "Mettre en file l'enregistrement suivant",
+        "description": "Si un nouvel enregistrement est demandé pendant que le précédent est encore en traitement, il démarre dès la fin du traitement. Il est ignoré si le traitement échoue ou si Preview est encore ouvert. Lorsque cette option est désactivée, ces demandes sont ignorées."
+      },
       "chineseScript": {
         "title": "Écriture chinoise",
         "description": "Écrit les transcriptions en mandarin et en cantonais en caractères simplifiés ou traditionnels. Les autres langues ne sont pas modifiées.",

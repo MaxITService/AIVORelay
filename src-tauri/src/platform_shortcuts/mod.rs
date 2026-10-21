@@ -72,16 +72,30 @@ enum Snapshot {
     Processing { operation: u64 },
 }
 
-fn ignore_busy_input(snapshot: &Snapshot, blocked: bool) -> bool {
-    matches!(snapshot, Snapshot::Processing { .. })
+fn ignore_busy_input(snapshot: &Snapshot, blocked: bool, queue: bool) -> bool {
+    (!queue && matches!(snapshot, Snapshot::Processing { .. }))
         || (matches!(snapshot, Snapshot::Idle) && blocked)
 }
 
-fn allow_input(input: &QueuedInput, snapshot: &Snapshot, blocked: bool) -> bool {
+/// The queue setting matters only while processing, so idle input skips the settings read.
+fn queue_applies(app: &AppHandle, snapshot: &Snapshot) -> bool {
+    matches!(snapshot, Snapshot::Processing { .. })
+        && crate::settings::get_settings(app).queue_recording_during_processing
+}
+
+/// A start remembered while processing must not replace a failure the user
+/// may still retry, nor open a recording into a Preview that is still open.
+fn keep_queued_start(app: &AppHandle) -> bool {
+    crate::settings::get_settings(app).queue_recording_during_processing
+        && !crate::tray::has_recent_error(app)
+        && !crate::managers::preview_output_mode::is_active()
+}
+
+fn allow_input(input: &QueuedInput, snapshot: &Snapshot, blocked: bool, queue: bool) -> bool {
     static ADMISSION: std::sync::OnceLock<std::sync::Mutex<busy_admission::InputAdmission>> = std::sync::OnceLock::new();
     ADMISSION.get_or_init(|| std::sync::Mutex::new(busy_admission::InputAdmission::default()))
         .lock().unwrap_or_else(|error| error.into_inner())
-        .allows(&input.event, input.received_at, ignore_busy_input(snapshot, blocked))
+        .allows(&input.event, input.received_at, ignore_busy_input(snapshot, blocked, queue))
 }
 
 struct RuntimeState {
@@ -93,18 +107,21 @@ struct RuntimeState {
 impl RuntimeState {
     fn new() -> Self { Self { machine: CoordinatorState::new(), operation: None, processing: false } }
 
-    fn on_input(&mut self, input: QueuedInput, snapshot: &Snapshot, blocked: bool) -> Option<Effect> {
-        // Busy presses are discarded, not remembered for an automatic start
-        // after the previous operation.
+    fn on_input(&mut self, input: QueuedInput, snapshot: &Snapshot, blocked: bool, queue: bool) -> Option<Effect> {
+        // Busy presses are discarded unless the queue setting lets the machine
+        // remember one for an automatic start after processing.
         // Recording releases must still pass while microphone startup owns its guard.
-        if ignore_busy_input(snapshot, blocked) { return None; }
+        if ignore_busy_input(snapshot, blocked, queue) { return None; }
         apply_input(&mut self.machine, input)
     }
 
-    fn reconcile(&mut self, snapshot: Snapshot, blocked: bool) -> Option<Effect> {
+    /// `keep_queued` is asked only when processing drains, so a remembered
+    /// start runs only if the queue still applies at that moment.
+    fn reconcile(&mut self, snapshot: Snapshot, blocked: bool, keep_queued: impl FnOnce() -> bool) -> Option<Effect> {
         match snapshot {
             Snapshot::Idle if !blocked => {
                 if self.operation.take().is_some() {
+                    if !keep_queued() { self.machine.on_cancel(false); }
                     return self.machine.on_processing_finished();
                 }
             }
@@ -210,7 +227,8 @@ pub(crate) fn install(app: &AppHandle) {
                 runtime = RuntimeState::new();
                 continue;
             }
-            if let Some(effect) = runtime.reconcile(snapshot(&app), session_manager::recording_start_is_blocked()) {
+            if let Some(effect) = runtime.reconcile(snapshot(&app), session_manager::recording_start_is_blocked(),
+                || keep_queued_start(&app)) {
                 run_effect(&app, &mut runtime, effect);
             }
             let input = match command {
@@ -222,9 +240,10 @@ pub(crate) fn install(app: &AppHandle) {
             if let Some(mut input) = input {
                 let current = snapshot(&app);
                 let blocked = session_manager::recording_start_is_blocked();
-                if !allow_input(&input, &current, blocked) { continue; }
+                let queue = queue_applies(&app, &current);
+                if !allow_input(&input, &current, blocked, queue) { continue; }
                 use_captured_activation(&app, &mut input);
-                if let Some(effect) = runtime.on_input(input, &current, blocked) {
+                if let Some(effect) = runtime.on_input(input, &current, blocked, queue) {
                     run_effect(&app, &mut runtime, effect);
                 }
             }
@@ -243,7 +262,9 @@ pub(crate) fn send_input(app: &AppHandle, binding: &str, source: &str, pressed: 
         mode, hold_threshold: Duration::from_millis(300), external: false } };
     // Check arrival as well as execution: a busy event must not become a
     // fresh start just because the executor reads it after drain.
-    if !allow_input(&input, &snapshot(app), session_manager::recording_start_is_blocked()) { return; }
+    let current = snapshot(app);
+    let queue = queue_applies(app, &current);
+    if !allow_input(&input, &current, session_manager::recording_start_is_blocked(), queue) { return; }
     send(app, Command::Input(input));
 }
 
@@ -267,8 +288,9 @@ fn external_input(action: RecordingCommand, snapshot: &Snapshot) -> Option<Input
 }
 
 pub(crate) fn send_recording(app: &AppHandle, action: RecordingCommand) {
+    let current = snapshot(app);
     if action != RecordingCommand::Cancel
-        && ignore_busy_input(&snapshot(app), session_manager::recording_start_is_blocked()) { return; }
+        && ignore_busy_input(&current, session_manager::recording_start_is_blocked(), queue_applies(app, &current)) { return; }
     send(app, Command::Recording(action));
 }
 
@@ -288,11 +310,11 @@ mod tests {
     #[test]
     fn queued_start_waits_for_the_fork_completion_guard() {
         let mut runtime = RuntimeState::new();
-        runtime.reconcile(Snapshot::Processing { operation: 7 }, false);
+        runtime.reconcile(Snapshot::Processing { operation: 7 }, false, || true);
         runtime.machine.on_input(InputEvent { binding_id: "transcribe_profile".into(), hotkey_string: "test".into(),
             is_pressed: true, mode: ShortcutActivation::Toggle, hold_threshold: Duration::ZERO, external: false }, Instant::now());
-        assert!(runtime.reconcile(Snapshot::Idle, true).is_none());
-        assert!(matches!(runtime.reconcile(Snapshot::Idle, false), Some(Effect::Start { binding_id, .. }) if binding_id == "transcribe_profile"));
+        assert!(runtime.reconcile(Snapshot::Idle, true, || true).is_none());
+        assert!(matches!(runtime.reconcile(Snapshot::Idle, false, || true), Some(Effect::Start { binding_id, .. }) if binding_id == "transcribe_profile"));
     }
 
     #[test]
@@ -300,67 +322,99 @@ mod tests {
         for mode in [ShortcutActivation::Toggle, ShortcutActivation::PushToTalk, ShortcutActivation::HoldOrToggle] {
             for external in [false, true] {
                 let mut runtime = RuntimeState::new();
-                runtime.reconcile(Snapshot::Processing { operation: 7 }, false);
+                runtime.reconcile(Snapshot::Processing { operation: 7 }, false, || false);
                 let input = |pressed| QueuedInput { received_at: Instant::now(), event: InputEvent {
                     binding_id: "transcribe_work".into(), hotkey_string: "test".into(),
                     is_pressed: pressed, mode, hold_threshold: Duration::from_millis(300), external } };
-                assert!(runtime.on_input(input(true), &Snapshot::Processing { operation: 7 }, false).is_none());
-                assert!(runtime.on_input(input(false), &Snapshot::Processing { operation: 7 }, false).is_none());
+                assert!(runtime.on_input(input(true), &Snapshot::Processing { operation: 7 }, false, false).is_none());
+                assert!(runtime.on_input(input(false), &Snapshot::Processing { operation: 7 }, false, false).is_none());
                 assert!(runtime.machine.grace_deadline().is_none());
-                assert!(runtime.reconcile(Snapshot::Idle, false).is_none(), "busy input must not queue a start");
-                assert!(matches!(runtime.on_input(input(true), &Snapshot::Idle, false), Some(Effect::Start { .. })),
+                assert!(runtime.reconcile(Snapshot::Idle, false, || false).is_none(), "busy input must not queue a start");
+                assert!(matches!(runtime.on_input(input(true), &Snapshot::Idle, false, false), Some(Effect::Start { .. })),
                     "a new press after processing must still start");
             }
         }
     }
 
     #[test]
-    fn completion_guard_does_not_remember_a_new_press() {
-        let mut runtime = RuntimeState::new();
-        runtime.reconcile(Snapshot::Processing { operation: 7 }, false);
-        assert!(runtime.reconcile(Snapshot::Idle, true).is_none());
-        let input = QueuedInput { received_at: Instant::now(), event: InputEvent {
-            binding_id: "transcribe".into(), hotkey_string: "test".into(), is_pressed: true,
+    fn queued_press_starts_after_processing_only_while_the_queue_still_applies() {
+        let processing = Snapshot::Processing { operation: 7 };
+        let input = || QueuedInput { received_at: Instant::now(), event: InputEvent {
+            binding_id: "transcribe_work".into(), hotkey_string: "test".into(), is_pressed: true,
             mode: ShortcutActivation::Toggle, hold_threshold: Duration::ZERO, external: false } };
-        assert!(runtime.on_input(input, &Snapshot::Idle, true).is_none());
-        assert!(runtime.reconcile(Snapshot::Idle, false).is_none());
+        for keep in [true, false] {
+            let mut runtime = RuntimeState::new();
+            runtime.reconcile(Snapshot::Processing { operation: 7 }, false, || false);
+            assert!(runtime.on_input(input(), &processing, false, true).is_none());
+            let drained = runtime.reconcile(Snapshot::Idle, false, || keep);
+            assert_eq!(matches!(drained, Some(Effect::Start { ref binding_id, .. }) if binding_id == "transcribe_work"), keep,
+                "an error, an open Preview or a disabled setting at drain must drop the queued start");
+        }
+    }
+
+    #[test]
+    fn queued_external_toggles_keep_parity() {
+        let processing = Snapshot::Processing { operation: 7 };
+        let toggle = || QueuedInput { received_at: Instant::now(),
+            event: external_input(RecordingCommand::Toggle { post_process: false }, &Snapshot::Processing { operation: 7 }).unwrap() };
+        let mut runtime = RuntimeState::new();
+        runtime.reconcile(Snapshot::Processing { operation: 7 }, false, || true);
+        assert!(runtime.on_input(toggle(), &processing, false, true).is_none());
+        assert!(runtime.on_input(toggle(), &processing, false, true).is_none());
+        assert!(runtime.reconcile(Snapshot::Idle, false, || true).is_none(), "a second toggle withdraws the queued start");
+    }
+
+    #[test]
+    fn completion_guard_does_not_remember_a_new_press() {
+        for queue in [false, true] {
+            let mut runtime = RuntimeState::new();
+            runtime.reconcile(Snapshot::Processing { operation: 7 }, false, || true);
+            assert!(runtime.reconcile(Snapshot::Idle, true, || true).is_none());
+            let input = QueuedInput { received_at: Instant::now(), event: InputEvent {
+                binding_id: "transcribe".into(), hotkey_string: "test".into(), is_pressed: true,
+                mode: ShortcutActivation::Toggle, hold_threshold: Duration::ZERO, external: false } };
+            assert!(runtime.on_input(input, &Snapshot::Idle, true, queue).is_none());
+            assert!(runtime.reconcile(Snapshot::Idle, false, || true).is_none());
+        }
     }
 
     #[test]
     fn busy_admission_keeps_recording_releases_and_late_releases_safe() {
         let recording = Snapshot::Recording { binding: "transcribe".into(), operation: 8 };
-        assert!(ignore_busy_input(&Snapshot::Processing { operation: 7 }, false));
-        assert!(ignore_busy_input(&Snapshot::Idle, true));
-        assert!(!ignore_busy_input(&Snapshot::Idle, false));
-        assert!(!ignore_busy_input(&recording, true), "startup guard must not swallow an accepted key-up");
+        assert!(ignore_busy_input(&Snapshot::Processing { operation: 7 }, false, false));
+        assert!(!ignore_busy_input(&Snapshot::Processing { operation: 7 }, false, true));
+        assert!(ignore_busy_input(&Snapshot::Idle, true, false));
+        assert!(ignore_busy_input(&Snapshot::Idle, true, true));
+        assert!(!ignore_busy_input(&Snapshot::Idle, false, false));
+        assert!(!ignore_busy_input(&recording, true, false), "startup guard must not swallow an accepted key-up");
 
         let input = |pressed| QueuedInput { received_at: Instant::now(), event: InputEvent {
             binding_id: "transcribe".into(), hotkey_string: "test".into(), is_pressed: pressed,
             mode: ShortcutActivation::PushToTalk, hold_threshold: Duration::ZERO, external: false } };
         let mut accepted = RuntimeState::new();
-        assert!(matches!(accepted.on_input(input(true), &Snapshot::Idle, false), Some(Effect::Start { .. })));
-        assert!(accepted.on_input(input(false), &recording, true).is_none());
+        assert!(matches!(accepted.on_input(input(true), &Snapshot::Idle, false, false), Some(Effect::Start { .. })));
+        assert!(accepted.on_input(input(false), &recording, true, false).is_none());
         assert!(matches!(accepted.machine.on_grace_expired(), Some(Effect::Stop { .. })),
             "a valid recording must stop on release even while startup owns its guard");
 
         let mut runtime = RuntimeState::new();
-        runtime.reconcile(recording, true);
+        runtime.reconcile(recording, true, || true);
         let release = QueuedInput { received_at: Instant::now(), event: InputEvent {
             binding_id: "transcribe".into(), hotkey_string: "test".into(), is_pressed: false,
             mode: ShortcutActivation::PushToTalk, hold_threshold: Duration::ZERO, external: false } };
-        assert!(runtime.on_input(release, &Snapshot::Recording { binding: "transcribe".into(), operation: 8 }, true).is_none());
+        assert!(runtime.on_input(release, &Snapshot::Recording { binding: "transcribe".into(), operation: 8 }, true, false).is_none());
         assert!(runtime.machine.on_grace_expired().is_none(), "an ignored old press cannot stop a separately started recording");
     }
 
     #[test]
     fn new_operation_discards_an_older_queued_start() {
         let mut runtime = RuntimeState::new();
-        runtime.reconcile(Snapshot::Processing { operation: 7 }, false);
+        runtime.reconcile(Snapshot::Processing { operation: 7 }, false, || true);
         runtime.machine.on_input(InputEvent { binding_id: "transcribe_old".into(), hotkey_string: "test".into(),
             is_pressed: true, mode: ShortcutActivation::Toggle, hold_threshold: Duration::ZERO, external: false }, Instant::now());
-        runtime.reconcile(Snapshot::Recording { binding: "transcribe_new".into(), operation: 8 }, false);
-        runtime.reconcile(Snapshot::Processing { operation: 8 }, false);
-        assert!(runtime.reconcile(Snapshot::Idle, false).is_none());
+        runtime.reconcile(Snapshot::Recording { binding: "transcribe_new".into(), operation: 8 }, false, || true);
+        runtime.reconcile(Snapshot::Processing { operation: 8 }, false, || true);
+        assert!(runtime.reconcile(Snapshot::Idle, false, || true).is_none());
     }
 
     #[test]
