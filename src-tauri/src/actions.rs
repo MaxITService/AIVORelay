@@ -10138,23 +10138,31 @@ impl ShortcutAction for TranscribeAction {
                     }
                 }
 
-                finish_guard.finish();
-                if invoked_from_gemini_time_limit
+                // Take the completion and report a failure before processing ends:
+                // a queued start may then open a new Gemini session, and the error
+                // must withdraw that start rather than land on its recording.
+                let time_limit_completion = if invoked_from_gemini_time_limit
                     && binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID
                 {
-                    if let Some(completion) = gemini_realtime_manager.take_time_limit_completion() {
-                        match completion {
-                            crate::managers::gemini_realtime::GeminiTimeLimitCompletion::Complete => {
-                                crate::overlay::show_gemini_live_completion_overlay(&ah, false);
-                            }
-                            crate::managers::gemini_realtime::GeminiTimeLimitCompletion::Partial => {
-                                crate::overlay::show_gemini_live_completion_overlay(&ah, true);
-                            }
-                            crate::managers::gemini_realtime::GeminiTimeLimitCompletion::Failed(error) => {
-                                crate::plus_overlay_state::handle_transcription_error(&ah, &error);
-                            }
-                        }
+                    gemini_realtime_manager.take_time_limit_completion()
+                } else {
+                    None
+                };
+                if let Some(crate::managers::gemini_realtime::GeminiTimeLimitCompletion::Failed(error)) =
+                    &time_limit_completion
+                {
+                    crate::plus_overlay_state::handle_transcription_error(&ah, error);
+                }
+                finish_guard.finish();
+                // The completion notice is shown only once the session is idle.
+                match time_limit_completion {
+                    Some(crate::managers::gemini_realtime::GeminiTimeLimitCompletion::Complete) => {
+                        crate::overlay::show_gemini_live_completion_overlay(&ah, false);
                     }
+                    Some(crate::managers::gemini_realtime::GeminiTimeLimitCompletion::Partial) => {
+                        crate::overlay::show_gemini_live_completion_overlay(&ah, true);
+                    }
+                    _ => {}
                 }
             });
             return;

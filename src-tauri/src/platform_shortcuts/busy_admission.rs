@@ -1,4 +1,5 @@
-//! Input received while busy must not start later.
+//! Input rejected as busy must not start later. Processing counts as busy only
+//! while the next-recording queue is off; a blocked start is always busy.
 //! Keep rejected physical gestures suppressed through their release, including
 //! X11's synthetic release/press repeats. External commands have no release.
 

@@ -3050,6 +3050,10 @@
         "label": "Pause Media While Recording",
         "description": "Pause active media when recording starts, then resume what AivoRelay paused after recording stops."
       },
+      "queueRecordingDuringProcessing": {
+        "label": "Queue Next Recording",
+        "description": "If a new recording is requested while the previous one is still processing, start it as soon as processing finishes. It is skipped if processing fails or Preview is still open. When off, such requests are ignored."
+      },
       "autoStop": {
         "title": "Recording Auto-Stop Safety",
         "description": "Automatically stops recording if it's left on for too long. Crucial safety feature to prevent draining your cloud API budget if you accidentally forget to stop recording.",

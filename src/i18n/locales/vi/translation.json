@@ -208,6 +208,10 @@
         "label": "Tắt tiếng ngay",
         "description": "Tắt tiếng hệ thống ngay khi bắt đầu thu âm từ micrô và bỏ qua âm thanh bắt đầu để giảm âm thanh nền ở đầu bản ghi. Chỉ áp dụng cho bản ghi từ micrô."
       },
+      "queueRecordingDuringProcessing": {
+        "label": "Xếp hàng bản ghi tiếp theo",
+        "description": "Nếu yêu cầu bản ghi mới trong khi bản ghi trước vẫn đang được xử lý, bản ghi mới sẽ bắt đầu ngay khi xử lý xong. Bản ghi này bị bỏ qua nếu xử lý thất bại hoặc Preview vẫn đang mở. Khi tắt, các yêu cầu như vậy sẽ bị bỏ qua."
+      },
       "chineseScript": {
         "title": "Chữ Hán giản thể/phồn thể",
         "description": "Ghi bản chép tiếng Quan Thoại và tiếng Quảng Đông bằng chữ Giản thể hoặc Phồn thể. Các ngôn ngữ khác không bị thay đổi.",

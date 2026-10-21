@@ -1521,6 +1521,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_mute_while_recording_setting,
         shortcut::change_mute_immediately_setting,
         shortcut::change_pause_media_while_recording_setting,
+        shortcut::change_queue_recording_during_processing_setting,
         shortcut::change_filter_silence_setting,
         shortcut::change_recording_auto_stop_enabled_setting,
         shortcut::change_recording_auto_stop_timeout_seconds_setting,

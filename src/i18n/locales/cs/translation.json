@@ -207,6 +207,10 @@
         "label": "Ztlumit okamžitě",
         "description": "Ztlumit systémový zvuk hned po spuštění mikrofonu a přeskočit úvodní zvuk, aby se omezil zvuk na pozadí na začátku nahrávky. Platí pouze pro záznam z mikrofonu."
       },
+      "queueRecordingDuringProcessing": {
+        "label": "Zařadit další nahrávání do fronty",
+        "description": "Pokud požádáte o nové nahrávání, zatímco se předchozí ještě zpracovává, spustí se hned po dokončení zpracování. Přeskočí se, pokud zpracování selže nebo je Preview stále otevřený. Když je vypnuto, takové požadavky se ignorují."
+      },
       "chineseScript": {
         "title": "Čínské písmo",
         "description": "Zapisuje přepisy v mandarínštině a kantonštině zjednodušenými nebo tradičními znaky. Ostatní jazyky zůstávají beze změny.",

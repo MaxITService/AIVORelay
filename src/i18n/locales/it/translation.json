@@ -207,6 +207,10 @@
         "label": "Disattiva subito l'audio",
         "description": "Disattiva l'audio di sistema appena inizia la cattura del microfono e salta il suono iniziale per ridurre l'audio di sottofondo all'inizio. Si applica solo alle registrazioni dal microfono."
       },
+      "queueRecordingDuringProcessing": {
+        "label": "Metti in coda la registrazione successiva",
+        "description": "Se viene richiesta una nuova registrazione mentre la precedente è ancora in elaborazione, inizierà appena l'elaborazione termina. Viene saltata se l'elaborazione non riesce o se Preview è ancora aperto. Se disattivato, queste richieste vengono ignorate."
+      },
       "chineseScript": {
         "title": "Scrittura cinese",
         "description": "Scrive le trascrizioni in mandarino e cantonese con caratteri semplificati o tradizionali. Le altre lingue restano invariate.",

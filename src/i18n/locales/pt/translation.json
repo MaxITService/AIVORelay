@@ -207,6 +207,10 @@
         "label": "Silenciar imediatamente",
         "description": "Silenciar o áudio do sistema assim que a captura do microfone começar e omitir o som de início para reduzir o áudio de fundo no começo. Aplica-se apenas a gravações do microfone."
       },
+      "queueRecordingDuringProcessing": {
+        "label": "Enfileirar próxima gravação",
+        "description": "Se uma nova gravação for solicitada enquanto a anterior ainda está sendo processada, ela começará assim que o processamento terminar. Ela é ignorada se o processamento falhar ou se o Preview ainda estiver aberto. Quando desativado, essas solicitações são ignoradas."
+      },
       "chineseScript": {
         "title": "Escrita chinesa",
         "description": "Escreve as transcrições em mandarim e cantonês com caracteres simplificados ou tradicionais. Os outros idiomas não são alterados.",

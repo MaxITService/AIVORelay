@@ -207,6 +207,10 @@
         "label": "Sofort stummschalten",
         "description": "Systemaudio direkt nach dem Start der Mikrofonaufnahme stummschalten und den Startton überspringen, um Hintergrundgeräusche am Anfang zu reduzieren. Gilt nur für Mikrofonaufnahmen."
       },
+      "queueRecordingDuringProcessing": {
+        "label": "Nächste Aufnahme einreihen",
+        "description": "Wird eine neue Aufnahme angefordert, während die vorherige noch verarbeitet wird, startet sie sofort nach Abschluss der Verarbeitung. Sie wird übersprungen, wenn die Verarbeitung fehlschlägt oder Preview noch geöffnet ist. Wenn deaktiviert, werden solche Anfragen ignoriert."
+      },
       "chineseScript": {
         "title": "Chinesische Schrift",
         "description": "Schreibt Transkriptionen auf Mandarin und Kantonesisch in vereinfachten oder traditionellen Schriftzeichen. Andere Sprachen bleiben unverändert.",
