@@ -194,7 +194,6 @@ pub(crate) fn cancel_current_operation_guarded(
     tm.cancel_file_transcription();
     crate::commands::file_transcription::cancel_file_transcription();
     tm.maybe_unload_immediately("cancellation");
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
     crate::platform_shortcuts::notify_cancel(app);
 
     info!("Operation cancellation completed - returned to idle state");

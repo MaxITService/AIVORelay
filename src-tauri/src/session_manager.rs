@@ -101,11 +101,8 @@ impl Drop for OperationControlGuard {
             let mut control = OPERATION_CONTROL.lock().unwrap_or_else(|error| error.into_inner());
             if !control.cancel_requested {
                 control.active = false;
-                #[cfg(any(target_os = "linux", target_os = "macos"))]
-                {
-                    drop(control);
-                    crate::platform_shortcuts::notify_session_changed(&self.app);
-                }
+                drop(control);
+                crate::platform_shortcuts::notify_session_changed(&self.app);
                 return;
             }
             control.cancel_requested = false;
