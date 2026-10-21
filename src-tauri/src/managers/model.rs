@@ -1085,7 +1085,7 @@ impl ModelManager {
                 continue;
             };
 
-            let model_id = format!("{}/{}", catalog_model.id, file.filename);
+            let model_id = format!("{}/{}", catalog_model.repo_id, file.filename);
             if available_models.contains_key(&model_id) {
                 continue;
             }
@@ -1114,22 +1114,24 @@ impl ModelManager {
                     description: catalog_model.description.clone(),
                     filename: file.filename.clone(),
                     url: Some(hf_source_url(
-                        &catalog_model.id,
-                        catalog_model.revision.as_deref().unwrap_or("main"),
+                        &catalog_model.repo_id,
+                        &catalog_model.revision,
                         &file.filename,
                     )),
-                    sha256: file.sha256.clone(),
+                    sha256: Some(file.sha256.clone()),
                     size_mb: file.size_bytes / (1024 * 1024),
                     is_downloaded: false,
                     is_downloading: false,
                     partial_size: 0,
                     is_directory: false,
                     engine_type: EngineType::TranscribeCpp,
-                    accuracy_score: catalog_model.accuracy_score.unwrap_or(0.0) / 100.0,
-                    speed_score: catalog_model.speed_score.unwrap_or(0.0) / 100.0,
+                    accuracy_score: catalog_model.accuracy_score,
+                    speed_score: catalog_model.speed_score,
                     supports_translation: catalog_model.capabilities.translate,
                     supports_streaming: catalog_model.capabilities.streaming,
-                    native_streaming_latency_kind: native_streaming_latency_kind(&catalog_model.id),
+                    native_streaming_latency_kind: native_streaming_latency_kind(
+                        &catalog_model.repo_id,
+                    ),
                     supports_language_detection: catalog_model.capabilities.lang_detect,
                     is_recommended: catalog_model.recommended,
                     supported_languages: canonicalize_supported_languages(supported_languages),
@@ -1150,7 +1152,7 @@ impl ModelManager {
             return false;
         };
         !crate::catalog::CATALOG.iter().any(|catalog_model| {
-            catalog_model.id == repo_id
+            catalog_model.repo_id == repo_id
                 && catalog_model
                     .default_file()
                     .is_some_and(|file| file.filename == filename)
