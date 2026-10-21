@@ -234,7 +234,11 @@ fn unshared_blob(pointer: &Path, deleting: &HashSet<PathBuf>) -> io::Result<Opti
         Err(e) => return Err(e),
     };
     // Only delete actual HF blobs, not arbitrary symlink targets.
-    let blobs = fs::canonicalize(repo_dir.join("blobs"))?;
+    let blobs = match fs::canonicalize(repo_dir.join("blobs")) {
+        Ok(blobs) => blobs,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
     if blob.parent() != Some(blobs.as_path())
         || blob_is_shared(&repo_dir.join("snapshots"), &blob, deleting)?
     {
