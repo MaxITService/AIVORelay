@@ -7,20 +7,20 @@ This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
 Audit note (2026-10-21):
-- Reviewed `9e57a0d7..93c9ee05` (1 commit); cursor is now `93c9ee05`. Ported it
-  as five commits: the `@handy-computer/models` 0.2.2 catalog (schema 2, Q8_0
-  defaults, `sync-catalog` and the `check:catalog` CI step; `gen_catalog.py`
-  removed), cache lookup at any snapshot revision, catalog quants found on disk
-  listed with catalog metadata, deletion of every active-cache copy, and removal
-  of blobs no other file uses.
+- Reviewed `9e57a0d7..93c9ee05` (1 commit); cursor is now `93c9ee05`. Ported:
+  the `@handy-computer/models` 0.2.2 catalog (schema 2, Q8_0 defaults,
+  `sync-catalog` and the `check:catalog` CI step; `gen_catalog.py` removed),
+  cache lookup at any snapshot revision, catalog quants in the cache or models
+  folder listed with catalog metadata, deletion of every active-cache copy, and
+  removal of blobs no other file uses.
 - Kept fork behaviour: whisper-large-v3-turbo translation, read-only legacy cache
-  with active-cache priority, shared local-mirror checks, SHA256 checks,
-  zh-Hans/zh-Hant, native streaming latency kinds, no symlink-following deletes.
+  with active-cache priority, shared local-mirror checks, SHA256, zh-Hans/zh-Hant,
+  native streaming latency kinds; deletes follow links only into `blobs/`.
 - Skipped: the `portable.rs` comment (legacy cache stays read-only),
   `mirror_models.py` and the retired-ONNX test (neither exists in the fork), the
   case-folder discovery test (no synthetic GGUF helper; exact-case match
-  ported). Nix lock hash updated but not built; Windows unit tests passed before
-  blob removal, which is untested.
+  ported). Nix lock hash updated but not built; Windows unit tests pass, but
+  their symlinked-blob cases skip without Developer Mode and stay unverified.
 
 Audit note (2026-10-17):
 - Lifted the Linux/macOS skip rule and replayed every upstream Linux/macOS commit
