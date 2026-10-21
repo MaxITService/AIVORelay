@@ -337,16 +337,18 @@ fn offered_models() -> impl Iterator<Item = &'static RawModel> {
 pub static CATALOG: Lazy<Vec<CatalogModel>> =
     Lazy::new(|| offered_models().map(CatalogModel::from).collect());
 
-/// The offered model and quant a cached file belongs to. The repo must match
-/// exactly: on a case-sensitive filesystem only the cache folder's own casing
-/// finds the file again.
+/// The offered model and quant a file belongs to, matched across every listed
+/// quant. `repo_id`, when given, must match exactly: a foreign repo reusing a
+/// catalog filename stays foreign, and on a case-sensitive filesystem only the
+/// cache folder's own casing finds the file again. Without it the filename
+/// alone decides, as in the flat models dir, where filenames are unique.
 pub fn file_in_catalog(
     filename: &str,
-    repo_id: &str,
+    repo_id: Option<&str>,
 ) -> Option<(&'static CatalogModel, &'static CatalogFile)> {
     CATALOG
         .iter()
-        .filter(|model| model.repo_id == repo_id)
+        .filter(|model| repo_id.is_none_or(|repo_id| model.repo_id == repo_id))
         .find_map(|model| {
             model
                 .files
@@ -519,12 +521,32 @@ mod tests {
             .find(|m| m.files.len() > 1)
             .expect("catalog offers multi-quant models");
         for file in &model.files {
-            let (found, quant) = file_in_catalog(&file.filename, &model.repo_id).unwrap();
-            assert_eq!(found.repo_id, model.repo_id);
-            assert_eq!(quant.quant, file.quant);
+            for repo_id in [Some(model.repo_id.as_str()), None] {
+                let (found, quant) = file_in_catalog(&file.filename, repo_id).unwrap();
+                assert_eq!(found.repo_id, model.repo_id);
+                assert_eq!(quant.quant, file.quant);
+            }
         }
         let filename = &model.files[0].filename;
-        assert!(file_in_catalog(filename, &model.repo_id.to_uppercase()).is_none());
+        let other_case = model.repo_id.to_uppercase();
+        assert!(file_in_catalog(filename, Some(&other_case)).is_none());
+    }
+
+    #[test]
+    fn offered_filenames_are_unique() {
+        // Mirror downloads share one flat models dir, where a file is matched
+        // to its catalog model by filename alone.
+        let mut owners = HashMap::new();
+        for model in CATALOG.iter() {
+            for file in &model.files {
+                let other = owners.insert(&file.filename, &model.repo_id);
+                assert_eq!(
+                    other, None,
+                    "{} is also in {}",
+                    file.filename, model.repo_id
+                );
+            }
+        }
     }
 
     #[test]

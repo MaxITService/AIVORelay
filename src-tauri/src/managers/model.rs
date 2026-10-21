@@ -1725,6 +1725,18 @@ impl ModelManager {
                 continue;
             }
 
+            // Any catalog quant, such as a mirror download of a former default,
+            // keeps its catalog id and metadata instead of becoming custom.
+            if let Some((catalog_model, catalog_file)) =
+                crate::catalog::file_in_catalog(&filename, None)
+            {
+                let mut info = Self::catalog_model_info(catalog_model, catalog_file);
+                info.is_downloaded = true;
+                info!("Discovered catalog quant in models dir: {}", info.id);
+                available_models.insert(info.id.clone(), info);
+                continue;
+            }
+
             if available_models.contains_key(&model_id) {
                 continue;
             }
@@ -1855,7 +1867,7 @@ impl ModelManager {
                     // Catalog quants of the same repo keep their catalog
                     // metadata; the catalog is authoritative for its own files.
                     if let Some((catalog_model, catalog_file)) =
-                        crate::catalog::file_in_catalog(&fname, &repo_id)
+                        crate::catalog::file_in_catalog(&fname, Some(&repo_id))
                     {
                         let mut info = Self::catalog_model_info(catalog_model, catalog_file);
                         info.is_downloaded = true;
@@ -3209,6 +3221,38 @@ mod tests {
         assert_eq!(info.accuracy_score, catalog_model.accuracy_score);
         assert!(info.is_downloaded && !info.is_recommended);
         assert!(ModelManager::disappears_when_missing(info));
+    }
+
+    #[test]
+    fn models_dir_discovery_keeps_catalog_identity_for_alternate_quants() {
+        let catalog_model = crate::catalog::CATALOG
+            .iter()
+            .find(|model| model.files.len() > 1)
+            .expect("catalog offers multi-quant models");
+        let alternate = catalog_model
+            .files
+            .iter()
+            .find(|file| file.quant != catalog_model.default_quant)
+            .unwrap();
+        let fixture = HfCacheFixture::new();
+        let models_dir = fixture.0.join("models");
+        fs::create_dir_all(&models_dir).unwrap();
+        // A mirror download of a quant that's no longer the default.
+        fs::write(models_dir.join(&alternate.filename), "mirror").unwrap();
+        fs::write(models_dir.join("custom.gguf"), "custom").unwrap();
+
+        let mut models = HashMap::new();
+        ModelManager::seed_catalog_models(&mut models);
+        ModelManager::discover_custom_transcribe_models(&models_dir, &mut models).unwrap();
+
+        let info = &models[&format!("{}/{}", catalog_model.repo_id, alternate.filename)];
+        let name = format!("{} ({})", catalog_model.name, alternate.quant);
+        assert_eq!(info.name, name);
+        assert_eq!(info.sha256.as_deref(), Some(alternate.sha256.as_str()));
+        assert!(info.is_downloaded && !info.is_custom);
+        assert!(ModelManager::disappears_when_missing(info));
+        assert!(!models.contains_key(alternate.filename.trim_end_matches(".gguf")));
+        assert!(models["custom"].is_custom);
     }
 
     #[test]
