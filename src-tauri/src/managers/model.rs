@@ -1195,6 +1195,9 @@ impl ModelManager {
         // Check which models are already downloaded
         manager.update_download_status()?;
 
+        // Move settings saved under the old id of a catalog quant to its catalog id
+        manager.migrate_catalog_quant_stem_ids();
+
         // Auto-select a model if none is currently selected
         manager.auto_select_model_if_needed()?;
 
@@ -1258,6 +1261,8 @@ impl ModelManager {
         }
 
         self.update_download_status()?;
+        // A quant that appeared after startup may be the target of settings saved under its old id.
+        self.migrate_catalog_quant_stem_ids();
         self.auto_select_model_if_needed()?;
         if added > 0 {
             info!("Model rescan discovered {} new model(s)", added);
@@ -1524,6 +1529,103 @@ impl ModelManager {
 
         info!("GigaAM migration complete");
         Ok(())
+    }
+
+    /// v1.0.49 listed a catalog quant found in the models dir as a custom
+    /// model named after its file stem; it now keeps its catalog id. Moves
+    /// settings saved under such a stem to that id while the model is on disk,
+    /// so its selection and per-model settings carry over.
+    fn migrate_catalog_quant_stem_ids(&self) {
+        let mut settings = get_settings(&self.app_handle);
+        let models = self.available_models.lock().unwrap();
+        let changed = Self::rename_catalog_quant_stem_ids(&mut settings, &models);
+        drop(models);
+        if changed {
+            write_settings(&self.app_handle, settings);
+        }
+    }
+
+    fn rename_catalog_quant_stem_ids(
+        settings: &mut crate::settings::AppSettings,
+        models: &HashMap<String, ModelInfo>,
+    ) -> bool {
+        let catalog_id = |stem: &str| -> Option<String> {
+            if models.contains_key(stem) {
+                return None;
+            }
+            let (catalog_model, file) =
+                crate::catalog::file_in_catalog(&format!("{stem}.gguf"), None)?;
+            let id = format!("{}/{}", catalog_model.repo_id, file.filename);
+            models
+                .get(&id)
+                .is_some_and(|model| model.is_downloaded)
+                .then_some(id)
+        };
+        let mut changed = false;
+        let mut rename = |id: &mut String| {
+            if let Some(new_id) = catalog_id(id) {
+                info!("Moving settings of model '{}' to '{}'", id, new_id);
+                *id = new_id;
+                changed = true;
+            }
+        };
+
+        rename(&mut settings.selected_model);
+        let profiles = settings.transcription_profiles.iter_mut().chain(
+            settings
+                .file_transcription_model_configs
+                .values_mut()
+                .filter_map(|config| config.profile_snapshot.as_mut()),
+        );
+        let selections = settings
+            .file_transcription_model_selection
+            .iter_mut()
+            .chain(settings.live_sound_model_selection.iter_mut())
+            .chain(profiles.filter_map(|profile| profile.stt_model_selection_override.as_mut()));
+        for selection in selections {
+            if selection.provider == crate::settings::TranscriptionProvider::Local {
+                rename(&mut selection.model_id);
+            }
+        }
+        for id in &mut settings.native_streaming_live_output_models {
+            rename(id);
+        }
+        // The stem and the catalog id may both have been listed.
+        let mut seen = HashSet::new();
+        settings
+            .native_streaming_live_output_models
+            .retain(|id| seen.insert(id.clone()));
+
+        changed |= Self::rename_keys(&mut settings.transcription_prompts, &catalog_id);
+        changed |= Self::rename_keys(&mut settings.native_streaming_latency_presets, &catalog_id);
+        // Keys are `provider|preset|model id`; older ones spell the provider `Local`.
+        changed |= Self::rename_keys(&mut settings.file_transcription_model_configs, |key| {
+            let mut parts = key.splitn(3, '|');
+            let (provider, preset, id) = (parts.next()?, parts.next()?, parts.next()?);
+            if provider != "local" && provider != "Local" {
+                return None;
+            }
+            Some(format!("{provider}|{preset}|{}", catalog_id(id)?))
+        });
+        changed
+    }
+
+    /// Moves every entry whose key `new_key` renames. An entry already saved
+    /// under the new key wins.
+    fn rename_keys<V>(
+        map: &mut HashMap<String, V>,
+        new_key: impl Fn(&str) -> Option<String>,
+    ) -> bool {
+        let renames: Vec<(String, String)> = map
+            .keys()
+            .filter_map(|key| Some((key.clone(), new_key(key)?)))
+            .collect();
+        for (key, new_key) in &renames {
+            if let Some(value) = map.remove(key) {
+                map.entry(new_key.clone()).or_insert(value);
+            }
+        }
+        !renames.is_empty()
     }
 
     fn update_download_status(&self) -> Result<()> {
@@ -3330,6 +3432,109 @@ mod tests {
         assert!(ModelManager::disappears_when_missing(info));
         assert!(!models.contains_key(alternate.filename.trim_end_matches(".gguf")));
         assert!(models["custom"].is_custom);
+    }
+
+    #[test]
+    fn settings_saved_under_a_models_dir_stem_move_to_the_catalog_id() {
+        use crate::settings::{
+            get_default_settings, FileTranscriptionModelConfig, NativeStreamingLatencyPreset,
+            SttModelSelection, TranscriptionProfile, TranscriptionProvider,
+        };
+
+        let catalog_model = crate::catalog::CATALOG
+            .iter()
+            .find(|model| model.files.len() > 1)
+            .expect("catalog offers multi-quant models");
+        let alternate = catalog_model
+            .files
+            .iter()
+            .find(|file| file.quant != catalog_model.default_quant)
+            .unwrap();
+        // v1.0.49 named a catalog quant in the models dir after its file stem.
+        let stem = alternate.filename.trim_end_matches(".gguf").to_string();
+        let catalog_id = format!("{}/{}", catalog_model.repo_id, alternate.filename);
+        let mut models = HashMap::new();
+        ModelManager::seed_catalog_models(&mut models);
+        let mut info = ModelManager::catalog_model_info(catalog_model, alternate);
+        info.is_downloaded = true;
+        models.insert(catalog_id.clone(), info);
+
+        let selection = |provider, model_id: &str| SttModelSelection {
+            provider,
+            model_id: model_id.to_string(),
+            provider_preset: String::new(),
+        };
+        let local = selection(TranscriptionProvider::Local, &stem);
+        let remote = selection(TranscriptionProvider::RemoteOpenAiCompatible, &stem);
+        let mut profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
+            "id": "profile_test",
+            "name": "Test",
+            "language": "auto",
+            "translate_to_english": false
+        }))
+        .unwrap();
+        profile.stt_model_selection_override = Some(local.clone());
+        let mut config: FileTranscriptionModelConfig =
+            serde_json::from_value(serde_json::json!({})).unwrap();
+        config.profile_snapshot = Some(profile.clone());
+
+        let mut settings = get_default_settings();
+        settings.selected_model = stem.clone();
+        settings.live_sound_model_selection = Some(local);
+        settings.file_transcription_model_selection = Some(remote.clone());
+        settings.transcription_profiles.push(profile);
+        let configs = &mut settings.file_transcription_model_configs;
+        configs.insert(format!("Local||{stem}"), config.clone());
+        configs.insert(format!("remote_openai_compatible||{stem}"), config);
+        settings.native_streaming_live_output_models = vec![stem.clone(), catalog_id.clone()];
+        let latency = &mut settings.native_streaming_latency_presets;
+        latency.insert(stem.clone(), NativeStreamingLatencyPreset::Fast);
+        let prompts = &mut settings.transcription_prompts;
+        prompts.insert(stem.clone(), "old".to_string());
+        prompts.insert(catalog_id.clone(), "new".to_string());
+        prompts.insert("custom".to_string(), "custom".to_string());
+
+        assert!(ModelManager::rename_catalog_quant_stem_ids(
+            &mut settings,
+            &models
+        ));
+        let model_id = |selection: &Option<SttModelSelection>| selection.clone().unwrap().model_id;
+        assert_eq!(settings.selected_model, catalog_id);
+        assert_eq!(model_id(&settings.live_sound_model_selection), catalog_id);
+        assert_eq!(settings.file_transcription_model_selection, Some(remote));
+        let profile = settings.transcription_profiles.last().unwrap();
+        assert_eq!(model_id(&profile.stt_model_selection_override), catalog_id);
+        let configs = &settings.file_transcription_model_configs;
+        let config = &configs[&format!("Local||{catalog_id}")];
+        let snapshot = config.profile_snapshot.as_ref().unwrap();
+        assert_eq!(model_id(&snapshot.stt_model_selection_override), catalog_id);
+        assert!(configs.contains_key(&format!("remote_openai_compatible||{stem}")));
+        assert!(!configs.contains_key(&format!("Local||{stem}")));
+        assert_eq!(
+            settings.native_streaming_live_output_models,
+            [catalog_id.clone()]
+        );
+        assert_eq!(
+            settings.native_streaming_latency_presets,
+            HashMap::from([(catalog_id.clone(), NativeStreamingLatencyPreset::Fast)])
+        );
+        let prompts = &settings.transcription_prompts;
+        assert_eq!(prompts.len(), 2);
+        assert_eq!(prompts[&catalog_id], "new");
+        assert_eq!(prompts["custom"], "custom");
+        assert!(!ModelManager::rename_catalog_quant_stem_ids(
+            &mut settings,
+            &models
+        ));
+
+        // Without the model on disk the stem stays, so the missing model is reported.
+        models.get_mut(&catalog_id).unwrap().is_downloaded = false;
+        settings.selected_model = stem.clone();
+        assert!(!ModelManager::rename_catalog_quant_stem_ids(
+            &mut settings,
+            &models
+        ));
+        assert_eq!(settings.selected_model, stem);
     }
 
     #[test]
