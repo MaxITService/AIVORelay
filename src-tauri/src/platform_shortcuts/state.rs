@@ -225,6 +225,13 @@ impl CoordinatorState {
         self.hold = Some(Hold { pressed_at: Instant::now(), locked: true });
     }
 
+    /// A Preview action restarted the recording while its key is still down:
+    /// the release still ends it, measured from the original press.
+    pub(super) fn observe_held_recording(&mut self, binding_id: String, pressed_at: Instant) {
+        self.stage = Stage::Recording(binding_id);
+        self.hold = Some(Hold { pressed_at, locked: false });
+    }
+
     pub(super) fn observe_processing(&mut self) {
         self.stage = Stage::Processing;
         self.hold = None;

@@ -124,6 +124,8 @@ pub(crate) fn begin_recording(app: &AppHandle, operation_id: u64, settings: &App
         model_id: local.then(|| settings.selected_model.clone()),
     });
     emit(app);
+    // A restarted recording must re-check a push-to-talk key released just before it began.
+    crate::platform_shortcuts::notify_session_changed(app);
     schedule_slow_notice(app);
 }
 
