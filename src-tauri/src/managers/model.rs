@@ -191,6 +191,19 @@ fn hf_cached_paths_in(
         .collect()
 }
 
+/// `fs::remove_file` where an already missing file counts as nothing removed.
+fn remove_file_if_present(path: &Path) -> io::Result<bool> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        // Name the file: a delete can stop partway through several copies.
+        Err(e) => Err(io::Error::new(
+            e.kind(),
+            format!("couldn't remove {}: {}", path.display(), e),
+        )),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ModelInfo {
     pub id: String,
@@ -2462,14 +2475,18 @@ impl ModelManager {
                 }
                 let mut shared = 0;
                 if let Some((repo, revision, filename)) = model_hf_source(&model) {
-                    let active = hf_cached_path_in(&[Cache::from_env()], &repo, &revision, &filename);
-                    if let Some(path) = active {
-                        let own_bytes = storage_bytes(&path)?;
+                    let active: Vec<PathBuf> = hf_cached_paths_in(&[Cache::from_env()], &repo, &revision, &filename)
+                        .into_iter().filter(|path| path.is_file()).collect();
+                    // Revisions with unchanged bytes point at the same blob.
+                    let mut shared_blobs = HashSet::new();
+                    for path in &active {
+                        let own_bytes = storage_bytes(path)?;
                         bytes = bytes.saturating_add(own_bytes);
-                        if own_bytes == 0 {
-                            shared = path.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+                        if own_bytes == 0 && shared_blobs.insert(fs::canonicalize(path).unwrap_or_else(|_| path.clone())) {
+                            shared = shared.saturating_add(path.metadata().map(|metadata| metadata.len()).unwrap_or(0));
                         }
-                    } else if hf_cached_path(&repo, &revision, &filename).is_some() {
+                    }
+                    if active.is_empty() && hf_cached_path(&repo, &revision, &filename).is_some() {
                         anyhow::bail!("This model uses a read-only legacy Hugging Face cache");
                     }
                 }
@@ -2527,15 +2544,16 @@ impl ModelManager {
         if let Some((repo_id, revision, filename)) = model_hf_source(&model_info) {
             let removal = (|| -> Result<bool> {
             let mut deleted_something = false;
-            let active_path = hf_cached_path_in(
+            let active_paths = hf_cached_paths_in(
                 &[Cache::from_env()], &repo_id, &revision, &filename,
             );
-            if active_path.is_none() && hf_cached_path(&repo_id, &revision, &filename).is_some() {
+            let active_has_file = active_paths.iter().any(|path| path.is_file());
+            if !active_has_file && hf_cached_path(&repo_id, &revision, &filename).is_some() {
                 return Err(anyhow::anyhow!(
                     "This model is stored in the read-only legacy Hugging Face cache. Remove it from that cache manually if needed."
                 ));
             }
-            if active_path.is_none() && super::model_storage::local_mirror_is_shared(
+            if !active_has_file && super::model_storage::local_mirror_is_shared(
                 &self.models_dir, &filename, local_file_owners.iter().map(String::as_str),
             ) {
                 anyhow::bail!("This local file is used by another unselected model; select its model too before deleting it");
@@ -2543,13 +2561,13 @@ impl ModelManager {
             deleted_something |= super::model_storage::remove_hf_local_files(
                 &self.models_dir, &filename, local_file_owners.iter().map(String::as_str),
             )?;
-            if let Some(model_path) = active_path {
-                // The snapshot entry belongs to this model; the repository and
-                // its blobs may also serve other models, revisions, or apps.
-                // Remove the entry itself without following its symlink.
+            for model_path in active_paths {
+                // Every snapshot's entry for this filename belongs to this model,
+                // or it would stay downloaded through another revision. The
+                // repository and its blobs may also serve other models,
+                // revisions, or apps. Remove each entry without following its symlink.
                 info!("Deleting HF cached model entry at: {:?}", model_path);
-                fs::remove_file(model_path)?;
-                deleted_something = true;
+                deleted_something |= remove_file_if_present(&model_path)?;
             }
 
             if !deleted_something {
@@ -2966,6 +2984,23 @@ mod tests {
             super::hf_cached_path_in(&caches, "test/model", "pinned", "model.gguf"),
             Some(orphan_file)
         );
+    }
+
+    #[test]
+    fn hf_cache_removal_takes_every_snapshot_copy_and_tolerates_missing_ones() {
+        let fixture = HfCacheFixture::new();
+        let active = fixture.cache("active");
+        fixture.snapshot(&active, "main", "main-commit");
+        fixture.snapshot(&active, "pinned", "pinned-commit");
+        let caches = [active];
+        let copies = super::hf_cached_paths_in(&caches, "test/model", "pinned", "model.gguf");
+        assert_eq!(copies.len(), 2);
+
+        for path in &copies {
+            assert!(super::remove_file_if_present(path).unwrap());
+            assert!(!super::remove_file_if_present(path).unwrap());
+        }
+        assert!(copies.iter().all(|path| !path.exists()));
     }
 
     #[test]
