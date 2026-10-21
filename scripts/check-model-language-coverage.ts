@@ -6,6 +6,7 @@ import {
 
 interface CatalogModel {
   name: string;
+  role: string;
   languages?: string[];
 }
 
@@ -27,7 +28,13 @@ for (const [left, right] of [
   }
 }
 
-for (const model of catalog.models as CatalogModel[]) {
+// Only transcription models reach the language picker; the catalog also lists
+// the language-ID, VAD and diarization models transcribe.cpp publishes.
+const transcriptionModels = (catalog.models as CatalogModel[]).filter(
+  (model) => model.role === "asr",
+);
+
+for (const model of transcriptionModels) {
   for (const modelLanguage of model.languages ?? []) {
     if (!supportsLanguageCode(pickerCodes, modelLanguage)) {
       failures.push(

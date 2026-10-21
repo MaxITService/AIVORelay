@@ -33,6 +33,8 @@
 *.toml text eol=lf
 *.xml text eol=lf
 *.lock text eol=lf
+# Byte-exact copy of @handy-computer/models; `bun run check:catalog` compares bytes.
+src-tauri/src/catalog/catalog.json -text
 
 # Documentation
 *.md text eol=lf
