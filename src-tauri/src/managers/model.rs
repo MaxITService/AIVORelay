@@ -119,26 +119,76 @@ fn hf_cached_path(repo_id: &str, revision: &str, filename: &str) -> Option<PathB
     hf_cached_path_in(&hf_caches(), repo_id, revision, filename)
 }
 
+/// Reuse an existing file regardless of which revision originally downloaded it.
 fn hf_cached_path_in(
     caches: &[Cache],
     repo_id: &str,
     revision: &str,
     filename: &str,
 ) -> Option<PathBuf> {
-    caches.iter().find_map(|cache| {
-        let get = |revision: &str| {
-            cache
-                .repo(Repo::with_revision(
-                    repo_id.to_string(),
-                    RepoType::Model,
-                    revision.to_string(),
-                ))
-                .get(filename)
+    hf_cached_paths_in(caches, repo_id, revision, filename)
+        .into_iter()
+        .find(|path| path.is_file())
+}
+
+/// Snapshot directories in lookup order: the active cache first, even when
+/// only the legacy cache has the pin, then the pin, main and other snapshots.
+fn hf_snapshot_paths(caches: &[Cache], repo_id: &str, revision: &str) -> Vec<PathBuf> {
+    let mut snapshots = Vec::new();
+    for (cache_index, cache) in caches.iter().enumerate() {
+        let repo_dir = cache
+            .path()
+            .join(Repo::new(repo_id.to_string(), RepoType::Model).folder_name());
+        let root = repo_dir.join("snapshots");
+        let refs = repo_dir.join("refs");
+        let read_ref = |name: &str| {
+            fs::read_to_string(refs.join(name))
+                .ok()
+                .map(|s| s.trim().to_string())
         };
-        // Keep grandfathered main snapshots, while preferring the active cache
-        // even when only the legacy cache has a pinned revision.
-        get(revision).or_else(|| (revision != "main").then(|| get("main")).flatten())
-    })
+        let pin = read_ref(revision).unwrap_or_else(|| revision.to_string());
+        let main = read_ref("main");
+        // Known refs still work when directory listing is unavailable.
+        let mut paths = vec![root.join(&pin), root.join(revision)];
+        if let Some(main) = &main {
+            paths.push(root.join(main));
+        }
+        match fs::read_dir(&root) {
+            Ok(entries) => paths.extend(entries.flatten().map(|e| e.path())),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => warn!("Couldn't list HF snapshots at {:?}: {}", root, e),
+        }
+        for path in paths.into_iter().filter(|path| path.is_dir()) {
+            let Some(commit) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let rank = if commit == revision || commit == pin {
+                0
+            } else if main.as_deref() == Some(commit) {
+                1
+            } else {
+                2
+            };
+            snapshots.push((cache_index, rank, path));
+        }
+    }
+    snapshots.sort();
+    snapshots.dedup();
+    snapshots.into_iter().map(|(_, _, path)| path).collect()
+}
+
+/// Every cached copy of a file, dangling pointers included.
+fn hf_cached_paths_in(
+    caches: &[Cache],
+    repo_id: &str,
+    revision: &str,
+    filename: &str,
+) -> Vec<PathBuf> {
+    hf_snapshot_paths(caches, repo_id, revision)
+        .into_iter()
+        .map(|snapshot| snapshot.join(filename))
+        .filter(|path| path.is_file() || path.is_symlink())
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -1634,88 +1684,73 @@ impl ModelManager {
             };
             let repo_id = rest.replace("--", "/");
 
-            let refs_dir = entry.path().join("refs");
-            let Some(revision) = Self::pick_hf_revision(&refs_dir) else {
-                continue;
-            };
-            let Ok(commit) = fs::read_to_string(refs_dir.join(&revision)) else {
-                continue;
-            };
-            let snapshot = entry.path().join("snapshots").join(commit.trim());
-            let Ok(files) = fs::read_dir(&snapshot) else {
-                continue;
-            };
-
-            for file in files.flatten() {
-                let fname = file.file_name().to_string_lossy().to_string();
-                if !fname.ends_with(".gguf") {
+            let caches = [Cache::new(cache_root.to_path_buf())];
+            for snapshot in hf_snapshot_paths(&caches, &repo_id, "main") {
+                let Some(revision) = snapshot.file_name().and_then(|name| name.to_str()) else {
                     continue;
-                }
-                if known_hf.contains(&(repo_id.clone(), fname.clone())) {
+                };
+                let Ok(files) = fs::read_dir(&snapshot) else {
                     continue;
-                }
+                };
 
-                let model_id = format!("{}/{}", repo_id, fname);
-                if available_models.contains_key(&model_id) {
-                    continue;
-                }
+                for file in files.flatten() {
+                    let fname = file.file_name().to_string_lossy().to_string();
+                    if !fname.ends_with(".gguf") || !file.path().is_file() {
+                        continue;
+                    }
+                    if known_hf.contains(&(repo_id.clone(), fname.clone())) {
+                        continue;
+                    }
 
-                let path = snapshot.join(&fname);
-                let probe = prober.probe_file(&path);
-                if probe.verdict != Compatibility::Compatible {
-                    continue;
-                }
-                let caps = local_caps(&probe);
-                let size_mb = path
-                    .metadata()
-                    .map(|metadata| metadata.len() / (1024 * 1024))
-                    .unwrap_or(0);
-                let display_name = probed_display_name(&probe)
-                    .unwrap_or_else(|| fname.trim_end_matches(".gguf").to_string());
-                let latency_kind = native_streaming_latency_kind(&model_id);
+                    let model_id = format!("{}/{}", repo_id, fname);
+                    if available_models.contains_key(&model_id) {
+                        continue;
+                    }
 
-                info!("Discovered HF cache model: {} ({})", model_id, repo_id);
-                available_models.insert(
-                    model_id.clone(),
-                    ModelInfo {
-                        id: model_id,
-                        name: display_name,
-                        description: format!("From Hugging Face cache: {}", repo_id),
-                        filename: fname.clone(),
-                        url: Some(hf_source_url(&repo_id, &revision, &fname)),
-                        sha256: None,
-                        size_mb,
-                        is_downloaded: true,
-                        is_downloading: false,
-                        partial_size: 0,
-                        is_directory: false,
-                        engine_type: EngineType::TranscribeCpp,
-                        accuracy_score: 0.0,
-                        speed_score: 0.0,
-                        supports_translation: caps.supports_translation,
-                        supports_streaming: caps.supports_streaming,
-                        native_streaming_latency_kind: latency_kind,
-                        supports_language_detection: caps.supports_language_detection,
-                        is_recommended: false,
-                        supported_languages: caps.supported_languages,
-                        is_custom: false,
-                    },
-                );
+                    let path = snapshot.join(&fname);
+                    let probe = prober.probe_file(&path);
+                    if probe.verdict != Compatibility::Compatible {
+                        continue;
+                    }
+                    let caps = local_caps(&probe);
+                    let size_mb = path
+                        .metadata()
+                        .map(|metadata| metadata.len() / (1024 * 1024))
+                        .unwrap_or(0);
+                    let display_name = probed_display_name(&probe)
+                        .unwrap_or_else(|| fname.trim_end_matches(".gguf").to_string());
+                    let latency_kind = native_streaming_latency_kind(&model_id);
+
+                    info!("Discovered HF cache model: {} ({})", model_id, repo_id);
+                    available_models.insert(
+                        model_id.clone(),
+                        ModelInfo {
+                            id: model_id,
+                            name: display_name,
+                            description: format!("From Hugging Face cache: {}", repo_id),
+                            filename: fname.clone(),
+                            url: Some(hf_source_url(&repo_id, revision, &fname)),
+                            sha256: None,
+                            size_mb,
+                            is_downloaded: true,
+                            is_downloading: false,
+                            partial_size: 0,
+                            is_directory: false,
+                            engine_type: EngineType::TranscribeCpp,
+                            accuracy_score: 0.0,
+                            speed_score: 0.0,
+                            supports_translation: caps.supports_translation,
+                            supports_streaming: caps.supports_streaming,
+                            native_streaming_latency_kind: latency_kind,
+                            supports_language_detection: caps.supports_language_detection,
+                            is_recommended: false,
+                            supported_languages: caps.supported_languages,
+                            is_custom: false,
+                        },
+                    );
+                }
             }
         }
-    }
-
-    fn pick_hf_revision(refs_dir: &Path) -> Option<String> {
-        if refs_dir.join("main").is_file() {
-            return Some("main".to_string());
-        }
-        fs::read_dir(refs_dir).ok()?.flatten().find_map(|entry| {
-            if entry.path().is_file() {
-                entry.file_name().to_str().map(str::to_string)
-            } else {
-                None
-            }
-        })
     }
 
     /// Download one direct-HTTP file into a resumable partial path. This is
@@ -2872,6 +2907,38 @@ mod tests {
         assert_eq!(super::hf_cached_path_in(
             &[active], "test/model", "pinned", "missing.gguf",
         ), None);
+    }
+
+    #[test]
+    fn hf_cache_lookup_falls_back_from_pin_to_main_to_any_snapshot() {
+        let fixture = HfCacheFixture::new();
+        let active = fixture.cache("active");
+        let main_file = fixture.snapshot(&active, "main", "main-commit");
+        let pinned_file = fixture.snapshot(&active, "pinned", "pinned-commit");
+        let orphan = active
+            .path()
+            .join("models--test--model")
+            .join("snapshots")
+            .join("orphan-commit");
+        fs::create_dir_all(&orphan).unwrap();
+        let orphan_file = orphan.join("model.gguf");
+        fs::write(&orphan_file, "orphan-commit").unwrap();
+        let caches = [active];
+
+        assert_eq!(
+            super::hf_cached_paths_in(&caches, "test/model", "pinned", "model.gguf"),
+            vec![pinned_file.clone(), main_file.clone(), orphan_file.clone()]
+        );
+        fs::remove_file(pinned_file).unwrap();
+        assert_eq!(
+            super::hf_cached_path_in(&caches, "test/model", "pinned", "model.gguf"),
+            Some(main_file.clone())
+        );
+        fs::remove_file(main_file).unwrap();
+        assert_eq!(
+            super::hf_cached_path_in(&caches, "test/model", "pinned", "model.gguf"),
+            Some(orphan_file)
+        );
     }
 
     #[test]
