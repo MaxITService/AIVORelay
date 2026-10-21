@@ -971,35 +971,10 @@ fn handle_shortcut_event_inner(
         return;
     }
 
-    // Resolve an application-aware profile only for a fresh recording start.
-    // Repeated key-down events and a key-down that stops an existing toggle do
-    // not need foreground inspection or a pending settings snapshot.
-    let should_prepare_transcribe_start = if pressed
-        && (binding_id == "transcribe" || binding_id.starts_with("transcribe_"))
-    {
-        let toggle_state_manager = app.state::<ManagedToggleState>();
-        let states = match toggle_state_manager.lock() {
-            Ok(states) => states,
-            Err(poisoned) => {
-                warn!(
-                    "Toggle state lock poisoned while preparing shortcut '{}'; recovering",
-                    binding_id
-                );
-                poisoned.into_inner()
-            }
-        };
-        !states.active_presses.contains_key(binding_id)
-            && !states
-                .active_toggles
-                .get(binding_id)
-                .copied()
-                .unwrap_or(false)
-    } else {
-        false
-    };
-
-    if should_prepare_transcribe_start {
-        settings = crate::actions::prepare_transcribe_settings(app, binding_id);
+    // Resolve an application-aware profile so a fresh start's activation mode
+    // matches that profile. A running recording keeps its captured mode.
+    if pressed && crate::platform_shortcuts::is_transcribe_binding(binding_id) {
+        settings = crate::actions::resolve_transcribe_settings(app, binding_id);
     }
 
     let use_push_to_talk = match binding_id {
@@ -1045,7 +1020,6 @@ fn handle_shortcut_event_inner(
         _ => false,
     };
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
     if crate::platform_shortcuts::is_transcribe_binding(binding_id) {
         crate::platform_shortcuts::send_input(app, binding_id, shortcut_string, pressed,
             use_push_to_talk, use_auto_shortcut_activation);
@@ -1207,17 +1181,8 @@ fn handle_shortcut_event_inner(
                 }
             }
         }
-        Dispatch::Stop => {
-            if should_prepare_transcribe_start {
-                let _ = crate::actions::take_pending_transcribe_settings(binding_id);
-            }
-            action.stop(app, binding_id, shortcut_string);
-        }
-        Dispatch::Ignore => {
-            if should_prepare_transcribe_start {
-                let _ = crate::actions::take_pending_transcribe_settings(binding_id);
-            }
-        }
+        Dispatch::Stop => action.stop(app, binding_id, shortcut_string),
+        Dispatch::Ignore => {}
     }
 }
 

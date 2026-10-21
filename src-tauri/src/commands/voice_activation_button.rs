@@ -52,19 +52,22 @@ pub fn voice_activation_button_press(app: AppHandle) -> Result<(), String> {
 
     let shortcut_str = "voice_activation_button";
 
-    // Auto marks its recording active on physical keydown. If the Voice
-    // Activation Button is pressed during that interval, it is an independent
-    // control and must stop the recording instead of attempting a second start.
+    // The button is an independent control: a main recording started by a
+    // hotkey, which the shortcut coordinator owns without toggle state, or by
+    // the button itself must stop instead of attempting a second start.
     {
+        let recording =
+            crate::session_manager::recording_operation_id(&app, "transcribe").is_some();
         let toggle_state_manager = app.state::<ManagedToggleState>();
         let mut states = toggle_state_manager
             .lock()
             .map_err(|_| "Failed to lock toggle state manager".to_string())?;
-        if states
-            .active_toggles
-            .get("transcribe")
-            .copied()
-            .unwrap_or(false)
+        if recording
+            || states
+                .active_toggles
+                .get("transcribe")
+                .copied()
+                .unwrap_or(false)
         {
             states.active_toggles.insert("transcribe".to_string(), false);
             states.active_presses.remove("transcribe");

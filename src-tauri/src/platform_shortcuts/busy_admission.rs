@@ -1,4 +1,4 @@
-//! Linux follows Windows: input received while busy must not start later.
+//! Input received while busy must not start later.
 //! Keep rejected physical gestures suppressed through their release, including
 //! X11's synthetic release/press repeats. External commands have no release.
 
