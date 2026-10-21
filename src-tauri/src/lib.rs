@@ -6,7 +6,6 @@ mod active_app;
 mod apple_intelligence;
 mod audio_feedback;
 mod output_dispatch;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod platform_shortcuts;
 mod autostart;
 pub mod audio_toolkit;
@@ -522,7 +521,6 @@ fn timed_startup<T>(label: &str, operation: impl FnOnce() -> T) -> T {
 }
 
 fn initialize_core_logic(app_handle: &AppHandle) {
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
     platform_shortcuts::install(app_handle);
     recording_model_loading::install(app_handle);
     let speech_only = webview_mode::webviews_disabled();

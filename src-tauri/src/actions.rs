@@ -4221,6 +4221,12 @@ pub(crate) fn prepare_transcribe_settings(app: &AppHandle, binding_id: &str) -> 
     )
 }
 
+/// Resolves the settings a fresh hotkey start would capture without storing
+/// a pending snapshot. The shortcut coordinator prepares the start itself.
+pub(crate) fn resolve_transcribe_settings(app: &AppHandle, binding_id: &str) -> AppSettings {
+    prepared_transcribe_start_for_binding(app, binding_id).settings
+}
+
 /// Prepares a main-transcribe snapshot without inspecting or later falling
 /// back to the foreground app. AivoRelay-hosted controls cannot reliably
 /// identify the previously focused target after being clicked.
