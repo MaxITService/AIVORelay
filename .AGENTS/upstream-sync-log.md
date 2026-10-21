@@ -6,6 +6,21 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-10-21):
+- Reviewed `9e57a0d7..93c9ee05` (1 commit); cursor is now `93c9ee05`. Ported it
+  as four commits: the `@handy-computer/models` 0.2.2 catalog (schema 2, Q8_0
+  defaults, `sync-catalog` and the `check:catalog` CI step; `gen_catalog.py`
+  removed), cache lookup at any snapshot revision, catalog quants found on disk
+  listed with catalog metadata, and deletion of every active-cache copy.
+- Kept fork behaviour: whisper-large-v3-turbo translation, read-only legacy cache
+  with active-cache priority, shared local-mirror checks, SHA256 checks,
+  zh-Hans/zh-Hant, native streaming latency kinds, no symlink-following deletes.
+- Skipped: shared-blob deletion (blobs stay, by product decision), the
+  `portable.rs` comment (legacy cache stays read-only), `mirror_models.py` and
+  the retired-ONNX test (neither exists in the fork), the case-folder discovery
+  test (no synthetic GGUF helper; exact-case match ported). Nix lock hash
+  updated but not built; nothing built or tested on Windows either.
+
 Audit note (2026-10-17):
 - Lifted the Linux/macOS skip rule and replayed every upstream Linux/macOS commit
   since the fork base as its final state (cursor unchanged, `9e57a0d7`). Nothing
@@ -339,6 +354,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-10-21 | 2026-10-20 | `93c9ee05` | catalog from @handy-computer/models package (#2299) | Use the shared model catalog; find, list and fully delete cached models | 4 commits; blobs kept; legacy cache read-only |
 | 2026-10-16 | 2026-10-12 | `7b2a28a3` | fix: don't re-emit hangover frames in VAD pre-roll | Stop repeating a moment of audio when speech resumes right after a pause | emitted flag only; regression test |
 | 2026-10-16 | 2026-10-12 | `1b011a19` | transcribe 0.4.0 (#2265) | Update the local speech engine to transcribe-cpp 0.4.0 | exact pins; fallible capabilities; lock regenerated |
 | 2026-10-09 | 2026-10-07 | `417dc6ac` | fix: show model loading in the Live preview when the load is slow | feat(transcription): isolate native engine and adapt upstream updates | captured session/model; elapsed-time retry and preview hydration |
@@ -362,7 +378,6 @@ Rules:
 | 2026-08-31 | 2026-08-30 | `6fa85061` | fix 'no' not showing up + add ci so shouldnt happen again (#2001) | fix(language): preserve intent across model code aliases | manual runtime/UI adaptation; fork-aware catalog coverage guard added |
 | 2026-08-27 | 2026-08-25 | `df216832` | stop losing tail audio when a recording ends (#1958) | feat(audio): add Earshot and preserve recording output | manual boundary/resampler adaptation; bounded drain and fork framing retained |
 | 2026-08-27 | 2026-08-25 | `20ada47` | experimental earshot vad implementation (#1967) | feat(audio): add Earshot and preserve recording output | manual selectable backend; separate 256-sample VAD stage and transactional runtime swap |
-| 2026-08-27 | 2026-08-25 | `258899a` | redact transcriptions from log in production build | feat(audio): add Earshot and preserve recording output | release redaction retained; explicit independent text-log toggle added |
 
 Entry template:
 
