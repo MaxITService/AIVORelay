@@ -337,6 +337,25 @@ fn offered_models() -> impl Iterator<Item = &'static RawModel> {
 pub static CATALOG: Lazy<Vec<CatalogModel>> =
     Lazy::new(|| offered_models().map(CatalogModel::from).collect());
 
+/// The offered model and quant a cached file belongs to. The repo must match
+/// exactly: on a case-sensitive filesystem only the cache folder's own casing
+/// finds the file again.
+pub fn file_in_catalog(
+    filename: &str,
+    repo_id: &str,
+) -> Option<(&'static CatalogModel, &'static CatalogFile)> {
+    CATALOG
+        .iter()
+        .filter(|model| model.repo_id == repo_id)
+        .find_map(|model| {
+            model
+                .files
+                .iter()
+                .find(|file| file.filename == filename)
+                .map(|file| (model, file))
+        })
+}
+
 /// A mirror copy of a catalog model's file, with the expected content hash for
 /// end-to-end verification. Mirrors are untrusted bit-pipes: the sha256 here
 /// (from the catalog compiled into the binary) is the trust anchor.
@@ -491,6 +510,21 @@ mod tests {
                 .iter()
                 .any(|m| m.repo_id == repo_id && m.capabilities.translate));
         }
+    }
+
+    #[test]
+    fn file_in_catalog_matches_every_quant_of_the_exact_repo() {
+        let model = CATALOG
+            .iter()
+            .find(|m| m.files.len() > 1)
+            .expect("catalog offers multi-quant models");
+        for file in &model.files {
+            let (found, quant) = file_in_catalog(&file.filename, &model.repo_id).unwrap();
+            assert_eq!(found.repo_id, model.repo_id);
+            assert_eq!(quant.quant, file.quant);
+        }
+        let filename = &model.files[0].filename;
+        assert!(file_in_catalog(filename, &model.repo_id.to_uppercase()).is_none());
     }
 
     #[test]

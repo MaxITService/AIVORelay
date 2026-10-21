@@ -1140,54 +1140,66 @@ impl ModelManager {
                 continue;
             }
 
-            let mut supported_languages = catalog_model.languages.clone();
-            if supported_languages.iter().any(|language| language == "zh") {
-                if !supported_languages
-                    .iter()
-                    .any(|language| language == "zh-Hans")
-                {
-                    supported_languages.push("zh-Hans".to_string());
-                }
-                if !supported_languages
-                    .iter()
-                    .any(|language| language == "zh-Hant")
-                {
-                    supported_languages.push("zh-Hant".to_string());
-                }
-            }
+            available_models.insert(model_id, Self::catalog_model_info(catalog_model, file));
+        }
+    }
 
-            available_models.insert(
-                model_id.clone(),
-                ModelInfo {
-                    id: model_id,
-                    name: catalog_model.name.clone(),
-                    description: catalog_model.description.clone(),
-                    filename: file.filename.clone(),
-                    url: Some(hf_source_url(
-                        &catalog_model.repo_id,
-                        &catalog_model.revision,
-                        &file.filename,
-                    )),
-                    sha256: Some(file.sha256.clone()),
-                    size_mb: file.size_bytes / (1024 * 1024),
-                    is_downloaded: false,
-                    is_downloading: false,
-                    partial_size: 0,
-                    is_directory: false,
-                    engine_type: EngineType::TranscribeCpp,
-                    accuracy_score: catalog_model.accuracy_score,
-                    speed_score: catalog_model.speed_score,
-                    supports_translation: catalog_model.capabilities.translate,
-                    supports_streaming: catalog_model.capabilities.streaming,
-                    native_streaming_latency_kind: native_streaming_latency_kind(
-                        &catalog_model.repo_id,
-                    ),
-                    supports_language_detection: catalog_model.capabilities.lang_detect,
-                    is_recommended: catalog_model.recommended,
-                    supported_languages: canonicalize_supported_languages(supported_languages),
-                    is_custom: false,
-                },
-            );
+    /// One catalog quant as a model entry. Alternate quants found on disk keep
+    /// the catalog metadata, with the quant in the name so two quants of one
+    /// model stay tellable apart; only the default carries the Recommended badge.
+    fn catalog_model_info(
+        catalog_model: &crate::catalog::CatalogModel,
+        file: &crate::catalog::CatalogFile,
+    ) -> ModelInfo {
+        let is_default = file.quant == catalog_model.default_quant;
+        let name = if is_default {
+            catalog_model.name.clone()
+        } else {
+            format!("{} ({})", catalog_model.name, file.quant)
+        };
+
+        let mut supported_languages = catalog_model.languages.clone();
+        if supported_languages.iter().any(|language| language == "zh") {
+            if !supported_languages
+                .iter()
+                .any(|language| language == "zh-Hans")
+            {
+                supported_languages.push("zh-Hans".to_string());
+            }
+            if !supported_languages
+                .iter()
+                .any(|language| language == "zh-Hant")
+            {
+                supported_languages.push("zh-Hant".to_string());
+            }
+        }
+
+        ModelInfo {
+            id: format!("{}/{}", catalog_model.repo_id, file.filename),
+            name,
+            description: catalog_model.description.clone(),
+            filename: file.filename.clone(),
+            url: Some(hf_source_url(
+                &catalog_model.repo_id,
+                &catalog_model.revision,
+                &file.filename,
+            )),
+            sha256: Some(file.sha256.clone()),
+            size_mb: file.size_bytes / (1024 * 1024),
+            is_downloaded: false,
+            is_downloading: false,
+            partial_size: 0,
+            is_directory: false,
+            engine_type: EngineType::TranscribeCpp,
+            accuracy_score: catalog_model.accuracy_score,
+            speed_score: catalog_model.speed_score,
+            supports_translation: catalog_model.capabilities.translate,
+            supports_streaming: catalog_model.capabilities.streaming,
+            native_streaming_latency_kind: native_streaming_latency_kind(&catalog_model.repo_id),
+            supports_language_detection: catalog_model.capabilities.lang_detect,
+            is_recommended: catalog_model.recommended && is_default,
+            supported_languages: canonicalize_supported_languages(supported_languages),
+            is_custom: false,
         }
     }
 
@@ -1704,6 +1716,21 @@ impl ModelManager {
 
                     let model_id = format!("{}/{}", repo_id, fname);
                     if available_models.contains_key(&model_id) {
+                        continue;
+                    }
+
+                    // Catalog quants of the same repo keep their catalog
+                    // metadata; the catalog is authoritative for its own files.
+                    if let Some((catalog_model, catalog_file)) =
+                        crate::catalog::file_in_catalog(&fname, &repo_id)
+                    {
+                        let mut info = Self::catalog_model_info(catalog_model, catalog_file);
+                        info.is_downloaded = true;
+                        info!(
+                            "Discovered catalog quant in HF cache: {} ({})",
+                            info.id, repo_id
+                        );
+                        available_models.insert(info.id.clone(), info);
                         continue;
                     }
 
@@ -2939,6 +2966,40 @@ mod tests {
             super::hf_cached_path_in(&caches, "test/model", "pinned", "model.gguf"),
             Some(orphan_file)
         );
+    }
+
+    #[test]
+    fn hf_cache_discovery_lists_alternate_catalog_quants_with_catalog_metadata() {
+        let catalog_model = crate::catalog::CATALOG
+            .iter()
+            .find(|model| model.files.len() > 1)
+            .expect("catalog offers multi-quant models");
+        let alternate = catalog_model
+            .files
+            .iter()
+            .find(|file| file.quant != catalog_model.default_quant)
+            .unwrap();
+        let fixture = HfCacheFixture::new();
+        let cache = fixture.cache("active");
+        let repo = hf_hub::Repo::new(catalog_model.repo_id.clone(), hf_hub::RepoType::Model);
+        let snapshot = cache
+            .path()
+            .join(repo.folder_name())
+            .join("snapshots")
+            .join("old-commit");
+        fs::create_dir_all(&snapshot).unwrap();
+        fs::write(snapshot.join(&alternate.filename), "cached").unwrap();
+
+        let mut models = HashMap::new();
+        ModelManager::discover_hf_cache_models_in(cache.path(), &mut models);
+
+        let info = &models[&format!("{}/{}", catalog_model.repo_id, alternate.filename)];
+        let name = format!("{} ({})", catalog_model.name, alternate.quant);
+        assert_eq!(info.name, name);
+        assert_eq!(info.sha256.as_deref(), Some(alternate.sha256.as_str()));
+        assert_eq!(info.accuracy_score, catalog_model.accuracy_score);
+        assert!(info.is_downloaded && !info.is_recommended);
+        assert!(ModelManager::disappears_when_missing(info));
     }
 
     #[test]
