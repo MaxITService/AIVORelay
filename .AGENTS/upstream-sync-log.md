@@ -15,7 +15,8 @@ Audit note (2026-10-21):
   removal of blobs no other file uses.
 - Kept fork behaviour: whisper-large-v3-turbo translation, read-only legacy cache
   with active-cache priority, shared local-mirror checks, SHA256, zh-Hans/zh-Hant,
-  native streaming latency kinds; deletes follow links only into `blobs/`.
+  native streaming latency kinds; deletes follow links only into `blobs/`;
+  settings saved under a v1.0.49 file-stem id move to the quant's catalog id.
 - Skipped: the `portable.rs` comment (legacy cache stays read-only),
   `mirror_models.py` and the retired-ONNX test (neither exists in the fork), the
   case-folder discovery test (no synthetic GGUF helper; exact-case match
