@@ -553,6 +553,10 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_pause_media_while_recording_setting", {
     enabled: Boolean(value),
   });
+(settingUpdaters as any).queue_recording_during_processing = (value: any) =>
+  invoke("change_queue_recording_during_processing_setting", {
+    enabled: Boolean(value),
+  });
 (settingUpdaters as any).file_transcription_chunking_mode = (value: any) =>
   invoke("change_file_transcription_chunking_mode_setting", { mode: value });
 (settingUpdaters as any).file_transcription_chunking_max_minutes = (

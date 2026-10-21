@@ -4405,6 +4405,10 @@ pub struct AppSettings {
     pub mute_immediately: bool,
     #[serde(default)]
     pub pause_media_while_recording: bool,
+    /// Start a recording requested while the previous one is processing once
+    /// that processing finishes, instead of ignoring the request.
+    #[serde(default)]
+    pub queue_recording_during_processing: bool,
     #[serde(default = "default_filter_silence")]
     pub filter_silence: bool,
     #[serde(default)]
@@ -6595,6 +6599,7 @@ pub fn get_default_settings() -> AppSettings {
         mute_while_recording: false,
         mute_immediately: false,
         pause_media_while_recording: false,
+        queue_recording_during_processing: false,
         filter_silence: default_filter_silence(),
         vad_backend: VadBackend::default(),
         file_transcription_chunking_mode: default_file_transcription_chunking_mode(),

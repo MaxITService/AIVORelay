@@ -218,6 +218,12 @@ pub fn record_tray_error(app: &AppHandle, text: &'static str) {
     }
 }
 
+/// Whether a failure since the last recording start is still being shown.
+pub fn has_recent_error(app: &AppHandle) -> bool {
+    app.try_state::<TrayState>()
+        .is_some_and(|state| state.lock().last_error.is_some())
+}
+
 /// At most one timer runs. Repeated errors only move the deadline, so
 /// mashing a failing shortcut cannot pile up threads.
 fn spawn_error_expiry_timer(app: &AppHandle) {

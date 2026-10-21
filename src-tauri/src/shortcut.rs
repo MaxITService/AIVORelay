@@ -6390,6 +6390,20 @@ pub fn change_pause_media_while_recording_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_queue_recording_during_processing_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let _settings_guard =
+        settings::lock_settings_mutation("changing recording queue during processing")?;
+    let mut settings = settings::get_settings(&app);
+    settings.queue_recording_during_processing = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_filter_silence_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let _settings_guard = settings::lock_settings_mutation("changing Filter Silence")?;
 

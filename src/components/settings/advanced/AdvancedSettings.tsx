@@ -9,6 +9,7 @@ import { RecordingAutoStop } from "../RecordingAutoStop";
 import { AccelerationSelector } from "../AccelerationSelector";
 import { MuteWhileRecording } from "../MuteWhileRecording";
 import { PauseMediaWhileRecording } from "../PauseMediaWhileRecording";
+import { QueueRecordingDuringProcessing } from "../QueueRecordingDuringProcessing";
 import { ChineseScriptSetting } from "../ChineseScript";
 import { NeverLaunchWebView } from "../NeverLaunchWebView";
 import { openDefaultProfileOutputSettings } from "@/lib/transcriptionProfileNavigation";
@@ -51,6 +52,7 @@ export const AdvancedSettings: React.FC = () => {
         <RecordingAutoStop descriptionMode="tooltip" grouped={true} />
         <MuteWhileRecording descriptionMode="tooltip" grouped={true} />
         <PauseMediaWhileRecording descriptionMode="tooltip" grouped={true} />
+        <QueueRecordingDuringProcessing descriptionMode="tooltip" grouped={true} />
         <div className="px-6 pt-4">
           <TellMeMore
             title={t("settings.advanced.tellMeMore.modelUnload.title")}

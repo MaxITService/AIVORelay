@@ -227,6 +227,10 @@
         "label": "Hemen sessize al",
         "description": "Başlangıçtaki arka plan sesini azaltmak için mikrofon yakalama başlar başlamaz sistem sesini kapat ve başlangıç sesini atla. Yalnızca mikrofon kayıtlarına uygulanır."
       },
+      "queueRecordingDuringProcessing": {
+        "label": "Sonraki kaydı sıraya al",
+        "description": "Önceki kayıt hâlâ işlenirken yeni bir kayıt istenirse, işlem biter bitmez başlar. İşlem başarısız olursa veya Preview hâlâ açıksa atlanır. Kapalıyken bu tür istekler yok sayılır."
+      },
       "chineseScript": {
         "title": "Çince yazı",
         "description": "Mandarin ve Kantonca transkripsiyonları Basitleştirilmiş veya Geleneksel karakterlerle yazar. Diğer diller değiştirilmez.",

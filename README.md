@@ -361,8 +361,9 @@ Repeated `start` and `stop` are safe: starting while recording and stopping whil
 idle do nothing. Start uses the manually selected transcription profile; stop
 preserves the active recording's profile, settings, and output mode, including
 recordings started by a profile shortcut. Start/stop/toggle do nothing while
-processing or while microphone startup/cleanup is in progress. Cancel uses the
-app's existing operation cancellation behavior.
+microphone startup/cleanup is in progress, or while processing unless the Advanced
+setting Queue Next Recording is on: then start queues the next recording, stop
+withdraws it, and toggle flips it. Cancel uses the app's existing cancellation.
 
 Transcript commands use the latest completed dictation retained in History,
 prefer its post-processed text, and skip empty results. Paste uses the saved
