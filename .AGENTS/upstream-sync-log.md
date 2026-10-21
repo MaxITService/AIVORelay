@@ -8,18 +8,19 @@ Non-`main` branches must not carry or update independent copies.
 
 Audit note (2026-10-21):
 - Reviewed `9e57a0d7..93c9ee05` (1 commit); cursor is now `93c9ee05`. Ported it
-  as four commits: the `@handy-computer/models` 0.2.2 catalog (schema 2, Q8_0
+  as five commits: the `@handy-computer/models` 0.2.2 catalog (schema 2, Q8_0
   defaults, `sync-catalog` and the `check:catalog` CI step; `gen_catalog.py`
   removed), cache lookup at any snapshot revision, catalog quants found on disk
-  listed with catalog metadata, and deletion of every active-cache copy.
+  listed with catalog metadata, deletion of every active-cache copy, and removal
+  of blobs no other file uses.
 - Kept fork behaviour: whisper-large-v3-turbo translation, read-only legacy cache
   with active-cache priority, shared local-mirror checks, SHA256 checks,
   zh-Hans/zh-Hant, native streaming latency kinds, no symlink-following deletes.
-- Skipped: shared-blob deletion (blobs stay, by product decision), the
-  `portable.rs` comment (legacy cache stays read-only), `mirror_models.py` and
-  the retired-ONNX test (neither exists in the fork), the case-folder discovery
-  test (no synthetic GGUF helper; exact-case match ported). Nix lock hash
-  updated but not built; nothing built or tested on Windows either.
+- Skipped: the `portable.rs` comment (legacy cache stays read-only),
+  `mirror_models.py` and the retired-ONNX test (neither exists in the fork), the
+  case-folder discovery test (no synthetic GGUF helper; exact-case match
+  ported). Nix lock hash updated but not built; Windows unit tests passed before
+  blob removal, which is untested.
 
 Audit note (2026-10-17):
 - Lifted the Linux/macOS skip rule and replayed every upstream Linux/macOS commit
@@ -354,7 +355,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
-| 2026-10-21 | 2026-10-20 | `93c9ee05` | catalog from @handy-computer/models package (#2299) | Use the shared model catalog; find, list and fully delete cached models | 4 commits; blobs kept; legacy cache read-only |
+| 2026-10-21 | 2026-10-20 | `93c9ee05` | catalog from @handy-computer/models package (#2299) | Use the shared model catalog; find, list and fully delete cached models | 5 commits; unshared blobs freed; legacy cache read-only |
 | 2026-10-16 | 2026-10-12 | `7b2a28a3` | fix: don't re-emit hangover frames in VAD pre-roll | Stop repeating a moment of audio when speech resumes right after a pause | emitted flag only; regression test |
 | 2026-10-16 | 2026-10-12 | `1b011a19` | transcribe 0.4.0 (#2265) | Update the local speech engine to transcribe-cpp 0.4.0 | exact pins; fallible capabilities; lock regenerated |
 | 2026-10-09 | 2026-10-07 | `417dc6ac` | fix: show model loading in the Live preview when the load is slow | feat(transcription): isolate native engine and adapt upstream updates | captured session/model; elapsed-time retry and preview hydration |
