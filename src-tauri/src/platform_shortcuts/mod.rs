@@ -143,28 +143,35 @@ impl RuntimeState {
 
     /// Tracks a physical edge after the reconcile that saw it. A busy-rejected
     /// edge reaches the machine only for the adopted recording its key holds.
-    fn admit(&mut self, input: &QueuedInput, snapshot: &Snapshot, rejected: bool, allow: impl FnOnce() -> bool) -> bool {
+    fn admit(&mut self, input: &mut QueuedInput, snapshot: &Snapshot, rejected: bool, allow: impl FnOnce(&QueuedInput) -> bool) -> bool {
         let owned = !input.event.external && self.adopted && matches!(snapshot, Snapshot::Recording { binding, operation }
             if *binding == input.event.binding_id && self.operation == Some(*operation));
         self.track(input);
-        owned || (!rejected && allow())
+        owned || (!rejected && allow(input))
     }
 
-    fn track(&mut self, input: &QueuedInput) {
-        let event = &input.event;
+    /// Every edge of a held key takes the activation its press was judged by.
+    /// A queued start re-resolves the application profile, and a release reads
+    /// the global setting, so either could otherwise switch a hold to toggle.
+    fn track(&mut self, input: &mut QueuedInput) {
+        let event = &mut input.event;
         if event.external { return; }
         if !event.is_pressed {
-            if let Some(key) = self.keys.get_mut(&event.binding_id) { key.released_at.get_or_insert(input.received_at); }
+            if let Some(key) = self.keys.get_mut(&event.binding_id) {
+                key.released_at.get_or_insert(input.received_at);
+                (event.mode, event.hold_threshold) = (key.mode, key.hold_threshold);
+            }
             return;
         }
-        let pressed_at = match self.keys.get(&event.binding_id) {
+        let (pressed_at, mode, hold_threshold) = match self.keys.get(&event.binding_id) {
             // X11 repeats a held key as release/press pairs inside the grace.
             Some(key) if key.released_at.is_none_or(|released| input.received_at.saturating_duration_since(released) < RELEASE_GRACE) =>
-                key.pressed_at,
-            _ => input.received_at,
+                (key.pressed_at, key.mode, key.hold_threshold),
+            _ => (input.received_at, event.mode, event.hold_threshold),
         };
-        self.keys.insert(event.binding_id.clone(), PhysicalKey { pressed_at, released_at: None, mode: event.mode,
-            hold_threshold: event.hold_threshold, hotkey: event.hotkey_string.clone() });
+        (event.mode, event.hold_threshold) = (mode, hold_threshold);
+        self.keys.insert(event.binding_id.clone(), PhysicalKey { pressed_at, released_at: None, mode,
+            hold_threshold, hotkey: event.hotkey_string.clone() });
     }
 
     /// Seeds the machine for a recording begun outside it, such as by a Preview
@@ -339,8 +346,9 @@ pub(crate) fn install(app: &AppHandle) {
                 let current = snapshot(&app);
                 let blocked = session_manager::recording_start_is_blocked();
                 let queue = queue_applies(&app, &current);
-                if !runtime.admit(&input, &current, rejected, || allow_input(&input, &current, blocked, queue)) { continue; }
+                // A new press is tracked with the mode the recording captured.
                 use_captured_activation(&app, &mut input);
+                if !runtime.admit(&mut input, &current, rejected, |input| allow_input(input, &current, blocked, queue)) { continue; }
                 if let Some(effect) = runtime.on_input(input, &current, blocked, queue) {
                     run_effect(&app, &mut runtime, effect);
                 }
@@ -743,10 +751,11 @@ mod tests {
             is_pressed: pressed, mode, hold_threshold: ms(300), external: false } }
     }
 
-    /// Mirrors the executor after its reconcile; `rejected` edges were refused as busy on arrival.
-    fn send_key(runtime: &mut RuntimeState, input: QueuedInput, snapshot: &Snapshot, rejected: bool) -> Option<Effect> {
-        if !runtime.admit(&input, snapshot, rejected, || true) { return None; }
-        runtime.on_input(input, snapshot, false, false)
+    /// Mirrors the executor after its reconcile, with the queue setting on;
+    /// `rejected` edges were refused as busy on arrival.
+    fn send_key(runtime: &mut RuntimeState, mut input: QueuedInput, snapshot: &Snapshot, rejected: bool) -> Option<Effect> {
+        if !runtime.admit(&mut input, snapshot, rejected, |_| true) { return None; }
+        runtime.on_input(input, snapshot, false, true)
     }
 
     /// The key starts recording 1 through the machine, as `run_effect` records it.
@@ -808,7 +817,7 @@ mod tests {
         assert!(send_key(&mut runtime, key(false, ShortcutActivation::PushToTalk, base + ms(150)), &processing, true).is_none());
         runtime.reconcile_at(recording(2), false, || true, base + ms(300));
         assert!(!runtime.adopted && runtime.machine.grace_deadline().is_none());
-        assert!(!runtime.admit(&key(false, ShortcutActivation::PushToTalk, base + ms(400)), &recording(2), true, || true),
+        assert!(!runtime.admit(&mut key(false, ShortcutActivation::PushToTalk, base + ms(400)), &recording(2), true, |_| true),
             "a rejected edge must not control a recording its key no longer holds");
         assert_eq!(send_key(&mut runtime, key(true, ShortcutActivation::PushToTalk, base + ms(1000)), &recording(2), false), stop());
     }
@@ -875,6 +884,51 @@ mod tests {
         let mut idle = RuntimeState::new();
         idle.reconcile_at(recording(2), false, || true, base);
         assert!(!idle.adopted, "an outside start with no key down stays locked");
+    }
+
+    #[test]
+    fn queued_hold_keeps_push_to_talk_when_its_start_resolves_a_toggle_profile() {
+        // The drain re-resolves an application profile that toggles, so the
+        // captured activation hands the key's later edges over as toggle edges.
+        let (ptt, toggle) = (ShortcutActivation::PushToTalk, ShortcutActivation::Toggle);
+        let processing = Snapshot::Processing { operation: 1 };
+        for repeat in [false, true] {
+            let base = Instant::now();
+            let mut runtime = RuntimeState::new();
+            runtime.reconcile_at(Snapshot::Processing { operation: 1 }, false, || true, base);
+            assert!(send_key(&mut runtime, key(true, ptt, base + ms(10)), &processing, false).is_none());
+            assert_eq!(runtime.reconcile_at(Snapshot::Idle, false, || true, base + ms(100)),
+                Some(Effect::Start { binding_id: "transcribe".into(), hotkey_string: "ctrl+space".into() }));
+            runtime.operation = Some(2);
+            if repeat {
+                assert!(send_key(&mut runtime, key(false, toggle, base + ms(300)), &recording(2), false).is_none());
+                assert!(send_key(&mut runtime, key(true, toggle, base + ms(305)), &recording(2), false).is_none());
+                assert!(runtime.machine.grace_deadline().is_none(), "an X11 repeat must neither stop nor lock the hold");
+            }
+            assert!(send_key(&mut runtime, key(false, toggle, base + ms(800)), &recording(2), false).is_none());
+            assert_eq!(runtime.machine.on_grace_expired(), stop(), "releasing the push-to-talk key must stop it");
+        }
+    }
+
+    #[test]
+    fn busy_release_is_judged_by_the_mode_its_press_was_queued_with() {
+        // An application profile made the press push-to-talk, while the
+        // release reads the global toggle setting.
+        let (ptt, toggle) = (ShortcutActivation::PushToTalk, ShortcutActivation::Toggle);
+        let processing = Snapshot::Processing { operation: 1 };
+        let base = Instant::now();
+        let mut runtime = RuntimeState::new();
+        runtime.reconcile_at(Snapshot::Processing { operation: 1 }, false, || true, base);
+        assert!(send_key(&mut runtime, key(true, ptt, base + ms(10)), &processing, false).is_none());
+        assert!(send_key(&mut runtime, key(false, toggle, base + ms(500)), &processing, false).is_none());
+        assert!(runtime.machine.on_grace_expired().is_none());
+        assert!(runtime.reconcile_at(Snapshot::Idle, false, || true, base + ms(600)).is_none(),
+            "a hold released while busy has nothing left to start");
+
+        assert!(matches!(send_key(&mut runtime, key(true, toggle, base + ms(2000)), &Snapshot::Idle, false), Some(Effect::Start { .. })));
+        runtime.operation = Some(2);
+        assert!(send_key(&mut runtime, key(false, ptt, base + ms(2100)), &recording(2), false).is_none());
+        assert!(runtime.machine.grace_deadline().is_none(), "the next gesture takes its own press mode");
     }
 
     #[test]
