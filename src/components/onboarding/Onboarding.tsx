@@ -329,7 +329,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
             ) : mode === "select" ? (
               <div className="flex flex-col gap-4">
                 <button
-                  className="glass-panel-interactive flex justify-between items-center rounded-xl p-5 text-left group"
+                  className="glass-panel-interactive flex justify-between items-center gap-4 rounded-xl p-5 text-left group"
                   onClick={handleSelectLocal}
                 >
                   <div>
@@ -340,7 +340,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
                       {t("onboarding.mode.local.description")}
                     </p>
                   </div>
-                  <div className="w-10 h-10 rounded-full bg-[#9b5de5] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="w-10 h-10 shrink-0 rounded-full bg-[#9b5de5] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <svg
                       className="w-5 h-5 text-white"
                       fill="none"
@@ -357,7 +357,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
                   </div>
                 </button>
                 <button
-                  className="glass-panel-interactive flex justify-between items-center rounded-xl p-5 text-left group"
+                  className="glass-panel-interactive flex justify-between items-center gap-4 rounded-xl p-5 text-left group"
                   onClick={handleSelectRemote}
                 >
                   <div>
@@ -369,7 +369,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
                     </p>
                   </div>
                   {(
-                    <div className="w-10 h-10 rounded-full bg-[#9b5de5] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="w-10 h-10 shrink-0 rounded-full bg-[#9b5de5] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                       <svg
                         className="w-5 h-5 text-white"
                         fill="none"
