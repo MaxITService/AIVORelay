@@ -9,6 +9,7 @@ import {
 } from "../../lib/utils/modelTranslation";
 import Badge from "../ui/Badge";
 import { ModelReleaseDate } from "../shared/ModelReleaseDate";
+import { inferPrecision } from "../settings/models/ModelMetadataPanel";
 
 interface ModelCardProps {
   model: ModelInfo;
@@ -31,6 +32,10 @@ const ModelCard: React.FC<ModelCardProps> = ({
   // Get translated model name and description
   const displayName = getTranslatedModelName(model, t);
   const displayDescription = getTranslatedModelDescription(model, t);
+  // Alternate quants found on disk already carry the quant in their name.
+  const precision = inferPrecision(model);
+  const quantLabel =
+    precision && !displayName.includes(precision) ? precision : null;
 
   const baseButtonClasses =
     "flex justify-between items-center rounded-xl p-4 px-5 text-start transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#ff4d8d]/30 active:scale-[0.98] cursor-pointer group";
@@ -56,6 +61,11 @@ const ModelCard: React.FC<ModelCardProps> = ({
           />
           <h3 className="text-lg font-semibold text-[#f5f5f5] group-hover:text-[#ff4d8d] transition-colors">
             {displayName}
+            {quantLabel && (
+              <span className="ms-1.5 text-[10px] font-normal text-[#6b6b6b]">
+                ({quantLabel})
+              </span>
+            )}
           </h3>
           <DownloadSize sizeMb={Number(model.size_mb)} />
           {isFeatured && (
