@@ -4,8 +4,8 @@ import { HardDrive, Loader2, RefreshCw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../ui/Button";
 import {
-  cleanSelectedLocalModels, formatStorageBytes, getLocalModelStorage,
-  modelStorageKey, removedModelBytes,
+  cleanSelectedLocalModels, cleanupFreedBytes, estimateLocalModelCleanup, formatStorageBytes,
+  getLocalModelStorage, modelStorageKey,
   type LocalModelStorageSnapshot, type ModelCleanupOutcome,
 } from "@/lib/localModelCleanup";
 
@@ -33,6 +33,8 @@ export const LocalModelCleanupDialog: React.FC<{ onClose: () => void; onCleaned?
   const scanGeneration = useRef(0);
   const [snapshot, setSnapshot] = useState<LocalModelStorageSnapshot | null>(null);
   const [after, setAfter] = useState<LocalModelStorageSnapshot | null>(null);
+  const [removed, setRemoved] = useState<number | null>(null);
+  const [estimate, setEstimate] = useState<{ snapshot: LocalModelStorageSnapshot; key: string; bytes: number | null } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [outcomes, setOutcomes] = useState<Record<string, ModelCleanupOutcome>>({});
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -97,7 +99,17 @@ export const LocalModelCleanupDialog: React.FC<{ onClose: () => void; onCleaned?
   const eligible = snapshot?.entries.filter(entry => !entry.blocked_reason && !outcomes[modelStorageKey(entry)]) ?? [];
   const selectedEntries = eligible.filter(entry => selected.has(modelStorageKey(entry)));
   const selectedBytes = selectedEntries.reduce((sum, entry) => sum + entry.bytes, 0);
+  const selectionKey = selectedEntries.map(modelStorageKey).join("\n");
   const allSelected = eligible.length > 0 && selectedEntries.length === eligible.length;
+  // Selected rows can share files, so their total comes from the backend.
+  useEffect(() => {
+    if (!snapshot || busy || after || selectedEntries.length === 0) return;
+    let current = true;
+    void estimateLocalModelCleanup(selectedEntries).catch(() => null)
+      .then(bytes => { if (current) setEstimate({ snapshot, key: selectionKey, bytes }); });
+    return () => { current = false; };
+  }, [snapshot, selectionKey, busy, after]);
+  const selectedSize = estimate?.snapshot === snapshot && estimate.key === selectionKey ? estimate.bytes : selectedBytes;
   useEffect(() => {
     if (selectAllRef.current) selectAllRef.current.indeterminate = selectedEntries.length > 0 && !allSelected;
   }, [allSelected, selectedEntries.length]);
@@ -108,16 +120,21 @@ export const LocalModelCleanupDialog: React.FC<{ onClose: () => void; onCleaned?
     busyRef.current = true;
     setBusy(true);
     setAfter(null);
+    setRemoved(null);
     setError(null);
     setConfirming(false);
     try {
-      await cleanSelectedLocalModels(selectedEntries, undefined, (key, outcome) => {
+      const attempted = selectedEntries;
+      const before = await estimateLocalModelCleanup(attempted).catch(() => null);
+      await cleanSelectedLocalModels(attempted, undefined, (key, outcome) => {
         if (!mounted.current) return;
         setActiveKey(outcome ? null : key);
         if (outcome) setOutcomes(current => ({ ...current, [key]: outcome }));
       });
-      const current = await getLocalModelStorage();
-      if (mounted.current) setAfter(current);
+      const [current, remaining] = await Promise.all([
+        getLocalModelStorage(), estimateLocalModelCleanup(attempted).catch(() => null),
+      ]);
+      if (mounted.current) { setRemoved(cleanupFreedBytes(before, remaining)); setAfter(current); }
     } catch (failure) {
       if (mounted.current) setError(String(failure));
     } finally {
@@ -127,8 +144,6 @@ export const LocalModelCleanupDialog: React.FC<{ onClose: () => void; onCleaned?
     }
   };
 
-  const attempted = new Set(Object.keys(outcomes));
-  const removed = snapshot && after ? removedModelBytes(snapshot, after, attempted) : null;
   const shared = snapshot?.entries.some(entry => entry.shared_cache_bytes > 0);
   const sizeLabel = (bytes: number | null) => bytes == null ? t("modelCleanup.unknownSize") : formatStorageBytes(bytes);
   return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/65 p-4"
@@ -190,7 +205,7 @@ export const LocalModelCleanupDialog: React.FC<{ onClose: () => void; onCleaned?
         {snapshot && <div className="flex flex-wrap justify-between gap-2 tabular-nums">
           <span>{t("modelCleanup.before", { size: sizeLabel(snapshot.total_bytes) })}</span>
           {after ? <><span className="text-emerald-400">{t("modelCleanup.removed", { size: sizeLabel(removed) })}</span><span>{t("modelCleanup.after", { size: sizeLabel(after.total_bytes) })}</span></> :
-            <span>{t("modelCleanup.selected", { count: selectedEntries.length, size: formatStorageBytes(selectedBytes) })}</span>}
+            <span>{t("modelCleanup.selected", { count: selectedEntries.length, size: sizeLabel(selectedSize) })}</span>}
         </div>}
         {snapshot?.disk_free_bytes != null && <div className="text-[11px] text-text/45">{t("modelCleanup.diskFree", { size: formatStorageBytes(snapshot.disk_free_bytes) })}{after?.disk_free_bytes != null && ` → ${formatStorageBytes(after.disk_free_bytes)}`}</div>}
         {shared && <p className="text-[11px] text-text/45">{t("modelCleanup.sharedNote")}</p>}
