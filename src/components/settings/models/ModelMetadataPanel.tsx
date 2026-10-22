@@ -168,7 +168,7 @@ function formatTotalCount(count: number, locale: string): string {
   return isRussianLocale(locale) ? `${count} всего` : `${count} total`;
 }
 
-function inferPrecision(model: ModelInfo): string | null {
+export function inferPrecision(model: ModelInfo): string | null {
   const hint = `${model.id} ${model.filename}`.toLowerCase();
 
   if (hint.includes("int8")) return "INT8";
