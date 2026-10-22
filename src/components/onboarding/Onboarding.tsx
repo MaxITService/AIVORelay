@@ -13,6 +13,7 @@ import HandyTextLogo from "../icons/HandyTextLogo";
 import { RemoteSttWizard } from "./RemoteSttWizard";
 import AccessibilityOnboarding from "./AccessibilityOnboarding";
 import { HandyShortcut } from "../settings/HandyShortcut";
+import { AiAssistTip } from "../shared/AiAssistTip";
 
 type WelcomeVariant = "local" | "remote";
 type OnboardingMode = "permissions" | "select" | "local" | "welcome";
@@ -389,6 +390,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
                 <p className="text-xs text-[#6b6b6b] mt-2">
                   {t("onboarding.mode.changeProviderLater")}
                 </p>
+                <AiAssistTip className="mt-4 text-left" />
               </div>
             ) : (
               <>
