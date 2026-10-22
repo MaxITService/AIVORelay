@@ -27,6 +27,13 @@ export const modelStorageKey = (entry: Pick<LocalModelStorageEntry, "kind" | "id
 export const getLocalModelStorage = () =>
   invoke<LocalModelStorageSnapshot>("get_local_model_storage");
 
+// Rows sharing files each count them as kept; together they free them once.
+export const estimateLocalModelCleanup = (entries: Pick<LocalModelStorageEntry, "kind" | "id">[]) =>
+  invoke<number>("estimate_local_model_cleanup", {
+    sttModelIds: entries.filter(entry => entry.kind === "stt").map(entry => entry.id),
+    ttsModelIds: entries.filter(entry => entry.kind === "tts").map(entry => entry.id),
+  });
+
 export const cleanupLocalModel = (entry: LocalModelStorageEntry, selectedSttModelIds = [entry.id]) =>
   invoke<void>("cleanup_local_model", { kind: entry.kind, modelId: entry.id, selectedSttModelIds });
 
@@ -59,17 +66,10 @@ export const cleanSelectedLocalModels = async (
   return outcomes;
 };
 
-export const removedModelBytes = (
-  before: LocalModelStorageSnapshot,
-  after: LocalModelStorageSnapshot,
-  attemptedKeys: Set<string>,
-) => before.entries.reduce<number | null>((total, entry) => {
-  const key = modelStorageKey(entry);
-  if (!attemptedKeys.has(key)) return total;
-  const remaining = after.entries.find((candidate) => modelStorageKey(candidate) === key);
-  if (total === null || !entry.bytes_known || (remaining && !remaining.bytes_known)) return null;
-  return total + Math.max(0, entry.bytes - (remaining?.bytes ?? 0));
-}, 0);
+// Both estimates cover the same attempted models, so a failed removal and
+// unrelated disk changes don't count as freed.
+export const cleanupFreedBytes = (before: number | null, remaining: number | null) =>
+  before === null || remaining === null ? null : Math.max(0, before - remaining);
 
 export const formatStorageBytes = (bytes: number): string => {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
