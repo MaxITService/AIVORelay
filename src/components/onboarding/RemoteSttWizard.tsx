@@ -791,10 +791,10 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
               type="button"
               onClick={onSkipWizard}
               disabled={skipDisabled}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-mid-gray underline-offset-4 transition-colors hover:text-text hover:underline disabled:cursor-wait disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-mid-gray underline-offset-4 transition-colors hover:text-text hover:underline disabled:cursor-wait disabled:opacity-60"
             >
               {t("onboarding.skipWizard", "Skip wizard and open main menu")}
-              <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+              <ArrowRight className="w-4 h-4" aria-hidden="true" />
             </button>
           </div>
         )}
