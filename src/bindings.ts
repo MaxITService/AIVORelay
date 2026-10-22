@@ -3428,6 +3428,17 @@ async getLocalModelStorage() : Promise<Result<LocalModelStorageSnapshot, string>
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Bytes cleaning up these models together frees, counting files they share once.
+ */
+async estimateLocalModelCleanup(sttModelIds: string[], ttsModelIds: string[]) : Promise<Result<number, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("estimate_local_model_cleanup", { sttModelIds, ttsModelIds }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async cleanupLocalModel(kind: string, modelId: string, selectedSttModelIds: string[]) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("cleanup_local_model", { kind, modelId, selectedSttModelIds }) };

@@ -328,6 +328,47 @@ fn hf_cached_copies_bytes(pointers: &[PathBuf]) -> io::Result<(u64, u64)> {
     Ok((freed, kept))
 }
 
+/// The active-cache copies cleanup removes for this model. Copies only in the
+/// legacy cache are read-only, so they block cleanup instead.
+fn hf_cleanup_copies(caches: &[Cache], model: &ModelInfo) -> Result<Vec<PathBuf>> {
+    let Some((repo, revision, filename)) = model_hf_source(model) else {
+        return Ok(Vec::new());
+    };
+    let active = hf_cached_paths_in(caches.get(..1).unwrap_or(caches), &repo, &revision, &filename);
+    if !active.iter().any(|path| path.is_file()) && hf_cached_path_in(caches, &repo, &revision, &filename).is_some() {
+        anyhow::bail!("This model uses a read-only legacy Hugging Face cache");
+    }
+    Ok(active)
+}
+
+/// Bytes deleting all `selected` models frees. Files the selection shares count
+/// once; a local file or blob counts only when no unselected model or other file
+/// keeps it. Unknown ids are ignored.
+fn cleanup_bytes_in(models_dir: &Path, caches: &[Cache], models: &[ModelInfo], selected: &HashSet<String>) -> Result<u64> {
+    use super::model_storage::{local_mirror_is_shared, managed_child, storage_bytes};
+
+    let kept: Vec<&str> = models.iter().filter(|model| !selected.contains(&model.id))
+        .map(|model| model.filename.as_str()).collect();
+    let mut counted: Vec<&str> = Vec::new();
+    let mut copies = Vec::new();
+    let mut bytes = 0_u64;
+    for model in models.iter().filter(|model| selected.contains(&model.id)) {
+        copies.extend(hf_cleanup_copies(caches, model)?);
+        if local_mirror_is_shared(models_dir, &model.filename, kept.iter().chain(&counted).copied()) {
+            continue;
+        }
+        for suffix in ["", ".partial", ".extracting"] {
+            let path = managed_child(models_dir, &format!("{}{suffix}", model.filename))?;
+            bytes = bytes.saturating_add(storage_bytes(&path)?);
+        }
+        counted.push(&model.filename);
+    }
+    // Deleting them one by one frees a blob with its last user.
+    copies.sort();
+    copies.dedup();
+    Ok(bytes.saturating_add(hf_cached_copies_bytes(&copies)?.0))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ModelInfo {
     pub id: String,
@@ -2695,6 +2736,7 @@ impl ModelManager {
         use super::model_storage::{managed_child, storage_bytes, LocalModelStorageEntry};
 
         let models = self.get_available_models();
+        let caches = hf_caches();
         models.iter().cloned().filter_map(|model| {
             let owns_local_files = !models.iter().any(|other| other.id != model.id
                 && (model_hf_source(other).is_some(), &other.id) < (model_hf_source(&model).is_some(), &model.id)
@@ -2711,17 +2753,8 @@ impl ModelManager {
                     local_files_present |= path.try_exists()?;
                     if owns_local_files { bytes = bytes.saturating_add(storage_bytes(&path)?); }
                 }
-                let mut shared = 0_u64;
-                if let Some((repo, revision, filename)) = model_hf_source(&model) {
-                    let active = hf_cached_paths_in(&[Cache::from_env()], &repo, &revision, &filename);
-                    let (freed, kept) = hf_cached_copies_bytes(&active)?;
-                    bytes = bytes.saturating_add(freed);
-                    shared = kept;
-                    if !active.iter().any(|path| path.is_file()) && hf_cached_path(&repo, &revision, &filename).is_some() {
-                        anyhow::bail!("This model uses a read-only legacy Hugging Face cache");
-                    }
-                }
-                Ok((bytes, shared, local_files_present))
+                let (freed, shared) = hf_cached_copies_bytes(&hf_cleanup_copies(&caches, &model)?)?;
+                Ok((bytes.saturating_add(freed), shared, local_files_present))
             };
             let mut local_files_present = false;
             match measure() {
@@ -2734,6 +2767,11 @@ impl ModelManager {
             (local_files_present || entry.bytes > 0 || entry.shared_cache_bytes > 0 || model.is_downloaded || model.is_downloading || entry.blocked_reason.is_some())
                 .then_some(entry)
         }).collect()
+    }
+
+    /// Bytes cleaning up all these models together frees, see `cleanup_bytes_in`.
+    pub(crate) fn local_cleanup_bytes(&self, selected: &HashSet<String>) -> Result<u64> {
+        cleanup_bytes_in(&self.models_dir, &hf_caches(), &self.get_available_models(), selected)
     }
 
     pub(crate) fn local_model_file_path(&self, model_id: &str) -> Result<PathBuf> {
@@ -3366,6 +3404,83 @@ mod tests {
         assert!(super::remove_hf_cached_copies(&stray).unwrap());
         assert!(copies("stray.gguf").is_empty());
         assert!(outside.is_file());
+    }
+
+    fn cleanup_model(id: &str, filename: &str, hf: bool) -> super::ModelInfo {
+        let mut models = HashMap::new();
+        ModelManager::seed_catalog_models(&mut models);
+        let mut model = models.into_values().next().expect("catalog model");
+        model.id = id.to_string();
+        model.filename = filename.to_string();
+        model.url = hf.then(|| hf_source_url("test/model", "main", filename));
+        model
+    }
+
+    fn cleanup_bytes(models_dir: &Path, caches: &[hf_hub::Cache], models: &[super::ModelInfo], ids: &[&str]) -> u64 {
+        let selected = ids.iter().map(|id| id.to_string()).collect();
+        super::cleanup_bytes_in(models_dir, caches, models, &selected).unwrap()
+    }
+
+    #[test]
+    fn cleanup_estimate_frees_a_blob_once_all_its_files_are_selected() {
+        let fixture = HfCacheFixture::new();
+        let active = fixture.cache("active");
+        let blob = active.path().join("models--test--model/blobs/shared");
+        fs::create_dir_all(blob.parent().unwrap()).unwrap();
+        fs::write(&blob, "shared").unwrap();
+        if !fixture.link(&active, "first", "model.gguf", &blob) {
+            eprintln!("skipped: this system can't create file symlinks");
+            return;
+        }
+        assert!(fixture.link(&active, "first", "other.gguf", &blob));
+        let models = [
+            cleanup_model("model", "model.gguf", true),
+            cleanup_model("other", "other.gguf", true),
+            cleanup_model("alias", "model.gguf", true),
+        ];
+        let (models_dir, caches) = (fixture.0.join("models"), [active]);
+
+        // Alone, each file leaves the blob to the other one.
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["model"]), 0);
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["other"]), 0);
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["model", "other"]), 6);
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["model", "other", "alias"]), 6);
+    }
+
+    #[test]
+    fn cleanup_estimate_counts_files_selected_under_two_ids_once() {
+        let fixture = HfCacheFixture::new();
+        let active = fixture.cache("active");
+        fixture.snapshot(&active, "main", "main-commit");
+        let models_dir = fixture.0.join("models");
+        fs::create_dir_all(&models_dir).unwrap();
+        fs::write(models_dir.join("model.gguf"), [0; 7]).unwrap();
+        fs::write(models_dir.join("model.gguf.partial"), [0; 3]).unwrap();
+        let models = [
+            cleanup_model("catalog", "model.gguf", true),
+            cleanup_model("discovered", "model.gguf", true),
+            cleanup_model("custom", "model.gguf", false),
+        ];
+        let caches = [active];
+        let cached = "main-commit".len() as u64;
+
+        // Unselected models keep the local file, not the cache copy.
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["catalog"]), cached);
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["catalog", "discovered"]), cached);
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["custom"]), 0);
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["catalog", "discovered", "custom"]), cached + 10);
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["missing"]), 0);
+    }
+
+    #[test]
+    fn cleanup_estimate_refuses_models_only_in_the_legacy_cache() {
+        let fixture = HfCacheFixture::new();
+        let (active, legacy) = (fixture.cache("active"), fixture.cache("legacy"));
+        fixture.snapshot(&legacy, "main", "legacy-commit");
+        let models = [cleanup_model("model", "model.gguf", true)];
+        let selected = ["model".to_string()].into_iter().collect();
+        let error = super::cleanup_bytes_in(&fixture.0.join("models"), &[active, legacy], &models, &selected).unwrap_err();
+        assert!(error.to_string().contains("legacy"));
     }
 
     #[test]
