@@ -40,6 +40,7 @@ import {
   type SelectedFile,
 } from "@/stores/transcribeFileStore";
 import { useNavigationStore } from "@/stores/navigationStore";
+import { useTranscribeBatchStore } from "@/stores/transcribeBatchStore";
 import {
   parseAndNormalizeSonioxLanguageHints,
   SONIOX_LANGUAGE_HINTS_MAX_COUNT,
@@ -63,6 +64,7 @@ import {
 } from "@/lib/sttModelSelection";
 import { navigateToSettingsAnchor } from "@/lib/anchorNavigation";
 import { FileDropZone } from "./FileDropZone";
+import { TranscribeFileBatchQueue } from "./TranscribeFileBatchQueue";
 
 const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 const DEEPGRAM_MAX_FILE_DURATION_SECONDS = 10 * 60;
@@ -329,6 +331,8 @@ export const TranscribeFileSettings: React.FC = () => {
     setIsReapplyingSpeakerNames,
     activateModelUiConfig,
   } = useTranscribeFileStore();
+  const batchRunning = useTranscribeBatchStore((state) => state.running);
+  const [batchNotice, setBatchNotice] = useState<string | null>(null);
   const isTranscribing = transcriptionPhase === "transcribing";
   const isCancellingTranscription = transcriptionPhase === "cancelling";
   const infoMessage =
@@ -777,52 +781,6 @@ export const TranscribeFileSettings: React.FC = () => {
     return () => window.clearInterval(interval);
   }, [cancelRequestedAt, transcriptionPhase]);
 
-  // Listen for Tauri file drop events
-  useEffect(() => {
-    const appWindow = getCurrentWebviewWindow();
-
-    const unlistenDrop = appWindow.onDragDropEvent(async (event) => {
-      if (event.payload.type === "over") {
-        setIsDragOver(true);
-      } else if (event.payload.type === "leave") {
-        setIsDragOver(false);
-      } else if (event.payload.type === "drop") {
-        setIsDragOver(false);
-        const paths = event.payload.paths;
-        if (paths && paths.length > 0) {
-          const filePath = paths[0];
-          const extension = filePath.split(".").pop()?.toLowerCase() ?? "";
-
-          if (!supportedExtensions.includes(extension)) {
-            setError(
-              t("transcribeFile.unsupportedFormat", {
-                format: extension,
-                supported: supportedExtensions.join(", "),
-              }),
-            );
-            return;
-          }
-
-          const didReplace = await receiveSelectedFile(filePath);
-          if (!didReplace) {
-            return;
-          }
-          setShowDurationLimitWarningDialog(false);
-          clearSpeakerSession();
-        }
-      }
-    });
-
-    return () => {
-      unlistenDrop.then((fn) => fn());
-    };
-  }, [
-    clearSpeakerSession,
-    receiveSelectedFile,
-    setError,
-    t,
-  ]);
-
   // Check active recording state and whether it actually blocks file transcription.
   useEffect(() => {
     const checkRecording = async () => {
@@ -991,6 +949,7 @@ export const TranscribeFileSettings: React.FC = () => {
         ? "Gemini"
       : null;
   const canTranscribe =
+    !batchRunning &&
     !isTranscribing &&
     !isTranscriptionCommandPending &&
     !isCancellationCommandPending &&
@@ -1206,9 +1165,7 @@ export const TranscribeFileSettings: React.FC = () => {
     await runTranscription();
   };
 
-  const buildFileTranscriptionRequest = (): FileTranscriptionRequest | null => {
-    if (!selectedFile) return null;
-
+  const buildFileTranscriptionRequestFor = useCallback((filePath: string): FileTranscriptionRequest | null => {
     let sonioxOptionsOverride: SonioxFileTranscriptionOptions | null = null;
     if (showSonioxFileOptions) {
       const parsedHints = parsedSonioxLanguageHintsInput;
@@ -1247,7 +1204,7 @@ export const TranscribeFileSettings: React.FC = () => {
     }
 
     return {
-      filePath: selectedFile.path,
+      filePath,
       profileId: null,
       saveToFile: outputMode === "file",
       outputFormat,
@@ -1259,7 +1216,93 @@ export const TranscribeFileSettings: React.FC = () => {
       retryableRemoteApi:
         transcriptionProvider === "remote_openai_compatible",
     };
-  };
+  }, [
+    showSonioxFileOptions, parsedSonioxLanguageHintsInput, sonioxEnableSpeakerDiarization,
+    sonioxEnableLanguageIdentification, showDeepgramFileOptions, deepgramFileDiarize,
+    deepgramFileMultichannel, outputMode, outputFormat, activeFileTranscriptionModel?.name,
+    activeFileTranscriptionModelId, customWordsEnabledOverride, transcriptionProvider, setError, t,
+  ]);
+
+  const buildFileTranscriptionRequest = () =>
+    selectedFile ? buildFileTranscriptionRequestFor(selectedFile.path) : null;
+
+  const batchDisabledReason = isGeminiLiveFileUnsupported
+    ? t("transcribeFile.liveModelUnsupported")
+    : geminiCompatibilityError;
+  const addBatchFiles = useCallback((paths: string[]) => {
+    if (batchDisabledReason) {
+      setError(batchDisabledReason);
+      return;
+    }
+    const supported = paths.filter((path) =>
+      supportedExtensions.includes(path.split(".").pop()?.toLowerCase() ?? ""),
+    );
+    const requests: FileTranscriptionRequest[] = [];
+    for (const path of supported) {
+      const request = buildFileTranscriptionRequestFor(path);
+      if (!request) return;
+      requests.push(request);
+    }
+    const added = useTranscribeBatchStore.getState().addFiles(requests);
+    const skipped = paths.length - supported.length;
+    setBatchNotice([
+      added > 0
+        ? t("transcribeFile.batch.added", { count: added })
+        : t("transcribeFile.batch.nothingNew"),
+      ...(skipped > 0 ? [t("transcribeFile.batch.unsupportedSkipped", { count: skipped })] : []),
+    ].join(" "));
+  }, [batchDisabledReason, buildFileTranscriptionRequestFor, setError, t]);
+
+  // Listen for Tauri file drop events
+  useEffect(() => {
+    const appWindow = getCurrentWebviewWindow();
+
+    const unlistenDrop = appWindow.onDragDropEvent(async (event) => {
+      if (event.payload.type === "over") {
+        setIsDragOver(true);
+      } else if (event.payload.type === "leave") {
+        setIsDragOver(false);
+      } else if (event.payload.type === "drop") {
+        setIsDragOver(false);
+        const paths = event.payload.paths;
+        if (paths && paths.length > 0) {
+          if (paths.length > 1 || useTranscribeBatchStore.getState().running) {
+            addBatchFiles(paths);
+            return;
+          }
+          const filePath = paths[0];
+          const extension = filePath.split(".").pop()?.toLowerCase() ?? "";
+
+          if (!supportedExtensions.includes(extension)) {
+            setError(
+              t("transcribeFile.unsupportedFormat", {
+                format: extension,
+                supported: supportedExtensions.join(", "),
+              }),
+            );
+            return;
+          }
+
+          const didReplace = await receiveSelectedFile(filePath);
+          if (!didReplace) {
+            return;
+          }
+          setShowDurationLimitWarningDialog(false);
+          clearSpeakerSession();
+        }
+      }
+    });
+
+    return () => {
+      unlistenDrop.then((fn) => fn());
+    };
+  }, [
+    addBatchFiles,
+    clearSpeakerSession,
+    receiveSelectedFile,
+    setError,
+    t,
+  ]);
 
   const runTranscription = async (
     request = buildFileTranscriptionRequest(),
@@ -1555,7 +1598,7 @@ export const TranscribeFileSettings: React.FC = () => {
             selection={fileSelection}
             localModels={availableModels}
             onChange={changeFileModelSelection}
-            disabled={isTranscribing || isFinalizingCancelledTranscription}
+            disabled={batchRunning || isTranscribing || isFinalizingCancelledTranscription}
           />
         </div>
 
@@ -2429,6 +2472,12 @@ export const TranscribeFileSettings: React.FC = () => {
           </div>
         )}
       </SettingsGroup>
+      <TranscribeFileBatchQueue
+        onAddFiles={addBatchFiles}
+        supportedExtensions={supportedExtensions}
+        disabledReason={batchDisabledReason}
+        notice={batchNotice}
+      />
       <ConfirmationModal
         isOpen={showDurationLimitWarningDialog}
         onClose={() => setShowDurationLimitWarningDialog(false)}

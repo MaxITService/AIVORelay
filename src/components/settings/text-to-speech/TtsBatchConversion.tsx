@@ -14,6 +14,7 @@ import {
   ScanSearch,
   SkipForward,
   Square,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -24,8 +25,18 @@ import { SettingContainer } from "@/components/ui/SettingContainer";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { Tooltip } from "@/components/ui/Tooltip";
+import {
+  ensureTtsBatchListener,
+  entryKey,
+  queuedRow,
+  useTtsBatchQueueStore,
+  type ActiveBatchSnapshot,
+  type BatchFileResult,
+  type BatchFileStatus,
+  type BatchScanResult,
+  type TtsOutputFormat,
+} from "@/stores/ttsBatchQueueStore";
 
-type TtsOutputFormat = "mp3" | "opus" | "wav";
 type BatchSourceMode = "files" | "folder";
 
 const ActionTooltip: React.FC<{
@@ -33,71 +44,6 @@ const ActionTooltip: React.FC<{
   children: React.ReactNode;
 }> = ({ content, children }) =>
   content ? <Tooltip content={content}>{children}</Tooltip> : children;
-
-const waitForUiTick = (delayMs: number) =>
-  new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
-type BatchFileStatus =
-  | "queued"
-  | "processing"
-  | "completed"
-  | "skipped"
-  | "failed";
-
-type BatchFilePlan = {
-  inputPath: string;
-  relativePath: string;
-  outputPath: string;
-  sourceCharacters: number;
-  scanError?: string | null;
-};
-
-type BatchScanResult = {
-  inputDirectory?: string | null;
-  outputDirectory: string;
-  recursive: boolean;
-  outputFormat: TtsOutputFormat;
-  files: BatchFilePlan[];
-  eligibleCount: number;
-  warnings: string[];
-};
-
-type BatchFileResult = {
-  index: number;
-  inputPath: string;
-  relativePath: string;
-  outputPath: string;
-  status: BatchFileStatus;
-  error?: string | null;
-  warning?: string | null;
-  operationId?: string | null;
-  resumedChunks: number;
-};
-
-type BatchSummary = {
-  clientId: string;
-  batchId: string;
-  total: number;
-  finished: number;
-  completed: number;
-  skipped: number;
-  failed: number;
-  cancelled: boolean;
-  files: BatchFileResult[];
-};
-
-type BatchProgress = Omit<BatchSummary, "files"> & {
-  done: boolean;
-  startedAtMs: number;
-  workStartedAtMs?: number | null;
-  message?: string | null;
-  file?: BatchFileResult | null;
-};
-
-type ActiveBatchSnapshot = {
-  progress: BatchProgress;
-  scan: BatchScanResult;
-  files: BatchFileResult[];
-};
 
 type TtsChunkProgress = {
   completed_chunks?: number;
@@ -111,35 +57,6 @@ type TtsBatchConversionProps = {
   mp3Bitrate: number;
   opusBitrate: number;
   flushPendingSettingsWrites: () => Promise<void>;
-};
-
-const newClientId = () => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `batch-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-};
-
-const queuedRow = (file: BatchFilePlan, index: number): BatchFileResult => ({
-  index,
-  inputPath: file.inputPath,
-  relativePath: file.relativePath,
-  outputPath: file.outputPath,
-  status: "queued",
-  error: file.scanError ?? null,
-  warning: null,
-  operationId: null,
-  resumedChunks: 0,
-});
-
-const rowsFromSnapshot = (snapshot: ActiveBatchSnapshot) => {
-  const rows = snapshot.scan.files.map(queuedRow);
-  for (const file of [...snapshot.files, snapshot.progress.file].filter(
-    (item): item is BatchFileResult => !!item,
-  )) {
-    if (file.index >= 0 && file.index < rows.length) rows[file.index] = file;
-  }
-  return rows;
 };
 
 const statusAppearance: Record<
@@ -167,143 +84,145 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
   const [recursive, setRecursive] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<BatchScanResult | null>(null);
-  const [rows, setRows] = useState<BatchFileResult[]>([]);
-  const [batchBusy, setBatchBusy] = useState(false);
-  const [batchStopping, setBatchStopping] = useState(false);
-  const [progress, setProgress] = useState<BatchProgress | null>(null);
-  const [summary, setSummary] = useState<BatchSummary | null>(null);
-  const [currentFile, setCurrentFile] = useState<BatchFileResult | null>(null);
-  const [chunkProgress, setChunkProgress] = useState<TtsChunkProgress | null>(null);
+  const [previewRows, setPreviewRows] = useState<BatchFileResult[]>([]);
+  const [chunkProgress, setChunkProgress] = useState<TtsChunkProgress | null>(
+    null,
+  );
   const [clockMs, setClockMs] = useState(() => Date.now());
-  const [error, setError] = useState<string | null>(null);
-  const activeClientIdRef = useRef<string | null>(null);
-  const batchBusyRef = useRef(false);
-  const batchIdRef = useRef<string | null>(null);
-  const processingFileRef = useRef<BatchFileResult | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [queueNotice, setQueueNotice] = useState<string | null>(null);
+
+  // The queue lives in a store so it keeps running while another settings
+  // section is open and survives an app restart (paused, never auto-started).
+  const queue = useTtsBatchQueueStore((state) => state.queue);
+  const queueMeta = useTtsBatchQueueStore((state) => state.meta);
+  const batchBusy = useTtsBatchQueueStore((state) => state.running);
+  const batchStopping = useTtsBatchQueueStore((state) => state.stopping);
+  const runScan = useTtsBatchQueueStore((state) => state.runScan);
+  const runningEntries = useTtsBatchQueueStore((state) => state.runningEntries);
+  const storeRows = useTtsBatchQueueStore((state) => state.rows);
+  const progress = useTtsBatchQueueStore((state) => state.progress);
+  const summary = useTtsBatchQueueStore((state) => state.summary);
+  const currentFile = useTtsBatchQueueStore((state) => state.currentFile);
+  const storeError = useTtsBatchQueueStore((state) => state.error);
+  const error = localError ?? storeError;
+
+  const hasStoredQueue = queue.length > 0;
+  // While a queue exists, the source buttons append to it instead.
+  const addMode = batchBusy || hasStoredQueue;
+  const rows = storeRows.length > 0 ? storeRows : previewRows;
+  const activeScan = runScan ?? scanResult;
+  const waitingFiles = useMemo(() => {
+    const running = new Set(runningEntries);
+    return queue.filter((file) => !running.has(entryKey(file)));
+  }, [queue, runningEntries]);
 
   const clearPreview = () => {
     setScanResult(null);
-    setRows([]);
-    setProgress(null);
-    setSummary(null);
-    setCurrentFile(null);
+    setPreviewRows([]);
     setChunkProgress(null);
-    batchIdRef.current = null;
-    processingFileRef.current = null;
-    setError(null);
-    activeClientIdRef.current = null;
+    setLocalError(null);
+    useTtsBatchQueueStore.getState().resetRun();
   };
 
+  // A format change invalidates every planned output extension. A remount
+  // must not clear the results of a batch that finished meanwhile.
+  const previewFormat = useRef(outputFormat);
   useEffect(() => {
-    if (!batchBusyRef.current) clearPreview();
-    // A format change invalidates every planned output extension.
+    if (previewFormat.current === outputFormat) return;
+    previewFormat.current = outputFormat;
+    if (!useTtsBatchQueueStore.getState().running) clearPreview();
   }, [outputFormat]);
 
   useEffect(() => {
     let disposed = false;
-    let unlistenBatch: (() => void) | undefined;
     let unlistenChunks: (() => void) | undefined;
-    const listenForBatch = listen<BatchProgress>("tts://batch-progress", (event) => {
-      if (disposed || !batchBusyRef.current) return;
-      const next = event.payload;
-      if (next.clientId !== activeClientIdRef.current) return;
-      batchIdRef.current = next.batchId;
-      setProgress(next);
-      const file = next.file;
-      if (file) {
-        const processingFile = file.status === "processing" ? file : null;
-        processingFileRef.current = processingFile;
-        setCurrentFile(processingFile);
-        setChunkProgress(null);
-        setRows((current) =>
-          current.map((row) => (row.index === file.index ? file : row)),
-        );
-      }
-      if (next.done) {
-        batchBusyRef.current = false;
-        processingFileRef.current = null;
-        activeClientIdRef.current = null;
-        setBatchBusy(false);
-        setBatchStopping(false);
-        setCurrentFile(null);
-        setChunkProgress(null);
-      }
-    });
     const listenForChunks = listen<TtsChunkProgress>("tts://progress", (event) => {
-      if (
-        disposed ||
-        !batchBusyRef.current ||
-        !processingFileRef.current
-      ) {
+      const state = useTtsBatchQueueStore.getState();
+      if (disposed || !state.running || state.currentFile?.status !== "processing") {
         return;
       }
       setChunkProgress(event.payload);
     });
-    void Promise.all([listenForBatch, listenForChunks]).then(
-      async ([disposeBatch, disposeChunks]) => {
-        if (disposed) {
-          disposeBatch();
-          disposeChunks();
-          return;
-        }
-        unlistenBatch = disposeBatch;
-        unlistenChunks = disposeChunks;
-        const activeSnapshot = await invoke<ActiveBatchSnapshot | null>(
-          "get_active_tts_batch_progress",
-        );
-        const active = activeSnapshot?.progress;
-        if (disposed || !active || active.done) return;
-        activeClientIdRef.current = active.clientId;
-        batchIdRef.current = active.batchId;
-        batchBusyRef.current = true;
-        const latestSnapshot = await invoke<ActiveBatchSnapshot | null>(
-          "get_active_tts_batch_progress",
-        );
-        const latest = latestSnapshot?.progress;
-        if (
-          disposed ||
-          !latest ||
-          !latestSnapshot ||
-          latest.done ||
-          latest.clientId !== active.clientId
-        ) {
-          batchBusyRef.current = false;
-          activeClientIdRef.current = null;
-          return;
-        }
-        processingFileRef.current =
-          latest.file?.status === "processing" ? latest.file : null;
-        setScanResult(latestSnapshot.scan);
-        setOutputDirectory(latestSnapshot.scan.outputDirectory);
-        setRecursive(latestSnapshot.scan.recursive);
-        if (latestSnapshot.scan.inputDirectory) {
-          setSourceMode("folder");
-          setInputDirectory(latestSnapshot.scan.inputDirectory);
-        } else {
-          setSourceMode("files");
-          setInputPaths(
-            latestSnapshot.scan.files.map((file) => file.inputPath),
-          );
-        }
-        setRows(rowsFromSnapshot(latestSnapshot));
-        setBatchBusy(true);
-        setProgress(latest);
-        setCurrentFile(processingFileRef.current);
-        setClockMs(Date.now());
-      },
-    );
+    void listenForChunks.then((disposeChunks) => {
+      if (disposed) {
+        disposeChunks();
+        return;
+      }
+      unlistenChunks = disposeChunks;
+    }).catch((error) => { if (!disposed) setLocalError(String(error)); });
+    void ensureTtsBatchListener().then(async () => {
+      if (disposed) return;
+      const snapshot = await invoke<ActiveBatchSnapshot | null>(
+        "get_active_tts_batch_progress",
+      );
+      if (disposed || !snapshot || snapshot.progress.done) return;
+      const store = useTtsBatchQueueStore.getState();
+      if (store.running) return;
+      // A batch survived a webview reload: show it and keep following it.
+      store.attachActiveBatch(snapshot, { mp3Bitrate, opusBitrate });
+      setOutputDirectory(snapshot.scan.outputDirectory);
+      setRecursive(snapshot.scan.recursive);
+      if (snapshot.scan.inputDirectory) {
+        setSourceMode("folder");
+        setInputDirectory(snapshot.scan.inputDirectory);
+      } else {
+        setSourceMode("files");
+        setInputPaths(snapshot.scan.files.map((file) => file.inputPath));
+      }
+      setClockMs(Date.now());
+    }).catch((error) => { if (!disposed) setLocalError(String(error)); });
     return () => {
       disposed = true;
-      unlistenBatch?.();
       unlistenChunks?.();
     };
   }, []);
+
+  useEffect(() => {
+    // Chunk progress belongs to one file; a new file starts from zero.
+    setChunkProgress(null);
+  }, [currentFile?.index, currentFile?.inputPath]);
 
   useEffect(() => {
     if (!batchBusy) return;
     const interval = window.setInterval(() => setClockMs(Date.now()), 1_000);
     return () => window.clearInterval(interval);
   }, [batchBusy]);
+
+  /** Scans files or a folder and appends them to the existing queue. */
+  const addToQueue = async (source: {
+    inputPaths?: string[];
+    inputDirectory?: string;
+  }) => {
+    const meta = useTtsBatchQueueStore.getState().meta;
+    if (!meta) return;
+    setScanning(true);
+    setLocalError(null);
+    setQueueNotice(null);
+    try {
+      await flushPendingSettingsWrites();
+      const result = await invoke<BatchScanResult>("scan_tts_batch_files", {
+        request: {
+          inputDirectory: source.inputDirectory ?? null,
+          inputPaths: source.inputPaths ?? [],
+          outputDirectory: meta.outputDirectory,
+          recursive: Boolean(source.inputDirectory) && recursive,
+          outputFormat: meta.outputFormat,
+          reservedOutputs: useTtsBatchQueueStore.getState().reservedOutputs(),
+        },
+      });
+      const added = useTtsBatchQueueStore.getState().enqueue(result);
+      setQueueNotice(
+        added > 0
+          ? t("textToSpeech.batch.queueAdded", { count: added })
+          : t("textToSpeech.batch.queueNothingNew"),
+      );
+    } catch (scanError) {
+      setLocalError(String(scanError));
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const chooseFiles = async () => {
     const selected = await open({
@@ -322,6 +241,10 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
         ? [selected]
         : [];
     if (paths.length === 0) return;
+    if (addMode) {
+      await addToQueue({ inputPaths: paths });
+      return;
+    }
     setSourceMode("files");
     setInputPaths(paths);
     setInputDirectory("");
@@ -331,6 +254,10 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
   const chooseInputDirectory = async () => {
     const selected = await open({ directory: true, multiple: false });
     if (typeof selected !== "string") return;
+    if (addMode) {
+      await addToQueue({ inputDirectory: selected });
+      return;
+    }
     setSourceMode("folder");
     setInputDirectory(selected);
     setInputPaths([]);
@@ -345,7 +272,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
   };
 
   const canScan =
-    !batchBusy &&
+    !addMode &&
     !scanning &&
     outputDirectory.length > 0 &&
     (sourceMode === "folder"
@@ -355,10 +282,8 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
   const scanFiles = async () => {
     if (!canScan) return;
     setScanning(true);
-    setError(null);
-    setSummary(null);
-    setProgress(null);
-    batchIdRef.current = null;
+    setLocalError(null);
+    useTtsBatchQueueStore.getState().resetRun();
     try {
       await flushPendingSettingsWrites();
       const result = await invoke<BatchScanResult>("scan_tts_batch_files", {
@@ -371,98 +296,52 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
         },
       });
       setScanResult(result);
-      setRows(result.files.map(queuedRow));
+      setPreviewRows(result.files.map(queuedRow));
     } catch (scanError) {
       setScanResult(null);
-      setRows([]);
-      setError(String(scanError));
+      setPreviewRows([]);
+      setLocalError(String(scanError));
     } finally {
       setScanning(false);
     }
   };
 
   const startBatch = async () => {
-    if (!scanResult || scanResult.eligibleCount === 0 || batchBusy) return;
-    const clientId = newClientId();
-    activeClientIdRef.current = clientId;
-    batchBusyRef.current = true;
-    setBatchBusy(true);
-    batchIdRef.current = null;
-    setError(null);
-    setSummary(null);
-    setProgress(null);
-    setCurrentFile(null);
+    if (!scanResult || scanResult.eligibleCount === 0 || addMode) return;
+    setLocalError(null);
     setChunkProgress(null);
-    processingFileRef.current = null;
     setClockMs(Date.now());
-    setRows(scanResult.files.map(queuedRow));
     try {
       await flushPendingSettingsWrites();
-      const result = await invoke<BatchSummary>("convert_tts_batch", {
-        request: {
-          clientId,
-          scan: scanResult,
-          mp3Bitrate,
-          opusBitrate,
-        },
-      });
-      batchIdRef.current = result.batchId;
-      setRows(result.files);
-      setSummary(result);
-      setProgress((current) => ({
-        clientId: result.clientId,
-        batchId: result.batchId,
-        total: result.total,
-        finished: result.finished,
-        completed: result.completed,
-        skipped: result.skipped,
-        failed: result.failed,
-        cancelled: result.cancelled,
-        done: true,
-        startedAtMs: current?.startedAtMs ?? Date.now(),
-        workStartedAtMs: current?.workStartedAtMs ?? null,
-        message: current?.message ?? null,
-        file: null,
-      }));
-    } catch (batchError) {
-      setError(String(batchError));
-    } finally {
-      batchBusyRef.current = false;
-      setBatchBusy(false);
-      setBatchStopping(false);
-      window.dispatchEvent(new Event("aivorelay:tts-jobs-changed"));
+    } catch (flushError) {
+      setLocalError(String(flushError));
+      return;
+    }
+    // Resolves when the whole queue, including files added meanwhile, is done.
+    await useTtsBatchQueueStore
+      .getState()
+      .beginFromScan(scanResult, { mp3Bitrate, opusBitrate });
+  };
+
+  const resumeQueue = async () => {
+    setLocalError(null);
+    setClockMs(Date.now());
+    try {
+      await flushPendingSettingsWrites();
+      await useTtsBatchQueueStore.getState().resume();
+    } catch (error) {
+      setLocalError(String(error));
     }
   };
 
-  const cancelBatch = async () => {
-    setBatchStopping(true);
-    setError(null);
-    try {
-      let activeBatchId = batchIdRef.current;
-      for (
-        let attempt = 0;
-        !activeBatchId && batchBusyRef.current && attempt < 1_300;
-        attempt += 1
-      ) {
-        await waitForUiTick(100);
-        activeBatchId = batchIdRef.current;
-      }
-      if (!activeBatchId) {
-        if (!batchBusyRef.current) {
-          setBatchStopping(false);
-          return;
-        }
-        throw new Error(t("textToSpeech.batch.idUnavailable"));
-      }
-      await invoke("cancel_tts_batch", { batchId: activeBatchId });
-    } catch (cancelError) {
-      setError(String(cancelError));
-      setBatchStopping(false);
-    }
+  const cancelBatch = () => {
+    void useTtsBatchQueueStore
+      .getState()
+      .stop(t("textToSpeech.batch.idUnavailable"));
   };
 
   const finished = progress?.finished ?? 0;
-  const total = progress?.total ?? scanResult?.files.length ?? 0;
+  const total = progress?.total ?? activeScan?.files.length ?? 0;
   const completedChunks =
     chunkProgress?.completed_chunks ?? chunkProgress?.completedChunks ?? 0;
   const totalChunks =
@@ -471,7 +350,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
     currentFile && totalChunks > 0
       ? Math.min(1, completedChunks / totalChunks)
       : 0;
-  const plannedWeights = scanResult?.files.map((file) =>
+  const plannedWeights = activeScan?.files.map((file) =>
     Math.max(1, file.sourceCharacters),
   );
   const totalWeight = plannedWeights?.reduce((sum, weight) => sum + weight, 0);
@@ -535,10 +414,21 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
       minutes: minutes % 60,
     });
   };
-  const selectedSource =
-    sourceMode === "folder"
+  const selectedSource = addMode
+    ? t("textToSpeech.batch.queueSummary", { count: queue.length })
+    : sourceMode === "folder"
       ? inputDirectory
       : t("textToSpeech.batch.selectedFiles", { count: inputPaths.length });
+  const displayedOutputDirectory =
+    addMode && queueMeta ? queueMeta.outputDirectory : outputDirectory;
+  const shownFormat = runScan?.outputFormat ?? outputFormat;
+  const shownMp3Bitrate = runScan ? (queueMeta?.mp3Bitrate ?? mp3Bitrate) : mp3Bitrate;
+  const shownOpusBitrate = runScan
+    ? (queueMeta?.opusBitrate ?? opusBitrate)
+    : opusBitrate;
+  const scanTooltip = scanning
+    ? t("textToSpeech.batch.disabledWhileScanning")
+    : null;
   const normalProgressMessage = useMemo(() => {
     if (!progress?.message) return null;
     if (progress.message.includes("Waiting for")) {
@@ -563,40 +453,32 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
         descriptionMode="inline"
       >
         <div className="mb-3 flex flex-wrap gap-2">
-          <ActionTooltip
-            content={
-              batchBusy
-                ? t("textToSpeech.batch.disabledWhileRunning")
-                : scanning
-                  ? t("textToSpeech.batch.disabledWhileScanning")
-                  : null
-            }
-          >
+          <ActionTooltip content={scanTooltip}>
             <Button
-              variant={sourceMode === "folder" ? "primary" : "secondary"}
-              disabled={batchBusy || scanning}
+              variant={
+                !addMode && sourceMode === "folder" ? "primary" : "secondary"
+              }
+              disabled={scanning}
               onClick={() => void chooseInputDirectory()}
             >
               <FolderOpen className="mr-2 inline h-4 w-4" />
-              {t("textToSpeech.batch.chooseFolder")}
+              {addMode
+                ? t("textToSpeech.batch.addFolder")
+                : t("textToSpeech.batch.chooseFolder")}
             </Button>
           </ActionTooltip>
-          <ActionTooltip
-            content={
-              batchBusy
-                ? t("textToSpeech.batch.disabledWhileRunning")
-                : scanning
-                  ? t("textToSpeech.batch.disabledWhileScanning")
-                  : null
-            }
-          >
+          <ActionTooltip content={scanTooltip}>
             <Button
-              variant={sourceMode === "files" ? "primary" : "secondary"}
-              disabled={batchBusy || scanning}
+              variant={
+                !addMode && sourceMode === "files" ? "primary" : "secondary"
+              }
+              disabled={scanning}
               onClick={() => void chooseFiles()}
             >
               <Files className="mr-2 inline h-4 w-4" />
-              {t("textToSpeech.batch.chooseFiles")}
+              {addMode
+                ? t("textToSpeech.batch.addFiles")
+                : t("textToSpeech.batch.chooseFiles")}
             </Button>
           </ActionTooltip>
         </div>
@@ -610,10 +492,10 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
       <ToggleSwitch
         grouped
         checked={recursive}
-        disabled={sourceMode !== "folder" || batchBusy || scanning}
+        disabled={scanning || (!addMode && sourceMode !== "folder")}
         onChange={(next) => {
           setRecursive(next);
-          clearPreview();
+          if (!addMode) clearPreview();
         }}
         label={t("textToSpeech.batch.recursive")}
         description={t("textToSpeech.batch.recursiveDescription")}
@@ -625,7 +507,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
         layout="stacked"
         title={t("textToSpeech.batch.outputTitle")}
         description={t("textToSpeech.batch.outputDescription", {
-          format: outputFormat.toUpperCase(),
+          format: (addMode && queueMeta ? queueMeta.outputFormat : outputFormat).toUpperCase(),
         })}
         descriptionMode="inline"
       >
@@ -633,13 +515,13 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
           <Input
             className="min-w-0 flex-1"
             readOnly
-            value={outputDirectory}
+            value={displayedOutputDirectory}
             placeholder={t("textToSpeech.batch.noOutput")}
           />
           <ActionTooltip
             content={
-              batchBusy
-                ? t("textToSpeech.batch.disabledWhileRunning")
+              addMode
+                ? t("textToSpeech.batch.queueActive")
                 : scanning
                   ? t("textToSpeech.batch.disabledWhileScanning")
                   : null
@@ -647,7 +529,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
           >
             <Button
               variant="secondary"
-              disabled={batchBusy || scanning}
+              disabled={addMode || scanning}
               onClick={() => void chooseOutputDirectory()}
             >
               <FolderOpen className="mr-2 inline h-4 w-4" />
@@ -660,8 +542,8 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
       <div className="flex flex-wrap items-center gap-3 px-6 py-4">
         <ActionTooltip
           content={
-            batchBusy
-              ? t("textToSpeech.batch.disabledWhileRunning")
+            addMode
+              ? t("textToSpeech.batch.queueActive")
               : scanning
                 ? t("textToSpeech.batch.disabledWhileScanning")
                 : !selectedSource
@@ -686,7 +568,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
               : t("textToSpeech.batch.scan")}
           </Button>
         </ActionTooltip>
-        {scanResult && (
+        {scanResult && !addMode && (
           <span className="text-xs text-[#a0a0a0]">
             {t("textToSpeech.batch.scanCount", {
               eligible: scanResult.eligibleCount,
@@ -696,18 +578,18 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
         )}
       </div>
 
-      {scanResult && (
+      {activeScan && (
         <div className="space-y-3 border-t border-white/[0.05] px-6 py-4">
           <div className="flex items-center justify-between gap-3">
             <h4 className="text-sm font-medium text-[#e8e8e8]">
               {t("textToSpeech.batch.previewTitle")}
             </h4>
             <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[11px] text-[#b8b8b8]">
-              {outputFormat.toUpperCase()}
-              {outputFormat === "mp3"
-                ? ` · ${mp3Bitrate} kb/s`
-                : outputFormat === "opus"
-                  ? ` · ${opusBitrate} kb/s`
+              {shownFormat.toUpperCase()}
+              {shownFormat === "mp3"
+                ? ` · ${shownMp3Bitrate} kb/s`
+                : shownFormat === "opus"
+                  ? ` · ${shownOpusBitrate} kb/s`
                   : ""}
             </span>
           </div>
@@ -763,14 +645,81 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
               })}
             </div>
           )}
-          {scanResult.warnings.length > 0 && (
+          {activeScan.warnings.length > 0 && (
             <div className="space-y-1 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-200">
-              {scanResult.warnings.map((warning, index) => (
+              {activeScan.warnings.map((warning, index) => (
                 <p key={`${index}-${warning}`}>{warning}</p>
               ))}
             </div>
           )}
         </div>
+      )}
+
+      {waitingFiles.length > 0 && (
+        <div className="space-y-3 border-t border-white/[0.05] px-6 py-4">
+          <div className="flex items-center justify-between gap-3">
+            <h4 className="text-sm font-medium text-[#e8e8e8]">
+              {t("textToSpeech.batch.queueTitle", {
+                count: waitingFiles.length,
+              })}
+            </h4>
+          </div>
+          <p className="text-xs text-[#8f8f8f]">
+            {batchBusy
+              ? t("textToSpeech.batch.queueRunningHint")
+              : t("textToSpeech.batch.queueIdleHint")}
+          </p>
+          <div className="max-h-60 overflow-auto rounded-lg border border-white/[0.07] bg-black/15">
+            {waitingFiles.map((file) => (
+              <div
+                key={file.inputPath}
+                className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-white/[0.05] px-3 py-2.5 last:border-b-0"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-xs text-[#e2e2e2]">
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-[#9b5de5]" />
+                    <span className="truncate" title={file.inputPath}>
+                      {file.relativePath}
+                    </span>
+                  </div>
+                  <div
+                    className="mt-1 truncate pl-5 text-[11px] text-[#727272]"
+                    title={file.outputPath}
+                  >
+                    → {file.outputPath}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 self-start text-[11px] text-[#b6b6b6]">
+                  <CircleDashed className="h-3.5 w-3.5" />
+                  {t("textToSpeech.batch.status.queued")}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {!batchBusy && (
+              <Button onClick={resumeQueue}>
+                <Play className="mr-2 inline h-4 w-4" />
+                {t("textToSpeech.batch.queueResume")}
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              onClick={() => useTtsBatchQueueStore.getState().clearWaiting()}
+            >
+              <Trash2 className="mr-2 inline h-4 w-4" />
+              {t("textToSpeech.batch.queueClear")}
+            </Button>
+          </div>
+        </div>
+      )}
+      {queueNotice && (
+        <p
+          role="status"
+          className="border-t border-white/[0.05] px-6 py-3 text-xs text-[#b8b8b8]"
+        >
+          {queueNotice}
+        </p>
       )}
 
       {(batchBusy || progress) && total > 0 && (
@@ -815,8 +764,8 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
       <div className="flex flex-wrap items-center gap-3 border-t border-white/[0.05] px-6 py-4">
         <ActionTooltip
           content={
-            batchBusy
-              ? t("textToSpeech.batch.disabledWhileRunning")
+            addMode
+              ? t("textToSpeech.batch.queueActive")
               : scanning
                 ? t("textToSpeech.batch.disabledWhileScanning")
                 : !scanResult
@@ -830,7 +779,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
             disabled={
               !scanResult ||
               scanResult.eligibleCount === 0 ||
-              batchBusy ||
+              addMode ||
               scanning
             }
             onClick={() => void startBatch()}
@@ -856,7 +805,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
             <Button
               variant="danger"
               disabled={batchStopping}
-              onClick={() => void cancelBatch()}
+              onClick={cancelBatch}
             >
               {batchStopping ? (
                 <Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin" />

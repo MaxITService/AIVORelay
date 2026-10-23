@@ -1327,6 +1327,17 @@
       "discardActiveConfirm": "This conversion is still running. Stop it and permanently delete all saved progress? You will not be able to resume it afterward."
     },
     "batch": {
+      "addFiles": "Add files",
+      "addFolder": "Add folder",
+      "queueSummary": "{{count}} file(s) in queue",
+      "queueTitle": "{{count}} waiting",
+      "queueRunningHint": "Waiting files start automatically after the current batch.",
+      "queueIdleHint": "The queue is paused. Resume it when you are ready, or clear the waiting files.",
+      "queueResume": "Resume queue",
+      "queueClear": "Clear waiting files",
+      "queueActive": "A queue is active. Use Add files or Add folder to extend it.",
+      "queueAdded": "{{count}} file(s) added to the queue.",
+      "queueNothingNew": "No new files. These files are already queued or converted.",
       "title": "Batch convert text files",
       "description": "Convert existing TXT/MD files once, without enabling or changing automatic folder watching.",
       "sourceTitle": "Batch source",
@@ -1361,7 +1372,7 @@
       "start": "Convert batch now",
       "stop": "Stop batch",
       "stopping": "Stopping batch…",
-      "stopDescription": "Stop the current file and skip files that have not started. Completed output files remain; saved progress for the interrupted file can be resumed from Unfinished conversions.",
+      "stopDescription": "Stop the current file and pause the queue. Completed outputs remain; unfinished files stay in the queue and can be resumed.",
       "stopAlreadyRequested": "The batch stop request has already been sent.",
       "idUnavailable": "The running batch could not be identified yet. Wait for progress to update and try again.",
       "disabledWhileRunning": "Stop or finish the active batch first.",
@@ -5097,6 +5108,36 @@
     }
   },
   "transcribeFile": {
+    "batch": {
+      "title": "File transcription queue",
+      "description": "Add several audio files, or drop them together onto this page. Files run one at a time using the current file-transcription model. You can add more while the queue runs.",
+      "savedToDocuments": "Each transcript is saved to Documents as a separate TXT, SRT, or VTT file using the output format selected when it was added. Existing files are never overwritten.",
+      "restartHint": "The queue is saved across app restarts and always returns paused. Review the model and provider settings before resuming.",
+      "audioFiles": "Audio files",
+      "addFiles": "Add files to queue",
+      "resume": "Start / resume queue",
+      "stop": "Stop and pause",
+      "stopping": "Stopping…",
+      "retryFailed": "Retry failed",
+      "clearFinished": "Clear finished",
+      "remove": "Remove from queue",
+      "queueCount": "{{count}} file(s) waiting",
+      "running": "Transcribing…",
+      "paused": "Paused",
+      "added": "{{count}} file(s) added to the queue.",
+      "nothingNew": "No new files were added. Supported files may already be queued.",
+      "unsupportedSkipped": "{{count}} unsupported file(s) skipped.",
+      "waiting": {
+        "singleFile": "Waiting for the current file transcription to finish stopping or processing",
+        "recording": "Waiting for the local recording or processing session to finish"
+      },
+      "status": {
+        "queued": "Queued",
+        "processing": "Processing",
+        "completed": "Completed",
+        "failed": "Failed"
+      }
+    },
     "title": "Transcribe Audio File",
     "description": "Choose an audio file to create a transcript. Supported formats: WAV, MP3, M4A, OGG, FLAC, and WebM.",
     "cliHelp": {

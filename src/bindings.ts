@@ -5471,7 +5471,11 @@ export type TtsBatchFilePlan = { inputPath: string; relativePath: string; output
 export type TtsBatchFileResult = { index: number; inputPath: string; relativePath: string; outputPath: string; status: TtsBatchFileStatus; error: string | null; warning: string | null; operationId: string | null; resumedChunks: number }
 export type TtsBatchFileStatus = "queued" | "processing" | "completed" | "skipped" | "failed"
 export type TtsBatchProgress = { clientId: string; batchId: string; total: number; finished: number; completed: number; skipped: number; failed: number; cancelled: boolean; done: boolean; startedAtMs: number; workStartedAtMs: number | null; message: string | null; file: TtsBatchFileResult | null }
-export type TtsBatchScanRequest = { inputDirectory: string | null; inputPaths?: string[]; outputDirectory: string; recursive: boolean; outputFormat: TtsOutputFormat }
+export type TtsBatchScanRequest = { inputDirectory: string | null; inputPaths?: string[]; outputDirectory: string; recursive: boolean; outputFormat: TtsOutputFormat; 
+/**
+ * Outputs already planned by queued files that are not written yet.
+ */
+reservedOutputs?: string[] }
 export type TtsBatchScanResult = { inputDirectory: string | null; outputDirectory: string; recursive: boolean; outputFormat: TtsOutputFormat; files: TtsBatchFilePlan[]; eligibleCount: number; warnings: string[] }
 export type TtsBatchSummary = { clientId: string; batchId: string; total: number; finished: number; completed: number; skipped: number; failed: number; cancelled: boolean; files: TtsBatchFileResult[] }
 export type TtsFileJobConversionResponse = { jobId: string; conversion: ConvertTtsTextFileResponse }
