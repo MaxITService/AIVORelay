@@ -14,6 +14,9 @@ pub(crate) enum EarlyKeyState {
     Idle,
     /// Armed; the key is waiting for the hotkey modifiers to be released.
     Waiting,
+    /// The opening key is being pressed right now, outside the state lock (the press can
+    /// wait for the main thread, which may be waiting for that lock to cancel).
+    Pressing,
     Pressed { at: Instant, window: Option<usize> },
     /// The key could not be pressed. Nothing is inserted; text stays in History.
     Failed,
@@ -33,7 +36,7 @@ pub(crate) enum Gate {
 pub(crate) fn gate_for(state: EarlyKeyState, delay_ms: u64, now: Instant) -> Gate {
     match state {
         EarlyKeyState::Idle => Gate::Open,
-        EarlyKeyState::Waiting => Gate::Wait,
+        EarlyKeyState::Waiting | EarlyKeyState::Pressing => Gate::Wait,
         EarlyKeyState::Pressed { at, .. } => {
             if now.saturating_duration_since(at) >= Duration::from_millis(delay_ms.min(5000)) {
                 Gate::Open
@@ -75,6 +78,8 @@ struct Inner {
     state: EarlyKeyState,
     completed: bool,
     config: Option<EarlyKeyConfig>,
+    /// The recording ended while the key was being pressed; `press_with` finishes that end.
+    ended_during_press: bool,
 }
 
 /// Shared by every clone of one recording's output settings.
@@ -108,27 +113,61 @@ impl EarlyOpeningKey {
         let mut inner = self.lock();
         inner.state = EarlyKeyState::Waiting;
         inner.completed = false;
+        inner.ended_during_press = false;
         inner.config = Some(config);
     }
 
-    /// Runs `press` only while waiting. Success records the press; failure blocks insertion.
+    /// Like `state`, but a press in progress is waited out (bounded), for readers that must
+    /// know whether the key was pressed.
+    pub(crate) fn settled_state(&self) -> EarlyKeyState {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let state = self.state();
+            if state != EarlyKeyState::Pressing || Instant::now() >= deadline {
+                return state;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// Runs `press` only while waiting, without holding the state lock: the press may wait
+    /// for the main thread, which may be cancelling. Success records the press; failure
+    /// blocks insertion. A cancel that arrived during the press is finished here, and its
+    /// cancel-key action (if any) is returned for the caller to run.
     fn press_with(
         &self,
         press: impl FnOnce(&EarlyKeyConfig) -> Result<Option<usize>, String>,
-    ) -> Option<Result<(), String>> {
+    ) -> Option<(Result<(), String>, Option<CancelAction>)> {
+        let config = {
+            let mut inner = self.lock();
+            if inner.state != EarlyKeyState::Waiting {
+                return None;
+            }
+            let config = inner.config.clone()?;
+            inner.state = EarlyKeyState::Pressing;
+            inner.ended_during_press = false;
+            config
+        };
+        let result = press(&config);
         let mut inner = self.lock();
-        if inner.state != EarlyKeyState::Waiting {
-            return None;
-        }
-        let config = inner.config.clone()?;
-        Some(match press(&config) {
+        let ended = std::mem::take(&mut inner.ended_during_press);
+        Some(match result {
+            Ok(window) if ended => {
+                inner.state = EarlyKeyState::Done;
+                let action = (!inner.completed && !config.cancel_key.is_empty()).then(|| CancelAction {
+                    key: config.cancel_key.clone(),
+                    check_window: config.check_window,
+                    window,
+                });
+                (Ok(()), action)
+            }
             Ok(window) => {
                 inner.state = EarlyKeyState::Pressed { at: Instant::now(), window };
-                Ok(())
+                (Ok(()), None)
             }
             Err(error) => {
-                inner.state = EarlyKeyState::Failed;
-                Err(error)
+                inner.state = if ended { EarlyKeyState::Done } else { EarlyKeyState::Failed };
+                (Err(error), None)
             }
         })
     }
@@ -144,6 +183,13 @@ impl EarlyOpeningKey {
         let mut inner = self.lock();
         let previous = inner.state;
         if matches!(previous, EarlyKeyState::Idle | EarlyKeyState::Done) {
+            return None;
+        }
+        // Never wait for a press in progress: `press_with` finishes this end afterwards.
+        if previous == EarlyKeyState::Pressing {
+            if !inner.completed {
+                inner.ended_during_press = true;
+            }
             return None;
         }
         // A pressed key whose recording already produced its result stays pressed: a
@@ -290,7 +336,7 @@ pub(crate) fn spawn_press_worker(operation_id: u64, still_active: impl Fn() -> b
 }
 
 fn press_opening_key(app: &AppHandle, key: &EarlyOpeningKey) {
-    let outcome = key.press_with(|config| {
+    let Some((outcome, cancel)) = key.press_with(|config| {
         let window = if config.check_window {
             let current = crate::clipboard::output_foreground_window();
             if !window_still_target(config.start_window, current) {
@@ -302,8 +348,13 @@ fn press_opening_key(app: &AppHandle, key: &EarlyOpeningKey) {
         };
         crate::clipboard::press_output_key_now(app, &config.key)?;
         Ok(window)
-    });
-    if let Some(Err(error)) = outcome {
+    }) else {
+        return;
+    };
+    if let Some(action) = cancel {
+        press_cancel_key(app, action);
+    }
+    if let Err(error) = outcome {
         warn!("Opening key was not pressed at recording start; nothing will be inserted: {}", error);
         let _ = app.emit(
             "live-window-output-state",
@@ -351,7 +402,7 @@ mod tests {
         assert!(key.press_with(|_| Ok(None)).is_none());
         key.arm(config(""));
         assert!(key.is_waiting());
-        assert!(matches!(key.press_with(|_| Ok(Some(7))), Some(Ok(()))));
+        assert!(matches!(key.press_with(|_| Ok(Some(7))), Some((Ok(()), None))));
         assert!(matches!(key.state(), EarlyKeyState::Pressed { window: Some(7), .. }));
         assert!(key.press_with(|_| panic!("must not press twice")).is_none());
     }
@@ -360,7 +411,7 @@ mod tests {
     fn failed_press_blocks_insertion_and_never_presses_the_cancel_key() {
         let key = EarlyOpeningKey::default();
         key.arm(config("escape"));
-        assert!(matches!(key.press_with(|_| Err("no".into())), Some(Err(_))));
+        assert!(matches!(key.press_with(|_| Err("no".into())), Some((Err(_), None))));
         assert_eq!(key.state(), EarlyKeyState::Failed);
         assert!(key.end().is_none());
         assert_eq!(key.state(), EarlyKeyState::Done);
@@ -431,6 +482,67 @@ mod tests {
         waiting.mark_completed();
         assert!(waiting.end().is_none());
         assert_eq!(waiting.gate(150, later), Gate::Closed);
+    }
+
+    #[test]
+    fn cancel_during_the_press_never_waits_and_runs_after_the_press_once() {
+        let key = EarlyOpeningKey::default();
+        key.arm(config("escape"));
+        let (_, cancel) = key
+            .press_with(|_| {
+                // The state lock is free while pressing, so a cancel returns at once.
+                assert_eq!(key.state(), EarlyKeyState::Pressing);
+                assert!(key.end().is_none());
+                assert!(key.end().is_none());
+                assert_eq!(key.gate(0, Instant::now()), Gate::Wait);
+                Ok(Some(4))
+            })
+            .expect("pressed");
+        let action = cancel.expect("cancel key after the press");
+        assert_eq!((action.key.as_str(), action.window), ("escape", Some(4)));
+        assert_eq!(key.state(), EarlyKeyState::Done);
+        assert!(key.end().is_none(), "no second release");
+        assert!(key.press_with(|_| panic!("must not press again")).is_none());
+    }
+
+    #[test]
+    fn cancel_during_a_failed_press_or_without_a_cancel_key_presses_nothing() {
+        let failed = EarlyOpeningKey::default();
+        failed.arm(config("escape"));
+        let (result, cancel) = failed
+            .press_with(|_| {
+                failed.end();
+                Err("no".into())
+            })
+            .unwrap();
+        assert!(result.is_err() && cancel.is_none());
+        assert_eq!(failed.state(), EarlyKeyState::Done);
+
+        let no_key = EarlyOpeningKey::default();
+        no_key.arm(config(""));
+        let (_, cancel) = no_key.press_with(|_| { no_key.end(); Ok(None) }).unwrap();
+        assert!(cancel.is_none());
+        assert_eq!(no_key.state(), EarlyKeyState::Done);
+
+        // A result already produced keeps the key pressed, as without a press in progress.
+        let completed = EarlyOpeningKey::default();
+        completed.arm(config("escape"));
+        let (_, cancel) = completed
+            .press_with(|_| { completed.mark_completed(); completed.end(); Ok(None) })
+            .unwrap();
+        assert!(cancel.is_none());
+        assert!(matches!(completed.state(), EarlyKeyState::Pressed { .. }));
+    }
+
+    #[test]
+    fn settled_state_waits_out_a_press_in_progress() {
+        let key = EarlyOpeningKey::default();
+        key.arm(config(""));
+        key.press_with(|_| {
+            assert_eq!(key.state(), EarlyKeyState::Pressing);
+            Ok(None)
+        });
+        assert!(matches!(key.settled_state(), EarlyKeyState::Pressed { .. }));
     }
 
     #[test]
