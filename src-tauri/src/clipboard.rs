@@ -2398,7 +2398,7 @@ pub(crate) fn complete_dictation_output(
     // Opening key pressed at recording start: live text went into the opened chat. Only
     // its delay and the after-insertion key remain. If the key was never pressed, nothing
     // was inserted and the text stays in History.
-    let early_press = match settings.early_opening_key.state() {
+    let early_press = match settings.early_opening_key.settled_state() {
         crate::early_open::EarlyKeyState::Idle => None,
         crate::early_open::EarlyKeyState::Pressed { at, window } => Some((at, window)),
         state => {
@@ -2493,7 +2493,7 @@ pub(crate) fn paste_with_output_settings(
     // Opening key pressed at recording start: it is not pressed again, the target is the
     // window that received it, and only the rest of its delay is waited. A key that was
     // never pressed (failed, or the recording ended first) means nothing is inserted.
-    let early_press = match settings.early_opening_key.state() {
+    let early_press = match settings.early_opening_key.settled_state() {
         crate::early_open::EarlyKeyState::Idle => None,
         crate::early_open::EarlyKeyState::Pressed { at, window } => Some((at, window)),
         state => {
@@ -2617,7 +2617,7 @@ fn paste_stream_chunk_for_output(
     // Opening key pressed at start: chunks wait in the live buffer for the key and its
     // delay. If the key failed or the recording ended, nothing is inserted (History keeps it).
     if let Some((operation_id, settings)) = output.as_ref() {
-        match settings.early_opening_key.state() {
+        match settings.early_opening_key.settled_state() {
             crate::early_open::EarlyKeyState::Idle | crate::early_open::EarlyKeyState::Pressed { .. } => {}
             crate::early_open::EarlyKeyState::Waiting
                 if crate::live_output_buffer::enabled(*operation_id) => {}

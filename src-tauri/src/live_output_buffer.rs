@@ -389,7 +389,7 @@ fn flush(app: &AppHandle, operation_id: u64) {
                     // Everything reached the window that got the opening key pressed at recording
                     // start, so the after-insertion key it owns is pressed now (never earlier,
                     // while the remainder was still waiting).
-                    early_submit = session.gate.as_ref().and_then(|key| match key.state() {
+                    early_submit = session.gate.as_ref().and_then(|key| match key.settled_state() {
                         crate::early_open::EarlyKeyState::Pressed { window, .. } =>
                             Some((session.settings.clone(), window)),
                         _ => None,
