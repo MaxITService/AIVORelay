@@ -317,6 +317,9 @@ pub struct TtsBatchScanRequest {
     pub output_directory: PathBuf,
     pub recursive: bool,
     pub output_format: TtsOutputFormat,
+    /// Outputs already planned by queued files that are not written yet.
+    #[serde(default)]
+    pub reserved_outputs: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -1566,7 +1569,11 @@ impl TtsManager {
             TtsOutputFormat::Opus => "opus",
             TtsOutputFormat::Wav => "wav",
         };
-        let mut reserved_outputs = HashSet::new();
+        let mut reserved_outputs: HashSet<String> = request
+            .reserved_outputs
+            .iter()
+            .map(|path| batch_output_key(path))
+            .collect();
         let mut files = Vec::with_capacity(pending.len());
         for (input_path, relative_path, source_characters, scan_error) in pending {
             let output_path = allocate_batch_output_path(
@@ -5220,6 +5227,13 @@ fn normalized_batch_path_key(path: &Path) -> String {
     }
 }
 
+/// Case- and separator-insensitive on every platform, like the queue's
+/// `outputPathKey`, so outputs never overwrite each other on a case-insensitive
+/// volume (the macOS default).
+fn batch_output_key(path: &Path) -> String {
+    path.to_string_lossy().replace('/', "\\").to_lowercase()
+}
+
 fn collect_batch_text_paths(
     input_root: &Path,
     output_root: &Path,
@@ -5348,7 +5362,7 @@ fn allocate_batch_output_path(
             name
         };
         let candidate = output_root.join(parent).join(file_name);
-        let key = normalized_batch_path_key(&candidate);
+        let key = batch_output_key(&candidate);
         if !candidate.exists() && reserved.insert(key) {
             return Ok(candidate);
         }
@@ -6790,6 +6804,19 @@ mod tests {
 
         assert_eq!(first, output.join("book").join("chapter-2.mp3"));
         assert_eq!(second, output.join("book").join("chapter-3.mp3"));
+
+        // A queued file owns chapter-4 without having written it; chapter-5 is
+        // on disk from an earlier run, so the next free name is chapter-6.
+        fs::write(output.join("book").join("chapter-5.mp3"), b"existing").unwrap();
+        reserved.insert(batch_output_key(&output.join("book").join("CHAPTER-4.MP3")));
+        let third = allocate_batch_output_path(
+            &output,
+            Path::new("book").join("chapter.txt").as_path(),
+            "mp3",
+            &mut reserved,
+        )
+        .unwrap();
+        assert_eq!(third, output.join("book").join("chapter-6.mp3"));
 
         fs::remove_dir_all(output).unwrap();
     }
