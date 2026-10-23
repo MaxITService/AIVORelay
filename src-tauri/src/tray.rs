@@ -1624,21 +1624,28 @@ pub fn copy_last_transcript(app: &AppHandle) {
         return;
     }
 
-    let _clipboard_guard = match crate::clipboard::lock_clipboard_transaction(
-        "copying the last transcript from the tray",
-    ) {
-        Ok(guard) => guard,
-        Err(err) => {
-            error!("{}", err);
+    // A paste in progress holds the clipboard; the copy waits for it on the output worker.
+    let text = text.to_string();
+    let app = app.clone();
+    if let Err(err) = crate::output_dispatch::run(move || {
+        let _clipboard_guard = match crate::clipboard::lock_clipboard_transaction(
+            "copying the last transcript from the tray",
+        ) {
+            Ok(guard) => guard,
+            Err(err) => {
+                error!("{}", err);
+                return;
+            }
+        };
+        if let Err(err) = app.clipboard().write_text(text) {
+            error!("Failed to copy last transcript to clipboard: {}", err);
             return;
         }
-    };
-    if let Err(err) = app.clipboard().write_text(text) {
-        error!("Failed to copy last transcript to clipboard: {}", err);
-        return;
-    }
 
-    info!("Copied last transcript to clipboard via tray.");
+        info!("Copied last transcript to clipboard via tray.");
+    }) {
+        error!("Failed to queue the tray copy: {}", err);
+    }
 }
 
 #[cfg(test)]

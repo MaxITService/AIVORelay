@@ -1977,6 +1977,7 @@ pub fn run(cli_args: CliArgs) {
         .manage(std::sync::Mutex::new(settings::ShortcutEngine::default())
             as shortcut::ActiveShortcutEngine)
         .setup(move |app| {
+            output_dispatch::set_main_thread();
             secure_keys::init(app.handle());
             // History playback on Linux reads recordings through the file plugin.
             // Scope it to the real recordings folder, which moves in portable mode.

@@ -92,7 +92,7 @@ struct DictationOutputSession {
 }
 
 /// The newest recording owns live chunks. An older operation may still have its
-/// final delivery queued on the main thread after a synchronous wait timed out,
+/// final delivery queued on the output worker after a synchronous wait timed out,
 /// so its captured settings stay available until that delivery consumes them.
 #[derive(Default)]
 struct DictationOutputSessions {
@@ -151,6 +151,12 @@ impl DictationOutputSessions {
     fn take(&mut self, operation_id: u64) -> Option<DictationOutputSession> {
         let index = self.sessions.iter().position(|session| session.operation_id == operation_id)?;
         Some(self.sessions.remove(index))
+    }
+
+    fn cancel_current(&mut self) {
+        if let Some(operation_id) = self.current_operation_id {
+            self.take(operation_id);
+        }
     }
 
     /// Only whitespace is held, so the dictation itself stays complete without it.
@@ -846,40 +852,54 @@ fn lock_output() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|error| error.into_inner())
 }
 
-/// Takes the input system only when a key press really needs it. Methods that run
-/// an external tool, or none at all, then work where it is unavailable (for
-/// example Wayland without XWayland).
-struct LazyEnigo<'a> {
-    app: &'a AppHandle,
-    guard: Option<MutexGuard<'a, Enigo>>,
+/// Runs `f` with the shared Enigo and waits for its result. Enigo is taken only
+/// when a key press really needs it, so methods that run an external tool, or
+/// none at all, work where it is unavailable (for example Wayland without
+/// XWayland).
+///
+/// Paste runs on the output worker so the main thread stays free while it
+/// sleeps, which lets the app's own windows handle a paste aimed at them. Outside
+/// Windows, input injection hops back to the main thread because macOS's TIS
+/// keyboard layout APIs must run there; Tauri runs the closure inline when
+/// already on the main thread, so nested calls can't deadlock. Windows resolves
+/// the foreground window's layout from any thread, so input runs in place.
+pub(crate) fn with_enigo<T: Send + 'static>(
+    app_handle: &AppHandle,
+    f: impl FnOnce(&mut Enigo) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    #[cfg(target_os = "windows")]
+    return lock_enigo_and_run(app_handle, f);
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let app = app_handle.clone();
+        app_handle
+            .run_on_main_thread(move || {
+                let _ = tx.send(lock_enigo_and_run(&app, f));
+            })
+            .map_err(|e| format!("Failed to run input on the main thread: {}", e))?;
+        // A dropped closure (event loop shutting down) closes the channel.
+        rx.recv()
+            .map_err(|_| "Main thread dropped the input request".to_string())?
+    }
 }
 
-impl<'a> LazyEnigo<'a> {
-    fn new(app: &'a AppHandle) -> Self {
-        Self { app, guard: None }
-    }
-
-    fn get(&mut self) -> Result<&mut Enigo, String> {
-        if self.guard.is_none() {
-            let state: &'a EnigoState = self
-                .app
-                .try_state::<EnigoState>()
-                .ok_or("Enigo state not initialized")?
-                .inner();
-            let guard = state
-                .0
-                .lock()
-                .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
-            self.guard = Some(guard);
-        }
-        match self.guard.as_mut() {
-            Some(guard) => Ok(&mut **guard),
-            None => Err("Enigo state not initialized".to_string()),
-        }
-    }
+fn lock_enigo_and_run<T>(
+    app_handle: &AppHandle,
+    f: impl FnOnce(&mut Enigo) -> Result<T, String>,
+) -> Result<T, String> {
+    let enigo_state = app_handle
+        .try_state::<EnigoState>()
+        .ok_or("Enigo state not initialized")?;
+    let mut enigo = enigo_state
+        .0
+        .lock()
+        .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+    f(&mut enigo)
 }
 
-fn send_paste_shortcut(enigo: &mut LazyEnigo, paste_method: &PasteMethod) -> Result<(), String> {
+fn send_paste_shortcut(app_handle: &AppHandle, paste_method: &PasteMethod) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     let key_combo_sent = try_send_key_combo_linux(paste_method)?;
 
@@ -888,12 +908,13 @@ fn send_paste_shortcut(enigo: &mut LazyEnigo, paste_method: &PasteMethod) -> Res
 
     // Fall back to enigo if no native tool handled it.
     if !key_combo_sent {
-        match paste_method {
-            PasteMethod::CtrlV => input::send_paste_ctrl_v(enigo.get()?)?,
-            PasteMethod::CtrlShiftV => input::send_paste_ctrl_shift_v(enigo.get()?)?,
-            PasteMethod::ShiftInsert => input::send_paste_shift_insert(enigo.get()?)?,
+        let send: fn(&mut Enigo) -> Result<(), String> = match paste_method {
+            PasteMethod::CtrlV => input::send_paste_ctrl_v,
+            PasteMethod::CtrlShiftV => input::send_paste_ctrl_shift_v,
+            PasteMethod::ShiftInsert => input::send_paste_shift_insert,
             _ => return Err("Invalid paste method for clipboard paste".into()),
-        }
+        };
+        with_enigo(app_handle, send)?;
     }
 
     Ok(())
@@ -1017,7 +1038,6 @@ fn restore_plain_text_without_history(app_handle: &AppHandle, text: &str) -> Res
 }
 
 fn paste_via_clipboard_no_restore_guarded(
-    enigo: &mut LazyEnigo,
     text: &str,
     app_handle: &AppHandle,
     paste_method: &PasteMethod,
@@ -1033,7 +1053,7 @@ fn paste_via_clipboard_no_restore_guarded(
     if !wait_for_output_delay(paste_delay_ms, can_continue) {
         return Ok(None);
     }
-    send_paste_shortcut(enigo, paste_method)?;
+    send_paste_shortcut(app_handle, paste_method)?;
     let paste_sent_at = Instant::now();
     std::thread::sleep(Duration::from_millis(50));
     Ok(Some(paste_sent_at))
@@ -1234,14 +1254,16 @@ pub fn begin_streaming_paste_session(
     Ok(())
 }
 
+/// Drops the current dictation's output settings at once, so its chunks still waiting
+/// in the output queue are skipped.
+pub(crate) fn cancel_current_dictation_output() {
+    lock_dictation_output_sessions().cancel_current();
+}
+
+/// Restores the clipboard of the streaming session, if any. Run it as an output task,
+/// so it cannot run ahead of a paste queued before it.
 pub fn end_streaming_paste_session(app_handle: &AppHandle) -> Result<(), String> {
     let _clipboard_guard = lock_clipboard_transaction("ending streaming paste")?;
-    {
-        let mut sessions = lock_dictation_output_sessions();
-        if let Some(operation_id) = sessions.current_operation_id {
-            sessions.take(operation_id);
-        }
-    }
     let mut guard = STREAMING_PASTE_SESSION
         .lock()
         .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
@@ -1358,7 +1380,6 @@ pub fn finalize_streaming_paste_session_if_matches(
 
 /// Pastes text using the clipboard: saves current content, writes text, sends paste keystroke, restores clipboard.
 fn paste_via_clipboard_guarded(
-    enigo: &mut LazyEnigo,
     text: &str,
     app_handle: &AppHandle,
     paste_method: &PasteMethod,
@@ -1408,7 +1429,6 @@ fn paste_via_clipboard_guarded(
 
     // The non-streaming paste write is also the final write.
     let paste_result = paste_via_clipboard_no_restore_guarded(
-        enigo,
         text,
         app_handle,
         paste_method,
@@ -2125,7 +2145,7 @@ fn terminate_external_script(child: &mut std::process::Child) {
 }
 
 /// Types text directly by simulating individual key presses.
-fn paste_direct(enigo: &mut LazyEnigo, app_handle: &AppHandle, text: &str) -> Result<(), String> {
+fn paste_direct(app_handle: &AppHandle, text: &str) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         if try_direct_typing_linux(text, get_settings(app_handle).typing_tool)? {
@@ -2133,10 +2153,9 @@ fn paste_direct(enigo: &mut LazyEnigo, app_handle: &AppHandle, text: &str) -> Re
         }
         info!("Falling back to enigo for direct text input");
     }
-    #[cfg(not(target_os = "linux"))]
-    let _ = app_handle;
 
-    input::paste_text_direct(enigo.get()?, text)
+    let text = text.to_string();
+    with_enigo(app_handle, move |enigo| input::paste_text_direct(enigo, &text))
 }
 
 /// Hands text to the user's configured external paste script.
@@ -2148,8 +2167,8 @@ fn paste_external_script(app_handle: &AppHandle, text: &str, can_continue: impl 
     paste_via_external_script(text, &script_path, EXTERNAL_SCRIPT_TIMEOUT, can_continue)
 }
 
-fn send_return_key(enigo: &mut LazyEnigo, key_type: AutoSubmitKey) -> Result<(), String> {
-    send_output_key(enigo, match key_type {
+fn send_return_key(app: &AppHandle, key_type: AutoSubmitKey) -> Result<(), String> {
+    send_output_key(app, match key_type {
         AutoSubmitKey::Enter => "enter",
         AutoSubmitKey::CtrlEnter => "ctrl+enter",
         AutoSubmitKey::CmdEnter => "meta+enter",
@@ -2293,30 +2312,31 @@ pub(crate) fn validate_output_key(value: &str) -> Result<(), String> {
     parse_output_key(value).map(|_| ())
 }
 
-fn send_output_key(enigo: &mut LazyEnigo, value: &str) -> Result<(), String> {
+fn send_output_key(app: &AppHandle, value: &str) -> Result<(), String> {
     let (modifiers, key) = parse_output_key(value)?;
-    let enigo = enigo.get()?;
-    let mut pressed = Vec::new();
-    let result = (|| {
-        for modifier in modifiers {
-            enigo.key(modifier, Direction::Press).map_err(|error| error.to_string())?;
-            pressed.push(modifier);
+    with_enigo(app, move |enigo| {
+        let mut pressed = Vec::new();
+        let result = (|| {
+            for modifier in modifiers {
+                enigo.key(modifier, Direction::Press).map_err(|error| error.to_string())?;
+                pressed.push(modifier);
+            }
+            enigo.key(key, Direction::Click).map_err(|error| error.to_string())
+        })();
+        let mut release_error = None;
+        for modifier in pressed.into_iter().rev() {
+            if let Err(error) = enigo.key(modifier, Direction::Release) {
+                release_error = Some(error.to_string());
+            }
         }
-        enigo.key(key, Direction::Click).map_err(|error| error.to_string())
-    })();
-    let mut release_error = None;
-    for modifier in pressed.into_iter().rev() {
-        if let Err(error) = enigo.key(modifier, Direction::Release) {
-            release_error = Some(error.to_string());
-        }
-    }
-    result.and_then(|_| release_error.map_or(Ok(()), Err))
+        result.and_then(|_| release_error.map_or(Ok(()), Err))
+    })
 }
 
 /// Presses a validated key combination with the managed keyboard (opening/cancel keys).
 pub(crate) fn press_output_key_now(app: &AppHandle, value: &str) -> Result<(), String> {
     let _output_guard = lock_output();
-    send_output_key(&mut LazyEnigo::new(app), value)
+    send_output_key(app, value)
 }
 
 /// After-insertion key for a recording whose opening key was pressed at start. The text
@@ -2338,8 +2358,7 @@ pub(crate) fn send_early_session_submit(
         return;
     }
     let _output_guard = lock_output();
-    let mut enigo = LazyEnigo::new(app);
-    if let Err(error) = send_return_key(&mut enigo, settings.auto_submit_key) {
+    if let Err(error) = send_return_key(app, settings.auto_submit_key) {
         warn!("Text was inserted, but the submit key failed: {}", error);
     }
 }
@@ -2499,9 +2518,8 @@ pub(crate) fn paste_with_output_settings(
     .then(|| lock_clipboard_transaction("pasting text"))
     .transpose()?;
 
-    // The input system is taken lazily, on the first key press that needs it.
+    // The input system is taken lazily, on each key press that needs it.
     let _output_guard = lock_output();
-    let mut enigo = LazyEnigo::new(&app_handle);
 
     let target_window = match early_press {
         Some((_, window)) => window,
@@ -2516,7 +2534,7 @@ pub(crate) fn paste_with_output_settings(
     }
     if !settings.before_insert_key.is_empty() {
         if !output_can_continue() { return Ok(false); }
-        send_output_key(&mut enigo, &settings.before_insert_key)?;
+        send_output_key(&app_handle, &settings.before_insert_key)?;
         if !wait_for_output_delay(settings.before_insert_delay_ms, &output_can_continue) {
             return Ok(false);
         }
@@ -2528,7 +2546,7 @@ pub(crate) fn paste_with_output_settings(
             info!("PasteMethod::None selected - skipping paste action");
         }
         PasteMethod::Direct => {
-            paste_direct(&mut enigo, &app_handle, &text)?;
+            paste_direct(&app_handle, &text)?;
         }
         PasteMethod::ExternalScript => {
             if !paste_external_script(&app_handle, &text, &output_can_continue)? {
@@ -2537,7 +2555,6 @@ pub(crate) fn paste_with_output_settings(
         }
         PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
             if !paste_via_clipboard_guarded(
-                &mut enigo,
                 &text,
                 &app_handle,
                 &paste_method,
@@ -2559,7 +2576,7 @@ pub(crate) fn paste_with_output_settings(
             // that could insert the same text again after a cancelled submit.
             return Ok(true);
         }
-        if let Err(error) = send_return_key(&mut enigo, settings.auto_submit_key) {
+        if let Err(error) = send_return_key(&app_handle, settings.auto_submit_key) {
             // Delivery succeeded: retaining Preview here would duplicate text
             // on the next insertion attempt.
             warn!("Text was inserted, but the submit key failed: {}", error);
@@ -2696,7 +2713,6 @@ fn paste_stream_chunk_with_output(
         return Ok(());
     }
     let _output_guard = lock_output();
-    let mut enigo = LazyEnigo::new(&app_handle);
 
     let check_active_window = active_stream_config.as_ref()
         .map(|(_, _, _, check_active_window)| *check_active_window)
@@ -2717,7 +2733,7 @@ fn paste_stream_chunk_with_output(
                 info!("PasteMethod::None selected - skipping streaming chunk paste");
             }
             PasteMethod::Direct => {
-                paste_direct(&mut enigo, &app_handle, &text)?;
+                paste_direct(&app_handle, &text)?;
             }
             PasteMethod::ExternalScript => {
                 if !paste_external_script(&app_handle, &text, &target_is_current)? {
@@ -2735,7 +2751,6 @@ fn paste_stream_chunk_with_output(
                 // Streaming chunks are always excluded from the clipboard
                 // history; only the final full-text write may be captured.
                 let paste_sent_at = paste_via_clipboard_no_restore_guarded(
-                    &mut enigo,
                     &text,
                     &app_handle,
                     &paste_method,
@@ -2767,7 +2782,7 @@ fn paste_stream_chunk_with_output(
                 info!("PasteMethod::None selected - skipping streaming chunk paste");
             }
             PasteMethod::Direct => {
-                paste_direct(&mut enigo, &app_handle, &text)?;
+                paste_direct(&app_handle, &text)?;
             }
             PasteMethod::ExternalScript => {
                 if !paste_external_script(&app_handle, &text, &target_is_current)? {
@@ -2777,7 +2792,6 @@ fn paste_stream_chunk_with_output(
             PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
                 // Streaming chunks are always excluded from the clipboard history.
                 if !paste_via_clipboard_guarded(
-                    &mut enigo,
                     &text,
                     &app_handle,
                     &settings.paste_method,
@@ -2811,8 +2825,7 @@ fn restore_cut_selection_from_backup(app_handle: &AppHandle, text: &str) -> Resu
     })?;
 
     let _output_guard = lock_output();
-    let mut enigo = LazyEnigo::new(app_handle);
-    send_paste_shortcut(&mut enigo, &PasteMethod::CtrlV)?;
+    send_paste_shortcut(app_handle, &PasteMethod::CtrlV)?;
 
     Ok(())
 }
@@ -2824,18 +2837,10 @@ pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> 
     let mut cut_performed = false;
 
     let capture_result = (|| -> Result<String, String> {
-        let enigo_state = app_handle
-            .try_state::<EnigoState>()
-            .ok_or("Enigo state not initialized")?;
-        let mut enigo = enigo_state
-            .0
-            .lock()
-            .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
-
         // Clear clipboard to ensure we don't pick up old content if selection is empty
         let _ = clipboard.write_text("");
 
-        input::send_cut_ctrl_x(&mut enigo)?;
+        with_enigo(app_handle, input::send_cut_ctrl_x)?;
         cut_performed = true;
         std::thread::sleep(std::time::Duration::from_millis(80));
 
@@ -2888,18 +2893,10 @@ pub fn capture_selection_text_copy(app_handle: &AppHandle) -> Result<String, Str
     };
 
     let capture_result = (|| -> Result<String, String> {
-        let enigo_state = app_handle
-            .try_state::<EnigoState>()
-            .ok_or("Enigo state not initialized")?;
-        let mut enigo = enigo_state
-            .0
-            .lock()
-            .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
-
         // Clear clipboard so empty selections read as empty.
         let _ = clipboard.write_text("");
 
-        input::send_copy_ctrl_c(&mut enigo)?;
+        with_enigo(app_handle, input::send_copy_ctrl_c)?;
         std::thread::sleep(std::time::Duration::from_millis(80));
 
         clipboard
@@ -3158,6 +3155,20 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
         assert_eq!(sessions.output_for_chunk(None).unwrap().1.paste_method, PasteMethod::CtrlV);
         sessions.take(7);
         assert!(sessions.output_for_chunk(Some(7)).is_none());
+    }
+
+    #[test]
+    fn cancel_skips_queued_chunks_but_not_the_next_recording() {
+        let settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
+        let mut sessions = DictationOutputSessions::default();
+        sessions.begin(7, Some(settings.clone()));
+        sessions.cancel_current();
+        assert!(sessions.output_for_chunk(Some(7)).is_none(), "a chunk of the cancelled recording must be skipped");
+
+        // The clipboard restore runs later on the output worker and must not touch 8.
+        sessions.begin(8, Some(settings));
+        assert_eq!(sessions.output_for_chunk(Some(8)).unwrap().0, 8);
+        assert_eq!(sessions.output_for_chunk(None).unwrap().0, 8);
     }
 
     #[test]

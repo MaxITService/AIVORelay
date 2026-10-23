@@ -933,10 +933,10 @@ fn confirm_gemini_background_delivery(
     };
 
     pending.delivery_confirmed.store(true, Ordering::Release);
-    release_gemini_finalization_foreground_on_main_thread(app, &pending)
+    release_gemini_finalization_foreground(app, &pending)
 }
 
-fn release_gemini_finalization_foreground_on_main_thread(
+fn release_gemini_finalization_foreground(
     app: &AppHandle,
     pending: &PendingGeminiBackgroundFinalization,
 ) -> bool {
@@ -985,8 +985,8 @@ fn mark_gemini_finalizing_session_detached(
     }
 
     let app_for_release = app.clone();
-    if let Err(error) = run_on_main_thread_sync(app, timeout_ms, move || {
-        release_gemini_finalization_foreground_on_main_thread(&app_for_release, &pending);
+    if let Err(error) = crate::output_dispatch::run_sync(timeout_ms, move || {
+        release_gemini_finalization_foreground(&app_for_release, &pending);
     }) {
         warn!(
             "Failed to release delivered Gemini finalization from the foreground: {}",
@@ -996,19 +996,16 @@ fn mark_gemini_finalizing_session_detached(
 }
 
 struct GeminiBackgroundFinalizationGuard {
-    app: AppHandle,
     operation_id: u64,
 }
 
 impl Drop for GeminiBackgroundFinalizationGuard {
     fn drop(&mut self) {
         let operation_id = self.operation_id;
-        if self
-            .app
-            .run_on_main_thread(move || {
-                let _ = take_gemini_background_finalization(operation_id);
-            })
-            .is_err()
+        if crate::output_dispatch::run(move || {
+            let _ = take_gemini_background_finalization(operation_id);
+        })
+        .is_err()
         {
             let _ = take_gemini_background_finalization(operation_id);
         }
@@ -1232,9 +1229,9 @@ struct LlmLiveInsert {
     pending: Arc<Mutex<PendingLlmOutput>>,
 }
 
-/// Answer text waiting for the main thread. A clipboard paste blocks it for about
-/// a quarter second, so pieces that arrive meanwhile join the next paste instead of
-/// queueing one paste per token.
+/// Answer text waiting for the output worker. A clipboard paste occupies it for
+/// about a quarter second, so pieces that arrive meanwhile join the next paste
+/// instead of queueing one paste per token.
 #[derive(Default)]
 struct PendingLlmOutput {
     text: String,
@@ -1300,9 +1297,7 @@ impl LlmLiveInsert {
         let operation_id = self.stamp.operation_id;
         if !self.clipboard_session {
             self.clipboard_session = true;
-            if let Err(error) = crate::clipboard::begin_streaming_paste_session(&self.app, operation_id) {
-                warn!("Failed to begin streaming clipboard session for LLM output: {}", error);
-            }
+            queue_streaming_paste_session_begin(&self.app, operation_id);
         }
         if !lock_pending_llm_output(&self.pending).append(&text) {
             return;
@@ -1310,7 +1305,7 @@ impl LlmLiveInsert {
         let app = self.app.clone();
         let stamp = self.stamp;
         let pending = Arc::clone(&self.pending);
-        if let Err(error) = self.app.run_on_main_thread(move || {
+        if let Err(error) = crate::output_dispatch::run(move || {
             let text = lock_pending_llm_output(&pending).take();
             if stamp.was_cancelled(&app) {
                 debug!("Skipping queued LLM output for cancelled operation {}", operation_id);
@@ -2164,7 +2159,7 @@ impl FinishGuard {
         // Preserve captured output settings until every previously queued
         // chunk/final paste has run, including when a synchronous wait timed out.
         let operation_id = self.operation_id;
-        if let Err(error) = self.app.run_on_main_thread(move || {
+        if let Err(error) = crate::output_dispatch::run(move || {
             crate::clipboard::end_dictation_output_session_if_matches(operation_id);
         }) {
             warn!("Failed to queue dictation output cleanup: {}", error);
@@ -2251,8 +2246,8 @@ fn maybe_restore_ai_replace_selection(
     let ah = app.clone();
     let restore_text = original_text.to_string();
     let reason_owned = reason.to_string();
-    if let Err(err) = crate::output_dispatch::dispatch_generic(app, None, move |method| {
-        if let Err(paste_err) = utils::paste_with_method_override(restore_text, ah.clone(), method) {
+    if let Err(err) = crate::output_dispatch::run(move || {
+        if let Err(paste_err) = utils::paste_with_method_override(restore_text, ah.clone(), None) {
             error!(
                 "Failed to restore original selection after {}: {}",
                 reason_owned, paste_err
@@ -2569,9 +2564,8 @@ fn start_recording_with_feedback_with_settings(
         let on_committed_text = native_stream_direct_output.then(|| {
             let app_handle = app.clone();
             Arc::new(move |chunk: String| {
-                let app_for_main_thread = app_handle.clone();
-                let app_for_paste = app_for_main_thread.clone();
-                if let Err(error) = app_for_main_thread.run_on_main_thread(move || {
+                let app_for_paste = app_handle.clone();
+                if let Err(error) = crate::output_dispatch::run(move || {
                     if operation_stamp.was_cancelled(&app_for_paste) {
                         debug!(
                             "Skipping queued native streaming chunk for cancelled operation {}",
@@ -3062,12 +3056,10 @@ async fn perform_transcription_for_profile_with_retry_action(
                         if delta.is_empty() {
                             return Ok(());
                         }
-                        let ah_for_call = app_handle.clone();
-                        let ah_for_closure = ah_for_call.clone();
+                        let ah_for_closure = app_handle.clone();
                         let soniox_manager_for_closure =
                             Arc::clone(&soniox_manager_for_callback);
-                        ah_for_call
-                            .run_on_main_thread(move || {
+                        crate::output_dispatch::run(move || {
                                 if soniox_manager_for_closure.is_cancelled(operation_id) {
                                     debug!(
                                         "Skipping queued Soniox streaming insert for cancelled operation {}",
@@ -3096,10 +3088,9 @@ async fn perform_transcription_for_profile_with_retry_action(
                         if tail_delta.is_empty() {
                             Ok(text)
                         } else {
-                            let ah_for_call = app.clone();
-                            let ah_for_closure = ah_for_call.clone();
+                            let ah_for_closure = app.clone();
                             let soniox_manager_for_closure = Arc::clone(&soniox_manager);
-                            match ah_for_call.run_on_main_thread(move || {
+                            match crate::output_dispatch::run(move || {
                                 if soniox_manager_for_closure.is_cancelled(operation_id) {
                                     debug!(
                                         "Skipping queued Soniox stream tail for cancelled operation {}",
@@ -4098,20 +4089,20 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
         }
 
         before_dictation_final_output(&app, &final_text);
-        let app_for_main_thread = app.clone();
+        let app_for_output = app.clone();
         let overlay_generation = crate::plus_overlay_state::current_recording_overlay_generation();
-        if let Err(error) = crate::output_dispatch::dispatch(&app, output_settings.paste_method, move || {
+        if let Err(error) = crate::output_dispatch::run(move || {
             if !remote_recording_retry_is_in_flight(Some(retry_id)) {
                 return;
             }
             let has_text = !final_text.trim().is_empty();
-            let result = utils::paste_with_output_settings(final_text, app_for_main_thread.clone(),
+            let result = utils::paste_with_output_settings(final_text, app_for_output.clone(),
                 &output_settings, || remote_recording_retry_is_in_flight(Some(retry_id)));
-            report_dictation_paste_result(&app_for_main_thread, result, has_text,
+            report_dictation_paste_result(&app_for_output, result, has_text,
                 !remote_recording_retry_is_in_flight(Some(retry_id)));
             clear_last_remote_recording_retry_by_id(retry_id);
             crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
-                &app_for_main_thread,
+                &app_for_output,
                 overlay_generation,
             );
         }) {
@@ -6268,7 +6259,7 @@ fn handle_live_transcription_failure_after_stop(
     if preview_output_only_enabled {
         close_preview_output_mode_workflow(app, true);
     } else {
-        end_streaming_paste_session_after_main_thread_queue(
+        end_streaming_paste_session_after_output_queue(
             app,
             recording_operation_id,
             streaming_clipboard_timeout_ms,
@@ -6469,8 +6460,8 @@ async fn paste_preview_buffer_to_target(
     let ah_for_paste = app.clone();
     let output_settings = crate::managers::preview_output_mode::output_settings()
         .ok_or_else(|| "The preview output settings are no longer available".to_string())?;
-    let main_thread_timeout_ms = output_settings.timeout_ms();
-    let paste_result = run_output_task_sync_with_result(app, output_settings.paste_method, main_thread_timeout_ms, move || {
+    let output_timeout_ms = output_settings.timeout_ms();
+    let paste_result = run_output_task_sync_with_result(output_settings.paste_method, output_timeout_ms, move || {
         if operation_stamp.is_some_and(|stamp| stamp.was_cancelled(&ah_for_paste)) {
             return Ok(false);
         }
@@ -6558,35 +6549,7 @@ fn fail_preview_processing_before_insert(app: &AppHandle, message: String) {
     crate::managers::preview_output_mode::set_error(app, Some(message));
 }
 
-fn run_on_main_thread_sync<F>(app: &AppHandle, timeout_ms: u64, f: F) -> Result<(), String>
-where
-    F: FnOnce() + Send + 'static,
-{
-    run_on_main_thread_sync_with_result(app, timeout_ms, move || {
-        f();
-    })
-}
-
-fn run_on_main_thread_sync_with_result<F, T>(
-    app: &AppHandle,
-    timeout_ms: u64,
-    f: F,
-) -> Result<T, String>
-where
-    F: FnOnce() -> T + Send + 'static,
-    T: Send + 'static,
-{
-    let (tx, rx) = std::sync::mpsc::channel::<T>();
-    app.run_on_main_thread(move || {
-        let _ = tx.send(f());
-    })
-    .map_err(|err| format!("Failed to dispatch main-thread task: {}", err))?;
-    rx.recv_timeout(Duration::from_millis(timeout_ms))
-        .map_err(|err| format!("Timed out waiting for main-thread task: {}", err))
-}
-
 fn run_output_task_sync_with_result<F, T>(
-    app: &AppHandle,
     method: crate::settings::PasteMethod,
     timeout_ms: u64,
     f: F,
@@ -6596,14 +6559,15 @@ where
     T: Send + 'static,
 {
     if !cfg!(target_os = "linux") || method != crate::settings::PasteMethod::ExternalScript {
-        return run_on_main_thread_sync_with_result(app, timeout_ms, f);
+        return crate::output_dispatch::run_sync(timeout_ms, f);
     }
+    // A Linux external script that outlives the wait is stopped instead of
+    // delivering late.
     let (tx, rx) = std::sync::mpsc::channel::<T>();
     let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    crate::output_dispatch::dispatch_cancellable(app, method, Arc::clone(&cancelled), move || {
+    crate::output_dispatch::run_cancellable(Arc::clone(&cancelled), move || {
         let _ = tx.send(f());
-    })
-    .map_err(|err| format!("Failed to dispatch main-thread task: {}", err))?;
+    })?;
 
     rx.recv_timeout(Duration::from_millis(timeout_ms)).map_err(|err| {
         cancelled.store(true, Ordering::Release);
@@ -6611,17 +6575,42 @@ where
     })
 }
 
-/// Queue clipboard restoration behind every previously dispatched main-thread
-/// paste and wait for it to run. Even if the wait times out, the restoration
+/// Opens the clipboard session on the output worker, ahead of the chunks queued
+/// after it. Recording start can run on the main thread, which must not wait for
+/// the clipboard lock while a queued paste holds it.
+fn queue_streaming_paste_session_begin(app: &AppHandle, operation_id: u64) {
+    let app = app.clone();
+    if let Err(error) = crate::output_dispatch::run(move || {
+        if let Err(error) = crate::clipboard::begin_streaming_paste_session(&app, operation_id) {
+            warn!("Failed to begin streaming clipboard session: {}", error);
+        }
+    }) {
+        warn!("Failed to queue streaming clipboard session: {}", error);
+    }
+}
+
+/// Restores the clipboard after a live session failed to start, behind any
+/// output queued before it.
+fn queue_streaming_paste_session_end(app: &AppHandle, operation_id: u64) {
+    let app = app.clone();
+    if let Err(error) = crate::output_dispatch::run(move || {
+        let _ = crate::clipboard::end_streaming_paste_session_if_matches(&app, operation_id);
+    }) {
+        warn!("Failed to queue streaming clipboard restore: {}", error);
+    }
+}
+
+/// Queue clipboard restoration behind every previously queued paste and wait
+/// for it to run. Even if the wait times out, the restoration
 /// closure remains queued after those pastes, so it cannot race ahead of a
 /// delayed Ctrl+V and make it insert the user's old clipboard contents.
-fn end_streaming_paste_session_after_main_thread_queue(
+fn end_streaming_paste_session_after_output_queue(
     app: &AppHandle,
     operation_id: u64,
     timeout_ms: u64,
 ) -> bool {
     let app_for_restore = app.clone();
-    if let Err(err) = run_on_main_thread_sync(app, timeout_ms, move || {
+    if let Err(err) = crate::output_dispatch::run_sync(timeout_ms, move || {
         if let Err(restore_err) =
             crate::clipboard::end_streaming_paste_session_if_matches(&app_for_restore, operation_id)
         {
@@ -6748,7 +6737,7 @@ async fn wait_for_early_opening_key(app: &AppHandle, operation_id: u64, operatio
 /// chunk paste. Unlike the cancellation helper above, this publishes the
 /// complete transcript once to Win+V (when allowed) before restoring the
 /// operation's clipboard backup.
-fn finalize_streaming_paste_session_after_main_thread_queue(
+fn finalize_streaming_paste_session_after_output_queue(
     app: &AppHandle,
     operation_id: u64,
     operation_stamp: OperationStamp,
@@ -6760,7 +6749,7 @@ fn finalize_streaming_paste_session_after_main_thread_queue(
     let output_finalized_in_queue = Arc::clone(&output_finalized);
     let method = crate::clipboard::dictation_output_settings(operation_id)
         .map(|output| output.paste_method).unwrap_or(crate::settings::PasteMethod::CtrlV);
-    if let Err(err) = run_output_task_sync_with_result(app, method, timeout_ms, move || {
+    if let Err(err) = run_output_task_sync_with_result(method, timeout_ms, move || {
         if operation_stamp.was_cancelled(&app_for_finalize) {
             output_finalized_in_queue.store(false, std::sync::atomic::Ordering::Release);
             if let Err(restore_err) = crate::clipboard::end_streaming_paste_session_if_matches(
@@ -8506,14 +8495,7 @@ impl ShortcutAction for TranscribeAction {
         };
 
         if native_streaming_live_output {
-            if let Err(error) =
-                crate::clipboard::begin_streaming_paste_session(app, recording_operation_id)
-            {
-                warn!(
-                    "Failed to begin native streaming clipboard session: {}",
-                    error
-                );
-            }
+            queue_streaming_paste_session_begin(app, recording_operation_id);
         }
 
         if preview_output_only_enabled && binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
@@ -8579,11 +8561,7 @@ impl ShortcutAction for TranscribeAction {
 
         if use_live_streaming {
             if !preview_output_only_enabled {
-                if let Err(e) =
-                    crate::clipboard::begin_streaming_paste_session(app, recording_operation_id)
-                {
-                    warn!("Failed to begin streaming clipboard session: {}", e);
-                }
+                queue_streaming_paste_session_begin(app, recording_operation_id);
             }
 
             let language = profile
@@ -8628,9 +8606,8 @@ impl ShortcutAction for TranscribeAction {
                                     return;
                                 }
                                 mark_soniox_stream_emitted(&binding_id_for_cb);
-                                let ah_for_call = ah_for_cb.clone();
-                                let ah_for_clip = ah_for_call.clone();
-                                let _ = ah_for_call.run_on_main_thread(move || {
+                                let ah_for_clip = ah_for_cb.clone();
+                                let _ = crate::output_dispatch::run(move || {
                                     if operation_stamp.was_cancelled(&ah_for_clip) {
                                         debug!(
                                             "Skipping queued Soniox chunk for cancelled operation {}",
@@ -8660,10 +8637,7 @@ impl ShortcutAction for TranscribeAction {
                         let _ = take_soniox_stream_emitted(&binding_id);
                         let err_str = format!("{}", err);
                         if !preview_output_only_enabled {
-                            let _ = crate::clipboard::end_streaming_paste_session_if_matches(
-                                &app_handle,
-                                recording_operation_id,
-                            );
+                            queue_streaming_paste_session_end(&app_handle, recording_operation_id);
                         }
                         app_handle
                             .state::<Arc<AudioRecordingManager>>()
@@ -8709,9 +8683,8 @@ impl ShortcutAction for TranscribeAction {
                                     return;
                                 }
                                 mark_deepgram_stream_emitted(&binding_id_for_cb);
-                                let ah_for_call = ah_for_cb.clone();
-                                let ah_for_clip = ah_for_call.clone();
-                                let _ = ah_for_call.run_on_main_thread(move || {
+                                let ah_for_clip = ah_for_cb.clone();
+                                let _ = crate::output_dispatch::run(move || {
                                     if operation_stamp.was_cancelled(&ah_for_clip) {
                                         debug!(
                                             "Skipping queued Deepgram chunk for cancelled operation {}",
@@ -8741,10 +8714,7 @@ impl ShortcutAction for TranscribeAction {
                         let _ = take_deepgram_stream_emitted(&binding_id);
                         let err_str = format!("{}", err);
                         if !preview_output_only_enabled {
-                            let _ = crate::clipboard::end_streaming_paste_session_if_matches(
-                                &app_handle,
-                                recording_operation_id,
-                            );
+                            queue_streaming_paste_session_end(&app_handle, recording_operation_id);
                         }
                         app_handle
                             .state::<Arc<AudioRecordingManager>>()
@@ -8779,10 +8749,7 @@ impl ShortcutAction for TranscribeAction {
                             let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
                             let err_str = format!("{}", err);
                             if !preview_output_only_enabled {
-                                let _ = crate::clipboard::end_streaming_paste_session_if_matches(
-                                    &app_handle,
-                                    recording_operation_id,
-                                );
+                                queue_streaming_paste_session_end(&app_handle, recording_operation_id);
                             }
                             app_handle
                                 .state::<Arc<AudioRecordingManager>>()
@@ -8825,9 +8792,8 @@ impl ShortcutAction for TranscribeAction {
                                     return;
                                 }
                                 mark_openai_realtime_whisper_stream_emitted(&binding_id_for_cb);
-                                let ah_for_call = ah_for_cb.clone();
-                                let ah_for_clip = ah_for_call.clone();
-                                let _ = ah_for_call.run_on_main_thread(move || {
+                                let ah_for_clip = ah_for_cb.clone();
+                                let _ = crate::output_dispatch::run(move || {
                                     if operation_stamp.was_cancelled(&ah_for_clip) {
                                         debug!(
                                             "Skipping queued OpenAI realtime chunk for cancelled operation {}",
@@ -8861,10 +8827,7 @@ impl ShortcutAction for TranscribeAction {
                         let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
                         let err_str = format!("{}", err);
                         if !preview_output_only_enabled {
-                            let _ = crate::clipboard::end_streaming_paste_session_if_matches(
-                                &app_handle,
-                                recording_operation_id,
-                            );
+                            queue_streaming_paste_session_end(&app_handle, recording_operation_id);
                         }
                         app_handle
                             .state::<Arc<AudioRecordingManager>>()
@@ -8902,10 +8865,7 @@ impl ShortcutAction for TranscribeAction {
                             let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
                             let err_str = format!("{}", err);
                             if !preview_output_only_enabled {
-                                let _ = crate::clipboard::end_streaming_paste_session_if_matches(
-                                    &app_handle,
-                                    recording_operation_id,
-                                );
+                                queue_streaming_paste_session_end(&app_handle, recording_operation_id);
                             }
                             app_handle
                                 .state::<Arc<AudioRecordingManager>>()
@@ -8954,12 +8914,10 @@ impl ShortcutAction for TranscribeAction {
                                 if delta.is_empty() { return; }
                                 let delta_ending = delta.chars().last();
                                 let processor_for_paste = Arc::clone(&stream_processor);
-                                let ah_for_call = ah_for_cb.clone();
-                                let ah_for_clip = ah_for_call.clone();
+                                let ah_for_clip = ah_for_cb.clone();
                                 let binding_id_for_paste = binding_id_for_cb.clone();
                                 let output_window_for_paste = output_window.clone();
-                                if let Err(error) = run_on_main_thread_sync(
-                                    &ah_for_call,
+                                if let Err(error) = crate::output_dispatch::run_sync(
                                     gemini_stream_insert_timeout_ms,
                                     move || {
                                         if output_window_for_paste.as_ref().is_some_and(|window| !window.allows_delivery()) {
@@ -9056,10 +9014,7 @@ impl ShortcutAction for TranscribeAction {
                         let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
                         let err_str = format!("{}", err);
                         if !preview_output_only_enabled {
-                            let _ = crate::clipboard::end_streaming_paste_session_if_matches(
-                                &app_handle,
-                                recording_operation_id,
-                            );
+                            queue_streaming_paste_session_end(&app_handle, recording_operation_id);
                         }
                         app_handle
                             .state::<Arc<AudioRecordingManager>>()
@@ -9213,7 +9168,6 @@ impl ShortcutAction for TranscribeAction {
             tauri::async_runtime::spawn(async move {
                 let _gemini_background_finalization_guard =
                     is_gemini_live_provider.then(|| GeminiBackgroundFinalizationGuard {
-                        app: ah.clone(),
                         operation_id: recording_operation_id,
                     });
                 let mut finish_guard = FinishGuard::new(
@@ -9308,7 +9262,7 @@ impl ShortcutAction for TranscribeAction {
                             return;
                         }
                         if !preview_output_only_enabled {
-                            end_streaming_paste_session_after_main_thread_queue(
+                            end_streaming_paste_session_after_output_queue(
                                 &ah,
                                 recording_operation_id,
                                 streaming_clipboard_timeout_ms,
@@ -9369,7 +9323,7 @@ impl ShortcutAction for TranscribeAction {
                         soniox_live_manager.cancel();
                     }
                     if !preview_output_only_enabled {
-                        end_streaming_paste_session_after_main_thread_queue(
+                        end_streaming_paste_session_after_output_queue(
                             &ah,
                             recording_operation_id,
                             streaming_clipboard_timeout_ms,
@@ -9415,8 +9369,7 @@ impl ShortcutAction for TranscribeAction {
 
                 if release_vercel_gemini_after_streamed_output {
                     let ah_for_overlay = ah.clone();
-                    if let Err(error) = run_on_main_thread_sync(
-                        &ah,
+                    if let Err(error) = crate::output_dispatch::run_sync(
                         recording_settings.paste_delay_ms.saturating_add(1500),
                         move || {
                             confirm_gemini_background_delivery(
@@ -9443,7 +9396,7 @@ impl ShortcutAction for TranscribeAction {
                         soniox_live_manager.cancel();
                     }
                     if !preview_output_only_enabled {
-                        end_streaming_paste_session_after_main_thread_queue(
+                        end_streaming_paste_session_after_output_queue(
                             &ah,
                             recording_operation_id,
                             streaming_clipboard_timeout_ms,
@@ -9453,7 +9406,7 @@ impl ShortcutAction for TranscribeAction {
                     let ah_clone = ah.clone();
                     let overlay_generation =
                         crate::plus_overlay_state::current_recording_overlay_generation();
-                    ah.run_on_main_thread(move || {
+                    crate::output_dispatch::run(move || {
                         crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
                             &ah_clone,
                             overlay_generation,
@@ -9507,7 +9460,7 @@ impl ShortcutAction for TranscribeAction {
                         Ok(text) => text,
                         Err(error) => {
                             handle_remote_transcription_error(&ah, &error.to_string(), false);
-                            end_streaming_paste_session_after_main_thread_queue(&ah, recording_operation_id, streaming_clipboard_timeout_ms);
+                            end_streaming_paste_session_after_output_queue(&ah, recording_operation_id, streaming_clipboard_timeout_ms);
                             finish_guard.finish();
                             return;
                         }
@@ -9520,8 +9473,8 @@ impl ShortcutAction for TranscribeAction {
                     let binding_for_output = binding_id.clone();
                     let append_final_space =
                         recording_settings.gemini_live_early_finalization_append_space;
-                    let output_result = run_on_main_thread_sync(
-                        &ah, recording_settings.paste_delay_ms.saturating_add(1500), move || {
+                    let output_result = crate::output_dispatch::run_sync(
+                        recording_settings.paste_delay_ms.saturating_add(1500), move || {
                             if !operation_stamp.is_current(&app_for_output) || operation_stamp.was_cancelled(&app_for_output) {
                                 return;
                             }
@@ -9554,7 +9507,7 @@ impl ShortcutAction for TranscribeAction {
                         warn!("Gemini early final output dispatch failed: {}", error);
                     }
                     if is_blank_transcription(&text) {
-                        end_streaming_paste_session_after_main_thread_queue(
+                        end_streaming_paste_session_after_output_queue(
                             &ah, recording_operation_id, streaming_clipboard_timeout_ms,
                         );
                         if !had_gemini_output {
@@ -9565,7 +9518,7 @@ impl ShortcutAction for TranscribeAction {
                         }
                     } else {
                         wait_for_early_opening_key(&ah, recording_operation_id, operation_stamp).await;
-                        let output_finalized = finalize_streaming_paste_session_after_main_thread_queue(
+                        let output_finalized = finalize_streaming_paste_session_after_output_queue(
                             &ah, recording_operation_id, operation_stamp, streaming_clipboard_timeout_ms, text.clone(),
                         );
                         if output_dispatched && output_finalized {
@@ -9606,8 +9559,7 @@ impl ShortcutAction for TranscribeAction {
                         };
                         if !tail_delta.is_empty() {
                             let ah_for_tail = ah.clone();
-                            if let Err(error) = run_on_main_thread_sync(
-                                &ah,
+                            if let Err(error) = crate::output_dispatch::run_sync(
                                 recording_settings.paste_delay_ms.saturating_add(1500),
                                 move || {
                                     if !gemini_background_finalization_can_deliver(
@@ -9645,7 +9597,7 @@ impl ShortcutAction for TranscribeAction {
                     if let Some(pending) = pending_gemini_background_finalization.as_ref() {
                         let ah_for_overlay = ah.clone();
                         let overlay_generation = pending.overlay_generation;
-                        if let Err(error) = ah.run_on_main_thread(move || {
+                        if let Err(error) = crate::output_dispatch::run(move || {
                             crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
                                 &ah_for_overlay,
                                 overlay_generation,
@@ -9663,7 +9615,7 @@ impl ShortcutAction for TranscribeAction {
                             // Live chunks already inserted this text, as in the early-finalization branch.
                             if !is_blank_transcription(&text) {
                                 // Same final output step: held trailing whitespace and a failed-insertion notice.
-                                let output_finalized = finalize_streaming_paste_session_after_main_thread_queue(
+                                let output_finalized = finalize_streaming_paste_session_after_output_queue(
                                     &ah, recording_operation_id, operation_stamp, streaming_clipboard_timeout_ms, text.clone(),
                                 );
                                 // A newer recording may already be running; keep the cue out of it,
@@ -9769,7 +9721,7 @@ impl ShortcutAction for TranscribeAction {
                                 }
                                 TranscriptionOutcome::Cancelled => {
                                     if !preview_output_only_enabled {
-                                        end_streaming_paste_session_after_main_thread_queue(
+                                        end_streaming_paste_session_after_output_queue(
                                             &ah,
                                             recording_operation_id,
                                             streaming_clipboard_timeout_ms,
@@ -9877,12 +9829,10 @@ impl ShortcutAction for TranscribeAction {
                         } else if is_openai_realtime_whisper_live_provider {
                             had_openai_realtime_whisper_stream_output = true;
                         }
-                        let ah_for_call = ah.clone();
-                        let ah_for_clip = ah_for_call.clone();
+                        let ah_for_clip = ah.clone();
                         let binding_id_for_tail = binding_id.clone();
                         let queue_result = if is_gemini_live_provider {
-                            run_on_main_thread_sync(
-                                &ah_for_call,
+                            crate::output_dispatch::run_sync(
                                 recording_settings.paste_delay_ms.saturating_add(1500),
                                 move || {
                                     if !operation_stamp.is_current(&ah_for_clip)
@@ -9924,7 +9874,7 @@ impl ShortcutAction for TranscribeAction {
                                 },
                             )
                         } else {
-                            ah_for_call.run_on_main_thread(move || {
+                            crate::output_dispatch::run(move || {
                                 if operation_stamp.was_cancelled(&ah_for_clip) {
                                     debug!(
                                         "Skipping queued live stream tail for cancelled operation {}",
@@ -9938,7 +9888,7 @@ impl ShortcutAction for TranscribeAction {
                                 );
                             })
                             .map_err(|error| {
-                                format!("Failed to dispatch main-thread task: {}", error)
+                                format!("Failed to queue output task: {}", error)
                             })
                         };
                         if let Err(err) = queue_result {
@@ -9962,7 +9912,7 @@ impl ShortcutAction for TranscribeAction {
                         || had_openai_realtime_whisper_stream_output
                         || (preview_output_only_enabled && preview_has_new_output());
                     if !preview_output_only_enabled {
-                        end_streaming_paste_session_after_main_thread_queue(
+                        end_streaming_paste_session_after_output_queue(
                             &ah,
                             recording_operation_id,
                             streaming_clipboard_timeout_ms,
@@ -10031,7 +9981,7 @@ impl ShortcutAction for TranscribeAction {
                     Some(text) => text,
                     None => {
                         if !preview_output_only_enabled {
-                            end_streaming_paste_session_after_main_thread_queue(
+                            end_streaming_paste_session_after_output_queue(
                                 &ah,
                                 recording_operation_id,
                                 streaming_clipboard_timeout_ms,
@@ -10075,11 +10025,11 @@ impl ShortcutAction for TranscribeAction {
                 if !preview_output_only_enabled {
                     before_dictation_final_output(&ah, &final_text);
                 }
-                let main_thread_timeout_ms = recording_settings.paste_delay_ms.saturating_add(1500);
+                let output_timeout_ms = recording_settings.paste_delay_ms.saturating_add(1500);
                 let overlay_generation =
                     crate::plus_overlay_state::current_recording_overlay_generation();
                 let binding_id_for_final_output = binding_id.clone();
-                if let Err(err) = run_on_main_thread_sync(&ah, main_thread_timeout_ms, move || {
+                if let Err(err) = crate::output_dispatch::run_sync(output_timeout_ms, move || {
                     if operation_stamp.was_cancelled(&ah_clone)
                         || (is_gemini_live_provider && !operation_stamp.is_current(&ah_clone))
                     {
@@ -10103,7 +10053,7 @@ impl ShortcutAction for TranscribeAction {
                                 had_deepgram_stream_output
                             } else if is_gemini_live_provider {
                                 // A timed-out Gemini chunk closure remains ahead of this fallback
-                                // in the main-thread queue. Re-read delivery here so a late but
+                                // in the output queue. Re-read delivery here so a late but
                                 // successful chunk is not followed by a duplicate full transcript.
                                 had_openai_realtime_whisper_stream_output
                                     || take_openai_realtime_whisper_stream_emitted(
@@ -10201,7 +10151,7 @@ impl ShortcutAction for TranscribeAction {
 
                 if !preview_output_only_enabled {
                     wait_for_early_opening_key(&ah, recording_operation_id, operation_stamp).await;
-                    let output_finalized = finalize_streaming_paste_session_after_main_thread_queue(
+                    let output_finalized = finalize_streaming_paste_session_after_output_queue(
                         &ah,
                         recording_operation_id,
                         operation_stamp,
@@ -10310,11 +10260,7 @@ impl ShortcutAction for TranscribeAction {
                 }
             }
             if is_soniox_streaming_insert && !preview_output_only_enabled {
-                if let Err(e) =
-                    crate::clipboard::begin_streaming_paste_session(&ah, recording_operation_id)
-                {
-                    warn!("Failed to begin streaming clipboard session: {}", e);
-                }
+                queue_streaming_paste_session_begin(&ah, recording_operation_id);
             }
             let profile_id_for_postprocess = captured_profile_id.clone();
             clear_last_remote_recording_retry();
@@ -10332,7 +10278,7 @@ impl ShortcutAction for TranscribeAction {
                         ah.state::<Arc<SonioxRealtimeManager>>().cancel();
                     }
                     if uses_streaming_insert && !preview_output_only_enabled {
-                        end_streaming_paste_session_after_main_thread_queue(
+                        end_streaming_paste_session_after_output_queue(
                             &ah,
                             recording_operation_id,
                             streaming_clipboard_timeout_ms,
@@ -10360,7 +10306,7 @@ impl ShortcutAction for TranscribeAction {
                                 format!("Native local streaming finalization failed: {}", err);
                             crate::managers::preview_output_mode::set_error(&ah, Some(message));
                             if uses_streaming_insert && !preview_output_only_enabled {
-                                end_streaming_paste_session_after_main_thread_queue(
+                                end_streaming_paste_session_after_output_queue(
                                     &ah,
                                     recording_operation_id,
                                     streaming_clipboard_timeout_ms,
@@ -10411,7 +10357,7 @@ impl ShortcutAction for TranscribeAction {
                                 ah.state::<Arc<SonioxRealtimeManager>>().cancel();
                             }
                             if uses_streaming_insert && !preview_output_only_enabled {
-                                end_streaming_paste_session_after_main_thread_queue(
+                                end_streaming_paste_session_after_output_queue(
                                     &ah,
                                     recording_operation_id,
                                     streaming_clipboard_timeout_ms,
@@ -10440,7 +10386,7 @@ impl ShortcutAction for TranscribeAction {
                     ah.state::<Arc<SonioxRealtimeManager>>().cancel();
                 }
                 if uses_streaming_insert && !preview_output_only_enabled {
-                    end_streaming_paste_session_after_main_thread_queue(
+                    end_streaming_paste_session_after_output_queue(
                         &ah,
                         recording_operation_id,
                         streaming_clipboard_timeout_ms,
@@ -10525,7 +10471,7 @@ impl ShortcutAction for TranscribeAction {
                     let llm_clipboard_session =
                         llm_live_insert.as_ref().is_some_and(|live| live.clipboard_session);
                     if (uses_streaming_insert && !preview_output_only_enabled) || llm_clipboard_session {
-                        end_streaming_paste_session_after_main_thread_queue(
+                        end_streaming_paste_session_after_output_queue(
                             &ah,
                             recording_operation_id,
                             streaming_clipboard_timeout_ms,
@@ -10605,12 +10551,12 @@ impl ShortcutAction for TranscribeAction {
                 // Keep ownership (and Cancel) until the script finishes, without
                 // blocking GTK or allowing another recording to overtake delivery.
                 if let Err(error) = run_output_task_sync_with_result(
-                    &ah, output_method, streaming_clipboard_timeout_ms, final_output,
+                    output_method, streaming_clipboard_timeout_ms, final_output,
                 ) {
                     warn!("Failed to finish external script output: {error}");
                 }
             } else {
-                crate::output_dispatch::dispatch(&ah, output_method, final_output).ok();
+                crate::output_dispatch::run(final_output).ok();
             }
 
             if !finish_guard.is_current() {
@@ -10636,7 +10582,7 @@ impl ShortcutAction for TranscribeAction {
             }
 
             if (uses_streaming_insert && !preview_output_only_enabled) || llm_live_inserted {
-                let output_finalized = finalize_streaming_paste_session_after_main_thread_queue(
+                let output_finalized = finalize_streaming_paste_session_after_output_queue(
                     &ah,
                     recording_operation_id,
                     operation_stamp,
@@ -10788,7 +10734,7 @@ impl ShortcutAction for SendToExtensionAction {
             let ah_clone = ah.clone();
             let overlay_generation =
                 crate::plus_overlay_state::current_recording_overlay_generation();
-            ah.run_on_main_thread(move || {
+            crate::output_dispatch::run(move || {
                 crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
                     &ah_clone,
                     overlay_generation,
@@ -10961,7 +10907,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
             let ah_clone = ah.clone();
             let overlay_generation =
                 crate::plus_overlay_state::current_recording_overlay_generation();
-            ah.run_on_main_thread(move || {
+            crate::output_dispatch::run(move || {
                 crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
                     &ah_clone,
                     overlay_generation,
@@ -11734,7 +11680,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
                     let operation_id_for_apply = operation_id;
                     let overlay_generation =
                         crate::plus_overlay_state::current_recording_overlay_generation();
-                    crate::output_dispatch::dispatch_generic(&ah, None, move |method| {
+                    crate::output_dispatch::run(move || {
                         if llm_tracker_for_apply.is_cancelled(operation_id_for_apply) {
                             debug!(
                                 "LLM operation {} was cancelled before applying output",
@@ -11742,7 +11688,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
                             );
                             if restore_on_error && !restore_text.is_empty() {
                                 if let Err(restore_err) =
-                                    utils::paste_with_method_override(restore_text.clone(), ah_clone.clone(), method)
+                                    utils::paste_with_method_override(restore_text.clone(), ah_clone.clone(), None)
                                 {
                                     error!(
                                         "Failed to restore original selection after cancellation: {}",
@@ -11753,11 +11699,11 @@ impl ShortcutAction for AiReplaceSelectionAction {
                             return;
                         }
 
-                        if let Err(e) = utils::paste_with_method_override(output, ah_clone.clone(), method) {
+                        if let Err(e) = utils::paste_with_method_override(output, ah_clone.clone(), None) {
                             error!("Failed to paste AI Replace output: {}", e);
                             if restore_on_error && !restore_text.is_empty() {
                                 if let Err(restore_err) =
-                                    utils::paste_with_method_override(restore_text.clone(), ah_clone.clone(), method)
+                                    utils::paste_with_method_override(restore_text.clone(), ah_clone.clone(), None)
                                 {
                                     error!(
                                         "Failed to restore original selection after paste error: {}",
@@ -11928,7 +11874,7 @@ impl ShortcutAction for RepastLastAction {
                     let output = crate::settings::ResolvedOutputSettings::resolve(
                         &get_settings(&ah), None,
                     ).without_key_actions();
-                    crate::output_dispatch::dispatch(&ah, output.paste_method, move || {
+                    crate::output_dispatch::run(move || {
                         let _ = utils::paste_with_output_settings(text_to_paste, ah_clone, &output, || true);
                     })
                     .ok();

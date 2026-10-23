@@ -285,7 +285,7 @@ fn start_worker(app: &AppHandle, operation_id: u64) {
         };
         if should_poll {
             let app_for_poll = app.clone();
-            if let Err(error) = app.run_on_main_thread(move || flush(&app_for_poll, operation_id)) {
+            if let Err(error) = crate::output_dispatch::run(move || flush(&app_for_poll, operation_id)) {
                 log::warn!("Failed to queue live window buffer update: {}", error);
                 if let Ok(mut guard) = SESSION.lock() {
                     if let Some(session) = guard.as_mut().filter(|session| session.operation_id == operation_id) {
@@ -306,7 +306,7 @@ enum Ended {
     History(usize),
 }
 
-/// All calls run on the main thread, serially with ordinary chunk pastes.
+/// All calls run on the output worker, serially with ordinary chunk pastes.
 fn flush(app: &AppHandle, operation_id: u64) {
     if !enabled(operation_id) { return; }
     let current = foreground_target();

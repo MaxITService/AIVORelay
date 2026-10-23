@@ -60,7 +60,7 @@ fn execute_transcript(app: &AppHandle, action: TranscriptCommand) -> Result<(), 
     match action {
         TranscriptCommand::Clipboard => {
             let handle = app.clone();
-            app.run_on_main_thread(move || {
+            crate::output_dispatch::run(move || {
                 let result = (|| {
                     let _guard = clipboard::lock_clipboard_transaction(
                         "copying the latest transcript from CLI",
@@ -75,7 +75,8 @@ fn execute_transcript(app: &AppHandle, action: TranscriptCommand) -> Result<(), 
         }
         TranscriptCommand::Paste { method } => {
             let handle = app.clone();
-            crate::output_dispatch::dispatch_generic(app, method.map(Into::into), move |method| {
+            let method = method.map(Into::into);
+            crate::output_dispatch::run(move || {
                 if let Err(error) = clipboard::paste_with_method_override(
                     text, handle.clone(), method,
                 ) {

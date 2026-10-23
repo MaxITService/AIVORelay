@@ -225,7 +225,7 @@ pub(crate) fn cancel_all() {
 
 fn finish_entry(entry: Entry) {
     let Some(action) = entry.key.end() else { return };
-    run_key_action(&entry.app.clone(), move || press_cancel_key(&entry.app, action));
+    run_key_action(move || press_cancel_key(&entry.app, action));
 }
 
 fn press_cancel_key(app: &AppHandle, action: CancelAction) {
@@ -240,15 +240,9 @@ fn press_cancel_key(app: &AppHandle, action: CancelAction) {
     }
 }
 
-/// Windows can press keys from any thread; other platforms must use the main thread.
-fn run_key_action(app: &AppHandle, action: impl FnOnce() + Send + 'static) {
-    #[cfg(target_os = "windows")]
-    {
-        let _ = app;
-        action();
-    }
-    #[cfg(not(target_os = "windows"))]
-    if let Err(error) = app.run_on_main_thread(action) {
+/// Keys are pressed in output order, so they never land in the middle of a paste.
+fn run_key_action(action: impl FnOnce() + Send + 'static) {
+    if let Err(error) = crate::output_dispatch::run(action) {
         warn!("Failed to queue a key press: {}", error);
     }
 }
@@ -291,8 +285,7 @@ pub(crate) fn spawn_press_worker(operation_id: u64, still_active: impl Fn() -> b
         if !key.is_waiting() {
             return;
         }
-        let app_for_press = app.clone();
-        run_key_action(&app, move || press_opening_key(&app_for_press, &key));
+        run_key_action(move || press_opening_key(&app, &key));
     });
 }
 

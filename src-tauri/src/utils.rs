@@ -166,11 +166,19 @@ pub(crate) fn cancel_current_operation_guarded(
     let deepgram_stt_manager = app.state::<Arc<DeepgramSttManager>>();
     deepgram_stt_manager.cancel();
     audio_manager.clear_stream_frame_callback();
-    if let Err(e) = crate::clipboard::end_streaming_paste_session(app) {
-        warn!(
-            "Failed to end streaming clipboard session during cancellation: {}",
-            e
-        );
+    // Skip the cancelled dictation's queued chunks now; a new recording may start
+    // before the restore below runs.
+    crate::clipboard::cancel_current_dictation_output();
+    let app_for_restore = app.clone();
+    if let Err(e) = crate::output_dispatch::run(move || {
+        if let Err(e) = crate::clipboard::end_streaming_paste_session(&app_for_restore) {
+            warn!(
+                "Failed to end streaming clipboard session during cancellation: {}",
+                e
+            );
+        }
+    }) {
+        warn!("Failed to queue clipboard restore during cancellation: {}", e);
     }
 
     // Cancel any in-flight LLM requests (AI Replace, etc.)
