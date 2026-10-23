@@ -1919,6 +1919,14 @@ async changePauseMediaWhileRecordingSetting(enabled: boolean) : Promise<Result<n
     else return { status: "error", error: e  as any };
 }
 },
+async changeQueueRecordingDuringProcessingSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_queue_recording_during_processing_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeFilterSilenceSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_filter_silence_setting", { enabled }) };
@@ -3420,6 +3428,17 @@ async getLocalModelStorage() : Promise<Result<LocalModelStorageSnapshot, string>
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Bytes cleaning up these models together frees, counting files they share once.
+ */
+async estimateLocalModelCleanup(sttModelIds: string[], ttsModelIds: string[]) : Promise<Result<number, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("estimate_local_model_cleanup", { sttModelIds, ttsModelIds }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async cleanupLocalModel(kind: string, modelId: string, selectedSttModelIds: string[]) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("cleanup_local_model", { kind, modelId, selectedSttModelIds }) };
@@ -4559,7 +4578,12 @@ send_to_extension_with_selection_enabled?: boolean; send_to_extension_with_selec
 /**
  * Mute microphone recordings before readiness/start feedback, and skip the start sound.
  */
-mute_immediately?: boolean; pause_media_while_recording?: boolean; filter_silence?: boolean; vad_backend?: VadBackend; file_transcription_chunking_mode?: FileTranscriptionChunkingMode; file_transcription_chunking_max_minutes?: number;
+mute_immediately?: boolean; pause_media_while_recording?: boolean;
+/**
+ * Start a recording requested while the previous one is processing once
+ * that processing finishes, instead of ignoring the request.
+ */
+queue_recording_during_processing?: boolean; filter_silence?: boolean; vad_backend?: VadBackend; file_transcription_chunking_mode?: FileTranscriptionChunkingMode; file_transcription_chunking_max_minutes?: number;
 /**
  * Optional microphone-only preamp in dB, saved per microphone device name.
  */
