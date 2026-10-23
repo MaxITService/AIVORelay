@@ -99,6 +99,19 @@ fn model_hf_source(model: &ModelInfo) -> Option<(String, String, String)> {
     model.url.as_deref().and_then(parse_hf_source_url)
 }
 
+/// Only catalog files have mirrors, and a mirror download lands in the models
+/// dir under the catalog filename. A same-named file there next to any other
+/// Hugging Face model belongs to a custom model, not to it.
+fn hf_file_has_local_mirror(repo_id: &str, filename: &str) -> bool {
+    crate::catalog::file_in_catalog(filename, Some(repo_id)).is_some()
+}
+
+/// Whether the model's files can live in the models dir: every model not from
+/// Hugging Face, and catalog files mirrored there.
+fn uses_models_dir(model: &ModelInfo) -> bool {
+    model_hf_source(model).is_none_or(|(repo_id, _, filename)| hf_file_has_local_mirror(&repo_id, &filename))
+}
+
 /// Active cache first; portable upgrades can borrow their previous shared cache.
 /// Downloads and deletion continue to operate only on the active cache.
 fn hf_caches() -> Vec<Cache> {
@@ -347,14 +360,15 @@ fn hf_cleanup_copies(caches: &[Cache], model: &ModelInfo) -> Result<Vec<PathBuf>
 fn cleanup_bytes_in(models_dir: &Path, caches: &[Cache], models: &[ModelInfo], selected: &HashSet<String>) -> Result<u64> {
     use super::model_storage::{local_mirror_is_shared, managed_child, storage_bytes};
 
-    let kept: Vec<&str> = models.iter().filter(|model| !selected.contains(&model.id))
+    let kept: Vec<&str> = models.iter().filter(|model| !selected.contains(&model.id) && uses_models_dir(model))
         .map(|model| model.filename.as_str()).collect();
     let mut counted: Vec<&str> = Vec::new();
     let mut copies = Vec::new();
     let mut bytes = 0_u64;
     for model in models.iter().filter(|model| selected.contains(&model.id)) {
         copies.extend(hf_cleanup_copies(caches, model)?);
-        if local_mirror_is_shared(models_dir, &model.filename, kept.iter().chain(&counted).copied()) {
+        if !uses_models_dir(model)
+            || local_mirror_is_shared(models_dir, &model.filename, kept.iter().chain(&counted).copied()) {
             continue;
         }
         for suffix in ["", ".partial", ".extracting"] {
@@ -1685,13 +1699,16 @@ impl ModelManager {
                 continue;
             }
             if let Some((repo_id, revision, filename)) = model_hf_source(model) {
+                let mirrored = hf_file_has_local_mirror(&repo_id, &filename);
                 let local_path = self.models_dir.join(&filename);
                 let partial_path = self.models_dir.join(format!("{}.partial", &filename));
-                model.is_downloaded =
-                    hf_cached_path(&repo_id, &revision, &filename).is_some() || local_path.exists();
+                model.is_downloaded = hf_cached_path(&repo_id, &revision, &filename).is_some()
+                    || (mirrored && local_path.exists());
                 model.is_downloading = false;
                 model.partial_size = partial_path
                     .metadata()
+                    .ok()
+                    .filter(|_| mirrored)
                     .map(|metadata| metadata.len())
                     .unwrap_or(0);
                 if !model.is_downloaded && Self::disappears_when_missing(model) {
@@ -1830,9 +1847,10 @@ impl ModelManager {
 
         // Collect predefined file model names to avoid duplicate entries. The fork still
         // ships legacy Whisper `.bin` entries alongside transcribe.cpp catalog models.
+        // A Hugging Face cache model only of the same filename doesn't own the file.
         let predefined_filenames: HashSet<String> = available_models
             .values()
-            .filter(|m| !m.is_directory)
+            .filter(|m| !m.is_directory && uses_models_dir(m))
             .map(|m| m.filename.clone())
             .collect();
 
@@ -2303,7 +2321,8 @@ impl ModelManager {
         cancel_token: CancellationToken,
     ) -> Result<()> {
         if hf_cached_path(&repo_id, &revision, &filename).is_some()
-            || self.models_dir.join(&filename).exists()
+            || (hf_file_has_local_mirror(&repo_id, &filename)
+                && self.models_dir.join(&filename).exists())
         {
             self.update_download_status()?;
             let _ = self
@@ -2737,8 +2756,11 @@ impl ModelManager {
 
         let models = self.get_available_models();
         let caches = hf_caches();
+        let local: HashSet<&str> = models.iter().filter(|model| uses_models_dir(model)).map(|model| model.id.as_str()).collect();
         models.iter().cloned().filter_map(|model| {
-            let owns_local_files = !models.iter().any(|other| other.id != model.id
+            let uses_local = local.contains(model.id.as_str());
+            let owns_local_files = uses_local && !models.iter().any(|other| other.id != model.id
+                && local.contains(other.id.as_str())
                 && (model_hf_source(other).is_some(), &other.id) < (model_hf_source(&model).is_some(), &model.id)
                 && super::model_storage::local_mirror_is_shared(&self.models_dir, &model.filename, [other.filename.as_str()]));
             let mut entry = LocalModelStorageEntry {
@@ -2748,7 +2770,7 @@ impl ModelManager {
             let measure = || -> Result<(u64, u64, bool)> {
                 let mut bytes = 0_u64;
                 let mut local_files_present = false;
-                for suffix in ["", ".partial", ".extracting"] {
+                for suffix in ["", ".partial", ".extracting"].into_iter().filter(|_| uses_local) {
                     let path = managed_child(&self.models_dir, &format!("{}{suffix}", model.filename))?;
                     local_files_present |= path.try_exists()?;
                     if owns_local_files { bytes = bytes.saturating_add(storage_bytes(&path)?); }
@@ -2776,6 +2798,9 @@ impl ModelManager {
 
     pub(crate) fn local_model_file_path(&self, model_id: &str) -> Result<PathBuf> {
         let model = self.get_model_info(model_id).ok_or_else(|| anyhow::anyhow!("Model not found"))?;
+        if !uses_models_dir(&model) {
+            anyhow::bail!("Model has no file in the models folder");
+        }
         Ok(super::model_storage::managed_child(&self.models_dir, &model.filename)?)
     }
 
@@ -2792,15 +2817,17 @@ impl ModelManager {
         let (model_info, local_file_owners) = {
             let models = self.available_models.lock().unwrap();
             let model = models.get(model_id).cloned();
-            if let Some(target) = &model {
+            if let Some(target) = model.as_ref().filter(|target| uses_models_dir(target)) {
                 // A selected alias can start downloading after the UI scan.
                 // Its worker owns the same mirror/partial even under another ID.
                 if super::model_storage::local_mirror_is_shared(&self.models_dir, &target.filename,
-                    models.values().filter(|other| tokens.contains_key(&other.id)).map(|other| other.filename.as_str())) {
+                    models.values().filter(|other| tokens.contains_key(&other.id) && uses_models_dir(other))
+                        .map(|other| other.filename.as_str())) {
                     anyhow::bail!("Wait for downloads sharing this model's files to stop before cleanup");
                 }
             }
-            let owners: Vec<String> = models.values().filter(|other| !selected_model_ids.contains(&other.id))
+            let owners: Vec<String> = models.values()
+                .filter(|other| !selected_model_ids.contains(&other.id) && uses_models_dir(other))
                 .map(|other| other.filename.clone()).collect();
             (model, owners)
         };
@@ -2822,14 +2849,18 @@ impl ModelManager {
                     "This model is stored in the read-only legacy Hugging Face cache. Remove it from that cache manually if needed."
                 ));
             }
-            if !active_has_file && super::model_storage::local_mirror_is_shared(
-                &self.models_dir, &filename, local_file_owners.iter().map(String::as_str),
-            ) {
-                anyhow::bail!("This local file is used by another unselected model; select its model too before deleting it");
+            // A same-named models-dir file next to a model without a mirror is
+            // a custom model's, so only mirrored files are removed with it.
+            if hf_file_has_local_mirror(&repo_id, &filename) {
+                if !active_has_file && super::model_storage::local_mirror_is_shared(
+                    &self.models_dir, &filename, local_file_owners.iter().map(String::as_str),
+                ) {
+                    anyhow::bail!("This local file is used by another unselected model; select its model too before deleting it");
+                }
+                deleted_something |= super::model_storage::remove_hf_local_files(
+                    &self.models_dir, &filename, local_file_owners.iter().map(String::as_str),
+                )?;
             }
-            deleted_something |= super::model_storage::remove_hf_local_files(
-                &self.models_dir, &filename, local_file_owners.iter().map(String::as_str),
-            )?;
             // Every snapshot's entry for this filename belongs to this model,
             // or it would stay downloaded through another revision. Blobs that
             // other files in the repository still use stay for them.
@@ -2950,7 +2981,7 @@ impl ModelManager {
                 return Ok(path);
             }
             let local_path = self.models_dir.join(&filename);
-            if local_path.exists() {
+            if hf_file_has_local_mirror(&repo_id, &filename) && local_path.exists() {
                 return Ok(local_path);
             }
             self.mark_model_unavailable(model_id);
@@ -3449,27 +3480,67 @@ mod tests {
 
     #[test]
     fn cleanup_estimate_counts_files_selected_under_two_ids_once() {
+        let catalog_model = &crate::catalog::CATALOG[0];
+        let file = catalog_model.default_file().expect("catalog default file");
         let fixture = HfCacheFixture::new();
         let active = fixture.cache("active");
-        fixture.snapshot(&active, "main", "main-commit");
+        let repo = hf_hub::Repo::new(catalog_model.repo_id.clone(), hf_hub::RepoType::Model);
+        let snapshot = active.path().join(repo.folder_name()).join("snapshots").join("main-commit");
+        fs::create_dir_all(&snapshot).unwrap();
+        fs::write(snapshot.join(&file.filename), "main-commit").unwrap();
+        let models_dir = fixture.0.join("models");
+        fs::create_dir_all(&models_dir).unwrap();
+        fs::write(models_dir.join(&file.filename), [0; 7]).unwrap();
+        fs::write(models_dir.join(format!("{}.partial", file.filename)), [0; 3]).unwrap();
+        let catalog = ModelManager::catalog_model_info(catalog_model, file);
+        let mut discovered = catalog.clone();
+        discovered.id = "discovered".to_string();
+        let models = [
+            catalog.clone(),
+            discovered,
+            cleanup_model("custom", &file.filename, false),
+            // Same filename from a repo without a mirror: never the local file's owner.
+            cleanup_model("foreign", &file.filename, true),
+        ];
+        let caches = [active];
+        let cached = "main-commit".len() as u64;
+        let catalog = catalog.id.as_str();
+
+        // Unselected models keep the local file, not the cache copy.
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &[catalog]), cached);
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &[catalog, "discovered"]), cached);
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["custom"]), 0);
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &[catalog, "discovered", "custom"]), cached + 10);
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["foreign"]), 0);
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["missing"]), 0);
+    }
+
+    #[test]
+    fn cleanup_estimate_leaves_same_named_local_files_to_custom_models() {
+        let fixture = HfCacheFixture::new();
         let models_dir = fixture.0.join("models");
         fs::create_dir_all(&models_dir).unwrap();
         fs::write(models_dir.join("model.gguf"), [0; 7]).unwrap();
         fs::write(models_dir.join("model.gguf.partial"), [0; 3]).unwrap();
         let models = [
-            cleanup_model("catalog", "model.gguf", true),
-            cleanup_model("discovered", "model.gguf", true),
             cleanup_model("custom", "model.gguf", false),
+            cleanup_model("foreign", "model.gguf", true),
         ];
-        let caches = [active];
-        let cached = "main-commit".len() as u64;
+        let caches = [fixture.cache("active")];
 
-        // Unselected models keep the local file, not the cache copy.
-        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["catalog"]), cached);
-        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["catalog", "discovered"]), cached);
-        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["custom"]), 0);
-        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["catalog", "discovered", "custom"]), cached + 10);
-        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["missing"]), 0);
+        // The Hugging Face model neither keeps nor frees the custom model's file.
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["custom"]), 10);
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["foreign"]), 0);
+        assert_eq!(cleanup_bytes(&models_dir, &caches, &models, &["custom", "foreign"]), 10);
+    }
+
+    #[test]
+    fn only_catalog_files_of_hugging_face_models_use_the_models_dir() {
+        let catalog_model = &crate::catalog::CATALOG[0];
+        let file = catalog_model.default_file().expect("catalog default file");
+        assert!(super::uses_models_dir(&ModelManager::catalog_model_info(catalog_model, file)));
+        assert!(super::uses_models_dir(&cleanup_model("custom", &file.filename, false)));
+        assert!(!super::uses_models_dir(&cleanup_model("foreign", &file.filename, true)));
     }
 
     #[test]
@@ -3547,6 +3618,22 @@ mod tests {
         assert!(ModelManager::disappears_when_missing(info));
         assert!(!models.contains_key(alternate.filename.trim_end_matches(".gguf")));
         assert!(models["custom"].is_custom);
+    }
+
+    #[test]
+    fn models_dir_discovery_lists_custom_files_named_like_hugging_face_cache_models() {
+        let fixture = HfCacheFixture::new();
+        let models_dir = fixture.0.join("models");
+        fs::create_dir_all(&models_dir).unwrap();
+        fs::write(models_dir.join("custom.gguf"), "custom").unwrap();
+        // A rescan keeps the cache model found last time.
+        let cached = cleanup_model("test/model/custom.gguf", "custom.gguf", true);
+        let mut models = HashMap::from([(cached.id.clone(), cached)]);
+
+        ModelManager::discover_custom_transcribe_models(&models_dir, &mut models).unwrap();
+
+        assert!(models["custom"].is_custom);
+        assert!(!models["test/model/custom.gguf"].is_custom);
     }
 
     #[test]
