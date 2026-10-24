@@ -512,7 +512,7 @@ impl HistoryManager {
 
         // Get all entries that are not saved, ordered by timestamp desc
         let mut stmt = conn.prepare(
-            "SELECT id, file_name FROM transcription_history WHERE saved = 0 ORDER BY timestamp DESC"
+            "SELECT id, file_name FROM transcription_history WHERE saved = 0 ORDER BY timestamp DESC, id DESC"
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -777,7 +777,7 @@ impl HistoryManager {
         let mut stmt = conn.prepare(
             "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response
              FROM transcription_history
-             ORDER BY timestamp DESC
+             ORDER BY timestamp DESC, id DESC
              LIMIT 1",
         )?;
 
@@ -796,7 +796,7 @@ impl HistoryManager {
             "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response
              FROM transcription_history
              WHERE action_type = 'transcribe' AND transcription_text != ''
-             ORDER BY timestamp DESC
+             ORDER BY timestamp DESC, id DESC
              LIMIT 1",
         )?;
 
