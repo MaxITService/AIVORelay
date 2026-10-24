@@ -142,6 +142,12 @@ interface TtsBatchQueueState {
   /** Queue entry keys of the files in the running backend batch. */
   runningEntries: string[];
   rows: BatchFileResult[];
+  /**
+   * Final results of the backend batches already finished in this queue, so the
+   * summary also covers files that were converted before others were added.
+   * Cleared when a new queue starts.
+   */
+  finishedResults: BatchFileResult[];
   progress: BatchProgress | null;
   summary: BatchSummary | null;
   currentFile: BatchFileResult | null;
@@ -211,6 +217,46 @@ const addCompleted = (
     if (file.status === "completed") keys.add(inputPathKey(file.inputPath));
   }
   return keys.size === completed.length ? completed : [...keys];
+};
+
+const isTerminalStatus = (status: BatchFileStatus): boolean =>
+  status === "completed" || status === "failed" || status === "skipped";
+
+// One result per input file; a newer final result replaces an older one, and a
+// file that is only queued again never hides an earlier final result.
+const mergeResults = (
+  earlier: BatchFileResult[],
+  latest: BatchFileResult[],
+): BatchFileResult[] => {
+  const merged = new Map(earlier.map((file) => [inputPathKey(file.inputPath), file]));
+  for (const file of latest) {
+    const key = inputPathKey(file.inputPath);
+    if (!isTerminalStatus(file.status) && merged.has(key)) continue;
+    merged.set(key, file);
+  }
+  return [...merged.values()];
+};
+
+const aggregateSummary = (
+  earlier: BatchFileResult[],
+  latest: BatchSummary,
+): BatchSummary => {
+  if (earlier.length === 0) return latest;
+  const files = mergeResults(earlier, latest.files);
+  const count = (status: BatchFileStatus) =>
+    files.filter((file) => file.status === status).length;
+  const completed = count("completed");
+  const skipped = count("skipped");
+  const failed = count("failed");
+  return {
+    ...latest,
+    total: files.length,
+    finished: completed + skipped + failed,
+    completed,
+    skipped,
+    failed,
+    files,
+  };
 };
 
 let listenerRegistered: Promise<void> | null = null;
@@ -298,7 +344,13 @@ export const useTtsBatchQueueStore = create<TtsBatchQueueState>()(
             set((current) => ({
               completedInputs: addCompleted(current.completedInputs, result.files),
               rows: result.files,
-              summary: result,
+              finishedResults: mergeResults(
+                current.finishedResults,
+                result.files.filter((file) =>
+                  isFileFinishedForQueue(file.status, result.cancelled),
+                ),
+              ),
+              summary: aggregateSummary(current.finishedResults, result),
               progress: {
                 clientId: result.clientId,
                 batchId: result.batchId,
@@ -348,6 +400,7 @@ export const useTtsBatchQueueStore = create<TtsBatchQueueState>()(
         runScan: null,
         runningEntries: [],
         rows: [],
+        finishedResults: [],
         progress: null,
         summary: null,
         currentFile: null,
@@ -363,6 +416,7 @@ export const useTtsBatchQueueStore = create<TtsBatchQueueState>()(
             },
             queue: withSource(scan, scan.files),
             completedInputs: [],
+            finishedResults: [],
           });
           await runQueue();
         },
@@ -409,6 +463,7 @@ export const useTtsBatchQueueStore = create<TtsBatchQueueState>()(
           set({
             runScan: null,
             rows: [],
+            finishedResults: [],
             progress: null,
             summary: null,
             currentFile: null,
@@ -479,8 +534,14 @@ export const useTtsBatchQueueStore = create<TtsBatchQueueState>()(
             runScan: snapshot.scan,
             runningEntries: active.done ? [] : snapshot.scan.files.map(entryKey),
             rows,
+            finishedResults: active.done
+              ? mergeResults(
+                  get().finishedResults,
+                  rows.filter((row) => isFileFinishedForQueue(row.status, active.cancelled)),
+                )
+              : get().finishedResults,
             progress: active,
-            summary: active.done ? {
+            summary: active.done ? aggregateSummary(get().finishedResults, {
               clientId: active.clientId,
               batchId: active.batchId,
               total: active.total,
@@ -490,7 +551,7 @@ export const useTtsBatchQueueStore = create<TtsBatchQueueState>()(
               failed: active.failed,
               cancelled: active.cancelled,
               files: rows,
-            } : null,
+            }) : null,
             currentFile: !active.done && active.file?.status === "processing" ? active.file : null,
             error: null,
           });
@@ -553,7 +614,12 @@ export const ensureTtsBatchListener = (): Promise<void> => {
       patch.activeClientId = null;
       patch.runningEntries = [];
       patch.currentFile = null;
-      patch.summary = {
+      const rows = patch.rows ?? state.rows;
+      patch.finishedResults = mergeResults(
+        state.finishedResults,
+        rows.filter((row) => isFileFinishedForQueue(row.status, next.cancelled)),
+      );
+      patch.summary = aggregateSummary(state.finishedResults, {
         clientId: next.clientId,
         batchId: next.batchId,
         total: next.total,
@@ -562,8 +628,8 @@ export const ensureTtsBatchListener = (): Promise<void> => {
         skipped: next.skipped,
         failed: next.failed,
         cancelled: next.cancelled,
-        files: patch.rows ?? state.rows,
-      };
+        files: rows,
+      });
     }
     store.setState(patch);
 
