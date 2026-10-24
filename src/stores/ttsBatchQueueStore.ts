@@ -1,9 +1,10 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { type as osType } from "@tauri-apps/plugin-os";
 import { outputPathKey, pathKey, uniqueOutputPath, newQueueId } from "@/lib/batchQueueUtils";
+import { safeLocalStorage } from "@/lib/safeStorage";
 
 // Input paths are case-sensitive except on Windows (see pathKey).
 const inputPathKey = (path: string) => pathKey(path, osType() === "windows");
@@ -231,8 +232,8 @@ export const useTtsBatchQueueStore = create<TtsBatchQueueState>()(
       const runQueue = async () => {
         const initial = get();
         if (initial.running || !initial.meta || initial.queue.length === 0) return;
-        set({ running: true, stopping: false, summary: null, error: null });
         try {
+          set({ running: true, stopping: false, summary: null, error: null });
           // Events must reach the store before the first batch starts.
           await ensureTtsBatchListener();
           for (;;) {
@@ -499,6 +500,7 @@ export const useTtsBatchQueueStore = create<TtsBatchQueueState>()(
     },
     {
       name: "aivorelay-tts-batch-queue-v1",
+      storage: createJSONStorage(() => safeLocalStorage),
       partialize: (state) => ({
         meta: state.meta,
         queue: state.queue,
