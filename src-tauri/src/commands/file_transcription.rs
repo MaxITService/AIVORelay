@@ -2270,6 +2270,22 @@ mod tests {
     }
 
     #[test]
+    fn resampling_preserves_an_unaligned_tail_burst_and_exact_duration() {
+        for from_rate in [8_000_u32, 44_100, 48_000] {
+            for input_len in [4_096_usize, 4_396] {
+                let mut input = vec![0.0; input_len];
+                input[input_len - 200..].fill(0.5);
+                let output = resample_audio(&input, from_rate, 16_000).unwrap();
+                let expected = (input_len as u64 * 16_000).div_ceil(u64::from(from_rate));
+                assert_eq!(output.len() as u64, expected, "rate={from_rate}, len={input_len}");
+                let tail_peak = output[output.len().saturating_sub(400)..]
+                    .iter().map(|sample| sample.abs()).fold(0.0_f32, f32::max);
+                assert!(tail_peak > 0.3, "tail lost: rate={from_rate}, len={input_len}, peak={tail_peak}");
+            }
+        }
+    }
+
+    #[test]
     fn resampling_flushes_the_final_buffered_frames() {
         let input = vec![0.0; 512_000];
         let output = resample_audio(&input, 44_100, 16_000).unwrap();
