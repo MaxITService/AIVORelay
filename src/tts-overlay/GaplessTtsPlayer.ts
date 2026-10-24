@@ -78,6 +78,9 @@ export class GaplessTtsPlayer {
   private nextChunkIndex: number | null = null;
   private nextPlayTime = 0;
   private pendingSourceOffset = 0;
+  // Seek target inside a chunk that is not decoded yet: its offset is resolved
+  // against the decoded duration once the chunk has been decoded on demand.
+  private pendingSourceFraction: number | null = null;
   private pendingPauseOffset = 0;
   private desiredPlaying = false;
   private scheduling = false;
@@ -189,6 +192,7 @@ export class GaplessTtsPlayer {
     this.nextChunkIndex = null;
     this.nextPlayTime = 0;
     this.pendingSourceOffset = 0;
+    this.pendingSourceFraction = null;
     this.pendingPauseOffset = 0;
     this.lastStartedChunk = null;
     this.completionReported = false;
@@ -215,7 +219,12 @@ export class GaplessTtsPlayer {
     if (!target) {
       return null;
     }
-    this.restartFrom(target.chunkIndex, target.sourceOffset);
+    this.restartFrom(
+      target.chunkIndex,
+      target.sourceOffset ?? 0,
+      0,
+      target.sourceOffset === null ? target.fraction : null,
+    );
     return target.playbackProgress;
   }
 
@@ -308,6 +317,11 @@ export class GaplessTtsPlayer {
         const effectivePlaybackRate = this.playbackRate;
         source.playbackRate.value = effectivePlaybackRate;
         source.connect(this.pitchShifter?.input ?? context.destination);
+        if (this.pendingSourceFraction !== null) {
+          this.pendingSourceOffset =
+            prepared.buffer.duration * this.pendingSourceFraction;
+          this.pendingSourceFraction = null;
+        }
         const sourceOffset = Math.min(
           prepared.buffer.duration,
           Math.max(0, this.pendingSourceOffset),
@@ -392,6 +406,7 @@ export class GaplessTtsPlayer {
     chunkIndex: number,
     sourceOffset: number,
     pauseOffset = 0,
+    sourceFraction: number | null = null,
   ) {
     this.generation += 1;
     this.decodeAbort?.abort();
@@ -400,6 +415,7 @@ export class GaplessTtsPlayer {
     this.pitchShifter?.flush();
     this.nextChunkIndex = chunkIndex;
     this.pendingSourceOffset = sourceOffset;
+    this.pendingSourceFraction = sourceFraction;
     this.pendingPauseOffset = pauseOffset;
     this.nextPlayTime = this.ensureContext().currentTime + SCHEDULE_LEAD_SECONDS;
     this.lastStartedChunk = null;
@@ -473,9 +489,21 @@ export class GaplessTtsPlayer {
     let targetStart: number | null = null;
     let target: PreparedTtsPlaybackBuffer | null = null;
     let targetPauseDuration = 0;
+    // Generated chunks that were never decoded (seek skipped over them) are
+    // sized by the average decoded chunk, so the timeline spans the whole result.
+    let decodedSeconds = 0;
+    let decodedCount = 0;
+    for (const prepared of this.decoded.values()) {
+      decodedSeconds += prepared.buffer.duration;
+      decodedCount += 1;
+    }
+    const estimatedDuration =
+      decodedCount > 0 ? decodedSeconds / decodedCount : 0;
     for (const chunk of this.chunks) {
       const prepared = this.decoded.get(chunk.index);
       if (!prepared) {
+        elapsed +=
+          estimatedDuration + Math.max(0, chunk.pauseAfterMs) / 1_000;
         continue;
       }
       if (chunk.index === chunkIndex) {
@@ -538,11 +566,9 @@ export class GaplessTtsPlayer {
   }
 
   private resolveSeekTarget(playbackProgress: number) {
-    const available = this.chunks.flatMap((chunk) => {
-      const prepared = this.decoded.get(chunk.index);
-      return prepared ? [{ chunk, prepared }] : [];
-    });
-    if (available.length === 0) {
+    // Resolve against every generated chunk, not just the decoded ones: a
+    // chunk that is not decoded yet is decoded on demand when playback restarts.
+    if (this.chunks.length === 0) {
       return null;
     }
     const totalChunks = this.expectedTotal || this.chunks.length;
@@ -552,31 +578,26 @@ export class GaplessTtsPlayer {
       totalChunks - 1,
       Math.floor(plannedPosition),
     );
-    const exactTarget = available.find(
-      ({ chunk }) => chunk.index === targetChunkIndex,
+    const exactTarget = this.chunks.find(
+      (chunk) => chunk.index === targetChunkIndex,
     );
+    // A chunk that is not generated yet falls back to the end of the last
+    // generated chunk before it.
     const target =
       exactTarget ??
-      [...available]
-        .reverse()
-        .find(({ chunk }) => chunk.index < targetChunkIndex) ??
-      available[0];
-    const targetFraction = exactTarget
+      [...this.chunks].reverse().find((chunk) => chunk.index < targetChunkIndex) ??
+      this.chunks[0];
+    const fraction = exactTarget
       ? targetChunkIndex === totalChunks - 1 && boundedProgress === 1
         ? 1
-        : plannedPosition - targetChunkIndex
+        : Math.min(1, Math.max(0, plannedPosition - targetChunkIndex))
       : 1;
-    const sourceOffset =
-      target.prepared.buffer.duration *
-      Math.min(1, Math.max(0, targetFraction));
+    const prepared = this.decoded.get(target.index);
     return {
-      chunkIndex: target.chunk.index,
-      sourceOffset,
-      playbackProgress: this.progressForPosition(
-        target.chunk.index,
-        sourceOffset,
-        target.prepared.buffer.duration,
-      ),
+      chunkIndex: target.index,
+      fraction,
+      sourceOffset: prepared ? prepared.buffer.duration * fraction : null,
+      playbackProgress: this.progressForPosition(target.index, fraction, 1),
     };
   }
 
