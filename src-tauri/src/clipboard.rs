@@ -2615,16 +2615,14 @@ pub(crate) fn paste_stream_chunk_for_recording(
 ) -> Result<(), String> {
     let output = {
         let sessions = lock_dictation_output_sessions();
-        match sessions.output_for_chunk(Some(operation_id)) {
-            Some(output) => Some(output),
-            None if sessions.current_operation_id == Some(operation_id) => None,
-            None => {
-                return Err(format!(
-                    "Dictation output settings for operation {} are no longer available",
-                    operation_id
-                ))
-            }
+        let found = sessions.output_for_chunk(Some(operation_id));
+        if found.is_none() && sessions.current_operation_id != Some(operation_id) {
+            return Err(format!(
+                "Dictation output settings for operation {} are no longer available",
+                operation_id
+            ));
         }
+        found
     };
     let scope = output.as_ref().map(|_| operation_id);
     paste_stream_chunk_for_output(text, app_handle, output, scope)
