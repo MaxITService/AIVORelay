@@ -517,7 +517,10 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
         ),
         TtsProvider::ElevenLabs => (
             settings.elevenlabs_model.trim(),
-            if settings.elevenlabs_model == "eleven_v3" {
+            if super::tts::elevenlabs_sends_language(
+                &settings.elevenlabs_model,
+                &settings.elevenlabs_language,
+            ) {
                 settings.elevenlabs_language.trim()
             } else {
                 ""

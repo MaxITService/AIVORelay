@@ -3713,9 +3713,10 @@ impl TtsManager {
                 // ElevenLabs supports language_code for Flash v2.5 and Eleven
                 // v3. Multilingual v2 is the documented exception and infers
                 // language directly from the input text.
-                if settings.elevenlabs_model != "eleven_multilingual_v2"
-                    && !settings.elevenlabs_language.trim().is_empty()
-                {
+                if elevenlabs_sends_language(
+                    &settings.elevenlabs_model,
+                    &settings.elevenlabs_language,
+                ) {
                     body["language_code"] = Value::String(
                         settings.elevenlabs_language.trim().to_ascii_lowercase(),
                     );
@@ -4784,6 +4785,12 @@ fn validate_finite_range(label: &str, value: f32, minimum: f32, maximum: f32) ->
     } else {
         Ok(())
     }
+}
+
+/// Whether the ElevenLabs request carries `language_code`. The resume signature
+/// uses the same rule so a language change invalidates resumable jobs.
+pub(crate) fn elevenlabs_sends_language(model: &str, language: &str) -> bool {
+    model != "eleven_multilingual_v2" && !language.trim().is_empty()
 }
 
 fn nonempty_or<'a>(value: &'a str, fallback: &'a str) -> &'a str {
