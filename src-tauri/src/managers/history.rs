@@ -1404,6 +1404,26 @@ mod tests {
     }
 
     #[test]
+    fn latest_queries_break_equal_timestamp_ties_by_newest_id() {
+        let conn = setup_conn();
+        insert_entry(&conn, 100, "first", None);
+        insert_entry(&conn, 100, "second", Some("processed"));
+        let newest_id = conn.last_insert_rowid();
+        for entry in [
+            HistoryManager::get_latest_entry_with_conn(&conn).unwrap().unwrap(),
+            HistoryManager::get_latest_completed_entry_with_conn(&conn).unwrap().unwrap(),
+        ] {
+            assert_eq!(entry.id, newest_id);
+            assert_eq!(entry.transcription_text, "second");
+        }
+        insert_ai_replace_entry(&conn, 100, "rewrite", "selected", Some("rewritten"));
+        let latest = HistoryManager::get_latest_entry_with_conn(&conn).unwrap().unwrap();
+        assert_eq!(latest.action_type, "ai_replace");
+        let completed = HistoryManager::get_latest_completed_entry_with_conn(&conn).unwrap().unwrap();
+        assert_eq!(completed.id, newest_id);
+    }
+
+    #[test]
     fn get_latest_entry_returns_newest_entry() {
         let conn = setup_conn();
         insert_entry(&conn, 100, "first", None);

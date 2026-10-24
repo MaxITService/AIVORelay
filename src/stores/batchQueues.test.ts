@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { FileTranscriptionRequest } from "./transcribeFileStore";
 import type { BatchFilePlan, BatchProgress, BatchScanResult, BatchSummary } from "./ttsBatchQueueStore";
 
@@ -6,13 +6,14 @@ import type { BatchFilePlan, BatchProgress, BatchScanResult, BatchSummary } from
 // other frontend tests keep their real bindings and Tauri imports.
 const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 const storage = new Map<string, string>();
+const memoryStorage = {
+  getItem: (key: string) => storage.get(key) ?? null,
+  setItem: (key: string, value: string) => { storage.set(key, value); },
+  removeItem: (key: string) => { storage.delete(key); },
+};
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
-  value: {
-    getItem: (key: string) => storage.get(key) ?? null,
-    setItem: (key: string, value: string) => { storage.set(key, value); },
-    removeItem: (key: string) => { storage.delete(key); },
-  },
+  value: memoryStorage,
 });
 const { useTranscribeBatchStore: stt } = await import("./transcribeBatchStore");
 const { useTranscribeFileStore: single } = await import("./transcribeFileStore");
@@ -102,6 +103,12 @@ function saved(key: string) {
 }
 
 beforeEach(() => {
+  // The safe adapter resolves localStorage on each access, so the browser
+  // storage fixture must remain available for the whole test, not just import.
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: memoryStorage,
+  });
   calls = [];
   rejectListener = false;
   backend = async (command, args) => {
@@ -139,6 +146,8 @@ afterEach(() => {
   single.setState(initialSingle, true);
   if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
   else Reflect.deleteProperty(globalThis, "window");
+  if (originalStorage) Object.defineProperty(globalThis, "localStorage", originalStorage);
+  else Reflect.deleteProperty(globalThis, "localStorage");
 });
 
 describe("TTS batch queue", () => {
@@ -152,6 +161,25 @@ describe("TTS batch queue", () => {
     rejectListener = false;
     await tts.getState().resume();
     expect(tts.getState().queue).toHaveLength(0);
+  });
+
+  test("appended work retains earlier failures in the final summary", async () => {
+    const first = deferred<BatchSummary>();
+    let firstArgs: any;
+    backend = async (command, args) => {
+      if (command !== "convert_tts_batch") return;
+      if (!firstArgs) { firstArgs = args; return first.promise; }
+      return summary(args);
+    };
+    const run = tts.getState().beginFromScan(scan(plan("failed")), bitrates);
+    await until(() => !!firstArgs);
+    tts.getState().enqueue(scan(plan("appended")));
+    first.resolve(summary(firstArgs, false, ["failed"]));
+    await run;
+    expect(tts.getState().summary).toMatchObject({ total: 2, finished: 2, completed: 1, failed: 1 });
+    expect(tts.getState().summary?.files.map((file) => [file.relativePath, file.status])).toEqual([
+      ["failed.txt", "failed"], ["appended.txt", "completed"],
+    ]);
   });
 
   test("the listener is ready before conversion and appended files run in the next batch", async () => {
@@ -420,6 +448,25 @@ describe("TTS batch queue scan roots and converted files", () => {
 });
 
 describe("file transcription batch queue", () => {
+  test("a busy backend retries the same file before starting later work", async () => {
+    const attempts: string[] = [];
+    backend = async (command, args) => {
+      if (command === "get_file_transcription_recording_state") return { blocksFileTranscription: false };
+      if (command !== "transcribe_audio_file") return;
+      attempts.push(args.filePath);
+      if (attempts.length === 1) throw "Another file transcription is still running or stopping.";
+      return { text: "done", saved_file_path: `${args.filePath}.txt` };
+    };
+    stt.getState().addFiles([request("one.wav"), request("two.wav")]);
+    const run = stt.getState().start();
+    await until(() => stt.getState().waitingReason === "singleFile");
+    expect(stt.getState().items.map((item) => item.status)).toEqual(["queued", "queued"]);
+    expect(stt.getState().items.every((item) => item.error === null)).toBe(true);
+    await run;
+    expect(attempts).toEqual(["one.wav", "one.wav", "two.wav"]);
+    expect(stt.getState().items.every((item) => item.status === "completed")).toBe(true);
+  });
+
   test("adding files deduplicates Windows paths, snapshots options, and forces Documents output", () => {
     const input = request("C:/audio/one.wav");
     input.sonioxOptionsOverride = { languageHints: ["en"], enableSpeakerDiarization: true, enableLanguageIdentification: true };
@@ -617,4 +664,33 @@ describe("file transcription batch queue", () => {
     stt.getState().retryFailed();
     expect(stt.getState().items.map((item) => item.status)).toEqual(["failed", "queued"]);
   });
+});
+
+test("storage failures leave both queues usable in memory", async () => {
+  const warning = spyOn(console, "warn").mockImplementation(() => {});
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem() { throw new Error("Storage disabled"); },
+      setItem() { throw new Error("Quota exceeded"); },
+      removeItem() { throw new Error("Storage disabled"); },
+    },
+  });
+  try {
+    await tts.getState().beginFromScan(scan(plan("one")), bitrates);
+    expect(tts.getState().summary?.completed).toBe(1);
+    expect(tts.getState().running).toBe(false);
+    stt.getState().addFiles([request("one.wav")]);
+    await stt.getState().start();
+    expect(stt.getState().items[0].status).toBe("completed");
+    expect(stt.getState().running).toBe(false);
+    await tts.persist.rehydrate();
+    await stt.persist.rehydrate();
+    tts.persist.clearStorage();
+    stt.persist.clearStorage();
+    expect(warning).toHaveBeenCalled();
+  } finally {
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: memoryStorage });
+    warning.mockRestore();
+  }
 });

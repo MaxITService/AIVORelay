@@ -2123,6 +2123,27 @@ mod tests {
     }
 
     #[test]
+    fn synthesis_signature_tracks_flash_language_but_ignores_inferred_language() {
+        let chunks = vec![TtsChunk {
+            index: 1, text: "hello".to_string(), character_count: 5,
+            boundary_after: TtsBoundary::End,
+        }];
+        let mut settings = TtsSettings {
+            provider: TtsProvider::ElevenLabs,
+            elevenlabs_model: "eleven_flash_v2_5".to_string(),
+            elevenlabs_language: "en".to_string(),
+            ..TtsSettings::default()
+        };
+        let english = synthesis_signature(&chunks, &settings).unwrap();
+        settings.elevenlabs_language = "de".to_string();
+        assert_ne!(synthesis_signature(&chunks, &settings).unwrap(), english);
+        settings.elevenlabs_model = "eleven_multilingual_v2".to_string();
+        let inferred = synthesis_signature(&chunks, &settings).unwrap();
+        settings.elevenlabs_language = "en".to_string();
+        assert_eq!(synthesis_signature(&chunks, &settings).unwrap(), inferred);
+    }
+
+    #[test]
     fn synthesis_signature_tracks_only_effective_new_provider_controls() {
         let chunks = vec![TtsChunk {
             index: 1,
