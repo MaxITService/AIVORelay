@@ -837,6 +837,7 @@ pub async fn transcribe_audio_file(
     let file_operation_guard = {
         let mut active = ACTIVE_FILE_OPERATION.lock().unwrap();
         if active.is_some() {
+            // The batch queue matches this exact text (FILE_TRANSCRIPTION_BUSY_MESSAGE).
             return Err("Another file transcription is still running or stopping.".to_string());
         }
         let remote = if use_remote {
