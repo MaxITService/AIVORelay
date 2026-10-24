@@ -1,7 +1,8 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import {
+  applyTtsPlaybackEffect,
   clampTtsPlaybackPitch,
-  prepareTtsPlaybackBuffer,
+  decodeTtsPlaybackAudio,
   type PreparedTtsPlaybackBuffer,
   type TtsPlaybackEffect,
 } from "../lib/utils/ttsPlaybackEffects";
@@ -69,6 +70,10 @@ export class GaplessTtsPlayer {
   private context: AudioContext | null = null;
   private pitchShifter: LivePitchShifter | null = null;
   private chunks: GaplessTtsChunk[] = [];
+  // Raw decoded chunks: their durations drive the timeline and seeking, and
+  // they are re-processed when the playback effect changes.
+  private rawBuffers = new Map<number, AudioBuffer>();
+  // Effect-processed buffers for the current effect only.
   private decoded = new Map<number, PreparedTtsPlaybackBuffer>();
   private scheduled: ScheduledChunk[] = [];
   private expectedTotal = 0;
@@ -105,10 +110,29 @@ export class GaplessTtsPlayer {
     effect: TtsPlaybackEffect,
     playbackRate: number,
   ) {
+    const effectChanged = effect !== this.effect;
     this.pitch = pitch;
     this.effect = effect;
     this.playbackRate = playbackRate;
     this.pitchShifter?.setRatio(this.pitchShiftRatio());
+    if (effectChanged) {
+      // The effect is baked into the buffers, so drop them and play the
+      // chunks again from the current position with the new effect.
+      this.decoded.clear();
+      const position = this.currentPosition();
+      if (position) {
+        this.restartFrom(
+          position.chunkIndex,
+          position.sourceOffset,
+          position.pauseOffset,
+        );
+      } else {
+        this.decodeAbort?.abort();
+        if (this.desiredPlaying) {
+          void this.scheduleAvailable();
+        }
+      }
+    }
   }
 
   // Source nodes resample, so the playback rate also scales pitch. The live
@@ -187,6 +211,7 @@ export class GaplessTtsPlayer {
     this.decodeAbort = null;
     this.stopScheduledSources();
     this.chunks = [];
+    this.rawBuffers.clear();
     this.decoded.clear();
     this.expectedTotal = 0;
     this.nextChunkIndex = null;
@@ -285,14 +310,25 @@ export class GaplessTtsPlayer {
         if (!prepared) {
           const controller = new AbortController();
           this.decodeAbort = controller;
+          const effect = this.effect;
           try {
+            let raw = this.rawBuffers.get(chunk.index);
+            if (!raw) {
+              raw = await decodeTtsPlaybackAudio(
+                convertFileSrc(chunk.path, "asset"),
+                context,
+                controller.signal,
+              );
+              if (generation === this.generation) {
+                this.rawBuffers.set(chunk.index, raw);
+              }
+            }
             // Pitch is shifted live; resampling each chunk here would also
             // change its duration, which the source rate cannot undo.
-            prepared = await prepareTtsPlaybackBuffer(
-              convertFileSrc(chunk.path, "asset"),
+            prepared = await applyTtsPlaybackEffect(
+              raw,
               1,
-              this.effect,
-              context,
+              effect,
               controller.signal,
             );
           } catch (error) {
@@ -308,6 +344,10 @@ export class GaplessTtsPlayer {
           }
           if (generation !== this.generation || !this.desiredPlaying) {
             return;
+          }
+          if (effect !== this.effect) {
+            // The effect changed while this chunk was processed; redo it.
+            continue;
           }
           this.decoded.set(chunk.index, prepared);
         }
@@ -487,31 +527,31 @@ export class GaplessTtsPlayer {
   ): PlaybackPosition | null {
     let elapsed = 0;
     let targetStart: number | null = null;
-    let target: PreparedTtsPlaybackBuffer | null = null;
+    let target: AudioBuffer | null = null;
     let targetPauseDuration = 0;
     // Generated chunks that were never decoded (seek skipped over them) are
     // sized by the average decoded chunk, so the timeline spans the whole result.
     let decodedSeconds = 0;
     let decodedCount = 0;
-    for (const prepared of this.decoded.values()) {
-      decodedSeconds += prepared.buffer.duration;
+    for (const raw of this.rawBuffers.values()) {
+      decodedSeconds += raw.duration;
       decodedCount += 1;
     }
     const estimatedDuration =
       decodedCount > 0 ? decodedSeconds / decodedCount : 0;
     for (const chunk of this.chunks) {
-      const prepared = this.decoded.get(chunk.index);
-      if (!prepared) {
+      const raw = this.rawBuffers.get(chunk.index);
+      if (!raw) {
         elapsed +=
           estimatedDuration + Math.max(0, chunk.pauseAfterMs) / 1_000;
         continue;
       }
       if (chunk.index === chunkIndex) {
         targetStart = elapsed;
-        target = prepared;
+        target = raw;
         targetPauseDuration = Math.max(0, chunk.pauseAfterMs) / 1_000;
       }
-      elapsed += prepared.buffer.duration;
+      elapsed += raw.duration;
       // History audio encodes this pause as silence; streaming playback
       // schedules it separately, so the visible media timeline must add it.
       elapsed += Math.max(0, chunk.pauseAfterMs) / 1_000;
@@ -520,11 +560,11 @@ export class GaplessTtsPlayer {
       return null;
     }
     const boundedSourceOffset = Math.min(
-      target.buffer.duration,
+      target.duration,
       Math.max(0, sourceOffset),
     );
     const boundedPauseOffset =
-      boundedSourceOffset >= target.buffer.duration
+      boundedSourceOffset >= target.duration
         ? Math.min(Math.max(0, pauseOffset), targetPauseDuration)
         : 0;
     return {
@@ -538,7 +578,7 @@ export class GaplessTtsPlayer {
       playbackProgress: this.progressForPosition(
         chunkIndex,
         boundedSourceOffset,
-        target.buffer.duration,
+        target.duration,
       ),
     };
   }
@@ -592,11 +632,11 @@ export class GaplessTtsPlayer {
         ? 1
         : Math.min(1, Math.max(0, plannedPosition - targetChunkIndex))
       : 1;
-    const prepared = this.decoded.get(target.index);
+    const raw = this.rawBuffers.get(target.index);
     return {
       chunkIndex: target.index,
       fraction,
-      sourceOffset: prepared ? prepared.buffer.duration * fraction : null,
+      sourceOffset: raw ? raw.duration * fraction : null,
       playbackProgress: this.progressForPosition(target.index, fraction, 1),
     };
   }

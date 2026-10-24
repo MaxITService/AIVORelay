@@ -66,11 +66,34 @@ export async function prepareTtsPlaybackBuffer(
   decoder: AudioContext,
   signal: AbortSignal,
 ): Promise<PreparedTtsPlaybackBuffer> {
-  const normalizedPitch = clampTtsPlaybackPitch(pitch);
+  const decoded = await decodeTtsPlaybackAudio(sourceUrl, decoder, signal);
+  return applyTtsPlaybackEffect(decoded, pitch, effect, signal);
+}
+
+/** Decodes one generated chunk without any pitch or effect processing. */
+export async function decodeTtsPlaybackAudio(
+  sourceUrl: string,
+  decoder: AudioContext,
+  signal: AbortSignal,
+): Promise<AudioBuffer> {
   const encoded = await loadEncodedAudio(sourceUrl, signal);
   const decoded = await decoder.decodeAudioData(encoded.slice(0));
   throwIfAborted(signal);
+  return decoded;
+}
 
+/**
+ * Renders the pitch and effect onto a decoded chunk. The decoded buffer is
+ * left untouched (and returned as is for no processing), so it can be
+ * processed again when the effect changes.
+ */
+export async function applyTtsPlaybackEffect(
+  decoded: AudioBuffer,
+  pitch: number,
+  effect: TtsPlaybackEffect,
+  signal: AbortSignal,
+): Promise<PreparedTtsPlaybackBuffer> {
+  const normalizedPitch = clampTtsPlaybackPitch(pitch);
   if (normalizedPitch === 1 && effect === "none") {
     return { buffer: decoded, pitchCompensation: 1 };
   }
