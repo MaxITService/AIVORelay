@@ -2,7 +2,12 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { commands } from "@/bindings";
 import { type as osType } from "@tauri-apps/plugin-os";
-import { isCancellationMessage, newQueueId, pathKey } from "@/lib/batchQueueUtils";
+import {
+  isCancellationMessage,
+  isFileTranscriptionBusyMessage,
+  newQueueId,
+  pathKey,
+} from "@/lib/batchQueueUtils";
 import { safeLocalStorage } from "@/lib/safeStorage";
 import {
   useTranscribeFileStore,
@@ -140,6 +145,7 @@ export const useTranscribeBatchStore = create<TranscribeBatchState>()(
               set({ activeItemId: next.id, waitingReason: null });
               updateItem(next.id, { status: "processing", error: null });
               const request = next.request;
+              let backendBusy = false;
               try {
                 const result = await commands.transcribeAudioFile(
                   request.filePath,
@@ -154,13 +160,20 @@ export const useTranscribeBatchStore = create<TranscribeBatchState>()(
                 if (result.status === "error") throw result.error;
                 updateItem(next.id, { status: "completed", savedFilePath: result.data.saved_file_path ?? null });
               } catch (error) {
+                // A single-file or CLI job slipped in after the admission check:
+                // keep the file queued and retry instead of failing it.
+                backendBusy = isFileTranscriptionBusyMessage(error);
                 const cancelled = get().stopping && isCancellationMessage(error);
                 updateItem(next.id, {
-                  status: cancelled ? "queued" : "failed",
-                  error: cancelled ? null : String(error),
+                  status: cancelled || backendBusy ? "queued" : "failed",
+                  error: cancelled || backendBusy ? null : String(error),
                 });
               } finally {
                 set({ activeItemId: null });
+              }
+              if (backendBusy) {
+                set({ waitingReason: "singleFile" });
+                await waitForTick();
               }
             }
           } catch (error) {

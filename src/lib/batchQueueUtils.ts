@@ -50,6 +50,17 @@ export const isCancellationMessage = (value: unknown): boolean => {
   return normalized.includes("cancelled") || normalized.includes("canceled");
 };
 
+/**
+ * Error `transcribe_audio_file` returns while another file operation owns the
+ * backend. Keep in sync with `ACTIVE_FILE_OPERATION` in `file_transcription.rs`.
+ */
+export const FILE_TRANSCRIPTION_BUSY_MESSAGE =
+  "Another file transcription is still running or stopping.";
+
+/** Returns true when the backend rejected a file because it is busy. */
+export const isFileTranscriptionBusyMessage = (value: unknown): boolean =>
+  String(value ?? "") === FILE_TRANSCRIPTION_BUSY_MESSAGE;
+
 export const newQueueId = (): string => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
