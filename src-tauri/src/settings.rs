@@ -5976,6 +5976,12 @@ pub const SETTINGS_STORE_PATH: &str = "settings_store.json";
 /// as the Nix package does: its install path is immutable, so self-update cannot
 /// work. This is a runtime overlay and is never written to the stored settings.
 pub fn update_checks_forced_disabled() -> bool {
+    // macOS and Linux releases ship no updater artifacts yet, so latest.json has
+    // no entry for them and every check would fail. Updates for these platforms
+    // are planned for the next version; until then their users update manually.
+    if cfg!(not(target_os = "windows")) {
+        return true;
+    }
     static FORCED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *FORCED.get_or_init(|| {
         std::env::var("AIVORELAY_DISABLE_UPDATER").is_ok_and(|value| {

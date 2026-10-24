@@ -4564,7 +4564,7 @@
             "download": "Download from GitHub",
             "pathLabel": "Export Path",
             "pathPlaceholder": "C:\\Users\\You\\Downloads",
-            "pathHint": "Choose the parent folder, not the final extension folder. AivoRelay will create the \"AivoRelay Connector\" folder inside it.",
+            "pathHint": "Choose the parent folder, not the final extension folder. AivoRelay will create the \"AivoRelay Connector\" folder inside it. If that folder already exists, it will be replaced entirely, including all files and subfolders inside it.",
             "reloadHint": "If this folder is already loaded as an unpacked extension in Chrome/Edge, open chrome://extensions and click Reload for AivoRelay Connector. Browsers do not auto-reload unpacked extensions when files change on disk.",
             "identityHint": "The extension identity is also part of AivoRelay's trusted CORS allow-list for the local connector server. Keeping the same identity preserves that browser trust for this exported copy.",
             "generateNewIdLabel": "Fresh start (new extension identity)",
