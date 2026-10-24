@@ -2126,14 +2126,33 @@ fn resample_audio(samples: &[f32], from_rate: u32, to_rate: u32) -> Result<Vec<f
     }
 
     // FftFixedIn buffers input internally when its FFT block does not align
-    // with our caller-side chunks. Push a final zero-padded block so delayed
-    // audio frames are emitted instead of being dropped at end of file.
-    let tail = resampler
-        .process_partial::<Vec<f32>>(None, None)
-        .map_err(|e| format!("Failed to flush resampled audio: {e}"))?;
-    if let Some(out_chunk) = tail.first() {
-        output.extend_from_slice(out_chunk);
+    // with our caller-side chunks, and its filter delays the signal by
+    // `output_delay()` samples. Keep feeding zero blocks until every real
+    // input frame (plus that delay) has been emitted, then trim the delay
+    // and the padding.
+    let delay = resampler.output_delay();
+    let expected = ((samples.len() as u64 * to_rate as u64).div_ceil(from_rate as u64)) as usize;
+    let target = expected.saturating_add(delay);
+    // A zero-input call may emit nothing until a whole FFT block is buffered,
+    // so bound the rounds by the input needed plus one FFT block (at most
+    // one second of input).
+    let needed_input = (target as u64 * from_rate as u64).div_ceil(to_rate as u64) as usize;
+    let max_rounds = needed_input / chunk_size + from_rate as usize / chunk_size + 4;
+    for _ in 0..max_rounds {
+        if output.len() >= target {
+            break;
+        }
+        let tail = resampler
+            .process_partial::<Vec<f32>>(None, None)
+            .map_err(|e| format!("Failed to flush resampled audio: {e}"))?;
+        if let Some(out_chunk) = tail.first() {
+            output.extend_from_slice(out_chunk);
+        }
     }
+
+    // Drop the filter's leading delay and any padding past the real signal.
+    output.drain(..delay.min(output.len()));
+    output.truncate(expected);
 
     Ok(output)
 }
