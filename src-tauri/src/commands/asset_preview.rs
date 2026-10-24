@@ -51,6 +51,51 @@ fn build_preview_file_name(source_path: &Path) -> String {
     }
 }
 
+/// Removes preview copies left behind by earlier app runs. Names end in
+/// `-<unix nanos>`; only files stamped before this process started are removed,
+/// so a preview prepared in this run is never touched. The stamp is used instead
+/// of mtime because hard links share the source's mtime.
+pub fn spawn_stale_preview_cleanup(app: &AppHandle) {
+    let started_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let Ok(dir) = preview_dir(app) else {
+        return;
+    };
+    std::thread::spawn(move || {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+                continue;
+            }
+            let stamp = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .and_then(|stem| stem.rsplit_once('-'))
+                .and_then(|(_, digits)| digits.parse::<u128>().ok());
+            match stamp {
+                Some(stamp) if stamp < started_nanos => match fs::remove_file(&path) {
+                    Ok(()) => log::debug!("Removed stale transcribe-file preview {}", path.display()),
+                    Err(error) => log::warn!(
+                        "Failed to remove stale transcribe-file preview {}: {}",
+                        path.display(),
+                        error
+                    ),
+                },
+                Some(_) => {}
+                None => log::debug!(
+                    "Skipping unrecognized file in transcribe-file preview cache: {}",
+                    path.display()
+                ),
+            }
+        }
+    });
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn prepare_transcribe_file_asset(
