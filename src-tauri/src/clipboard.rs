@@ -2605,6 +2605,31 @@ pub(crate) fn paste_stream_chunk_for_operation(
     paste_stream_chunk_for_output(text, app_handle, Some(output), Some(operation_id))
 }
 
+/// Deliver a queued chunk of one recording without borrowing a newer recording's
+/// session. Without a session the unscoped fallback path applies, but only while
+/// the recording is still the current one.
+pub(crate) fn paste_stream_chunk_for_recording(
+    text: String,
+    app_handle: AppHandle,
+    operation_id: u64,
+) -> Result<(), String> {
+    let output = {
+        let sessions = lock_dictation_output_sessions();
+        match sessions.output_for_chunk(Some(operation_id)) {
+            Some(output) => Some(output),
+            None if sessions.current_operation_id == Some(operation_id) => None,
+            None => {
+                return Err(format!(
+                    "Dictation output settings for operation {} are no longer available",
+                    operation_id
+                ))
+            }
+        }
+    };
+    let scope = output.as_ref().map(|_| operation_id);
+    paste_stream_chunk_for_output(text, app_handle, output, scope)
+}
+
 fn paste_stream_chunk_for_output(
     text: String,
     app_handle: AppHandle,

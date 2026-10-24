@@ -8539,10 +8539,13 @@ impl ShortcutAction for TranscribeAction {
                                         );
                                         return;
                                     }
-                                    let _ = crate::clipboard::paste_stream_chunk(
+                                    if let Err(error) = crate::clipboard::paste_stream_chunk_for_recording(
                                         delta,
                                         ah_for_clip.clone(),
-                                    );
+                                        operation_stamp.operation_id,
+                                    ) {
+                                        warn!("Failed to insert Soniox stream chunk: {}", error);
+                                    }
                                 });
                             }
                         }) as FinalChunkCallback
@@ -8616,10 +8619,13 @@ impl ShortcutAction for TranscribeAction {
                                         );
                                         return;
                                     }
-                                    let _ = crate::clipboard::paste_stream_chunk(
+                                    if let Err(error) = crate::clipboard::paste_stream_chunk_for_recording(
                                         delta,
                                         ah_for_clip.clone(),
-                                    );
+                                        operation_stamp.operation_id,
+                                    ) {
+                                        warn!("Failed to insert Deepgram stream chunk: {}", error);
+                                    }
                                 });
                             }
                         }) as DeepgramFinalChunkCallback
@@ -8725,10 +8731,13 @@ impl ShortcutAction for TranscribeAction {
                                         );
                                         return;
                                     }
-                                    let _ = crate::clipboard::paste_stream_chunk(
+                                    if let Err(error) = crate::clipboard::paste_stream_chunk_for_recording(
                                         delta,
                                         ah_for_clip.clone(),
-                                    );
+                                        operation_stamp.operation_id,
+                                    ) {
+                                        warn!("Failed to insert OpenAI realtime stream chunk: {}", error);
+                                    }
                                 });
                             }
                         }) as OpenAiRealtimeWhisperFinalChunkCallback
@@ -9807,10 +9816,13 @@ impl ShortcutAction for TranscribeAction {
                                     );
                                     return;
                                 }
-                                let _ = crate::clipboard::paste_stream_chunk(
+                                if let Err(error) = crate::clipboard::paste_stream_chunk_for_recording(
                                     tail_delta,
                                     ah_for_clip.clone(),
-                                );
+                                    operation_stamp.operation_id,
+                                ) {
+                                    warn!("Failed to insert live stream tail: {}", error);
+                                }
                             })
                             .map_err(|error| {
                                 format!("Failed to queue output task: {}", error)
@@ -9995,9 +10007,10 @@ impl ShortcutAction for TranscribeAction {
                                         operation_stamp.operation_id,
                                     )
                                 } else {
-                                    crate::clipboard::paste_stream_chunk(
+                                    crate::clipboard::paste_stream_chunk_for_recording(
                                         final_text_for_ui.clone(),
                                         ah_clone.clone(),
+                                        operation_stamp.operation_id,
                                     )
                                 };
                                 if is_gemini_live_provider {
@@ -10020,10 +10033,13 @@ impl ShortcutAction for TranscribeAction {
                             // replay owns the complete output. Soniox live mode otherwise
                             // inserted text incrementally; its trailing whitespace is
                             // resolved by the session finalizer.
-                            let _ = crate::clipboard::paste_stream_chunk(
+                            if let Err(error) = crate::clipboard::paste_stream_chunk_for_recording(
                                 final_text_for_ui.clone(),
                                 ah_clone.clone(),
-                            );
+                                operation_stamp.operation_id,
+                            ) {
+                                warn!("Failed to insert recovered Soniox replay text: {}", error);
+                            }
                         }
                     }
 
