@@ -2102,6 +2102,7 @@ pub fn run(cli_args: CliArgs) {
                 return Ok(());
             }
 
+            commands::asset_preview::spawn_stale_preview_cleanup(&app_handle);
             create_main_window(&app_handle, &settings, true)?;
 
             timed_startup("core logic", || initialize_core_logic(&app_handle));
