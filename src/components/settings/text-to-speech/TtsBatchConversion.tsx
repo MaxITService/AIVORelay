@@ -318,9 +318,13 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
       return;
     }
     // Resolves when the whole queue, including files added meanwhile, is done.
-    await useTtsBatchQueueStore
-      .getState()
-      .beginFromScan(scanResult, { mp3Bitrate, opusBitrate });
+    try {
+      await useTtsBatchQueueStore
+        .getState()
+        .beginFromScan(scanResult, { mp3Bitrate, opusBitrate });
+    } catch (batchError) {
+      setLocalError(String(batchError));
+    }
   };
 
   const resumeQueue = async () => {

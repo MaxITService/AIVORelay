@@ -1,8 +1,9 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { commands } from "@/bindings";
 import { type as osType } from "@tauri-apps/plugin-os";
 import { isCancellationMessage, newQueueId, pathKey } from "@/lib/batchQueueUtils";
+import { safeLocalStorage } from "@/lib/safeStorage";
 import {
   useTranscribeFileStore,
   type FileTranscriptionRequest,
@@ -114,8 +115,8 @@ export const useTranscribeBatchStore = create<TranscribeBatchState>()(
         },
         start: async () => {
           if (get().running || !get().items.some((item) => item.status === "queued")) return;
-          set({ running: true, stopping: false, error: null });
           try {
+            set({ running: true, stopping: false, error: null });
             while (!get().stopping) {
               const next = get().items.find((item) => item.status === "queued");
               if (!next) break;
@@ -184,6 +185,7 @@ export const useTranscribeBatchStore = create<TranscribeBatchState>()(
     },
     {
       name: "aivorelay-transcribe-file-batch-v1",
+      storage: createJSONStorage(() => safeLocalStorage),
       partialize: (state) => ({ items: state.items }),
       merge: (persisted, current) => ({
         ...current,
