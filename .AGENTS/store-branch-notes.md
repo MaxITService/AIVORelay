@@ -24,7 +24,7 @@ Implementation anchors:
 
 - Release behavior: `.github/workflows/microsoft-store-release.yml` and `.github/workflows/build.yml`
 - Updater/package behavior: `src-tauri/tauri.conf.json`
-- CPU baseline: `src-tauri/.cargo/config.toml` and `src-tauri/cmake/force_ggml_avx2.cmake`
+- CPU baseline: `src-tauri/.cargo/config.toml`
 
 ## Updater Boundary
 
