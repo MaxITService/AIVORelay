@@ -9,17 +9,17 @@ on:
       version:
         required: true
         type: string
-      channel:
-        required: true
-        type: string
       windows-artifact-id:
         required: true
         type: string
+      store-windows-artifact-id:
+        required: true
+        type: string
       linux-artifact-id:
-        required: false
+        required: true
         type: string
       macos-artifact-id:
-        required: false
+        required: true
         type: string
     secrets:
       TAURI_SIGNING_PRIVATE_KEY:
@@ -37,8 +37,9 @@ jobs:
     env:
       RELEASE_ID: ${{ inputs.release-id }}
       VERSION: ${{ inputs.version }}
-      CHANNEL: ${{ inputs.channel }}
+      RELEASE_TAG: v${{ inputs.version }}
       WINDOWS_ARTIFACT_ID: ${{ inputs.windows-artifact-id }}
+      STORE_WINDOWS_ARTIFACT_ID: ${{ inputs.store-windows-artifact-id }}
       LINUX_ARTIFACT_ID: ${{ inputs.linux-artifact-id }}
       MACOS_ARTIFACT_ID: ${{ inputs.macos-artifact-id }}
     steps:
@@ -51,21 +52,12 @@ jobs:
           set -euo pipefail
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$RELEASE_ID" =~ ^[0-9]+$ ]]
-          case "$CHANNEL" in
-            main) tag="v$VERSION"; prefix="aivorelay" ;;
-            store) tag="v$VERSION-store"; prefix="aivorelay-store" ;;
-            *) echo "Unsupported release channel: $CHANNEL" >&2; exit 1 ;;
-          esac
           # Empty IDs would select all artifacts; require exactly one producer ID.
-          [[ "$WINDOWS_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
-          if [[ "$CHANNEL" == main ]]; then
-            [[ "$LINUX_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
-            [[ "$MACOS_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
-          fi
-          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
-          echo "ASSET_PREFIX=$prefix" >> "$GITHUB_ENV"
+          for id in "$WINDOWS_ARTIFACT_ID" "$STORE_WINDOWS_ARTIFACT_ID" "$LINUX_ARTIFACT_ID" "$MACOS_ARTIFACT_ID"; do
+            [[ "$id" =~ ^[1-9][0-9]*$ ]]
+          done
           gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RUNNER_TEMP/release.json"
-          jq -e --arg tag "$tag" --arg sha "$GITHUB_SHA" \
+          jq -e --arg tag "$RELEASE_TAG" --arg sha "$GITHUB_SHA" \
             '.draft == true and .tag_name == $tag and .target_commitish == $sha' "$RUNNER_TEMP/release.json"
           # Fetch data at the workflow SHA, never a moving branch or an artifact key.
           gh api "repos/$GITHUB_REPOSITORY/contents/src-tauri/tauri.conf.json?ref=$GITHUB_SHA" \
@@ -80,15 +72,20 @@ jobs:
           artifact-ids: ${{ inputs.windows-artifact-id }}
           path: ${{ runner.temp }}/release-input/windows
 
+      # Separate directory: both editions build an identically named MSI.
+      - name: Download Microsoft Store edition artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ inputs.store-windows-artifact-id }}
+          path: ${{ runner.temp }}/release-input/store
+
       - name: Download Linux artifacts
-        if: inputs.channel == 'main'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           artifact-ids: ${{ inputs.linux-artifact-id }}
           path: ${{ runner.temp }}/release-input/linux
 
       - name: Download macOS artifacts
-        if: inputs.channel == 'main'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           artifact-ids: ${{ inputs.macos-artifact-id }}
@@ -110,24 +107,24 @@ jobs:
             cp -- "${matches[0]}" "$RUNNER_TEMP/release-assets/$destination"
           }
           collect windows "AivoRelay_${VERSION}_x64_en-US.msi"
-          collect windows "${ASSET_PREFIX}_${VERSION}_x64_portable.zip"
+          collect windows "aivorelay_${VERSION}_x64_portable.zip"
           collect windows install_Root_Cert-embedded-in-this-file.ps1
           collect windows max.root.cert.cer
-          printf '%s\t%s\n' "AivoRelay_${VERSION}_x64_en-US.msi" \
-            'windows-x86_64-msi,windows-x86_64' > "$RUNNER_TEMP/updater-payloads.tsv"
-          if [[ "$CHANNEL" == main ]]; then
-            collect linux "AivoRelay_${VERSION}_amd64.AppImage" "AivoRelay_${VERSION}_amd64_EXPERIMENTAL.AppImage"
-            collect linux "AivoRelay_${VERSION}_amd64.deb" "AivoRelay_${VERSION}_amd64_EXPERIMENTAL.deb"
-            collect linux "AivoRelay-${VERSION}-1.x86_64.rpm" "AivoRelay-${VERSION}-1.x86_64_EXPERIMENTAL.rpm"
-            collect macos AivoRelay.app.tar.gz "AivoRelay_${VERSION}_aarch64_EXPERIMENTAL.app.tar.gz"
-            collect macos "AivoRelay_${VERSION}_aarch64.dmg" "AivoRelay_${VERSION}_aarch64_EXPERIMENTAL.dmg"
-            printf '%s\t%s\n' \
-              "AivoRelay_${VERSION}_amd64_EXPERIMENTAL.AppImage" 'linux-x86_64-appimage,linux-x86_64' \
-              "AivoRelay_${VERSION}_amd64_EXPERIMENTAL.deb" 'linux-x86_64-deb' \
-              "AivoRelay-${VERSION}-1.x86_64_EXPERIMENTAL.rpm" 'linux-x86_64-rpm' \
-              "AivoRelay_${VERSION}_aarch64_EXPERIMENTAL.app.tar.gz" 'darwin-aarch64-app,darwin-aarch64' \
-              >> "$RUNNER_TEMP/updater-payloads.tsv"
-          fi
+          # Store edition: unsigned and never self-updating, so no signature or latest.json entry.
+          collect store "AivoRelay_${VERSION}_x64_en-US.msi" "aivorelay-store_${VERSION}_x64_en-US.msi"
+          collect store "aivorelay-store_${VERSION}_x64_portable.zip"
+          collect linux "AivoRelay_${VERSION}_amd64.AppImage" "AivoRelay_${VERSION}_amd64_EXPERIMENTAL.AppImage"
+          collect linux "AivoRelay_${VERSION}_amd64.deb" "AivoRelay_${VERSION}_amd64_EXPERIMENTAL.deb"
+          collect linux "AivoRelay-${VERSION}-1.x86_64.rpm" "AivoRelay-${VERSION}-1.x86_64_EXPERIMENTAL.rpm"
+          collect macos AivoRelay.app.tar.gz "AivoRelay_${VERSION}_aarch64_EXPERIMENTAL.app.tar.gz"
+          collect macos "AivoRelay_${VERSION}_aarch64.dmg" "AivoRelay_${VERSION}_aarch64_EXPERIMENTAL.dmg"
+          printf '%s\t%s\n' \
+            "AivoRelay_${VERSION}_x64_en-US.msi" 'windows-x86_64-msi,windows-x86_64' \
+            "AivoRelay_${VERSION}_amd64_EXPERIMENTAL.AppImage" 'linux-x86_64-appimage,linux-x86_64' \
+            "AivoRelay_${VERSION}_amd64_EXPERIMENTAL.deb" 'linux-x86_64-deb' \
+            "AivoRelay-${VERSION}-1.x86_64_EXPERIMENTAL.rpm" 'linux-x86_64-rpm' \
+            "AivoRelay_${VERSION}_aarch64_EXPERIMENTAL.app.tar.gz" 'darwin-aarch64-app,darwin-aarch64' \
+            > "$RUNNER_TEMP/updater-payloads.tsv"
 
       - name: Set up Node for the standalone signer
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -195,10 +192,7 @@ jobs:
               "$assets/latest.json" > "$RUNNER_TEMP/latest.json"
             mv "$RUNNER_TEMP/latest.json" "$assets/latest.json"
           done < "$RUNNER_TEMP/updater-payloads.tsv"
-          expected=2
-          if [[ "$CHANNEL" == main ]]; then expected=8; fi
-          jq -e --argjson expected "$expected" \
-            '(.platforms | length) == $expected and all(.platforms[]; (.signature | length) > 0)' "$assets/latest.json"
+          jq -e '(.platforms | length) == 8 and all(.platforms[]; (.signature | length) > 0)' "$assets/latest.json"
 
       - name: Upload verified assets to the draft release
         shell: bash

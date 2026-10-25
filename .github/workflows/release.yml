@@ -18,6 +18,7 @@ jobs:
     outputs:
       release-id: ${{ steps.create-release.outputs.result }}
       version: ${{ steps.get-version.outputs.version }}
+      store-sha: ${{ steps.store-source.outputs.sha }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -32,6 +33,25 @@ jobs:
           VERSION=$(jq -er '.version | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' src-tauri/tauri.conf.json)
           echo "Application version from tauri.conf.json: $VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Pin the Store edition to one commit and refuse a mismatched or updating config.
+      - name: Resolve Microsoft Store edition source
+        id: store-source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.get-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/release/microsoft-store" --jq '.object.sha')"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/contents/src-tauri/tauri.conf.json?ref=$sha"             --jq .content | base64 --decode > "$RUNNER_TEMP/store-config.json"
+          jq -e --arg version "$VERSION" '.version == $version' "$RUNNER_TEMP/store-config.json" || {
+            echo "release/microsoft-store is not at version $VERSION" >&2; exit 1; }
+          jq -e '.bundle.createUpdaterArtifacts == false and ((.plugins.updater.endpoints // []) | length) == 0'             "$RUNNER_TEMP/store-config.json" || {
+            echo "release/microsoft-store must not ship updater artifacts or endpoints" >&2; exit 1; }
+          echo "Microsoft Store edition source: $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Create Draft Release
         id: create-release
@@ -87,6 +107,21 @@ jobs:
       CODE_CERT_MAXITSERVICE_01_2026: ${{ secrets.CODE_CERT_MAXITSERVICE_01_2026 }}
       WIN_PFX_PASSWORD: ${{ secrets.WIN_PFX_PASSWORD }}
 
+  # Microsoft Store edition for installing outside the Store: no secrets,
+  # no Authenticode, no updater. Its assets are never listed in latest.json.
+  build-store-windows:
+    permissions:
+      contents: read
+    needs: create-release
+    uses: ./.github/workflows/build.yml
+    with:
+      platform: "windows-latest"
+      target: "x86_64-pc-windows-msvc"
+      sign-binaries: false
+      asset-prefix: "aivorelay-store"
+      upload-artifacts: true
+      ref: ${{ needs.create-release.outputs.store-sha }}
+
   # Separate from Windows so these builds receive no platform signing secrets.
   # Separate jobs preserve each immutable artifact ID; matrix outputs overwrite.
   build-linux:
@@ -123,13 +158,13 @@ jobs:
   publish:
     permissions:
       contents: write
-    needs: [create-release, build-windows, build-linux, build-macos]
+    needs: [create-release, build-windows, build-store-windows, build-linux, build-macos]
     uses: ./.github/workflows/publish.yml
     with:
       release-id: ${{ needs.create-release.outputs.release-id }}
       version: ${{ needs.create-release.outputs.version }}
-      channel: main
       windows-artifact-id: ${{ needs.build-windows.outputs.windows-artifact-id }}
+      store-windows-artifact-id: ${{ needs.build-store-windows.outputs.windows-artifact-id }}
       linux-artifact-id: ${{ needs.build-linux.outputs.linux-artifact-id }}
       macos-artifact-id: ${{ needs.build-macos.outputs.macos-artifact-id }}
     secrets:

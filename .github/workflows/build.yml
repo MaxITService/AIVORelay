@@ -58,7 +58,7 @@ on:
     # Only release payload artifacts, never frontend sourcemaps.
     outputs:
       windows-artifact-id:
-        description: Windows MSI, portable ZIP and certificate files
+        description: Windows MSI, portable ZIP and, when signed, certificate files
         value: ${{ jobs.build.outputs.windows-artifact-id }}
       linux-artifact-id:
         description: Linux AppImage, deb and RPM packages
@@ -221,7 +221,8 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
-          key: ${{ inputs.platform }}-${{ inputs.target }}
+          # Editions differ in CPU flags; keep their compiled dependencies apart.
+          key: ${{ inputs.platform }}-${{ inputs.target }}-${{ inputs.asset-prefix }}
 
       - name: Prepare short Rust target dir (Windows)
         if: runner.os == 'Windows'
@@ -1074,8 +1075,8 @@ jobs:
           path: |
             windows-artifacts/*.msi
             ${{ env.PORTABLE_ZIP_NAME }}
-            Certificate/install_Root_Cert-embedded-in-this-file.ps1
-            Certificate/max.root.cert.cer
+            ${{ inputs.sign-binaries && 'Certificate/install_Root_Cert-embedded-in-this-file.ps1' || '' }}
+            ${{ inputs.sign-binaries && 'Certificate/max.root.cert.cer' || '' }}
           retention-days: 30
 
       - name: Remove disposable updater build key
