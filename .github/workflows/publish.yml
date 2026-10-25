@@ -21,6 +21,11 @@ on:
       macos-artifact-id:
         required: false
         type: string
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: true
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
 
 jobs:
   publish:
@@ -163,10 +168,13 @@ jobs:
         run: |
           set -euo pipefail
           : "${TAURI_SIGNING_PRIVATE_KEY:?Missing release environment signing key}"
+          # Nonempty credentials stay in env; an explicit empty password prevents prompts.
+          password_args=()
+          if [[ -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]]; then password_args=(-p ''); fi
           while IFS=$'\t' read -r name keys; do
             payload="$RUNNER_TEMP/release-assets/$name"
             node "$RUNNER_TEMP/release-signer/node_modules/@tauri-apps/cli/tauri.js" signer sign \
-              -k "$TAURI_SIGNING_PRIVATE_KEY" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$payload"
+              "${password_args[@]}" "$payload"
             test -s "$payload.sig"
             base64 --decode "$payload.sig" > "$RUNNER_TEMP/updater.minisig"
             minisign -Vm "$payload" -p "$RUNNER_TEMP/updater.pub" -x "$RUNNER_TEMP/updater.minisig"
