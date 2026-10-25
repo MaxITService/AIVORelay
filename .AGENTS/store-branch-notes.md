@@ -8,8 +8,7 @@ Canonical inventory of intentional differences from `main`. If code and this fil
 
 | Area | Microsoft Store Edition | Standard `main` edition |
 | --- | --- | --- |
-| Release identity | Draft pre-release tagged `vX.Y.Z-store` | Draft release tagged `vX.Y.Z` |
-| Release target | The exact Store workflow commit | Normal release tag behavior |
+| Release identity | `aivorelay-store_*` files in the shared `vX.Y.Z` draft, built by `main`'s `release.yml` from this branch's head | Draft release tagged `vX.Y.Z` |
 | Binary signing in GitHub Actions | `sign-binaries: false`; Microsoft Store ingestion handles final signing | Enabled by the standard release workflow |
 | Project certificate and installation script | Must not be bundled in MSI/ZIP or attached to the GitHub release | Included as release attachments |
 | Detached signature files | Must not be attached to the GitHub release | Updater signature files are generated |
@@ -22,7 +21,7 @@ Before completing a Store release, check that GitHub release assets contain no p
 
 Implementation anchors:
 
-- Release behavior: `.github/workflows/microsoft-store-release.yml` and `.github/workflows/build.yml`
+- Release behavior: `main`'s `.github/workflows/release.yml` and `build.yml`; this branch has no release workflow
 - Updater/package behavior: `src-tauri/tauri.conf.json`
 - CPU baseline: `src-tauri/.cargo/config.toml`
 
@@ -39,7 +38,7 @@ Implementation anchors:
 
 - The Store package requires an AVX2-capable x64 CPU. It is not a compatibility fallback for pre-AVX2 processors.
 - AVX512 and AMX must remain disabled for the distributed Store binary.
-- The Microsoft Store release workflow currently publishes only `x86_64-pc-windows-msvc`.
+- Only `x86_64-pc-windows-msvc` Store files are published.
 - ARM64 paths in reusable build/test workflows do not mean that an ARM64 Store package is published.
 - The x64 workflow audits the portable ZIP and MSI for the transcribe.cpp core DLL, ggml backend modules, and required VC/OpenMP runtimes.
 
