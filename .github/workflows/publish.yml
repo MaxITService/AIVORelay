@@ -116,16 +116,16 @@ jobs:
           printf '%s\t%s\n' "AivoRelay_${VERSION}_x64_en-US.msi" \
             'windows-x86_64-msi,windows-x86_64' > "$RUNNER_TEMP/updater-payloads.tsv"
           if [[ "$CHANNEL" == main ]]; then
-            collect linux "AivoRelay_${VERSION}_amd64.AppImage"
-            collect linux "AivoRelay_${VERSION}_amd64.deb"
-            collect linux "AivoRelay-${VERSION}-1.x86_64.rpm"
-            collect macos AivoRelay.app.tar.gz "AivoRelay_${VERSION}_aarch64.app.tar.gz"
-            collect macos "AivoRelay_${VERSION}_aarch64.dmg"
+            collect linux "AivoRelay_${VERSION}_amd64.AppImage" "AivoRelay_${VERSION}_amd64_EXPERIMENTAL.AppImage"
+            collect linux "AivoRelay_${VERSION}_amd64.deb" "AivoRelay_${VERSION}_amd64_EXPERIMENTAL.deb"
+            collect linux "AivoRelay-${VERSION}-1.x86_64.rpm" "AivoRelay-${VERSION}-1.x86_64_EXPERIMENTAL.rpm"
+            collect macos AivoRelay.app.tar.gz "AivoRelay_${VERSION}_aarch64_EXPERIMENTAL.app.tar.gz"
+            collect macos "AivoRelay_${VERSION}_aarch64.dmg" "AivoRelay_${VERSION}_aarch64_EXPERIMENTAL.dmg"
             printf '%s\t%s\n' \
-              "AivoRelay_${VERSION}_amd64.AppImage" 'linux-x86_64-appimage,linux-x86_64' \
-              "AivoRelay_${VERSION}_amd64.deb" 'linux-x86_64-deb' \
-              "AivoRelay-${VERSION}-1.x86_64.rpm" 'linux-x86_64-rpm' \
-              "AivoRelay_${VERSION}_aarch64.app.tar.gz" 'darwin-aarch64-app,darwin-aarch64' \
+              "AivoRelay_${VERSION}_amd64_EXPERIMENTAL.AppImage" 'linux-x86_64-appimage,linux-x86_64' \
+              "AivoRelay_${VERSION}_amd64_EXPERIMENTAL.deb" 'linux-x86_64-deb' \
+              "AivoRelay-${VERSION}-1.x86_64_EXPERIMENTAL.rpm" 'linux-x86_64-rpm' \
+              "AivoRelay_${VERSION}_aarch64_EXPERIMENTAL.app.tar.gz" 'darwin-aarch64-app,darwin-aarch64' \
               >> "$RUNNER_TEMP/updater-payloads.tsv"
           fi
 
