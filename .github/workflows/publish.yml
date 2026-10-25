@@ -207,8 +207,46 @@ jobs:
         run: |
           set -euo pipefail
           # Refuse a release that was published or retargeted while builds ran.
-          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" | \
-            jq -e --arg tag "$RELEASE_TAG" --arg sha "$GITHUB_SHA" \
-              '.draft == true and .tag_name == $tag and .target_commitish == $sha'
+          validate_draft() {
+            gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" | \
+              jq -e --arg tag "$RELEASE_TAG" --arg sha "$GITHUB_SHA" \
+                '.draft == true and .tag_name == $tag and .target_commitish == $sha'
+          }
+          validate_draft
+          # target_commitish is ignored for an existing tag; peel annotated tags too.
+          # Only a missing ref is acceptable, never an auth, API or transport error.
+          status="$(curl --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            --output "$RUNNER_TEMP/release-tag.json" --write-out '%{http_code}' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")"
+          case "$status" in
+            200)
+              object="$(jq -c '.object' "$RUNNER_TEMP/release-tag.json")"
+              while [[ "$(jq -r '.type' <<< "$object")" == tag ]]; do
+                tag_sha="$(jq -er '.sha' <<< "$object")"
+                object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_sha" --jq .object)"
+              done
+              jq -e --arg sha "$GITHUB_SHA" '.type == "commit" and .sha == $sha' <<< "$object"
+              ;;
+            404) ;; # Drafts may create their tag only when published.
+            *) echo "Cannot validate release tag (HTTP $status)" >&2; exit 1 ;;
+          esac
           mapfile -d '' assets < <(find "$RUNNER_TEMP/release-assets" -maxdepth 1 -type f -print0 | sort -z)
-          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          for asset in "${assets[@]}"; do
+            name="$(basename "$asset")"
+            validate_draft
+            # Replace only same-name assets listed on this validated draft, by ID.
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" \
+              > "$RUNNER_TEMP/existing-release-assets.json"
+            jq -r --arg name "$name" '.[] | select(.name == $name) | .id' \
+              "$RUNNER_TEMP/existing-release-assets.json" > "$RUNNER_TEMP/replaced-asset-ids"
+            while IFS= read -r asset_id; do
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+            done < "$RUNNER_TEMP/replaced-asset-ids"
+            encoded_name="$(jq -rn --arg name "$name" '$name | @uri')"
+            # Re-check immediately before each upload; never resolve the release by tag.
+            validate_draft
+            gh api --method POST \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$encoded_name" \
+              -H 'Content-Type: application/octet-stream' --input "$asset" > /dev/null
+          done
