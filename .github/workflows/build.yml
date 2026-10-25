@@ -525,13 +525,6 @@ jobs:
       - name: Pre-build and locate transcribe-cpp backend libs (Linux)
         if: contains(inputs.platform, 'ubuntu')
         shell: bash
-        env:
-          # Same ggml flags as the Tauri build step below, so this compile is reused.
-          GGML_NATIVE: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
-          GGML_AVX: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
-          GGML_AVX2: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
-          GGML_FMA: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
-          GGML_F16C: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
         run: |
           set -euo pipefail
           PROFILE="${{ steps.build-profile.outputs.profile }}"
@@ -644,15 +637,6 @@ jobs:
           # linuxdeploy passes this to appimagetool, which writes it as
           # X-AppImage-Version for desktop integration tools such as Gear Lever.
           LINUXDEPLOY_OUTPUT_VERSION: ${{ contains(inputs.platform, 'ubuntu') && steps.get-version.outputs.version || '' }}
-          # Disable -march=native and all SIMD instruction sets above SSE4.2 for
-          # x86_64 builds. Without this, CPUs lacking AVX/FMA (e.g. Celeron N2920,
-          # FX-8350) crash with SIGILL. The Vulkan backend handles heavy compute
-          # so disabling these has negligible performance impact.
-          GGML_NATIVE: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
-          GGML_AVX: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
-          GGML_AVX2: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
-          GGML_FMA: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
-          GGML_F16C: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
         with:
           args: ${{ inputs.build-args }}
 
@@ -665,11 +649,6 @@ jobs:
           AIVORELAY_SOURCEMAPS: "1"
           TAURI_SIGNING_PRIVATE_KEY: ${{ steps.updater-build-key.outputs.path }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
-          GGML_NATIVE: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
-          GGML_AVX: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
-          GGML_AVX2: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
-          GGML_FMA: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
-          GGML_F16C: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
         with:
           args: ${{ inputs.build-args }}
 
