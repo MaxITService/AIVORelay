@@ -20,10 +20,6 @@ on:
         required: false
         type: string
         default: "aivorelay"
-      asset-name-pattern:
-        required: false
-        type: string
-        default: ""
       upload-artifacts:
         required: false
         type: boolean
@@ -43,14 +39,39 @@ on:
         required: false
         type: boolean
         default: false
+    secrets:
+      CODE_CERT_MAXITSERVICE_01_2026:
+        required: false
+      WIN_PFX_PASSWORD:
+        required: false
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      KEYCHAIN_PASSWORD:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_ID_PASSWORD:
+        required: false
+      APPLE_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
 
 jobs:
   build:
-    # No permissions block: the token is exactly what the calling job grants, so a
-    # read-only caller (the package check) builds with a read-only token while the
-    # release callers keep the write access they declare.
+    permissions:
+      contents: read
     runs-on: ${{ inputs.platform }}
     steps:
+      - name: Reject legacy release uploads
+        if: inputs.release-id != ''
+        shell: bash
+        run: |
+          echo "Release callers must download workflow artifacts in a protected publish job" >&2
+          exit 1
+
       - name: Enable long paths (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -65,8 +86,7 @@ jobs:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
           fetch-depth: 0
-          # Nothing here pushes. Leaving the write-scoped token in .git/config
-          # would hand it to every build script and dependency that runs later.
+          # Build scripts and dependencies do not need persisted credentials.
           persist-credentials: false
 
       - name: Import Certificate to Windows Store
@@ -474,19 +494,6 @@ jobs:
           echo "CERT_ID=$CERT_ID" >> $GITHUB_ENV
           echo "Certificate imported."
 
-      - name: Patch asset name pattern
-        id: patch-release-name
-        shell: bash
-        if: ${{ inputs.release-id != '' && inputs.asset-name-pattern != '' }}
-        run: |
-          platform="${{ inputs.platform }}"
-          replacement="$(echo ${platform} | sed -E 's/-latest//')"
-          patched_platform=$(echo '${{ inputs.asset-name-pattern }}' | sed -E "s/\[platform\]/${replacement}/")
-          if [[ -n "${{ inputs.asset-prefix }}" ]]; then
-            patched_platform="${{ inputs.asset-prefix }}_${patched_platform}"
-          fi
-          echo "platform=${patched_platform}" >> $GITHUB_OUTPUT
-
       # ggml-vulkan (built by transcribe-cpp-sys when the Vulkan backend is on)
       # requires a findable SPIRV-HeadersConfig.cmake. The CI Vulkan SDK does not
       # expose one, so provide the header-only package via vcpkg and add its
@@ -578,6 +585,16 @@ jobs:
           chmod +x "$tools_dir/linuxdeploy-${arch}.AppImage"
           "$tools_dir/linuxdeploy-${arch}.AppImage" --appimage-extract-and-run --version
 
+      # Disposable updater key only: keep Authenticode and macOS ad-hoc signing.
+      # CLI 2.11.4 bundle.rs warns on a pubkey mismatch; publish replaces these sigs.
+      - name: Generate disposable updater build key
+        id: updater-build-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          bunx tauri signer generate --ci -p '' -w "$RUNNER_TEMP/updater-build.key"
+          echo "path=$RUNNER_TEMP/updater-build.key" >> "$GITHUB_OUTPUT"
+
       # Tauri treats a signing variable that is set but empty as "sign with this
       # certificate" and fails, so the unsigned macOS build below leaves them
       # undefined. This step covers every other build.
@@ -585,13 +602,10 @@ jobs:
         if: ${{ !(contains(inputs.platform, 'macos') && !inputs.sign-binaries) }}
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
-          # Linux builds receive no secrets at all: the token, the Apple
-          # credentials and the updater signing key stay on the Windows and macOS
-          # jobs that sign. Linux packages are unsigned and build without updater
-          # artifacts (see src-tauri/tauri.linux.conf.json).
-          GITHUB_TOKEN: ${{ !contains(inputs.platform, 'ubuntu') && secrets.GITHUB_TOKEN || '' }}
           # Hidden frontend sourcemaps, written outside the app (see vite.config.ts).
           AIVORELAY_SOURCEMAPS: "1"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.updater-build-key.outputs.path }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
           APPLE_ID: ${{ contains(inputs.platform, 'macos') && inputs.sign-binaries && secrets.APPLE_ID || '' }}
           APPLE_ID_PASSWORD: ${{ contains(inputs.platform, 'macos') && inputs.sign-binaries && secrets.APPLE_ID_PASSWORD || '' }}
           APPLE_PASSWORD: ${{ contains(inputs.platform, 'macos') && inputs.sign-binaries && secrets.APPLE_PASSWORD || '' }}
@@ -599,8 +613,6 @@ jobs:
           APPLE_CERTIFICATE: ${{ contains(inputs.platform, 'macos') && inputs.sign-binaries && secrets.APPLE_CERTIFICATE || '' }}
           APPLE_CERTIFICATE_PASSWORD: ${{ contains(inputs.platform, 'macos') && inputs.sign-binaries && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
           APPLE_SIGNING_IDENTITY: ${{ contains(inputs.platform, 'macos') && inputs.sign-binaries && env.CERT_ID || '' }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ !contains(inputs.platform, 'ubuntu') && inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ !contains(inputs.platform, 'ubuntu') && inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
           # The Vulkan loader and Wayland client library must come from the host
           # graphics stack. Bundling Ubuntu's copies ahead of the system libraries can
           # prevent a newer distro's Vulkan ICD or Mesa stack from loading.
@@ -620,30 +632,23 @@ jobs:
           GGML_FMA: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
           GGML_F16C: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
         with:
-          tagName: ${{ inputs.release-id && inputs.release-tag || (inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '') }}
-          releaseName: ${{ inputs.release-id && inputs.release-tag || (inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '') }}
-          releaseId: ${{ inputs.release-id }}
-          assetNamePattern: ${{ steps.patch-release-name.outputs.platform }}
           args: ${{ inputs.build-args }}
 
       - name: Build with Tauri (macOS, unsigned)
         if: ${{ contains(inputs.platform, 'macos') && !inputs.sign-binaries }}
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
-          # No signing material is defined here: an unsigned macOS build is ad-hoc signed.
-          GITHUB_TOKEN: ${{ !contains(inputs.platform, 'ubuntu') && secrets.GITHUB_TOKEN || '' }}
+          # No Apple credentials: macOS keeps its configured ad-hoc signature.
           # Hidden frontend sourcemaps, written outside the app (see vite.config.ts).
           AIVORELAY_SOURCEMAPS: "1"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.updater-build-key.outputs.path }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
           GGML_NATIVE: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
           GGML_AVX: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
           GGML_AVX2: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
           GGML_FMA: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
           GGML_F16C: ${{ !contains(inputs.platform, 'macos') && !contains(inputs.platform, 'arm') && !contains(inputs.target, 'aarch64') && 'OFF' || '' }}
         with:
-          tagName: ${{ inputs.release-id && inputs.release-tag || (inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '') }}
-          releaseName: ${{ inputs.release-id && inputs.release-tag || (inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '') }}
-          releaseId: ${{ inputs.release-id }}
-          assetNamePattern: ${{ steps.patch-release-name.outputs.platform }}
           args: ${{ inputs.build-args }}
 
       # Uploaded even for releases: decodes frontend stack traces in user logs.
@@ -656,9 +661,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
-      # tauri-action uploads release assets before returning. All AppImage
-      # filtering therefore happens inside linuxdeploy above; this verifies the
-      # exact artifact Tauri signed and uploaded.
+      # Filter inside linuxdeploy before signing; verify the packaged artifact.
       - name: Verify AppImage version metadata
         if: contains(inputs.platform, 'ubuntu')
         shell: bash
@@ -698,6 +701,7 @@ jobs:
           path: |
             src-tauri/target/${{ inputs.target }}/${{ steps.build-profile.outputs.profile }}/bundle/dmg/*.dmg
             src-tauri/target/${{ inputs.target }}/${{ steps.build-profile.outputs.profile }}/bundle/macos/*.app
+            src-tauri/target/${{ inputs.target }}/${{ steps.build-profile.outputs.profile }}/bundle/macos/*.app.tar.gz
           retention-days: 30
 
       - name: Audit Linux package runtime contents
@@ -1058,16 +1062,6 @@ jobs:
             throw "Windows ARM64 package unexpectedly exposed a GPU compute device"
           }
 
-      - name: Upload portable ZIP to release (Windows)
-        if: contains(inputs.platform, 'windows') && inputs.release-id != ''
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload "v${{ steps.get-version.outputs.version }}" "${{ env.PORTABLE_ZIP_PATH }}" \
-            --repo "${{ github.repository }}" \
-            --clobber
-
       - name: Upload artifacts (Windows)
         if: inputs.upload-artifacts && contains(inputs.platform, 'windows')
         uses: actions/upload-artifact@v4
@@ -1076,39 +1070,11 @@ jobs:
           path: |
             windows-artifacts/*.msi
             ${{ env.PORTABLE_ZIP_NAME }}
+            Certificate/install_Root_Cert-embedded-in-this-file.ps1
+            Certificate/max.root.cert.cer
           retention-days: 30
 
-      - name: Upload Certificate Files to Release (Windows)
-        if: inputs.release-id && contains(inputs.platform, 'windows') && inputs.sign-binaries
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const fs = require('fs');
-            const path = require('path');
-
-            const files = [
-              { path: 'Certificate/install_Root_Cert-embedded-in-this-file.ps1', name: 'install_Root_Cert-embedded-in-this-file.ps1' },
-              { path: 'Certificate/max.root.cert.cer', name: 'max.root.cert.cer' }
-            ];
-
-            for (const file of files) {
-              const filePath = path.join(process.env.GITHUB_WORKSPACE, file.path);
-              
-              if (!fs.existsSync(filePath)) {
-                console.log(`File not found: ${filePath}, skipping...`);
-                continue;
-              }
-              
-              const content = fs.readFileSync(filePath);
-              console.log(`Uploading ${file.name} (${content.length} bytes)...`);
-              
-              await github.rest.repos.uploadReleaseAsset({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                release_id: ${{ inputs.release-id }},
-                name: file.name,
-                data: content
-              });
-              
-              console.log(`Successfully uploaded ${file.name}`);
-            }
+      - name: Remove disposable updater build key
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/updater-build.key" "$RUNNER_TEMP/updater-build.key.pub"

@@ -2,8 +2,16 @@ name: "Release"
 
 on: workflow_dispatch
 
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   create-release:
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -13,28 +21,49 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Get version from tauri.conf.json
         id: get-version
         shell: bash
         run: |
-          VERSION=$(grep -o '"version": "[^"]*"' src-tauri/tauri.conf.json | cut -d'"' -f4)
+          VERSION=$(jq -er '.version | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' src-tauri/tauri.conf.json)
           echo "Application version from tauri.conf.json: $VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Create Draft Release
         id: create-release
         uses: actions/github-script@v8
+        env:
+          VERSION: ${{ steps.get-version.outputs.version }}
         with:
           script: |
             const fs = require('fs');
             const body = fs.readFileSync('.github/release-notes/main.md', 'utf8');
 
+            const tag = `v${process.env.VERSION}`;
+            // An existing tag must resolve to the exact commit being built.
+            try {
+              let { data: ref } = await github.rest.git.getRef({ ...context.repo, ref: `tags/${tag}` });
+              let object = ref.object;
+              while (object.type === 'tag') {
+                const { data } = await github.rest.git.getTag({ ...context.repo, tag_sha: object.sha });
+                object = data.object;
+              }
+              if (object.type !== 'commit' || object.sha !== context.sha) {
+                throw new Error(`Release tag ${tag} does not point to ${context.sha}`);
+              }
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
             const { data } = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              tag_name: `v${{ steps.get-version.outputs.version }}`,
-              name: `v${{ steps.get-version.outputs.version }}`,
+              tag_name: tag,
+              target_commitish: context.sha,
+              name: tag,
               body,
               draft: true,
               prerelease: false,
@@ -42,25 +71,56 @@ jobs:
             })
             return data.id
 
-  publish-tauri:
+  build-windows:
     permissions:
-      contents: write
+      contents: read
+    needs: create-release
+    uses: ./.github/workflows/build.yml
+    with:
+      platform: "windows-latest"
+      target: "x86_64-pc-windows-msvc"
+      sign-binaries: true
+      asset-prefix: "aivorelay"
+      upload-artifacts: true
+      ref: ${{ github.sha }}
+    secrets:
+      CODE_CERT_MAXITSERVICE_01_2026: ${{ secrets.CODE_CERT_MAXITSERVICE_01_2026 }}
+      WIN_PFX_PASSWORD: ${{ secrets.WIN_PFX_PASSWORD }}
+
+  # Separate from Windows so these builds receive no platform signing secrets.
+  build-experimental:
+    permissions:
+      contents: read
     needs: create-release
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: "windows-latest"
-            args: ""
-            target: "x86_64-pc-windows-msvc"
-
+          # Release-only override; package checks keep their platform defaults.
+          - platform: "ubuntu-24.04"
+            args: >-
+              --bundles appimage,deb,rpm --config '{"bundle":{"createUpdaterArtifacts":true}}'
+            target: "x86_64-unknown-linux-gnu"
+          - platform: "macos-26"
+            args: >-
+              --target aarch64-apple-darwin --bundles app,dmg --config '{"bundle":{"createUpdaterArtifacts":true}}'
+            target: "aarch64-apple-darwin"
     uses: ./.github/workflows/build.yml
     with:
       platform: ${{ matrix.platform }}
       target: ${{ matrix.target }}
       build-args: ${{ matrix.args }}
-      sign-binaries: true
+      sign-binaries: false
       asset-prefix: "aivorelay"
-      upload-artifacts: false
+      upload-artifacts: true
+      ref: ${{ github.sha }}
+
+  publish:
+    permissions:
+      contents: write
+    needs: [create-release, build-windows, build-experimental]
+    uses: ./.github/workflows/publish.yml
+    with:
       release-id: ${{ needs.create-release.outputs.release-id }}
-    secrets: inherit
+      version: ${{ needs.create-release.outputs.version }}
+      channel: main

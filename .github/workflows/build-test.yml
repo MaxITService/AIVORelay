@@ -4,10 +4,10 @@ on: workflow_dispatch
 
 jobs:
   # Windows and macOS builds. Windows signs with the repository's certificate
-  # secrets, so this job inherits them.
+  # secrets, passed explicitly below.
   build-test:
     permissions:
-      contents: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -38,7 +38,9 @@ jobs:
       asset-prefix: "aivorelay-test"
       upload-artifacts: true
       is-debug-build: ${{ contains(matrix.args, '--debug') }}
-    secrets: inherit
+    secrets:
+      CODE_CERT_MAXITSERVICE_01_2026: ${{ matrix.sign && secrets.CODE_CERT_MAXITSERVICE_01_2026 || '' }}
+      WIN_PFX_PASSWORD: ${{ matrix.sign && secrets.WIN_PFX_PASSWORD || '' }}
 
   # Linux builds are separate on purpose: no secrets are passed to the called
   # workflow and the token is read-only, so nothing in these jobs can see or use
