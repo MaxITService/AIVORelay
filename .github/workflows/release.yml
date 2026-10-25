@@ -88,28 +88,33 @@ jobs:
       WIN_PFX_PASSWORD: ${{ secrets.WIN_PFX_PASSWORD }}
 
   # Separate from Windows so these builds receive no platform signing secrets.
-  build-experimental:
+  # Separate jobs preserve each immutable artifact ID; matrix outputs overwrite.
+  build-linux:
     permissions:
       contents: read
     needs: create-release
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Release-only override; package checks keep their platform defaults.
-          - platform: "ubuntu-24.04"
-            args: >-
-              --bundles appimage,deb,rpm --config '{"bundle":{"createUpdaterArtifacts":true}}'
-            target: "x86_64-unknown-linux-gnu"
-          - platform: "macos-26"
-            args: >-
-              --target aarch64-apple-darwin --bundles app,dmg --config '{"bundle":{"createUpdaterArtifacts":true}}'
-            target: "aarch64-apple-darwin"
     uses: ./.github/workflows/build.yml
     with:
-      platform: ${{ matrix.platform }}
-      target: ${{ matrix.target }}
-      build-args: ${{ matrix.args }}
+      platform: "ubuntu-24.04"
+      target: "x86_64-unknown-linux-gnu"
+      # Release-only override; package checks keep their platform defaults.
+      build-args: >-
+        --bundles appimage,deb,rpm --config '{"bundle":{"createUpdaterArtifacts":true}}'
+      sign-binaries: false
+      asset-prefix: "aivorelay"
+      upload-artifacts: true
+      ref: ${{ github.sha }}
+
+  build-macos:
+    permissions:
+      contents: read
+    needs: create-release
+    uses: ./.github/workflows/build.yml
+    with:
+      platform: "macos-26"
+      target: "aarch64-apple-darwin"
+      build-args: >-
+        --target aarch64-apple-darwin --bundles app,dmg --config '{"bundle":{"createUpdaterArtifacts":true}}'
       sign-binaries: false
       asset-prefix: "aivorelay"
       upload-artifacts: true
@@ -118,9 +123,12 @@ jobs:
   publish:
     permissions:
       contents: write
-    needs: [create-release, build-windows, build-experimental]
+    needs: [create-release, build-windows, build-linux, build-macos]
     uses: ./.github/workflows/publish.yml
     with:
       release-id: ${{ needs.create-release.outputs.release-id }}
       version: ${{ needs.create-release.outputs.version }}
       channel: main
+      windows-artifact-id: ${{ needs.build-windows.outputs.windows-artifact-id }}
+      linux-artifact-id: ${{ needs.build-linux.outputs.linux-artifact-id }}
+      macos-artifact-id: ${{ needs.build-macos.outputs.macos-artifact-id }}

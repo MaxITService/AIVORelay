@@ -12,6 +12,15 @@ on:
       channel:
         required: true
         type: string
+      windows-artifact-id:
+        required: true
+        type: string
+      linux-artifact-id:
+        required: false
+        type: string
+      macos-artifact-id:
+        required: false
+        type: string
 
 jobs:
   publish:
@@ -24,6 +33,9 @@ jobs:
       RELEASE_ID: ${{ inputs.release-id }}
       VERSION: ${{ inputs.version }}
       CHANNEL: ${{ inputs.channel }}
+      WINDOWS_ARTIFACT_ID: ${{ inputs.windows-artifact-id }}
+      LINUX_ARTIFACT_ID: ${{ inputs.linux-artifact-id }}
+      MACOS_ARTIFACT_ID: ${{ inputs.macos-artifact-id }}
     steps:
       # No checkout or repository scripts. Artifacts are data, never executed.
       - name: Validate draft release and fetch the committed updater public key
@@ -39,6 +51,12 @@ jobs:
             store) tag="v$VERSION-store"; prefix="aivorelay-store" ;;
             *) echo "Unsupported release channel: $CHANNEL" >&2; exit 1 ;;
           esac
+          # Empty IDs would select all artifacts; require exactly one producer ID.
+          [[ "$WINDOWS_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          if [[ "$CHANNEL" == main ]]; then
+            [[ "$LINUX_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+            [[ "$MACOS_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          fi
           echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
           echo "ASSET_PREFIX=$prefix" >> "$GITHUB_ENV"
           gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RUNNER_TEMP/release.json"
@@ -54,21 +72,21 @@ jobs:
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
-          name: ${{ env.ASSET_PREFIX }}-x86_64-pc-windows-msvc
+          artifact-ids: ${{ inputs.windows-artifact-id }}
           path: ${{ runner.temp }}/release-input/windows
 
       - name: Download Linux artifacts
         if: inputs.channel == 'main'
         uses: actions/download-artifact@v4
         with:
-          name: aivorelay-ubuntu-24.04-x86_64-unknown-linux-gnu
+          artifact-ids: ${{ inputs.linux-artifact-id }}
           path: ${{ runner.temp }}/release-input/linux
 
       - name: Download macOS artifacts
         if: inputs.channel == 'main'
         uses: actions/download-artifact@v4
         with:
-          name: aivorelay-aarch64-apple-darwin
+          artifact-ids: ${{ inputs.macos-artifact-id }}
           path: ${{ runner.temp }}/release-input/macos
 
       - name: Collect the expected release assets

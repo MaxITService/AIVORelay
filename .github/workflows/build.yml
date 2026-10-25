@@ -55,12 +55,27 @@ on:
         required: false
       APPLE_TEAM_ID:
         required: false
+    # Only release payload artifacts, never frontend sourcemaps.
+    outputs:
+      windows-artifact-id:
+        description: Windows MSI, portable ZIP and certificate files
+        value: ${{ jobs.build.outputs.windows-artifact-id }}
+      linux-artifact-id:
+        description: Linux AppImage, deb and RPM packages
+        value: ${{ jobs.build.outputs.linux-artifact-id }}
+      macos-artifact-id:
+        description: macOS app bundle, updater archive and DMG
+        value: ${{ jobs.build.outputs.macos-artifact-id }}
 
 jobs:
   build:
     permissions:
       contents: read
     runs-on: ${{ inputs.platform }}
+    outputs:
+      windows-artifact-id: ${{ steps.upload-windows.outputs.artifact-id }}
+      linux-artifact-id: ${{ steps.upload-linux.outputs.artifact-id }}
+      macos-artifact-id: ${{ steps.upload-macos.outputs.artifact-id }}
     steps:
       - name: Enable long paths (Windows)
         if: runner.os == 'Windows'
@@ -684,6 +699,7 @@ jobs:
           )
 
       - name: Upload artifacts (macOS)
+        id: upload-macos
         if: inputs.upload-artifacts && contains(inputs.platform, 'macos')
         uses: actions/upload-artifact@v4
         with:
@@ -862,6 +878,7 @@ jobs:
           fi
 
       - name: Upload artifacts (Linux)
+        id: upload-linux
         if: inputs.upload-artifacts && contains(inputs.platform, 'ubuntu')
         uses: actions/upload-artifact@v4
         with:
@@ -1053,6 +1070,7 @@ jobs:
           }
 
       - name: Upload artifacts (Windows)
+        id: upload-windows
         if: inputs.upload-artifacts && contains(inputs.platform, 'windows')
         uses: actions/upload-artifact@v4
         with:

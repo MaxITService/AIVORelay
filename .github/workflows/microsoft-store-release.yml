@@ -97,3 +97,4 @@ jobs:
       release-id: ${{ needs.create-release.outputs.release-id }}
       version: ${{ needs.create-release.outputs.version }}
       channel: store
+      windows-artifact-id: ${{ needs.build-windows.outputs.windows-artifact-id }}
