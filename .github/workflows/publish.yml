@@ -1,0 +1,188 @@
+name: "Publish release artifacts"
+
+on:
+  workflow_call:
+    inputs:
+      release-id:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      channel:
+        required: true
+        type: string
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+    env:
+      RELEASE_ID: ${{ inputs.release-id }}
+      VERSION: ${{ inputs.version }}
+      CHANNEL: ${{ inputs.channel }}
+    steps:
+      # No checkout or repository scripts. Artifacts are data, never executed.
+      - name: Validate draft release and fetch the committed updater public key
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$RELEASE_ID" =~ ^[0-9]+$ ]]
+          case "$CHANNEL" in
+            main) tag="v$VERSION"; prefix="aivorelay" ;;
+            store) tag="v$VERSION-store"; prefix="aivorelay-store" ;;
+            *) echo "Unsupported release channel: $CHANNEL" >&2; exit 1 ;;
+          esac
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          echo "ASSET_PREFIX=$prefix" >> "$GITHUB_ENV"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RUNNER_TEMP/release.json"
+          jq -e --arg tag "$tag" --arg sha "$GITHUB_SHA" \
+            '.draft == true and .tag_name == $tag and .target_commitish == $sha' "$RUNNER_TEMP/release.json"
+          # Fetch data at the workflow SHA, never a moving branch or an artifact key.
+          gh api "repos/$GITHUB_REPOSITORY/contents/src-tauri/tauri.conf.json?ref=$GITHUB_SHA" \
+            --jq .content | base64 --decode > "$RUNNER_TEMP/release-config.json"
+          jq -e --arg version "$VERSION" '.version == $version' "$RUNNER_TEMP/release-config.json"
+          jq -er '.plugins.updater.pubkey | select(type == "string" and length > 0)' \
+            "$RUNNER_TEMP/release-config.json" | base64 --decode > "$RUNNER_TEMP/updater.pub"
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ASSET_PREFIX }}-x86_64-pc-windows-msvc
+          path: ${{ runner.temp }}/release-input/windows
+
+      - name: Download Linux artifacts
+        if: inputs.channel == 'main'
+        uses: actions/download-artifact@v4
+        with:
+          name: aivorelay-ubuntu-24.04-x86_64-unknown-linux-gnu
+          path: ${{ runner.temp }}/release-input/linux
+
+      - name: Download macOS artifacts
+        if: inputs.channel == 'main'
+        uses: actions/download-artifact@v4
+        with:
+          name: aivorelay-aarch64-apple-darwin
+          path: ${{ runner.temp }}/release-input/macos
+
+      - name: Collect the expected release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          collect() {
+            local platform="$1" name="$2" destination="${3:-$2}"
+            local matches=()
+            mapfile -d '' matches < <(find "$RUNNER_TEMP/release-input/$platform" -type f -name "$name" -print0)
+            if [[ "${#matches[@]}" != 1 || ! -s "${matches[0]}" ]]; then
+              echo "Expected exactly one nonempty $platform payload: $name (found ${#matches[@]})" >&2
+              exit 1
+            fi
+            cp -- "${matches[0]}" "$RUNNER_TEMP/release-assets/$destination"
+          }
+          collect windows "AivoRelay_${VERSION}_x64_en-US.msi"
+          collect windows "${ASSET_PREFIX}_${VERSION}_x64_portable.zip"
+          collect windows install_Root_Cert-embedded-in-this-file.ps1
+          collect windows max.root.cert.cer
+          printf '%s\t%s\n' "AivoRelay_${VERSION}_x64_en-US.msi" \
+            'windows-x86_64-msi,windows-x86_64' > "$RUNNER_TEMP/updater-payloads.tsv"
+          if [[ "$CHANNEL" == main ]]; then
+            collect linux "AivoRelay_${VERSION}_amd64.AppImage"
+            collect linux "AivoRelay_${VERSION}_amd64.deb"
+            collect linux "AivoRelay-${VERSION}-1.x86_64.rpm"
+            collect macos AivoRelay.app.tar.gz "AivoRelay_${VERSION}_aarch64.app.tar.gz"
+            collect macos "AivoRelay_${VERSION}_aarch64.dmg"
+            printf '%s\t%s\n' \
+              "AivoRelay_${VERSION}_amd64.AppImage" 'linux-x86_64-appimage,linux-x86_64' \
+              "AivoRelay_${VERSION}_amd64.deb" 'linux-x86_64-deb' \
+              "AivoRelay-${VERSION}-1.x86_64.rpm" 'linux-x86_64-rpm' \
+              "AivoRelay_${VERSION}_aarch64.app.tar.gz" 'darwin-aarch64-app,darwin-aarch64' \
+              >> "$RUNNER_TEMP/updater-payloads.tsv"
+          fi
+
+      - name: Set up Node for the standalone signer
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Both npm tarballs are pinned to bun.lock integrities, including the native
+      # binary. Extract directly: no install hooks, optional packages or repo code.
+      - name: Install the integrity-verified Tauri CLI 2.11.4 and minisign
+        shell: bash
+        run: |
+          set -euo pipefail
+          tool="$RUNNER_TEMP/release-signer"
+          mkdir -p "$tool/node_modules/@tauri-apps/cli" "$tool/node_modules/@tauri-apps/cli-linux-x64-gnu"
+          curl --fail --show-error --location --retry 3 \
+            'https://registry.npmjs.org/@tauri-apps/cli/-/cli-2.11.4.tgz' -o "$tool/cli.tgz"
+          curl --fail --show-error --location --retry 3 \
+            'https://registry.npmjs.org/@tauri-apps/cli-linux-x64-gnu/-/cli-linux-x64-gnu-2.11.4.tgz' -o "$tool/native.tgz"
+          verify() {
+            local actual
+            actual="$(openssl dgst -sha512 -binary "$1" | openssl base64 -A)"
+            [[ "sha512-$actual" == "$2" ]] || { echo "Integrity mismatch: $1" >&2; exit 1; }
+          }
+          verify "$tool/cli.tgz" 'sha512-R8xGtMpwyetawSqm9kYOuMmEqkhUbvcUy8n0aNXIxollKBLESUu5f4Fx+64hgASYm1H+jSWq6jCW6zqTnH6hqQ=='
+          verify "$tool/native.tgz" 'sha512-2VRNWl84FOH0m2giiDkO2h0QXlcMJeX+zJDpI5kDIQAx6s+geF3v48F4DXfJez4GS/FdoDGnPnw1C2iYGbQ7bQ=='
+          tar -xzf "$tool/cli.tgz" --strip-components=1 -C "$tool/node_modules/@tauri-apps/cli"
+          tar -xzf "$tool/native.tgz" --strip-components=1 -C "$tool/node_modules/@tauri-apps/cli-linux-x64-gnu"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends minisign
+
+      # Environment secrets exist only in this step, after all tool installation.
+      # The configured public key verifies every signature before any release upload.
+      - name: Sign and verify updater payloads
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${TAURI_SIGNING_PRIVATE_KEY:?Missing release environment signing key}"
+          while IFS=$'\t' read -r name keys; do
+            payload="$RUNNER_TEMP/release-assets/$name"
+            node "$RUNNER_TEMP/release-signer/node_modules/@tauri-apps/cli/tauri.js" signer sign \
+              -k "$TAURI_SIGNING_PRIVATE_KEY" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$payload"
+            test -s "$payload.sig"
+            base64 --decode "$payload.sig" > "$RUNNER_TEMP/updater.minisig"
+            minisign -Vm "$payload" -p "$RUNNER_TEMP/updater.pub" -x "$RUNNER_TEMP/updater.minisig"
+          done < "$RUNNER_TEMP/updater-payloads.tsv"
+
+      - name: Generate latest.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets="$RUNNER_TEMP/release-assets"
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG"
+          jq --arg version "$VERSION" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{version: $version, notes: (.body // ""), pub_date: $date, platforms: {}}' \
+            "$RUNNER_TEMP/release.json" > "$assets/latest.json"
+          while IFS=$'\t' read -r name keys; do
+            jq --arg url "$base/$name" --arg keys "$keys" --rawfile signature "$assets/$name.sig" \
+              '.platforms += ($keys | split(",") | map({key: ., value: {url: $url, signature: $signature}}) | from_entries)' \
+              "$assets/latest.json" > "$RUNNER_TEMP/latest.json"
+            mv "$RUNNER_TEMP/latest.json" "$assets/latest.json"
+          done < "$RUNNER_TEMP/updater-payloads.tsv"
+          expected=2
+          if [[ "$CHANNEL" == main ]]; then expected=8; fi
+          jq -e --argjson expected "$expected" \
+            '(.platforms | length) == $expected and all(.platforms[]; (.signature | length) > 0)' "$assets/latest.json"
+
+      - name: Upload verified assets to the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Refuse a release that was published or retargeted while builds ran.
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" | \
+            jq -e --arg tag "$RELEASE_TAG" --arg sha "$GITHUB_SHA" \
+              '.draft == true and .tag_name == $tag and .target_commitish == $sha'
+          mapfile -d '' assets < <(find "$RUNNER_TEMP/release-assets" -maxdepth 1 -type f -print0 | sort -z)
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
