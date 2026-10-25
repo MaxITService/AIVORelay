@@ -8,6 +8,7 @@ Map of tracked agent documentation.
 - [[AGENTS]]
 - [[README]]
 - [[.AGENTS/code-notes|code-notes.md]]
+- [[.AGENTS/non-windows-platforms|non-windows-platforms.md]]
 - [[.AGENTS/build-environment|build-environment.md]]
 - [[.AGENTS/Release|Release.md]]
 
