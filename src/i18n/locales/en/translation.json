@@ -710,19 +710,17 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.49",
+      "since": "Since version 1.0.50",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "llmStreaming": "LLM post-processing can now type the answer into the target window while it streams, and the translated Benchmark shows the time to the first token.",
-        "historyProcessed": "History now shows the text after replacements, switches to the original transcript, notes when processing left the text unchanged, and completes Soniox Live re-transcription without timing out.",
-        "geminiLive": "Gemini Live uses the chosen dictation mode, waits for the last words, keeps sentence spaces through Vercel AI Gateway, and finishes background dictations and counts their words without typing late text into a new recording.",
-        "profileSettings": "Profiles retain their model and Gemini settings. Preview keeps text when insertion is disabled, and cleared custom prompts use the shared prompt.",
-        "customWords": "Custom Words preserves capitalization more reliably and no longer removes the next word when corrections tie.",
-        "hotkeyCapture": "Assigning a shortcut no longer triggers existing app shortcuts while recording, and clicking another shortcut field stops the previous one cleanly.",
-        "playbackPitch": "Playback pitch now changes the voice without changing its speed, including during streamed speech.",
-        "screenshotPath": "Screenshot folders expand all environment variables even when another variable in the path is unknown.",
-        "hiddenStartup": "New installations start in the system tray by default. You can change this with Start Hidden in Advanced."
+        "fileQueues": "File transcription and file-to-speech batches are now saved queues: they survive a restart, wait and retry while the engine is busy, keep earlier results, and no longer cut off the end of resampled audio.",
+        "recordingQueue": "Optionally queue a new recording started while the previous one is still being processed, instead of ignoring it.",
+        "modelCleanup": "Remove unused local speech-to-text and text-to-speech models to free disk space. Deleting a model removes all its cached copies, and alternate quantizations already on disk now appear with their catalog details.",
+        "onboarding": "The first-start wizard shows each model's quantization and suggests asking an AI chat for help with setup.",
+        "ttsOverlay": "In the read-aloud overlay, the playback effect applies to all audio, and seeking can jump to parts that haven't been decoded yet.",
+        "streamingOutput": "Text from streaming transcription stays with the recording that produced it, even when recordings follow each other closely.",
+        "pushToTalk": "A held push-to-talk key keeps its mode when the recording starts from the queue, and History orders entries made in the same second correctly."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"
