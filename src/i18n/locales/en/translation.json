@@ -1602,7 +1602,7 @@
   },
   "audioProcessing": {
     "title": "Speech Processing",
-    "description": "Configure voice activity detection and speech artifact filtering.",
+    "description": "Choose which captured audio is kept for speech recognition. Adjust voice detection if quiet words are missing or too much background sound is being transcribed.",
     "sonioxRealtimeBypassWarning": "Realtime dictation modes ignore Filter Silence and Voice Detection Sensitivity.",
     "fillerFilter": "Remove Filler Words",
     "fillerFilterDescription": "Automatically remove 'uh', 'um', 'hmm' and similar filler words from transcriptions.",
@@ -1624,7 +1624,7 @@
     "noteTitle": "Note:",
     "fillerNote": "This is especially useful with AI models like Parakeet that may produce filler words or stuttering artifacts. Most professional dictation systems include similar filtering.",
     "zeroWidthFilter": "Strip Invisible Characters",
-    "zeroWidthFilterDescription": "Remove invisible Unicode characters from LLM output (post-processing and AI Replace).",
+    "zeroWidthFilterDescription": "Remove zero-width Unicode characters from AI-generated text before insertion. These hidden characters can interfere with copying, searching, or moving the cursor.",
     "zeroWidthHelpTitle": "Tell me more about invisible character removal",
     "zeroWidthExplanation": "Some LLM providers (notably Qwen) insert invisible Unicode characters into their responses. These are zero-width characters that you can't see, but they can cause issues when pasted into other applications.",
     "zeroWidthWhatRemoved": "Characters removed:",
@@ -1647,7 +1647,7 @@
     "lessSensitive": "Less sensitive",
     "vadHelpTitle": "Tell me more about voice detection sensitivity",
     "vadExplanation": "Voice Activity Detection (VAD)",
-    "vadDescription": "VAD determines when you're speaking vs when there's silence or background noise. The threshold controls how confident the system must be before recording audio.",
+    "vadDescription": "Voice activity detection (VAD) classifies captured audio as speech or silence. Lower thresholds keep quieter speech but may also keep more noise; higher thresholds can cut out quiet words.",
     "lowThreshold": "Low (Default)",
     "lowThresholdDesc": "Very sensitive — captures quiet speech but may include noise. Good for quiet environments.",
     "midThreshold": "Medium",
@@ -2491,7 +2491,7 @@
         "bindings": {
           "transcribe": {
             "name": "Transcribe",
-            "description": "Converts your speech into text."
+            "description": "Start and stop dictation using the active transcription profile. The profile controls speech recognition and how the resulting text is inserted."
           },
           "read_clipboard": {
             "name": "Read clipboard",
@@ -2503,7 +2503,7 @@
           },
           "read_selection_direct_tts": {
             "name": "Read selected text without copying",
-            "description": "Reads text exposed as selected by Windows accessibility without using the clipboard."
+            "description": "Read selected text through Windows accessibility without using the clipboard. This works only in apps that expose their text selection to accessibility tools."
           },
           "send_to_extension": {
             "name": "Send Transcription Directly to Extension",
@@ -2569,11 +2569,11 @@
           },
           "cancel": {
             "name": "Cancel",
-            "description": "Cancels the current recording."
+            "description": "Cancel the current recording or processing without inserting a final result. Live text that has already reached the target app remains there."
           },
           "repaste_last": {
             "name": "Repaste Last",
-            "description": "Repastes latest text. Or, in case of network error, resends the recording and tries again."
+            "description": "Insert the latest saved result again, without the profile's extra key presses. If a failed Remote API recording is waiting for a retry, retry that recording instead."
           },
           "spawn_button": {
             "name": "Spawn Voice Activation Button",
@@ -2598,12 +2598,12 @@
         "noResults": "No languages found",
         "auto": "Auto",
         "followOsInput": "Follow OS Input Language",
-        "followOsInputHint": "Detected when recording ends",
-        "followOsInputTooltip": "Language is determined by your current keyboard layout at the moment transcription starts. You can switch keyboard layouts even while recording - the language active when you stop recording will be used."
+        "followOsInputHint": "Uses your keyboard layout",
+        "followOsInputTooltip": "Use your keyboard layout as the recognition-language hint. Choose the layout before starting live dictation; non-realtime dictation uses the layout selected when recording ends."
       },
       "pushToTalk": {
         "label": "Push To Talk",
-        "description": "When ON: hold key to record. When OFF: tap once to start, tap again to stop.",
+        "description": "On: hold the shortcut to record and release it to stop. Off: press once to start recording, then press again to stop.",
         "moreOptions": "More options",
         "showOptions": "Show options",
         "hideOptions": "Hide options",
@@ -2613,7 +2613,7 @@
       },
       "transcriptionSystemPrompt": {
         "title": "Voice Model Prompt (optional, will only work if STT model supports it)",
-        "description": "Provide context to help the voice model with specialized terminology, names, or formatting.",
+        "description": "Give the speech model hints about names, specialist terms, or the topic being discussed. Only models that support transcription prompts use this text.",
         "tooltip": "This prompt provides context hints directly to the Speech-to-Text (STT) model to help it recognize specialized terminology, proper nouns, or formatting before the transcript is created. Unlike LLM Post-Processing, this works at the 'hearing' stage to prevent errors. Prompts are saved independently for each specific voice model—switching models switches the active prompt. Remote provider limits may be token-based and vary by model; an oversized prompt can be rejected by the provider. Support also depends on the model (for example, Whisper models generally support prompts while Parakeet does not).",
         "placeholder": "Example: Context: technical discussion. Terms: Kubernetes, gRPC, CI/CD.",
         "nearLimit": "Approaching the {{limit}} character limit. Longer prompts may be truncated.",
@@ -2964,12 +2964,12 @@
       "title": "Sound",
       "microphone": {
         "title": "Microphone",
-        "description": "Select your preferred microphone device",
+        "description": "Choose the microphone used for dictation. Default follows the system's default input device; select a named device to prefer that microphone.",
         "placeholder": "Select microphone...",
         "loading": "Loading...",
         "boost": {
           "title": "Microphone Input Boost",
-          "description": "Saved separately for each microphone device.",
+          "description": "Amplify a quiet microphone before speech recognition. Boost is saved separately for each device and also amplifies noise; reduce it if the sound clips or recognition gets worse.",
           "appliesTo": "Applies to: {{name}}",
           "warning": "May help a quiet mic, but it can also amplify room noise, breathing, keyboard sounds, and clipping. It may make recognition worse than leaving boost off, because results depend on the microphone, room noise, and transcription model.",
           "off": "Off",
@@ -2993,7 +2993,7 @@
       },
       "channel": {
         "title": "Input Channel",
-        "description": "Select which input channel to record from. Use this if your audio interface has multiple inputs.",
+        "description": "Choose the input carrying your microphone on a device with several audio channels. Average combines the channels; a single channel avoids mixing in unused inputs.",
         "average": "Average all channels",
         "channel": "Channel {{n}}"
       },
@@ -3051,7 +3051,7 @@
       },
       "muteWhileRecording": {
         "label": "Mute While Recording",
-        "description": "Mute system audio while recording."
+        "description": "Silence system playback during microphone recording, then restore the previous mute state. This does not mute the microphone."
       },
       "muteImmediately": {
         "label": "Mute Immediately",
@@ -3067,12 +3067,12 @@
       },
       "autoStop": {
         "title": "Recording Auto-Stop Safety",
-        "description": "Automatically stops recording if it's left on for too long. Crucial safety feature to prevent draining your cloud API budget if you accidentally forget to stop recording.",
+        "description": "Limit how long a recording can run if you forget to stop it. At the limit, AivoRelay either processes or cancels the recording according to the option below.",
         "timeoutTitle": "Auto-Stop After",
-        "timeoutDescription": "Time in seconds before an active recording is automatically stopped.",
+        "timeoutDescription": "Maximum recording length in seconds, from 10 to 7,200. For example, 300 stops a recording after five minutes.",
         "seconds": "seconds",
         "pasteTitle": "Paste Transcribed Text",
-        "pasteDescription": "If disabled, the transcription will be canceled and no text will be pasted when auto-stopped."
+        "pasteDescription": "On: reaching the time limit finishes and processes the recording normally. Off: cancel it without inserting a final result. Live text already inserted remains in the target app."
       },
       "voiceApiTitle": "Voice API",
       "tellMeMore": {
@@ -3154,7 +3154,7 @@
       },
       "startHidden": {
         "label": "Start Hidden",
-        "description": "Launch to system tray without opening the window."
+        "description": "Start in the background without opening the main window. Turn this off if you want the window to appear whenever AivoRelay launches."
       },
       "autostart": {
         "label": "Launch on Startup",
@@ -3162,7 +3162,7 @@
       },
       "autostartAsAdmin": {
         "label": "Autostart with Administrator Privileges",
-        "description": "Launch AivoRelay with elevated permissions when you sign in to Windows, enabling dictation into administrator windows.",
+        "description": "Start AivoRelay with administrator permissions when you sign in to Windows so it can insert text into apps that also run as administrator.",
         "requiresAdministratorAccount": "This option is available only when the current Windows account belongs to the Administrators group.",
         "administratorCheckFailed": "Windows administrator account membership could not be verified, so this option is unavailable.",
         "notRecommended": "Not recommended, for IT professionals only: any bug in the application will have a huge blast radius.",
@@ -3251,7 +3251,7 @@
       },
       "pasteMethod": {
         "title": "Paste Method",
-        "description": "Choose how text is inserted. Direct: simulates typing via system input. None: skips paste, only updates history/clipboard.",
+        "description": "Choose how text reaches the target app. Clipboard methods paste it, Direct Input simulates typing, External Script hands it to your script, and None leaves it uninserted.",
         "options": {
           "clipboard": "Clipboard ({{modifier}}+V)",
           "clipboardCtrlShiftV": "Clipboard (Ctrl+Shift+V)",
@@ -3262,11 +3262,11 @@
         },
         "convertLfToCrlf": {
           "label": "Convert LF to CRLF (Windows)",
-          "description": "Normalize Unix-style line breaks (LF) to Windows-style (CRLF) when pasting via clipboard. Fixes newlines being 'eaten' in some applications."
+          "description": "Convert line breaks to the Windows format before clipboard paste. Try this if the target app removes line breaks or joins separate lines together."
         },
         "pasteDelay": {
           "title": "Paste Delay",
-          "description": "Delay before sending paste keystroke (in milliseconds). Increase if wrong text is being pasted."
+          "description": "Wait this many milliseconds after updating the clipboard before sending the paste shortcut. Increase it if the target app pastes old clipboard content."
         },
         "tellMeMore": {
           "title": "Tell me more: Paste Methods Explained",
@@ -3274,19 +3274,19 @@
           "intro": "Different applications handle text input differently. Choose the method that works best for your workflow:",
           "ctrlV": {
             "title": "Clipboard (Ctrl+V):",
-            "description": "Uses 'tauri-plugin-clipboard-manager' to write plain text (CF_UNICODETEXT on Windows, text/plain on Linux/macOS) to the OS clipboard, then uses 'Enigo' to simulate the paste shortcut. Handles large text instantly. Note: Clipboard backup/restore only supports text—if you had an image or rich content copied, it will be replaced with the transcription text."
+            "description": "Put the transcript on the clipboard and send the target app's paste shortcut. This suits most text fields and long passages. Your clipboard setting determines whether the transcript stays there or previous content is restored."
           },
           "direct": {
             "title": "Direct:",
-            "description": "Simulates typing each character individually using the Rust 'Enigo' library. This happens at the OS input level. Slower but more compatible with games, terminals, and legacy apps that block clipboard paste. Newlines work reliably as explicit Enter keypresses."
+            "description": "Type text through system input instead of the clipboard. Try this when an app rejects paste shortcuts; inserting long passages can take longer than a clipboard paste."
           },
           "none": {
             "title": "None:",
-            "description": "Skips the paste step entirely. Useful if you only want to save the transcription to history or manually copy it later. The text is processed and stored, but no input simulation occurs."
+            "description": "Finish transcription without typing or pasting into the active app. The result is still processed and saved for later use."
           },
           "pasteDelay": {
             "title": "Paste Delay:",
-            "description": "Some applications read the clipboard too quickly and may paste older content. This delay gives the OS a moment to commit the new text before the paste keystroke is sent."
+            "description": "The target app needs time to see newly copied text before the paste shortcut arrives. Increase the delay if old clipboard text appears; larger values make insertion slower."
           },
           "crlfNote": {
             "title": "Windows Line Endings:",
@@ -3299,14 +3299,14 @@
       },
       "clipboardHandling": {
         "title": "After Pasting",
-        "description": "Since pasting goes through the clipboard, after pasting do you want the text to remain in the clipboard, or return the previous clipboard content?",
+        "description": "Choose what remains on the clipboard after insertion: the transcript for reuse, or the content you had copied before dictation.",
         "options": {
           "restore": "Restore previous clipboard content",
           "keepTranscription": "Keep transcription in the clipboard"
         },
         "restoreMethod": {
           "title": "Restore Method",
-          "description": "How to bring back your previous clipboard content. Plain text only is the lightest and most reliable option.",
+          "description": "Plain text restores only copied text. On Windows, All formats also tries to restore images, files, and formatting; some apps' clipboard formats may not restore.",
           "options": {
             "plainText": "Plain text only",
             "allFormats": "⚠️ All formats — images, files, formatting (Windows)",
@@ -3781,7 +3781,7 @@
       },
       "modelUnload": {
         "title": "Unload Model",
-        "description": "Automatically free GPU/CPU memory when the model hasn't been used for the specified time",
+        "description": "Choose how long an unused local speech model stays in RAM or GPU memory. Unloading frees memory, but the next use must load the model again.",
         "options": {
           "never": "Never",
           "immediately": "Immediately",
@@ -3842,25 +3842,25 @@
         "intro": "Your computer handles the hearing (Speech-to-Text), but it needs a \"Brain\" to understand and act on complex instructions like \"Rewrite this email\" or \"Translate to Spanish\". This Brain is provided by LLM (Large Language Model) API services.",
         "apiKey": {
           "title": "API Key:",
-          "description": "This is your password to access powerful AI models. You get it from your chosen provider's website after registration.",
-          "securityNote": "Security: Your key is stored locally on this machine and is never sent to our servers."
+          "description": "An API key lets AivoRelay use your provider account. Create one with that provider and keep it private; requests may be billed to the account that owns it.",
+          "securityNote": "Keep your key private. It grants access to your provider account and may allow billable requests."
         },
         "provider": {
           "title": "Provider:",
-          "description": "Choose who provides the intelligence. There are many LLM API providers: OpenAI (GPT-4), Anthropic (Claude), Groq (fast and free tier), Google (Gemini), and aggregators like OpenRouter. You can also use custom/local endpoints."
+          "description": "The provider is the service or server that runs your language model. Choose one you have access to; its available models, connection settings, and pricing determine what you can use."
         },
         "model": {
           "title": "Model:",
-          "description": "Each provider offers different models with varying capabilities, speed, and cost. Generally, larger models are smarter but slower and more expensive."
+          "description": "Choose a model that handles your typical dictation well at a speed and cost you accept. Larger or reasoning models can take longer without improving every correction."
         },
         "prompts": {
           "title": "Post-Processing Prompts:",
-          "description": "Create custom instructions that run automatically after each transcription. For example: fix grammar, add punctuation, translate, or format as bullet points."
+          "description": "Prompts tell the model how to rewrite your transcript, such as correcting grammar, translating, or applying a format. Ask for only the finished text so explanations do not end up in your app."
         },
         "tip": "Easiest way to start: Register a free account on OpenRouter (openrouter.ai). It gives you access to many models from different providers in one place with pay-as-you-go pricing and some free models to try.",
         "privacyWarning": {
           "title": "Privacy Notice",
-          "description": "When you use LLM features (AI Replace, Post-Processing), your text is sent over the Internet to the provider's servers. This includes your transcriptions and any selected text. The provider processes your data according to their privacy policy. Only use providers you trust with your information."
+          "description": "Cloud AI features send the text in each request to your provider. This can include transcripts, selected text, and instructions. On-device processing stays local; a custom server receives requests at the address you configure."
         }
       },
       "sonioxWarning": "You are using the Soniox real-time provider. LLM post-processing is skipped during real-time streaming. These settings will apply when you switch to a local model or OpenAI-compatible provider.",
@@ -3883,7 +3883,7 @@
         "title": "API Configuration",
         "provider": {
           "title": "Provider",
-          "description": "Select an OpenAI-compatible provider."
+          "description": "Choose the service or local server that runs AI text refinement. This determines which connection settings and models are available."
         },
         "inherited": {
           "option": "Same as Post-Processing",
@@ -3907,7 +3907,7 @@
         },
         "apiKey": {
           "title": "API Key",
-          "description": "API key for the selected provider.",
+          "description": "Enter an API key issued by the selected provider. It authorizes requests through the account that owns the key.",
           "placeholder": "sk-..."
         },
         "model": {
@@ -3922,14 +3922,14 @@
         },
         "transcription": {
           "title": "Transcription Post-Processing",
-          "description": "Configure the LLM used to refine your speech-to-text results."
+          "description": "Choose the provider and model used to rewrite recognized text after speech recognition. This configures text refinement, not the speech recognition model."
         }
       },
       "prompts": {
         "title": "Post-Processing Prompts",
         "selectedPrompt": {
           "title": "Selected Prompt",
-          "description": "Used only for transcription post-processing. After transcription, ${output} is replaced with the raw transcript and sent to the selected LLM; its response is what gets pasted/sent (fallback: original transcript)."
+          "description": "Use ${output} where the transcript should go in this prompt. The model's reply becomes the refined text, so ask for only the text you want inserted."
         },
         "noPrompts": "No prompts available",
         "selectPrompt": "Select a prompt",
@@ -4207,7 +4207,7 @@
       },
       "voiceCommands": {
         "title": "Voice Commands",
-        "description": "Execute scripts and commands using voice triggers",
+        "description": "Enable voice-triggered actions that run the commands or scripts you configure.",
         "warningTitle": "⚠️ Advanced Users Only",
         "warningMessage": "Voice Commands can execute <strong>any script or command</strong> on your computer. Go to <strong>Voice Commands</strong> in the sidebar to configure.",
         "confirmationTitle": "☢️ ENABLE AT YOUR OWN RISK ☢️",
@@ -4239,7 +4239,7 @@
       },
       "firstStartWizard": {
         "title": "First Start Wizard",
-        "description": "Open the first start wizard again.",
+        "description": "Reopen the guided setup used on first launch to revisit your model and provider choices.",
         "button": "Open first start wizard"
       },
       "overlayError": {
@@ -4249,7 +4249,7 @@
       },
       "shortcutEngine": {
         "title": "Shortcut Engine",
-        "description": "Choose the keyboard shortcut detection method. Tauri is fastest, HandyKeys adds upstream backend hotkey support, and rdev remains the most flexible but most invasive option.",
+        "description": "Choose how Windows detects global keyboard shortcuts. Engines support different keys and combinations; changes take effect after restarting AivoRelay.",
         "descriptionSuffix": "Read the detailed comparison below.",
         "options": {
           "rdev": "rdev (All Keys)",
@@ -4285,22 +4285,22 @@
           "intro": "AivoRelay offers three different methods (Engines) for detecting when you press your recording hotkeys. Each has different trade-offs in compatibility, performance, and security.",
           "tauri": {
             "title": "Native Engine (Tauri / RegisterHotKey)",
-            "description": "The recommended engine for most users; its limitations are hardcoded into the <code>win32</code> <code>RegisterHotKey</code> API because Windows prioritizes system stability over individual app flexibility. Technically, the OS kernel takes over the keyboard monitoring; AivoRelay remains completely idle until the system posts a <code>WM_HOTKEY</code> message directly to its internal message queue. This architecture provides near-zero overhead because there is no continuous polling and zero risk of system-wide input lag.",
+            "description": "Uses Windows' native global shortcuts with little background work. Suits conventional combinations such as Ctrl+Shift+A. Modifier-only shortcuts and some special keys are unsupported, and another app may already own a combination.",
             "pros": {
               "title": "Pros:",
               "minimalOverhead": "Minimal overhead: Windows only wakes AivoRelay when the exact shortcut is pressed.",
-              "security": "Security: Uses official high-level system calls, making it much less likely to be flagged by antivirus or anti-cheat software."
+              "security": "Registers chosen shortcuts with Windows instead of inspecting keyboard events from every app."
             },
             "cons": {
               "title": "Limitations:",
               "modifierOnly": "Cannot detect 'modifier-only' shortcuts (e.g., just Ctrl+Shift).",
-              "lockKeys": "Cannot use 'Lock' keys (Caps Lock, Num Lock) as modifiers (though they can be the main key).",
+              "lockKeys": "Some special-key combinations are unsupported. Review the incompatible-shortcut list before switching to this engine.",
               "conflicts": "Shortcut registration may fail if another application is already using it."
             }
           },
           "handyKeys": {
             "title": "Upstream Backend (HandyKeys)",
-            "description": "This engine ports Handy's upstream <code>handy-keys</code> backend into AivoRelay. It keeps shortcut handling in a dedicated backend manager thread and also provides backend-side shortcut recording, which is useful for keys the browser cannot capture reliably.",
+            "description": "Recognizes shortcuts and captures new shortcut assignments outside the web page. This helps with keys the settings field cannot detect reliably. Restart AivoRelay after switching engines.",
             "pros": {
               "title": "Pros:",
               "compatibility": "Better shortcut coverage than Tauri without replacing the fork's existing rdev monitor-only features.",
@@ -4314,18 +4314,18 @@
           },
           "rdev": {
             "title": "Hook Engine (rdev / SetWindowsHookEx)",
-            "description": "A low-level engine providing unrestricted access by utilizing a <code>WH_KEYBOARD_LL</code> global hook. This mechanism injects a callback procedure into the Windows input processing stream, forcing the OS to pass <i>every single keyboard event</i> system-wide to AivoRelay for inspection before it reaches the active application. While this allows for complex shortcuts (like modifier-only or Lock keys), it is the same mechanism used by keyloggers.",
+            "description": "Uses a Windows-wide keyboard hook to recognize special keys and modifier-only combinations. It inspects keyboard events from all apps, so choose it when you need combinations the other engines cannot handle.",
             "pros": {
               "title": "Pros:",
-              "flexibility": "Maximum flexibility: Supports any key combination, including 'modifier-only' shortcuts.",
-              "enhanced": "Enhanced support: Can detect 'Lock' keys and even mouse buttons."
+              "flexibility": "Supports modifier-only shortcuts and many special-key combinations that native shortcut registration cannot represent.",
+              "enhanced": "Uses individual key press and release events to handle combinations that need more flexible detection."
             },
             "cons": {
               "title": "Limitations & Risks:",
-              "security": "Security suspicion: Because it monitors all keystrokes, it may be flagged as 'keylogger-like' by security software.",
-              "antiCheat": "Anti-Cheat risk: Aggressive anti-cheat (like Vanguard or EAC) may block or flag software using global hooks. Use at your own risk when playing online games with anti-cheat protection.",
-              "performance": "Performance: Slightly higher CPU usage as every keystroke must be processed. If the app hangs, it could cause brief input lag.",
-              "harshReality": "Harsh Reality: Even extremely well-established software like AutoHotkey has caused permanent, unappealable bans in games like Apex Legends simply for being active in the background. Anti-cheat systems often monitor the <i>presence</i> of hooks rather than their <i>intent</i>."
+              "security": "System-wide monitoring: the hook inspects keyboard events from other apps to recognize your shortcuts.",
+              "antiCheat": "Protected apps, including some games, may block global keyboard hooks. Try another engine if shortcuts fail there; compatibility depends on the app.",
+              "performance": "Every keyboard event passes through the hook. A slow or blocked hook can delay input, so try another engine if typing becomes sluggish.",
+              "harshReality": "Changing engines affects all global shortcuts. After restarting, check the combinations you use in your usual apps."
             }
           },
           "verdict": {
@@ -4344,11 +4344,11 @@
       },
       "logDirectory": {
         "title": "Log Directory",
-        "description": "Location where log files are stored"
+        "description": "Open the folder containing diagnostic logs. When investigating a problem, use logs from the time the problem occurred."
       },
       "logLevel": {
         "title": "Log Level",
-        "description": "Set the verbosity of logging"
+        "description": "Choose how much detail is written to diagnostic logs. Debug and Trace help investigate problems but create larger logs; Info suits everyday use."
       },
       "devConsoleLogLevel": {
         "title": "Dev Console Log Level",
@@ -4362,7 +4362,7 @@
       },
       "soundTheme": {
         "label": "Sound Theme",
-        "description": "Choose a sound theme for recording start and stop feedback"
+        "description": "Choose the sound set used for recording cues and the optional result-ready cue. This changes how the cues sound, not which cues are enabled."
       },
       "wordCorrectionThreshold": {
         "title": "Word Correction Threshold",
@@ -4385,11 +4385,11 @@
       },
       "alwaysOnMicrophone": {
         "label": "Always-On Microphone",
-        "description": "Keep microphone active for faster response"
+        "description": "Keep the microphone stream open while AivoRelay is idle to reduce the delay when dictation starts. The microphone stays in use between recordings; dictation still needs to be started."
       },
       "clamshellMicrophone": {
         "title": "Clamshell Microphone",
-        "description": "Microphone to use when laptop lid is closed"
+        "description": "Choose the microphone used when the laptop lid is detected as closed. An external microphone can help when the built-in microphone is blocked by the lid."
       },
       "postProcessingToggle": {
         "label": "Post-Processing",
@@ -4402,7 +4402,7 @@
       },
       "recordingBuffer": {
         "title": "Extra Local Recording Buffer",
-        "description": "Extra time in milliseconds to keep recording after you release the hotkey on local STT paths. Helps catch the tail end of a phrase without changing remote streaming behavior."
+        "description": "Keep capturing for this many milliseconds after releasing the dictation hotkey when using a local model. Increase it if word endings are cut off; recording will also take longer to finish."
       },
       "dictationQuickTap": {
         "title": "Short press threshold (ms)",
@@ -4414,7 +4414,7 @@
       },
       "filterSilence": {
         "label": "Filter Silence",
-        "description": "Use voice activity detection to remove silence from recordings before transcription. Try disabling if encountering issues, like parts of the speech getting removed. Disabling may result in more frequent \"hallucinations\" in the output.",
+        "description": "Discard audio classified as silence before transcription. Try turning this off if quiet words disappear; keeping more silence can make some models produce words that were not spoken.",
         "sonioxRealtimeNote": "Does not apply to Soniox realtime mode."
       },
       "paths": {
@@ -4901,10 +4901,10 @@
     },
     "extendedThinking": {
       "title": "Extended Thinking",
-      "description": "Enable reasoning tokens for compatible models (e.g., Claude Sonnet on OpenRouter). The model will \"think\" before responding, which may improve complex tasks but uses more tokens.",
+      "description": "Let a compatible AI model spend extra tokens reasoning before answering. This may help complex instructions but can increase waiting time and token usage; simple corrections may not benefit.",
       "budget": {
         "title": "Reasoning Budget",
-        "description": "Maximum tokens the model can use for internal reasoning. Minimum 1024. Higher values allow more complex thinking.",
+        "description": "Limit the tokens available for internal reasoning on supported models. The minimum is 1,024. Larger budgets can increase response time and cost; provider limits still apply.",
         "tokens": "tokens"
       }
     }
@@ -5143,7 +5143,7 @@
       }
     },
     "title": "Transcribe Audio File",
-    "description": "Choose an audio file to create a transcript. Supported formats: WAV, MP3, M4A, OGG, FLAC, and WebM.",
+    "description": "Transcribe a saved recording using the selected model or provider. Choose text or a supported subtitle format before starting.",
     "cliHelp": {
       "title": "CLI help — audio file to text or Markdown",
       "settingsSource": "Uses the provider and file-transcription settings configured in this section.",
@@ -5205,9 +5205,9 @@
     },
     "outputFormat": {
       "label": "Output Format",
-      "hint": "Accurate timestamps (SRT/VTT) require a local model. Remote STT returns text-only output in this version.",
-      "localHint": "Local models support accurate timestamps for SRT/VTT, and Smart Chunking is available for longer files.",
-      "remoteHint": "Cloud providers use a separate upload flow. Smart chunking is not applied there yet, so the chunking controls are hidden here."
+      "hint": "Subtitle formats need timestamp support from the selected model or provider. Choose Text when timing is unavailable.",
+      "localHint": "Local models can produce timed subtitles. For long recordings, chunking can split the audio into smaller pieces before transcription.",
+      "remoteHint": "This provider processes the uploaded file through its own transcription service. Local chunk-length controls do not apply."
     },
     "customWords": {
       "label": "Apply Custom Words",
@@ -5217,7 +5217,7 @@
     },
     "chunking": {
       "title": "Smart Chunking",
-      "hint": "For longer local files, split on pauses first and fall back to quiet-point splits near your max length.",
+      "hint": "Split long recordings into smaller pieces before local transcription. The app prefers pauses and otherwise chooses a quiet point near the maximum chunk length.",
       "providerHint": "Applied to local file transcription across local models. Engine-specific options like Whisper prompts are preserved.",
       "modeLabel": "Chunking Mode",
       "mode": {
@@ -5230,7 +5230,7 @@
     },
     "chunkingConsole": {
       "title": "Chunking Console",
-      "hint": "Shows where smart chunking split the file and why each chunk boundary was chosen.",
+      "hint": "See each chunk's start and end times and why that boundary was chosen. Use this to check how a long recording was split.",
       "reason": {
         "silence_boundary": "silence boundary",
         "quiet_point_near_limit": "quiet-point split near max length",
@@ -5323,11 +5323,11 @@
     "playgroundTooLong": "Original text is too long. Use up to 32 KB of UTF-8 text.",
     "playgroundError": "Could not check the rules.",
     "title": "Text Processing",
-    "description": "Automatically replace text patterns in transcriptions. Useful for fixing commonly misheard words or applying consistent formatting.",
+    "description": "Find and replace text in transcriptions using your saved rules. Use literal matches for known mistakes or regular expressions for patterns that vary.",
     "enable": "Enable Text Replacement",
     "enableDescription": "Apply replacement rules to all transcriptions after processing.",
     "outputWhitespaceTitle": "Output Whitespace",
-    "outputWhitespaceDescription": "Configure how leading/trailing spaces are normalized in final transcription output.",
+    "outputWhitespaceDescription": "Control spaces at the beginning and end of the final transcript. Use these options to stop dictated text joining the words next to it or adding unwanted gaps.",
     "outputWhitespaceLeadingRemoveLabel": "Remove leading space if provider returned one",
     "outputWhitespaceLeadingRemoveDescription": "If output starts with whitespace, remove it.",
     "outputWhitespaceLeadingAddLabel": "Add leading space if provider did not return one",
@@ -5339,7 +5339,7 @@
     "cleanupTitle": "Speech Clean-up",
     "cleanupDescription": "Automatically remove common speech artifacts from the final text.",
     "beforeLlm": "Apply Before LLM Post-Processing",
-    "beforeLlmDescription": "When enabled, text replacements are applied BEFORE LLM processing. This prevents the LLM from modifying your replacement patterns.",
+    "beforeLlmDescription": "On: apply replacement rules before AI refinement, so the model sees the corrected text and may rewrite it. Off: apply the rules to the model's reply instead.",
     "decapitalizeAfterEditTitle": "Decapitalize After Manual Edit",
     "decapitalizeAfterEditGroupDescription": "Independent feature: monitors your edit key and can lowercase the next suitable transcript chunk even when Text Replacement rules are disabled.",
     "decapitalizeAfterEditDescription": "Passively monitor a primary key (default: Backspace), with an optional secondary key. After pressing either one, the next suitable transcription chunk can start with lowercase to avoid unwanted sentence capitalization.",
@@ -5354,7 +5354,7 @@
     "decapitalizeAfterEditKeySaveFailed": "This monitored key could not be saved. The previous key was restored. {{error}}",
     "decapitalizeAfterEditSecondaryKeyEnableLabel": "Enable Secondary Monitored Key (OR)",
     "decapitalizeAfterEditSecondaryKeyEnableDescription": "Default is OFF. When enabled, pressing either primary or secondary key triggers decapitalize monitoring.",
-    "decapitalizeAfterEditSecondaryKeyDescription": "Optional second key. Works with OR logic together with the primary key.",
+    "decapitalizeAfterEditSecondaryKeyDescription": "Choose another key that can arm lowercase correction. Either this key or the primary key can trigger it; you do not need to press both.",
     "decapitalizeAfterEditRdevWarningTitle": "Warning: this feature uses passive rdev monitoring",
     "decapitalizeAfterEditRdevWarningBody": "Only rdev can passively monitor keys like Backspace or Delete while the active application still receives those keys normally.",
     "decapitalizeAfterEditRdevWarningTauriBody": "Your main Shortcut Engine remains Tauri, but enabling this feature starts an extra rdev listener. Turn this feature off to stop this extra rdev usage.",
@@ -5365,9 +5365,9 @@
     "decapitalizeAfterEditConflictWarningTitle": "Potential overlap with other shortcuts:",
     "decapitalizeAfterEditConflictWarningDescription": "Decap monitor may also trigger when these shortcuts are pressed.",
     "decapitalizeAfterEditTimeoutLabel": "Trigger Timeout",
-    "decapitalizeAfterEditTimeoutDescription": "How long (in milliseconds) the decapitalize trigger stays active after pressing a monitored key.",
+    "decapitalizeAfterEditTimeoutDescription": "How long a key press keeps lowercase correction armed for the next live text chunk, in milliseconds. Increase this if chunks arrive after the trigger expires.",
     "decapitalizeAfterEditStandardPostMonitorLabel": "Standard STT Post-stop Monitor Window",
-    "decapitalizeAfterEditStandardPostMonitorDescription": "After stopping a standard (non-realtime) recording, keep listening for monitored keys for this many milliseconds. 0 disables this extra window.",
+    "decapitalizeAfterEditStandardPostMonitorDescription": "For non-realtime dictation, keep watching for edit keys for this many milliseconds after recording stops, while the result is pending. Set 0 to stop watching when recording ends.",
     "decapitalizeAfterEditCaptureButton": "Capture Key",
     "decapitalizeAfterEditCaptureButtonListening": "Press keys...",
     "decapitalizeAfterEditTellMeMoreTitle": "Tell me more: Decapitalize After Manual Edit",
@@ -5394,11 +5394,11 @@
     "optionsTitle": "Options",
     "caseSensitiveTitle": "Case Sensitive",
     "caseSensitiveDesc": "When enabled, 'Hello' and 'hello' are treated as different. When disabled, both will match.",
-    "caseSensitiveTooltip": "Toggle case sensitivity",
+    "caseSensitiveTooltip": "Match uppercase and lowercase exactly. When off, a rule for 'hello' also matches 'Hello' and 'HELLO'.",
     "caseSensitiveShort": "Aa",
     "regexTitle": "Regular Expression",
     "regexDesc": "Enable regex patterns for advanced matching. Use $1 or ${name} for capture groups and $$ for a literal $.",
-    "regexTooltip": "Toggle regex mode",
+    "regexTooltip": "Interpret Find as a regular expression, such as \\d+ for a run of digits. Turn this off to match the entered text literally.",
     "regexShort": ".*",
     "examples": "Examples",
     "exampleTypo": "(fix typo)",
@@ -5464,7 +5464,7 @@
     "clickToEdit": "Click to edit",
     "empty": "No replacement rules yet. Add one above to get started.",
     "fuzzyWordCorrectionTitle": "Fuzzy Word Correction",
-    "fuzzyWordCorrectionDescription": "Add words that are often misheard (names, technical terms). The system will automatically correct similar-sounding words.",
+    "fuzzyWordCorrectionDescription": "Add the correct spelling of names and terms that recognition often gets wrong. Close matches in the transcript can then be replaced with those saved words.",
     "fuzzyHowItWorksTitle": "How Fuzzy Correction Works",
     "fuzzyHowItWorksIntro": "This algorithm fixes misheard words by comparing them to your custom list using two methods:",
     "fuzzySoundsLikeTitle": "Sounds Like (Phonetic):",
@@ -5473,7 +5473,7 @@
     "fuzzyLooksLikeDescription": "It catches typos like \"srart\" instead of \"start\".",
     "fuzzyTip": "Tip: If it corrects words too aggressively, lower the sensitivity slider below.",
     "multiWordMatchingLabel": "Enable Multi-word Matching (N-grams)",
-    "multiWordMatchingDescription": "Match up to 3 spoken tokens as one custom term (example: 'Chat G P T' -> 'ChatGPT'). Disable if corrections are too aggressive.",
+    "multiWordMatchingDescription": "Try matching up to three adjacent spoken words as one saved term, such as 'Chat G P T' becoming 'ChatGPT'. Turn this off if separate words are being combined incorrectly.",
     "correctionSensitivityLabel": "Correction Sensitivity",
     "correctionSensitivityDescription": "Threshold for fuzzy match score (0.0 = exact match only, 1.0 = accept any). Default 0.18 means a word must be ~82% similar to be corrected.",
     "sonioxRealtimeChunkTitle": "Soniox Realtime Chunks",
@@ -5481,7 +5481,7 @@
     "sonioxRealtimeChunkFuzzyLabel": "Enable Fuzzy Word Correction for Soniox Live Chunks",
     "sonioxRealtimeChunkFuzzyDescription": "Uses typo-tolerant matching from Custom Words on each live chunk. If OFF, chunks skip fuzzy correction but regular Text Replacement rules still run.",
     "sonioxRealtimeChunkSafetyBufferLabel": "Keep Safety Buffer for Cross-chunk Matching",
-    "sonioxRealtimeChunkSafetyBufferDescription": "Keeps the newest ~3 words briefly so fuzzy correction can match across chunk boundaries. This buffer is used only when fuzzy correction is ON. It delays pasting by about those 3 words, so live output may feel a bit slower (often not noticeable).",
+    "sonioxRealtimeChunkSafetyBufferDescription": "Hold back about three recent words so a correction can match a phrase split across live chunks. Requires live fuzzy correction and delays insertion by roughly those words.",
     "sonioxRealtimeChunkBehaviorGuide": "For fastest live appearance, keep both OFF. Enable both only when you need better cross-chunk fuzzy correction."
   }
 }
