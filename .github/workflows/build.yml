@@ -13,9 +13,6 @@ on:
         required: false
         type: string
         default: ""
-      release-id:
-        required: false
-        type: string
       asset-prefix:
         required: false
         type: string
@@ -65,13 +62,6 @@ jobs:
       contents: read
     runs-on: ${{ inputs.platform }}
     steps:
-      - name: Reject legacy release uploads
-        if: inputs.release-id != ''
-        shell: bash
-        run: |
-          echo "Release callers must download workflow artifacts in a protected publish job" >&2
-          exit 1
-
       - name: Enable long paths (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
