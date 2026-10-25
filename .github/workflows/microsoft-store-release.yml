@@ -20,7 +20,7 @@ jobs:
       version: ${{ steps.get-version.outputs.version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -35,7 +35,7 @@ jobs:
 
       - name: Create Draft Release
         id: create-release
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         env:
           VERSION: ${{ steps.get-version.outputs.version }}
         with:
