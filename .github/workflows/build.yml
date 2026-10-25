@@ -583,7 +583,7 @@ jobs:
       # undefined. This step covers every other build.
       - name: Build with Tauri
         if: ${{ !(contains(inputs.platform, 'macos') && !inputs.sign-binaries) }}
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           # Linux builds receive no secrets at all: the token, the Apple
           # credentials and the updater signing key stay on the Windows and macOS
@@ -628,7 +628,7 @@ jobs:
 
       - name: Build with Tauri (macOS, unsigned)
         if: ${{ contains(inputs.platform, 'macos') && !inputs.sign-binaries }}
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           # No signing material is defined here: an unsigned macOS build is ad-hoc signed.
           GITHUB_TOKEN: ${{ !contains(inputs.platform, 'ubuntu') && secrets.GITHUB_TOKEN || '' }}
