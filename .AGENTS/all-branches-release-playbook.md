@@ -8,24 +8,14 @@ Use this playbook only when the user asks to prepare or publish releases on more
 
 Each branch has its own release contract:
 - `main` -> tag `vx.y.z`
-- `release/microsoft-store` -> tag `vx.y.z-store`, GitHub release must be published as a pre-release
+- `release/microsoft-store` -> no own release or tag; `release.yml` on `main` adds its `aivorelay-store_*` files to the `vx.y.z` draft
 
 Never assume that a rule from one branch automatically applies to another branch.
 
-## Recommended Order For `release/microsoft-store` + `main`
+## Order For `release/microsoft-store` + `main`
 
-If the same version is being released on both `release/microsoft-store` and `main`, and the `main` release body should link to the matching Store release:
-1. Prepare and publish the `release/microsoft-store` GitHub release first.
-2. Publish it as a pre-release.
-3. Copy the final published Store release URL.
-4. Insert that URL into `.github/release-notes/main.md`.
-5. Only then finalize the `main` release body, commit, tag, and publish `main`.
-
-This order exists so the `main` release body points to the exact same-version Store release, not a stale older one.
-
-## When `main` Is Released Alone
-
-If only `main` is being released, do not update the Microsoft Store link to some older unrelated release just to keep a link present.
+1. Bump both branches to the same version and push `release/microsoft-store` first.
+2. Run `Release` on `main`; it refuses a Store head with another version or with updater artifacts.
 
 ## Multi-Branch Checklist
 
