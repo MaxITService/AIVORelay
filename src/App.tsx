@@ -6,6 +6,7 @@ import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
 import Footer from "./components/footer";
 import Onboarding from "./components/onboarding";
+import { clearOnboardingProgress, readOnboardingProgress } from "./components/onboarding/onboardingProgress";
 import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
 import { QuickHelp } from "./components/settings";
 import { HotkeySidebar } from "./components/hotkey-sidebar";
@@ -552,12 +553,14 @@ function App() {
         settingsResult.status === "ok" &&
         Boolean((settingsResult.data as any).first_start_wizard_skipped)
       ) {
+        clearOnboardingProgress();
         setOnboardingStartsWithPermissions(false);
         setShowOnboarding(false);
         return;
       }
 
-      if (settingsResult.status === "ok") {
+      const resumingOnboarding = readOnboardingProgress() !== null;
+      if (!resumingOnboarding && settingsResult.status === "ok") {
         const provider = String(settingsResult.data.transcription_provider);
         if (
           provider === "remote_openai_compatible" ||
@@ -570,7 +573,7 @@ function App() {
         }
       }
 
-      if (modelResult.status === "ok" && modelResult.data) {
+      if (!resumingOnboarding && modelResult.status === "ok" && modelResult.data) {
         setOnboardingStartsWithPermissions(false);
         setShowOnboarding(false);
         return;
@@ -628,6 +631,7 @@ function App() {
       await invoke("change_first_start_wizard_skipped_setting", {
         skipped: true,
       });
+      if (!onboardingFromDebug) clearOnboardingProgress();
       setOnboardingFromDebug(false);
       setOnboardingStartsWithPermissions(false);
       setCurrentSection("general");

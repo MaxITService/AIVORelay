@@ -6,6 +6,15 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-10-27):
+- Further partial adaptations of `0e5e9ca9` (`new onboarding (#2303)`):
+  `4416765b` (`feat(models): estimate remaining download time`) and
+  `feat(onboarding): resume interrupted first-start setup`. The wizard restores
+  its local or remote step without saving credentials; interrupted local
+  downloads can be resumed by selecting the model again. Five targeted tests
+  for each change and TypeScript checking passed; the complete desktop restart
+  flow was not exercised. The safe review cursor remains `5a9451e7`.
+
 Audit note (2026-10-26):
 - Partial intake of upstream `0e5e9ca9` (`new onboarding (#2303)`):
   Hebrew/Javanese language aliases in `1955a07f` (`fix(language): match
