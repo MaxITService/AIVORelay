@@ -16,6 +16,7 @@ Object.defineProperty(globalThis, "localStorage", {
   value: memoryStorage,
 });
 const { useTranscribeBatchStore: stt } = await import("./transcribeBatchStore");
+const { LOCAL_ENGINE_BUSY_MESSAGE } = await import("@/lib/batchQueueUtils");
 const { useTranscribeFileStore: single } = await import("./transcribeFileStore");
 const { ensureTtsBatchListener, entryKey, queuedRow, useTtsBatchQueueStore: tts } = await import("./ttsBatchQueueStore");
 if (originalStorage) Object.defineProperty(globalThis, "localStorage", originalStorage);
@@ -607,6 +608,22 @@ describe("file transcription batch queue", () => {
     blocked = false;
     await run;
     expect(stt.getState().items[0].status).toBe("completed");
+  });
+
+  test("a recording that starts after admission requeues the file", async () => {
+    let attempts = 0;
+    backend = async (command) => {
+      if (command === "get_file_transcription_recording_state") return { blocksFileTranscription: false };
+      if (command === "transcribe_audio_file" && attempts++ === 0) throw LOCAL_ENGINE_BUSY_MESSAGE;
+      return { text: "done", saved_file_path: "Documents/one.txt" };
+    };
+    stt.getState().addFiles([request("one.wav")]);
+    const run = stt.getState().start();
+    await until(() => stt.getState().waitingReason === "recording");
+    expect(stt.getState().items[0].status).toBe("queued");
+    await run;
+    expect(stt.getState().items[0].status).toBe("completed");
+    expect(attempts).toBe(2);
   });
 
   test("removing a file during its admission check never sends it to the provider", async () => {
