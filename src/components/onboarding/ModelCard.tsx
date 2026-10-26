@@ -12,6 +12,7 @@ import { ModelReleaseDate } from "../shared/ModelReleaseDate";
 import { inferPrecision } from "../settings/models/ModelMetadataPanel";
 import { missingModelLanguages } from "./modelLanguages";
 import type { RecommendationRole } from "./modelRecommendations";
+import { modelLanguageGrades } from "./modelGrades";
 
 interface ModelCardProps {
   model: ModelInfo;
@@ -43,6 +44,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
   const quantLabel =
     precision && !displayName.includes(precision) ? precision : null;
   const missingLanguages = missingModelLanguages(model.supported_languages, modelLanguages);
+  const grades = modelLanguageGrades(model, modelLanguages);
 
   const baseButtonClasses =
     "flex justify-between items-center rounded-xl p-4 px-5 text-start transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#ff4d8d]/30 active:scale-[0.98] cursor-pointer group";
@@ -95,6 +97,18 @@ const ModelCard: React.FC<ModelCardProps> = ({
               ? t("onboarding.modelLanguages.missing", { defaultValue: "Not listed for: {{languages}}", languages: missingLanguages.join(", ") })
               : t("onboarding.modelLanguages.covered", "Lists all chosen languages")}
           </p>
+        )}
+        {grades.length > 0 && (
+          <div className="mt-2 text-xs text-[#a0a0a0]">
+            <span>{t("onboarding.modelLanguages.benchmarks", "Language benchmark grades")}: </span>
+            {grades.map((grade, index) => (
+              <span key={grade.language} className="inline-block me-2">
+                {grade.language}: {grade.kind === "measured" ? grade.label : grade.kind === "unmeasured"
+                  ? t("onboarding.modelLanguages.unmeasured", "not measured")
+                  : t("onboarding.modelLanguages.unsupported", "not supported")}{index < grades.length - 1 ? ";" : ""}
+              </span>
+            ))}
+          </div>
         )}
       </div>
 

@@ -7,6 +7,14 @@ This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
 Audit note (2026-10-27):
+- Further partial adaptations of `0e5e9ca9` (`new onboarding (#2303)`):
+  `25725b3b` (`feat(onboarding): compare model language coverage`),
+  `60c82c77` (`feat(onboarding): recommend models for selected languages`),
+  and `feat(onboarding): show language benchmark grades`. The comparison
+  languages do not alter saved dictation settings; catalog recommendations
+  and grades apply only to the offered, benchmarked default files. Six
+  targeted frontend tests and TypeScript checking passed; the desktop wizard
+  was not exercised. The safe review cursor remains `5a9451e7`.
 - Further partial adaptations: `85123630` (`feat(onboarding): explain active
   shortcut mode`), `4d7c89e7` (`feat(onboarding): add optional dictation
   practice`) from `0e5e9ca9`, and `feat(files): route dropped audio to file

@@ -502,6 +502,9 @@ const Onboarding: React.FC<OnboardingProps> = ({
                   {modelLanguages.length > 0 && recommendations.size === 0 && (
                     <p className="text-xs text-[#a0a0a0]">{t("onboarding.modelLanguages.noRecommendations", "No measured recommendation is available for all chosen languages. You can still choose from the models below.")}</p>
                   )}
+                  {modelLanguages.length > 0 && (
+                    <p className="text-xs text-[#a0a0a0]">{t("onboarding.modelLanguages.benchmarkNote", "Grades use FLEURS benchmark data for the catalog's default model files. Real-world accuracy can differ.")}</p>
+                  )}
                 </div>
                 {availableModels
                   .filter((model) => getRecommendedBadge(model))
