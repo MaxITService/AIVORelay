@@ -945,6 +945,12 @@ jobs:
               Write-Error "Portable package is missing dynamic ggml backend modules"
               exit 1
             }
+            foreach ($required in @("ggml-cpu-x64.dll", "ggml-cpu-haswell.dll")) {
+              if (-not (Test-Path (Join-Path $stagingDir $required))) {
+                Write-Error "Portable package is missing ggml CPU backend module $required"
+                exit 1
+              }
+            }
           }
 
           # Copy the resources directory
