@@ -10,11 +10,13 @@ import {
 import Badge from "../ui/Badge";
 import { ModelReleaseDate } from "../shared/ModelReleaseDate";
 import { inferPrecision } from "../settings/models/ModelMetadataPanel";
+import { missingModelLanguages } from "./modelLanguages";
 
 interface ModelCardProps {
   model: ModelInfo;
   variant?: "default" | "featured";
   disabled?: boolean;
+  modelLanguages?: string[];
   className?: string;
   onSelect: (model: ModelInfo) => void;
 }
@@ -23,6 +25,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
   model,
   variant = "default",
   disabled = false,
+  modelLanguages = [],
   className = "",
   onSelect,
 }) => {
@@ -36,6 +39,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
   const precision = inferPrecision(model);
   const quantLabel =
     precision && !displayName.includes(precision) ? precision : null;
+  const missingLanguages = missingModelLanguages(model.supported_languages, modelLanguages);
 
   const baseButtonClasses =
     "flex justify-between items-center rounded-xl p-4 px-5 text-start transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#ff4d8d]/30 active:scale-[0.98] cursor-pointer group";
@@ -78,6 +82,13 @@ const ModelCard: React.FC<ModelCardProps> = ({
         <p className="text-[#a0a0a0] text-sm leading-relaxed mt-1">
           {displayDescription}
         </p>
+        {modelLanguages.length > 0 && model.supported_languages.length > 0 && (
+          <p className="text-xs text-[#a0a0a0] mt-1">
+            {missingLanguages.length
+              ? t("onboarding.modelLanguages.missing", { defaultValue: "Not listed for: {{languages}}", languages: missingLanguages.join(", ") })
+              : t("onboarding.modelLanguages.covered", "Lists all chosen languages")}
+          </p>
+        )}
       </div>
 
       {(model.accuracy_score > 0 || model.speed_score > 0) && (

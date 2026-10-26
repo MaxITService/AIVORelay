@@ -18,6 +18,9 @@ import { HandyShortcut } from "../settings/HandyShortcut";
 import { AiAssistTip } from "../shared/AiAssistTip";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { getShortcutGuideMode } from "./shortcutGuide";
+import { MODEL_CAPABILITY_LANGUAGES } from "@/lib/constants/languages";
+import { suggestedModelLanguages } from "./modelLanguages";
+import { languageIdentity } from "@handy-computer/models";
 
 type WelcomeVariant = "local" | "remote";
 type OnboardingMode = "permissions" | "select" | "local" | "welcome";
@@ -61,6 +64,9 @@ const Onboarding: React.FC<OnboardingProps> = ({
   const [welcomeVariant, setWelcomeVariant] = useState<WelcomeVariant>(initialProgress.welcomeVariant);
   const [showRemoteWizard, setShowRemoteWizard] = useState(initialProgress.showRemoteWizard);
   const [isSkipping, setIsSkipping] = useState(false);
+  const [modelLanguages, setModelLanguages] = useState<string[]>(() =>
+    suggestedModelLanguages(typeof navigator === "undefined" ? [] : navigator.languages),
+  );
 
   useEffect(() => {
     if (showFullCatalog || mode === "permissions") return;
@@ -465,6 +471,33 @@ const Onboarding: React.FC<OnboardingProps> = ({
                 {savedProgress?.step === "local" && (
                   <p className="text-sm text-[#b8b8b8]">{t("onboarding.resumeLocal", "Choose a model to continue. An interrupted download can be resumed.")}</p>
                 )}
+                <div className="w-full space-y-2 text-left">
+                  <label htmlFor="onboarding-model-language" className="text-sm font-medium text-[#f5f5f5]">
+                    {t("onboarding.modelLanguages.title", "Languages to compare")}
+                  </label>
+                  <p className="text-xs text-[#a0a0a0]">{t("onboarding.modelLanguages.hint", "Suggestions are based on the interface locale. Add or remove languages to compare models; this does not change your dictation settings.")}</p>
+                  <select
+                    id="onboarding-model-language"
+                    value=""
+                    onChange={(event) => {
+                      const code = languageIdentity(event.target.value);
+                      if (code) setModelLanguages((current) => current.includes(code) ? current : [...current, code]);
+                    }}
+                    className="w-full rounded-lg border border-[#4a4a4a] bg-[#202020] p-2 text-sm text-[#f5f5f5]"
+                  >
+                    <option value="">{t("onboarding.modelLanguages.add", "Add a language…")}</option>
+                    {MODEL_CAPABILITY_LANGUAGES.filter((language) => !modelLanguages.includes(languageIdentity(language.value))).map((language) => (
+                      <option key={language.value} value={language.value}>{language.label}</option>
+                    ))}
+                  </select>
+                  <div className="flex flex-wrap gap-2">
+                    {modelLanguages.map((code) => (
+                      <button key={code} type="button" onClick={() => setModelLanguages((current) => current.filter((item) => item !== code))} className="rounded-full border border-[#4a4a4a] px-3 py-1 text-xs text-[#d0d0d0] hover:border-[#ff4d8d]" aria-label={t("onboarding.modelLanguages.remove", { defaultValue: "Remove {{language}}", language: MODEL_CAPABILITY_LANGUAGES.find((item) => languageIdentity(item.value) === code)?.label ?? code })}>
+                        {MODEL_CAPABILITY_LANGUAGES.find((item) => languageIdentity(item.value) === code)?.label ?? code} ×
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 {availableModels
                   .filter((model) => getRecommendedBadge(model))
                   .map((model) => (
@@ -472,6 +505,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
                       key={model.id}
                       model={model}
                       variant="featured"
+                      modelLanguages={modelLanguages}
                       disabled={downloading}
                       onSelect={handleModelSelection}
                     />
@@ -484,6 +518,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
                     <ModelCard
                       key={model.id}
                       model={model}
+                      modelLanguages={modelLanguages}
                       disabled={downloading}
                       onSelect={handleModelSelection}
                     />

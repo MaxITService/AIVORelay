@@ -1871,6 +1871,14 @@
       "connectionFailed": "Connection failed: {{error}}",
       "apiConfigHeader": "API Configuration"
     },
+    "modelLanguages": {
+      "title": "Languages to compare",
+      "hint": "Suggestions are based on the interface locale. Add or remove languages to compare models; this does not change your dictation settings.",
+      "add": "Add a language…",
+      "remove": "Remove {{language}}",
+      "missing": "Not listed for: {{languages}}",
+      "covered": "Lists all chosen languages"
+    },
     "welcome": {
       "title": "You're all set!",
       "modelDownloading": "Your model is downloading. You'll see the progress in the footer.",
