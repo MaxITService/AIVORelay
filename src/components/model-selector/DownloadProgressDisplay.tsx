@@ -1,18 +1,12 @@
 import React from "react";
 import { ProgressBar, ProgressData } from "../shared";
+import { formatDownloadTime, remainingDownloadSeconds, type DownloadStats } from "./downloadStats";
 
 interface DownloadProgress {
   model_id: string;
   downloaded: number;
   total: number;
   percentage: number;
-}
-
-interface DownloadStats {
-  startTime: number;
-  lastUpdate: number;
-  totalDownloaded: number;
-  speed: number;
 }
 
 interface DownloadProgressDisplayProps {
@@ -34,10 +28,12 @@ const DownloadProgressDisplay: React.FC<DownloadProgressDisplayProps> = ({
     downloadProgress.values(),
   ).map((progress) => {
     const stats = downloadStats.get(progress.model_id);
+    const remaining = remainingDownloadSeconds(progress.total, progress.downloaded, stats);
     return {
       id: progress.model_id,
       percentage: progress.percentage,
       speed: stats?.speed,
+      remainingTime: remaining === undefined ? undefined : formatDownloadTime(remaining),
     };
   });
 

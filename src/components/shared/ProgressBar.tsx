@@ -1,9 +1,11 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 export interface ProgressData {
   id: string;
   percentage: number;
   speed?: number;
+  remainingTime?: string;
   label?: string;
 }
 
@@ -22,6 +24,7 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
   showSpeed = false,
   showLabel = false,
 }) => {
+  const { t } = useTranslation();
   const sizeClasses = {
     small: "w-16 h-1",
     medium: "w-20 h-1.5",
@@ -53,9 +56,11 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
             )}
             {showSpeed && item.speed !== undefined && item.speed > 0 ? (
               // eslint-disable-next-line i18next/no-literal-string
-              <span>{item.speed.toFixed(1)}MB/s</span>
+              <span>{item.speed.toFixed(1)} MB/s{item.remainingTime !== undefined && (
+                <> · {t("modelSelector.remainingTime", { time: item.remainingTime, defaultValue: "~{{time}} left" })}</>
+              )}</span>
             ) : showSpeed ? (
-              <span>Downloading...</span>
+              <span>{t("common.downloading", "Downloading...")}</span>
             ) : null}
           </div>
         )}

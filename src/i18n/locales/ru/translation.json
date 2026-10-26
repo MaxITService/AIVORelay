@@ -2090,6 +2090,7 @@
     }
   },
   "modelSelector": {
+    "remainingTime": "осталось ~{{time}}",
     "remoteApiRows": {
       "groq": {
         "title": "Облачный сервис через Groq",
