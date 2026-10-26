@@ -15,7 +15,7 @@ Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: memoryStorage,
 });
-const { useTranscribeBatchStore: stt } = await import("./transcribeBatchStore");
+const { TRANSCRIBE_BATCH_INTERRUPTED_ERROR, useTranscribeBatchStore: stt } = await import("./transcribeBatchStore");
 const { LOCAL_ENGINE_BUSY_MESSAGE } = await import("@/lib/batchQueueUtils");
 const { useTranscribeFileStore: single } = await import("./transcribeFileStore");
 const { ensureTtsBatchListener, entryKey, queuedRow, useTtsBatchQueueStore: tts } = await import("./ttsBatchQueueStore");
@@ -653,7 +653,7 @@ describe("file transcription batch queue", () => {
     expect(stt.getState().items.map((item) => item.path)).toEqual(["two.wav"]);
   });
 
-  test("rehydration turns processing into queued work without auto-starting", async () => {
+  test("rehydration fails interrupted work instead of transcribing it twice", async () => {
     stt.getState().addFiles([request("one.wav"), request("two.wav")]);
     stt.setState((state) => ({
       running: true, stopping: true,
@@ -664,7 +664,8 @@ describe("file transcription batch queue", () => {
     stt.setState(initialStt, true);
     storage.set("aivorelay-transcribe-file-batch-v1", persisted);
     await stt.persist.rehydrate();
-    expect(stt.getState().items.map((item) => item.status)).toEqual(["completed", "queued"]);
+    expect(stt.getState().items.map((item) => item.status)).toEqual(["completed", "failed"]);
+    expect(stt.getState().items[1].error).toBe(TRANSCRIBE_BATCH_INTERRUPTED_ERROR);
     expect(stt.getState().running).toBe(false);
     expect(stt.getState().stopping).toBe(false);
     expect(calls).toHaveLength(0);
