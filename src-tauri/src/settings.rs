@@ -226,7 +226,10 @@ pub enum ChineseScript {
     #[default]
     AsTranscribed,
     Simplified,
+    // Keep the original variety-dependent behavior for existing settings and snapshots.
     Traditional,
+    TraditionalTw,
+    TraditionalHk,
 }
 
 fn default_chinese_script() -> ChineseScript {

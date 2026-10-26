@@ -1783,7 +1783,7 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
               </div>
           </WindowDetails>
             <ChineseScriptFields scopeKey={profile.id} value={profile.chinese_script ?? null} allowInherit={!isDefault}
-              descriptionMode="tooltip" disabled={isUpdating} onChange={value => commitFieldsPatch({ chinese_script: value })} />
+              descriptionMode="tooltip" disabled={isUpdating} onChange={value => commitFieldsPatch({ chinese_script: value as TranscriptionProfile["chinese_script"] })} />
           </ProfileMoreSettings>
     </div>
   );

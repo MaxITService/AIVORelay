@@ -65,6 +65,8 @@ fn converter(variety: ChineseVariety, script: ChineseScript) -> Option<&'static 
     static MANDARIN_TRADITIONAL: OnceLock<Option<OpenCC>> = OnceLock::new();
     static CANTONESE_SIMPLIFIED: OnceLock<Option<OpenCC>> = OnceLock::new();
     static CANTONESE_TRADITIONAL: OnceLock<Option<OpenCC>> = OnceLock::new();
+    static TAIWAN_TRADITIONAL: OnceLock<Option<OpenCC>> = OnceLock::new();
+    static HONG_KONG_TRADITIONAL: OnceLock<Option<OpenCC>> = OnceLock::new();
 
     let (cell, config) = match (variety, script) {
         (_, ChineseScript::AsTranscribed) => return None,
@@ -80,6 +82,8 @@ fn converter(variety: ChineseVariety, script: ChineseScript) -> Option<&'static 
         (ChineseVariety::Cantonese, ChineseScript::Traditional) => {
             (&CANTONESE_TRADITIONAL, BuiltinConfig::S2hk)
         }
+        (_, ChineseScript::TraditionalTw) => (&TAIWAN_TRADITIONAL, BuiltinConfig::S2tw),
+        (_, ChineseScript::TraditionalHk) => (&HONG_KONG_TRADITIONAL, BuiltinConfig::S2hk),
     };
 
     cell.get_or_init(|| match OpenCC::from_config(config) {
@@ -233,6 +237,14 @@ mod tests {
                 converter(variety, ChineseScript::Traditional).unwrap(),
                 converter(variety, ChineseScript::Traditional).unwrap(),
             ));
+        }
+    }
+
+    #[test]
+    fn explicit_traditional_region_does_not_depend_on_spoken_variety() {
+        for variety in [ChineseVariety::Mandarin, ChineseVariety::Cantonese] {
+            assert_eq!(convert_chinese_script("里面", variety, ChineseScript::TraditionalTw), "裡面");
+            assert_eq!(convert_chinese_script("里面", variety, ChineseScript::TraditionalHk), "裏面");
         }
     }
 

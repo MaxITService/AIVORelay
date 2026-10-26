@@ -6,6 +6,20 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-10-26):
+- Partial intake of upstream `0e5e9ca9` (`new onboarding (#2303)`):
+  Hebrew/Javanese language aliases in `1955a07f` (`fix(language): match
+  Hebrew and Javanese aliases`), macOS permission guidance in `cb20b31a`
+  (`feat(onboarding): guide macOS permission setup`), and explicit Taiwan and
+  Hong Kong Traditional Chinese choices in `feat(language): add regional
+  Traditional Chinese output`. Existing Traditional settings and profile
+  snapshots retain their prior variety-dependent conversion.
+- The user ran the `chinese_script` Rust filter: 13 tests passed. TypeScript
+  checking passed; macOS permission guidance has not been verified on macOS.
+- The safe review cursor remains `5a9451e7` (`fix: stop blocking the main
+  thread during paste (#2302)`); the subsequent intake is only partially
+  integrated and the cursor has not been advanced.
+
 Audit note (2026-10-23):
 - Reviewed `93c9ee05..5a9451e7` (1 commit); cursor is now `5a9451e7`. Adapted it
   as `27df9c71`: all output (dictation and streaming pastes, Preview and

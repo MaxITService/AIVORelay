@@ -32,7 +32,9 @@ export const ChineseScriptFields: React.FC<ChineseScriptFieldsProps> = ({
     ...(allowInherit ? [{ value: "inherit", label: t("settings.advanced.chineseScript.options.inherit", "Use global setting") }] : []),
     { value: "as_transcribed", label: t("settings.advanced.chineseScript.options.asTranscribed") },
     { value: "simplified", label: t("settings.advanced.chineseScript.options.simplified") },
-    { value: "traditional", label: t("settings.advanced.chineseScript.options.traditional") },
+    { value: "traditional", label: t("settings.advanced.chineseScript.options.traditionalAutomatic", "Traditional (based on spoken language)") },
+    { value: "traditional_tw", label: t("settings.advanced.chineseScript.options.traditionalTaiwan", "Traditional (Taiwan)") },
+    { value: "traditional_hk", label: t("settings.advanced.chineseScript.options.traditionalHongKong", "Traditional (Hong Kong)") },
   ];
   const change = async (nextValue: string) => {
     if (disabled) return;
@@ -71,7 +73,8 @@ export const ChineseScriptSetting: React.FC<ChineseScriptProps> = React.memo(
     const save = async (value: ChineseScript | null) => {
       if (saving || isUpdating("chinese_script")) return;
       if (!profileId) {
-        await updateSetting("chinese_script", value ?? "as_transcribed");
+        // The checked-in generated bindings are refreshed by the debug app.
+        await updateSetting("chinese_script", (value ?? "as_transcribed") as NonNullable<typeof settings>["chinese_script"]);
         return;
       }
       setSaving(true);
