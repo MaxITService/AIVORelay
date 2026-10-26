@@ -15,7 +15,7 @@ Canonical inventory of intentional differences from `main`. If code and this fil
 | In-app updater artifacts | `createUpdaterArtifacts: false` | Enabled |
 | In-app updater endpoints | Empty | GitHub release endpoint configured |
 | Crash recovery screen | Reload window and open logs; no emergency self-update action | Also offers the emergency update checker |
-| CPU baseline | Rust and ggml are forced to AVX2; AVX512/AMX is disabled | The x64 release workflow disables AVX/AVX2/FMA/F16C for older-CPU compatibility |
+| CPU baseline | Rust code is built with `+avx2`; ggml picks its CPU variant at runtime | Rust code targets baseline x86-64; ggml picks its CPU variant at runtime |
 
 Before completing a Store release, check that GitHub release assets contain no project certificate, certificate-installation script, or detached signature files. Remove such attachments added to a Store draft by mistake; do not rebuild packages to upload them. Binary signature inspection is not required and an existing binary signature is not a release blocker.
 
@@ -37,7 +37,6 @@ Implementation anchors:
 ## CPU And Architecture Boundary
 
 - The Store package requires an AVX2-capable x64 CPU. It is not a compatibility fallback for pre-AVX2 processors.
-- AVX512 and AMX must remain disabled for the distributed Store binary.
 - Only `x86_64-pc-windows-msvc` Store files are published.
 - ARM64 paths in reusable build/test workflows do not mean that an ARM64 Store package is published.
 - The x64 workflow audits the portable ZIP and MSI for the transcribe.cpp core DLL, ggml backend modules, and required VC/OpenMP runtimes.

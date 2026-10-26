@@ -59,9 +59,9 @@ Use the checked-in test harness for backend tests rather than plain `cargo test`
 ## Store-Specific Build Notes
 
 - Store releases currently target Windows x64 only.
-- Keep the Store branch on its AVX2 distribution baseline and keep AVX512/AMX disabled.
+- Keep the Store branch on its AVX2 distribution baseline.
 - Do not reintroduce self-updater build assumptions into Store packaging.
-- The Store workflow must audit x64 ZIP/MSI contents for transcribe.cpp, ggml, VC++ runtime, and OpenMP DLLs.
+- `main`'s release build must audit Store x64 ZIP/MSI contents for transcribe.cpp, ggml, VC++ runtime, and OpenMP DLLs.
 - ARM64 blocks in shared build/test workflows are not evidence of ARM64 Store release support.
 - If a task is not branch-specific program behavior, read `AGENTS.md` on `main` first.
 
