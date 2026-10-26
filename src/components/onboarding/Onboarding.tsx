@@ -12,6 +12,7 @@ import ModelCard from "./ModelCard";
 import HandyTextLogo from "../icons/HandyTextLogo";
 import { RemoteSttWizard } from "./RemoteSttWizard";
 import AccessibilityOnboarding from "./AccessibilityOnboarding";
+import MacPermissionsOnboarding from "./MacPermissionsOnboarding";
 import { HandyShortcut } from "../settings/HandyShortcut";
 import { AiAssistTip } from "../shared/AiAssistTip";
 
@@ -37,6 +38,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
 }) => {
   const { t } = useTranslation();
   const isWindows = type() === "windows";
+  const isMacOS = type() === "macos";
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [downloading, setDownloading] = useState(false);
   const downloadAttempt = useRef<{ dispatched: boolean } | null>(null);
@@ -45,7 +47,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
   );
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<OnboardingMode>(
-    startWithPermissionStep && isWindows ? "permissions" : "select",
+    (startWithPermissionStep && isWindows) || isMacOS ? "permissions" : "select",
   );
   const [welcomeVariant, setWelcomeVariant] = useState<WelcomeVariant>("local");
   const [showRemoteWizard, setShowRemoteWizard] = useState(false);
@@ -56,6 +58,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
   }, [showFullCatalog]);
 
   useEffect(() => {
+    if (!isWindows) return;
     if (startWithPermissionStep && isWindows) {
       setMode("permissions");
     } else if (mode === "permissions") {
@@ -223,6 +226,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
   const getSubtitle = () => {
     if (mode === "welcome") return null;
     if (mode === "permissions") {
+      if (isMacOS) return t("onboarding.macPermissions.subtitle", "Allow microphone and Accessibility access for dictation.");
       return t(
         "onboarding.permissions.subtitle",
         "Windows microphone access is needed before recording can work.",
@@ -279,7 +283,11 @@ const Onboarding: React.FC<OnboardingProps> = ({
 
           <div className="flex flex-col gap-4 ">
             {mode === "permissions" ? (
-              <AccessibilityOnboarding onComplete={handlePermissionsComplete} />
+              isMacOS ? (
+                <MacPermissionsOnboarding onComplete={handlePermissionsComplete} />
+              ) : (
+                <AccessibilityOnboarding onComplete={handlePermissionsComplete} />
+              )
             ) : mode === "welcome" ? (
               <div className="flex flex-col items-center gap-6 mt-4">
                 <h2 className="text-2xl font-bold text-[#f5f5f5]">
