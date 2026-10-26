@@ -1874,6 +1874,7 @@
     "welcome": {
       "title": "You're all set!",
       "modelDownloading": "Your model is downloading. You'll see the progress in the footer.",
+      "modelReady": "Your model is ready.",
       "providerReady": "Your provider is configured and ready to use.",
       "shortcutDescription": "Hold to record, release to transcribe. Text goes to your clipboard.",
       "shortcutChoose": "Choose your dictation shortcut:",
@@ -1881,6 +1882,11 @@
       "shortcutToggle": "Press the shortcut to start speaking, then press it again to finish.",
       "shortcutAuto": "Tap the shortcut to start and tap again to stop, or hold it while speaking and release to stop.",
       "shortcutProfiles": "Other application profiles may use a different shortcut mode.",
+      "practiceTitle": "Try dictation here",
+      "practiceDownloading": "Once the model finishes downloading, click the field and try your shortcut. You can also continue now.",
+      "practiceHint": "Click the field, use your shortcut, and say a few words. This step is optional.",
+      "practicePlaceholder": "Your words can appear here…",
+      "practiceOutput": "The result follows your current output settings; preview-only or clipboard modes may show it elsewhere.",
       "settingsNote": "The app works out of the box. There are many settings to explore at your own pace — profiles, languages, shortcuts, and more.",
       "getStarted": "Get Started"
     }
