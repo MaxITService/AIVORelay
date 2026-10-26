@@ -7,6 +7,14 @@ This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
 Audit note (2026-10-27):
+- Further partial adaptations: `85123630` (`feat(onboarding): explain active
+  shortcut mode`), `4d7c89e7` (`feat(onboarding): add optional dictation
+  practice`) from `0e5e9ca9`, and `feat(files): route dropped audio to file
+  transcription` from `73c09585` (`feat: transcribe files into history
+  (#2315)`). Drops reuse the fork's file workflow and do not start a
+  transcription. Targeted frontend tests and TypeScript checks passed; live
+  desktop drag-and-drop and practice were not exercised. The safe review
+  cursor remains `5a9451e7` because this intake is incomplete.
 - Further partial adaptations of `0e5e9ca9` (`new onboarding (#2303)`):
   `4416765b` (`feat(models): estimate remaining download time`) and
   `feat(onboarding): resume interrupted first-start setup`. The wizard restores

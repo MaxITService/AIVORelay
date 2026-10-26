@@ -15,11 +15,13 @@ import { useSettings } from "./hooks/useSettings";
 import { commands } from "@/bindings";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { type } from "@tauri-apps/plugin-os";
 import { useNavigationStore } from "./stores/navigationStore";
 import { OPEN_FIRST_START_WIZARD_EVENT } from "./constants/appEvents";
 import type { ModelStateEvent } from "./lib/types/events";
 import type { WindowsMicrophonePermissionStatus } from "./lib/types/windowsPermissions";
+import { queueIncomingAudio, shouldRouteAudioDrop } from "./components/settings/transcribe-file/incomingAudio";
 
 type RecordingErrorPayload = {
   error_type: "microphone_permission_denied" | "no_input_device" | "unknown";
@@ -92,6 +94,22 @@ function App() {
   const settingsScrollRef = useRef<HTMLDivElement>(null);
   const settingsScrollPositions = useRef<Partial<Record<SidebarSection, number>>>({});
   const pendingScrollRestore = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (showOnboarding !== false) return;
+    let disposed = false;
+    const unlisten = getCurrentWebviewWindow().onDragDropEvent((event) => {
+      if (disposed || event.payload.type !== "drop") return;
+      const section = useNavigationStore.getState().currentSection;
+      if (!shouldRouteAudioDrop(section, event.payload.paths)) return;
+      queueIncomingAudio(event.payload.paths);
+      setCurrentSection("transcribeFile");
+    });
+    return () => {
+      disposed = true;
+      void unlisten.then((stop) => stop()).catch(console.error);
+    };
+  }, [showOnboarding, setCurrentSection]);
 
   useLayoutEffect(() => {
     return useNavigationStore.subscribe((state, previousState) => {

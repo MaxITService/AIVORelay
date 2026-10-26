@@ -65,8 +65,8 @@ import {
 import { navigateToSettingsAnchor } from "@/lib/anchorNavigation";
 import { FileDropZone } from "./FileDropZone";
 import { TranscribeFileBatchQueue } from "./TranscribeFileBatchQueue";
+import { isSupportedAudioPath, shouldQueueIncomingAudio, supportedExtensions, takeIncomingAudio } from "./incomingAudio";
 
-const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 const DEEPGRAM_MAX_FILE_DURATION_SECONDS = 10 * 60;
 const SONIOX_MAX_FILE_DURATION_SECONDS = 300 * 60;
 const GOOGLE_INLINE_REQUEST_LIMIT_BYTES = 20_000_000;
@@ -330,6 +330,7 @@ export const TranscribeFileSettings: React.FC = () => {
     applySpeakerCardNames,
     setIsReapplyingSpeakerNames,
     activateModelUiConfig,
+    activeModelKey,
   } = useTranscribeFileStore();
   const batchRunning = useTranscribeBatchStore((state) => state.running);
   const [batchNotice, setBatchNotice] = useState<string | null>(null);
@@ -821,11 +822,13 @@ export const TranscribeFileSettings: React.FC = () => {
   }, []);
 
   const fileSettingsInitializedRef = useRef(false);
+  const [fileSettingsReady, setFileSettingsReady] = useState(false);
   useEffect(() => {
     if (!settings || fileSettingsInitializedRef.current) return;
     fileSettingsInitializedRef.current = true;
     void invoke("initialize_file_transcription_model_settings")
       .then(() => refreshSettings())
+      .then(() => setFileSettingsReady(true))
       .catch((initializationError) => setError(String(initializationError)));
   }, [refreshSettings, setError, settings]);
   const savedSpeakerNameProfiles = useMemo<SpeakerNameSetProfile[]>(
@@ -1234,9 +1237,7 @@ export const TranscribeFileSettings: React.FC = () => {
       setError(batchDisabledReason);
       return;
     }
-    const supported = paths.filter((path) =>
-      supportedExtensions.includes(path.split(".").pop()?.toLowerCase() ?? ""),
-    );
+    const supported = paths.filter(isSupportedAudioPath);
     const requests: FileTranscriptionRequest[] = [];
     for (const path of supported) {
       const request = buildFileTranscriptionRequestFor(path);
@@ -1252,6 +1253,23 @@ export const TranscribeFileSettings: React.FC = () => {
       ...(skipped > 0 ? [t("transcribeFile.batch.unsupportedSkipped", { count: skipped })] : []),
     ].join(" "));
   }, [batchDisabledReason, buildFileTranscriptionRequestFor, setError, t]);
+
+  useEffect(() => {
+    if (!settings || !fileSettingsReady || activeModelKey !== fileSelectionKey) return;
+    const paths = takeIncomingAudio();
+    if (!paths.length) return;
+    const fileState = useTranscribeFileStore.getState();
+    if (shouldQueueIncomingAudio(paths.length, Boolean(fileState.selectedFile), fileState.transcriptionPhase, useTranscribeBatchStore.getState().running)) {
+      addBatchFiles(paths);
+      return;
+    }
+    void receiveSelectedFile(paths[0]).then((didReplace) => {
+      if (didReplace) {
+        setShowDurationLimitWarningDialog(false);
+        clearSpeakerSession();
+      }
+    }).catch((error) => setError(String(error)));
+  }, [settings, fileSettingsReady, activeModelKey, fileSelectionKey, addBatchFiles, receiveSelectedFile, clearSpeakerSession, setError]);
 
   // Listen for Tauri file drop events
   useEffect(() => {
@@ -1273,7 +1291,7 @@ export const TranscribeFileSettings: React.FC = () => {
           const filePath = paths[0];
           const extension = filePath.split(".").pop()?.toLowerCase() ?? "";
 
-          if (!supportedExtensions.includes(extension)) {
+          if (!isSupportedAudioPath(filePath)) {
             setError(
               t("transcribeFile.unsupportedFormat", {
                 format: extension,
