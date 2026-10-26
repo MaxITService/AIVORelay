@@ -1877,7 +1877,10 @@
       "add": "Add a language…",
       "remove": "Remove {{language}}",
       "missing": "Not listed for: {{languages}}",
-      "covered": "Lists all chosen languages"
+      "covered": "Lists all chosen languages",
+      "noRecommendations": "No measured recommendation is available for all chosen languages. You can still choose from the models below.",
+      "faster": "Faster",
+      "moreAccurate": "More accurate"
     },
     "welcome": {
       "title": "You're all set!",

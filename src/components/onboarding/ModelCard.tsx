@@ -11,12 +11,14 @@ import Badge from "../ui/Badge";
 import { ModelReleaseDate } from "../shared/ModelReleaseDate";
 import { inferPrecision } from "../settings/models/ModelMetadataPanel";
 import { missingModelLanguages } from "./modelLanguages";
+import type { RecommendationRole } from "./modelRecommendations";
 
 interface ModelCardProps {
   model: ModelInfo;
   variant?: "default" | "featured";
   disabled?: boolean;
   modelLanguages?: string[];
+  recommendationRole?: RecommendationRole;
   className?: string;
   onSelect: (model: ModelInfo) => void;
 }
@@ -26,6 +28,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
   variant = "default",
   disabled = false,
   modelLanguages = [],
+  recommendationRole,
   className = "",
   onSelect,
 }) => {
@@ -73,7 +76,11 @@ const ModelCard: React.FC<ModelCardProps> = ({
           </h3>
           <DownloadSize sizeMb={Number(model.size_mb)} />
           {isFeatured && (
-            <Badge variant="primary">{t("onboarding.recommended")}</Badge>
+            <Badge variant="primary">{recommendationRole === "fast"
+              ? t("onboarding.modelLanguages.faster", "Faster")
+              : recommendationRole === "accurate"
+                ? t("onboarding.modelLanguages.moreAccurate", "More accurate")
+                : t("onboarding.recommended")}</Badge>
           )}
           {model.is_custom && (
             <Badge variant="secondary">{t("modelSelector.custom")}</Badge>
