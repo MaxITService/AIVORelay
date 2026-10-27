@@ -411,7 +411,7 @@ impl HistoryManager {
         post_process_requested: bool,
         post_processed_text: Option<String>,
         post_process_prompt: Option<String>,
-        language: Option<String>,
+        language: Option<crate::language_detection::LanguageDecision>,
     ) -> Result<HistoryEntry> {
         let file_name = format!("aivorelay-{}.wav", chrono::Utc::now().timestamp_millis());
 
@@ -447,9 +447,10 @@ impl HistoryManager {
         post_process_requested: bool,
         post_processed_text: Option<String>,
         post_process_prompt: Option<String>,
-        language: Option<String>,
+        decision: Option<crate::language_detection::LanguageDecision>,
     ) -> Result<HistoryEntry> {
-        let language_source = language.as_ref().map(|_| "detected".to_string());
+        let language_source = decision.as_ref().map(|value| value.source.as_str().to_string());
+        let language = decision.and_then(|value| value.language);
         let timestamp = Utc::now().timestamp();
         let title = self.format_timestamp_title(timestamp);
         let conn = self.get_connection()?;
