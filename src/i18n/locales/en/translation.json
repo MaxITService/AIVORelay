@@ -1903,6 +1903,7 @@
       "practiceHint": "Click the field, use your shortcut, and say a few words. This step is optional.",
       "practicePlaceholder": "Your words can appear here…",
       "practiceOutput": "The result follows your current output settings; preview-only or clipboard modes may show it elsewhere.",
+      "silentMicrophone": "The microphone sent silence. Check its mute switch, selected device, and input channel.",
       "settingsNote": "The app works out of the box. There are many settings to explore at your own pace — profiles, languages, shortcuts, and more.",
       "getStarted": "Get Started"
     }

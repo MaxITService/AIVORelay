@@ -7,6 +7,11 @@ This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
 Audit note (2026-10-27):
+- `feat(onboarding): explain silent microphone input` reports actual all-zero
+  microphone samples before processing while the practice field is focused;
+  cancellation and missing samples do not trigger it. A raw-capture test was
+  added but not run; desktop event delivery still needs testing. This adapts
+  part of `0e5e9ca9`; cursor unchanged.
 - `feat(models): remember languages for model comparison` keeps explicit
   comparison choices in local storage, preserves an intentional empty list,
   and shows measured per-language grades on the Models page without changing

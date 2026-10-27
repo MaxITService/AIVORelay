@@ -18,7 +18,7 @@ use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -1601,9 +1601,15 @@ impl AudioRecordingManager {
                     }
                 }
 
+                let is_microphone = self.active_selection.lock().unwrap().as_ref()
+                    .is_some_and(|selection| selection.source == AudioCaptureSource::Microphone);
+                let mut input_silent = false;
                 let samples = if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
-                    match rec.stop() {
-                        Ok(buf) => buf,
+                    match rec.stop_with_report() {
+                        Ok(report) => {
+                            input_silent = report.input_silent;
+                            report.samples
+                        },
                         Err(e) => {
                             error!("stop() failed: {e}");
                             Vec::new()
@@ -1625,6 +1631,16 @@ impl AudioRecordingManager {
                 if self.was_cancelled_since(cancel_generation) {
                     debug!("Recording stop cancelled; discarding captured samples");
                     return None;
+                }
+
+                if is_microphone && input_silent {
+                    let timestamp_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default().as_millis() as u64;
+                    let _ = self.app_handle.emit("microphone-digital-silence", serde_json::json!({
+                        "operationId": active_operation_id,
+                        "timestampMs": timestamp_ms,
+                    }));
                 }
 
                 // Pad if very short

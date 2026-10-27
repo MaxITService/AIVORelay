@@ -37,7 +37,7 @@ enum Cmd {
         min_samples: usize,
         reply_tx: mpsc::Sender<Vec<f32>>,
     },
-    Stop(mpsc::Sender<Vec<f32>>),
+    Stop(mpsc::Sender<CaptureReport>),
     Shutdown,
 }
 
@@ -54,6 +54,11 @@ struct CaptureTransportState {
 pub enum AudioCaptureSource {
     Microphone,
     SystemOutputLoopback,
+}
+
+pub struct CaptureReport {
+    pub samples: Vec<f32>,
+    pub input_silent: bool,
 }
 
 pub type StreamFrameCallback = Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>;
@@ -347,6 +352,10 @@ impl AudioRecorder {
     }
 
     pub fn stop(&self) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+        Ok(self.stop_with_report()?.samples)
+    }
+
+    pub fn stop_with_report(&self) -> Result<CaptureReport, Box<dyn std::error::Error>> {
         let tx = self
             .cmd_tx
             .as_ref()
@@ -374,11 +383,11 @@ impl AudioRecorder {
         self.receive_audio_reply(resp_rx, "flush")
     }
 
-    fn receive_audio_reply(
+    fn receive_audio_reply<T>(
         &self,
-        receiver: mpsc::Receiver<Vec<f32>>,
+        receiver: mpsc::Receiver<T>,
         operation: &str,
-    ) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    ) -> Result<T, Box<dyn std::error::Error>> {
         receiver.recv_timeout(CONTROL_REPLY_TIMEOUT).map_err(|error| {
             self.stream_error.store(true, Ordering::Relaxed);
             let message = format!("Audio recorder {} did not complete: {}", operation, error);
@@ -772,6 +781,25 @@ mod tests {
         let mut output = [0.0; 3];
         consumer.pop_entire_slice(&mut output).expect("samples");
         assert_eq!(output, [0.25, -0.5, 1.0]);
+    }
+
+    #[test]
+    fn silence_report_requires_input_and_tracks_raw_samples_across_flushes() {
+        let mut pipeline = super::CapturePipeline::new(
+            16_000, None, None, Arc::new(Mutex::new(None)),
+            AudioCaptureSource::Microphone, Arc::new(Mutex::new(1.0)),
+            Arc::new(AtomicBool::new(false)),
+        );
+        assert!(!pipeline.input_silent());
+        pipeline.process_raw_chunk(&[0.0; 480], super::ChunkDisposition::Capture);
+        assert!(pipeline.input_silent());
+        let _ = pipeline.flush(0, 0);
+        assert!(pipeline.input_silent());
+        pipeline.process_raw_chunk(&[0.0, 0.001], super::ChunkDisposition::Capture);
+        assert!(!pipeline.input_silent());
+        let (ready_tx, _ready_rx) = mpsc::channel();
+        pipeline.begin_recording(std::time::Instant::now(), ready_tx);
+        assert!(!pipeline.input_silent());
     }
 
     #[test]
@@ -1354,6 +1382,10 @@ impl CapturePipeline {
         self.noise_suppressor = None;
         std::mem::take(&mut self.processed_samples)
     }
+
+    fn input_silent(&self) -> bool {
+        self.captured_input_samples > 0 && !self.captured_input_has_nonzero
+    }
 }
 
 fn run_consumer(
@@ -1448,6 +1480,7 @@ fn run_consumer(
                         pipeline
                             .observe_overrun(transport.overrun_samples.swap(0, Ordering::AcqRel));
                         let samples = pipeline.finish_recording();
+                        let report = CaptureReport { samples, input_silent: pipeline.input_silent() };
 
                         if !pause_timed_out {
                             // Resume before stop() returns so an immediate new
@@ -1455,7 +1488,7 @@ fn run_consumer(
                             transport.pause_acknowledged.store(false, Ordering::Relaxed);
                             transport.pause_requested.store(false, Ordering::Release);
                         }
-                        let _ = reply_tx.send(samples);
+                        let _ = reply_tx.send(report);
                         if pause_timed_out {
                             return;
                         }
