@@ -6,6 +6,22 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Intake in progress (2026-10-27):
+- Fetched `upstream/main` at `7bfb2e2c`; the completed safe review cursor
+  remains `73c09585` while `126bed73` is still being adapted. Revisit the
+  entire corridor on the next intake; do not treat the detector as complete.
+- `126bed73` language detection: the upstream model catalog and package were
+  updated by `29ceb484` (`chore(models): update language detector catalog`).
+  The detector runtime, preferred-language policy, model download and UI,
+  history metadata, and dictation/profile/file integration remain outstanding.
+  Preserve the fork's streaming, OS-input language, remote-provider, Chinese
+  script, cancellation, file snapshots, and engine isolation behavior.
+- `2b3f7c81` Debian OpenSSL dependency: adapted by `5f0722fc`
+  (`fix(linux): declare OpenSSL runtime dependency`).
+- `7bfb2e2c` Intel macOS Metal fix: adapted by `2ccebf1b`
+  (`fix(macos): disable Metal on Intel Macs`). Linux and macOS builds remain
+  unverified on this Windows machine; tests are deferred to the user.
+
 Review completed (2026-10-27):
 - Reviewed the locally fetched `5a9451e7..73c09585` corridor (three ordinary
   commits); the safe review cursor is `73c09585`. No newer fetched commits were
