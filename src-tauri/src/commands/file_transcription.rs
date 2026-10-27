@@ -1950,11 +1950,120 @@ pub async fn save_file_transcription_to_history(
         .unwrap_or("Imported audio").to_string();
     let history = Arc::clone(&app.state::<Arc<crate::managers::history::HistoryManager>>());
     tauri::async_runtime::spawn_blocking(move || {
-        let samples = decode_audio_file(&path)?;
+        let samples = decode_audio_for_history(&path)?;
         history.save_imported_transcription(&samples, &title, &text)
             .map(|_| ())
             .map_err(|error| format!("Could not save to History: {error}"))
     }).await.map_err(|error| format!("History import failed: {error}"))?
+}
+
+/// Decode incrementally so a History copy never holds the full high-rate,
+/// multi-channel input alongside its 16 kHz mono output.
+fn decode_audio_for_history(path: &PathBuf) -> Result<Vec<f32>, String> {
+    use rodio::Source;
+    use std::fs::File;
+    use std::io::BufReader;
+
+    let extension = path.extension().and_then(|value| value.to_str())
+        .unwrap_or_default().to_lowercase();
+    if extension == "wav" {
+        let reader = hound::WavReader::open(path)
+            .map_err(|error| format!("Failed to open WAV file: {error}"))?;
+        let spec = reader.spec();
+        return match spec.sample_format {
+            hound::SampleFormat::Int => {
+                if spec.bits_per_sample == 0 || spec.bits_per_sample > 32 {
+                    return Err("Unsupported WAV sample width".to_string());
+                }
+                let max = (1_i64 << (spec.bits_per_sample - 1)) as f32;
+                resample_history_input(reader.into_samples::<i32>().map(move |sample| {
+                    sample.map(|value| value as f32 / max).map_err(|error| error.to_string())
+                }), spec.sample_rate, spec.channels as usize)
+            }
+            hound::SampleFormat::Float => resample_history_input(
+                reader.into_samples::<f32>().map(|sample| sample.map_err(|error| error.to_string())),
+                spec.sample_rate, spec.channels as usize,
+            ),
+        };
+    }
+
+    let file = File::open(path).map_err(|error| format!("Failed to open file: {error}"))?;
+    let byte_len = file.metadata().map_err(|error| format!("Failed to read file metadata: {error}"))?.len();
+    let mut builder = rodio::Decoder::builder().with_data(BufReader::new(file))
+        .with_byte_len(byte_len).with_seekable(true);
+    if !extension.is_empty() { builder = builder.with_hint(&extension); }
+    if let Some(mime) = audio_mime_type_for_extension(&extension) { builder = builder.with_mime_type(mime); }
+    let source = builder.build().map_err(|error| format!("Failed to decode audio: {error}"))?;
+    let sample_rate = source.sample_rate();
+    let channels = source.channels() as usize;
+    resample_history_input(source.map(Ok), sample_rate, channels)
+}
+
+fn resample_history_input(
+    input: impl Iterator<Item = Result<f32, String>>,
+    sample_rate: u32,
+    channels: usize,
+) -> Result<Vec<f32>, String> {
+    use rubato::{FftFixedIn, Resampler};
+    validate_audio_sample_rate(sample_rate)?;
+    if channels == 0 { return Err("Audio has no channels".to_string()); }
+    const TARGET_RATE: usize = 16_000;
+    const CHUNK_SIZE: usize = 1024;
+    let mut resampler = if sample_rate as usize == TARGET_RATE {
+        None
+    } else {
+        Some(FftFixedIn::<f32>::new(sample_rate as usize, TARGET_RATE, CHUNK_SIZE, 1, 1)
+            .map_err(|error| format!("Failed to create resampler: {error}"))?)
+    };
+    let mut output = Vec::new();
+    let mut chunk = Vec::with_capacity(CHUNK_SIZE);
+    let mut channel_sum = 0.0;
+    let mut channel_count = 0;
+    let mut input_frames = 0usize;
+    for sample in input {
+        channel_sum += sample.map_err(|error| format!("Failed to decode audio: {error}"))?;
+        channel_count += 1;
+        if channel_count != channels { continue; }
+        chunk.push(channel_sum / channels as f32);
+        input_frames += 1;
+        channel_sum = 0.0;
+        channel_count = 0;
+        if chunk.len() == CHUNK_SIZE {
+            if let Some(resampler) = resampler.as_mut() {
+                let frames = resampler.process(&[&chunk], None)
+                    .map_err(|error| format!("Failed to resample audio: {error}"))?;
+                output.extend_from_slice(&frames[0]);
+            } else {
+                output.extend_from_slice(&chunk);
+            }
+            chunk.clear();
+        }
+    }
+    if channel_count != 0 { return Err("Audio has an incomplete channel frame".to_string()); }
+    if let Some(resampler) = resampler.as_mut() {
+        if !chunk.is_empty() {
+            chunk.resize(CHUNK_SIZE, 0.0);
+            let frames = resampler.process(&[&chunk], None)
+                .map_err(|error| format!("Failed to resample audio: {error}"))?;
+            output.extend_from_slice(&frames[0]);
+        }
+        let delay = resampler.output_delay();
+        let expected = ((input_frames as u64 * TARGET_RATE as u64).div_ceil(sample_rate as u64)) as usize;
+        let target = expected.saturating_add(delay);
+        let max_rounds = sample_rate as usize / CHUNK_SIZE + 4;
+        for _ in 0..max_rounds {
+            if output.len() >= target { break; }
+            let frames = resampler.process_partial::<Vec<f32>>(None, None)
+                .map_err(|error| format!("Failed to flush resampled audio: {error}"))?;
+            output.extend_from_slice(&frames[0]);
+        }
+        if output.len() < target { return Err("Incomplete resampled audio".to_string()); }
+        output.drain(..delay);
+        output.truncate(expected);
+    } else {
+        output.extend_from_slice(&chunk);
+    }
+    Ok(output)
 }
 
 fn decode_audio_file(path: &PathBuf) -> Result<Vec<f32>, String> {
@@ -2293,6 +2402,20 @@ mod tests {
         for sample_rate in [8_000, 16_000, 44_100, 48_000, 192_000, 384_000] {
             assert!(validate_audio_sample_rate(sample_rate).is_ok());
         }
+    }
+
+    #[test]
+    fn history_import_downmixes_and_resamples_in_chunks() {
+        for rate in [8_000, 16_000, 44_100, 48_000] {
+            let mono: Vec<f32> = (0..4_396).map(|index| (index as f32 / 37.0).sin() * 0.5).collect();
+            let stereo = mono.iter().flat_map(|sample| [Ok(*sample), Ok(*sample)]);
+            let actual = super::resample_history_input(stereo, rate, 2).unwrap();
+            let expected = if rate == 16_000 { mono } else { resample_audio(&mono, rate, 16_000).unwrap() };
+            assert_eq!(actual.len(), expected.len(), "rate {rate}");
+            assert!(actual.iter().zip(expected).all(|(a, b)| (*a - b).abs() < 0.00001), "rate {rate}");
+        }
+        assert!(super::resample_history_input([Ok(1.0)].into_iter(), 16_000, 2).is_err());
+        assert!(super::resample_history_input([Err("bad sample".to_string())].into_iter(), 16_000, 1).is_err());
     }
 
     #[test]
