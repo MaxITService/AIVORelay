@@ -12,6 +12,7 @@ import { AudioFeedback } from "../AudioFeedback";
 import { useSettings } from "../../../hooks/useSettings";
 import { VolumeSlider } from "../VolumeSlider";
 import { TranscriptionProfiles } from "../TranscriptionProfiles";
+import { LanguageDetectionSettings } from "../LanguageDetectionSettings";
 import { Button } from "../../ui/Button";
 import { useNavigationStore } from "../../../stores/navigationStore";
 
@@ -29,6 +30,8 @@ export const GeneralSettings: React.FC = () => {
       <div>
         <TranscriptionProfiles />
       </div>
+
+      <LanguageDetectionSettings />
 
       <div>
         <SettingsGroup title={t("settings.sound.title")}>
