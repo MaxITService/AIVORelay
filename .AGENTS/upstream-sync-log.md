@@ -7,6 +7,10 @@ This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
 Audit note (2026-10-27):
+- `feat(onboarding): flag slow local dictation` compares completed local
+  non-streaming inference with the catalog speed budget for takes of at least
+  five seconds. It excludes remote, streaming, failed and stale results; its
+  threshold test was added but not run. Partial `0e5e9ca9`; cursor unchanged.
 - `feat(onboarding): explain silent microphone input` reports actual all-zero
   microphone samples before processing while the practice field is focused;
   cancellation and missing samples do not trigger it. A raw-capture test was

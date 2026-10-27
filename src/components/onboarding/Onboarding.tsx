@@ -24,6 +24,7 @@ import { MODEL_CAPABILITY_LANGUAGES } from "@/lib/constants/languages";
 import { readModelLanguagePreference, saveModelLanguagePreference, suggestedModelLanguages } from "./modelLanguages";
 import { languageIdentity } from "@handy-computer/models";
 import { recommendedModels } from "./modelRecommendations";
+import { isSlowLocalDictation } from "./practiceTiming";
 
 type WelcomeVariant = "local" | "remote";
 type OnboardingMode = "permissions" | "select" | "local" | "welcome";
@@ -61,6 +62,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
   );
   const [error, setError] = useState<string | null>(null);
   const [silentMicrophone, setSilentMicrophone] = useState(false);
+  const [slowLocalModel, setSlowLocalModel] = useState(false);
   const [mode, setMode] = useState<OnboardingMode>(
     initialProgress.mode,
   );
@@ -93,6 +95,22 @@ const Onboarding: React.FC<OnboardingProps> = ({
       if (active) unlisten = dispose;
       else dispose();
     }).catch((error) => console.warn("Could not listen for microphone diagnostics", error));
+    return () => { active = false; unlisten?.(); };
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "welcome") return;
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void listen<{ timestampMs: number; audioSeconds: number; waitSeconds: number }>("local-dictation-timing", ({ payload }) => {
+      const age = Date.now() - payload.timestampMs;
+      if (active && age >= 0 && age < 2000 && document.activeElement?.id === "onboarding-practice") {
+        setSlowLocalModel(isSlowLocalDictation(payload.audioSeconds, payload.waitSeconds));
+      }
+    }).then((dispose) => {
+      if (active) unlisten = dispose;
+      else dispose();
+    }).catch((error) => console.warn("Could not listen for local dictation timing", error));
     return () => { active = false; unlisten?.(); };
   }, [mode]);
 
@@ -417,7 +435,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
                   <textarea
                     id="onboarding-practice"
                     rows={3}
-                    onFocus={() => setSilentMicrophone(false)}
+                    onFocus={() => { setSilentMicrophone(false); setSlowLocalModel(false); }}
                     onChange={() => setSilentMicrophone(false)}
                     className="w-full resize-y rounded-lg border border-[#4a4a4a] bg-[#202020] p-3 text-sm text-[#f5f5f5] focus:border-[#ff4d8d] focus:outline-none"
                     placeholder={t("onboarding.welcome.practicePlaceholder", "Your words can appear here…")}
@@ -425,6 +443,11 @@ const Onboarding: React.FC<OnboardingProps> = ({
                   {silentMicrophone && (
                     <p role="status" className="text-sm text-amber-300">
                       {t("onboarding.welcome.silentMicrophone", "The microphone sent silence. Check its mute switch, selected device, and input channel.")}
+                    </p>
+                  )}
+                  {slowLocalModel && (
+                    <p role="status" className="text-sm text-amber-300">
+                      {t("onboarding.welcome.slowLocalModel", "This local model took a while to transcribe. After setup, consider a faster local model.")}
                     </p>
                   )}
                   <p className="text-xs text-[#a0a0a0]">
