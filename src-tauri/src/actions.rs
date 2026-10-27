@@ -2588,6 +2588,8 @@ fn start_recording_with_feedback_with_settings(
             native_stream_translate,
             on_committed_text,
             Some(settings.chinese_script),
+            settings.spoken_languages.clone(),
+            settings.language_detection,
         );
         let stream_router = tm.stream_router();
         rm.set_stream_frame_callback(Arc::new(move |frame| {
