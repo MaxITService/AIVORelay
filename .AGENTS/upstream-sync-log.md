@@ -6,7 +6,37 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Review completed (2026-10-27):
+- Reviewed the locally fetched `5a9451e7..73c09585` corridor (three ordinary
+  commits); the safe review cursor is `73c09585`. No newer fetched commits were
+  present. Tests and builds for this session are deferred to the user.
+- `0e5e9ca9`, onboarding: **adapted** shortcut guidance, optional practice,
+  actual silent-microphone guidance and device choice, slow local-model
+  guidance, resumable setup, system language suggestions, independent saved
+  comparison languages, model recommendations and measured language grades,
+  download ETA, macOS permission guidance, language aliases, and explicit
+  regional Chinese conversion/defaults with existing-setting compatibility.
+  **Fork retained:** existing remote-provider setup, per-profile language and
+  shortcut controls, and the fork's wizard and visual style. Comparison
+  preferences do not silently change recognition language; upstream's
+  one-spoken-language inference fallback is intentionally not applied.
+  Local streaming and remote inference are not speed-rated by the practice
+  hint. New device behavior and the newest tests remain unverified.
+- `f81e7e70`, Windows grade-chip centering: **fork retained**; this UI displays
+  benchmark grades as text and does not use the affected upstream GradeChip.
+- `73c09585`, file transcription to History: **adapted** file drop routing,
+  History navigation, explicit single-file saving and optional batch saving
+  with separate managed audio, existing retention, replay and re-transcription.
+  **Fork retained:** provider-aware file transcription and persistent batch
+  queue with cancellation, retries and live-recording priority. Unlike
+  upstream, jobs run in the file workflow and History receives completed
+  results. History copying incrementally decodes/downmixes to a 16 kHz buffer;
+  in-History job progress is not included in this adaptation.
+
 Audit note (2026-10-27):
+- `perf(files): decode History copies in bounded input chunks` keeps only the
+  converted 16 kHz audio in memory, retains WAV sample errors and validates
+  channel frames. Chunk/downmix/resampling coverage was added but not run.
 - `fix(language): use regional Chinese defaults for new settings` chooses
   Taiwan or Hong Kong forms from the system locale, while preserving existing
   saved settings and profile migrations. The locale test was expanded but not
@@ -450,6 +480,8 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-10-27 | 2026-10-25 | `73c09585` | feat: transcribe files into history (#2315) | feat(files): save completed transcripts to history | fork file/batch workflow; explicit History copy; untested this session |
+| 2026-10-27 | 2026-10-25 | `0e5e9ca9` | new onboarding (#2303) | feat(onboarding): add optional dictation practice | multiple fork adaptations; newest checks deferred |
 | 2026-10-23 | 2026-10-21 | `5a9451e7` | fix: stop blocking the main thread during paste (#2302) | App windows no longer freeze while a paste runs; all output keeps one order | one ordered output worker; follow-up `dcc2f197`; macOS/Linux unverified |
 | 2026-10-21 | 2026-10-20 | `93c9ee05` | catalog from @handy-computer/models package (#2299) | Use the shared model catalog; find, list and fully delete cached models | 5 commits; unshared blobs freed; legacy cache read-only |
 | 2026-10-16 | 2026-10-12 | `7b2a28a3` | fix: don't re-emit hangover frames in VAD pre-roll | Stop repeating a moment of audio when speech resumes right after a pause | emitted flag only; regression test |
