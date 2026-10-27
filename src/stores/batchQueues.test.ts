@@ -514,6 +514,28 @@ describe("file transcription batch queue", () => {
     expect(stt.getState().items.every((item) => item.status === "completed")).toBe(true);
   });
 
+  test("optional History copies do not retry a successful transcription when an import fails", async () => {
+    backend = async (command, args) => {
+      if (command === "get_file_transcription_recording_state") return { blocksFileTranscription: false };
+      if (command === "transcribe_audio_file") return { text: `text for ${args.filePath}`, saved_file_path: `${args.filePath}.txt` };
+      if (command === "save_file_transcription_to_history" && args.filePath === "one.wav") throw "Disk full";
+    };
+    stt.getState().setSaveCompletedToHistory(true);
+    stt.getState().addFiles([request("one.wav"), request("two.wav")]);
+    await stt.getState().start();
+    expect(stt.getState().items.map((item) => item.status)).toEqual(["completed", "completed"]);
+    expect(stt.getState().items[0].historyError).toBe("Disk full");
+    expect(stt.getState().items[1].savedToHistory).toBe(true);
+    expect(calls.filter((call) => call.command === "save_file_transcription_to_history").map((call) => call.args)).toEqual([
+      { filePath: "one.wav", text: "text for one.wav" },
+      { filePath: "two.wav", text: "text for two.wav" },
+    ]);
+    stt.getState().retryFailed();
+    await stt.getState().start();
+    expect(calls.filter((call) => call.command === "transcribe_audio_file")).toHaveLength(2);
+    expect(saved("aivorelay-transcribe-file-batch-v1")).not.toHaveProperty("saveCompletedToHistory");
+  });
+
   test("a failed file does not block later files, and retry only requeues failures", async () => {
     let fail = true;
     backend = async (command, args) => {

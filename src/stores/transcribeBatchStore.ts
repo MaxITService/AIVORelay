@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { commands } from "@/bindings";
+import { invoke } from "@tauri-apps/api/core";
 import { type as osType } from "@tauri-apps/plugin-os";
 import {
   isCancellationMessage,
@@ -31,6 +32,8 @@ export interface TranscribeBatchItem {
   status: TranscribeBatchStatus;
   error: string | null;
   savedFilePath: string | null;
+  historyError?: string | null;
+  savedToHistory?: boolean;
   request: FileTranscriptionRequest;
 }
 
@@ -41,6 +44,8 @@ interface TranscribeBatchState {
   activeItemId: string | null;
   waitingReason: TranscribeBatchWaitingReason;
   error: string | null;
+  saveCompletedToHistory: boolean;
+  setSaveCompletedToHistory: (enabled: boolean) => void;
   addFiles: (requests: FileTranscriptionRequest[]) => number;
   removeItem: (id: string) => void;
   clearFinished: () => void;
@@ -67,6 +72,10 @@ export const useTranscribeBatchStore = create<TranscribeBatchState>()(
         activeItemId: null,
         waitingReason: null,
         error: null,
+        saveCompletedToHistory: false,
+        setSaveCompletedToHistory: (enabled) => {
+          if (!get().running) set({ saveCompletedToHistory: enabled });
+        },
         addFiles: (requests) => {
           const knownPaths = new Set(
             get().items
@@ -163,6 +172,17 @@ export const useTranscribeBatchStore = create<TranscribeBatchState>()(
                 );
                 if (result.status === "error") throw result.error;
                 updateItem(next.id, { status: "completed", savedFilePath: result.data.saved_file_path ?? null });
+                // Transcription has finished: a History failure must not requeue
+                // it or cause another paid provider request on retry.
+                set({ activeItemId: null });
+                if (get().saveCompletedToHistory) {
+                  try {
+                    await invoke("save_file_transcription_to_history", { filePath: request.filePath, text: result.data.text });
+                    updateItem(next.id, { savedToHistory: true, historyError: null });
+                  } catch (error) {
+                    updateItem(next.id, { savedToHistory: false, historyError: String(error) });
+                  }
+                }
               } catch (error) {
                 // A single-file job, CLI job, or local recording slipped in after
                 // the admission check: keep the file queued and retry instead of failing it.

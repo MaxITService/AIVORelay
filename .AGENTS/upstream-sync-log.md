@@ -7,6 +7,11 @@ This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
 Audit note (2026-10-27):
+- `feat(files): optionally save batch results to history` keeps successful
+  document output even if a History copy fails, reports the copy error, and
+  never retries transcription for that failure. The option applies only to
+  the current run; its IPC-boundary test was added but not run. Partial
+  adaptation of `73c09585`; cursor unchanged.
 - `feat(history): link to file transcription` gives History a direct route to
   the fork's existing file and batch workflows; no test was run at the user's
   request. This is another partial adaptation of `73c09585`.
