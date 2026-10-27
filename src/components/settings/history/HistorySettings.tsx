@@ -1317,6 +1317,11 @@ export const HistorySettings: React.FC = () => {
               onOpenRecordings={openRecordingsFolder}
             />
           </div>
+          <div className="px-4">
+            <Button variant="secondary" size="sm" onClick={() => useNavigationStore.getState().setSection("transcribeFile")}>
+              {t("transcribeFile.history.openFileTranscription", "Transcribe an audio file")}
+            </Button>
+          </div>
           <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
             <div className="relative mx-4 my-3">
               <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text/40 pointer-events-none" />

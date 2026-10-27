@@ -7,6 +7,9 @@ This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
 Audit note (2026-10-27):
+- `feat(history): link to file transcription` gives History a direct route to
+  the fork's existing file and batch workflows; no test was run at the user's
+  request. This is another partial adaptation of `73c09585`.
 - Partial adaptation of `73c09585`: `feat(files): save completed transcripts
   to history` adds an explicit action for a finished single-file transcript.
   It stores an independent mono WAV, retains the source filename as the title,
