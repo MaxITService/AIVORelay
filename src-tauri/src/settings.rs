@@ -4057,6 +4057,11 @@ pub struct AppSettings {
     pub translate_to_english: bool,
     #[serde(default = "default_selected_language")]
     pub selected_language: String,
+    /// Languages the speaker wants the local detector to distinguish, in preference order.
+    #[serde(default)]
+    pub spoken_languages: Vec<String>,
+    #[serde(default)]
+    pub language_detection: crate::language_detection::LanguageDetectionMode,
     #[serde(default)]
     pub chinese_script: ChineseScript,
     #[serde(default = "default_overlay_position")]
@@ -6430,6 +6435,8 @@ pub fn get_default_settings() -> AppSettings {
         live_sound_deepgram_endpointing_ms: None,
         translate_to_english: false,
         selected_language: "auto".to_string(),
+        spoken_languages: Vec::new(),
+        language_detection: crate::language_detection::LanguageDetectionMode::WhenNeeded,
         chinese_script: default_chinese_script(),
         overlay_position: default_overlay_position(),
         recording_overlay_enabled: default_recording_overlay_enabled(),

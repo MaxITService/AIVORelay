@@ -1804,6 +1804,8 @@ pub fn run(cli_args: CliArgs) {
         commands::file_transcription::transcribe_audio_file,
         commands::file_transcription::save_file_transcription_to_history,
         commands::audio::get_system_preferred_languages,
+        commands::language_detection::get_language_detection_config,
+        commands::language_detection::set_language_detection_config,
         commands::file_transcription::cancel_file_transcription,
         commands::file_transcription::initialize_file_transcription_model_settings,
         commands::file_transcription::change_file_soniox_speaker_diarization_setting,

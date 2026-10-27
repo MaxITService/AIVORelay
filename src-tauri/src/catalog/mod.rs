@@ -44,6 +44,8 @@ struct CatalogRoot {
     #[cfg_attr(not(test), allow(dead_code))]
     transcribe_cpp: String,
     models: Vec<RawModel>,
+    #[serde(default)]
+    language_detector: Option<String>,
     /// Benchmark results keyed by catalog id.
     #[serde(default)]
     results: HashMap<String, ModelResults>,
@@ -326,6 +328,29 @@ static ROOT: Lazy<CatalogRoot> = Lazy::new(|| {
         "bundled catalog.json has an unsupported schema"
     );
     root
+});
+
+pub struct LanguageDetectorFile {
+    pub repo_id: String,
+    pub revision: String,
+    pub filename: String,
+    pub size_bytes: u64,
+    pub sha256: String,
+    pub labels: Vec<String>,
+}
+
+pub static LANGUAGE_DETECTOR: Lazy<Option<LanguageDetectorFile>> = Lazy::new(|| {
+    let id = ROOT.language_detector.as_deref()?;
+    let model = ROOT.models.iter().find(|model| model.id == id && model.role == "langid")?;
+    let file = model.default_file()?;
+    Some(LanguageDetectorFile {
+        repo_id: model.repository.clone(),
+        revision: model.revision.clone(),
+        filename: file.filename.clone(),
+        size_bytes: file.size,
+        sha256: file.sha256.clone(),
+        labels: model.languages.clone(),
+    })
 });
 
 /// Transcription models the app can download. Language ID, VAD and
