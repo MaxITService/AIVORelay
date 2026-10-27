@@ -7,6 +7,10 @@ This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
 Audit note (2026-10-27):
+- `feat(onboarding): select microphone after silent input` refreshes the device
+  list and reuses the fork's existing microphone control when the practice
+  diagnostic reports silence. Desktop interaction remains untested; partial
+  `0e5e9ca9`.
 - `feat(onboarding): flag slow local dictation` compares completed local
   non-streaming inference with the catalog speed budget for takes of at least
   five seconds. It excludes remote, streaming, failed and stale results; its
