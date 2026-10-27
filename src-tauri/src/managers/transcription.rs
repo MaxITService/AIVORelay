@@ -2529,6 +2529,8 @@ impl TranscriptionManager {
         prompt_override: Option<String>,
         apply_custom_words_enabled: bool,
         chinese_script_override: Option<ChineseScript>,
+        spoken_languages: &[String],
+        detection_mode: crate::language_detection::LanguageDetectionMode,
     ) -> Result<(String, FileTranscriptionExecutionMeta)> {
         let (
             result,
@@ -2545,6 +2547,8 @@ impl TranscriptionManager {
             prompt_override,
             apply_custom_words_enabled,
             chinese_script_override,
+            spoken_languages,
+            detection_mode,
         )?;
 
         let filtered_result = post_process_transcription_text(
@@ -2578,6 +2582,8 @@ impl TranscriptionManager {
         prompt_override: Option<String>,
         apply_custom_words_enabled: bool,
         chinese_script_override: Option<ChineseScript>,
+        spoken_languages: &[String],
+        detection_mode: crate::language_detection::LanguageDetectionMode,
     ) -> Result<(
         String,
         Option<Vec<crate::subtitle::SubtitleSegment>>,
@@ -2598,6 +2604,8 @@ impl TranscriptionManager {
             prompt_override,
             apply_custom_words_enabled,
             chinese_script_override,
+            spoken_languages,
+            detection_mode,
         )?;
 
         let output_language = with_text_detected_language(
@@ -2660,6 +2668,8 @@ impl TranscriptionManager {
         prompt_override: Option<String>,
         apply_custom_words_enabled: bool,
         chinese_script_override: Option<ChineseScript>,
+        spoken_languages: &[String],
+        detection_mode: crate::language_detection::LanguageDetectionMode,
     ) -> Result<(
         TranscriptionResult,
         FileTranscriptionExecutionMeta,
@@ -2709,6 +2719,8 @@ impl TranscriptionManager {
 
         let mut settings = get_settings(&self.app_handle);
         if let Some(script) = chinese_script_override { settings.chinese_script = script; }
+        settings.spoken_languages = spoken_languages.to_vec();
+        settings.language_detection = detection_mode;
         let selected_language = language_override
             .map(|value| value.to_string())
             .unwrap_or_else(|| settings.selected_language.clone());
