@@ -7,6 +7,10 @@ This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
 Audit note (2026-10-27):
+- `fix(language): use regional Chinese defaults for new settings` chooses
+  Taiwan or Hong Kong forms from the system locale, while preserving existing
+  saved settings and profile migrations. The locale test was expanded but not
+  run. This completes another part of `0e5e9ca9`.
 - `fix(tests): use Bun for onboarding timing coverage` aligns the new test
   with this repository's test runner; it remains unrun at the user's request.
 - `feat(onboarding): select microphone after silent input` refreshes the device
