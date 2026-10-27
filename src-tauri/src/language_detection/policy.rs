@@ -428,4 +428,15 @@ mod tests {
         assert_eq!(auto("yue en", true), unavailable("yue", undetectable));
         assert_eq!(auto("ja", true), unavailable("en", NoMatch));
     }
+
+    #[test]
+    fn preference_aliases_keep_model_codes_and_do_not_duplicate_candidates() {
+        let languages = codes("en he no tl");
+        let model = model(&languages, false, false);
+        let labels = codes("en iw no tl");
+        assert_eq!(
+            plan("auto", &codes("iw he nb no fil tl"), &model, WhenNeeded, &labels),
+            detect("he no tl", "iw no tl", FirstLanguage),
+        );
+    }
 }

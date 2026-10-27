@@ -256,4 +256,15 @@ mod tests {
         });
         assert_eq!(failed, fallback(None));
     }
+
+    #[test]
+    fn old_settings_without_detector_fields_keep_previous_behavior() {
+        let mut value = serde_json::to_value(crate::settings::get_default_settings()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("spoken_languages");
+        object.remove("language_detection");
+        let settings: crate::settings::AppSettings = serde_json::from_value(value).unwrap();
+        assert!(settings.spoken_languages.is_empty());
+        assert_eq!(settings.language_detection, LanguageDetectionMode::WhenNeeded);
+    }
 }
