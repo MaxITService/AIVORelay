@@ -2332,6 +2332,8 @@ impl TranscriptionManager {
         prompt_override: Option<String>,
         apply_custom_words_enabled: bool,
         chinese_script_override: Option<ChineseScript>,
+        spoken_languages: &[String],
+        detection_mode: crate::language_detection::LanguageDetectionMode,
     ) -> Result<String> {
         // Update last activity timestamp
         self.begin_operation();
@@ -2361,6 +2363,8 @@ impl TranscriptionManager {
 
         let mut settings = get_settings(&self.app_handle);
         if let Some(script) = chinese_script_override { settings.chinese_script = script; }
+        settings.spoken_languages = spoken_languages.to_vec();
+        settings.language_detection = detection_mode;
 
         // Apply overrides
         let selected_language = language_override
