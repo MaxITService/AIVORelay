@@ -8,7 +8,8 @@ const entry = (overrides: Partial<HistoryEntry> = {}): HistoryEntry => ({
   id: 1, saved: false, file_name: "recording.wav", timestamp: 100,
   title: "Recording", transcription_text: "raw words", post_processed_text: null,
   post_process_prompt: null, post_process_requested: false, action_type: "transcribe",
-  original_selection: null, ai_response: null, ...overrides,
+  original_selection: null, ai_response: null,
+  ...{ language: null, language_source: null }, ...overrides,
 });
 
 test("search and highlights agree for Unicode case folding and preserve original text", () => {

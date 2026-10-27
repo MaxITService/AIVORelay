@@ -46,6 +46,21 @@ static MIGRATIONS: &[M] = &[
     ),
 ];
 
+// Nullable additive columns keep older application versions able to open the
+// database; rusqlite_migration's user_version is intentionally unchanged.
+fn ensure_language_columns(conn: &Connection) -> Result<()> {
+    let mut statement = conn.prepare("PRAGMA table_info(transcription_history)")?;
+    let names = statement.query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(statement);
+    for column in ["language", "language_source"] {
+        if !names.iter().any(|name| name == column) {
+            conn.execute(&format!("ALTER TABLE transcription_history ADD COLUMN {column} TEXT"), [])?;
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
 pub struct PaginatedHistory {
     pub entries: Vec<HistoryEntry>,
@@ -84,6 +99,8 @@ pub struct HistoryEntry {
     pub original_selection: Option<String>,
     /// For AI Replace: the AI response (None if request failed/never received)
     pub ai_response: Option<String>,
+    pub language: Option<String>,
+    pub language_source: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -215,6 +232,8 @@ fn save_imported_entry(
             action_type: "transcribe".to_string(),
             original_selection: None,
             ai_response: None,
+            language: None,
+            language_source: None,
         })
     })();
     if result.is_err() {
@@ -273,6 +292,7 @@ impl HistoryManager {
 
         // Apply any pending migrations
         migrations.to_latest(&mut conn)?;
+        ensure_language_columns(&conn)?;
 
         // Get version after migration
         let version_after: i32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
@@ -391,22 +411,22 @@ impl HistoryManager {
         post_process_requested: bool,
         post_processed_text: Option<String>,
         post_process_prompt: Option<String>,
-    ) -> Result<()> {
+        language: Option<String>,
+    ) -> Result<HistoryEntry> {
         let file_name = format!("aivorelay-{}.wav", chrono::Utc::now().timestamp_millis());
 
         // Save WAV file
         let file_path = self.recordings_dir.join(&file_name);
         save_wav_file(file_path, &audio_samples)?;
 
-        self.save_entry(
+        self.save_entry_with_language(
             file_name,
             transcription_text,
             post_process_requested,
             post_processed_text,
             post_process_prompt,
-        )?;
-
-        Ok(())
+            language,
+        )
     }
 
     pub fn save_entry(
@@ -417,6 +437,19 @@ impl HistoryManager {
         post_processed_text: Option<String>,
         post_process_prompt: Option<String>,
     ) -> Result<HistoryEntry> {
+        self.save_entry_with_language(file_name, transcription_text, post_process_requested, post_processed_text, post_process_prompt, None)
+    }
+
+    pub fn save_entry_with_language(
+        &self,
+        file_name: String,
+        transcription_text: String,
+        post_process_requested: bool,
+        post_processed_text: Option<String>,
+        post_process_prompt: Option<String>,
+        language: Option<String>,
+    ) -> Result<HistoryEntry> {
+        let language_source = language.as_ref().map(|_| "detected".to_string());
         let timestamp = Utc::now().timestamp();
         let title = self.format_timestamp_title(timestamp);
         let conn = self.get_connection()?;
@@ -430,8 +463,10 @@ impl HistoryManager {
                 post_processed_text,
                 post_process_prompt,
                 post_process_requested,
-                action_type
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                action_type,
+                language,
+                language_source
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 file_name,
                 timestamp,
@@ -441,7 +476,9 @@ impl HistoryManager {
                 post_processed_text,
                 post_process_prompt,
                 post_process_requested,
-                "transcribe"
+                "transcribe",
+                language,
+                language_source
             ],
         )?;
 
@@ -458,6 +495,8 @@ impl HistoryManager {
             action_type: "transcribe".to_string(),
             original_selection: None,
             ai_response: None,
+            language,
+            language_source,
         };
 
         debug!("Saved transcription to database");
@@ -507,7 +546,7 @@ impl HistoryManager {
 
         let entry = conn
             .query_row(
-                "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response
+                "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response, language, language_source
                  FROM transcription_history
                  WHERE id = ?1",
                 params![id],
@@ -682,6 +721,8 @@ impl HistoryManager {
                 .unwrap_or_else(|| "transcribe".to_string()),
             original_selection: row.get("original_selection")?,
             ai_response: row.get("ai_response")?,
+            language: row.get("language")?,
+            language_source: row.get("language_source")?,
         })
     }
 
@@ -755,7 +796,7 @@ impl HistoryManager {
         let mut entries = match (cursor, limit) {
             (Some(cursor_id), Some(page_size)) => {
                 let mut stmt = conn.prepare(
-                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response
+                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response, language, language_source
                      FROM transcription_history
                      WHERE id < ?1
                      ORDER BY id DESC
@@ -769,7 +810,7 @@ impl HistoryManager {
             }
             (None, Some(page_size)) => {
                 let mut stmt = conn.prepare(
-                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response
+                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response, language, language_source
                      FROM transcription_history
                      ORDER BY id DESC
                      LIMIT ?1",
@@ -780,7 +821,7 @@ impl HistoryManager {
             }
             (_, None) => {
                 let mut stmt = conn.prepare(
-                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response
+                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response, language, language_source
                      FROM transcription_history
                      ORDER BY id DESC",
                 )?;
@@ -810,7 +851,7 @@ impl HistoryManager {
             .build()?;
         let fetch_count = limit.map_or(usize::MAX, |value| value + 1);
         let mut stmt = conn.prepare(
-            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response
+            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response, language, language_source
              FROM transcription_history
              WHERE ?1 IS NULL OR id < ?1
              ORDER BY id DESC",
@@ -858,7 +899,7 @@ impl HistoryManager {
 
     fn get_latest_entry_with_conn(conn: &Connection) -> Result<Option<HistoryEntry>> {
         let mut stmt = conn.prepare(
-            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response
+            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response, language, language_source
              FROM transcription_history
              ORDER BY timestamp DESC, id DESC
              LIMIT 1",
@@ -876,7 +917,7 @@ impl HistoryManager {
 
     fn get_latest_completed_entry_with_conn(conn: &Connection) -> Result<Option<HistoryEntry>> {
         let mut stmt = conn.prepare(
-            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response
+            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response, language, language_source
              FROM transcription_history
              WHERE action_type = 'transcribe' AND transcription_text != ''
              ORDER BY timestamp DESC, id DESC
@@ -927,7 +968,7 @@ impl HistoryManager {
     pub async fn get_entry_by_id(&self, id: i64) -> Result<Option<HistoryEntry>> {
         let conn = self.get_connection()?;
         let mut stmt = conn.prepare(
-            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response
+            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, action_type, original_selection, ai_response, language, language_source
              FROM transcription_history WHERE id = ?1",
         )?;
 
@@ -1144,6 +1185,8 @@ impl HistoryManager {
                 action_type: "ai_replace".to_string(),
                 original_selection: Some(original_selection),
                 ai_response,
+                language: None,
+                language_source: None,
             });
         }
 
@@ -1350,6 +1393,31 @@ mod tests {
     use rusqlite::{params, Connection};
 
     #[test]
+    fn language_columns_preserve_existing_history_and_schema_version() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE transcription_history (id INTEGER PRIMARY KEY, transcription_text TEXT NOT NULL);
+             INSERT INTO transcription_history VALUES (1, 'existing');
+             PRAGMA user_version = 5;",
+        ).unwrap();
+        ensure_language_columns(&conn).unwrap();
+        ensure_language_columns(&conn).unwrap();
+        let existing: (String, Option<String>, Option<String>) = conn.query_row(
+            "SELECT transcription_text, language, language_source FROM transcription_history WHERE id = 1",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        assert_eq!(existing, ("existing".to_string(), None, None));
+        let version: i32 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
+        assert_eq!(version, 5);
+        conn.execute("UPDATE transcription_history SET language = 'ru', language_source = 'detected' WHERE id = 1", []).unwrap();
+        let stored: (String, String) = conn.query_row(
+            "SELECT language, language_source FROM transcription_history WHERE id = 1",
+            [], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(stored, ("ru".to_string(), "detected".to_string()));
+    }
+
+    #[test]
     fn imported_history_keeps_audio_and_database_consistent() {
         let dir = std::env::temp_dir().join(format!(
             "aivorelay-history-import-{}-{}",
@@ -1388,7 +1456,9 @@ mod tests {
                 post_process_requested BOOLEAN NOT NULL DEFAULT 0,
                 action_type TEXT DEFAULT 'transcribe',
                 original_selection TEXT,
-                ai_response TEXT
+                ai_response TEXT,
+                language TEXT,
+                language_source TEXT
             );",
         )
         .expect("create transcription_history table");
