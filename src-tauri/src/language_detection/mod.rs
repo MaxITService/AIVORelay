@@ -43,6 +43,13 @@ pub enum LanguageSource {
     Fallback,
 }
 
+/// Some native engines ignore language hints entirely; let them decide instead
+/// of running the detector and reporting a choice they cannot honor.
+pub fn engine_accepts_language(engine: &crate::managers::model::EngineType) -> bool {
+    use crate::managers::model::EngineType;
+    matches!(engine, EngineType::TranscribeCpp | EngineType::Whisper | EngineType::SenseVoice | EngineType::Canary | EngineType::Cohere)
+}
+
 /// The language one transcription runs in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LanguageDecision {
@@ -180,6 +187,15 @@ impl Plan {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detector_is_only_used_with_engines_that_accept_language_hints() {
+        use crate::managers::model::EngineType;
+        assert!(!engine_accepts_language(&EngineType::Parakeet));
+        assert!(!engine_accepts_language(&EngineType::Moonshine));
+        assert!(engine_accepts_language(&EngineType::Canary));
+        assert!(engine_accepts_language(&EngineType::TranscribeCpp));
+    }
 
     fn codes(list: &[&str]) -> Vec<String> {
         list.iter().map(|c| c.to_string()).collect()

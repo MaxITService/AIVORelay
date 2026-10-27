@@ -543,6 +543,41 @@ impl fmt::Display for StartRecordingError {
 
 /* ──────────────────────────────────────────────────────────────── */
 
+pub(crate) fn create_smoothed_detector(
+    app_handle: &tauri::AppHandle,
+    settings: &AppSettings,
+    backend: VadBackend,
+) -> Result<SmoothedVad, anyhow::Error> {
+    let detector: Box<dyn VoiceActivityDetector> = match backend {
+        VadBackend::Silero => {
+            let vad_path = app_handle
+                .path()
+                .resolve(
+                    "resources/models/silero_vad_v4.onnx",
+                    tauri::path::BaseDirectory::Resource,
+                )
+                .map_err(|e| anyhow::anyhow!("Failed to resolve VAD path: {e}"))?;
+            Box::new(
+                SileroVad::new(vad_path, settings.vad_threshold)
+                    .map_err(|e| anyhow::anyhow!("Failed to create SileroVad: {e}"))?,
+            )
+        }
+        VadBackend::Earshot => Box::new(
+            EarshotVad::new(settings.vad_threshold)
+                .map_err(|e| anyhow::anyhow!("Failed to create EarshotVad: {e}"))?,
+        ),
+    };
+
+    let frame_samples = detector.frame_samples();
+    let prefill_frames = frames_for_duration_ms(VAD_PREFILL_MS, frame_samples);
+    let hangover_frames = frames_for_duration_ms(VAD_OFFLINE_HANGOVER_MS, frame_samples);
+    let onset_frames = frames_for_duration_ms(VAD_ONSET_MS, frame_samples);
+    let smoothed_vad =
+        SmoothedVad::new(detector, prefill_frames, hangover_frames, onset_frames);
+
+    Ok(smoothed_vad)
+}
+
 fn create_audio_recorder(
     app_handle: &tauri::AppHandle,
     settings: &AppSettings,
@@ -553,33 +588,7 @@ fn create_audio_recorder(
 
     // Attach VAD when silence filtering is enabled.
     if settings.filter_silence {
-        let detector: Box<dyn VoiceActivityDetector> = match backend {
-            VadBackend::Silero => {
-                let vad_path = app_handle
-                    .path()
-                    .resolve(
-                        "resources/models/silero_vad_v4.onnx",
-                        tauri::path::BaseDirectory::Resource,
-                    )
-                    .map_err(|e| anyhow::anyhow!("Failed to resolve VAD path: {e}"))?;
-                Box::new(
-                    SileroVad::new(vad_path, settings.vad_threshold)
-                        .map_err(|e| anyhow::anyhow!("Failed to create SileroVad: {e}"))?,
-                )
-            }
-            VadBackend::Earshot => Box::new(
-                EarshotVad::new(settings.vad_threshold)
-                    .map_err(|e| anyhow::anyhow!("Failed to create EarshotVad: {e}"))?,
-            ),
-        };
-
-        let frame_samples = detector.frame_samples();
-        let prefill_frames = frames_for_duration_ms(VAD_PREFILL_MS, frame_samples);
-        let hangover_frames = frames_for_duration_ms(VAD_OFFLINE_HANGOVER_MS, frame_samples);
-        let onset_frames = frames_for_duration_ms(VAD_ONSET_MS, frame_samples);
-        let smoothed_vad =
-            SmoothedVad::new(detector, prefill_frames, hangover_frames, onset_frames);
-        recorder = recorder.with_vad(Box::new(smoothed_vad));
+        recorder = recorder.with_vad(Box::new(create_smoothed_detector(app_handle, settings, backend)?));
     }
 
     recorder = recorder.with_selected_channel(settings.selected_channel);
