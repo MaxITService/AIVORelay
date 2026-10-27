@@ -7,6 +7,12 @@ This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
 Audit note (2026-10-27):
+- Partial adaptation of `73c09585`: `feat(files): save completed transcripts
+  to history` adds an explicit action for a finished single-file transcript.
+  It stores an independent mono WAV, retains the source filename as the title,
+  and uses existing History retention and replay. The in-memory database and
+  failed-insert cleanup test was added but not run at the user's request; batch
+  integration and desktop behavior remain to be reviewed. Cursor unchanged.
 - Further partial adaptations of `0e5e9ca9` (`new onboarding (#2303)`):
   `25725b3b` (`feat(onboarding): compare model language coverage`),
   `60c82c77` (`feat(onboarding): recommend models for selected languages`),
