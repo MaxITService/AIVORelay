@@ -6,21 +6,45 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
-Intake in progress (2026-10-27):
-- Fetched `upstream/main` at `7bfb2e2c`; the completed safe review cursor
-  remains `73c09585` while `126bed73` is still being adapted. Revisit the
-  entire corridor on the next intake; do not treat the detector as complete.
-- `126bed73` language detection: the upstream model catalog and package were
-  updated by `29ceb484` (`chore(models): update language detector catalog`).
-  The detector runtime, preferred-language policy, model download and UI,
-  history metadata, and dictation/profile/file integration remain outstanding.
-  Preserve the fork's streaming, OS-input language, remote-provider, Chinese
-  script, cancellation, file snapshots, and engine isolation behavior.
-- `2b3f7c81` Debian OpenSSL dependency: adapted by `5f0722fc`
+Audit and fixes (2026-10-27):
+- The review cursor remains `7bfb2e2c`. Integrated fixes repair detector
+  download URLs and checksums, dependent-download ordering, unsupported engine
+  handling, VAD configuration, status refresh, and file-history null handling.
+- Frontend tests: 366 passed; TypeScript check passed. Rust tests: 1178 passed
+  and 23 ignored before the final download synchronization change; the final
+  Rust changes compiled, but a repeat run was blocked by the running app.
+  The pinned detector was downloaded from Hugging Face and its size and SHA-256
+  verified; GET range requests succeeded for both download sources.
+- Translation-scope check passed. Catalog consistency check could not pass:
+  installed `@handy-computer/models` is 0.2.2 while the lockfile requires 0.2.3.
+  Targeted ESLint reported three pre-existing literal-string violations.
+- Native streaming still uses the model's own detection or fallback, and History
+  does not capture languages independently reported by auto-detecting models.
+Review completed (2026-10-27):
+- Reviewed `73c09585..7bfb2e2c` (three ordinary commits). The safe review
+  cursor for the next intake is `7bfb2e2c`. No builds or tests were run for
+  this intake at the user's request.
+- `126bed73` language detection: **adapted** local CPU detector, catalog,
+  verified on-demand and dependent model download, preferred-language policy,
+  settings and detection-window controls, dictation and file transcription,
+  profile/operation snapshots, model status and history language/source. Main
+  commits range from `c259f0a0` (`chore(models): update language detector
+  catalog`) through `db32d142` (`feat(history): record language selection
+  source`). The database change is additive and keeps existing history and
+  schema version. Empty spoken-language preferences preserve old behavior.
+  **Fork retained:** the existing remote provider and native-stream paths;
+  native streams do not buffer audio for the separate detector and use native
+  detection or the first compatible language. History records decisions passed
+  to local batch models; it does not currently capture a language independently
+  reported by an auto-detecting model. The upstream model-mirror script does
+  not exist in this fork; download uses its existing Hugging Face and mirror
+  infrastructure. UI uses this fork's settings layout. Runtime, migration,
+  UI, download and platform behavior remain untested.
+- `2b3f7c81` Debian OpenSSL dependency: **adapted** by `6cc1075f`
   (`fix(linux): declare OpenSSL runtime dependency`).
-- `7bfb2e2c` Intel macOS Metal fix: adapted by `2ccebf1b`
-  (`fix(macos): disable Metal on Intel Macs`). Linux and macOS builds remain
-  unverified on this Windows machine; tests are deferred to the user.
+- `7bfb2e2c` Intel macOS Metal fix: **adapted** by `1ae04b83`
+  (`fix(macos): disable Metal on Intel Macs`). Linux and macOS builds were
+  not verified on this Windows machine.
 
 Review completed (2026-10-27):
 - Reviewed the locally fetched `5a9451e7..73c09585` corridor (three ordinary
