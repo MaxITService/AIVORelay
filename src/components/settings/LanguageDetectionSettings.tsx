@@ -8,7 +8,7 @@ import { SettingsGroup } from "../ui/SettingsGroup";
 import { Button } from "../ui/Button";
 import { useSettingsStore } from "@/stores/settingsStore";
 
-type Config = { spoken_languages: string[]; mode: "when_needed" | "always" };
+type Config = { spoken_languages: string[]; mode: "when_needed" | "always"; window_secs: number };
 type DownloadProgress = { model_id: string; percentage: number };
 type LanguageStatus =
   | { kind: "auto" }
@@ -66,7 +66,7 @@ export const LanguageDetectionSettings: React.FC = () => {
     setBusy(true);
     setError("");
     try {
-      await invoke("set_language_detection_config", { spokenLanguages: next.spoken_languages, mode: next.mode });
+      await invoke("set_language_detection_config", { spokenLanguages: next.spoken_languages, mode: next.mode, windowSecs: next.window_secs });
       setConfig(next);
     } catch (reason) { setError(String(reason)); }
     finally { setBusy(false); }
@@ -110,6 +110,12 @@ export const LanguageDetectionSettings: React.FC = () => {
           <select className="rounded border border-white/20 bg-mid-gray p-2" disabled={!config || busy} value={config?.mode ?? "when_needed"} onChange={(event) => config && void save({ ...config, mode: event.target.value as Config["mode"] })}>
             <option value="when_needed">{t("settings.spokenLanguage.whenNeeded", "When the model cannot detect language")}</option>
             <option value="always">{t("settings.spokenLanguage.always", "Also for models with built-in detection")}</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          {t("settings.spokenLanguage.window", "Maximum speech used for detection")}
+          <select className="rounded border border-white/20 bg-mid-gray p-2" disabled={!config || busy} value={config?.window_secs ?? 5} onChange={(event) => config && void save({ ...config, window_secs: Number(event.target.value) })}>
+            {Array.from({ length: 29 }, (_, index) => index + 2).map((seconds) => <option key={seconds} value={seconds}>{seconds} s</option>)}
           </select>
         </label>
         <p className="text-text/70">{downloaded ? t("settings.spokenLanguage.downloaded", "Language detector downloaded") : t("settings.spokenLanguage.missing", "Language detector is not downloaded (about 45 MB).")}</p>

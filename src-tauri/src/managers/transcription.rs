@@ -801,7 +801,7 @@ impl TranscriptionManager {
             let result = crate::managers::audio::create_smoothed_detector(
                 &self.app_handle, settings, settings.vad_backend,
             ).and_then(|mut vad| {
-                crate::language_detection::speech::speech_head(&mut vad, audio, 5 * 16_000)
+                crate::language_detection::speech::speech_head(&mut vad, audio, settings.language_detection_window_secs.clamp(2, 30) as usize * 16_000)
             });
             match result {
                 Ok(speech) => Some(speech),
@@ -2372,6 +2372,7 @@ impl TranscriptionManager {
         chinese_script_override: Option<ChineseScript>,
         spoken_languages: &[String],
         detection_mode: crate::language_detection::LanguageDetectionMode,
+        detection_window_secs: u32,
     ) -> Result<(String, Option<crate::language_detection::LanguageDecision>)> {
         // Update last activity timestamp
         self.begin_operation();
@@ -2403,6 +2404,7 @@ impl TranscriptionManager {
         if let Some(script) = chinese_script_override { settings.chinese_script = script; }
         settings.spoken_languages = spoken_languages.to_vec();
         settings.language_detection = detection_mode;
+        settings.language_detection_window_secs = detection_window_secs;
 
         // Apply overrides
         let selected_language = language_override
@@ -2583,6 +2585,7 @@ impl TranscriptionManager {
         chinese_script_override: Option<ChineseScript>,
         spoken_languages: &[String],
         detection_mode: crate::language_detection::LanguageDetectionMode,
+        detection_window_secs: u32,
     ) -> Result<(String, FileTranscriptionExecutionMeta)> {
         let (
             result,
@@ -2601,6 +2604,7 @@ impl TranscriptionManager {
             chinese_script_override,
             spoken_languages,
             detection_mode,
+            detection_window_secs,
         )?;
 
         let filtered_result = post_process_transcription_text(
@@ -2636,6 +2640,7 @@ impl TranscriptionManager {
         chinese_script_override: Option<ChineseScript>,
         spoken_languages: &[String],
         detection_mode: crate::language_detection::LanguageDetectionMode,
+        detection_window_secs: u32,
     ) -> Result<(
         String,
         Option<Vec<crate::subtitle::SubtitleSegment>>,
@@ -2658,6 +2663,7 @@ impl TranscriptionManager {
             chinese_script_override,
             spoken_languages,
             detection_mode,
+            detection_window_secs,
         )?;
 
         let output_language = with_text_detected_language(
@@ -2722,6 +2728,7 @@ impl TranscriptionManager {
         chinese_script_override: Option<ChineseScript>,
         spoken_languages: &[String],
         detection_mode: crate::language_detection::LanguageDetectionMode,
+        detection_window_secs: u32,
     ) -> Result<(
         TranscriptionResult,
         FileTranscriptionExecutionMeta,
@@ -2773,6 +2780,7 @@ impl TranscriptionManager {
         if let Some(script) = chinese_script_override { settings.chinese_script = script; }
         settings.spoken_languages = spoken_languages.to_vec();
         settings.language_detection = detection_mode;
+        settings.language_detection_window_secs = detection_window_secs;
         let selected_language = language_override
             .map(|value| value.to_string())
             .unwrap_or_else(|| settings.selected_language.clone());
