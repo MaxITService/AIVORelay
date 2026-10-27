@@ -27,7 +27,8 @@ pub async fn download_language_detector(manager: State<'_, Arc<ModelManager>>) -
 #[tauri::command]
 #[specta::specta]
 pub fn cancel_language_detector_download(manager: State<'_, Arc<ModelManager>>) -> Result<(), String> {
-    manager.cancel_download("language-detector").map_err(|error| error.to_string())
+    manager.cancel_language_detector_download();
+    Ok(())
 }
 
 #[tauri::command]
