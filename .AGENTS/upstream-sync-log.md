@@ -7,6 +7,11 @@ This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
 Audit note (2026-10-27):
+- `feat(onboarding): suggest system languages for model comparison` reads
+  Windows preferred languages and Linux LANGUAGE, falling back to webview
+  languages. It never overwrites a manual selection or dictation settings.
+  Locale-normalization coverage was added but not run. macOS uses webview
+  languages; all platform behavior awaits testing. Partial `0e5e9ca9`.
 - `feat(files): optionally save batch results to history` keeps successful
   document output even if a History copy fails, reports the copy error, and
   never retries transcription for that failure. The option applies only to

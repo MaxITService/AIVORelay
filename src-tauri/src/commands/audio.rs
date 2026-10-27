@@ -13,6 +13,32 @@ use specta::Type;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
+/// System language preferences are suggestions only; they do not alter a profile.
+#[tauri::command]
+#[specta::specta]
+pub fn get_system_preferred_languages() -> Vec<String> {
+    #[cfg(target_os = "windows")]
+    {
+        match windows::System::UserProfile::GlobalizationPreferences::Languages() {
+            Ok(languages) => languages.into_iter().map(|language| language.to_string()).collect(),
+            Err(error) => {
+                warn!("Could not read Windows preferred languages: {}", error);
+                Vec::new()
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var("LANGUAGE").unwrap_or_default().split(':')
+            .filter(|language| !language.is_empty())
+            .map(str::to_string).collect()
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Vec::new()
+    }
+}
+
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::process::Command;
 

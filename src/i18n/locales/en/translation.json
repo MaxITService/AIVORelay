@@ -1873,7 +1873,7 @@
     },
     "modelLanguages": {
       "title": "Languages to compare",
-      "hint": "Suggestions are based on the interface locale. Add or remove languages to compare models; this does not change your dictation settings.",
+      "hint": "Suggestions use your system or interface languages. Add or remove languages to compare models; this does not change your dictation settings.",
       "add": "Add a language…",
       "remove": "Remove {{language}}",
       "missing": "Not listed for: {{languages}}",
