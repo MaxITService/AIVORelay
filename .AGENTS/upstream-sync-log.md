@@ -7,6 +7,11 @@ This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
 Audit note (2026-10-27):
+- `feat(models): remember languages for model comparison` keeps explicit
+  comparison choices in local storage, preserves an intentional empty list,
+  and shows measured per-language grades on the Models page without changing
+  profile recognition settings. Preference parsing tests were added but not
+  run. This partially adapts `0e5e9ca9`; cursor unchanged.
 - `feat(onboarding): suggest system languages for model comparison` reads
   Windows preferred languages and Linux LANGUAGE, falling back to webview
   languages. It never overwrites a manual selection or dictation settings.
