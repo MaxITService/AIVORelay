@@ -646,6 +646,7 @@ pub struct ModelManager {
     missing_selection_notice: Mutex<Option<(String, Option<String>)>>,
     /// Cancellation tokens for active downloads, keyed by model_id
     cancellation_tokens: Mutex<HashMap<String, CancellationToken>>,
+    verified_detectors: Mutex<HashMap<PathBuf, (u64, std::time::SystemTime, String)>>,
 }
 
 struct ModelDownloadGuard<'a> {
@@ -673,7 +674,86 @@ impl Drop for ModelDownloadGuard<'_> {
     }
 }
 
+fn detector_download_urls(repo: &str, revision: &str, filename: &str) -> [String; 2] {
+    [
+        format!("https://huggingface.co/{repo}/resolve/{revision}/{filename}"),
+        format!("https://blob.handy.computer/{repo}/{revision}/{filename}"),
+    ]
+}
+
+fn detector_file_matches(
+    path: &Path, expected_size: u64, expected_sha256: &str,
+    cache: &Mutex<HashMap<PathBuf, (u64, std::time::SystemTime, String)>>,
+) -> bool {
+    let Ok(metadata) = path.metadata() else { return false; };
+    if !metadata.is_file() || metadata.len() != expected_size { return false; }
+    let Ok(modified) = metadata.modified() else { return false; };
+    let mut verified = cache.lock().unwrap();
+    if verified.get(path).is_some_and(|(size, mtime, hash)| {
+        *size == metadata.len() && *mtime == modified && hash == expected_sha256
+    }) { return true; }
+    let valid = ModelManager::compute_sha256_cancellable(path, None)
+        .ok().flatten().is_some_and(|hash| hash == expected_sha256)
+        && path.metadata().ok().is_some_and(|after| {
+            after.len() == metadata.len() && after.modified().ok() == Some(modified)
+        });
+    if valid { verified.insert(path.to_path_buf(), (metadata.len(), modified, expected_sha256.to_string())); }
+    valid
+}
+
 impl ModelManager {
+    pub fn language_detector_path(&self) -> Option<PathBuf> {
+        let detector = crate::catalog::LANGUAGE_DETECTOR.as_ref()?;
+        let mut candidates = hf_cached_paths_in(
+            &hf_caches(), &detector.repo_id, &detector.revision, &detector.filename,
+        );
+        candidates.push(self.models_dir.join(&detector.filename));
+        candidates.into_iter().find(|path| {
+            detector_file_matches(path, detector.size_bytes, &detector.sha256, &self.verified_detectors)
+        })
+    }
+
+    pub async fn download_language_detector(&self) -> Result<()> {
+        self.download_language_detector_with(CancellationToken::new()).await
+    }
+
+    async fn download_language_detector_with(&self, cancel: CancellationToken) -> Result<()> {
+        const ID: &str = "language-detector";
+        let detector = crate::catalog::LANGUAGE_DETECTOR.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Language detector is missing from the catalog"))?;
+        {
+            let mut tokens = self.cancellation_tokens.lock().unwrap();
+            if tokens.contains_key(ID) {
+                anyhow::bail!("Language detector download is already running");
+            }
+            tokens.insert(ID.to_string(), cancel.clone());
+        }
+        let _guard = ModelDownloadGuard { manager: self, model_id: ID };
+        if self.language_detector_path().is_some() {
+            return Ok(());
+        }
+        let partial = self.models_dir.join(format!("{}.partial", detector.filename));
+        let urls = detector_download_urls(&detector.repo_id, &detector.revision, &detector.filename);
+        let mut last_error = None;
+        for url in urls {
+            match self.download_http_file(ID, &url, &partial, Some(detector.size_bytes), Some(&detector.sha256), cancel.clone()).await {
+                Ok(true) => {
+                    let destination = self.models_dir.join(&detector.filename);
+                    if destination.exists() { fs::remove_file(&destination)?; }
+                    fs::rename(&partial, destination)?;
+                    let _ = self.app_handle.emit("model-download-complete", ID);
+                    return Ok(());
+                }
+                Ok(false) => return Ok(()),
+                Err(error) => {
+                    warn!("Language detector download from {url} failed: {error:#}");
+                    last_error = Some(error);
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Language detector download failed")))
+    }
+
     pub fn new(app_handle: &AppHandle) -> Result<Self> {
         // Create models directory in app data
         let models_dir = crate::portable::app_data_dir(app_handle)
@@ -1241,6 +1321,7 @@ impl ModelManager {
             available_models: Mutex::new(available_models),
             missing_selection_notice: Mutex::new(None),
             cancellation_tokens: Mutex::new(HashMap::new()),
+            verified_detectors: Mutex::new(HashMap::new()),
         };
 
         // Migrate any bundled models to user directory
@@ -2321,16 +2402,13 @@ impl ModelManager {
         revision: String,
         filename: String,
         cancel_token: CancellationToken,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         if hf_cached_path(&repo_id, &revision, &filename).is_some()
             || (hf_file_has_local_mirror(&repo_id, &filename)
                 && self.models_dir.join(&filename).exists())
         {
             self.update_download_status()?;
-            let _ = self
-                .app_handle
-                .emit("model-download-complete", &model_info.id);
-            return Ok(());
+            return Ok(true);
         }
 
         {
@@ -2443,9 +2521,6 @@ impl ModelManager {
                             }
                             Ok(true) => {
                                 self.update_download_status()?;
-                                let _ = self
-                                    .app_handle
-                                    .emit("model-download-complete", &model_info.id);
                                 info!("Successfully downloaded HF model {}", model_info.id);
                                 return Ok(true);
                             }
@@ -2507,9 +2582,6 @@ impl ModelManager {
                         }
                         fs::rename(&partial_path, &model_path)?;
                         self.update_download_status()?;
-                        let _ = self
-                            .app_handle
-                            .emit("model-download-complete", &model_info.id);
                         info!(
                             "Successfully downloaded model {} from mirror",
                             model_info.id
@@ -2553,7 +2625,43 @@ impl ModelManager {
                 .emit("model-download-cancelled", &model_info.id);
         }
 
-        result.map(|_| ())
+        result
+    }
+
+    async fn download_detector_for_model(&self, model: &ModelInfo, cancel: &CancellationToken) {
+        let languages = crate::language_detection::policy::ModelLanguages {
+            languages: &model.supported_languages,
+            detects: model.supports_language_detection,
+            streaming: model.supports_streaming,
+        };
+        if !crate::language_detection::policy::requires_language_detector(&languages) { return; }
+
+        let mut waited = false;
+        loop {
+            if cancel.is_cancelled() || self.language_detector_path().is_some() { return; }
+            let running = self.cancellation_tokens.lock().unwrap().contains_key("language-detector");
+            if running {
+                waited = true;
+                tokio::select! {
+                    _ = cancel.cancelled() => return,
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {}
+                }
+                continue;
+            }
+            if waited { return; }
+            match self.download_language_detector_with(cancel.child_token()).await {
+                Ok(()) => return,
+                Err(error) => {
+                    // Another caller may have claimed the detector between the
+                    // check above and our attempt. Wait for that transfer.
+                    if self.cancellation_tokens.lock().unwrap().contains_key("language-detector") {
+                        continue;
+                    }
+                    warn!("Could not download language detector: {error:#}");
+                    return;
+                }
+            }
+        }
     }
 
     pub async fn download_model(&self, model_id: &str) -> Result<()> {
@@ -2578,13 +2686,21 @@ impl ModelManager {
             model_info.ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
 
         if let Some((repo_id, revision, filename)) = model_hf_source(&model_info) {
-            return self
-                .download_hf_model(&model_info, repo_id, revision, filename, cancel_token)
-                .await;
+            let completed = self
+                .download_hf_model(&model_info, repo_id, revision, filename, cancel_token.clone())
+                .await?;
+            if completed {
+                if !cancel_token.is_cancelled() {
+                    self.download_detector_for_model(&model_info, &cancel_token).await;
+                }
+                let event = if cancel_token.is_cancelled() { "model-download-cancelled" } else { "model-download-complete" };
+                let _ = self.app_handle.emit(event, model_id);
+            }
+            return Ok(());
         }
 
         let url = model_info
-            .url
+            .url.clone()
             .ok_or_else(|| anyhow::anyhow!("No download URL for model"))?;
         let model_path = self.models_dir.join(&model_info.filename);
         let partial_path = self
@@ -2599,6 +2715,9 @@ impl ModelManager {
                 let _ = fs::remove_file(&partial_path);
             }
             self.update_download_status()?;
+            self.download_detector_for_model(&model_info, &cancel_token).await;
+            let event = if cancel_token.is_cancelled() { "model-download-cancelled" } else { "model-download-complete" };
+            let _ = self.app_handle.emit(event, model_id);
             return Ok(());
         }
 
@@ -2724,6 +2843,12 @@ impl ModelManager {
                 let _ = fs::remove_file(&partial_path);
             } else {
                 fs::rename(&partial_path, &model_path)?;
+            }
+
+            self.download_detector_for_model(&model_info, &cancel_token).await;
+            if cancel_token.is_cancelled() {
+                let _ = self.app_handle.emit("model-download-cancelled", model_id);
+                return Ok(());
             }
 
             {
@@ -3102,6 +3227,26 @@ mod tests {
         effective_language, hf_source_url, model_hf_source, HfDownloadProgressState, ModelManager,
     };
     use std::collections::HashMap;
+
+    #[test]
+    fn detector_sources_are_real_http_urls() {
+        let urls = super::detector_download_urls("owner/model", "pinned", "model.gguf");
+        assert_eq!(urls[0], "https://huggingface.co/owner/model/resolve/pinned/model.gguf");
+        assert_eq!(urls[1], "https://blob.handy.computer/owner/model/pinned/model.gguf");
+    }
+
+    #[test]
+    fn detector_file_verification_rejects_wrong_bytes_and_keeps_original() {
+        let fixture = HfCacheFixture::new();
+        let cache_dir = fixture.cache("verify");
+        let file = fixture.snapshot(&cache_dir, "pinned", "pinned-commit");
+        let cache = std::sync::Mutex::new(HashMap::new());
+        let hash = ModelManager::compute_sha256(&file).unwrap();
+        assert!(super::detector_file_matches(&file, 13, &hash, &cache));
+        assert!(!super::detector_file_matches(&file, 13, &"0".repeat(64), &cache));
+        assert!(!super::detector_file_matches(&file, 99, &hash, &cache));
+        assert!(file.exists());
+    }
 
     #[test]
     fn extraction_cancellation_is_terminal_instead_of_retryable_interruption() {

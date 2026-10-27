@@ -2,12 +2,32 @@ use crate::language_detection::LanguageDetectionMode;
 use crate::settings::{get_settings, write_settings_checked};
 use serde::Serialize;
 use specta::Type;
-use tauri::AppHandle;
+use std::sync::Arc;
+use tauri::{AppHandle, State};
+use crate::managers::model::ModelManager;
 
 #[derive(Serialize, Type)]
 pub struct LanguageDetectionConfig {
     pub spoken_languages: Vec<String>,
     pub mode: LanguageDetectionMode,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn language_detector_downloaded(manager: State<'_, Arc<ModelManager>>) -> bool {
+    manager.language_detector_path().is_some()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn download_language_detector(manager: State<'_, Arc<ModelManager>>) -> Result<(), String> {
+    manager.download_language_detector().await.map_err(|error| format!("{error:#}"))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_language_detector_download(manager: State<'_, Arc<ModelManager>>) -> Result<(), String> {
+    manager.cancel_download("language-detector").map_err(|error| error.to_string())
 }
 
 #[tauri::command]
