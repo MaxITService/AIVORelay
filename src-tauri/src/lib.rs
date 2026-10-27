@@ -26,6 +26,7 @@ mod hotkey_guide;
 mod input;
 mod input_source;
 mod language_resolver;
+mod language_detection;
 mod live_output_buffer;
 mod llm_client;
 mod llm_live_output;
