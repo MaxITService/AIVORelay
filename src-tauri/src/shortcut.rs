@@ -1358,6 +1358,7 @@ pub fn change_preview_output_only_enabled_setting(
         crate::overlay::reset_soniox_live_preview(&app);
         crate::overlay::hide_soniox_live_preview_window(&app);
     }
+    crate::tray::refresh_tray_menu(&app, None);
     Ok(())
 }
 
@@ -1421,9 +1422,12 @@ pub fn change_translate_to_english_setting(app: AppHandle, enabled: bool) -> Res
 #[tauri::command]
 #[specta::specta]
 pub fn change_selected_language_setting(app: AppHandle, language: String) -> Result<(), String> {
+    let guard = settings::lock_settings_mutation("changing transcription language")?;
     let mut settings = settings::get_settings(&app);
     settings.selected_language = language;
-    settings::write_settings(&app, settings);
+    settings::write_settings_checked(&app, settings)?;
+    drop(guard);
+    crate::tray::refresh_tray_menu(&app, None);
     Ok(())
 }
 
@@ -1455,6 +1459,7 @@ pub fn change_transcription_provider_setting(
         std::thread::spawn(crate::managers::transcription::prewarm_local_transcription_backends);
     }
 
+    crate::tray::refresh_tray_menu(&app, None);
     Ok(())
 }
 
@@ -2458,6 +2463,7 @@ pub fn change_native_streaming_live_output_model_setting(
     if preview_was_disabled {
         refresh_soniox_live_preview_window(&app);
     }
+    crate::tray::refresh_tray_menu(&app, None);
     Ok(preview_was_disabled)
 }
 
@@ -4298,6 +4304,7 @@ pub fn change_gemini_language_code_setting(app: AppHandle, language: String) -> 
     let mut settings = settings::get_settings(&app);
     settings.gemini_language_code = language;
     settings::write_settings(&app, settings);
+    crate::tray::refresh_tray_menu(&app, None);
     Ok(())
 }
 
@@ -5959,6 +5966,7 @@ pub fn change_active_profile_stt_model_selection_override(
     } else {
         settings::write_settings(&app, settings);
     }
+    crate::tray::refresh_tray_menu(&app, None);
     Ok(())
 }
 

@@ -1081,10 +1081,11 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
           {(isGeminiProvider || (profile.gemini_custom_vocabulary_override != null && !geminiVocabularyResult.safeToPersist)) && (
             <div className="space-y-3 border-t border-mid-gray/10 pt-3">
               <div className="space-y-2">
-                <label className="text-xs font-semibold text-text/70">
+                <label htmlFor={`profile-gemini-language-${profile.id}`} className="text-xs font-semibold text-text/70">
                   {t("settings.gemini.language.title", "Gemini language")}
                 </label>
                 <NameSortedDropdown
+                  id={`profile-gemini-language-${profile.id}`}
                   sortKey="profile-gemini-languages"
                   fixedDirection="asc"
                   pinnedValues={isDefault ? ["auto", "os_input"] : ["__inherit__", "auto", "os_input"]}
