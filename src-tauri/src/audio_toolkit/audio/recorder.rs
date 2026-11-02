@@ -74,6 +74,8 @@ pub struct AudioRecorder {
     microphone_noise_cancellation_enabled: Arc<AtomicBool>,
     /// Which microphone input channel to use. None averages all channels.
     selected_channel: Option<usize>,
+    #[cfg(target_os = "macos")]
+    airpods_mode: Arc<AtomicBool>,
     config_cache: Arc<Mutex<Option<(AudioCaptureSource, String, cpal::SupportedStreamConfig)>>>,
     /// Set by cpal's asynchronous stream error callback when capture must be rebuilt.
     stream_error: Arc<AtomicBool>,
@@ -91,6 +93,8 @@ impl AudioRecorder {
             microphone_input_gain: Arc::new(Mutex::new(1.0)),
             microphone_noise_cancellation_enabled: Arc::new(AtomicBool::new(false)),
             selected_channel: None,
+            #[cfg(target_os = "macos")]
+            airpods_mode: Arc::new(AtomicBool::new(false)),
             config_cache: Arc::new(Mutex::new(None)),
             stream_error: Arc::new(AtomicBool::new(false)),
         })
@@ -122,6 +126,11 @@ impl AudioRecorder {
     pub fn with_selected_channel(mut self, channel: Option<u16>) -> Self {
         self.set_selected_channel(channel);
         self
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn set_airpods_mode(&self, enabled: bool) {
+        self.airpods_mode.store(enabled, Ordering::Relaxed);
     }
 
     pub fn set_selected_channel(&mut self, channel: Option<u16>) {
@@ -178,6 +187,8 @@ impl AudioRecorder {
         let microphone_input_gain = Arc::clone(&self.microphone_input_gain);
         let microphone_noise_cancellation_enabled =
             Arc::clone(&self.microphone_noise_cancellation_enabled);
+        #[cfg(target_os = "macos")]
+        let airpods_mode = Arc::clone(&self.airpods_mode);
         let selected_channel = if source == AudioCaptureSource::Microphone {
             self.selected_channel
         } else {
@@ -292,6 +303,8 @@ impl AudioRecorder {
             match init_result {
                 Ok((stream, sample_rate, sample_consumer)) => {
                     let _ = init_tx.send(Ok(()));
+                    #[cfg(target_os = "macos")]
+                    let mut headset_stream = None;
                     run_consumer(
                         sample_rate,
                         vad,
@@ -304,6 +317,21 @@ impl AudioRecorder {
                         microphone_noise_cancellation_enabled,
                         transport,
                         Arc::clone(&stream_error),
+                        |_active| {
+                            #[cfg(target_os = "macos")]
+                            {
+                                // The stream stays on this worker: CPAL streams are not Send
+                                // on macOS. Warm microphone capture must not hold the headset.
+                                if !_active {
+                                    headset_stream = None;
+                                } else if source == AudioCaptureSource::Microphone
+                                    && airpods_mode.load(Ordering::Relaxed)
+                                    && headset_stream.is_none()
+                                {
+                                    headset_stream = super::headset_macos::take_headset(&thread_device);
+                                }
+                            }
+                        },
                     );
                     drop(stream);
                 }
@@ -905,6 +933,7 @@ mod tests {
                 Arc::new(AtomicBool::new(false)),
                 Arc::new(CaptureTransportState::default()),
                 Arc::new(AtomicBool::new(false)),
+                |_| {},
             );
             let _ = done_tx.send(());
         });
@@ -1400,6 +1429,7 @@ fn run_consumer(
     microphone_noise_cancellation_enabled: Arc<AtomicBool>,
     transport: Arc<CaptureTransportState>,
     stream_error: Arc<AtomicBool>,
+    mut hold_headset: impl FnMut(bool),
 ) {
     let mut pipeline = CapturePipeline::new(
         in_sample_rate,
@@ -1434,6 +1464,7 @@ fn run_consumer(
             if let Some(cmd) = command.take() {
                 match cmd {
                     Cmd::Start(sent_at, ready_tx) => {
+                        hold_headset(true);
                         transport.overrun_samples.store(0, Ordering::Release);
                         pipeline.begin_recording(sent_at, ready_tx);
                         recording = true;
@@ -1481,6 +1512,7 @@ fn run_consumer(
                             .observe_overrun(transport.overrun_samples.swap(0, Ordering::AcqRel));
                         let samples = pipeline.finish_recording();
                         let report = CaptureReport { samples, input_silent: pipeline.input_silent() };
+                        hold_headset(false);
 
                         if !pause_timed_out {
                             // Resume before stop() returns so an immediate new

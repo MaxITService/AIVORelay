@@ -121,6 +121,8 @@ dependencies = [
  "nnnoiseless",
  "notify",
  "objc2",
+ "objc2-core-audio",
+ "objc2-core-foundation",
  "objc2-service-management",
  "ogg",
  "once_cell",

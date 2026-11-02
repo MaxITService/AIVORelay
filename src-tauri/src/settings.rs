@@ -4712,6 +4712,9 @@ pub struct AppSettings {
     /// Keep the microphone stream alive briefly after stop to reduce startup latency.
     #[serde(default)]
     pub lazy_stream_close: bool,
+    /// Play silent output on the selected Bluetooth headset while recording (macOS).
+    #[serde(default)]
+    pub airpods_mode: bool,
     // ==================== UI State ====================
     /// Whether the hotkey sidebar is pinned open
     #[serde(default)]
@@ -6727,6 +6730,7 @@ pub fn get_default_settings() -> AppSettings {
         extra_recording_buffer_ms: 0,
         dictation_quick_tap_threshold_ms: default_dictation_quick_tap_threshold_ms(),
         lazy_stream_close: false,
+        airpods_mode: false,
         // Window Geometry
         remember_window_size: true,
         remember_window_position: true,

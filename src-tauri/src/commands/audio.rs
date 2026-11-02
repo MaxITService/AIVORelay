@@ -488,6 +488,23 @@ pub async fn get_microphone_channels(device_name: String) -> Result<u16, String>
 
 #[tauri::command]
 #[specta::specta]
+pub async fn change_airpods_mode_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let manager = app.state::<Arc<AudioRecordingManager>>().inner().clone();
+        tokio::task::spawn_blocking(move || manager.update_airpods_mode(enabled))
+            .await
+            .map_err(|error| format!("audio task join failed: {error}"))?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, enabled);
+        Err("AirPods mode is only available on macOS".to_string())
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn set_selected_channel(app: AppHandle, channel: Option<u16>) -> Result<(), String> {
     let manager = app.state::<Arc<AudioRecordingManager>>().inner().clone();
     tokio::task::spawn_blocking(move || manager.update_selected_channel(channel))
