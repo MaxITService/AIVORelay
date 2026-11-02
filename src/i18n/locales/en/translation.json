@@ -4215,6 +4215,15 @@
       }
     },
     "debug": {
+      "linuxShortcutBackend": {
+        "title": "Global shortcut backend",
+        "description": "Choose None for Wayland compositor bindings or tray control. Saved shortcuts are kept; text insertion settings still apply. Changes take effect after restarting AivoRelay.",
+        "none": "None — compositor / CLI",
+        "restart": "Restart AivoRelay",
+        "restartRequired": "Restart required. The current backend remains active until then.",
+        "active": "Active backend: {{backend}}",
+        "commands": "In your compositor, bind aivorelay --toggle-transcription to start/stop dictation and aivorelay --cancel to cancel. These commands control the running AivoRelay instance."
+      },
       "title": "Debug",
       "unsafeSecretLogging": {
         "title": "Do not redact secrets from logs — very dangerous",

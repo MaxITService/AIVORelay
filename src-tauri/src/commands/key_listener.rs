@@ -6,6 +6,7 @@ use crate::managers::key_listener::KeyListenerState;
 #[tauri::command]
 #[specta::specta]
 pub async fn key_listener_start(app_handle: AppHandle) -> Result<(), String> {
+    if crate::shortcut::shortcuts_disabled(&app_handle) { return Ok(()); }
     let key_listener_state = app_handle.try_state::<KeyListenerState>().ok_or_else(|| {
         "Key listener state not found. App may not be initialized properly.".to_string()
     })?;
@@ -17,6 +18,7 @@ pub async fn key_listener_start(app_handle: AppHandle) -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn key_listener_stop(app_handle: AppHandle) -> Result<(), String> {
+    if crate::shortcut::shortcuts_disabled(&app_handle) { return Ok(()); }
     let key_listener_state = app_handle.try_state::<KeyListenerState>().ok_or_else(|| {
         "Key listener state not found. App may not be initialized properly.".to_string()
     })?;
@@ -33,6 +35,7 @@ pub async fn key_listener_register_shortcut(
     id: String,
     binding: String,
 ) -> Result<(), String> {
+    if crate::shortcut::shortcuts_disabled(&app_handle) { return Ok(()); }
     let key_listener_state = app_handle.try_state::<KeyListenerState>().ok_or_else(|| {
         "Key listener state not found. App may not be initialized properly.".to_string()
     })?;
@@ -50,6 +53,7 @@ pub async fn key_listener_unregister_shortcut(
     app_handle: AppHandle,
     id: String,
 ) -> Result<(), String> {
+    if crate::shortcut::shortcuts_disabled(&app_handle) { return Ok(()); }
     let key_listener_state = app_handle.try_state::<KeyListenerState>().ok_or_else(|| {
         "Key listener state not found. App may not be initialized properly.".to_string()
     })?;
