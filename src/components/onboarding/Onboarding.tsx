@@ -13,6 +13,7 @@ import HandyTextLogo from "../icons/HandyTextLogo";
 import { RemoteSttWizard } from "./RemoteSttWizard";
 import AccessibilityOnboarding from "./AccessibilityOnboarding";
 import MacPermissionsOnboarding from "./MacPermissionsOnboarding";
+import { clearOnboardingProgress, readOnboardingProgress, resolveOnboardingProgress, saveOnboardingProgress } from "./onboardingProgress";
 import { HandyShortcut } from "../settings/HandyShortcut";
 import { AiAssistTip } from "../shared/AiAssistTip";
 
@@ -39,6 +40,9 @@ const Onboarding: React.FC<OnboardingProps> = ({
   const { t } = useTranslation();
   const isWindows = type() === "windows";
   const isMacOS = type() === "macos";
+  const [savedProgress] = useState(() => showFullCatalog ? null : readOnboardingProgress());
+  const needsPermissions = (startWithPermissionStep && isWindows) || isMacOS;
+  const initialProgress = resolveOnboardingProgress(savedProgress, needsPermissions);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [downloading, setDownloading] = useState(false);
   const downloadAttempt = useRef<{ dispatched: boolean } | null>(null);
@@ -47,11 +51,20 @@ const Onboarding: React.FC<OnboardingProps> = ({
   );
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<OnboardingMode>(
-    (startWithPermissionStep && isWindows) || isMacOS ? "permissions" : "select",
+    initialProgress.mode,
   );
-  const [welcomeVariant, setWelcomeVariant] = useState<WelcomeVariant>("local");
-  const [showRemoteWizard, setShowRemoteWizard] = useState(false);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(savedProgress?.step === "local" ? savedProgress.modelId : null);
+  const [welcomeVariant, setWelcomeVariant] = useState<WelcomeVariant>(initialProgress.welcomeVariant);
+  const [showRemoteWizard, setShowRemoteWizard] = useState(initialProgress.showRemoteWizard);
   const [isSkipping, setIsSkipping] = useState(false);
+
+  useEffect(() => {
+    if (showFullCatalog || mode === "permissions") return;
+    if (showRemoteWizard) saveOnboardingProgress({ step: "remote" });
+    else if (mode === "welcome" && welcomeVariant === "remote") saveOnboardingProgress({ step: "remote_ready" });
+    else if (mode === "local" || mode === "welcome") saveOnboardingProgress({ step: "local", modelId: selectedModelId });
+    else saveOnboardingProgress({ step: "select" });
+  }, [mode, showFullCatalog, showRemoteWizard, welcomeVariant, selectedModelId]);
 
   useEffect(() => {
     loadModels();
@@ -75,7 +88,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
         setAvailableModels(
           showFullCatalog
             ? result.data
-            : result.data.filter((m) => !m.is_downloaded),
+            : result.data.filter((m) => !m.is_downloaded || m.id === selectedModelId),
         );
       } else {
         setError(t("onboarding.errors.loadModels"));
@@ -87,6 +100,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
   };
 
   const handleModelSelection = async (model: ModelInfo) => {
+    setSelectedModelId(model.id);
     if (model.is_downloaded) {
       try {
         invalidateModelDownloadActivationIntent();
@@ -144,6 +158,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
       invalidateModelDownloadActivationIntent();
       setDownloading(false);
       setDownloadingModelId(null);
+      setSelectedModelId(null);
       setMode("local");
       return;
     }
@@ -158,6 +173,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
     cancelModelDownloadActivationIntent(downloadingModelId);
     setDownloading(false);
     setDownloadingModelId(null);
+    setSelectedModelId(null);
     setMode("local");
   };
 
@@ -202,10 +218,13 @@ const Onboarding: React.FC<OnboardingProps> = ({
 
   const handlePermissionsComplete = () => {
     onPermissionResolved?.();
-    setMode("select");
+    const restored = resolveOnboardingProgress(savedProgress, false);
+    setMode(restored.mode);
+    setShowRemoteWizard(restored.showRemoteWizard);
   };
 
   const handleGetStarted = () => {
+    if (!showFullCatalog) clearOnboardingProgress();
     if (welcomeVariant === "remote") {
       onRemoteSelected();
     } else {
@@ -402,6 +421,9 @@ const Onboarding: React.FC<OnboardingProps> = ({
               </div>
             ) : (
               <>
+                {savedProgress?.step === "local" && (
+                  <p className="text-sm text-[#b8b8b8]">{t("onboarding.resumeLocal", "Choose a model to continue. An interrupted download can be resumed.")}</p>
+                )}
                 {availableModels
                   .filter((model) => getRecommendedBadge(model))
                   .map((model) => (

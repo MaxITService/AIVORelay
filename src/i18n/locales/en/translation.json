@@ -1685,6 +1685,7 @@
     }
   },
   "onboarding": {
+    "resumeLocal": "Choose a model to continue. An interrupted download can be resumed.",
     "skipWizard": "Skip wizard and open main menu",
     "subtitle": "To get started, choose a transcription model",
     "mode": {
