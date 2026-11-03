@@ -27,8 +27,10 @@ fn init_cpu_backends() -> anyhow::Result<()> {
     .map_err(|error| anyhow::anyhow!("Failed to initialize language detection CPU backend: {error}"))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
 pub enum LanguageDetectionMode {
+    #[default]
     WhenNeeded,
     Always,
 }

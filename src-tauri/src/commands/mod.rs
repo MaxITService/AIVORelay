@@ -4,6 +4,7 @@ pub mod connector;
 pub mod file_transcription;
 pub mod history;
 pub mod key_listener;
+pub mod language_detection;
 pub mod live_sound_transcription;
 pub mod models;
 pub mod model_storage;
