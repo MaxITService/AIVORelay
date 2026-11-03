@@ -649,7 +649,7 @@ impl TtsManager {
             )?;
         }
         if settings.provider == TtsProvider::Murf {
-            if !matches!(settings.murf_model.as_str(), "falcon-2" | "gen2") {
+            if !matches!(settings.murf_model.as_str(), "falcon-2.1" | "falcon-2" | "gen2") {
                 return Err(anyhow!("Unsupported Murf TTS model: {}", settings.murf_model));
             }
             validate_required_max_chars("Murf voice ID", &settings.murf_voice, 256)?;
@@ -725,7 +725,7 @@ impl TtsManager {
             }
         }
         if settings.provider == TtsProvider::Cartesia {
-            if settings.cartesia_model != "sonic-3.5" {
+            if !matches!(settings.cartesia_model.as_str(), "sonic-3.6" | "sonic-3.5") {
                 return Err(anyhow!(
                     "Unsupported Cartesia TTS model: {}",
                     settings.cartesia_model
@@ -991,7 +991,7 @@ impl TtsManager {
                 let voices = murf_voice_catalog(
                     &self.client,
                     &api_key,
-                    nonempty_or(&settings.murf_model, "falcon-2"),
+                    nonempty_or(&settings.murf_model, "falcon-2.1"),
                 )
                 .await?;
                 Ok(TtsVoiceCatalog {
@@ -1211,7 +1211,7 @@ impl TtsManager {
                 result = murf_voice_catalog(
                     &self.client,
                     &api_key,
-                    nonempty_or(&resolved.murf_model, "falcon-2"),
+                    nonempty_or(&resolved.murf_model, "falcon-2.1"),
                 ) => result?,
                 _ = self.wait_for_cancellation(operation_id) => {
                     return Err(anyhow!("Text-to-speech operation cancelled"));
@@ -2099,7 +2099,7 @@ impl TtsManager {
                     | TtsProvider::ElevenLabs
                     | TtsProvider::Cartesia
             ) || (settings.provider == TtsProvider::Murf
-                && settings.murf_model == "falcon-2");
+                && matches!(settings.murf_model.as_str(), "falcon-2.1" | "falcon-2"));
             let mut next_playback_chunk_index = 1_usize;
             let history_raw_path = operation_cache.join("history-result.pcm.partial");
             let history_audio_path = operation_cache.join(format!(
@@ -3647,7 +3647,7 @@ impl TtsManager {
                     let mut body = json!({
                         "text": text,
                         "voiceId": nonempty_or(&settings.murf_voice, DEFAULT_TTS_MURF_VOICE),
-                        "model": "falcon-2",
+                        "model": nonempty_or(&settings.murf_model, "falcon-2.1"),
                         "format": "PCM",
                         "sampleRate": PROVIDER_PCM_SAMPLE_RATE,
                         "channelType": "MONO",
@@ -3728,7 +3728,7 @@ impl TtsManager {
             }
             TtsProvider::Cartesia => {
                 let mut body = json!({
-                    "model_id": "sonic-3.5",
+                    "model_id": nonempty_or(&settings.cartesia_model, "sonic-3.6"),
                     "transcript": text,
                     "voice": {
                         "mode": "id",
@@ -4004,7 +4004,7 @@ async fn murf_voice_catalog(
     api_key: &str,
     model: &str,
 ) -> Result<Vec<TtsVoiceCatalogEntry>> {
-    let model = if model == "gen2" { "gen2" } else { "falcon-2" };
+    let model = nonempty_or(model, "falcon-2.1");
     let response = client
         .get(MURF_VOICES_URL)
         .query(&[("model", model)])

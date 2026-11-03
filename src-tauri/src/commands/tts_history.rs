@@ -732,10 +732,10 @@ fn set_model_and_voice(
             TtsProvider::Deepgram => settings.deepgram_model = model,
             TtsProvider::OpenAi => settings.openai_model = model,
             TtsProvider::Murf => {
-                if !matches!(model.as_str(), "falcon-2" | "gen2") {
-                    return Err("Murf model must be falcon-2 or gen2".to_string());
+                if !matches!(model.as_str(), "falcon-2.1" | "falcon-2" | "gen2") {
+                    return Err("Murf model must be falcon-2.1, falcon-2 or gen2".to_string());
                 }
-                if settings.murf_model != model && voice.is_none() {
+                if (settings.murf_model == "gen2") != (model == "gen2") && voice.is_none() {
                     settings.murf_voice = if model == "gen2" {
                         DEFAULT_TTS_MURF_GEN2_VOICE
                     } else {
@@ -761,8 +761,8 @@ fn set_model_and_voice(
                 }
             }
             TtsProvider::Cartesia => {
-                if model != "sonic-3.5" {
-                    return Err("Cartesia uses the fixed model sonic-3.5".to_string());
+                if !matches!(model.as_str(), "sonic-3.6" | "sonic-3.5") {
+                    return Err("Cartesia model must be sonic-3.6 or sonic-3.5".to_string());
                 }
                 settings.cartesia_model = model;
             }

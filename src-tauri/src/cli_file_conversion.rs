@@ -891,12 +891,12 @@ fn apply_tts_provider_override(
             TtsProvider::OpenAi => settings.openai_model = model.to_string(),
             TtsProvider::OpenAiCompatible => settings.openai_compatible_model = model.to_string(),
             TtsProvider::Murf => {
-                if !matches!(model, "falcon-2" | "gen2") {
+                if !matches!(model, "falcon-2.1" | "falcon-2" | "gen2") {
                     return Err(CliFailure::usage(
-                        "--tts-model for murf must be falcon-2 or gen2",
+                        "--tts-model for murf must be falcon-2.1, falcon-2 or gen2",
                     ));
                 }
-                if settings.murf_model != model && args.tts_voice.is_none() {
+                if (settings.murf_model == "gen2") != (model == "gen2") && args.tts_voice.is_none() {
                     settings.murf_voice = if model == "gen2" {
                         DEFAULT_TTS_MURF_GEN2_VOICE
                     } else {
@@ -918,9 +918,9 @@ fn apply_tts_provider_override(
                 settings.elevenlabs_model = model.to_string();
             }
             TtsProvider::Cartesia => {
-                if model != "sonic-3.5" {
+                if !matches!(model, "sonic-3.6" | "sonic-3.5") {
                     return Err(CliFailure::usage(
-                        "--tts-model for cartesia must be sonic-3.5",
+                        "--tts-model for cartesia must be sonic-3.6 or sonic-3.5",
                     ));
                 }
                 settings.cartesia_model = model.to_string();
