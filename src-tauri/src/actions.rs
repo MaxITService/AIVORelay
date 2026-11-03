@@ -2790,7 +2790,7 @@ fn start_recording_with_feedback_with_settings(
 /// Result of a transcription operation
 pub enum TranscriptionOutcome {
     /// Transcription succeeded with the given text
-    Success(String),
+    Success(String, Option<crate::language_detection::LanguageDecision>),
     /// Operation was cancelled (Remote STT only)
     Cancelled,
     /// Error occurred - for Remote STT, error is already shown in overlay
@@ -2974,7 +2974,7 @@ async fn perform_transcription_for_profile_with_retry_action(
         }
 
         match result {
-            Ok(text) => TranscriptionOutcome::Success(text),
+            Ok(text) => TranscriptionOutcome::Success(text, None),
             Err(err) => {
                 let err_str = format!("{}", err);
                 if show_remote_error {
@@ -3250,7 +3250,7 @@ async fn perform_transcription_for_profile_with_retry_action(
         }
 
         match result {
-            Ok(text) => TranscriptionOutcome::Success(text),
+            Ok(text) => TranscriptionOutcome::Success(text, None),
             Err(err) => {
                 let err_str = format!("{}", err);
                 if soniox_manager.is_cancelled(operation_id)
@@ -3330,7 +3330,7 @@ async fn perform_transcription_for_profile_with_retry_action(
         }
 
         match result {
-            Ok(text) => TranscriptionOutcome::Success(text),
+            Ok(text) => TranscriptionOutcome::Success(text, None),
             Err(err) => {
                 let err_str = format!("{}", err);
                 if deepgram_manager.is_cancelled(operation_id)
@@ -3417,7 +3417,7 @@ async fn perform_transcription_for_profile_with_retry_action(
         };
 
         match result {
-            Ok(text) => TranscriptionOutcome::Success(text),
+            Ok((text, language)) => TranscriptionOutcome::Success(text, language),
             Err(err) => {
                 let err_str = format!("{}", err);
                 debug!("Local transcription error: {}", err_str);
@@ -3762,7 +3762,7 @@ async fn get_transcription_or_cleanup_detailed(
         )
         .await
         {
-            TranscriptionOutcome::Success(text) => {
+            TranscriptionOutcome::Success(text, _) => {
                 TranscriptionFetchOutcome::Success((text, samples))
             }
             TranscriptionOutcome::Cancelled => TranscriptionFetchOutcome::Cancelled,
@@ -3923,7 +3923,7 @@ async fn transcribe_stopped_recording_for_transcribe_action(
     recording_settings: AppSettings,
     current_app: String,
     stopped: StoppedTranscribeRecording,
-) -> Option<(String, Vec<f32>, Option<String>, bool)> {
+) -> Option<(String, Vec<f32>, Option<String>, bool, Option<crate::language_detection::LanguageDecision>)> {
     let samples = stopped.samples;
     let pre_saved_file_name = stopped.pre_saved_file_name;
     let post_process_requested = stopped.post_process_requested;
@@ -3947,11 +3947,11 @@ async fn transcribe_stopped_recording_for_transcribe_action(
     )
     .await
     {
-        TranscriptionOutcome::Success(text) => {
+        TranscriptionOutcome::Success(text, language) => {
             if remote_retry_enabled {
                 clear_last_remote_recording_retry();
             }
-            Some((text, samples, pre_saved_file_name, post_process_requested))
+            Some((text, samples, pre_saved_file_name, post_process_requested, language))
         }
         TranscriptionOutcome::Cancelled => {
             if remote_retry_enabled {
@@ -4035,7 +4035,7 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
         .await;
 
         let transcription = match outcome {
-            TranscriptionOutcome::Success(text) => text,
+            TranscriptionOutcome::Success(text, _) => text,
             TranscriptionOutcome::Cancelled => {
                 clear_last_remote_recording_retry_by_id(request.retry_id);
                 utils::hide_recording_overlay(&app);
@@ -4076,6 +4076,7 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
             request.pre_saved_file_name,
             Some(request.failed_history_entry_id),
             false,
+            None,
             None,
             None,
         )
@@ -4893,7 +4894,7 @@ async fn run_local_preview_flush(
         )
         .await
         {
-            TranscriptionOutcome::Success(text) => {
+            TranscriptionOutcome::Success(text, _) => {
                 if crate::managers::preview_output_mode::is_active_for_binding(&binding_id) {
                     let existing = crate::managers::preview_output_mode::recording_prefix_text();
                     let text = filter_local_preview_flush_text(&existing, &text);
@@ -8085,6 +8086,7 @@ async fn apply_post_processing_and_history(
     force_post_process: bool,
     operation_stamp: Option<OperationStamp>,
     live: Option<&mut LlmLiveInsert>,
+    language_decision: Option<crate::language_detection::LanguageDecision>,
 ) -> Option<String> {
     let processed = process_transcription_output_with_live_insert(
         app,
@@ -8119,6 +8121,7 @@ async fn apply_post_processing_and_history(
                 return;
             }
         }
+        let language = language_decision.and_then(|decision| decision.language);
         let save_result = if let Some(id) = failed_history_entry_id {
             hm.update_transcription(
                 id,
@@ -8126,16 +8129,15 @@ async fn apply_post_processing_and_history(
                 processed.post_processed_text.clone(),
                 processed.post_process_prompt.clone(),
             )
-            .map(|_| ())
         } else if let Some(file_name) = pre_saved_file_name {
-            hm.save_entry(
+            hm.save_entry_with_language(
                 file_name,
                 transcription,
                 processed.post_process_requested,
                 processed.post_processed_text.clone(),
                 processed.post_process_prompt.clone(),
+                language,
             )
-            .map(|_| ())
         } else {
             hm.save_transcription(
                 samples,
@@ -8143,6 +8145,7 @@ async fn apply_post_processing_and_history(
                 processed.post_process_requested,
                 processed.post_processed_text.clone(),
                 processed.post_process_prompt.clone(),
+                language,
             )
             .await
         };
@@ -9472,7 +9475,7 @@ impl ShortcutAction for TranscribeAction {
                         let text = apply_profile_output_filters(&recording_settings, text, profile_id_for_postprocess.as_deref());
                         let _ = apply_post_processing_and_history(
                             &ah, &recording_settings, text, samples, profile_id_for_postprocess,
-                            &current_app, None, None, force_post_process, None, None,
+                            &current_app, None, None, force_post_process, None, None, None,
                         ).await;
                     }
                     return;
@@ -9586,6 +9589,7 @@ impl ShortcutAction for TranscribeAction {
                                     force_post_process,
                                     None,
                                     None,
+                                    None,
                                 )
                                 .await;
                             }
@@ -9655,7 +9659,7 @@ impl ShortcutAction for TranscribeAction {
                             )
                             .await
                             {
-                                TranscriptionOutcome::Success(text) => {
+                                TranscriptionOutcome::Success(text, _) => {
                                     recovered_from_soniox_replay = true;
                                     text
                                 }
@@ -9917,6 +9921,7 @@ impl ShortcutAction for TranscribeAction {
                     None,
                     force_post_process && !invoked_from_preview_llm,
                     Some(operation_stamp),
+                    None,
                     None,
                 )
                 .await
@@ -10273,13 +10278,14 @@ impl ShortcutAction for TranscribeAction {
             };
 
             let mut local_inference_time = None;
-            let (transcription, samples, pre_saved_file_name, post_process_requested) =
+            let (transcription, samples, pre_saved_file_name, post_process_requested, language_decision) =
                 if stopped.quick_tap_skipped {
                     (
                         String::new(),
                         stopped.samples,
                         stopped.pre_saved_file_name,
                         stopped.post_process_requested,
+                        None,
                     )
                 } else if let Some(text) = native_stream_text {
                     (
@@ -10287,6 +10293,7 @@ impl ShortcutAction for TranscribeAction {
                         stopped.samples,
                         stopped.pre_saved_file_name,
                         stopped.post_process_requested,
+                        None,
                     )
                 } else {
                     let inference_started = Instant::now();
@@ -10429,6 +10436,7 @@ impl ShortcutAction for TranscribeAction {
                 force_post_process && !invoked_from_preview_llm,
                 Some(operation_stamp),
                 llm_live_insert.as_mut(),
+                language_decision,
             )
             .await
             {
@@ -10677,6 +10685,7 @@ impl ShortcutAction for SendToExtensionAction {
                 false,
                 Some(operation_stamp),
                 None,
+                None,
             )
             .await
             {
@@ -10840,6 +10849,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                     None,
                     false,
                     Some(operation_stamp),
+                    None,
                     None,
                 )
                 .await

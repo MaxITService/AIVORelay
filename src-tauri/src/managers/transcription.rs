@@ -763,8 +763,18 @@ impl TranscriptionManager {
         selected: &str,
         settings: &AppSettings,
         audio: &[f32],
-    ) -> String {
-        let previous = || effective_language_for_model(&self.model_manager, model_id, selected);
+    ) -> crate::language_detection::LanguageDecision {
+        let previous = || {
+            let language = effective_language_for_model(&self.model_manager, model_id, selected);
+            crate::language_detection::LanguageDecision {
+                language: (language != "auto").then_some(language),
+                source: if selected == "auto" {
+                    crate::language_detection::LanguageSource::Model
+                } else {
+                    crate::language_detection::LanguageSource::Selected
+                },
+            }
+        };
         // An empty preference list preserves the existing behavior for saved settings.
         if selected != "auto" || settings.spoken_languages.is_empty() {
             return previous();
@@ -807,7 +817,7 @@ impl TranscriptionManager {
             let path = detector_path.as_ref().ok_or(crate::language_detection::IdentifyError::Missing)?;
             self.language_detector.identify(path, speech, allowed)
                 .map_err(crate::language_detection::IdentifyError::Failed)
-        }).intent().to_string()
+        })
     }
 
     pub fn new(app_handle: &AppHandle, model_manager: Arc<ModelManager>) -> Result<Self> {
@@ -2125,7 +2135,7 @@ impl TranscriptionManager {
             .unwrap_or_else(|| settings.selected_model.clone());
         let effective_language = self.language_for_audio(
             &active_model, &settings.selected_language, &settings, &audio,
-        );
+        ).intent().to_string();
         let recognition_language = if settings.selected_language == "auto" && !settings.spoken_languages.is_empty() {
             &effective_language
         } else {
@@ -2134,7 +2144,7 @@ impl TranscriptionManager {
         let model_info = self.model_manager.get_model_info(&active_model);
         let (output_language, supported_languages) = local_output_language_context(
             model_info.as_ref(),
-            &settings.selected_language,
+            recognition_language,
             &effective_language,
             settings.translate_to_english,
         );
@@ -2362,7 +2372,7 @@ impl TranscriptionManager {
         chinese_script_override: Option<ChineseScript>,
         spoken_languages: &[String],
         detection_mode: crate::language_detection::LanguageDetectionMode,
-    ) -> Result<String> {
+    ) -> Result<(String, Option<crate::language_detection::LanguageDecision>)> {
         // Update last activity timestamp
         self.begin_operation();
         self.touch_activity();
@@ -2373,7 +2383,7 @@ impl TranscriptionManager {
 
         if audio.len() == 0 {
             debug!("Empty audio vector");
-            return Ok(String::new());
+            return Ok((String::new(), None));
         }
 
         // Check if model is loaded
@@ -2402,9 +2412,10 @@ impl TranscriptionManager {
         let active_model = self
             .get_current_model()
             .unwrap_or_else(|| settings.selected_model.clone());
-        let effective_language = self.language_for_audio(
+        let language_decision = self.language_for_audio(
             &active_model, &selected_language, &settings, &audio,
         );
+        let effective_language = language_decision.intent().to_string();
         let recognition_language = if selected_language == "auto" && !settings.spoken_languages.is_empty() {
             &effective_language
         } else {
@@ -2413,11 +2424,12 @@ impl TranscriptionManager {
         let model_info = self.model_manager.get_model_info(&active_model);
         let (output_language, supported_languages) = local_output_language_context(
             model_info.as_ref(),
-            &selected_language,
+            recognition_language,
             &effective_language,
             translate_to_english,
         );
 
+        let mut detector_language_applied = false;
         let result = {
             let mut engine_guard = self.engine.lock().unwrap();
             let engine = engine_guard.as_mut().ok_or_else(|| {
@@ -2426,6 +2438,9 @@ impl TranscriptionManager {
 
             match engine {
                 LoadedEngine::TranscribeCpp(session) => {
+                    detector_language_applied = transcribe_cpp_run_options(
+                        session, &effective_language, translate_to_english, TimestampKind::Segment,
+                    ).language.is_some();
                     let initial_prompt = prompt_override
                         .filter(|prompt| !prompt.trim().is_empty())
                         .or_else(|| {
@@ -2475,6 +2490,7 @@ impl TranscriptionManager {
                         "yue" => Some("yue".to_string()),
                         _ => None,
                     };
+                    detector_language_applied = language.is_some();
                     let params = SenseVoiceParams {
                         language,
                         use_itn: Some(true),
@@ -2492,6 +2508,7 @@ impl TranscriptionManager {
                     } else {
                         Some(recognition_language.to_string())
                     };
+                    detector_language_applied = language.is_some();
                     let options = TranscribeOptions {
                         language,
                         translate: translate_to_english,
@@ -2509,6 +2526,7 @@ impl TranscriptionManager {
                     } else {
                         Some(recognition_language.to_string())
                     };
+                    detector_language_applied = language.is_some();
                     let options = TranscribeOptions {
                         language,
                         ..Default::default()
@@ -2550,7 +2568,9 @@ impl TranscriptionManager {
             }
         }
 
-        Ok(final_result)
+        let recorded_language = (matches!(language_decision.source, crate::language_detection::LanguageSource::Detected)
+            && detector_language_applied).then_some(language_decision);
+        Ok((final_result, recorded_language))
     }
 
     pub fn transcribe_file_text(
@@ -2762,7 +2782,7 @@ impl TranscriptionManager {
             .unwrap_or_else(|| settings.selected_model.clone());
         let effective_language = self.language_for_audio(
             &active_model, &selected_language, &settings, &audio,
-        );
+        ).intent().to_string();
         let recognition_language = if selected_language == "auto" && !settings.spoken_languages.is_empty() {
             &effective_language
         } else {
@@ -2771,7 +2791,7 @@ impl TranscriptionManager {
         let model_info = self.model_manager.get_model_info(&active_model);
         let (output_language, supported_languages) = local_output_language_context(
             model_info.as_ref(),
-            &selected_language,
+            recognition_language,
             &effective_language,
             translate_to_english,
         );

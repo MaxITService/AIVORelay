@@ -125,7 +125,7 @@ pub async fn retry_history_entry_transcription(
         }
     } else {
         match perform_transcription_for_profile(&app, samples, None, profile_id.clone(), &settings).await {
-            TranscriptionOutcome::Success(text) => text,
+            TranscriptionOutcome::Success(text, _) => text,
             TranscriptionOutcome::Cancelled => {
                 return Err("Re-transcription was cancelled".to_string());
             }

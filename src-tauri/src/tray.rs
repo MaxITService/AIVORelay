@@ -1862,6 +1862,8 @@ mod tests {
             action_type: "transcribe".to_string(),
             original_selection: None,
             ai_response: None,
+            language: None,
+            language_source: None,
         }
     }
 
