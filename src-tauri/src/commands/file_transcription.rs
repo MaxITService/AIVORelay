@@ -829,6 +829,7 @@ pub async fn transcribe_audio_file(
         ));
     }
     if use_local && active_session_blocks_local_file_transcription(&app) {
+        // The batch queue matches this exact text (LOCAL_ENGINE_BUSY_MESSAGE).
         return Err(
             "Local file transcription is unavailable while another transcription is recording or processing."
                 .to_string(),

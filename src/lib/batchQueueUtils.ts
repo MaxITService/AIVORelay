@@ -61,6 +61,17 @@ export const FILE_TRANSCRIPTION_BUSY_MESSAGE =
 export const isFileTranscriptionBusyMessage = (value: unknown): boolean =>
   String(value ?? "") === FILE_TRANSCRIPTION_BUSY_MESSAGE;
 
+/**
+ * Error `transcribe_audio_file` returns while a local recording owns the engine.
+ * Keep in sync with `active_session_blocks_local_file_transcription` in `file_transcription.rs`.
+ */
+export const LOCAL_ENGINE_BUSY_MESSAGE =
+  "Local file transcription is unavailable while another transcription is recording or processing.";
+
+/** Returns true when a recording started after the admission check. */
+export const isLocalEngineBusyMessage = (value: unknown): boolean =>
+  String(value ?? "") === LOCAL_ENGINE_BUSY_MESSAGE;
+
 export const newQueueId = (): string => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();

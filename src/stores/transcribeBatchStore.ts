@@ -5,6 +5,7 @@ import { type as osType } from "@tauri-apps/plugin-os";
 import {
   isCancellationMessage,
   isFileTranscriptionBusyMessage,
+  isLocalEngineBusyMessage,
   newQueueId,
   pathKey,
 } from "@/lib/batchQueueUtils";
@@ -145,7 +146,7 @@ export const useTranscribeBatchStore = create<TranscribeBatchState>()(
               set({ activeItemId: next.id, waitingReason: null });
               updateItem(next.id, { status: "processing", error: null });
               const request = next.request;
-              let backendBusy = false;
+              let backendBusy: TranscribeBatchWaitingReason = null;
               try {
                 const result = await commands.transcribeAudioFile(
                   request.filePath,
@@ -160,9 +161,11 @@ export const useTranscribeBatchStore = create<TranscribeBatchState>()(
                 if (result.status === "error") throw result.error;
                 updateItem(next.id, { status: "completed", savedFilePath: result.data.saved_file_path ?? null });
               } catch (error) {
-                // A single-file or CLI job slipped in after the admission check:
-                // keep the file queued and retry instead of failing it.
-                backendBusy = isFileTranscriptionBusyMessage(error);
+                // A single-file job, CLI job, or local recording slipped in after
+                // the admission check: keep the file queued and retry instead of failing it.
+                backendBusy = isFileTranscriptionBusyMessage(error)
+                  ? "singleFile"
+                  : isLocalEngineBusyMessage(error) ? "recording" : null;
                 const cancelled = get().stopping && isCancellationMessage(error);
                 updateItem(next.id, {
                   status: cancelled || backendBusy ? "queued" : "failed",
@@ -172,7 +175,7 @@ export const useTranscribeBatchStore = create<TranscribeBatchState>()(
                 set({ activeItemId: null });
               }
               if (backendBusy) {
-                set({ waitingReason: "singleFile" });
+                set({ waitingReason: backendBusy });
                 await waitForTick();
               }
             }
