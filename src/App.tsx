@@ -12,6 +12,7 @@ import { QuickHelp } from "./components/settings";
 import { HotkeySidebar } from "./components/hotkey-sidebar";
 import { RenderCrashBoundary } from "./components/RenderCrashBoundary";
 import { useSettings } from "./hooks/useSettings";
+import { useSonioxV5RetirementNotice } from "./hooks/useSonioxV5RetirementNotice";
 import { commands } from "@/bindings";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
@@ -93,6 +94,7 @@ function App() {
     openHelpSearch,
   } = useNavigationStore();
   const { refreshSettings, refreshAudioDevices } = useSettings();
+  useSonioxV5RetirementNotice(showOnboarding === false, refreshSettings);
   const notifiedModelDownloadStarts = useRef(new Set<string>());
   const onDemandModelDownloads = useRef(new Set<string>());
   const settingsScrollRef = useRef<HTMLDivElement>(null);
