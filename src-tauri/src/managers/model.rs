@@ -427,6 +427,8 @@ pub(crate) fn canonical_language_code(language: &str) -> &str {
     match base_language(language) {
         "nb" => "no",
         "fil" => "tl",
+        "iw" => "he",
+        "jw" => "jv",
         base => base,
     }
 }
