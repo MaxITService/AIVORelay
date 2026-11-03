@@ -342,6 +342,9 @@ export const TranscribeFileSettings: React.FC = () => {
       : transcriptionInfoMessage;
   const [isRecording, setIsRecording] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [savingToHistory, setSavingToHistory] = useState(false);
+  const [historySaveError, setHistorySaveError] = useState<string | null>(null);
+  const [historySavedResult, setHistorySavedResult] = useState<{ path: string; text: string } | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [pendingFileReceives, setPendingFileReceives] = useState(0);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
@@ -1415,6 +1418,24 @@ export const TranscribeFileSettings: React.FC = () => {
     }
   };
 
+  const handleSaveToHistory = async () => {
+    if (!selectedFile || !transcriptionResult || savingToHistory) return;
+    const snapshot = { path: selectedFile.path, text: transcriptionResult };
+    setSavingToHistory(true);
+    setHistorySaveError(null);
+    try {
+      await invoke("save_file_transcription_to_history", {
+        filePath: snapshot.path,
+        text: snapshot.text,
+      });
+      setHistorySavedResult(snapshot);
+    } catch (error) {
+      setHistorySaveError(String(error));
+    } finally {
+      setSavingToHistory(false);
+    }
+  };
+
   // Clear selection and results
   const handleClear = () => {
     void clearSelectedFileState();
@@ -2429,6 +2450,25 @@ export const TranscribeFileSettings: React.FC = () => {
                 value={transcriptionResult}
                 className="w-full h-40 p-3 bg-[#0f0f0f] border border-[#333333] rounded-lg text-sm text-[#f5f5f5] resize-none focus:outline-none focus:border-[#9b5de5]"
               />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void handleSaveToHistory()}
+                  disabled={savingToHistory || !selectedFile || (historySavedResult?.path === selectedFile.path && historySavedResult.text === transcriptionResult)}
+                >
+                  {savingToHistory
+                    ? t("transcribeFile.history.saving", "Saving to History…")
+                    : t("transcribeFile.history.save", "Save to History")}
+                </Button>
+                {historySavedResult && selectedFile && historySavedResult.path === selectedFile.path && historySavedResult.text === transcriptionResult && (
+                  <button type="button" className="text-xs text-green-400 underline" onClick={() => useNavigationStore.getState().setSection("history")}>
+                    {t("transcribeFile.history.open", "Saved. Open History")}
+                  </button>
+                )}
+                {historySaveError && <p role="alert" className="text-xs text-red-400">{historySaveError}</p>}
+              </div>
+              <p className="text-xs text-[#808080]">{t("transcribeFile.history.hint", "History keeps a separate mono audio copy and follows your History retention settings.")}</p>
               {savedFilePath && (
                 <div className="flex items-center gap-2 p-2 bg-green-500/10 border border-green-500/30 rounded-lg">
                   <FileText className="w-4 h-4 text-green-400" />

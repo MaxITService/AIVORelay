@@ -1932,6 +1932,31 @@ fn probe_audio_duration(path: &PathBuf) -> Result<f64, String> {
     })
 }
 
+/// Retain a completed file transcript and a private audio copy in History.
+#[tauri::command]
+#[specta::specta]
+pub async fn save_file_transcription_to_history(
+    app: AppHandle,
+    file_path: String,
+    text: String,
+) -> Result<(), String> {
+    let path = PathBuf::from(file_path);
+    let extension = path.extension().and_then(|value| value.to_str())
+        .unwrap_or_default().to_lowercase();
+    if !SUPPORTED_EXTENSIONS.contains(&extension.as_str()) {
+        return Err("Unsupported audio format".to_string());
+    }
+    let title = path.file_name().and_then(|value| value.to_str())
+        .unwrap_or("Imported audio").to_string();
+    let history = Arc::clone(&app.state::<Arc<crate::managers::history::HistoryManager>>());
+    tauri::async_runtime::spawn_blocking(move || {
+        let samples = decode_audio_file(&path)?;
+        history.save_imported_transcription(&samples, &title, &text)
+            .map(|_| ())
+            .map_err(|error| format!("Could not save to History: {error}"))
+    }).await.map_err(|error| format!("History import failed: {error}"))?
+}
+
 fn decode_audio_file(path: &PathBuf) -> Result<Vec<f32>, String> {
     use rodio::Source;
     use std::fs::File;

@@ -5134,6 +5134,12 @@
     }
   },
   "transcribeFile": {
+    "history": {
+      "save": "Save to History",
+      "saving": "Saving to History…",
+      "open": "Saved. Open History",
+      "hint": "History keeps a separate mono audio copy and follows your History retention settings."
+    },
     "batch": {
       "title": "File transcription queue",
       "description": "Add several audio files, or drop them together onto this page. Files run one at a time using the current file-transcription model. You can add more while the queue runs.",

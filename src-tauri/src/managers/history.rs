@@ -163,6 +163,68 @@ pub struct HistoryManager {
     db_path: PathBuf,
 }
 
+fn save_imported_entry(
+    conn: &Connection,
+    recordings_dir: &Path,
+    samples: &[f32],
+    title: &str,
+    text: &str,
+) -> Result<HistoryEntry> {
+    if samples.is_empty() || text.trim().is_empty() {
+        return Err(anyhow!("Imported audio and transcription must not be empty"));
+    }
+    let timestamp = Utc::now().timestamp();
+    let unique = Utc::now().timestamp_millis();
+    let (file_name, file) = (0..1000)
+        .find_map(|suffix| {
+            let name = format!("aivorelay-import-{unique}-{suffix}.wav");
+            match fs::OpenOptions::new().write(true).create_new(true).open(recordings_dir.join(&name)) {
+                Ok(file) => Some(Ok((name, file))),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => None,
+                Err(error) => Some(Err(error)),
+            }
+        })
+        .ok_or_else(|| anyhow!("Could not reserve a history audio filename"))??;
+    let path = recordings_dir.join(&file_name);
+    let result = (|| -> Result<HistoryEntry> {
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::new(std::io::BufWriter::new(file), spec)?;
+        for sample in samples {
+            writer.write_sample((sample * i16::MAX as f32) as i16)?;
+        }
+        writer.finalize()?;
+        conn.execute(
+            "INSERT INTO transcription_history (file_name, timestamp, saved, title, transcription_text, action_type) VALUES (?1, ?2, 0, ?3, ?4, 'transcribe')",
+            params![file_name, timestamp, title, text],
+        )?;
+        Ok(HistoryEntry {
+            id: conn.last_insert_rowid(),
+            file_name: file_name.clone(),
+            timestamp,
+            saved: false,
+            title: title.to_string(),
+            transcription_text: text.to_string(),
+            post_processed_text: None,
+            post_process_prompt: None,
+            post_process_requested: false,
+            action_type: "transcribe".to_string(),
+            original_selection: None,
+            ai_response: None,
+        })
+    })();
+    if result.is_err() {
+        if let Err(error) = fs::remove_file(&path) {
+            error!("Failed to remove incomplete history import {:?}: {}", path, error);
+        }
+    }
+    result
+}
+
 impl HistoryManager {
     pub fn new(app_handle: &AppHandle) -> Result<Self> {
         // Create recordings directory in app data dir
@@ -298,6 +360,27 @@ impl HistoryManager {
 
     pub fn recordings_dir(&self) -> &std::path::Path {
         &self.recordings_dir
+    }
+
+    /// Store an imported file as a separate managed recording. The source is
+    /// never moved or linked, so deleting History cannot affect the original.
+    pub fn save_imported_transcription(
+        &self,
+        samples: &[f32],
+        title: &str,
+        text: &str,
+    ) -> Result<HistoryEntry> {
+        let conn = self.get_connection()?;
+        let entry = save_imported_entry(&conn, &self.recordings_dir, samples, title, text)?;
+        if let Err(error) = self.cleanup_old_entries() {
+            error!("Failed to clean up history after import: {}", error);
+        }
+        match Self::entry_exists(&conn, entry.id) {
+            Ok(true) => self.emit_history_added(entry.clone()),
+            Ok(false) => return Err(anyhow!("History retention removed the imported entry")),
+            Err(error) => error!("Failed to check imported history entry: {}", error),
+        }
+        Ok(entry)
     }
 
     /// Save a transcription to history (both database and WAV file)
@@ -1265,6 +1348,30 @@ fn locking_process_names(_file_path: &Path) -> Vec<String> {
 mod tests {
     use super::*;
     use rusqlite::{params, Connection};
+
+    #[test]
+    fn imported_history_keeps_audio_and_database_consistent() {
+        let dir = std::env::temp_dir().join(format!(
+            "aivorelay-history-import-{}-{}",
+            std::process::id(), Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let conn = setup_conn();
+        let entry = save_imported_entry(&conn, &dir, &[0.25, -0.25], "source.mp3", "hello")
+            .unwrap();
+        let audio = crate::audio_toolkit::read_wav_samples(dir.join(&entry.file_name)).unwrap();
+        assert_eq!(audio.len(), 2);
+        assert!((audio[0] - 0.25).abs() < 0.001);
+        let saved = HistoryManager::get_latest_entry_with_conn(&conn).unwrap().unwrap();
+        assert_eq!(saved.file_name, entry.file_name);
+        assert_eq!(saved.title, "source.mp3");
+        assert_eq!(saved.transcription_text, "hello");
+
+        let broken = Connection::open_in_memory().unwrap();
+        assert!(save_imported_entry(&broken, &dir, &[0.5], "source.mp3", "text").is_err());
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     fn setup_conn() -> Connection {
         let conn = Connection::open_in_memory().expect("open in-memory db");
