@@ -62,7 +62,16 @@ const showTrackedToast = (
       ? { ...toastOptions, description: resolvedDescription }
       : toastOptions;
 
-  const toastId = sonnerToast[level](resolvedMessage, liveOptions);
+  const toastId = sonnerToast[level](resolvedMessage, {
+    ...liveOptions,
+    closeButton: liveOptions.closeButton ?? true,
+    onDismiss: (dismissed) => {
+      liveOptions.onDismiss?.(dismissed);
+      const notice = useActiveNoticeStore.getState().notices.find(item => item.source === `ui:${dismissed.id}`);
+      if (notice) void useActiveNoticeStore.getState().dismiss(notice.id)
+        .catch(error => console.warn("Failed to dismiss clicked notice:", error));
+    },
+  });
 
   if (recordHistory) useSessionToastStore.getState().addToast({
     level,

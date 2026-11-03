@@ -24,6 +24,7 @@ static ERROR_OVERLAY_OWNER: Mutex<Option<ErrorOverlayOwner>> = Mutex::new(None);
 struct ErrorOverlayOwner {
     generation: u64,
     retry_session_id: Option<u64>,
+    notice_id: Option<u64>,
 }
 
 /// Invalidate pending error auto-hide timers.
@@ -791,9 +792,9 @@ fn show_error_overlay_internal(
     auto_hide_ms_override: Option<u64>,
 ) -> bool {
     // Every branch below moves the tray to Idle, which then shows the error.
-    crate::notices::raise(app, "dictation", None, "error", category.display_text(), None,
+    let notice_id = crate::notices::raise_with_id(app, "dictation", None, "error", category.display_text(), None,
         error_message.clone().or_else(|| error_envelope.as_ref().map(|e| e.user_message.clone())), Some("speech"));
-    crate::tray::record_tray_error(app, category.display_text());
+    crate::tray::record_tray_error(app, category.display_text(), notice_id);
     let settings = crate::settings::get_settings(app);
     if !settings.error_feedback_enabled || !settings.recording_overlay_enabled {
         // Still need to reset tray icon even if overlay is disabled
@@ -822,6 +823,7 @@ fn show_error_overlay_internal(
             *owner = Some(ErrorOverlayOwner {
                 generation: current_gen,
                 retry_session_id,
+                notice_id,
             });
         }
         let auto_hide_ms = auto_hide_ms_override
@@ -865,11 +867,16 @@ pub fn dismiss_error_overlay(app: AppHandle) {
     };
 
     // The pending auto-hide timer later finds the window already hidden.
-    if hide_recording_overlay_if_generation_matches(&app, owner.generation) {
+    run_recording_overlay_update(&app, owner.generation, move |app| {
+        overlay::hide_recording_overlay(app);
+        if let Some(id) = owner.notice_id {
+            crate::notices::dismiss_by_id(app, id);
+        }
+        change_tray_icon(app, TrayIconState::Idle);
         if let Some(retry_session_id) = owner.retry_session_id {
             crate::actions::clear_ready_remote_recording_retry_by_id(retry_session_id);
         }
-    }
+    });
 }
 
 /// Show the error overlay state with category and auto-hide after configured duration.
