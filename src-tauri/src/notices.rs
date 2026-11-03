@@ -90,9 +90,33 @@ pub fn succeed(app: &AppHandle, source: &str, generation: u64) {
 }
 pub fn raise(app: &AppHandle, source: &str, generation: Option<u64>, level: &str,
     title: &str, title_key: Option<&str>, detail: Option<String>, target: Option<&str>) {
-    update(app, |inner| inner.raise(Notice { id: 0, source: source.into(), level: level.into(),
-        title: title.into(), title_key: title_key.map(str::to_string), detail,
-        target: target.map(str::to_string), generation: 0 }, generation));
+    let _ = raise_with_id(app, source, generation, level, title, title_key, detail, target);
+}
+
+pub fn raise_with_id(app: &AppHandle, source: &str, generation: Option<u64>, level: &str,
+    title: &str, title_key: Option<&str>, detail: Option<String>, target: Option<&str>) -> Option<u64> {
+    let mut raised_id = None;
+    update(app, |inner| {
+        let changed = inner.raise(Notice { id: 0, source: source.into(), level: level.into(),
+            title: title.into(), title_key: title_key.map(str::to_string), detail,
+            target: target.map(str::to_string), generation: 0 }, generation);
+        if changed { raised_id = Some(inner.next_id); }
+        changed
+    });
+    if let Some(id) = raised_id {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            // IDs protect a newer warning of the same source from the old timer.
+            dismiss_by_id(&app, id);
+        });
+    }
+    raised_id
+}
+
+pub fn dismiss_by_id(app: &AppHandle, id: u64) {
+    update(app, |inner| inner.remove(|notice| notice.id == id));
+    crate::tray::dismiss_notice_error(app, id);
 }
 pub fn request_open(app: &AppHandle) {
     if let Some(store) = app.try_state::<NoticeStore>() {
@@ -119,7 +143,7 @@ pub fn get_active_notices(app: AppHandle) -> NoticeSnapshot {
 #[tauri::command]
 #[specta::specta]
 pub fn dismiss_active_notice(app: AppHandle, id: u64) {
-    update(&app, |inner| inner.remove(|notice| notice.id == id));
+    dismiss_by_id(&app, id);
 }
 #[tauri::command]
 #[specta::specta]

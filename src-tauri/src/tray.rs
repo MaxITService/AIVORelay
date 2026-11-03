@@ -208,13 +208,31 @@ const TRAY_ERROR_DISPLAY_DURATION: Duration = Duration::from_secs(8);
 /// Remembers a failure so the idle tray shows the error icon and tooltip
 /// for a few seconds or until the next recording starts. Error paths already
 /// move the tray to Idle afterwards, so the next sync applies it.
-pub fn record_tray_error(app: &AppHandle, text: &'static str) {
+pub fn record_tray_error(app: &AppHandle, text: &'static str, notice_id: Option<u64>) {
     let Some(state) = app.try_state::<TrayState>() else {
         return;
     };
-    let start_timer = state.lock().record_error(text, Instant::now());
+    let start_timer = {
+        let mut inner = state.lock();
+        let start_timer = inner.record_error(text, Instant::now());
+        inner.error_notice_id = notice_id;
+        start_timer
+    };
     if start_timer {
         spawn_error_expiry_timer(app);
+    }
+}
+
+/// Acknowledging one notice must not clear the icon of a newer error.
+pub fn dismiss_notice_error(app: &AppHandle, notice_id: u64) {
+    if let Some(ticket) = claim_tray_sync(app, |inner| {
+        if inner.error_notice_id == Some(notice_id) {
+            inner.last_error = None;
+            inner.error_expires_at = None;
+            inner.error_notice_id = None;
+        }
+    }, None) {
+        commit_tray_sync(app, ticket);
     }
 }
 
@@ -344,6 +362,7 @@ struct TrayInner {
     /// recording starts.
     last_error: Option<&'static str>,
     error_expires_at: Option<Instant>,
+    error_notice_id: Option<u64>,
     /// Set while the expiry timer thread owns clearing `last_error`.
     error_timer_running: bool,
 }
@@ -354,6 +373,7 @@ impl TrayInner {
         self.icon_state = state;
         if state == TrayIconState::Recording {
             self.last_error = None;
+            self.error_notice_id = None;
         }
     }
 
@@ -378,6 +398,7 @@ impl TrayInner {
             (None, _) => ErrorExpiry::Stopped,
         };
         self.error_expires_at = None;
+        self.error_notice_id = None;
         self.error_timer_running = false;
         expiry
     }
@@ -444,6 +465,7 @@ impl TrayState {
             blink_generation: 0,
             last_error: None,
             error_expires_at: None,
+            error_notice_id: None,
             error_timer_running: false,
         }))
     }

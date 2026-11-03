@@ -47,6 +47,7 @@ export const SessionNoticeChip: React.FC = () => {
     navigateToSettingsAnchor({ activateSection: () => useNavigationStore.getState().setSection("debug"), targetId: "settings-session-toast-history" });
   };
   const error = notices.some(notice => notice.level === "error");
+  if (!notices.length && !open) return null;
   return <>
     <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{notices.length ? t("notices.active", { count: notices.length }) : ""}</span>
     <button ref={trigger} type="button" aria-expanded={open} aria-controls="active-notices-panel"

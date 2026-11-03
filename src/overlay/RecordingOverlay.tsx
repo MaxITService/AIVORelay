@@ -1500,6 +1500,11 @@ const RecordingOverlay: React.FC = () => {
   return (
     <div
       ref={overlayRootRef}
+      onClick={(event) => {
+        if (state === "error" && !(event.target as HTMLElement).closest("button, a, input, select, textarea")) {
+          handleDismissError();
+        }
+      }}
       onAnimationEnd={(event) => {
         if (event.target !== event.currentTarget) {
           return;
