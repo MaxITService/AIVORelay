@@ -1638,6 +1638,17 @@ impl TranscriptionManager {
     }
 
     fn load_model_inner_after_deletion_check(&self, model_id: &str, device_index: Option<usize>) -> Result<()> {
+        let generation = crate::notices::begin_next(&self.app_handle, "model");
+        let result = self.load_model_with_notice(model_id, device_index);
+        match &result {
+            Ok(()) => crate::notices::succeed(&self.app_handle, "model", generation),
+            Err(error) => crate::notices::raise(&self.app_handle, "model", Some(generation), "error", "Model load failed",
+                Some("errors.modelLoadFailedTitle"), Some(format!("{}: {}", model_id, error)), Some("models")),
+        }
+        result
+    }
+
+    fn load_model_with_notice(&self, model_id: &str, device_index: Option<usize>) -> Result<()> {
         let load_start = std::time::Instant::now();
         debug!("Starting to load model: {}", model_id);
 

@@ -779,6 +779,8 @@ fn show_error_overlay_internal(
     auto_hide_ms_override: Option<u64>,
 ) -> bool {
     // Every branch below moves the tray to Idle, which then shows the error.
+    crate::notices::raise(app, "dictation", None, "error", category.display_text(), None,
+        error_message.clone().or_else(|| error_envelope.as_ref().map(|e| e.user_message.clone())), Some("speech"));
     crate::tray::record_tray_error(app, category.display_text());
     let settings = crate::settings::get_settings(app);
     if !settings.error_feedback_enabled || !settings.recording_overlay_enabled {

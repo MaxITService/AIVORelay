@@ -317,6 +317,7 @@ struct MenuInputs {
     microphones: Vec<TrayMicrophoneItem>,
     shortcut_items: Vec<TrayShortcutItem>,
     last_error: Option<&'static str>,
+    active_notice: Option<(String, bool)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -763,8 +764,10 @@ fn compute_desired(
         Vec::new()
     };
 
+    let active_notice = crate::notices::headline(app);
+    let icon_error = last_error.or_else(|| active_notice.as_ref().filter(|(_, error)| *error).map(|_| "Notice"));
     TrayDesired {
-        icon_path: desired_icon_path(get_current_theme(app), icon_state, last_error),
+        icon_path: desired_icon_path(get_current_theme(app), icon_state, icon_error),
         menu: MenuInputs {
             busy: icon_state.is_busy(),
             live_output_waiting: crate::live_output_buffer::has_waiting_remainder(),
@@ -789,6 +792,7 @@ fn compute_desired(
             microphones,
             shortcut_items,
             last_error,
+            active_notice,
         },
     }
 }
@@ -1027,6 +1031,10 @@ fn build_tray_menu(
     let menu = Menu::new(app)?;
 
     menu.append(&version_i)?;
+    if let Some((title, _)) = &inputs.active_notice {
+        let notice = MenuItem::with_id(app, "active_notices", format!("⚠ {}", title.replace(['\n', '\r'], " ").chars().take(90).collect::<String>()), true, None::<&str>)?;
+        menu.append(&notice)?;
+    }
     if inputs.busy || inputs.live_output_waiting {
         let cancel_i = MenuItem::with_id(app, "cancel", &strings.cancel, true, None::<&str>)?;
         menu.append(&separator()?)?;
@@ -1067,7 +1075,9 @@ fn build_tray_menu(
     menu.append(&separator()?)?;
     menu.append(&quit_i)?;
 
-    Ok((menu, tray_tooltip_with_error(inputs.last_error)))
+    let tooltip = inputs.active_notice.as_ref().map(|(title, _)| format!("AivoRelay — {}", title))
+        .unwrap_or_else(|| tray_tooltip_with_error(inputs.last_error));
+    Ok((menu, tooltip))
 }
 
 fn should_show_enter_speech_only_mode(
@@ -1690,6 +1700,7 @@ mod tests {
                 microphones: Vec::new(),
                 shortcut_items: Vec::new(),
                 last_error: None,
+                active_notice: None,
             },
         }
     }

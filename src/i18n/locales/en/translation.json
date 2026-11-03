@@ -1,4 +1,13 @@
 {
+  "notices": {
+    "active": "Notices: {{count}}",
+    "title": "Active notices",
+    "empty": "No active problems.",
+    "dismiss": "Dismiss this notice",
+    "history": "Session error and warning history",
+    "dismissHelp": "Dismissing a notice does not cancel work. Its message remains in session history.",
+    "openSettings": "Open settings"
+  },
   "modelCleanup": {
     "remaining": "Files remain",
     "unknownSize": "Not measured",
@@ -4980,6 +4989,8 @@
     "vramTooltipSystemFree": "System free: {{free}} / {{total}} GB (total is physical VRAM)"
   },
   "common": {
+    "sessionNotices": "Session messages: {{count}}",
+    "sessionNoticesDescription": "Open errors and warnings recorded during this session. These may include earlier problems that are already resolved.",
     "resetSetting": "Reset {{setting}} to default",
     "playbackPosition": "Playback position",
     "retry": "Retry",
@@ -5029,6 +5040,9 @@
     "dismiss": "Dismiss"
   },
   "errors": {
+    "fileTranscriptionFailedTitle": "File transcription failed",
+    "modelLoadFailedTitle": "Model load failed",
+    "postProcessNoticeTitle": "Text processing failed",
     "loadDirectory": "Error loading directory: {{error}}",
     "modelLoadFailed": "Failed to load model: {{model}}",
     "modelLoadFailedUnknown": "Unknown model",

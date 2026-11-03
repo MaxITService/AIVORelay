@@ -9,6 +9,7 @@ import ModelSelector from "../model-selector";
 import UpdateChecker from "../update-checker";
 import VramMeter from "./VramMeter";
 import FooterCpuWarning from "./FooterCpuWarning";
+import { SessionNoticeChip } from "./SessionNoticeChip";
 import { useSettings } from "../../hooks/useSettings";
 import { sessionToast as toast } from "../../lib/sessionToast";
 
@@ -119,6 +120,7 @@ const Footer: React.FC = () => {
 
         {/* Update Status */}
         <div className="flex shrink-0 items-center gap-2">
+          <SessionNoticeChip />
           <UpdateChecker />
           <span className="text-[#333333]">•</span>
           {/* eslint-disable-next-line i18next/no-literal-string */}

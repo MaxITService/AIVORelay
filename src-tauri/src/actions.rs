@@ -1382,6 +1382,24 @@ async fn maybe_post_process_transcription(
     force_manual: bool,
     live: Option<&mut LlmLiveInsert>,
 ) -> PostProcessTranscriptionOutcome {
+    let generation = crate::notices::begin_next(app, "postprocess");
+    let result = maybe_post_process_transcription_inner(app, settings, profile, template_context,
+        force_manual, live, generation).await;
+    if matches!(&result, PostProcessTranscriptionOutcome::Processed { .. }) {
+        crate::notices::succeed(app, "postprocess", generation);
+    }
+    result
+}
+
+async fn maybe_post_process_transcription_inner(
+    app: &AppHandle,
+    settings: &AppSettings,
+    profile: Option<&TranscriptionProfile>,
+    template_context: &LlmTemplateContext,
+    force_manual: bool,
+    live: Option<&mut LlmLiveInsert>,
+    notice_generation: u64,
+) -> PostProcessTranscriptionOutcome {
     if is_blank_transcription(&template_context.output) {
         debug!("Post-processing skipped because the transcription is empty");
         return PostProcessTranscriptionOutcome::Skipped;
@@ -1514,6 +1532,8 @@ async fn maybe_post_process_transcription(
 
                     if result.trim().is_empty() {
                         debug!("Apple Intelligence returned an empty response");
+                        crate::notices::raise(app, "postprocess", Some(notice_generation), "warning", "Text processing failed",
+                            Some("errors.postProcessNoticeTitle"), Some("Apple Intelligence returned no text. The original transcript was kept.".into()), Some("speech"));
                         PostProcessTranscriptionOutcome::Skipped
                     } else {
                         debug!(
@@ -1536,6 +1556,8 @@ async fn maybe_post_process_transcription(
                     }
 
                     error!("Apple Intelligence post-processing failed: {}", err);
+                    crate::notices::raise(app, "postprocess", Some(notice_generation), "warning", "Text processing failed",
+                        Some("errors.postProcessNoticeTitle"), Some(err.to_string()), Some("speech"));
                     PostProcessTranscriptionOutcome::Skipped
                 }
             };
@@ -1581,6 +1603,7 @@ async fn maybe_post_process_transcription(
             llm_tracker.inner(),
             operation_id,
             prompt_template,
+            notice_generation,
         )
         .await;
     }
@@ -1614,6 +1637,12 @@ async fn maybe_post_process_transcription(
             } else {
                 content
             };
+            if is_blank_transcription(&content) {
+                warn!("LLM post-processing returned blank text; using the original transcription");
+                crate::notices::raise(app, "postprocess", Some(notice_generation), "warning", "Text processing failed",
+                    Some("errors.postProcessNoticeTitle"), Some("The provider returned blank text. The original transcript was kept.".into()), Some("speech"));
+                return PostProcessTranscriptionOutcome::Skipped;
+            }
             debug!(
                 "LLM post-processing succeeded for provider '{}'. Output length: {} chars",
                 provider.id,
@@ -1634,6 +1663,8 @@ async fn maybe_post_process_transcription(
             }
 
             error!("LLM API response has no content");
+            crate::notices::raise(app, "postprocess", Some(notice_generation), "warning", "Text processing failed",
+                Some("errors.postProcessNoticeTitle"), Some("The provider returned no text. The original transcript was kept.".into()), Some("speech"));
             PostProcessTranscriptionOutcome::Skipped
         }
         Err(e) => {
@@ -1650,6 +1681,8 @@ async fn maybe_post_process_transcription(
                 provider.id,
                 e
             );
+            crate::notices::raise(app, "postprocess", Some(notice_generation), "warning", "Text processing failed",
+                Some("errors.postProcessNoticeTitle"), Some(e.to_string()), Some("speech"));
             PostProcessTranscriptionOutcome::Skipped
         }
     }
@@ -1670,6 +1703,7 @@ async fn stream_post_process_into_live_insert(
     llm_tracker: &Arc<LlmOperationTracker>,
     operation_id: u64,
     prompt_template: String,
+    notice_generation: u64,
 ) -> PostProcessTranscriptionOutcome {
     let result = {
         let mut on_content =
@@ -1702,6 +1736,13 @@ async fn stream_post_process_into_live_insert(
             "LLM post-processing failed for provider '{}' while streaming: {}",
             provider.id, error
         ),
+    }
+    if let Err(error) = &result {
+        crate::notices::raise(&live.app, "postprocess", Some(notice_generation), "warning", "Text processing failed",
+            Some("errors.postProcessNoticeTitle"), Some(error.to_string()), Some("speech"));
+    } else if live.processor.raw_text().is_empty() {
+        crate::notices::raise(&live.app, "postprocess", Some(notice_generation), "warning", "Text processing failed",
+            Some("errors.postProcessNoticeTitle"), Some("The provider returned no text. The original transcript was kept.".into()), Some("speech"));
     }
     if result.is_err() && !live.has_emitted_text() {
         // Nothing was inserted yet, so the transcription is inserted as without streaming.
@@ -2498,6 +2539,7 @@ fn start_recording_with_feedback_with_settings(
         let target = crate::live_output_buffer::foreground_target();
         crate::live_output_buffer::begin(operation_id, binding_id, captured_profile_id.clone(), output, target);
     }
+    crate::notices::begin(app, "dictation", operation_id);
     crate::clipboard::begin_dictation_output_session(operation_id, output_settings);
     *state_guard = session_manager::SessionState::Recording {
         session: Arc::clone(&session),
@@ -6713,6 +6755,9 @@ fn finalize_streaming_paste_session_after_output_queue(
             !final_text.trim().is_empty(),
             operation_stamp.was_cancelled(&app_for_finalize),
         );
+        if finalized && !operation_stamp.was_cancelled(&app_for_finalize) {
+            crate::notices::succeed(&app_for_finalize, "dictation", operation_id);
+        }
         output_finalized_in_queue.store(finalized, std::sync::atomic::Ordering::Release);
     }) {
         warn!(
@@ -8111,6 +8156,9 @@ async fn apply_post_processing_and_history(
         }
     }
 
+    if let Some(stamp) = operation_stamp {
+        crate::notices::succeed(app, "dictation", stamp.operation_id);
+    }
     let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
     let history_app = app.clone();
     tauri::async_runtime::spawn(async move {
