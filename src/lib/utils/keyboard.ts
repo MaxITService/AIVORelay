@@ -4,6 +4,11 @@
 
 export type OSType = "macos" | "windows" | "linux" | "unknown";
 
+/** Some IME confirmation events report keyCode 229 after composition ends. */
+export const isComposingKeyEvent = (
+  event: Pick<KeyboardEvent, "isComposing" | "keyCode">,
+): boolean => event.isComposing || event.keyCode === 229;
+
 const COMPOUND_KEY_DISPLAY: Record<string, string> = {
   capslock: "Caps Lock",
   numlock: "Num Lock",

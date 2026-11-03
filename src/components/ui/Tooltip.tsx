@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useId, useRef, useState } from "react";
+import { isComposingKeyEvent } from "@/lib/utils/keyboard";
 import { createPortal } from "react-dom";
 import { usePresence } from "@/hooks/usePresence";
 import { useTooltipOpen } from "@/hooks/useTooltipOpen";
@@ -151,7 +152,10 @@ export const Tooltip: React.FC<TooltipProps> = ({
         if (!hoveredRef.current) hide();
       }}
       onKeyDown={(event) => {
-        if (event.key === "Escape") hide();
+        if (event.key !== "Escape" || !open || event.defaultPrevented || isComposingKeyEvent(event.nativeEvent)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        hide();
       }}
       className={[!disabled && "cursor-help", className].filter(Boolean).join(" ") || undefined}
     >
