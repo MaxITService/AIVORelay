@@ -1,5 +1,7 @@
 // Re-export all audio components
 mod device;
+#[cfg(target_os = "macos")]
+mod headset_macos;
 mod noise_suppression;
 mod recorder;
 mod resampler;

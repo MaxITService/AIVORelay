@@ -1746,6 +1746,7 @@ pub fn run(cli_args: CliArgs) {
         commands::audio::open_microphone_privacy_settings,
         commands::audio::set_selected_microphone,
         commands::audio::set_selected_channel,
+        commands::audio::change_airpods_mode_setting,
         commands::audio::change_selected_microphone_auto_switch_enabled_setting,
         commands::audio::change_selected_microphone_name_pattern_setting,
         commands::audio::get_available_output_devices,
@@ -1970,6 +1971,9 @@ pub fn run(cli_args: CliArgs) {
         }));
     }
 
+    #[cfg(not(target_os = "linux"))]
+    let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+
     #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
     let mut app = builder
         .plugin(tauri_plugin_fs::init())
@@ -1981,7 +1985,6 @@ pub fn run(cli_args: CliArgs) {
         .plugin(tauri_plugin_macos_permissions::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             Some(vec![]),
@@ -1998,6 +2001,21 @@ pub fn run(cli_args: CliArgs) {
         .setup(move |app| {
             output_dispatch::set_main_thread();
             secure_keys::init(app.handle());
+            // A None backend must not even construct the X11 hotkey manager.
+            // Store is initialized by this point, so read the persisted choice
+            // before dynamically installing the Linux shortcut plugin.
+            #[cfg(target_os = "linux")]
+            {
+                let requested = settings::get_settings(app.handle()).shortcut_engine;
+                let active = if requested == settings::ShortcutEngine::None {
+                    settings::ShortcutEngine::None
+                } else { settings::ShortcutEngine::Tauri };
+                *app.state::<shortcut::ActiveShortcutEngine>().lock()
+                    .map_err(|_| "Shortcut engine state lock is unavailable")? = active;
+                if active != settings::ShortcutEngine::None {
+                    app.handle().plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
+                }
+            }
             // History playback on Linux reads recordings through the file plugin.
             // Scope it to the real recordings folder, which moves in portable mode.
             #[cfg(target_os = "linux")]

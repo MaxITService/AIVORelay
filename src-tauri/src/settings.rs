@@ -2915,6 +2915,8 @@ pub enum ShortcutEngine {
     /// Use rdev low-level hooks (all keys supported, higher CPU usage)
     /// Supports ALL keys including Caps Lock, Num Lock, and modifier-only shortcuts
     Rdev,
+    /// No built-in global shortcuts on Linux; use the tray or compositor CLI bindings.
+    None,
 }
 
 impl Default for ShortcutEngine {
@@ -4712,6 +4714,9 @@ pub struct AppSettings {
     /// Keep the microphone stream alive briefly after stop to reduce startup latency.
     #[serde(default)]
     pub lazy_stream_close: bool,
+    /// Play silent output on the selected Bluetooth headset while recording (macOS).
+    #[serde(default)]
+    pub airpods_mode: bool,
     // ==================== UI State ====================
     /// Whether the hotkey sidebar is pinned open
     #[serde(default)]
@@ -6727,6 +6732,7 @@ pub fn get_default_settings() -> AppSettings {
         extra_recording_buffer_ms: 0,
         dictation_quick_tap_threshold_ms: default_dictation_quick_tap_threshold_ms(),
         lazy_stream_close: false,
+        airpods_mode: false,
         // Window Geometry
         remember_window_size: true,
         remember_window_position: true,

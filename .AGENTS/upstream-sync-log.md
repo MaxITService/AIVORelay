@@ -6,6 +6,25 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Platform follow-up committed (2026-11-02):
+- `8c293dd4` (`fix(macos): prevent silent AirPods recordings when also playing
+  audio from iPhone (#1991)`) is adapted by `b99e4337`
+  (`fix(macos): take Bluetooth headsets during recording in AirPods mode`).
+  The experimental setting defaults off. The fork's CPAL worker owns silent
+  output only during capture, uses CoreAudio related-device lookup, and refuses
+  ambiguous device names. Warm capture does not hold the headset while idle.
+- `ef3086eb` (`fix(linux): add 'None' keyboard implementation for Wayland
+  compositors (#1300)`) is adapted by `1c385b2c`
+  (`feat(linux): allow compositor-controlled dictation without global shortcuts`).
+  None skips the X11 hotkey plugin, normal/dynamic shortcuts and passive key
+  listeners. Saved bindings are retained, CLI/tray control remains, and the
+  Linux-only selector reports the active backend and required restart.
+- Both adaptations are committed on `main` only. They supersede their initial
+  deferred classification below. Other intake work remains uncommitted.
+  Static source/diff review and JSON/TOML parsing only; no builds, tests,
+  typechecks, formatters, app/dev-process actions or pushes were performed.
+  macOS/AirPods and Linux/Wayland runtime behavior remains unverified.
+
 Audit and fixes (2026-10-27):
 - The review cursor remains `7bfb2e2c`. Integrated fixes repair detector
   download URLs and checksums, dependent-download ordering, unsupported engine
