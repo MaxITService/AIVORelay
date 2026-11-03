@@ -51,7 +51,15 @@ pub fn chinese_script_for_locale(locale: &str) -> Option<ChineseScript> {
         _ => return None,
     };
     Some(if traditional {
-        ChineseScript::Traditional
+        if subtags.contains(&"hk") || subtags.contains(&"mo") {
+            ChineseScript::TraditionalHk
+        } else if subtags.contains(&"tw") {
+            ChineseScript::TraditionalTw
+        } else if subtags.first() == Some(&"yue") {
+            ChineseScript::TraditionalHk
+        } else {
+            ChineseScript::TraditionalTw
+        }
     } else {
         ChineseScript::Simplified
     })
@@ -207,8 +215,11 @@ mod tests {
         for locale in ["zh", "zh-CN", "zh_SG", "zh-Hans-TW", "yue-Hans-HK"] {
             assert_eq!(chinese_script_for_locale(locale), Some(ChineseScript::Simplified), "{locale}");
         }
-        for locale in ["zh-TW", "zh_HK", "zh-MO", "zh-Hant-CN", "yue", "yue-HK"] {
-            assert_eq!(chinese_script_for_locale(locale), Some(ChineseScript::Traditional), "{locale}");
+        for locale in ["zh-TW", "zh-Hant-CN", "yue-TW"] {
+            assert_eq!(chinese_script_for_locale(locale), Some(ChineseScript::TraditionalTw), "{locale}");
+        }
+        for locale in ["zh_HK", "zh-MO", "zh-Hant-HK", "yue", "yue-HK"] {
+            assert_eq!(chinese_script_for_locale(locale), Some(ChineseScript::TraditionalHk), "{locale}");
         }
         for locale in ["en-US", "ja-JP", "", "auto"] {
             assert_eq!(chinese_script_for_locale(locale), None);
