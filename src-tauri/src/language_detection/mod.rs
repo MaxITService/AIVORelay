@@ -263,8 +263,10 @@ mod tests {
         let object = value.as_object_mut().unwrap();
         object.remove("spoken_languages");
         object.remove("language_detection");
+        object.remove("language_detection_window_secs");
         let settings: crate::settings::AppSettings = serde_json::from_value(value).unwrap();
         assert!(settings.spoken_languages.is_empty());
         assert_eq!(settings.language_detection, LanguageDetectionMode::WhenNeeded);
+        assert_eq!(settings.language_detection_window_secs, 5);
     }
 }

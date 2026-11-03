@@ -4062,6 +4062,8 @@ pub struct AppSettings {
     pub spoken_languages: Vec<String>,
     #[serde(default)]
     pub language_detection: crate::language_detection::LanguageDetectionMode,
+    #[serde(default = "default_language_detection_window_secs")]
+    pub language_detection_window_secs: u32,
     #[serde(default)]
     pub chinese_script: ChineseScript,
     #[serde(default = "default_overlay_position")]
@@ -4737,6 +4739,8 @@ pub struct AppSettings {
     #[serde(default = "default_saved_window_coord")]
     pub saved_window_y: i32,
 }
+
+fn default_language_detection_window_secs() -> u32 { 5 }
 
 fn default_recording_auto_stop_timeout_seconds() -> u32 {
     1800
@@ -6417,6 +6421,7 @@ pub fn get_default_settings() -> AppSettings {
         selected_language: "auto".to_string(),
         spoken_languages: Vec::new(),
         language_detection: crate::language_detection::LanguageDetectionMode::WhenNeeded,
+        language_detection_window_secs: default_language_detection_window_secs(),
         chinese_script: default_chinese_script(),
         overlay_position: default_overlay_position(),
         recording_overlay_enabled: default_recording_overlay_enabled(),

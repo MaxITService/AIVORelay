@@ -10,6 +10,7 @@ use crate::managers::model::ModelManager;
 pub struct LanguageDetectionConfig {
     pub spoken_languages: Vec<String>,
     pub mode: LanguageDetectionMode,
+    pub window_secs: u32,
 }
 
 #[tauri::command]
@@ -65,6 +66,7 @@ pub fn get_language_detection_config(app: AppHandle) -> LanguageDetectionConfig 
     LanguageDetectionConfig {
         spoken_languages: settings.spoken_languages,
         mode: settings.language_detection,
+        window_secs: settings.language_detection_window_secs.clamp(2, 30),
     }
 }
 
@@ -74,7 +76,11 @@ pub fn set_language_detection_config(
     app: AppHandle,
     spoken_languages: Vec<String>,
     mode: LanguageDetectionMode,
+    window_secs: u32,
 ) -> Result<(), String> {
+    if !(2..=30).contains(&window_secs) {
+        return Err("Language detection window must be between 2 and 30 seconds".to_string());
+    }
     if spoken_languages.len() > 107 || spoken_languages.iter().any(|language| {
         language.is_empty() || language.len() > 35
             || !language.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
@@ -94,5 +100,6 @@ pub fn set_language_detection_config(
     let mut settings = get_settings(&app);
     settings.spoken_languages = unique;
     settings.language_detection = mode;
+    settings.language_detection_window_secs = window_secs;
     write_settings_checked(&app, settings)
 }
