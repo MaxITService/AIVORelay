@@ -335,7 +335,7 @@ impl SonioxSttManager {
     fn normalize_model_for_realtime(model: &str) -> String {
         let trimmed = model.trim();
         if trimmed.is_empty() {
-            return "stt-rt-v5".to_string();
+            return "stt-rt-v6".to_string();
         }
 
         if let Some(version) = trimmed.strip_prefix("stt-async-v") {
@@ -348,7 +348,7 @@ impl SonioxSttManager {
     fn normalize_model_for_async(model: &str) -> String {
         let trimmed = model.trim();
         if trimmed.is_empty() {
-            return "stt-async-v5".to_string();
+            return "stt-async-v6".to_string();
         }
 
         if let Some(version) = trimmed.strip_prefix("stt-rt-v") {
@@ -1494,7 +1494,7 @@ mod tests {
     #[test]
     fn websocket_start_payload_contains_configuration_without_credentials() {
         let request = SonioxStartRequest {
-            model: "stt-rt-v5".into(),
+            model: "stt-rt-v6".into(),
             audio_format: "pcm_s16le".into(),
             sample_rate: Some(16_000),
             num_channels: Some(1),
@@ -1505,7 +1505,7 @@ mod tests {
         let payload = serde_json::to_value(request).unwrap();
 
         assert_eq!(payload, serde_json::json!({
-            "model": "stt-rt-v5",
+            "model": "stt-rt-v6",
             "audio_format": "pcm_s16le",
             "sample_rate": 16_000,
             "num_channels": 1,

@@ -386,7 +386,7 @@ mod tests {
         let supported = [
             SttModelSelection {
                 provider: TranscriptionProvider::RemoteSoniox,
-                model_id: "stt-rt-v5".to_string(),
+                model_id: "stt-rt-v6".to_string(),
                 provider_preset: String::new(),
             },
             SttModelSelection {
@@ -417,7 +417,7 @@ mod tests {
             },
             SttModelSelection {
                 provider: TranscriptionProvider::RemoteSoniox,
-                model_id: "stt-async-v5".to_string(),
+                model_id: "stt-async-v6".to_string(),
                 provider_preset: String::new(),
             },
             SttModelSelection {

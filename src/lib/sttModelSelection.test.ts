@@ -15,7 +15,7 @@ describe("workflow-specific STT model menus", () => {
     const options = sttCatalog("live", []);
 
     expect(options.map(option => option.id)).toEqual([
-      "soniox:stt-rt-v5",
+      "soniox:stt-rt-v6",
       "deepgram:nova-3",
       "vercel:google/gemini-3.5-transcribe-live",
       "google:gemini-3.5-transcribe-live",
@@ -32,7 +32,7 @@ describe("workflow-specific STT model menus", () => {
     const optionIds = sttCatalog("file", [localModel]).map(option => option.id);
 
     expect(optionIds).toContain("local:local-test-model");
-    expect(optionIds).toContain("soniox:stt-async-v5");
+    expect(optionIds).toContain("soniox:stt-async-v6");
     expect(optionIds).toContain("vercel:google/gemini-3.5-transcribe");
     expect(optionIds).toContain("google:gemini-3.5-transcribe");
     expect(optionIds.some(id => id.includes("transcribe-live"))).toBe(false);
@@ -96,8 +96,8 @@ describe("STT selection compatibility", () => {
     );
 
     expect(catalog[0].id).toBe("local:local-test-model");
-    expect(catalog.map(option => option.id)).toContain("soniox:stt-rt-v5");
-    expect(catalog.map(option => option.id)).toContain("soniox:stt-async-v5");
+    expect(catalog.map(option => option.id)).toContain("soniox:stt-rt-v6");
+    expect(catalog.map(option => option.id)).toContain("soniox:stt-async-v6");
     expect(catalog.map(option => option.id)).toContain("deepgram:nova-3");
     expect(new Set(selectionKeys).size).toBe(selectionKeys.length);
   });
@@ -111,11 +111,11 @@ describe("STT selection compatibility", () => {
     expect(
       globalSttSelection({
         transcription_provider: "remote_soniox",
-        soniox_model: "stt-async-v5",
+        soniox_model: "stt-async-v6",
       } as Parameters<typeof globalSttSelection>[0]),
     ).toEqual({
       provider: "remote_soniox",
-      model_id: "stt-async-v5",
+      model_id: "stt-async-v6",
       provider_preset: "",
     });
     expect(

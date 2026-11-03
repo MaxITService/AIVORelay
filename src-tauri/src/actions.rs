@@ -7881,7 +7881,7 @@ mod transcription_post_process_tests {
     fn allows_post_process_for_soniox_non_live_routes() {
         let mut settings = get_default_settings();
         settings.transcription_provider = TranscriptionProvider::RemoteSoniox;
-        settings.soniox_model = "stt-rt-v5".to_string();
+        settings.soniox_model = "stt-rt-v6".to_string();
         settings.soniox_live_enabled = false;
 
         assert!(post_process_allowed_for_output_route(&settings, None));
@@ -7895,7 +7895,7 @@ mod transcription_post_process_tests {
     fn allows_post_process_for_soniox_live_preview_only() {
         let mut settings = get_default_settings();
         settings.transcription_provider = TranscriptionProvider::RemoteSoniox;
-        settings.soniox_model = "stt-rt-v5".to_string();
+        settings.soniox_model = "stt-rt-v6".to_string();
         settings.soniox_live_enabled = true;
         settings.preview_output_only_enabled = false;
         settings.soniox_live_preview_enabled = false;
@@ -7910,7 +7910,7 @@ mod transcription_post_process_tests {
     fn automatic_post_process_follows_output_route_for_soniox_and_deepgram() {
         let mut settings = get_default_settings();
         settings.transcription_provider = TranscriptionProvider::RemoteSoniox;
-        settings.soniox_model = "stt-rt-v5".to_string();
+        settings.soniox_model = "stt-rt-v6".to_string();
         settings.deepgram_model = "nova-3".to_string();
         settings.preview_output_only_enabled = false;
         settings.soniox_live_preview_enabled = false;
@@ -8009,7 +8009,7 @@ mod transcription_post_process_tests {
             settings.transcription_provider = provider;
             settings.selected_model = "streaming-model".into();
             settings.native_streaming_live_output_models = vec![settings.selected_model.clone()];
-            settings.soniox_model = "stt-rt-v5".into();
+            settings.soniox_model = "stt-rt-v6".into();
             settings.soniox_live_enabled = true;
             settings.deepgram_model = "nova-3".into();
             settings.deepgram_live_enabled = true;
@@ -8041,7 +8041,7 @@ mod transcription_post_process_tests {
         })).unwrap();
         let mut settings = get_default_settings();
         settings.transcription_provider = TranscriptionProvider::RemoteSoniox;
-        settings.soniox_model = "stt-rt-v5".into();
+        settings.soniox_model = "stt-rt-v6".into();
         settings.soniox_live_enabled = true;
         settings.preview_output_only_enabled = false;
         settings.soniox_live_preview_enabled = false;

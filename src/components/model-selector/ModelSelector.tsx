@@ -664,7 +664,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           model_id: provider === "remote_soniox"
             ? profileModelSelection?.provider === "remote_soniox"
               ? profileModelSelection.model_id
-              : getSetting("soniox_model") || "stt-rt-v5"
+              : getSetting("soniox_model") || "stt-rt-v6"
             : profileModelSelection?.provider === "remote_deepgram"
               ? profileModelSelection.model_id
               : getSetting("deepgram_model") || "nova-3",

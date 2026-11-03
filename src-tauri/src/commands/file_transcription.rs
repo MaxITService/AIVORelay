@@ -583,7 +583,7 @@ pub fn get_file_transcription_recording_state(
 
 /// Supported audio file extensions
 pub(super) const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "flac", "webm"];
-const SONIOX_LATEST_ASYNC_MODEL: &str = "stt-async-v5";
+const SONIOX_LATEST_ASYNC_MODEL: &str = "stt-async-v6";
 const FILE_TRANSCRIPTION_CANCELLED_MESSAGE: &str = "File transcription was cancelled";
 const FILE_TRANSCRIPTION_MODEL_LOAD_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -2705,7 +2705,7 @@ mod tests {
         let google = remote_selection("google", "gemini-3.5-transcribe");
         let soniox = SttModelSelection {
             provider: TranscriptionProvider::RemoteSoniox,
-            model_id: "stt-async-v5".to_string(),
+            model_id: "stt-async-v6".to_string(),
             provider_preset: String::new(),
         };
 
@@ -2748,7 +2748,7 @@ mod tests {
         let mut settings = get_default_settings();
         let file_selection = SttModelSelection {
             provider: TranscriptionProvider::RemoteSoniox,
-            model_id: "stt-async-v5".to_string(),
+            model_id: "stt-async-v6".to_string(),
             provider_preset: String::new(),
         };
         settings.file_transcription_model_selection = Some(file_selection.clone());
@@ -2791,7 +2791,7 @@ mod tests {
 
         let soniox = SttModelSelection {
             provider: TranscriptionProvider::RemoteSoniox,
-            model_id: "stt-async-v5".to_string(),
+            model_id: "stt-async-v6".to_string(),
             provider_preset: String::new(),
         };
         let config = seed_file_model_config(&settings, &soniox);
@@ -2846,7 +2846,7 @@ mod tests {
 
         let soniox = SttModelSelection {
             provider: TranscriptionProvider::RemoteSoniox,
-            model_id: "stt-async-v5".to_string(),
+            model_id: "stt-async-v6".to_string(),
             provider_preset: String::new(),
         };
         let soniox_config = seed_file_model_config(&settings, &soniox);

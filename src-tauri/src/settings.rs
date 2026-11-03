@@ -2872,7 +2872,7 @@ pub enum VadBackend {
     Earshot,
 }
 
-pub const SONIOX_DEFAULT_MODEL: &str = "stt-rt-v5";
+pub const SONIOX_DEFAULT_MODEL: &str = "stt-rt-v6";
 pub const SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS: u32 = 2000;
 pub const SONIOX_DEFAULT_ENDPOINT_SENSITIVITY: f32 = 0.0;
 pub const SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS: u32 = 500;
@@ -8971,7 +8971,7 @@ mod tests {
         for supported in [
             selection(TranscriptionProvider::Local, "", "whisper-large-v3-turbo"),
             selection(TranscriptionProvider::RemoteDeepgram, "", "nova-3"),
-            selection(TranscriptionProvider::RemoteSoniox, "", "stt-async-v5"),
+            selection(TranscriptionProvider::RemoteSoniox, "", "stt-async-v6"),
             selection(
                 TranscriptionProvider::RemoteOpenAiCompatible,
                 "google",
@@ -8983,7 +8983,7 @@ mod tests {
 
         for unsupported in [
             selection(TranscriptionProvider::Local, "", ""),
-            selection(TranscriptionProvider::RemoteSoniox, "", "stt-rt-v5"),
+            selection(TranscriptionProvider::RemoteSoniox, "", "stt-rt-v6"),
             selection(
                 TranscriptionProvider::RemoteOpenAiCompatible,
                 "vercel",

@@ -606,7 +606,7 @@ export const ModelsSettings: React.FC = () => {
                 onClick={() =>
                   void handleRemoteProviderSelect(
                     "remote_soniox",
-                    String(getSetting("soniox_model") || "stt-rt-v5"),
+                    String(getSetting("soniox_model") || "stt-rt-v6"),
                     "Soniox",
                   )
                 }

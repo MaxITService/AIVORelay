@@ -9,7 +9,7 @@ export type SttWorkflow = "dictation" | "file" | "live";
 export type SttModelSelection = BindingSttModelSelection;
 
 export const STT_MODEL_IDS = {
-  sonioxLive: "stt-rt-v5",
+  sonioxLive: "stt-rt-v6",
   deepgramLive: "nova-3",
   googleGeminiLive: "gemini-3.5-transcribe-live",
   vercelGeminiLive: "google/gemini-3.5-transcribe-live",
@@ -267,7 +267,7 @@ export const sttCatalog = (
         id: `soniox:${STT_MODEL_IDS.sonioxLive}`,
         providerId: "soniox",
         providerLabel: "Soniox",
-        modelLabel: "STT RT v5",
+        modelLabel: "STT RT v6",
         selection: {
           provider: "remote_soniox",
           model_id: STT_MODEL_IDS.sonioxLive,
@@ -309,13 +309,13 @@ export const sttCatalog = (
 
   const fileOptions: SttCatalogOption[] = [
     {
-      id: "soniox:stt-async-v5",
+      id: "soniox:stt-async-v6",
       providerId: "soniox",
       providerLabel: "Soniox",
-      modelLabel: "STT Async v5",
+      modelLabel: "STT Async v6",
       selection: {
         provider: "remote_soniox",
-        model_id: "stt-async-v5",
+        model_id: "stt-async-v6",
         provider_preset: "",
       },
       capabilities: SONIOX_CAPABILITIES,
