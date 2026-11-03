@@ -74,12 +74,11 @@ pub struct FrontendKeyEvent {
 impl HandyKeysState {
     pub fn new(app: AppHandle) -> Result<Self, String> {
         let (cmd_tx, cmd_rx) = mpsc::channel::<ManagerCommand>();
-        #[cfg(target_os = "macos")]
         let (ready_sender, ready_receiver) = mpsc::channel::<Result<(), String>>();
         let app_clone = app.clone();
         let thread_handle = thread::spawn(move || {
             let result = catch_unwind(AssertUnwindSafe(|| {
-                Self::manager_thread(cmd_rx, app_clone, #[cfg(target_os = "macos")] ready_sender);
+                Self::manager_thread(cmd_rx, app_clone, ready_sender);
             }));
 
             if let Err(panic) = result {
@@ -91,9 +90,8 @@ impl HandyKeysState {
             }
         });
 
-        #[cfg(target_os = "macos")]
         ready_receiver.recv_timeout(std::time::Duration::from_secs(10))
-            .map_err(|error| format!("macOS shortcut backend did not initialize: {error}"))??;
+            .map_err(|error| format!("Shortcut backend did not initialize: {error}"))??;
 
         Ok(Self {
             command_sender: Mutex::new(cmd_tx),
@@ -105,7 +103,7 @@ impl HandyKeysState {
     }
 
     fn manager_thread(cmd_rx: Receiver<ManagerCommand>, app: AppHandle,
-        #[cfg(target_os = "macos")] ready: Sender<Result<(), String>>,
+        ready: Sender<Result<(), String>>,
     ) {
         info!("handy-keys manager thread started");
 
@@ -113,13 +111,11 @@ impl HandyKeysState {
             Ok(manager) => manager,
             Err(err) => {
                 error!("Failed to create handy-keys manager: {}", err);
-                #[cfg(target_os = "macos")]
                 let _ = ready.send(Err(err.to_string()));
                 return;
             }
         };
 
-        #[cfg(target_os = "macos")]
         if ready.send(Ok(())).is_err() { return; }
 
         let mut binding_to_hotkey: HashMap<String, HotkeyId> = HashMap::new();
