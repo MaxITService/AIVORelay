@@ -2,12 +2,11 @@ import React from "react";
 import { Alert } from "../../ui/Alert";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
-import { RefreshCcw } from "lucide-react";
 import { sessionToast as toast } from "@/lib/sessionToast";
 
 import { useSettings } from "../../../hooks/useSettings";
 import { SettingContainer } from "../../ui/SettingContainer";
-import { ResetButton } from "../../ui/ResetButton";
+import { ModelRefreshButton } from "./ModelRefreshButton";
 import { ProviderSelect } from "./ProviderSelect";
 import { BaseUrlField } from "./BaseUrlField";
 import { ApiKeyField } from "./ApiKeyField";
@@ -245,17 +244,11 @@ export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
                   onBlur={() => {}}
                   className="flex-1 min-w-[380px]"
                 />
-                <ResetButton
+                <ModelRefreshButton
+                  providerId={state.selectedProvider?.id || ""}
                   onClick={state.handleRefreshModels}
-                  disabled={state.isFetchingModels}
-                  ariaLabel={t("settings.postProcessing.api.model.refreshModels")}
-                  title="Fetch Models from Server, then you can type part of model name for searching it in drop-down."
-                  className="flex h-10 w-10 items-center justify-center"
-                >
-                  <RefreshCcw
-                    className={`h-4 w-4 ${state.isFetchingModels ? "animate-spin" : ""}`}
-                  />
-                </ResetButton>
+                  isFetching={state.isFetchingModels}
+                />
               </div>
             </SettingContainer>
           )}

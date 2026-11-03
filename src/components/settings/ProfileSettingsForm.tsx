@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { ChevronDown, ChevronUp, RefreshCcw, RotateCcw } from "lucide-react";
+import { ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
 import { commands, type TranscriptionProfile, type ModelInfo } from "@/bindings";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { Button } from "../ui/Button";
@@ -14,7 +14,7 @@ import { Collapse } from "../ui/Collapse";
 import { WindowDetails } from "../ui/WindowDetails";
 import { useWindowState } from "../../hooks/useWindowState";
 import { ModelSelect } from "./PostProcessingSettingsApi/ModelSelect";
-import { ResetButton } from "../ui/ResetButton";
+import { ModelRefreshButton } from "./PostProcessingSettingsApi/ModelRefreshButton";
 import { InfoTooltip } from "../ui/InfoTooltip";
 import { SonioxContextEditor, isSonioxContextValid } from "./SonioxContextEditor";
 import type { ModelOption } from "./PostProcessingSettingsApi/types";
@@ -1824,15 +1824,12 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
                           onBlur={() => {}}
                           className="flex-1"
                         />
-                        <ResetButton
+                        <ModelRefreshButton
+                          providerId={settings?.post_process_provider_id || ""}
                           onClick={onRefreshModels}
-                          disabled={isFetchingModels || isUpdating}
-                          title="Fetch Models from Server, then you can type part of model name for searching it in drop-down."
-                        >
-                          <RefreshCcw
-                            className={`w-4 h-4 ${isFetchingModels ? "animate-spin" : ""}`}
-                          />
-                        </ResetButton>
+                          isFetching={isFetchingModels}
+                          disabled={isUpdating}
+                        />
                       </div>
                     </div>
                   </div>

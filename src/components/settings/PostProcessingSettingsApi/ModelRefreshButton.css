@@ -1,0 +1,13 @@
+.model-refresh-needs-fetch {
+  color: #b78bea;
+  animation: model-refresh-breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes model-refresh-breathe {
+  0%, 100% { opacity: 0.5; transform: scale(0.94); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .model-refresh-needs-fetch { animation: none; }
+}
