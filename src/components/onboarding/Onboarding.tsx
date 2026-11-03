@@ -143,6 +143,9 @@ const Onboarding: React.FC<OnboardingProps> = ({
         setDownloading(false);
         setDownloadingModelId(null);
         setMode("local");
+      } else {
+        setDownloading(false);
+        setDownloadingModelId(null);
       }
     } catch (err) {
       if (downloadAttempt.current !== attempt) return;
@@ -320,7 +323,9 @@ const Onboarding: React.FC<OnboardingProps> = ({
                 {/* Status message */}
                 <p className="text-[#a0a0a0] text-sm">
                   {welcomeVariant === "local"
-                    ? t("onboarding.welcome.modelDownloading")
+                    ? downloading
+                      ? t("onboarding.welcome.modelDownloading")
+                      : t("onboarding.welcome.modelReady", "Your model is ready.")
                     : t("onboarding.welcome.providerReady")}
                 </p>
 
@@ -355,6 +360,26 @@ const Onboarding: React.FC<OnboardingProps> = ({
                   {settings?.automatic_app_profiles_enabled && (
                     <p className="text-xs text-[#a0a0a0]">{t("onboarding.welcome.shortcutProfiles", "Other application profiles may use a different shortcut mode.")}</p>
                   )}
+                </div>
+
+                <div className="w-full text-left space-y-2">
+                  <label htmlFor="onboarding-practice" className="text-sm font-medium text-[#f5f5f5]">
+                    {t("onboarding.welcome.practiceTitle", "Try dictation here")}
+                  </label>
+                  <p className="text-sm text-[#a0a0a0]">
+                    {downloading
+                      ? t("onboarding.welcome.practiceDownloading", "Once the model finishes downloading, click the field and try your shortcut. You can also continue now.")
+                      : t("onboarding.welcome.practiceHint", "Click the field, use your shortcut, and say a few words. This step is optional.")}
+                  </p>
+                  <textarea
+                    id="onboarding-practice"
+                    rows={3}
+                    className="w-full resize-y rounded-lg border border-[#4a4a4a] bg-[#202020] p-3 text-sm text-[#f5f5f5] focus:border-[#ff4d8d] focus:outline-none"
+                    placeholder={t("onboarding.welcome.practicePlaceholder", "Your words can appear here…")}
+                  />
+                  <p className="text-xs text-[#a0a0a0]">
+                    {t("onboarding.welcome.practiceOutput", "The result follows your current output settings; preview-only or clipboard modes may show it elsewhere.")}
+                  </p>
                 </div>
 
                 {/* Settings note */}
