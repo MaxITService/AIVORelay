@@ -717,6 +717,12 @@ impl ModelManager {
         self.download_language_detector_with(CancellationToken::new()).await
     }
 
+    pub fn cancel_language_detector_download(&self) {
+        if let Some(token) = self.cancellation_tokens.lock().unwrap().get("language-detector") {
+            token.cancel();
+        }
+    }
+
     async fn download_language_detector_with(&self, cancel: CancellationToken) -> Result<()> {
         const ID: &str = "language-detector";
         let detector = crate::catalog::LANGUAGE_DETECTOR.as_ref()
