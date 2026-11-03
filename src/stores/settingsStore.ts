@@ -18,7 +18,7 @@ import { getActiveProfilePostProcessingEnabled } from "@/lib/postProcessingAvail
 import { sessionToast as toast } from "@/lib/sessionToast";
 import type { ProfileOutputSettings } from "@/lib/profileOutputSettings";
 
-export type ChineseScript = "as_transcribed" | "simplified" | "traditional";
+export type ChineseScript = "as_transcribed" | "simplified" | "traditional" | "traditional_tw" | "traditional_hk";
 export type Settings = GeneratedSettings & {
   chinese_script?: ChineseScript;
   mute_immediately?: boolean;
