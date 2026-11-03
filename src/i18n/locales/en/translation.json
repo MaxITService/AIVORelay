@@ -5111,6 +5111,7 @@
       "description": "Add several audio files, or drop them together onto this page. Files run one at a time using the current file-transcription model. You can add more while the queue runs.",
       "savedToDocuments": "Each transcript is saved to Documents as a separate TXT, SRT, or VTT file using the output format selected when it was added. Existing files are never overwritten.",
       "restartHint": "The queue is saved across app restarts and always returns paused. Review the model and provider settings before resuming.",
+      "interrupted": "Interrupted before finishing. If a transcript was already saved, retrying creates another copy.",
       "audioFiles": "Audio files",
       "addFiles": "Add files to queue",
       "resume": "Start / resume queue",

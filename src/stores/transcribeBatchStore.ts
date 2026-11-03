@@ -21,6 +21,9 @@ const inputPathKey = (path: string) => pathKey(path, osType() === "windows");
 export type TranscribeBatchStatus = "queued" | "processing" | "completed" | "failed";
 export type TranscribeBatchWaitingReason = "singleFile" | "recording" | null;
 
+/** Stored as the item error; the queue UI shows a localized explanation. */
+export const TRANSCRIBE_BATCH_INTERRUPTED_ERROR = "interrupted";
+
 export interface TranscribeBatchItem {
   id: string;
   path: string;
@@ -206,7 +209,11 @@ export const useTranscribeBatchStore = create<TranscribeBatchState>()(
       merge: (persisted, current) => ({
         ...current,
         items: ((persisted as { items?: TranscribeBatchItem[] } | undefined)?.items ?? [])
-          .map((item) => item.status === "processing" ? { ...item, status: "queued" as const } : item),
+          // The backend may still finish an interrupted file and save its transcript,
+          // so requeueing it automatically could transcribe and save it twice.
+          .map((item) => item.status === "processing"
+            ? { ...item, status: "failed" as const, error: TRANSCRIBE_BATCH_INTERRUPTED_ERROR }
+            : item),
       }),
     },
   ),

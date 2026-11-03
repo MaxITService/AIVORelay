@@ -12,7 +12,10 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
-import { useTranscribeBatchStore } from "@/stores/transcribeBatchStore";
+import {
+  TRANSCRIBE_BATCH_INTERRUPTED_ERROR,
+  useTranscribeBatchStore,
+} from "@/stores/transcribeBatchStore";
 
 interface TranscribeFileBatchQueueProps {
   onAddFiles: (paths: string[]) => void;
@@ -173,7 +176,9 @@ export const TranscribeFileBatchQueue: React.FC<TranscribeFileBatchQueueProps> =
                   )}
                   {item.error && (
                     <p className="mt-1 break-words text-[11px] text-red-300">
-                      {item.error}
+                      {item.error === TRANSCRIBE_BATCH_INTERRUPTED_ERROR
+                        ? t("transcribeFile.batch.interrupted")
+                        : item.error}
                     </p>
                   )}
                 </div>
