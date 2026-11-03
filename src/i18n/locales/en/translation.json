@@ -1,5 +1,6 @@
 {
   "notices": {
+    "duplicateShortcutRemoved": "An inactive duplicate shortcut was removed. Its key still runs the other action; you can assign a new shortcut in settings.",
     "active": "Notices: {{count}}",
     "title": "Active notices",
     "empty": "No active problems.",

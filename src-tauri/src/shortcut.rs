@@ -708,6 +708,20 @@ pub fn init_shortcuts(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     crate::platform_shortcuts::init_macos_backend(app);
 
+    // Repair legacy duplicates only after a backend confirms which action works.
+    // Registration failures unrelated to another working shortcut keep their binding.
+    let mut registered = Vec::new();
+    let mut failed = Vec::new();
+    let mut register = |binding: ShortcutBinding| {
+        match register_shortcut(app, binding.clone()) {
+            Ok(()) => registered.push(binding),
+            Err(error) => {
+                error!("Failed to register shortcut {} during init: {}", binding.id, error);
+                failed.push(binding);
+            }
+        }
+    };
+
     // Register all default shortcuts, applying user customizations
     for (id, default_binding) in default_bindings {
         if id == "cancel" {
@@ -729,9 +743,7 @@ pub fn init_shortcuts(app: &AppHandle) {
 
         // Skip empty bindings (intentionally unbound shortcuts like voice_command, cycle_profile)
         if !binding.current_binding.is_empty() {
-            if let Err(e) = register_shortcut(app, binding) {
-                error!("Failed to register shortcut {} during init: {}", id, e);
-            }
+            register(binding);
         }
     }
 
@@ -741,12 +753,7 @@ pub fn init_shortcuts(app: &AppHandle) {
         if let Some(binding) = user_settings.bindings.get(&binding_id) {
             // Only register if the binding has a key assigned
             if !binding.current_binding.is_empty() {
-                if let Err(e) = register_shortcut(app, binding.clone()) {
-                    error!(
-                        "Failed to register transcription profile shortcut {} during init: {}",
-                        binding_id, e
-                    );
-                }
+                register(binding.clone());
             }
         }
     }
@@ -759,15 +766,15 @@ pub fn init_shortcuts(app: &AppHandle) {
             let binding_id = settings::send_selected_text_binding_id(&preset.id);
             if let Some(binding) = user_settings.bindings.get(&binding_id) {
                 if !binding.current_binding.is_empty() {
-                    if let Err(error) = register_shortcut(app, binding.clone()) {
-                        error!(
-                            "Failed to register Send Selected Text shortcut {} during init: {}",
-                            binding_id, error
-                        );
-                    }
+                    register(binding.clone());
                 }
             }
         }
+    }
+
+    drop(register);
+    if let Err(error) = migrate_failed_shortcut_duplicates(app, &failed, &registered) {
+        error!("Could not save duplicate shortcut repair: {}", error);
     }
 
     if !speech_only {
@@ -778,6 +785,52 @@ pub fn init_shortcuts(app: &AppHandle) {
             );
         }
     }
+}
+
+/// Clear only failed registrations whose physical key is owned by a working action.
+/// Empty bindings make this repair idempotent without a settings-version flag.
+fn clear_failed_shortcut_duplicates(
+    settings: &mut settings::AppSettings,
+    failed: &[ShortcutBinding],
+    registered: &[ShortcutBinding],
+) -> Vec<(ShortcutBinding, String)> {
+    let mut cleared = Vec::new();
+    for binding in failed {
+        let Some(other) = registered.iter().find(|other| {
+            other.id != binding.id
+                && shortcuts_overlap(&binding.current_binding, &other.current_binding)
+        }) else { continue; };
+        let Some(current) = settings.bindings.get_mut(&binding.id) else { continue; };
+        // Do not overwrite a shortcut edited since registration started.
+        if current.current_binding != binding.current_binding || current.current_binding.is_empty() {
+            continue;
+        }
+        current.current_binding.clear();
+        cleared.push((binding.clone(), other.name.clone()));
+    }
+    cleared
+}
+
+fn migrate_failed_shortcut_duplicates(
+    app: &AppHandle,
+    failed: &[ShortcutBinding],
+    registered: &[ShortcutBinding],
+) -> Result<(), String> {
+    if failed.is_empty() { return Ok(()); }
+    let _guard = settings::lock_settings_mutation("repairing duplicate shortcuts")?;
+    let mut settings = get_settings(app);
+    let cleared = clear_failed_shortcut_duplicates(&mut settings, failed, registered);
+    if cleared.is_empty() { return Ok(()); }
+    settings::write_settings_checked(app, settings)?;
+    let _ = app.emit("settings-changed", serde_json::json!({ "setting": "bindings" }));
+    for (binding, kept_name) in cleared {
+        crate::notices::raise(app, &format!("shortcut-migration:{}", binding.id), None,
+            "warning", "An inactive duplicate shortcut was removed",
+            Some("notices.duplicateShortcutRemoved"),
+            Some(format!("{}: {} → {}", binding.current_binding, binding.name, kept_name)),
+            Some("general"));
+    }
+    Ok(())
 }
 
 /// Start the rdev key listener
@@ -8704,7 +8757,7 @@ mod recording_overlay_user_preset_tests {
 
 #[cfg(test)]
 mod shortcut_conflict_tests {
-    use super::{find_conflicting_binding, shortcuts_overlap};
+    use super::{clear_failed_shortcut_duplicates, find_conflicting_binding, shortcuts_overlap};
     use crate::settings::get_default_settings;
 
     #[test]
@@ -8716,6 +8769,33 @@ mod shortcut_conflict_tests {
         assert!(!shortcuts_overlap("ctrl+f8", "ctrl+shift+f8"));
         assert!(!shortcuts_overlap("ctrl+f8", "f8"));
         assert!(!shortcuts_overlap("", ""));
+    }
+
+    #[test]
+    fn migration_keeps_the_working_action_and_clears_only_its_failed_duplicate() {
+        let mut settings = get_default_settings();
+        settings.bindings.get_mut("transcribe").unwrap().current_binding = "ctrl+f8".into();
+        settings.bindings.get_mut("send_to_extension").unwrap().current_binding = "Control+F8".into();
+        let kept = settings.bindings["transcribe"].clone();
+        let failed = settings.bindings["send_to_extension"].clone();
+        let cleared = clear_failed_shortcut_duplicates(&mut settings, &[failed.clone()], &[kept.clone()]);
+        assert_eq!(cleared.len(), 1);
+        assert_eq!(settings.bindings["transcribe"].current_binding, "ctrl+f8");
+        assert!(settings.bindings["send_to_extension"].current_binding.is_empty());
+        assert!(clear_failed_shortcut_duplicates(&mut settings, &[failed], &[kept]).is_empty());
+    }
+
+    #[test]
+    fn migration_preserves_unrelated_failures_and_later_user_edits() {
+        let mut settings = get_default_settings();
+        settings.bindings.get_mut("transcribe").unwrap().current_binding = "ctrl+f8".into();
+        settings.bindings.get_mut("send_to_extension").unwrap().current_binding = "ctrl+f9".into();
+        let kept = settings.bindings["transcribe"].clone();
+        let mut failed = settings.bindings["send_to_extension"].clone();
+        assert!(clear_failed_shortcut_duplicates(&mut settings, &[failed.clone()], &[kept.clone()]).is_empty());
+        failed.current_binding = "ctrl+f8".into();
+        assert!(clear_failed_shortcut_duplicates(&mut settings, &[failed], &[kept]).is_empty());
+        assert_eq!(settings.bindings["send_to_extension"].current_binding, "ctrl+f9");
     }
 
     #[test]

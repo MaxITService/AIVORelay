@@ -1,8 +1,23 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import i18n from "@/i18n";
-import { useActiveNoticeStore, type NoticeSnapshot } from "@/stores/activeNoticeStore";
+import { toast } from "sonner";
+import { useNavigationStore } from "@/stores/navigationStore";
+import { useActiveNoticeStore, type NoticeSnapshot, type ActiveNotice } from "@/stores/activeNoticeStore";
 import { useSessionToastStore } from "@/stores/sessionToastStore";
+
+// Startup repairs can happen before the webview subscribes. Show their retained
+// notices once whether they arrive through the initial snapshot or a live event.
+const shownShortcutRepairs = new Set<number>();
+function showShortcutRepair(notice: ActiveNotice): boolean {
+  if (!notice.source.startsWith("shortcut-migration:") || shownShortcutRepairs.has(notice.id)) return false;
+  shownShortcutRepairs.add(notice.id);
+  const message = i18n.t("notices.duplicateShortcutRemoved");
+  toast.warning(message, { description: notice.detail ?? undefined, duration: 15000,
+    action: { label: i18n.t("notices.openSettings"), onClick: () => useNavigationStore.getState().setSection("general") } });
+  useSessionToastStore.getState().addToast({ level: "warning", message, description: notice.detail ?? undefined });
+  return true;
+}
 
 // Listen before fetching; revisions prevent an older fetch from replacing a new event.
 export async function connectActiveNotices(): Promise<UnlistenFn> {
@@ -11,7 +26,7 @@ export async function connectActiveNotices(): Promise<UnlistenFn> {
     stops.push(await listen<NoticeSnapshot>("active-notices-changed", ({ payload }) => {
       const accepted = useActiveNoticeStore.getState().apply(payload);
       const notice = payload.raised;
-      if (accepted && notice && !notice.source.startsWith("ui:")) {
+      if (accepted && notice && !notice.source.startsWith("ui:") && !showShortcutRepair(notice)) {
         useSessionToastStore.getState().addToast({ level: notice.level,
           message: notice.title_key ? i18n.t(notice.title_key, { defaultValue: notice.title }) : notice.title,
           description: notice.detail ?? undefined });
@@ -20,6 +35,7 @@ export async function connectActiveNotices(): Promise<UnlistenFn> {
     const refresh = async () => {
       const snapshot = await invoke<NoticeSnapshot>("get_active_notices");
       useActiveNoticeStore.getState().apply(snapshot);
+      snapshot.notices.forEach(showShortcutRepair);
       if (snapshot.open_requested) useActiveNoticeStore.getState().setOpen(true);
     };
     stops.push(await listen("open-active-notices", () => {
