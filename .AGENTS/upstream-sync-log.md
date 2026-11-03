@@ -25,6 +25,65 @@ Platform follow-up committed (2026-11-02):
   typechecks, formatters, app/dev-process actions or pushes were performed.
   macOS/AirPods and Linux/Wayland runtime behavior remains unverified.
 
+Intake implementation (2026-11-02; committed 2026-11-03):
+- Fetched through `82dfab9f` (`Merge branch 'main' of github.com:cjpais/Handy`),
+  28 commits after the safe cursor `7bfb2e2c`. The cursor remains unchanged:
+  the final per-profile language-menu integration is recorded separately below.
+- Ten ordinary upstream commits were adapted into focused `main` commits:
+  - `0ed36e11` (`fix: reuse one HTTP client for post-processing requests`):
+    shared connections with per-request provider headers, retaining the
+    fork's connection/request/model-list timeouts.
+  - `16073813` (`docs: stale user manager can keep sessions without the new
+    input group`): Ubuntu guide and README link; fork-specific Direct typing,
+    user-manager restart impact, actual Linux Tauri backend and CLI fallback.
+    Upstream's Handy Keys selector advice does not apply on fork Linux.
+  - `889fca0d` (`fix: preserve dictation when post-processing returns blank
+    text`): retain the original transcript for a blank normal LLM answer
+    after optional invisible-character cleanup; existing live paths retained.
+  - `a537ec4e` (`fix: identify the setting each reset button affects`):
+    named microphone, output, clamshell and shortcut reset controls, EN/RU.
+  - `8fd85aa8` (`fix: let Escape dismiss dropdown menus`): retain existing
+    navigation and restore trigger focus while consuming Escape.
+  - `090b370b` (`fix: ignore IME confirmation Enter in text inputs`):
+    composition boundary guard for Custom Words, Dropdown and model choices.
+  - `77ad9550` (`fix: name the audio playback position control`): EN/RU label.
+  - `3b60fc71` (`fix: dismiss focused setting tooltips with Escape`):
+    consume dismissal only while open and outside composition.
+  - `8020c873` (`fix: restore shortcut fallback when manager startup fails`):
+    extend the fork readiness channel to Windows; preserve thread ownership.
+  - `f3d8b876` (`fix(linux): keep transparent overlay painting on WebKitGTK
+    2.54`): runtime renderer policy, explicit overrides and Nix adaptation.
+    Direct sys dependency reuses existing locked 2.0.2; no upstream lock import.
+- `b99b9af2` (`error notices framework`): fork adaptation in `4dc8b223`
+  (`feat(notices): retain active failures in the footer and tray`).
+  Backend-owned active notices feed a dismissible footer panel and tray status;
+  existing transient toasts, operation-owned overlays/retries and session
+  history remain. Dictation, model-load, file-transcription and LLM failures
+  are retained. Successful newer operations clear older source-specific
+  failures; unique row IDs and revisions protect dismissal/reconciliation.
+  Generic frontend warnings/errors remain until dismissed. This is not an
+  exact copy of upstream's error categories or provider integrations.
+- Existing equivalents retained: `0685192c` (failed History deletion reports),
+  `26d20030` (seek start position), `a1cb29d7` (late audio source cleanup),
+  `4ec61f05` (multi-line dotool) and `815e73f6` (visible file preparation).
+- `298653c8` (`avoid the ibus hotkey on Linux defaults`): fork defaults
+  retained because the suggested Ctrl+Alt+Space collides with Send. The guide
+  explains selecting an unused combination; no migration was introduced.
+- Platform adaptations are committed above. The requested subset of
+  `033c627c` is committed as `a2afd43c` (`feat(output): insert captured stdout
+  from external paste scripts`); the implicit hook protocol is excluded.
+  `693aa634` (language picker) and `3d940311` (tray language) are implemented
+  in the release-preparation checkout and await consolidation into `main`.
+- Excluded: `e4869fc0` (formatting), `4c811d7e` (unused Playwright path),
+  `4fd7ac49` (Handy release notes) and `69420ed7` (Handy release version).
+- Both parents, final trees, parent-relative, combined and remerge diffs were
+  inspected for `1b13488c` and `82dfab9f` (both `Merge branch 'main' of
+  github.com:cjpais/Handy`); no resolution-only behavior was found.
+- Static JSON/TOML parsing and git diff whitespace inspection passed. No builds,
+  tests, typecheck, formatters, installs or dev processes were run. Platform
+  runtime behavior is unverified. Source changes were committed locally; no
+  pushes were made. The active release-preparation checkout remains separate.
+
 Audit and fixes (2026-10-27):
 - The review cursor remains `7bfb2e2c`. Integrated fixes repair detector
   download URLs and checksums, dependent-download ordering, unsupported engine
@@ -570,3 +629,41 @@ Rules:
 Entry template:
 
 `| YYYY-MM-DD | YYYY-MM-DD | 'upstream_sha' | upstream message | main commit message | short issue note |`
+
+
+## Requested external-script stdout mode
+
+The existing External Script paste method now has an opt-in, globally shared
+`external_script_capture_stdout` setting, default off. Input remains argv[1].
+When enabled, the app captures UTF-8 stdout and inserts it via direct typing;
+the script must not insert text itself. One trailing shell-print newline is
+removed. Empty success inserts nothing and skips auto-submit. Nonzero exit,
+invalid UTF-8, output over 8 MiB and the shared 30-second deadline return errors
+through the existing output error path. Cancellation kills the Unix process
+group and prevents insertion. Capture drains stdout concurrently and applies
+the deadline even when a descendant inherits stdout after its parent exits.
+The old noncapturing script path is unchanged. The existing Linux-only UI
+availability is retained. This adapts the requested useful part of upstream
+033c627c — Add transcription hook (#930); it does not add the upstream implicit
+hooks/transcription path or stdin protocol. No History or file-conversion
+content is rewritten.
+
+Five Unix process tests were added but not run. No build, typecheck, formatter,
+app startup or push was performed. The source was committed locally. Generated
+bindings are untouched;
+the frontend uses the existing direct-invoke/settings-extension pattern until
+the user's next debug app run regenerates bindings.
+
+## 2026-11-03 consolidation commit map
+
+- `f8f33d16` — docs(linux): document Ubuntu input permissions and CLI shortcuts
+- `553ac4cb` — perf(llm): reuse HTTP connections across provider requests
+- `4f162e75` — fix(input): preserve IME confirmation and Escape focus
+- `f56f10d6` — fix(a11y): label playback and reset controls
+- `3a2cb337` — fix(shortcuts): report Handy Keys startup failures on Windows
+- `a74fc8c0` — fix(linux): select overlay renderer by WebKitGTK version
+- `a2afd43c` — feat(output): insert captured stdout from external paste scripts
+- `4dc8b223` — feat(notices): retain active failures in the footer and tray
+
+The blank post-processing answer safeguard is included with the notice lifecycle
+commit. Builds and tests remain user-driven and were not run.
