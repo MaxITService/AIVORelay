@@ -552,6 +552,11 @@ fn sync_feature_shortcut_registration(
             return Ok(());
         }
         if !is_binding_currently_registered(app, &binding) {
+            if let Some(other) =
+                find_conflicting_binding(settings, binding_id, &binding.current_binding, true)
+            {
+                return Err(shortcut_conflict_error(&binding.current_binding, other));
+            }
             register_shortcut(app, binding)?;
         }
         return Ok(());
@@ -1258,6 +1263,12 @@ pub fn change_binding(
     if let Err(e) = validate_shortcut_string(&app, &binding) {
         warn!("change_binding validation error: {}", e);
         return Err(e);
+    }
+    // Disabled features are not registered, so the engines cannot see their keys.
+    if let Some(other) = find_conflicting_binding(&settings, &id, &binding, false) {
+        let error = shortcut_conflict_error(&binding, other);
+        warn!("change_binding conflict for '{}': {}", id, error);
+        return Err(error);
     }
 
     // 2. Create the updated binding
@@ -7790,6 +7801,99 @@ fn normalize_shortcut_binding(raw: &str) -> String {
     normalized.replace("numpad+", "numadd")
 }
 
+/// Engine-agnostic shape of a shortcut: per modifier family the pressed sides
+/// (empty = either side) and the main key.
+#[derive(Debug, Default, PartialEq)]
+struct ShortcutShape {
+    modifiers: [Option<HashSet<char>>; 4],
+    key: Option<String>,
+}
+
+fn shortcut_shape(raw: &str) -> Option<ShortcutShape> {
+    let normalized = normalize_shortcut_binding(raw);
+    if normalized.is_empty() {
+        return None;
+    }
+    let mut shape = ShortcutShape::default();
+    for part in normalized.split('+').map(str::trim).filter(|p| !p.is_empty()) {
+        let compact = part.replace(['_', ' '], "");
+        let (family_and_side, side) = match compact.as_str() {
+            p if p.starts_with('l') && p.len() > 1 => (&p[1..], Some('l')),
+            p if p.starts_with('r') && p.len() > 1 => (&p[1..], Some('r')),
+            p if p.ends_with("left") => (&p[..p.len() - 4], Some('l')),
+            p if p.ends_with("right") => (&p[..p.len() - 5], Some('r')),
+            p => (p, None),
+        };
+        let family = match family_and_side {
+            "ctrl" | "control" => Some(0),
+            "shift" => Some(1),
+            "alt" | "opt" | "option" => Some(2),
+            "win" | "windows" | "super" | "meta" | "cmd" | "command" => Some(3),
+            _ => None,
+        };
+        let family = match (family, compact.as_str()) {
+            (_, "altgr") => Some((2, Some('r'))),
+            (Some(family), _) => Some((family, side)),
+            (None, _) => None,
+        };
+        match family {
+            Some((family, side)) => {
+                let sides = shape.modifiers[family].get_or_insert_with(HashSet::new);
+                sides.extend(side);
+            }
+            None => {
+                shape.key = Some(match part {
+                    "esc" => "escape".to_string(),
+                    "return" => "enter".to_string(),
+                    other => other.to_string(),
+                });
+            }
+        }
+    }
+    Some(shape)
+}
+
+/// True when pressing one shortcut can also fire the other.
+fn shortcuts_overlap(left: &str, right: &str) -> bool {
+    let (Some(left), Some(right)) = (shortcut_shape(left), shortcut_shape(right)) else {
+        return false;
+    };
+    left.key == right.key
+        && left.modifiers.iter().zip(&right.modifiers).all(|pair| match pair {
+            (None, None) => true,
+            (Some(a), Some(b)) => a.is_empty() || b.is_empty() || a == b,
+            _ => false,
+        })
+}
+
+/// Find another configured binding that would share the physical shortcut.
+/// `only_enabled` restricts the search to bindings whose feature is enabled.
+fn find_conflicting_binding<'a>(
+    settings: &'a settings::AppSettings,
+    binding_id: &str,
+    raw: &str,
+    only_enabled: bool,
+) -> Option<&'a ShortcutBinding> {
+    let mut candidates: Vec<&ShortcutBinding> = settings
+        .bindings
+        .values()
+        .filter(|other| {
+            other.id != binding_id
+                && other.id != "cancel"
+                && (other.id != settings::TTS_PLAY_HISTORY_FALLBACK_BINDING_ID
+                    || is_binding_enabled_for_settings(settings, &other.id))
+                && (!only_enabled || is_binding_enabled_for_settings(settings, &other.id))
+                && shortcuts_overlap(raw, &other.current_binding)
+        })
+        .collect();
+    candidates.sort_by(|a, b| a.id.cmp(&b.id));
+    candidates.into_iter().next()
+}
+
+fn shortcut_conflict_error(raw: &str, other: &ShortcutBinding) -> String {
+    format!("Shortcut '{}' is already used by '{}'", raw, other.name)
+}
+
 /// Register shortcut via tauri-plugin-global-shortcut (used on macOS/Linux, and Windows when Tauri engine selected)
 #[cfg(target_os = "windows")]
 fn register_shortcut_tauri(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
@@ -8564,5 +8668,35 @@ mod recording_overlay_user_preset_tests {
                 .recording_overlay_bar_style,
             RecordingOverlayBarStyle::DotMatrix
         );
+    }
+}
+
+#[cfg(test)]
+mod shortcut_conflict_tests {
+    use super::{find_conflicting_binding, shortcuts_overlap};
+    use crate::settings::get_default_settings;
+
+    #[test]
+    fn overlap_ignores_engine_spelling_and_modifier_order() {
+        assert!(shortcuts_overlap("ctrl+f8", "F8+Control"));
+        assert!(shortcuts_overlap("ctrl+f8", "ctrl_left+f8"));
+        assert!(shortcuts_overlap("win+esc", "super+escape"));
+        assert!(!shortcuts_overlap("ctrlleft+f8", "ctrlright+f8"));
+        assert!(!shortcuts_overlap("ctrl+f8", "ctrl+shift+f8"));
+        assert!(!shortcuts_overlap("ctrl+f8", "f8"));
+        assert!(!shortcuts_overlap("", ""));
+    }
+
+    #[test]
+    fn disabled_features_still_reserve_their_shortcut() {
+        let mut settings = get_default_settings();
+        settings.send_to_extension_enabled = false;
+        settings.bindings.get_mut("send_to_extension").unwrap().current_binding =
+            "ctrl+f8".to_string();
+
+        let other = find_conflicting_binding(&settings, "transcribe", "Control+F8", false);
+        assert_eq!(other.map(|b| b.id.as_str()), Some("send_to_extension"));
+        assert!(find_conflicting_binding(&settings, "transcribe", "ctrl+f8", true).is_none());
+        assert!(find_conflicting_binding(&settings, "send_to_extension", "ctrl+f8", false).is_none());
     }
 }
