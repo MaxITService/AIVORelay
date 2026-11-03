@@ -25,6 +25,7 @@ import {
   SonioxFileTranscriptionOptions,
 } from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
+import { useWindowState } from "@/hooks/useWindowState";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
@@ -302,6 +303,7 @@ export const TranscribeFileSettings: React.FC = () => {
     outputFormat,
     customWordsEnabledOverride,
     transcriptionResult,
+    transcriptionRunId,
     savedFilePath,
     transcriptionPhase,
     transcriptionRequest,
@@ -342,9 +344,9 @@ export const TranscribeFileSettings: React.FC = () => {
       : transcriptionInfoMessage;
   const [isRecording, setIsRecording] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [savingToHistory, setSavingToHistory] = useState(false);
-  const [historySaveError, setHistorySaveError] = useState<string | null>(null);
-  const [historySavedResult, setHistorySavedResult] = useState<{ path: string; text: string } | null>(null);
+  const [savingToHistory, setSavingToHistory] = useWindowState("transcribe-file-history-saving", false);
+  const [historySaveError, setHistorySaveError] = useWindowState<{ path: string; text: string; runId: number; message: string } | null>("transcribe-file-history-error", null);
+  const [historySavedResult, setHistorySavedResult] = useWindowState<{ path: string; text: string; runId: number } | null>("transcribe-file-history-saved", null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [pendingFileReceives, setPendingFileReceives] = useState(0);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
@@ -1420,7 +1422,7 @@ export const TranscribeFileSettings: React.FC = () => {
 
   const handleSaveToHistory = async () => {
     if (!selectedFile || !transcriptionResult || savingToHistory) return;
-    const snapshot = { path: selectedFile.path, text: transcriptionResult };
+    const snapshot = { path: selectedFile.path, text: transcriptionResult, runId: transcriptionRunId };
     setSavingToHistory(true);
     setHistorySaveError(null);
     try {
@@ -1430,7 +1432,7 @@ export const TranscribeFileSettings: React.FC = () => {
       });
       setHistorySavedResult(snapshot);
     } catch (error) {
-      setHistorySaveError(String(error));
+      setHistorySaveError({ ...snapshot, message: String(error) });
     } finally {
       setSavingToHistory(false);
     }
@@ -2455,18 +2457,18 @@ export const TranscribeFileSettings: React.FC = () => {
                   variant="secondary"
                   size="sm"
                   onClick={() => void handleSaveToHistory()}
-                  disabled={savingToHistory || !selectedFile || (historySavedResult?.path === selectedFile.path && historySavedResult.text === transcriptionResult)}
+                  disabled={savingToHistory || !selectedFile || (historySavedResult?.path === selectedFile.path && historySavedResult.text === transcriptionResult && historySavedResult.runId === transcriptionRunId)}
                 >
                   {savingToHistory
                     ? t("transcribeFile.history.saving", "Saving to History…")
                     : t("transcribeFile.history.save", "Save to History")}
                 </Button>
-                {historySavedResult && selectedFile && historySavedResult.path === selectedFile.path && historySavedResult.text === transcriptionResult && (
+                {historySavedResult && selectedFile && historySavedResult.path === selectedFile.path && historySavedResult.text === transcriptionResult && historySavedResult.runId === transcriptionRunId && (
                   <button type="button" className="text-xs text-green-400 underline" onClick={() => useNavigationStore.getState().setSection("history")}>
                     {t("transcribeFile.history.open", "Saved. Open History")}
                   </button>
                 )}
-                {historySaveError && <p role="alert" className="text-xs text-red-400">{historySaveError}</p>}
+                {historySaveError && historySaveError.path === selectedFile?.path && historySaveError.text === transcriptionResult && historySaveError.runId === transcriptionRunId && <p role="alert" className="text-xs text-red-400">{historySaveError.message}</p>}
               </div>
               <p className="text-xs text-[#808080]">{t("transcribeFile.history.hint", "History keeps a separate mono audio copy and follows your History retention settings.")}</p>
               {savedFilePath && (
