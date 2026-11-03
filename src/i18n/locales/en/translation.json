@@ -4982,6 +4982,8 @@
     "vramTooltipSystemFree": "System free: {{free}} / {{total}} GB (total is physical VRAM)"
   },
   "common": {
+    "resetSetting": "Reset {{setting}} to default",
+    "playbackPosition": "Playback position",
     "retry": "Retry",
     "loading": "Loading...",
     "save": "Save",

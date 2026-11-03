@@ -4543,6 +4543,8 @@
     "portableUpdateButton": "Скачать установщик"
   },
   "common": {
+    "resetSetting": "Сбросить «{{setting}}» к значению по умолчанию",
+    "playbackPosition": "Позиция воспроизведения",
     "retry": "Повторить",
     "loading": "Загрузка...",
     "save": "Сохранять",

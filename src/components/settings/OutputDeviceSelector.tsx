@@ -85,6 +85,7 @@ export const OutputDeviceSelector: React.FC<OutputDeviceSelectorProps> =
               onRefresh={refreshOutputDevices}
             />
             <ResetButton
+            ariaLabel={t("common.resetSetting", { setting: titleOverride ?? t("settings.sound.outputDevice.title") })}
               onClick={handleReset}
               disabled={
                 disabled || isUpdating("selected_output_device") || isLoading

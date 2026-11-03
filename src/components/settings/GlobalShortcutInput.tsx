@@ -324,6 +324,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
           </button>
         )}
         <ResetButton
+          ariaLabel={t("common.resetSetting", { setting: translatedName })}
           onClick={() => onDraftBindingChange ? onDraftBindingChange("") : resetBinding(shortcutId)}
           disabled={isDraft ? !draftBinding : isUpdating(`binding_${shortcutId}`)}
         />
