@@ -178,6 +178,8 @@ tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.
 # Login item registration (SMAppService); versions track what Tauri already pulls in.
 objc2 = "0.6"
 objc2-service-management = "0.3.2"
+objc2-core-audio = { version = "0.3.2", default-features = false, features = ["std", "AudioHardware"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFString"] }
 
 # Intel Macs use CPU inference to avoid ggml Metal shader initialization hangs.
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]

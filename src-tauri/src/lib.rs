@@ -1734,6 +1734,7 @@ pub fn run(cli_args: CliArgs) {
         commands::audio::open_microphone_privacy_settings,
         commands::audio::set_selected_microphone,
         commands::audio::set_selected_channel,
+        commands::audio::change_airpods_mode_setting,
         commands::audio::change_selected_microphone_auto_switch_enabled_setting,
         commands::audio::change_selected_microphone_name_pattern_setting,
         commands::audio::get_available_output_devices,

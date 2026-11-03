@@ -592,6 +592,8 @@ fn create_audio_recorder(
     }
 
     recorder = recorder.with_selected_channel(settings.selected_channel);
+    #[cfg(target_os = "macos")]
+    recorder.set_airpods_mode(settings.airpods_mode);
 
     recorder = recorder.with_level_callback({
         let app_handle = app_handle.clone();
@@ -1399,6 +1401,8 @@ impl AudioRecordingManager {
             }
 
             if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
+                #[cfg(target_os = "macos")]
+                rec.set_airpods_mode(get_settings(&self.app_handle).airpods_mode);
                 let receiver = rec.start().map_err(|err| {
                     let message = err.to_string();
                     error!(
@@ -1457,6 +1461,31 @@ impl AudioRecordingManager {
             self.stop_microphone_stream();
             let selection = self.resolve_selection_for_binding(&settings, None);
             self.start_stream_for_selection(selection, &settings)?;
+        }
+        Ok(())
+    }
+
+    /// Apply and persist the opt-in workaround while capture is idle. The shared
+    /// flag also updates a warm recorder without reopening its microphone stream.
+    #[cfg(target_os = "macos")]
+    pub fn update_airpods_mode(&self, enabled: bool) -> Result<(), String> {
+        let _settings_guard = crate::settings::lock_settings_mutation("changing AirPods mode")?;
+        let state = self.state.lock().unwrap();
+        if !matches!(*state, RecordingState::Idle) {
+            return Err("Cannot change AirPods mode while recording".to_string());
+        }
+        let mut settings = get_settings(&self.app_handle);
+        let previous = settings.airpods_mode;
+        settings.airpods_mode = enabled;
+        let recorder = self.recorder.lock().unwrap();
+        if let Some(recorder) = recorder.as_ref() {
+            recorder.set_airpods_mode(enabled);
+        }
+        if let Err(error) = crate::settings::write_settings_checked(&self.app_handle, settings) {
+            if let Some(recorder) = recorder.as_ref() {
+                recorder.set_airpods_mode(previous);
+            }
+            return Err(error);
         }
         Ok(())
     }
