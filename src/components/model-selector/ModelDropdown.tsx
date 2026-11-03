@@ -1,3 +1,4 @@
+import { isComposingKeyEvent } from "@/lib/utils/keyboard";
 import React from "react";
 import { useTranslation } from "react-i18next";
 import type { ModelInfo, RemoteSttSettings } from "@/bindings";
@@ -157,6 +158,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
                 key={row.id}
                 onClick={() => !isActive && onRemoteApiSelect(row)}
                 onKeyDown={(e) => {
+                  if (isComposingKeyEvent(e.nativeEvent)) return;
                   if (!isActive && (e.key === "Enter" || e.key === " ")) {
                     e.preventDefault();
                     onRemoteApiSelect(row);
@@ -206,6 +208,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
           <div
             onClick={() => onRemoteProviderSelect("remote_soniox")}
             onKeyDown={(e) => {
+              if (isComposingKeyEvent(e.nativeEvent)) return;
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 onRemoteProviderSelect("remote_soniox");
@@ -256,6 +259,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
           <div
             onClick={() => onRemoteProviderSelect("remote_deepgram")}
             onKeyDown={(e) => {
+              if (isComposingKeyEvent(e.nativeEvent)) return;
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 onRemoteProviderSelect("remote_deepgram");
@@ -344,6 +348,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
                     selectable ? () => handleModelClick(model.id) : undefined
                   }
                   onKeyDown={(e) => {
+                    if (isComposingKeyEvent(e.nativeEvent)) return;
                     if (e.target === e.currentTarget && selectable && (e.key === "Enter" || e.key === " ")) {
                       e.preventDefault();
                       handleModelClick(model.id);
@@ -402,6 +407,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
             key={model.id}
             onClick={() => !isDownloading && handleDownloadClick(model.id)}
             onKeyDown={(e) => {
+              if (isComposingKeyEvent(e.nativeEvent)) return;
               if ((e.key === "Enter" || e.key === " ") && !isDownloading) {
                 e.preventDefault();
                 handleDownloadClick(model.id);

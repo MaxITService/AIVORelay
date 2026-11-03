@@ -6,6 +6,7 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { isComposingKeyEvent } from "@/lib/utils/keyboard";
 import { useTranslation } from "react-i18next";
 import { usePresence } from "@/hooks/usePresence";
 
@@ -156,6 +157,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
 
   // Keyboard navigation handler
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (disabled || isComposingKeyEvent(e.nativeEvent)) return;
     if (!isOpen) {
       if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
         e.preventDefault();
@@ -187,7 +189,9 @@ export const Dropdown: React.FC<DropdownProps> = ({
         break;
       case 'Escape':
         e.preventDefault();
+        e.stopPropagation();
         setIsOpen(false);
+        document.getElementById(id ?? triggerId)?.focus();
         break;
       case 'Home':
         e.preventDefault();
@@ -227,7 +231,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
         }
         break;
     }
-  }, [isOpen, options, highlightedIndex, handleSelect]);
+  }, [disabled, id, triggerId, isOpen, options, highlightedIndex, handleSelect]);
 
   return (
     <div
