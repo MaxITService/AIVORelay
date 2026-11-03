@@ -15,15 +15,7 @@ fn env_flag_enabled(name: &str) -> bool {
 }
 
 fn main() {
-    #[cfg(target_os = "linux")]
-    {
-        // The DMABUF renderer crashes on various GPU/display server configurations
-        // (https://github.com/tauri-apps/tauri/issues/9394). Preserve an explicit
-        // override so affected users can opt out with =0.
-        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-        }
-    }
+    aivorelay_app_lib::webkit_renderer::apply();
 
     #[cfg(target_os = "windows")]
     {

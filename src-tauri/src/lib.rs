@@ -61,6 +61,7 @@ mod tls;
 mod utils;
 mod webview_hardening;
 mod webview_mode;
+pub mod webkit_renderer;
 mod webview_recovery;
 #[cfg(target_os = "windows")]
 mod webview_runtime;
