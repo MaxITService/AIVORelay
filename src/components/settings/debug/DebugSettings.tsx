@@ -7,6 +7,7 @@ import { SettingsDirectory } from "./SettingsDirectory";
 import { LogLevelSelector } from "./LogLevelSelector";
 import { DevConsoleLogLevelSelector } from "./DevConsoleLogLevelSelector";
 import { ShortcutEngineSelector } from "./ShortcutEngineSelector";
+import { LinuxShortcutBackend } from "./LinuxShortcutBackend";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { AlwaysOnMicrophone } from "../AlwaysOnMicrophone";
@@ -162,6 +163,7 @@ export const DebugSettings: React.FC = () => {
         </div>
 
         {type() === "macos" && <AirPodsMode />}
+        {isLinux && <LinuxShortcutBackend />}
 
         {/* Voice Commands Toggle - Windows only */}
         {isWindows && (

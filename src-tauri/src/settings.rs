@@ -2915,6 +2915,8 @@ pub enum ShortcutEngine {
     /// Use rdev low-level hooks (all keys supported, higher CPU usage)
     /// Supports ALL keys including Caps Lock, Num Lock, and modifier-only shortcuts
     Rdev,
+    /// No built-in global shortcuts on Linux; use the tray or compositor CLI bindings.
+    None,
 }
 
 impl Default for ShortcutEngine {

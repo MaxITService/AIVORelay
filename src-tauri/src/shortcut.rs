@@ -445,6 +445,15 @@ fn build_decapitalize_monitor_bindings(settings: &settings::AppSettings) -> Vec<
     bindings
 }
 
+/// Consult the running engine, not the saved next-start choice. This keeps
+/// bindings coherent while a backend change is waiting for a restart.
+pub(crate) fn shortcuts_disabled(app: &AppHandle) -> bool {
+    #[cfg(target_os = "linux")]
+    { active_shortcut_engine(app) == ShortcutEngine::None }
+    #[cfg(not(target_os = "linux"))]
+    { let _ = app; false }
+}
+
 fn sync_decapitalize_monitor_shortcut(
     app: &AppHandle,
     settings: &settings::AppSettings,
@@ -460,6 +469,8 @@ fn sync_decapitalize_monitor_shortcut(
             }
         }
     }
+
+    if shortcuts_disabled(app) { return Ok(()); }
 
     let monitor_bindings = build_decapitalize_monitor_bindings(settings);
     if monitor_bindings.is_empty() {
@@ -502,6 +513,7 @@ pub(crate) fn is_binding_enabled_for_settings(settings: &settings::AppSettings, 
 
 /// Best-effort check whether a binding is currently registered.
 fn is_binding_currently_registered(app: &AppHandle, binding: &ShortcutBinding) -> bool {
+    if shortcuts_disabled(app) { return false; }
     if let Some(rdev_set) = app.try_state::<RdevShortcutsSet>() {
         let rdev_shortcuts = rdev_set.lock().expect("Failed to lock rdev shortcuts");
         if rdev_shortcuts.contains(&binding.id) {
@@ -609,6 +621,10 @@ pub fn init_shortcuts(app: &AppHandle) {
     let default_bindings = settings::get_default_settings().bindings;
     let user_settings = settings::load_or_create_app_settings(app);
     let speech_only = crate::webview_mode::webviews_disabled();
+    if shortcuts_disabled(app) {
+        info!("Built-in global shortcuts disabled; use tray controls or CLI commands");
+        return;
+    }
     if speech_only {
         info!(
             "Speech-only runtime: registering only Transcribe, profile transcription, and dynamic Cancel shortcuts"
@@ -622,7 +638,9 @@ pub fn init_shortcuts(app: &AppHandle) {
         // Store the active engine at startup (this won't change until restart)
         if let Some(active_engine_state) = app.try_state::<ActiveShortcutEngine>() {
             if let Ok(mut engine) = active_engine_state.lock() {
-                *engine = user_settings.shortcut_engine;
+                *engine = if user_settings.shortcut_engine == ShortcutEngine::None {
+                    ShortcutEngine::Tauri
+                } else { user_settings.shortcut_engine };
             }
         }
 
@@ -630,7 +648,7 @@ pub fn init_shortcuts(app: &AppHandle) {
         // even when the main shortcut engine is Tauri.
         setup_rdev_shortcut_handler(app);
 
-        let mut effective_engine = user_settings.shortcut_engine;
+        let mut effective_engine = active_shortcut_engine(app);
 
         match user_settings.shortcut_engine {
             ShortcutEngine::Rdev => {
@@ -667,7 +685,7 @@ pub fn init_shortcuts(app: &AppHandle) {
                     info!("Using Tauri shortcut engine (high performance, limited key support)");
                 }
             }
-            ShortcutEngine::Tauri => {
+            ShortcutEngine::Tauri | ShortcutEngine::None => {
                 if !speech_only
                     && user_settings.text_replacement_decapitalize_after_edit_key_enabled
                 {
@@ -7342,7 +7360,7 @@ pub fn change_tray_icon_blink_frequency_hz_setting(
 #[tauri::command]
 #[specta::specta]
 pub fn get_current_shortcut_engine(app: AppHandle) -> ShortcutEngine {
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
         active_shortcut_engine(&app)
     }
@@ -7351,14 +7369,14 @@ pub fn get_current_shortcut_engine(app: AppHandle) -> ShortcutEngine {
         if crate::platform_shortcuts::macos_uses_handy_keys(&app) { ShortcutEngine::HandyKeys }
         else { ShortcutEngine::Tauri }
     }
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         let _ = app;
         ShortcutEngine::Tauri
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 fn active_shortcut_engine(app: &AppHandle) -> ShortcutEngine {
     if let Some(active_engine_state) = app.try_state::<ActiveShortcutEngine>() {
         if let Ok(engine) = active_engine_state.lock() {
@@ -7369,12 +7387,15 @@ fn active_shortcut_engine(app: &AppHandle) -> ShortcutEngine {
 }
 
 /// Set the shortcut engine setting (requires app restart to take effect).
-/// On non-Windows platforms, this is a no-op.
+/// Linux supports Tauri or None; macOS selects its backend automatically.
 #[tauri::command]
 #[specta::specta]
 pub fn set_shortcut_engine_setting(app: AppHandle, engine: ShortcutEngine) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
+        if engine == ShortcutEngine::None {
+            return Err("The None shortcut backend is only available on Linux".to_string());
+        }
         let mut settings = settings::get_settings(&app);
         let old_engine = settings.shortcut_engine;
 
@@ -7420,11 +7441,26 @@ pub fn set_shortcut_engine_setting(app: AppHandle, engine: ShortcutEngine) -> Re
 
         Ok(())
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
-        let _ = app;
-        let _ = engine;
-        Err("Shortcut engine selection is only available on Windows".to_string())
+        if !matches!(engine, ShortcutEngine::Tauri | ShortcutEngine::None) {
+            return Err("Linux supports only Tauri or None shortcut backends".to_string());
+        }
+        let _guard = settings::lock_settings_mutation("changing the shortcut backend")?;
+        let mut settings = settings::get_settings(&app);
+        if settings.shortcut_engine == engine { return Ok(()); }
+        settings.shortcut_engine = engine;
+        // Keep every saved binding so switching back does not lose user choices.
+        settings::write_settings_checked(&app, settings)?;
+        let _ = app.emit("settings-changed", serde_json::json!({
+            "setting": "shortcut_engine", "value": engine, "requires_restart": true
+        }));
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        let _ = (app, engine);
+        Err("Shortcut engine selection is unavailable on this platform".to_string())
     }
 }
 
@@ -7468,7 +7504,7 @@ fn validate_shortcut_string(app: &AppHandle, raw: &str) -> Result<(), String> {
         let settings = get_settings(app);
 
         match settings.shortcut_engine {
-            ShortcutEngine::Tauri => {
+            ShortcutEngine::Tauri | ShortcutEngine::None => {
                 if is_shortcut_tauri_compatible(&normalized) {
                     Ok(())
                 } else {
@@ -7650,6 +7686,7 @@ fn set_cancel_shortcut_registered(app: &AppHandle, registered: bool) {
 }
 
 pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
+    if shortcuts_disabled(app) { return Ok(()); }
     if binding.current_binding.trim().is_empty() {
         return Ok(());
     }
@@ -7659,7 +7696,7 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
     #[cfg(target_os = "windows")]
     {
         match active_shortcut_engine(app) {
-            ShortcutEngine::Tauri => {
+            ShortcutEngine::Tauri | ShortcutEngine::None => {
                 // Check if the shortcut is compatible with Tauri engine
                 if !is_shortcut_tauri_compatible(&binding.current_binding) {
                     // Return error - incompatible shortcuts are not allowed in Tauri mode
@@ -7795,6 +7832,7 @@ fn register_shortcut_tauri(app: &AppHandle, binding: ShortcutBinding) -> Result<
 }
 
 pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
+    if shortcuts_disabled(app) { return Ok(()); }
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         if binding.current_binding.trim().is_empty() { return Ok(()); }
