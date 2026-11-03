@@ -3365,6 +3365,13 @@
           },
           "tip": "Рекомендуемый старт: stt-rt-v6, Live = ON, Endpoint Detection = ON, Endpoint Sensitivity = 0.0, Keepalive = 10s, Finalization Timeout = 500ms (увеличивать только при необходимости)."
         },
+        "v5Retirement": {
+          "title": "Soniox {{model}} перестанет работать 15 декабря 2026",
+          "description": "Soniox отключает v5. Переключитесь на {{target}}, чтобы распознавание продолжило работать.",
+          "action": "Обновить до {{target}}",
+          "success": "Модель Soniox обновлена до {{model}}.",
+          "failed": "Не удалось обновить модель Soniox. Измените её в настройках распознавания речи."
+        },
         "model": {
           "title": "Модель Soniox",
           "description": "Идентификатор модели, который AivoRelay отправляет в Soniox при каждом запросе. В AivoRelay модели stt-rt-* при Live=ON используют live WebSocket-путь с появлением текста во время речи; stt-async-* (или Live=OFF) используют не-live путь, где итог появляется после обработки. Если поведение кажется неожиданным, сначала проверьте семейство модели и переключатель Live.",

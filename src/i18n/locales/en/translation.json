@@ -3641,6 +3641,13 @@
           },
           "tip": "Recommended baseline: stt-rt-v6, Live ON, endpoint detection ON, endpoint sensitivity 0.0, keepalive 10s, finalize timeout 500ms (increase only if needed). Default settings are good. Just try to input your API key and try them out."
         },
+        "v5Retirement": {
+          "title": "Soniox {{model}} will stop working on December 15, 2026",
+          "description": "Soniox is retiring v5. Switch to {{target}} to keep transcription working.",
+          "action": "Update to {{target}}",
+          "success": "Soniox model updated to {{model}}.",
+          "failed": "Could not update the Soniox model. Change it in Speech-to-Text settings."
+        },
         "model": {
           "title": "Soniox Model",
           "description": "Model identifier sent to Soniox on each request. In AivoRelay, stt-rt-* with Live ON uses the live WebSocket path where text appears while you speak; stt-async-* (or Live OFF) uses non-live processing where text appears after processing finishes. If behavior feels wrong, model family and Live toggle are the first things to verify.",
