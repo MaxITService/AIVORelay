@@ -1904,6 +1904,7 @@
       "practicePlaceholder": "Your words can appear here…",
       "practiceOutput": "The result follows your current output settings; preview-only or clipboard modes may show it elsewhere.",
       "silentMicrophone": "The microphone sent silence. Check its mute switch, selected device, and input channel.",
+      "slowLocalModel": "This local model took a while to transcribe. After setup, consider a faster local model.",
       "settingsNote": "The app works out of the box. There are many settings to explore at your own pace — profiles, languages, shortcuts, and more.",
       "getStarted": "Get Started"
     }

@@ -10266,6 +10266,7 @@ impl ShortcutAction for TranscribeAction {
                 None
             };
 
+            let mut local_inference_time = None;
             let (transcription, samples, pre_saved_file_name, post_process_requested) =
                 if stopped.quick_tap_skipped {
                     (
@@ -10282,7 +10283,8 @@ impl ShortcutAction for TranscribeAction {
                         stopped.post_process_requested,
                     )
                 } else {
-                    match transcribe_stopped_recording_for_transcribe_action(
+                    let inference_started = Instant::now();
+                    let result = transcribe_stopped_recording_for_transcribe_action(
                         &ah,
                         &binding_id,
                         captured_profile_id,
@@ -10290,8 +10292,11 @@ impl ShortcutAction for TranscribeAction {
                         current_app.clone(),
                         stopped,
                     )
-                    .await
-                    {
+                    .await;
+                    if recording_settings.transcription_provider == TranscriptionProvider::Local {
+                        local_inference_time = Some(inference_started.elapsed());
+                    }
+                    match result {
                         Some(res) => res,
                         None => {
                             if is_soniox_optimized_delivery {
@@ -10355,6 +10360,20 @@ impl ShortcutAction for TranscribeAction {
                 change_tray_icon(&ah, TrayIconState::Idle);
                 finish_guard.finish();
                 return;
+            }
+
+            if is_transcribe_binding_id(&binding_id) && !operation_stamp.was_cancelled(&ah) {
+                if let Some(wait) = local_inference_time {
+                    let timestamp_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default().as_millis() as u64;
+                    let _ = ah.emit("local-dictation-timing", serde_json::json!({
+                        "operationId": recording_operation_id,
+                        "timestampMs": timestamp_ms,
+                        "audioSeconds": stop_context.recording_elapsed.as_secs_f64(),
+                        "waitSeconds": wait.as_secs_f64(),
+                    }));
+                }
             }
 
             let preview_processing_before_insert = should_show_preview_processing_before_insert(
