@@ -4,6 +4,7 @@ import { type } from "@tauri-apps/plugin-os";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { commands, type ModelInfo } from "@/bindings";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   beginModelDownloadActivationIntent,
   cancelModelDownloadActivationIntent,
@@ -59,6 +60,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
     null,
   );
   const [error, setError] = useState<string | null>(null);
+  const [silentMicrophone, setSilentMicrophone] = useState(false);
   const [mode, setMode] = useState<OnboardingMode>(
     initialProgress.mode,
   );
@@ -77,6 +79,22 @@ const Onboarding: React.FC<OnboardingProps> = ({
     saveModelLanguagePreference(next);
   };
   const recommendations = useMemo(() => recommendedModels(availableModels, modelLanguages), [availableModels, modelLanguages]);
+
+  useEffect(() => {
+    if (mode !== "welcome") return;
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void listen<{ timestampMs: number }>("microphone-digital-silence", ({ payload }) => {
+      const age = Date.now() - payload.timestampMs;
+      if (active && age >= 0 && age < 2000 && document.activeElement?.id === "onboarding-practice") {
+        setSilentMicrophone(true);
+      }
+    }).then((dispose) => {
+      if (active) unlisten = dispose;
+      else dispose();
+    }).catch((error) => console.warn("Could not listen for microphone diagnostics", error));
+    return () => { active = false; unlisten?.(); };
+  }, [mode]);
 
   useEffect(() => {
     let active = true;
@@ -399,9 +417,16 @@ const Onboarding: React.FC<OnboardingProps> = ({
                   <textarea
                     id="onboarding-practice"
                     rows={3}
+                    onFocus={() => setSilentMicrophone(false)}
+                    onChange={() => setSilentMicrophone(false)}
                     className="w-full resize-y rounded-lg border border-[#4a4a4a] bg-[#202020] p-3 text-sm text-[#f5f5f5] focus:border-[#ff4d8d] focus:outline-none"
                     placeholder={t("onboarding.welcome.practicePlaceholder", "Your words can appear here…")}
                   />
+                  {silentMicrophone && (
+                    <p role="status" className="text-sm text-amber-300">
+                      {t("onboarding.welcome.silentMicrophone", "The microphone sent silence. Check its mute switch, selected device, and input channel.")}
+                    </p>
+                  )}
                   <p className="text-xs text-[#a0a0a0]">
                     {t("onboarding.welcome.practiceOutput", "The result follows your current output settings; preview-only or clipboard modes may show it elsewhere.")}
                   </p>
