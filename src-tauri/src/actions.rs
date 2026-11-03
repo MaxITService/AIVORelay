@@ -3390,6 +3390,8 @@ async fn perform_transcription_for_profile_with_retry_action(
                 ),
                 settings.custom_words_enabled,
                 Some(crate::chinese_script::resolve_chinese_script(settings, Some(p))),
+                &settings.spoken_languages,
+                settings.language_detection,
             )
         } else {
             log::info!(
@@ -3407,6 +3409,8 @@ async fn perform_transcription_for_profile_with_retry_action(
                 ),
                 settings.custom_words_enabled,
                 Some(settings.chinese_script),
+                &settings.spoken_languages,
+                settings.language_detection,
             )
         };
 
