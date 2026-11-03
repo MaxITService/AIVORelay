@@ -17,6 +17,7 @@ import AccessibilityOnboarding from "./AccessibilityOnboarding";
 import MacPermissionsOnboarding from "./MacPermissionsOnboarding";
 import { clearOnboardingProgress, readOnboardingProgress, resolveOnboardingProgress, saveOnboardingProgress } from "./onboardingProgress";
 import { HandyShortcut } from "../settings/HandyShortcut";
+import { MicrophoneSelector } from "../settings/MicrophoneSelector";
 import { AiAssistTip } from "../shared/AiAssistTip";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { getShortcutGuideMode } from "./shortcutGuide";
@@ -48,6 +49,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
 }) => {
   const { t } = useTranslation();
   const settings = useSettingsStore((state) => state.settings);
+  const refreshAudioDevices = useSettingsStore((state) => state.refreshAudioDevices);
   const shortcutMode = getShortcutGuideMode(settings);
   const isWindows = type() === "windows";
   const isMacOS = type() === "macos";
@@ -97,6 +99,10 @@ const Onboarding: React.FC<OnboardingProps> = ({
     }).catch((error) => console.warn("Could not listen for microphone diagnostics", error));
     return () => { active = false; unlisten?.(); };
   }, [mode]);
+
+  useEffect(() => {
+    if (silentMicrophone) void refreshAudioDevices();
+  }, [silentMicrophone, refreshAudioDevices]);
 
   useEffect(() => {
     if (mode !== "welcome") return;
@@ -441,9 +447,12 @@ const Onboarding: React.FC<OnboardingProps> = ({
                     placeholder={t("onboarding.welcome.practicePlaceholder", "Your words can appear here…")}
                   />
                   {silentMicrophone && (
-                    <p role="status" className="text-sm text-amber-300">
-                      {t("onboarding.welcome.silentMicrophone", "The microphone sent silence. Check its mute switch, selected device, and input channel.")}
-                    </p>
+                    <div className="space-y-2">
+                      <p role="status" className="text-sm text-amber-300">
+                        {t("onboarding.welcome.silentMicrophone", "The microphone sent silence. Check its mute switch, selected device, and input channel.")}
+                      </p>
+                      <MicrophoneSelector />
+                    </div>
                   )}
                   {slowLocalModel && (
                     <p role="status" className="text-sm text-amber-300">
