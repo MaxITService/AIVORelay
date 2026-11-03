@@ -189,6 +189,8 @@ transcribe-cpp = { version = "=0.4.0", default-features = false, features = ["se
 transcribe-cpp = { version = "=0.4.0", default-features = false, features = ["serde"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# Read the linked WebKitGTK version before selecting the overlay renderer.
+webkit2gtk-sys = "2.0"
 # Wayland overlay placement (layer-shell surface) and its GTK window type.
 gtk-layer-shell = { version = "0.8", features = ["v0_6"] }
 gtk = "0.18"

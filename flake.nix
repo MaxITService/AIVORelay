@@ -170,7 +170,8 @@
 
             preFixup = ''
               gappsWrapperArgs+=(
-                --set-default WEBKIT_DISABLE_DMABUF_RENDERER 1
+                # Select the renderer at runtime from the linked WebKitGTK version.
+                # Explicit user environment overrides are preserved.
                 --set ALSA_PLUGIN_DIR "${combinedAlsaPlugins}"
                 # Self-update can't work against an immutable /nix/store install
                 # (downloadAndInstall would try to overwrite the store path), so
