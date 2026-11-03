@@ -740,7 +740,8 @@
         "modelDownloads": "When downloading a speech model, you can now see roughly how much time remains, alongside its progress.",
         "ttsPlayback": "When listening to generated speech, the seek bar stays usable while playback restarts after a jump. You can adjust the position again without waiting for the previous seek to finish.",
         "cloudVoices": "New Cartesia configurations and built-in presets use Sonic 3.6. Murf configurations now explicitly select Falcon 2.1; the earlier Falcon 2 identifier already uses that model on Murf's service. Existing saved model selections and presets are not overwritten.",
-        "regionalChinese": "Traditional Chinese output now offers regional variants for Taiwan and Hong Kong. Select the variant you need in the Chinese output settings for your transcription profile."
+        "regionalChinese": "Traditional Chinese output now offers regional variants for Taiwan and Hong Kong. Select the variant you need in the Chinese output settings for your transcription profile.",
+        "sonioxV6": "Soniox cloud recognition now uses the new Soniox v6 models by default. If you still use v5, the app offers a one-click update: Soniox turns v5 off on December 15, 2026."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"

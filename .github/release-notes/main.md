@@ -29,6 +29,7 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 - The same hotkey can no longer be assigned to two actions, including actions whose feature is turned off (for example, AI Replace and Send to Extension). On update, a conflicting shortcut that could not register is cleared with a notification so you can assign another one.
 - Click an error message to dismiss it. Active warnings in the tray and footer clear automatically after 30 seconds, while their messages remain in session history.
 - The model-list refresh button gently pulses until the server list is loaded. Its tooltip explains how to load the list and search for a model.
+- Soniox cloud recognition now uses the new **Soniox v6** models by default. If you still use v5, the app offers a one-click update at startup: Soniox turns v5 off on December 15, 2026.
 - Fixed AI Replace triggering apps that react to a double Ctrl press (such as Obsidian's Double Shift plugin) when it cut the selected text.
 - Fixed saved API keys being reported as missing on Linux and macOS, and corrected Linux/macOS packaging dependencies.
 - Included upstream Handy improvements and fixes.

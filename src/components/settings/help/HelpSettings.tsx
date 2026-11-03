@@ -76,6 +76,7 @@ const WHATS_NEW_ITEMS = [
   { key: "help.whatsNew.items.ttsPlayback", destination: "textToSpeech", searchEntryId: "tts-overlay" },
   { key: "help.whatsNew.items.cloudVoices", destination: "textToSpeech", searchEntryId: "tts" },
   { key: "help.whatsNew.items.regionalChinese", destination: "general", searchEntryId: "default-profile" },
+  { key: "help.whatsNew.items.sonioxV6", destination: "models", searchEntryId: "models" },
 ] as const;
 
 export const HelpSettings: React.FC = () => {
