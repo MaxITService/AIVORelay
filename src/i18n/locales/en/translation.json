@@ -5139,6 +5139,9 @@
       "saving": "Saving to History…",
       "open": "Saved. Open History",
       "openFileTranscription": "Transcribe an audio file",
+      "batchOption": "Also save completed files to History for this run",
+      "batchSaved": "Saved to History",
+      "batchFailed": "Transcript saved, but History copy failed",
       "hint": "History keeps a separate mono audio copy and follows your History retention settings."
     },
     "batch": {

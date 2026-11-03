@@ -37,6 +37,8 @@ export const TranscribeFileBatchQueue: React.FC<TranscribeFileBatchQueueProps> =
     stopping,
     waitingReason,
     error,
+    saveCompletedToHistory,
+    setSaveCompletedToHistory,
     start,
     stop,
     removeItem,
@@ -83,6 +85,10 @@ export const TranscribeFileBatchQueue: React.FC<TranscribeFileBatchQueueProps> =
         <p className="text-xs text-[#a0a0a0]">
           {t("transcribeFile.batch.restartHint")}
         </p>
+        <label className="flex items-center gap-2 text-xs text-[#b8b8b8]">
+          <input type="checkbox" checked={saveCompletedToHistory} disabled={running} onChange={(event) => setSaveCompletedToHistory(event.target.checked)} />
+          {t("transcribeFile.history.batchOption", "Also save completed files to History for this run")}
+        </label>
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="secondary"
@@ -181,6 +187,8 @@ export const TranscribeFileBatchQueue: React.FC<TranscribeFileBatchQueueProps> =
                         : item.error}
                     </p>
                   )}
+                  {item.savedToHistory && <p className="mt-1 text-[11px] text-green-300">{t("transcribeFile.history.batchSaved", "Saved to History")}</p>}
+                  {item.historyError && <p role="alert" className="mt-1 break-words text-[11px] text-red-300">{t("transcribeFile.history.batchFailed", "Transcript saved, but History copy failed")}: {item.historyError}</p>}
                 </div>
                 <span className={`flex items-center gap-1 text-[11px] ${item.status === "failed" ? "text-red-300" : item.status === "completed" ? "text-green-300" : "text-[#b8b8b8]"}`}>
                   {item.status === "processing" && (
