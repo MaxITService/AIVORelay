@@ -452,6 +452,14 @@
     "chooseReplacement": "Выберите другую модель, чтобы продолжить."
   },
   "tray": {
+    "language": "Язык",
+    "languageModelAuto": "Авто — язык определяет STT-модель",
+    "languageModelDefault": "Авто — язык модели по умолчанию",
+    "languageSpokenAuto": "Авто — AivoRelay определяет среди выбранных языков",
+    "languageOsInput": "Следовать языку ввода ОС",
+    "languageDefaultProfile": "По умолчанию",
+    "languageOther": "Другие языки",
+    "languageConfigure": "Настроить языки этого профиля…",
     "settings": "Настройки...",
     "settingsRequiresWebview": "Перезапустить с полным интерфейсом",
     "enterSpeechOnlyMode": "Перезапустить: только диктовка (меньше RAM)",
@@ -4586,6 +4594,7 @@
     "fileTranscriptionFailedTitle": "Не удалось распознать файл",
     "modelLoadFailedTitle": "Не удалось загрузить модель",
     "postProcessNoticeTitle": "Не удалось обработать текст",
+    "profileLanguageChangeFailed": "Не удалось изменить язык этого профиля.",
     "loadDirectory": "Ошибка загрузки каталога: {{error}}.",
     "modelLoadFailed": "Не удалось загрузить модель: {{model}}",
     "modelLoadFailedUnknown": "Неизвестная модель",

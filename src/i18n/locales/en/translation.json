@@ -450,6 +450,14 @@
     "chooseReplacement": "Choose another model to continue."
   },
   "tray": {
+    "language": "Language",
+    "languageModelAuto": "Auto — STT model detects the language",
+    "languageModelDefault": "Auto — model default language",
+    "languageSpokenAuto": "Auto — AivoRelay detects among selected languages",
+    "languageOsInput": "Follow OS input language",
+    "languageDefaultProfile": "Default",
+    "languageOther": "Other languages",
+    "languageConfigure": "Configure this profile’s languages…",
     "settings": "Settings...",
     "settingsRequiresWebview": "Restart with full interface",
     "enterSpeechOnlyMode": "Restart in dictation-only mode (less RAM)",
@@ -5043,6 +5051,7 @@
     "fileTranscriptionFailedTitle": "File transcription failed",
     "modelLoadFailedTitle": "Model load failed",
     "postProcessNoticeTitle": "Text processing failed",
+    "profileLanguageChangeFailed": "Could not change this profile’s language.",
     "loadDirectory": "Error loading directory: {{error}}",
     "modelLoadFailed": "Failed to load model: {{model}}",
     "modelLoadFailedUnknown": "Unknown model",

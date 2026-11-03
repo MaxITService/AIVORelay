@@ -78,6 +78,7 @@ pub fn set_language_detection_config(
     mode: LanguageDetectionMode,
     window_secs: u32,
 ) -> Result<(), String> {
+    let _guard = crate::settings::lock_settings_mutation("changing spoken languages")?;
     if !(2..=30).contains(&window_secs) {
         return Err("Language detection window must be between 2 and 30 seconds".to_string());
     }
@@ -101,5 +102,8 @@ pub fn set_language_detection_config(
     settings.spoken_languages = unique;
     settings.language_detection = mode;
     settings.language_detection_window_secs = window_secs;
-    write_settings_checked(&app, settings)
+    write_settings_checked(&app, settings)?;
+    drop(_guard);
+    crate::tray::refresh_tray_menu(&app, None);
+    Ok(())
 }

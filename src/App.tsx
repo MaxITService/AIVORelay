@@ -14,6 +14,9 @@ import { RenderCrashBoundary } from "./components/RenderCrashBoundary";
 import { useSettings } from "./hooks/useSettings";
 import { commands } from "@/bindings";
 import { listen } from "@tauri-apps/api/event";
+import { navigateToSettingsAnchor } from "./lib/anchorNavigation";
+import { getTranscriptionProfileAnchorId } from "./lib/transcriptionProfileNavigation";
+import { writeWindowState } from "./hooks/useWindowState";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { type } from "@tauri-apps/plugin-os";
@@ -522,6 +525,32 @@ function App() {
       unlistenAuthFailed.then((unlisten) => unlisten());
     };
   }, [t]);
+
+  // Keep profile-scoped tray language changes and their settings links in sync.
+  useEffect(() => {
+    const changed = listen("profile-language-changed", () => { void refreshSettings(); });
+    const failed = listen<string>("profile-language-change-failed", (event) => {
+      toast.error(t("errors.profileLanguageChangeFailed"), { description: event.payload });
+    });
+    const configure = listen<{ profileId: string; gemini: boolean }>("open-profile-languages", async (event) => {
+      await refreshSettings();
+      const { profileId: id, gemini } = event.payload;
+      writeWindowState(`profile-${id}-language-detection`, true);
+      const anchor = getTranscriptionProfileAnchorId(id);
+      navigateToSettingsAnchor({
+        activateSection: () => setCurrentSection("general"),
+        targetId: `profile-${gemini ? "gemini-language" : "language"}-${id}`,
+        readyId: anchor,
+        expandId: anchor,
+        fallbackId: anchor,
+      });
+    });
+    return () => {
+      void changed.then(stop => stop());
+      void failed.then(stop => stop());
+      void configure.then(stop => stop());
+    };
+  }, [refreshSettings, setCurrentSection, t]);
 
   // Sync soniox_live_preview_enabled when the active profile changes (e.g. via shortcut)
   useEffect(() => {

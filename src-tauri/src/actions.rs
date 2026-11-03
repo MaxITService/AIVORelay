@@ -4744,7 +4744,7 @@ fn native_streaming_live_output_enabled(settings: &AppSettings) -> bool {
             .any(|model_id| model_id == &settings.selected_model)
 }
 
-fn should_use_native_local_streaming(
+pub(crate) fn should_use_native_local_streaming(
     app: &AppHandle,
     settings: &AppSettings,
     profile: Option<&TranscriptionProfile>,
