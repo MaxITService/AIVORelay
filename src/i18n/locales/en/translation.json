@@ -3328,6 +3328,8 @@
           "tip": "Most users should use Clipboard (Ctrl+V). Try Direct if you experience issues with games or terminals."
         },
         "externalScriptHelp": "The script receives the complete transcript once, after recording finishes. It has up to 30 seconds to finish.",
+        "captureStdout": "Insert the script’s standard output",
+        "captureStdoutHelp": "Shared across profiles, like the script path. The script receives the full text as its first argument. AivoRelay types its standard output; the script must not paste text itself. Empty output inserts nothing. Errors or a 30-second timeout stop insertion and show an error.",
         "externalScriptPlaceholder": "/path/to/your/script.sh"
       },
       "clipboardHandling": {

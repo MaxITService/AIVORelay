@@ -6,6 +6,7 @@ import { WindowDetails } from "../ui/WindowDetails";
 import { Dropdown, type DropdownOption } from "../ui/Dropdown";
 import { HotkeyCapture } from "../ui/HotkeyCapture";
 import { Input } from "../ui/Input";
+import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { SettingContainer } from "../ui/SettingContainer";
 import { TellMeMore } from "../ui/TellMeMore";
 import { useSettings } from "../../hooks/useSettings";
@@ -127,7 +128,7 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
 }) => {
   const { t } = useTranslation();
   const defaults = profileOutputDefaults(defaultProfile, isDefault);
-  const { settings } = useSettings();
+  const { settings, updateSetting, isUpdating } = useSettings();
   const externalScript = usePersistedSettingText("external_script_path");
   const [capturing, setCapturing] = useState(false);
   const [customKeyRequested, setCustomKeyRequested] = useState(false);
@@ -440,10 +441,11 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
               {method === "external_script" && <>
                 <Input type="text" value={externalScript.draft} onChange={event => externalScript.setDraft(event.target.value)} onBlur={externalScript.persistDraft} placeholder={t("settings.advanced.pasteMethod.externalScriptPlaceholder")} />
                 <p className="text-xs text-mid-gray">{t("settings.advanced.pasteMethod.externalScriptHelp")}</p>
+                <ToggleSwitch checked={settings?.external_script_capture_stdout ?? false} disabled={busy} isUpdating={isUpdating("external_script_capture_stdout")} onChange={value => void updateSetting("external_script_capture_stdout", value)} label={t("settings.advanced.pasteMethod.captureStdout")} description={t("settings.advanced.pasteMethod.captureStdoutHelp")} />
               </>}
             </div>
           </SettingContainer>
-          {method === "direct" && osType === "linux" && <OutputDependencies>
+          {(method === "direct" || (method === "external_script" && settings?.external_script_capture_stdout)) && osType === "linux" && <OutputDependencies>
             <TypingToolSetting grouped={true} />
           </OutputDependencies>}
           {method !== "none" && usesClipboard && osType === "windows" && <OutputDependencies>

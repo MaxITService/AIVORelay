@@ -4301,6 +4301,9 @@ pub struct AppSettings {
     /// Script run by the External Script paste method.
     #[serde(default)]
     pub external_script_path: Option<String>,
+    /// Use script stdout as text for app-managed direct insertion.
+    #[serde(default)]
+    pub external_script_capture_stdout: bool,
     #[serde(default = "default_paste_delay_ms")]
     pub paste_delay_ms: u64,
     /// Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
@@ -6565,6 +6568,7 @@ pub fn get_default_settings() -> AppSettings {
         paste_method: PasteMethod::default(),
         typing_tool: TypingTool::default(),
         external_script_path: None,
+        external_script_capture_stdout: false,
         paste_delay_ms: default_paste_delay_ms(),
         convert_lf_to_crlf: true,
         clipboard_handling: ClipboardHandling::default(),
