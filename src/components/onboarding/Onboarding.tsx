@@ -16,6 +16,8 @@ import MacPermissionsOnboarding from "./MacPermissionsOnboarding";
 import { clearOnboardingProgress, readOnboardingProgress, resolveOnboardingProgress, saveOnboardingProgress } from "./onboardingProgress";
 import { HandyShortcut } from "../settings/HandyShortcut";
 import { AiAssistTip } from "../shared/AiAssistTip";
+import { useSettingsStore } from "@/stores/settingsStore";
+import { getShortcutGuideMode } from "./shortcutGuide";
 
 type WelcomeVariant = "local" | "remote";
 type OnboardingMode = "permissions" | "select" | "local" | "welcome";
@@ -38,6 +40,8 @@ const Onboarding: React.FC<OnboardingProps> = ({
   onPermissionResolved,
 }) => {
   const { t } = useTranslation();
+  const settings = useSettingsStore((state) => state.settings);
+  const shortcutMode = getShortcutGuideMode(settings);
   const isWindows = type() === "windows";
   const isMacOS = type() === "macos";
   const [savedProgress] = useState(() => showFullCatalog ? null : readOnboardingProgress());
@@ -333,12 +337,24 @@ const Onboarding: React.FC<OnboardingProps> = ({
                 {/* Shortcut selector */}
                 <div className="w-full text-left space-y-2">
                   <p className="text-sm text-[#a0a0a0]">
-                    {t("onboarding.welcome.shortcutDescription")}
+                    {t("onboarding.welcome.shortcutChoose", "Choose your dictation shortcut:")}
                   </p>
                   <HandyShortcut
                     shortcutId="transcribe"
                     descriptionMode="inline"
                   />
+                  {shortcutMode && (
+                    <p className="text-sm text-[#d0d0d0]" aria-live="polite">
+                      {shortcutMode === "auto"
+                        ? t("onboarding.welcome.shortcutAuto", "Tap the shortcut to start and tap again to stop, or hold it while speaking and release to stop.")
+                        : shortcutMode === "hold"
+                          ? t("onboarding.welcome.shortcutHold", "Hold the shortcut while speaking, then release it to finish.")
+                          : t("onboarding.welcome.shortcutToggle", "Press the shortcut to start speaking, then press it again to finish.")}
+                    </p>
+                  )}
+                  {settings?.automatic_app_profiles_enabled && (
+                    <p className="text-xs text-[#a0a0a0]">{t("onboarding.welcome.shortcutProfiles", "Other application profiles may use a different shortcut mode.")}</p>
+                  )}
                 </div>
 
                 {/* Settings note */}
