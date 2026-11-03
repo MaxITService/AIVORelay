@@ -8,7 +8,9 @@ import { listen } from "@tauri-apps/api/event";
 import {
   beginModelDownloadActivationIntent,
   cancelModelDownloadActivationIntent,
+  consumeModelDownloadAutoActivation,
   invalidateModelDownloadActivationIntent,
+  prepareModelDownloadAutoActivation,
 } from "@/lib/modelDownloadActivation";
 import ModelCard from "./ModelCard";
 import HandyTextLogo from "../icons/HandyTextLogo";
@@ -207,10 +209,50 @@ const Onboarding: React.FC<OnboardingProps> = ({
       if (result.status === "error") {
         cancelModelDownloadActivationIntent(model.id);
         console.error("Download failed:", result.error);
+        setError(t("onboarding.errors.downloadModel", { error: result.error }));
         setDownloading(false);
         setDownloadingModelId(null);
         setMode("local");
       } else {
+        const models = await commands.getAvailableModels();
+        if (downloadAttempt.current !== attempt) return;
+        if (models.status === "error") throw models.error;
+        if (!models.data.some((candidate) => candidate.id === model.id && candidate.is_downloaded)) {
+          cancelModelDownloadActivationIntent(model.id);
+          setDownloading(false);
+          setDownloadingModelId(null);
+          setMode("local");
+          return;
+        }
+        // The normal footer activation listener is not mounted during onboarding.
+        // Reuse its intent guards so a later manual selection still takes priority.
+        const recording = await commands.isRecording();
+        if (downloadAttempt.current !== attempt) return;
+        if (recording) {
+          cancelModelDownloadActivationIntent(model.id);
+          setDownloading(false);
+          setDownloadingModelId(null);
+          return;
+        }
+        const settingsResult = await commands.getAppSettings();
+        if (downloadAttempt.current !== attempt) return;
+        if (settingsResult.status === "error") throw settingsResult.error;
+        const profileId = settingsResult.data.active_profile_id ?? "default";
+        const activation = await prepareModelDownloadAutoActivation(model.id, profileId);
+        if (downloadAttempt.current !== attempt) return;
+        if (activation !== null && consumeModelDownloadAutoActivation(model.id, activation)) {
+          const selected = profileId === "default"
+            ? await commands.setActiveModel(model.id)
+            : await commands.changeActiveProfileSttModelSelectionOverride({ provider: "local", model_id: model.id, provider_preset: "" });
+          if (downloadAttempt.current !== attempt) return;
+          if (selected.status === "error") {
+            setError(t("onboarding.errors.selectModel", { error: selected.error }));
+            setDownloading(false);
+            setDownloadingModelId(null);
+            setMode("local");
+            return;
+          }
+        }
         setDownloading(false);
         setDownloadingModelId(null);
       }
@@ -218,6 +260,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
       if (downloadAttempt.current !== attempt) return;
       cancelModelDownloadActivationIntent(model.id);
       console.error("Download failed:", err);
+      setError(t("onboarding.errors.downloadModel", { error: String(err) }));
       setDownloading(false);
       setDownloadingModelId(null);
       setMode("local");
