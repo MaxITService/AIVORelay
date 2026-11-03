@@ -971,7 +971,12 @@ const OPENAI_MODEL_SELECT_OPTIONS: SelectOption[] = OPENAI_MODEL_OPTIONS.map(
 const MURF_MODEL_SELECT_OPTIONS: SelectOption[] = MURF_MODEL_OPTIONS.map(
   (value) => ({
     value,
-    label: value === "falcon-2" ? "Falcon 2" : "Gen2",
+    label:
+      value === "gen2"
+        ? "Gen2"
+        : value === "falcon-2.1"
+          ? "Falcon 2.1"
+          : "Falcon 2",
   }),
 );
 
@@ -989,7 +994,7 @@ const ELEVENLABS_MODEL_SELECT_OPTIONS: SelectOption[] =
 const CARTESIA_MODEL_SELECT_OPTIONS: SelectOption[] =
   CARTESIA_MODEL_OPTIONS.map((value) => ({
     value,
-    label: "Sonic 3.5",
+    label: value === "sonic-3.6" ? "Sonic 3.6" : "Sonic 3.5",
   }));
 
 type CloudVoiceSelectorProps = {

@@ -5,6 +5,7 @@ import { cloneProfileSettings, llmPromptOverrideFromInput, profileSettingsPayloa
 
 const profile = (): ExtendedTranscriptionProfile => ({
   id: "saved", name: "Custom", language: "auto", translate_to_english: false,
+  spoken_languages: ["ru", "en"], language_detection: "always", language_detection_window_secs: 5,
   push_to_talk: false, include_in_cycle: false, auto_shortcut_activation: false,
   preview_output_only_enabled: false, stt_prompt_override_enabled: false,
   system_prompt: "", stt_model_selection_override: null,
@@ -21,6 +22,7 @@ describe("profile clone and command payload", () => {
     const payload = JSON.parse(JSON.stringify(profileSettingsPayload(profile())));
     expect(payload).toEqual({
       language: "auto", translateToEnglish: false, pushToTalk: false, includeInCycle: false,
+      spokenLanguages: ["ru", "en"], languageDetection: "always", languageDetectionWindowSecs: 5,
       autoShortcutActivation: false, previewOutputOnlyEnabled: false, sttPromptOverrideEnabled: false,
       automaticAppRules: ["editor.exe"], systemPrompt: "", sttModelSelectionOverride: null,
       llmSettings: { enabled: false, promptOverride: "", modelOverride: "", liveStreamInsert: false },
@@ -41,6 +43,7 @@ describe("profile clone and command payload", () => {
     expect(copy).not.toHaveProperty("name");
     expect(profileSettingsPayload({ ...source, ...copy })).toEqual(profileSettingsPayload(source));
     copy.automatic_app_rules!.push("browser.exe");
+    copy.spoken_languages!.push("de");
     copy.soniox_context_terms!.push("Copy");
     copy.gemini_custom_vocabulary_override!.push("Copy");
     copy.stt_model_selection_override!.model_id = "model-b";

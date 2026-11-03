@@ -57,6 +57,7 @@ mod text_replacement_decapitalize;
 mod transcript_context;
 mod tray;
 mod tray_i18n;
+mod tray_language;
 mod url_security;
 mod tls;
 mod utils;
@@ -758,6 +759,9 @@ fn initialize_core_logic(app_handle: &AppHandle) {
             _ => {}
         })
         .on_menu_event(|app, event| {
+            if tray_language::handle_menu_event(app, event.id.as_ref()) {
+                return;
+            }
             if let Some(selection) = tray::parse_microphone_menu_selection(event.id.as_ref()) {
                 let app_clone = app.clone();
                 std::thread::spawn(move || {
@@ -989,6 +993,12 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.listen("model-state-changed", move |_| {
         tray::refresh_tray_menu(&tray_refresh_handle, None);
     });
+    for event in ["active-profile-changed", "settings-changed", "models-updated"] {
+        let handle = app_handle.clone();
+        app_handle.listen(event, move |_| {
+            tray::refresh_tray_menu(&handle, None);
+        });
+    }
 
     // A development executable lives under Cargo's target directory and must
     // never replace the installed application's OS autostart registration.
@@ -1818,6 +1828,8 @@ pub fn run(cli_args: CliArgs) {
         commands::language_detection::get_language_detection_config,
         commands::language_detection::set_language_detection_config,
         commands::language_detection::language_detector_downloaded,
+        commands::language_detection::get_language_detector_download_status,
+        commands::language_detection::open_model_downloads,
         commands::language_detection::get_local_language_detection_status,
         commands::language_detection::download_language_detector,
         commands::language_detection::cancel_language_detector_download,

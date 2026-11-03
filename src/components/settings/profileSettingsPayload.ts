@@ -3,6 +3,7 @@ import type { ExtendedTranscriptionProfile } from "./ProfileSettingsForm";
 export const cloneProfileSettings = (profile: ExtendedTranscriptionProfile): Partial<ExtendedTranscriptionProfile> => {
   const { id: _id, name: _name, ...values } = profile;
   return { ...values, automatic_app_rules: [...(profile.automatic_app_rules ?? [])],
+    spoken_languages: [...(profile.spoken_languages ?? [])],
     soniox_context_terms: [...(profile.soniox_context_terms ?? [])],
     gemini_custom_vocabulary_override: profile.gemini_custom_vocabulary_override == null ? null : [...profile.gemini_custom_vocabulary_override],
     stt_model_selection_override: profile.stt_model_selection_override ? { ...profile.stt_model_selection_override } : null,
@@ -16,6 +17,9 @@ export const llmPromptOverrideFromInput = (prompt: string | null | undefined): s
 
 export const profileSettingsPayload = (profile: ExtendedTranscriptionProfile) => ({
   language: profile.language, translateToEnglish: profile.translate_to_english,
+  spokenLanguages: profile.spoken_languages ?? [],
+  languageDetection: profile.language_detection ?? "when_needed",
+  languageDetectionWindowSecs: profile.language_detection_window_secs ?? 5,
   automaticAppRules: profile.automatic_app_rules ?? [], systemPrompt: profile.system_prompt ?? "",
   sttPromptOverrideEnabled: profile.stt_prompt_override_enabled ?? false,
   sttModelSelectionOverride: profile.stt_model_selection_override ?? null,

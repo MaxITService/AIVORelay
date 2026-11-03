@@ -347,6 +347,12 @@ function getOverlayErrorCopy(
   }
 
   switch (category) {
+    case "ModelDownloading":
+      return { title: t("modelSelector.recordingBlockedDownloadTitle"), hint: t("settings.spokenLanguage.modelDownloadHint") };
+    case "LanguageDetectorDownloading":
+      return { title: t("settings.spokenLanguage.blockedDownloadingTitle"), hint: t("settings.spokenLanguage.blockedDownloadingDescription") };
+    case "LanguageDetectorMissing":
+      return { title: t("settings.spokenLanguage.blockedMissingTitle"), hint: t("settings.spokenLanguage.blockedMissingDescription") };
     case "NoText":
       return {
         title: t("overlay.errors.noText.title", "No transcription received"),
@@ -565,6 +571,7 @@ const RecordingOverlay: React.FC = () => {
   const [decapIndicatorArmed, setDecapIndicatorArmed] = useState(false);
   const [activeApp, setActiveApp] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorModelsTarget, setErrorModelsTarget] = useState<"models" | "detector" | null>(null);
   const [errorHint, setErrorHint] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [errorTechnical, setErrorTechnical] = useState<string | null>(null);
@@ -1060,6 +1067,8 @@ const RecordingOverlay: React.FC = () => {
               envelope?.display_code ||
               fallbackCodeFromCategory(payload.error_category);
             setErrorMessage(copy.title);
+            setErrorModelsTarget(payload.error_category === "ModelDownloading" ? "models"
+              : payload.error_category === "LanguageDetectorDownloading" || payload.error_category === "LanguageDetectorMissing" ? "detector" : null);
             setErrorHint(copy.hint);
             setErrorCode(compactOverlayErrorCode(rawCode));
             setErrorTechnical(
@@ -1075,6 +1084,7 @@ const RecordingOverlay: React.FC = () => {
             }
           } else {
             setErrorMessage(null);
+            setErrorModelsTarget(null);
             setErrorHint(null);
             setErrorCode(null);
             setErrorTechnical(null);
@@ -1089,6 +1099,7 @@ const RecordingOverlay: React.FC = () => {
           setDecapIndicatorEligible(false);
           setDecapIndicatorArmed(false);
           setErrorMessage(null);
+          setErrorModelsTarget(null);
           setErrorHint(null);
           setErrorCode(null);
           setErrorTechnical(null);
@@ -1122,6 +1133,7 @@ const RecordingOverlay: React.FC = () => {
         setDecapIndicatorEligible(false);
         setDecapIndicatorArmed(false);
         setErrorMessage(null);
+        setErrorModelsTarget(null);
         setErrorHint(null);
         setErrorCode(null);
         setErrorTechnical(null);
@@ -1739,8 +1751,9 @@ const RecordingOverlay: React.FC = () => {
       </div>
 
       <div className="overlay-right">
-        {/* Show cancel button for: recording, sending, thinking, finalizing */}
+        {/* Show cancel button while recording or processing. */}
         {(state === "recording" ||
+          state === "transcribing" ||
           state === "sending" ||
           state === "thinking" ||
           state === "finalizing") &&
@@ -1759,7 +1772,12 @@ const RecordingOverlay: React.FC = () => {
           )}
         {state === "error" && (
           <div className="error-actions">
-            {errorRetryAvailable ? (
+            {errorModelsTarget ? (
+              <button type="button" className="error-retry-button" onClick={() => {
+                void invoke("open_model_downloads", { detector: errorModelsTarget === "detector" });
+                handleDismissError();
+              }}>{t("sidebar.models")}</button>
+            ) : errorRetryAvailable ? (
               <button
                 type="button"
                 className="error-retry-button"

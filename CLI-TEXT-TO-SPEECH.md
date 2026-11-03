@@ -11,9 +11,9 @@ AivoRelay.exe --convert-file .\chapter.md --output .\chapter.opus --tts-bitrate 
 AivoRelay.exe --convert-file .\notes.txt --output .\notes.wav
 AivoRelay.exe --convert-file .\chapter.md --output .\windows.wav --tts-provider windows
 AivoRelay.exe --convert-file .\chapter.md --output .\edge.mp3 --tts-provider edge --tts-voice en-US-AriaNeural
-AivoRelay.exe --convert-file .\chapter.md --output .\murf.mp3 --tts-provider murf --tts-model falcon-2
+AivoRelay.exe --convert-file .\chapter.md --output .\murf.mp3 --tts-provider murf --tts-model falcon-2.1
 AivoRelay.exe --convert-file .\chapter.md --output .\elevenlabs.mp3 --tts-provider elevenlabs --tts-model eleven_multilingual_v2
-AivoRelay.exe --convert-file .\chapter.md --output .\cartesia.mp3 --tts-provider cartesia --tts-model sonic-3.5
+AivoRelay.exe --convert-file .\chapter.md --output .\cartesia.mp3 --tts-provider cartesia --tts-model sonic-3.6
 AivoRelay.exe --convert-file .\chapter.md --output .\qwen.mp3 --tts-provider local-qwen --tts-voice Vivian
 AivoRelay.exe --convert-file .\chapter.md --output .\kokoro.mp3 --tts-provider local-kokoro --tts-voice af_maple --tts-language English
 ```
@@ -49,10 +49,10 @@ AivoRelay.exe --convert-file .\chapter.md --output .\chapter.mp3 `
 | Option | Accepted values and behavior |
 | --- | --- |
 | `--tts-provider` | `soniox`, `deepgram`, `openai`, `murf`, `elevenlabs`, `cartesia`, `openai-compatible` (custom OpenAI-compatible server), experimental `edge`, `local-qwen`, `local-kokoro`, or `windows` |
-| `--tts-model` | Provider model ID; Deepgram accepts Aura (`aura-*`) on `/v1/speak` and Flux (`flux-*`) on `/v2/speak`, Murf accepts `falcon-2`/`gen2`, ElevenLabs accepts `eleven_flash_v2_5`/`eleven_v3`/`eleven_multilingual_v2`, and Cartesia accepts `sonic-3.5` |
+| `--tts-model` | Provider model ID; Deepgram accepts Aura (`aura-*`) on `/v1/speak` and Flux (`flux-*`) on `/v2/speak`, Murf accepts `falcon-2.1`/`falcon-2`/`gen2`, ElevenLabs accepts `eleven_flash_v2_5`/`eleven_v3`/`eleven_multilingual_v2`, and Cartesia accepts `sonic-3.6`/`sonic-3.5` |
 | `--tts-voice` | Cloud voice ID, official Qwen/Kokoro speaker ID, or stable Windows voice ID; `default` selects the current Windows default |
 | `--tts-language` | Murf locale; a two-letter ISO 639-1 hint for ElevenLabs Flash v2.5/Eleven v3; a two-letter Cartesia language code; Soniox language code; Qwen language name; or Kokoro `English`/`Chinese`. ElevenLabs Multilingual v2 infers language from text and rejects this flag |
-| `--tts-speed` | Soniox `0.7–1.3`; Deepgram Aura `0.7–1.5`; Deepgram Flux `0.85–1.15` in `0.05` steps; OpenAI `0.25–4.0`; ElevenLabs Flash v2.5/Multilingual v2 `0.7–1.2`; Cartesia Sonic 3.5 `0.6–1.5`; Edge/Qwen/Kokoro/Windows `0.5–2.0`. Murf uses `--tts-murf-rate`; Eleven v3 does not accept numeric speed |
+| `--tts-speed` | Soniox `0.7–1.3`; Deepgram Aura `0.7–1.5`; Deepgram Flux `0.85–1.15` in `0.05` steps; OpenAI `0.25–4.0`; ElevenLabs Flash v2.5/Multilingual v2 `0.7–1.2`; Cartesia Sonic `0.6–1.5`; Edge/Qwen/Kokoro/Windows `0.5–2.0`. Murf uses `--tts-murf-rate`; Eleven v3 does not accept numeric speed |
 | `--tts-key-source` | `shared` or `separate`; Murf, ElevenLabs, and Cartesia accept only `separate`. Selects an already-stored credential and never exposes a secret on the command line |
 | `--tts-base-url` | OpenAI-compatible provider only: custom API base URL for this conversion, e.g. `http://localhost:8000/v1` |
 | `--tts-murf-rate` | Murf integer rate from `-50` to `50` |
@@ -65,7 +65,7 @@ AivoRelay.exe --convert-file .\chapter.md --output .\chapter.mp3 `
 | `--tts-elevenlabs-speaker-boost` | Flash v2.5/Multilingual v2: `true` or `false`; unavailable for Eleven v3 |
 | `--tts-elevenlabs-text-normalization` | `auto`, `on`, or `off` |
 | `--tts-cartesia-emotion` | Cartesia emotion, or `none` to clear it |
-| `--tts-cartesia-volume` | Cartesia Sonic 3.5 generation volume from `0.5` to `2.0` |
+| `--tts-cartesia-volume` | Cartesia Sonic generation volume from `0.5` to `2.0` |
 | `--tts-format` | `mp3`, `opus`, or `wav`; with `--output`, it must match the extension |
 | `--tts-bitrate` | MP3: `64`, `96`, `128`, `192`, `256`, or `320`; Opus: `32`, `48`, `64`, `80`, `96`, `128`, `160`, or `192` kb/s |
 | `--tts-chunk-chars` | `50` through the selected provider's hard character limit |
@@ -105,7 +105,7 @@ value:
   `--tts-voice` and `--tts-language` are rejected.
 - OpenAI does not expose a separate language option, so `--tts-language` is
   rejected.
-- Murf accepts only `falcon-2` and `gen2`; generic `--tts-speed` is rejected in
+- Murf defaults to `falcon-2.1` and also accepts its `falcon-2` alias and `gen2`; generic `--tts-speed` is rejected in
   favor of its integer rate control, and variation is accepted only for Gen2.
 - ElevenLabs accepts `eleven_flash_v2_5`, `eleven_v3`, and
   `eleven_multilingual_v2`. Its voice
@@ -113,7 +113,7 @@ value:
   Flash v2.5 is the documented low-latency choice. Multilingual v2 infers
   language from the text and does not accept `--tts-language`; Eleven v3 does
   not accept numeric speed, Similarity, or Speaker Boost controls.
-- Cartesia currently uses the fixed `sonic-3.5` model. Its 4,000-character
+- Cartesia defaults to `sonic-3.6` and also accepts `sonic-3.5`. Its 4,000-character
   request cap is an AivoRelay safety limit because Cartesia does not publish a
   single transcript-character maximum for the bytes endpoint. Speed, volume,
   and emotion are sent through Cartesia's `generation_config` object.

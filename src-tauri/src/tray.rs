@@ -305,6 +305,7 @@ struct MenuInputs {
     transcription_provider: TranscriptionProvider,
     selected_model: String,
     selected_local_model_name: Option<String>,
+    language_menu: Option<crate::tray_language::LanguageMenu>,
     selected_microphone: Option<String>,
     remote_provider_preset: String,
     remote_model_id: String,
@@ -631,6 +632,13 @@ pub fn refresh_tray_menu(app: &AppHandle, locale: Option<&str>) {
     }
 }
 
+/// Restore native checkmarks after clicks, including a no-op re-selection.
+pub(crate) fn refresh_tray_menu_after_language_choice(app: &AppHandle) {
+    if let Some(ticket) = claim_tray_sync(app, |inner| inner.applied_menu = None, None) {
+        commit_tray_sync_with_locale(app, ticket, None);
+    }
+}
+
 /// Applies `update` and claims the ordering slot for the resulting state in
 /// one critical section. With a policy, the blink loop is settled in the same
 /// section, so no stale transition can restart blinking after a newer one
@@ -718,6 +726,7 @@ fn compute_desired(
         .iter()
         .find(|model| model.id == settings.selected_model)
         .map(|model| model.name.clone());
+    let language_menu = (!icon_state.is_busy()).then(|| crate::tray_language::snapshot(app, &settings));
     let mut downloaded_local_models: Vec<_> = available_models
         .into_iter()
         .filter(|model| model.is_downloaded)
@@ -780,6 +789,7 @@ fn compute_desired(
             transcription_provider: settings.transcription_provider,
             selected_model: settings.selected_model,
             selected_local_model_name,
+            language_menu,
             selected_microphone: settings.selected_microphone,
             remote_provider_preset: settings.remote_stt.provider_preset,
             remote_model_id: settings.remote_stt.model_id,
@@ -1055,6 +1065,9 @@ fn build_tray_menu(
         let model_submenu = build_model_submenu(app, &model_menu_label, inputs)?;
         menu.append(&separator()?)?;
         menu.append(&model_submenu)?;
+        if let Some(language_menu) = &inputs.language_menu {
+            menu.append(&language_menu.build(app, &inputs.locale, inputs.webviews_disabled)?)?;
+        }
         menu.append(&unload_model_i)?;
         if inputs.show_shortcut_guide {
             if inputs.show_shortcut_guide_in_main_menu {
@@ -1695,6 +1708,7 @@ mod tests {
                 transcription_provider: TranscriptionProvider::Local,
                 selected_model: String::new(),
                 selected_local_model_name: None,
+                language_menu: None,
                 selected_microphone: None,
                 remote_provider_preset: String::new(),
                 remote_model_id: String::new(),

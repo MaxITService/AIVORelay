@@ -2367,13 +2367,6 @@ fn start_recording_with_feedback_with_settings(
             );
             return false;
         }
-        let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
-        tm.initiate_model_load_for(&settings.selected_model);
-        std::thread::spawn(move || {
-            if let Err(e) = rm.preload_audio_recorder() {
-                debug!("Audio recorder pre-load failed: {}", e);
-            }
-        });
     }
 
     // Hold the lock for the entire operation to prevent race conditions
@@ -2419,11 +2412,71 @@ fn start_recording_with_feedback_with_settings(
         return false;
     }
 
+    // Only an idle start may replace the overlay with a download explanation.
+    // A repeated Start must preserve the active operation and its Cancel button.
+    if settings.transcription_provider == TranscriptionProvider::Local {
+        let manager = app.state::<Arc<ModelManager>>();
+        let model_id = &settings.selected_model;
+        if let Some(model) = manager.get_model_info(model_id).filter(|model| {
+            model.is_downloading && !model.is_downloaded
+                && !(tm.get_current_model().as_deref() == Some(model_id.as_str()) && tm.is_model_loaded())
+        }) {
+            let _ = app.emit(
+                "recording-blocked-model-downloading",
+                serde_json::json!({ "model_id": model_id, "model_name": model.name }),
+            );
+            crate::plus_overlay_state::show_error_overlay(app, crate::plus_overlay_state::OverlayErrorCategory::ModelDownloading);
+            return false;
+        }
+
+        // Check the effective language plan before claiming a session or opening audio.
+        let profile = resolve_profile_for_binding(&settings, binding_id);
+        let language = profile.map(|profile| profile.language.as_str()).unwrap_or(&settings.selected_language);
+        if let (Some(model), Some(detector)) = (
+            manager.get_model_info(&settings.selected_model), crate::catalog::LANGUAGE_DETECTOR.as_ref(),
+        ) {
+            if language == "auto" && !settings.spoken_languages.is_empty()
+                && crate::language_detection::engine_accepts_language(&model.engine_type)
+                && !should_use_native_local_streaming(app, &settings, profile, binding_id)
+            {
+                let languages = crate::language_detection::policy::ModelLanguages {
+                    languages: &model.supported_languages,
+                    detects: model.supports_language_detection,
+                    streaming: false,
+                };
+                let plan = crate::language_detection::policy::plan(
+                    language, &settings.spoken_languages, &languages,
+                    settings.language_detection, &detector.labels,
+                );
+                if plan.detects() && manager.language_detector_path().is_none() {
+                    let downloading = manager.language_detector_download_progress().is_some();
+                    let _ = app.emit("recording-blocked-language-detector", serde_json::json!({ "downloading": downloading }));
+                    crate::plus_overlay_state::show_error_overlay(app, if downloading {
+                        crate::plus_overlay_state::OverlayErrorCategory::LanguageDetectorDownloading
+                    } else {
+                        crate::plus_overlay_state::OverlayErrorCategory::LanguageDetectorMissing
+                    });
+                    return false;
+                }
+            }
+        }
+    }
+
     // Declare before the local session so it is released after that session's
     // cleanup, including when Cancel removes the managed session during I/O.
     let Some(_startup_guard) = session_manager::try_begin_recording_startup() else {
         return false;
     };
+
+    if settings.transcription_provider == TranscriptionProvider::Local {
+        let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
+        tm.initiate_model_load_for(&settings.selected_model);
+        std::thread::spawn(move || {
+            if let Err(e) = rm.preload_audio_recorder() {
+                debug!("Audio recorder pre-load failed: {}", e);
+            }
+        });
+    }
 
     // Install the CLI override only after this attempt owns recording startup.
     // Repeated Start and competing hotkeys must not change an active session.
@@ -2889,6 +2942,7 @@ pub(crate) async fn perform_transcription_for_profile(
         settings,
         false,
         true,
+        None,
     )
     .await
 }
@@ -2901,6 +2955,7 @@ async fn perform_transcription_for_profile_with_retry_action(
     settings: &AppSettings,
     include_retry_action: bool,
     show_remote_error: bool,
+    audio_cancel_generation: Option<u64>,
 ) -> TranscriptionOutcome {
     // Use the captured profile ID from recording start, not the current active_profile_id.
     // This ensures that if the user switches profiles mid-recording, we still use
@@ -3390,13 +3445,50 @@ async fn perform_transcription_for_profile_with_retry_action(
         }
     } else {
         let tm = app.state::<Arc<TranscriptionManager>>();
-
-        if let Err(err) = crate::commands::models::ensure_local_model_downloaded_for_use(
-            app,
-            &settings.selected_model,
-        )
-        .await
-        {
+        let audio_manager = app.state::<Arc<AudioRecordingManager>>();
+        // History retries do not own a microphone session. Only recording
+        // callers should observe that session's cancellation generation.
+        let cancel_generation = audio_cancel_generation
+            .or_else(|| binding_id.map(|_| audio_manager.cancel_generation()));
+        let is_cancelled = || cancel_generation
+            .is_some_and(|generation| audio_manager.was_cancelled_since(generation));
+        let check_cancelled = || {
+            if is_cancelled() {
+                anyhow::bail!("Transcription was cancelled");
+            }
+            Ok(())
+        };
+        if is_cancelled() {
+            return TranscriptionOutcome::Cancelled;
+        }
+        let download_app = app.clone();
+        let model_id = settings.selected_model.clone();
+        // The download owns its cleanup and may serve other workflows. Cancelling
+        // dictation stops waiting without dropping or cancelling the shared download.
+        let mut download = tauri::async_runtime::spawn(async move {
+            crate::commands::models::ensure_local_model_downloaded_for_use(
+                &download_app,
+                &model_id,
+            )
+            .await
+        });
+        let download_result = loop {
+            if is_cancelled() {
+                return TranscriptionOutcome::Cancelled;
+            }
+            tokio::select! {
+                result = &mut download => {
+                    break result.unwrap_or_else(|error| {
+                        Err(format!("Model download task failed: {error}"))
+                    });
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
+            }
+        };
+        if is_cancelled() {
+            return TranscriptionOutcome::Cancelled;
+        }
+        if let Err(err) = download_result {
             debug!("Local transcription model download failed: {}", err);
             return TranscriptionOutcome::Error {
                 message: err,
@@ -3405,12 +3497,19 @@ async fn perform_transcription_for_profile_with_retry_action(
         }
 
         if let Err(err) = tm.ensure_model_loaded(&settings.selected_model) {
+            if is_cancelled() {
+                return TranscriptionOutcome::Cancelled;
+            }
             let err_str = format!("{}", err);
             debug!("Local transcription model load failed: {}", err_str);
             return TranscriptionOutcome::Error {
                 message: err_str,
                 shown_in_overlay: false,
             };
+        }
+
+        if is_cancelled() {
+            return TranscriptionOutcome::Cancelled;
         }
 
         // Use profile overrides for local transcription if available
@@ -3434,9 +3533,10 @@ async fn perform_transcription_for_profile_with_retry_action(
                 ),
                 settings.custom_words_enabled,
                 Some(crate::chinese_script::resolve_chinese_script(settings, Some(p))),
-                &settings.spoken_languages,
-                settings.language_detection,
-                settings.language_detection_window_secs,
+                &p.spoken_languages,
+                p.language_detection,
+                p.language_detection_window_secs,
+                &check_cancelled,
             )
         } else {
             log::info!(
@@ -3457,9 +3557,15 @@ async fn perform_transcription_for_profile_with_retry_action(
                 &settings.spoken_languages,
                 settings.language_detection,
                 settings.language_detection_window_secs,
+                &check_cancelled,
             )
         };
 
+        // A cancelled worker may report an error (or finish successfully) while
+        // a new recording is already starting. Do not treat it as a live result.
+        if is_cancelled() {
+            return TranscriptionOutcome::Cancelled;
+        }
         match result {
             Ok((text, language)) => TranscriptionOutcome::Success(text, language),
             Err(err) => {
@@ -3640,6 +3746,7 @@ async fn get_transcription_or_cleanup_detailed(
     recording_settings: AppSettings,
 ) -> TranscriptionFetchOutcome {
     let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
+    let audio_cancel_generation = rm.cancel_generation();
     let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
     let deepgram_live_manager = Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
     let openai_realtime_whisper_manager =
@@ -3797,12 +3904,15 @@ async fn get_transcription_or_cleanup_detailed(
             );
         }
 
-        match perform_transcription_for_profile(
+        match perform_transcription_for_profile_with_retry_action(
             app,
             samples.clone(),
             Some(binding_id),
             captured_profile_id,
             &recording_settings,
+            false,
+            true,
+            Some(audio_cancel_generation),
         )
         .await
         {
@@ -3967,6 +4077,7 @@ async fn transcribe_stopped_recording_for_transcribe_action(
     recording_settings: AppSettings,
     current_app: String,
     stopped: StoppedTranscribeRecording,
+    audio_cancel_generation: u64,
 ) -> Option<(String, Vec<f32>, Option<String>, bool, Option<crate::language_detection::LanguageDecision>)> {
     let samples = stopped.samples;
     let pre_saved_file_name = stopped.pre_saved_file_name;
@@ -3988,6 +4099,7 @@ async fn transcribe_stopped_recording_for_transcribe_action(
         &recording_settings,
         false,
         !remote_retry_enabled,
+        Some(audio_cancel_generation),
     )
     .await
     {
@@ -4075,6 +4187,7 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
             &request.recording_settings,
             false,
             false,
+            None,
         )
         .await;
 
@@ -4194,6 +4307,11 @@ fn settings_with_model_override_for_binding(
     mut settings: AppSettings,
     binding_id: &str,
 ) -> AppSettings {
+    if let Some(profile) = resolve_profile_for_binding(&settings, binding_id).cloned() {
+        settings.spoken_languages = profile.spoken_languages;
+        settings.language_detection = profile.language_detection;
+        settings.language_detection_window_secs = profile.language_detection_window_secs;
+    }
     settings.chinese_script = crate::chinese_script::resolve_chinese_script(
         &settings,
         resolve_profile_for_binding(&settings, binding_id),
@@ -4820,7 +4938,7 @@ fn native_streaming_live_output_enabled(settings: &AppSettings) -> bool {
             .any(|model_id| model_id == &settings.selected_model)
 }
 
-fn should_use_native_local_streaming(
+pub(crate) fn should_use_native_local_streaming(
     app: &AppHandle,
     settings: &AppSettings,
     profile: Option<&TranscriptionProfile>,
@@ -9780,6 +9898,7 @@ impl ShortcutAction for TranscribeAction {
                                 &replay_settings,
                                 false,
                                 false,
+                                Some(operation_stamp.audio_cancel_generation),
                             )
                             .await
                             {
@@ -10428,6 +10547,7 @@ impl ShortcutAction for TranscribeAction {
                         recording_settings.clone(),
                         current_app.clone(),
                         stopped,
+                        operation_stamp.audio_cancel_generation,
                     )
                     .await;
                     if recording_settings.transcription_provider == TranscriptionProvider::Local {

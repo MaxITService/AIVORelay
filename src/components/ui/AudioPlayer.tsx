@@ -250,7 +250,10 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
           const generation = sourceGeneration.current;
           try {
             const newSrc = await loadAudioSource(onLoadRequest, () => generation === sourceGeneration.current);
-            if (newSrc) {
+            if (newSrc && generation !== sourceGeneration.current) {
+              // The row can unmount in the microtask gap after the read resolved.
+              if (newSrc.startsWith("blob:")) URL.revokeObjectURL(newSrc);
+            } else if (newSrc) {
               ownedBlob.current = newSrc.startsWith("blob:") ? newSrc : null;
               setLoadedSrc(newSrc);
               // Playback will be triggered by the useEffect watching loadedSrc.

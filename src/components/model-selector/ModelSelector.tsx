@@ -12,6 +12,8 @@ import ModelDropdown from "./ModelDropdown";
 import DownloadProgressDisplay from "./DownloadProgressDisplay";
 import { sampleDownload, type DownloadStats } from "./downloadStats";
 import { isMoonshineStreamingModel } from "./nativeStreamingModel";
+import { LANGUAGE_DETECTOR_ID } from "../settings/languageDetectorDownload";
+import { useLanguageDetectorDownload } from "@/hooks/useLanguageDetectorDownload";
 import { useSettings } from "../../hooks/useSettings";
 import { useModelDeletions } from "../../hooks/useModelDeletions";
 import { cancelModelDeletionBeforeSelection, requestModelDeletion } from "@/lib/modelDeletion";
@@ -56,6 +58,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   onInteraction,
 }) => {
   const { t } = useTranslation();
+  const detectorDownload = useLanguageDetectorDownload();
   const { settings, getSetting, setTranscriptionProvider, refreshSettings } = useSettings();
   const modelDeletions = useModelDeletions();
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -173,19 +176,19 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       "model-download-progress",
       (event) => {
         const progress = event.payload;
-        setModelDownloadProgress((prev) => {
-          const newMap = new Map(prev);
-          newMap.set(progress.model_id, progress);
-          return newMap;
-        });
-        setModelStatus("downloading");
-
         const now = Date.now();
         setDownloadStats((prev) => {
           const newStats = new Map(prev);
           newStats.set(progress.model_id, sampleDownload(prev.get(progress.model_id), progress.downloaded, now));
           return newStats;
         });
+        if (progress.model_id === LANGUAGE_DETECTOR_ID) return;
+        setModelDownloadProgress((prev) => {
+          const newMap = new Map(prev);
+          newMap.set(progress.model_id, progress);
+          return newMap;
+        });
+        setModelStatus("downloading");
       },
     );
 
@@ -194,15 +197,16 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       "model-download-complete",
       (event) => {
         const modelId = event.payload;
-        setModelDownloadProgress((prev) => {
-          const newMap = new Map(prev);
-          newMap.delete(modelId);
-          return newMap;
-        });
         setDownloadStats((prev) => {
           const newStats = new Map(prev);
           newStats.delete(modelId);
           return newStats;
+        });
+        if (modelId === LANGUAGE_DETECTOR_ID) return;
+        setModelDownloadProgress((prev) => {
+          const newMap = new Map(prev);
+          newMap.delete(modelId);
+          return newMap;
         });
         loadModels(); // Refresh models list
 
@@ -267,6 +271,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           newStats.delete(modelId);
           return newStats;
         });
+        // The detector downloads beside a model; its end says nothing about the model.
+        if (modelId === LANGUAGE_DETECTOR_ID) return;
         setModelStatus("unloaded");
         loadModels(); // Refresh models list to show "Download" button again
       },
@@ -329,6 +335,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           next.delete(model_id);
           return next;
         });
+        if (model_id === LANGUAGE_DETECTOR_ID) return;
         setModelError(error);
         setModelStatus("error");
         loadModels();
@@ -681,6 +688,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     setModelError(null);
   };
 
+  const allDownloadProgress = new Map(modelDownloadProgress);
+  if (detectorDownload.status?.progress) {
+    allDownloadProgress.set(LANGUAGE_DETECTOR_ID, detectorDownload.status.progress);
+  }
+
   return (
     <>
       {/* Model Status and Switcher */}
@@ -713,7 +725,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
             onProfileNavigate={() => setShowModelDropdown(false)}
             models={models}
             currentModelId={effectiveModelId}
-            downloadProgress={modelDownloadProgress}
+            downloadProgress={allDownloadProgress}
             modelDeletions={modelDeletions}
             onModelSelect={handleModelSelect}
             onModelDownload={handleModelDownload}
@@ -736,8 +748,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 
       {/* Download Progress Bar for Models */}
       <DownloadProgressDisplay
-        downloadProgress={modelDownloadProgress}
+        downloadProgress={allDownloadProgress}
         downloadStats={downloadStats}
+        modelNames={new Map(models.map((model) => [model.id, getTranslatedModelName(model, t)]))}
       />
     </>
   );

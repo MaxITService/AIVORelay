@@ -32,6 +32,12 @@ it("matches language support across dialect aliases and regional variants while 
   expect(supportsLanguageCode(["nb-NO"], "no")).toBe(true);
   expect(supportsLanguageCode(["tl"], "fil-PH")).toBe(true);
   expect(supportsLanguageCode(["fil-PH"], "tl")).toBe(true);
+  expect(supportsLanguageCode(["iw"], "he")).toBe(true);
+  expect(supportsLanguageCode(["he"], "iw-IL")).toBe(true);
+  expect(supportsLanguageCode(["jv"], "jw")).toBe(true);
+  expect(supportsLanguageCode(["jw"], "JV_id")).toBe(true);
+  expect(supportsLanguageCode(["EN-us"], "en_GB")).toBe(true);
+  expect(supportsLanguageCode(["zh"], "yue")).toBe(false);
   expect(supportsLanguageCode(["en", "fr"], "de")).toBe(false);
   expect(supportsLanguageCode([], "en")).toBe(false);
 

@@ -197,6 +197,35 @@ pub fn send_paste_ctrl_v(enigo: &mut Enigo) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether Shift, Ctrl, Alt or Win is physically held.
+#[cfg(target_os = "windows")]
+pub fn modifiers_held() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+    // Shift, Ctrl, Alt, left and right Win.
+    [0x10, 0x11, 0x12, 0x5B, 0x5C]
+        .into_iter()
+        .any(|key| (unsafe { GetAsyncKeyState(key) } as u16 & 0x8000) != 0)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn modifiers_held() -> bool {
+    false
+}
+
+/// Waits up to `timeout` for the user to release the hotkey modifiers. A synthetic
+/// Ctrl release before the physical one reads as a double Ctrl tap in apps that
+/// bind double-modifier presses, and held Shift/Alt would change the shortcut.
+pub fn wait_for_modifiers_released(timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    while modifiers_held() {
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(15));
+    }
+    true
+}
+
 /// Sends a Ctrl+X cut command (Windows only) using virtual key codes.
 pub fn send_cut_ctrl_x(enigo: &mut Enigo) -> Result<(), String> {
     #[cfg(target_os = "windows")]

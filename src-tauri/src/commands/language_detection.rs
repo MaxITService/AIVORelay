@@ -3,7 +3,7 @@ use crate::settings::{get_settings, write_settings_checked};
 use serde::Serialize;
 use specta::Type;
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 use crate::managers::model::ModelManager;
 
 #[derive(Serialize, Type)]
@@ -17,6 +17,28 @@ pub struct LanguageDetectionConfig {
 #[specta::specta]
 pub fn language_detector_downloaded(manager: State<'_, Arc<ModelManager>>) -> bool {
     manager.language_detector_path().is_some()
+}
+
+#[derive(Serialize, Type)]
+pub struct LanguageDetectorDownloadStatus {
+    pub downloaded: bool,
+    pub progress: Option<crate::managers::model::DownloadProgress>,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_language_detector_download_status(manager: State<'_, Arc<ModelManager>>) -> LanguageDetectorDownloadStatus {
+    LanguageDetectorDownloadStatus {
+        downloaded: manager.language_detector_path().is_some(),
+        progress: manager.language_detector_download_progress(),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn open_model_downloads(app: AppHandle, detector: bool) {
+    crate::show_main_window(&app);
+    let _ = app.emit("open-model-downloads", serde_json::json!({ "detector": detector }));
 }
 
 #[tauri::command]
@@ -78,6 +100,20 @@ pub fn set_language_detection_config(
     mode: LanguageDetectionMode,
     window_secs: u32,
 ) -> Result<(), String> {
+    let _guard = crate::settings::lock_settings_mutation("changing spoken languages")?;
+    let unique = normalized_spoken_languages(spoken_languages, window_secs)?;
+    let mut settings = get_settings(&app);
+    settings.spoken_languages = unique;
+    settings.language_detection = mode;
+    settings.language_detection_window_secs = window_secs;
+    write_settings_checked(&app, settings)?;
+    drop(_guard);
+    crate::tray::refresh_tray_menu(&app, None);
+    Ok(())
+}
+
+/// Validates the detector settings and drops case and alias duplicates.
+pub(crate) fn normalized_spoken_languages(spoken_languages: Vec<String>, window_secs: u32) -> Result<Vec<String>, String> {
     if !(2..=30).contains(&window_secs) {
         return Err("Language detection window must be between 2 and 30 seconds".to_string());
     }
@@ -97,9 +133,43 @@ pub fn set_language_detection_config(
             unique.push(language);
         }
     }
-    let mut settings = get_settings(&app);
-    settings.spoken_languages = unique;
-    settings.language_detection = mode;
-    settings.language_detection_window_secs = window_secs;
-    write_settings_checked(&app, settings)
+    Ok(unique)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalized_spoken_languages;
+
+    fn languages(list: &[&str]) -> Vec<String> {
+        list.iter().map(|code| code.to_string()).collect()
+    }
+
+    #[test]
+    fn detection_window_is_limited_to_two_to_thirty_seconds() {
+        for (window, valid) in [(0, false), (1, false), (2, true), (30, true), (31, false)] {
+            assert_eq!(normalized_spoken_languages(languages(&["en"]), window).is_ok(), valid, "{window} s");
+        }
+    }
+
+    #[test]
+    fn malformed_language_lists_are_rejected() {
+        let too_long = "a".repeat(36);
+        for invalid in ["", "e n", "en/us", "fr;", "\u{e9}", too_long.as_str()] {
+            assert!(normalized_spoken_languages(languages(&["en", invalid]), 5).is_err(), "{invalid:?}");
+        }
+        assert!(normalized_spoken_languages(languages(&["a".repeat(35).as_str(), "zh-Hant", "pt_BR"]), 5).is_ok());
+        let many = |count: usize| (0..count).map(|index| format!("x{index}")).collect::<Vec<_>>();
+        assert_eq!(normalized_spoken_languages(many(107), 5).unwrap().len(), 107);
+        assert!(normalized_spoken_languages(many(108), 5).is_err());
+    }
+
+    #[test]
+    fn case_and_alias_duplicates_keep_the_first_spelling() {
+        let input = languages(&["EN", "en", "nb", "no", "iw", "he", "fil", "tl", "jw", "jv", "pt-BR", "pt", "zh", "yue"]);
+        assert_eq!(
+            normalized_spoken_languages(input, 5).unwrap(),
+            languages(&["en", "nb", "iw", "fil", "jw", "pt-br", "zh", "yue"])
+        );
+        assert!(normalized_spoken_languages(Vec::new(), 5).unwrap().is_empty());
+    }
 }

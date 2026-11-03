@@ -1,12 +1,13 @@
 import React, { useLayoutEffect, useMemo, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
-import { Cloud, Download, Filter, HardDrive, Radio, RotateCcw } from "lucide-react";
+import { ArrowDown, Cloud, Download, Filter, HardDrive, Radio, RotateCcw } from "lucide-react";
 import { useModels } from "../../../hooks/useModels";
 import { useModelDeletions } from "../../../hooks/useModelDeletions";
 import { cancelModelDeletion, cancelModelDeletionBeforeSelection } from "@/lib/modelDeletion";
 import { ModelDeleteAction } from "../../shared/ModelDeleteAction";
 import { LocalModelCleanup } from "../../shared/LocalModelCleanup";
+import { LanguageDetectorDownload } from "../../shared/LanguageDetectorDownload";
 import { useSettings } from "../../../hooks/useSettings";
 import { useSortedDisplayNames } from "../../../hooks/useSortedDisplayNames";
 import { useListSortDirection } from "../../../hooks/useListSortPreference";
@@ -27,6 +28,7 @@ import { ModelSelectionProfileNotice } from "./ModelSelectionProfileNotice";
 import { ModelFilterBar } from "./ModelFilterBar";
 import { ModelReleaseDate } from "../../shared/ModelReleaseDate";
 import { invalidateModelDownloadActivationIntent } from "@/lib/modelDownloadActivation";
+import { scrollAndFocusAnchor } from "@/lib/anchorNavigation";
 import { languageIdentity } from "@handy-computer/models";
 import { MODEL_CAPABILITY_LANGUAGES } from "@/lib/constants/languages";
 import { readModelLanguagePreference, saveModelLanguagePreference } from "@/components/onboarding/modelLanguages";
@@ -182,6 +184,7 @@ export const ModelsSettings: React.FC = () => {
   } = useModelFilters();
 
   const filterBarRef = useRef<HTMLDivElement>(null);
+  const discouragedModelsRef = useRef<HTMLDivElement>(null);
   const profileNoticeRef = useRef<HTMLDivElement>(null);
   const [profileNoticeHeight, setProfileNoticeHeight] = useState(0);
 
@@ -282,6 +285,12 @@ export const ModelsSettings: React.FC = () => {
       getGroup: (entry) =>
         entry.kind === "api" && entry.row.notRecommended ? "discouraged" : "primary",
     },
+  );
+  const primaryRemoteEntries = visibleRemoteEntries.filter(
+    (entry) => entry.kind !== "api" || !entry.row.notRecommended,
+  );
+  const discouragedRemoteRows = visibleRemoteEntries.flatMap(
+    (entry) => entry.kind === "api" && entry.row.notRecommended ? [entry.row] : [],
   );
 
   const downloadedModels = useMemo(
@@ -505,7 +514,7 @@ export const ModelsSettings: React.FC = () => {
       return (
         <React.Fragment key={row.id}>
           <div
-            className={`px-6 py-4 flex flex-col gap-3 transition-colors ${
+            className={`px-6 py-4 flex flex-col gap-3 first:rounded-t-xl last:rounded-b-xl transition-colors ${
               isActive ? "bg-green-500/5" : ""
             }`}
           >
@@ -557,7 +566,6 @@ export const ModelsSettings: React.FC = () => {
               </div>
             )}
           </div>
-          <div className="border-t border-[#3d3d3d]" />
         </React.Fragment>
       );
     });
@@ -742,10 +750,31 @@ export const ModelsSettings: React.FC = () => {
       </div>
       {(
         <SettingsGroup id="settings-api-keys" title={t("modelSelector.remoteMode")}>
-        {visibleRemoteEntries.map((entry) =>
+        {primaryRemoteEntries.map((entry) =>
           entry.kind === "api"
             ? renderRemoteApiRows([entry.row])
             : renderStreamingProviderRow(entry.kind),
+        )}
+        {discouragedRemoteRows.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3">
+            <p className="text-xs text-[#a0a0a0]">
+              {t("modelSelector.discouragedModelsMoved")}
+            </p>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                if (discouragedModelsRef.current) {
+                  scrollAndFocusAnchor(discouragedModelsRef.current);
+                }
+              }}
+              className="flex items-center gap-1.5"
+            >
+              <ArrowDown aria-hidden="true" className="h-3.5 w-3.5" />
+              {t("modelSelector.goToDiscouragedModels")}
+            </Button>
+          </div>
         )}
         </SettingsGroup>
       )}
@@ -1027,6 +1056,22 @@ export const ModelsSettings: React.FC = () => {
           );
         })}
       </SettingsGroup>
+      <SettingsGroup id="settings-language-detector-download" title={t("settings.spokenLanguage.detectorModel")}>
+        <div className="p-4"><LanguageDetectorDownload /></div>
+      </SettingsGroup>
+      {discouragedRemoteRows.length > 0 && (
+        <div
+          id="settings-discouraged-models"
+          ref={discouragedModelsRef}
+          tabIndex={-1}
+          className="outline-none"
+          style={{ scrollMarginTop: `calc(${profileNoticeHeight}px + 2.25rem)` }}
+        >
+          <SettingsGroup title={t("modelSelector.discouragedModelsTitle")}>
+            {renderRemoteApiRows(discouragedRemoteRows)}
+          </SettingsGroup>
+        </div>
+      )}
     </div>
   );
 };
