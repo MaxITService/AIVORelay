@@ -888,9 +888,26 @@ async changeTypingToolSetting(tool: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async getActiveNotices() : Promise<NoticeSnapshot> {
+    return await TAURI_INVOKE("get_active_notices");
+},
+async dismissActiveNotice(id: number) : Promise<void> {
+    await TAURI_INVOKE("dismiss_active_notice", { id });
+},
+async publishUiNotice(source: string, level: string, title: string, detail: string | null) : Promise<void> {
+    await TAURI_INVOKE("publish_ui_notice", { source, level, title, detail });
+},
 async changeExternalScriptPathSetting(path: string | null) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_external_script_path_setting", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeExternalScriptCaptureStdoutSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_external_script_capture_stdout_setting", { enabled }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2634,7 +2651,7 @@ async getCurrentShortcutEngine() : Promise<ShortcutEngine> {
 },
 /**
  * Set the shortcut engine setting (requires app restart to take effect).
- * On non-Windows platforms, this is a no-op.
+ * Linux supports Tauri or None; macOS selects its backend automatically.
  */
 async setShortcutEngineSetting(engine: ShortcutEngine) : Promise<Result<null, string>> {
     try {
@@ -3385,8 +3402,7 @@ async initializeShortcuts() : Promise<Result<null, string>> {
 }
 },
 /**
- * Returns whether a feature-specific LLM API key is stored in secure storage.
- * On non-Windows platforms this always returns false.
+ * Returns whether a feature-specific LLM API key is stored.
  */
 async llmHasStoredApiKey(feature: LlmFeature, providerId: string) : Promise<Result<boolean, string>> {
     try {
@@ -3573,6 +3589,14 @@ async setSelectedMicrophone(deviceName: string) : Promise<Result<null, string>> 
 async setSelectedChannel(channel: number | null) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_selected_channel", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeAirpodsModeSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_airpods_mode_setting", { enabled }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -4095,6 +4119,62 @@ async transcribeAudioFile(filePath: string, profileId: string | null, saveToFile
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Retain a completed file transcript and a private audio copy in History.
+ */
+async saveFileTranscriptionToHistory(filePath: string, text: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("save_file_transcription_to_history", { filePath, text }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * System language preferences are suggestions only; they do not alter a profile.
+ */
+async getSystemPreferredLanguages() : Promise<string[]> {
+    return await TAURI_INVOKE("get_system_preferred_languages");
+},
+async getLanguageDetectionConfig() : Promise<LanguageDetectionConfig> {
+    return await TAURI_INVOKE("get_language_detection_config");
+},
+async setLanguageDetectionConfig(spokenLanguages: string[], mode: LanguageDetectionMode, windowSecs: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_language_detection_config", { spokenLanguages, mode, windowSecs }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async languageDetectorDownloaded() : Promise<boolean> {
+    return await TAURI_INVOKE("language_detector_downloaded");
+},
+async getLanguageDetectorDownloadStatus() : Promise<LanguageDetectorDownloadStatus> {
+    return await TAURI_INVOKE("get_language_detector_download_status");
+},
+async openModelDownloads(detector: boolean) : Promise<void> {
+    await TAURI_INVOKE("open_model_downloads", { detector });
+},
+async getLocalLanguageDetectionStatus() : Promise<LanguageStatus | null> {
+    return await TAURI_INVOKE("get_local_language_detection_status");
+},
+async downloadLanguageDetector() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("download_language_detector") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cancelLanguageDetectorDownload() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cancel_language_detector_download") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async cancelFileTranscription() : Promise<void> {
     await TAURI_INVOKE("cancel_file_transcription");
 },
@@ -4425,7 +4505,7 @@ async isLaptop() : Promise<Result<boolean, string>> {
 /** user-defined types **/
 
 export type ActiveTtsBatchSnapshot = { progress: TtsBatchProgress; scan: TtsBatchScanResult; files: TtsBatchFileResult[] }
-export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; automaticAppRules?: string[] | null; systemPrompt: string; sttPromptOverrideEnabled?: boolean; sttModelSelectionOverride?: SttModelSelection | null; pushToTalk: boolean; autoShortcutActivation?: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null; chineseScript?: ChineseScript | null; outputSettings?: ProfileOutputSettings }
+export type AddTranscriptionProfilePayload = { name: string; language: string; spokenLanguages?: string[]; languageDetection?: LanguageDetectionMode; languageDetectionWindowSecs?: number; translateToEnglish: boolean; automaticAppRules?: string[] | null; systemPrompt: string; sttPromptOverrideEnabled?: boolean; sttModelSelectionOverride?: SttModelSelection | null; pushToTalk: boolean; autoShortcutActivation?: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null; chineseScript?: ChineseScript | null; outputSettings?: ProfileOutputSettings }
 export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; auto_shortcut_activation?: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; first_start_wizard_skipped?: boolean; never_launch_webview?: boolean; show_speech_only_mode_in_tray?: boolean; autostart_enabled?: boolean; autostart_as_admin_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; tray_icon_blinking_enabled?: boolean; tray_icon_blink_on_recording?: boolean; tray_icon_blink_on_processing?: boolean; tray_icon_blink_frequency_hz?: number; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings;
 /**
  * Independent model choice for Transcribe File. None inherits the current
@@ -4477,7 +4557,11 @@ live_sound_microphone?: string | null; selected_output_device?: string | null; l
 /**
  * Overrides for Live Monitor sessions — None means inherit global provider setting.
  */
-live_sound_soniox_endpoint_detection?: boolean | null; live_sound_soniox_max_endpoint_delay_ms?: number | null; live_sound_deepgram_endpointing_enabled?: boolean | null; live_sound_deepgram_endpointing_ms?: number | null; translate_to_english?: boolean; selected_language?: string; chinese_script?: ChineseScript; overlay_position?: OverlayPosition; recording_overlay_enabled?: boolean; auto_position_allow_reserved_areas?: boolean; recording_overlay_use_manual_position?: boolean; recording_overlay_has_saved_custom_position?: boolean; recording_overlay_manual_position_uses_physical_px?: boolean; recording_overlay_custom_x_px?: number; recording_overlay_custom_y_px?: number;
+live_sound_soniox_endpoint_detection?: boolean | null; live_sound_soniox_max_endpoint_delay_ms?: number | null; live_sound_deepgram_endpointing_enabled?: boolean | null; live_sound_deepgram_endpointing_ms?: number | null; translate_to_english?: boolean; selected_language?: string;
+/**
+ * Languages the speaker wants the local detector to distinguish, in preference order.
+ */
+spoken_languages?: string[]; language_detection?: LanguageDetectionMode; language_detection_window_secs?: number; chinese_script?: ChineseScript; overlay_position?: OverlayPosition; recording_overlay_enabled?: boolean; auto_position_allow_reserved_areas?: boolean; recording_overlay_use_manual_position?: boolean; recording_overlay_has_saved_custom_position?: boolean; recording_overlay_manual_position_uses_physical_px?: boolean; recording_overlay_custom_x_px?: number; recording_overlay_custom_y_px?: number;
 /**
  * Auto-hide duration for error overlay in milliseconds.
  */
@@ -4516,7 +4600,11 @@ typing_tool?: TypingTool;
 /**
  * Script run by the External Script paste method.
  */
-external_script_path?: string | null; paste_delay_ms?: number;
+external_script_path?: string | null;
+/**
+ * Use script stdout as text for app-managed direct insertion.
+ */
+external_script_capture_stdout?: boolean; paste_delay_ms?: number;
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
  */
@@ -4863,6 +4951,10 @@ dictation_quick_tap_threshold_ms?: number;
  */
 lazy_stream_close?: boolean;
 /**
+ * Play silent output on the selected Bluetooth headset while recording (macOS).
+ */
+airpods_mode?: boolean;
+/**
  * Whether the hotkey sidebar is pinned open
  */
 sidebar_pinned?: boolean;
@@ -4896,10 +4988,23 @@ saved_window_x?: number;
 saved_window_y?: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
+export type AutoUnavailableReason =
+/**
+ * Only one of their languages (or only one at all) fits the model.
+ */
+{ kind: "one_language" } |
+/**
+ * The detector can't identify these spoken languages.
+ */
+{ kind: "undetectable"; languages: string[] } |
+/**
+ * None of their languages fit the model.
+ */
+{ kind: "no_match" }
 export type AvailableAccelerators = { whisper: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type BundledExtensionExportResult = { exportPath: string; extensionId: string; configuredOrigin: string; generatedPassword: string; reusedExistingId: boolean; replacedExistingExport: boolean }
-export type ChineseScript = "as_transcribed" | "simplified" | "traditional"
+export type ChineseScript = "as_transcribed" | "simplified" | "traditional" | "traditional_tw" | "traditional_hk"
 export type ClipboardHandling =
 /**
  * Do nothing after pasting: the transcript stays in the clipboard and
@@ -4947,6 +5052,7 @@ export type DeepgramFileTranscriptionOptions = { diarize: boolean | null; multic
 export type DiarizationSpeakerNameProfile = { id: string; name: string; speaker_names?: string[] }
 export type DiarizedTranscriptProvider = "deepgram" | "soniox" | "gemini"
 export type DictationStatsRuntimeState = { is_editing: boolean; is_recording: boolean; is_processing: boolean; can_start_edit: boolean; can_apply_edit: boolean; max_count: number; warning_threshold: number }
+export type DownloadProgress = { model_id: string; downloaded: number; total: number; percentage: number }
 export type ElevenLabsTextNormalization = "auto" | "on" | "off"
 export type EngineType = "TranscribeCpp" |
 /**
@@ -5046,8 +5152,34 @@ original_selection: string | null;
 /**
  * For AI Replace: the AI response (None if request failed/never received)
  */
-ai_response: string | null }
+ai_response: string | null; language: string | null; language_source: string | null }
 export type LLMPrompt = { id: string; name: string; prompt: string }
+export type LanguageDetectionConfig = { spoken_languages: string[]; mode: LanguageDetectionMode; window_secs: number }
+export type LanguageDetectionMode = "when_needed" | "always"
+export type LanguageDetectorDownloadStatus = { downloaded: boolean; progress: DownloadProgress | null }
+/**
+ * What the language picker shows: the language a transcription will run in,
+ * or Auto when it's decided per transcription. Derived from [`plan`], so it
+ * can't disagree with what transcription does.
+ */
+export type LanguageStatus =
+/**
+ * The language they picked.
+ */
+{ kind: "selected"; language: string } |
+/**
+ * Decided per transcription: the model's own detection, or Handy's.
+ */
+{ kind: "auto" } |
+/**
+ * Auto needs Handy's detector, which isn't downloaded; `fallback` (the
+ * first preferred language) is used until it is.
+ */
+{ kind: "detector_missing"; fallback: string } |
+/**
+ * Auto can't work here; `language` is used instead.
+ */
+{ kind: "auto_unavailable"; language: string; reason: AutoUnavailableReason }
 export type LiveSoundCaptureSource = "microphone" | "system_output" | "both"
 export type LiveSoundTranscriptSegmentPayload = { speaker_id: number | null; speaker_label: string | null; text: string; is_interim: boolean; timestamp_ms: number }
 export type LiveSoundTranscriptionProvider = "system" | "remote_soniox" | "remote_deepgram" | "remote_openai_compatible"
@@ -5109,6 +5241,8 @@ export type NativeRegionCaptureMode =
 "screenshot_background"
 export type NativeStreamingLatencyKind = "parakeet_buffered" | "nemotron_3_5_cache_aware" | "nemotron_speech_cache_aware"
 export type NativeStreamingLatencyPreset = "fastest" | "fast" | "balanced" | "accurate"
+export type Notice = { id: number; source: string; level: string; title: string; title_key: string | null; detail: string | null; target: string | null; generation: number }
+export type NoticeSnapshot = { revision: number; notices: Notice[]; raised: Notice | null; open_requested: boolean }
 export type OpenAiRealtimeWhisperDelay = "minimal" | "low" | "medium" | "high" | "xhigh"
 export type OrtAcceleratorSetting = "auto" | "cpu" | "cuda" | "directml" | "rocm"
 /**
@@ -5284,7 +5418,11 @@ export type ShortcutEngine =
  * Use rdev low-level hooks (all keys supported, higher CPU usage)
  * Supports ALL keys including Caps Lock, Num Lock, and modifier-only shortcuts
  */
-"rdev"
+"rdev" |
+/**
+ * No built-in global shortcuts on Linux; use the tray or compositor CLI bindings.
+ */
+"none"
 export type SonioxFileTranscriptionOptions = { languageHints: string[] | null; enableSpeakerDiarization: boolean | null; enableLanguageIdentification: boolean | null }
 export type SonioxLivePreviewAppearancePayload = { theme: string; opacity_percent: number; font_color: string; interim_font_color: string; accent_color: string; interim_opacity_percent: number; close_hotkey: string; clear_hotkey: string; flush_hotkey: string; process_hotkey: string; insert_hotkey: string; delete_until_dot_or_comma_hotkey: string; delete_until_dot_hotkey: string; delete_last_word_hotkey: string; show_clear_button: boolean; show_flush_button: boolean; show_process_button: boolean; show_insert_button: boolean; show_delete_until_dot_or_comma_button: boolean; show_delete_until_dot_button: boolean; show_delete_last_word_button: boolean; ctrl_backspace_delete_last_word: boolean; backspace_delete_last_char: boolean; show_drag_grip: boolean }
 export type SonioxLivePreviewChangedRange = { start: number; end: number; deleted?: boolean }
@@ -5367,6 +5505,10 @@ name: string;
  * Language code for speech recognition (e.g., "fr", "es", "auto")
  */
 language: string;
+/**
+ * Independent languages and detector preferences for this profile's Auto mode.
+ */
+spoken_languages?: string[]; language_detection?: LanguageDetectionMode; language_detection_window_secs?: number;
 /**
  * None inherits the global script preference.
  */
@@ -5565,7 +5707,7 @@ export type TypingTool = "auto" | "wtype" | "kwtype" | "dotool" | "ydotool" | "x
 export type UiFileJobProgressStage = "ai_cleanup" | "speech"
 export type UiFileJobStatus = "planned" | "preparing" | "running" | "retrying" | "paused" | "interrupted" | "failed" | "completed"
 export type UiFileJobSummary = { jobId: string; sourcePath: string; outputPath: string; provider: TtsProvider; outputFormat: TtsOutputFormat; status: UiFileJobStatus; completedChunks: number; totalChunks: number; progressStage: UiFileJobProgressStage; partialAvailable: boolean; lastError: string | null; createdAtMs: number; updatedAtMs: number }
-export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean;
+export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; spokenLanguages?: string[]; languageDetection?: LanguageDetectionMode; languageDetectionWindowSecs?: number; translateToEnglish: boolean;
 /**
  * `None` preserves rules for callers built before automatic profiles.
  */
