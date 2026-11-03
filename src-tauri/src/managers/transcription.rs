@@ -737,6 +737,7 @@ fn push_chunk_trace(
 #[derive(Clone)]
 pub struct TranscriptionManager {
     engine: Arc<Mutex<Option<LoadedEngine>>>,
+    language_detector: Arc<crate::language_detection::LanguageDetector>,
     model_manager: Arc<ModelManager>,
     app_handle: AppHandle,
     current_model_id: Arc<Mutex<Option<String>>>,
@@ -756,9 +757,63 @@ pub struct TranscriptionManager {
 }
 
 impl TranscriptionManager {
+    fn language_for_audio(
+        &self,
+        model_id: &str,
+        selected: &str,
+        settings: &AppSettings,
+        audio: &[f32],
+    ) -> String {
+        let previous = || effective_language_for_model(&self.model_manager, model_id, selected);
+        // An empty preference list preserves the existing behavior for saved settings.
+        if selected != "auto" || settings.spoken_languages.is_empty() {
+            return previous();
+        }
+        let Some(model) = self.model_manager.get_model_info(model_id) else { return previous(); };
+        if !crate::language_detection::engine_accepts_language(&model.engine_type) {
+            return crate::language_detection::LanguageDecision {
+                language: None, source: crate::language_detection::LanguageSource::Model,
+            };
+        }
+        let Some(detector) = crate::catalog::LANGUAGE_DETECTOR.as_ref() else { return previous(); };
+        let languages = crate::language_detection::policy::ModelLanguages {
+            languages: &model.supported_languages,
+            detects: model.supports_language_detection,
+            // This helper is used only by completed-audio transcription, not native streams.
+            streaming: false,
+        };
+        let plan = crate::language_detection::policy::plan(
+            selected, &settings.spoken_languages, &languages,
+            settings.language_detection, &detector.labels,
+        );
+        let detector_path = self.model_manager.language_detector_path();
+        let speech = if plan.detects() && detector_path.is_some() {
+            let result = crate::managers::audio::create_smoothed_detector(
+                &self.app_handle, settings, settings.vad_backend,
+            ).and_then(|mut vad| {
+                crate::language_detection::speech::speech_head(&mut vad, audio, 5 * 16_000)
+            });
+            match result {
+                Ok(speech) => Some(speech),
+                Err(error) => {
+                    warn!("Language detection speech extraction failed: {error:#}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        plan.decide(speech.as_deref(), |speech, allowed| {
+            let path = detector_path.as_ref().ok_or(crate::language_detection::IdentifyError::Missing)?;
+            self.language_detector.identify(path, speech, allowed)
+                .map_err(crate::language_detection::IdentifyError::Failed)
+        }).intent().to_string()
+    }
+
     pub fn new(app_handle: &AppHandle, model_manager: Arc<ModelManager>) -> Result<Self> {
         let manager = Self {
             engine: Arc::new(Mutex::new(None)),
+            language_detector: Arc::new(crate::language_detection::LanguageDetector::default()),
             model_manager,
             app_handle: app_handle.clone(),
             current_model_id: Arc::new(Mutex::new(None)),
@@ -1444,6 +1499,7 @@ impl TranscriptionManager {
     pub fn unload_model(&self) -> Result<()> {
         let unload_start = std::time::Instant::now();
         debug!("Starting to unload model");
+        self.language_detector.unload();
 
         {
             let mut engine = self.lock_engine();
@@ -2039,11 +2095,14 @@ impl TranscriptionManager {
         let active_model = self
             .get_current_model()
             .unwrap_or_else(|| settings.selected_model.clone());
-        let effective_language = effective_language_for_model(
-            &self.model_manager,
-            &active_model,
-            &settings.selected_language,
+        let effective_language = self.language_for_audio(
+            &active_model, &settings.selected_language, &settings, &audio,
         );
+        let recognition_language = if settings.selected_language == "auto" && !settings.spoken_languages.is_empty() {
+            &effective_language
+        } else {
+            &settings.selected_language
+        };
         let model_info = self.model_manager.get_model_info(&active_model);
         let (output_language, supported_languages) = local_output_language_context(
             model_info.as_ref(),
@@ -2123,7 +2182,7 @@ impl TranscriptionManager {
                                 anyhow::anyhow!("Moonshine streaming transcription failed: {}", e)
                             }),
                         LoadedEngine::SenseVoice(sense_voice_engine) => {
-                            let language = match settings.selected_language.as_str() {
+                            let language = match recognition_language.as_str() {
                                 "zh" | "zh-Hans" | "zh-Hant" => Some("zh".to_string()),
                                 "en" => Some("en".to_string()),
                                 "ja" => Some("ja".to_string()),
@@ -2145,10 +2204,10 @@ impl TranscriptionManager {
                             .transcribe(&audio, &TranscribeOptions::default())
                             .map_err(|e| anyhow::anyhow!("GigaAM transcription failed: {}", e)),
                         LoadedEngine::Canary(canary_engine) => {
-                            let language = if settings.selected_language == "auto" {
+                            let language = if recognition_language.as_str() == "auto" {
                                 None
                             } else {
-                                Some(settings.selected_language.clone())
+                                Some(recognition_language.to_string())
                             };
                             let options = TranscribeOptions {
                                 language,
@@ -2160,14 +2219,14 @@ impl TranscriptionManager {
                                 .map_err(|e| anyhow::anyhow!("Canary transcription failed: {}", e))
                         }
                         LoadedEngine::Cohere(cohere_engine) => {
-                            let language = if settings.selected_language == "auto" {
+                            let language = if recognition_language.as_str() == "auto" {
                                 None
-                            } else if settings.selected_language == "zh-Hans"
-                                || settings.selected_language == "zh-Hant"
+                            } else if recognition_language.as_str() == "zh-Hans"
+                                || recognition_language.as_str() == "zh-Hant"
                             {
                                 Some("zh".to_string())
                             } else {
-                                Some(settings.selected_language.clone())
+                                Some(recognition_language.to_string())
                             };
                             let options = TranscribeOptions {
                                 language,
@@ -2311,8 +2370,14 @@ impl TranscriptionManager {
         let active_model = self
             .get_current_model()
             .unwrap_or_else(|| settings.selected_model.clone());
-        let effective_language =
-            effective_language_for_model(&self.model_manager, &active_model, &selected_language);
+        let effective_language = self.language_for_audio(
+            &active_model, &selected_language, &settings, &audio,
+        );
+        let recognition_language = if selected_language == "auto" && !settings.spoken_languages.is_empty() {
+            &effective_language
+        } else {
+            &selected_language
+        };
         let model_info = self.model_manager.get_model_info(&active_model);
         let (output_language, supported_languages) = local_output_language_context(
             model_info.as_ref(),
@@ -2370,7 +2435,7 @@ impl TranscriptionManager {
                         anyhow::anyhow!("Moonshine streaming transcription failed: {}", e)
                     })?,
                 LoadedEngine::SenseVoice(sense_voice_engine) => {
-                    let language = match selected_language.as_str() {
+                    let language = match recognition_language.as_str() {
                         "zh" | "zh-Hans" | "zh-Hant" => Some("zh".to_string()),
                         "en" => Some("en".to_string()),
                         "ja" => Some("ja".to_string()),
@@ -2390,10 +2455,10 @@ impl TranscriptionManager {
                     .transcribe(&audio, &TranscribeOptions::default())
                     .map_err(|e| anyhow::anyhow!("GigaAM transcription failed: {}", e))?,
                 LoadedEngine::Canary(canary_engine) => {
-                    let language = if selected_language == "auto" {
+                    let language = if recognition_language.as_str() == "auto" {
                         None
                     } else {
-                        Some(selected_language.clone())
+                        Some(recognition_language.to_string())
                     };
                     let options = TranscribeOptions {
                         language,
@@ -2405,12 +2470,12 @@ impl TranscriptionManager {
                         .map_err(|e| anyhow::anyhow!("Canary transcription failed: {}", e))?
                 }
                 LoadedEngine::Cohere(cohere_engine) => {
-                    let language = if selected_language == "auto" {
+                    let language = if recognition_language.as_str() == "auto" {
                         None
-                    } else if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
+                    } else if recognition_language.as_str() == "zh-Hans" || recognition_language.as_str() == "zh-Hant" {
                         Some("zh".to_string())
                     } else {
-                        Some(selected_language.clone())
+                        Some(recognition_language.to_string())
                     };
                     let options = TranscribeOptions {
                         language,
@@ -2651,8 +2716,14 @@ impl TranscriptionManager {
         let active_model = self
             .get_current_model()
             .unwrap_or_else(|| settings.selected_model.clone());
-        let effective_language =
-            effective_language_for_model(&self.model_manager, &active_model, &selected_language);
+        let effective_language = self.language_for_audio(
+            &active_model, &selected_language, &settings, &audio,
+        );
+        let recognition_language = if selected_language == "auto" && !settings.spoken_languages.is_empty() {
+            &effective_language
+        } else {
+            &selected_language
+        };
         let model_info = self.model_manager.get_model_info(&active_model);
         let (output_language, supported_languages) = local_output_language_context(
             model_info.as_ref(),
@@ -2879,7 +2950,7 @@ impl TranscriptionManager {
                 LoadedEngine::SenseVoice(sense_voice_engine) => {
                     let (use_chunking, max_chunk_secs) =
                         chunking_for(FileTranscriptionChunkProfile::Default);
-                    let language = match selected_language.as_str() {
+                    let language = match recognition_language.as_str() {
                         "zh" | "zh-Hans" | "zh-Hant" => Some("zh".to_string()),
                         "en" => Some("en".to_string()),
                         "ja" => Some("ja".to_string()),
@@ -2920,10 +2991,10 @@ impl TranscriptionManager {
                 LoadedEngine::Canary(canary_engine) => {
                     let (use_chunking, max_chunk_secs) =
                         chunking_for(FileTranscriptionChunkProfile::Default);
-                    let language = if selected_language == "auto" {
+                    let language = if recognition_language.as_str() == "auto" {
                         None
                     } else {
-                        Some(selected_language.clone())
+                        Some(recognition_language.to_string())
                     };
                     let options = TranscribeOptions {
                         language,
@@ -2944,12 +3015,12 @@ impl TranscriptionManager {
                 LoadedEngine::Cohere(cohere_engine) => {
                     let (use_chunking, max_chunk_secs) =
                         chunking_for(FileTranscriptionChunkProfile::Cohere);
-                    let language = if selected_language == "auto" {
+                    let language = if recognition_language.as_str() == "auto" {
                         None
-                    } else if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
+                    } else if recognition_language.as_str() == "zh-Hans" || recognition_language.as_str() == "zh-Hant" {
                         Some("zh".to_string())
                     } else {
-                        Some(selected_language.clone())
+                        Some(recognition_language.to_string())
                     };
                     let options = TranscribeOptions {
                         language,
