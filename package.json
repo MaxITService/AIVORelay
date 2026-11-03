@@ -28,7 +28,7 @@
     "check:catalog": "bun scripts/sync-catalog.ts --check"
   },
   "dependencies": {
-    "@handy-computer/models": "0.2.2",
+    "@handy-computer/models": "0.2.3",
     "@tailwindcss/vite": "^4.1.16",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-autostart": "~2.5.1",
