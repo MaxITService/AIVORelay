@@ -3358,28 +3358,28 @@
             "profileLanguageHintOnly": "Использовать язык текущего профиля как hint: игнорирует ручной список Language Hints и отправляет ровно один hint из активного профиля (или глобального языка, если профиль не активен).",
             "strict": "Strict Language Restriction: максимально ограничивает вывод языками из hints.",
             "endpoint": "Endpoint Detection: семантическое определение конца фразы в Soniox.",
-            "endpointSensitivity": "Endpoint Sensitivity: v5-only настройка от -1.0 до 1.0. Больше — Soniox чаще завершает фразу, меньше — ждёт более уверенной паузы.",
+            "endpointSensitivity": "Endpoint Sensitivity: настройка для v5+ от -1.0 до 1.0. Больше — Soniox чаще завершает фразу, меньше — ждёт более уверенной паузы.",
             "keepalive": "Keepalive Interval: период keepalive во время тишины для удержания WebSocket (рекомендуемо 5-10s, нежелательно простаивать >20s).",
             "languageIdentification": "Language Identification: добавляет метаданные обнаруженного языка по токенам.",
             "speakerDiarization": "Speaker Diarization: добавляет метки спикеров в метаданные токенов."
           },
-          "tip": "Рекомендуемый старт: stt-rt-v5, Live = ON, Endpoint Detection = ON, Endpoint Sensitivity = 0.0, Keepalive = 10s, Finalization Timeout = 500ms (увеличивать только при необходимости)."
+          "tip": "Рекомендуемый старт: stt-rt-v6, Live = ON, Endpoint Detection = ON, Endpoint Sensitivity = 0.0, Keepalive = 10s, Finalization Timeout = 500ms (увеличивать только при необходимости)."
         },
         "model": {
           "title": "Модель Soniox",
           "description": "Идентификатор модели, который AivoRelay отправляет в Soniox при каждом запросе. В AivoRelay модели stt-rt-* при Live=ON используют live WebSocket-путь с появлением текста во время речи; stt-async-* (или Live=OFF) используют не-live путь, где итог появляется после обработки. Если поведение кажется неожиданным, сначала проверьте семейство модели и переключатель Live.",
-          "placeholder": "stt-rt-v5",
+          "placeholder": "stt-rt-v6",
           "asyncNotice": "Async-модели Soniox загружают завершённую запись как файл, создают job транскрибации, опрашивают статус до завершения, а потом отдельно забирают transcript. Поэтому для короткой диктовки они по природе медленнее, чем провайдеры с одним запросом вроде Groq Whisper Turbo. AivoRelay может уменьшить накладные расходы polling, но не может превратить async file/job pipeline Soniox в мгновенный запрос.",
-          "upgradeTitle": "Доступна Soniox real-time v5",
+          "upgradeTitle": "Доступна Soniox real-time v6",
           "upgradeDescription": "Сейчас используется {{currentModel}}. Нажмите, чтобы заменить это поле на {{targetModel}} и применить настройку.",
-          "upgradeButton": "Обновить до stt-rt-v5",
-          "upgradeSuccess": "Realtime-модель Soniox обновлена до stt-rt-v5.",
+          "upgradeButton": "Обновить до stt-rt-v6",
+          "upgradeSuccess": "Realtime-модель Soniox обновлена до stt-rt-v6.",
           "upgradeFailed": "Не удалось обновить realtime-модель Soniox: {{error}}",
           "customTitle": "Custom model id",
           "customDescription": "Введите точный id модели Soniox. Модели, начинающиеся с stt-rt, используют real-time путь; модели, начинающиеся с stt-async, используют async file/job путь.",
           "options": {
-            "realtime": "stt-rt-v5 - Real-time",
-            "async": "stt-async-v5 - Async",
+            "realtime": "stt-rt-v6 - Real-time",
+            "async": "stt-async-v6 - Async",
             "custom": "Custom"
           }
         },
@@ -3421,7 +3421,7 @@
         },
         "endpointSensitivity": {
           "title": "Endpoint Sensitivity",
-          "description": "V5-only настройка endpointing в Soniox (-1.0..1.0, по умолчанию 0.0). Больше — Soniox агрессивнее завершает фразы после пауз; меньше — ждёт дольше. AivoRelay отправляет параметр только с stt-rt-v5, чтобы старые/custom модели не падали с ошибкой.",
+          "description": "Настройка endpointing для v5+ в Soniox (-1.0..1.0, по умолчанию 0.0). Больше — Soniox агрессивнее завершает фразы после пауз; меньше — ждёт дольше. AivoRelay отправляет параметр только с stt-rt-v5 и новее, чтобы старые/custom модели не падали с ошибкой.",
           "outOfRange": "Endpoint Sensitivity Soniox должен быть от -1.0 до 1.0."
         },
         "keepalive": {

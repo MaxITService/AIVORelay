@@ -24,14 +24,14 @@ const compatible = (preset: string, model: string): SttModelSelection => ({
 
 test("missing Soniox model restores the default realtime cloud model", () => {
   expect(globalSttSelection(settings({ transcription_provider: "remote_soniox" })))
-    .toEqual({ provider: "remote_soniox", model_id: "stt-rt-v5", provider_preset: "" });
+    .toEqual({ provider: "remote_soniox", model_id: "stt-rt-v6", provider_preset: "" });
 });
 
 test("global Deepgram selection preserves the user's saved model", () => {
   expect(globalSttSelection(settings({
     transcription_provider: "remote_deepgram",
     deepgram_model: "nova-2",
-    soniox_model: "stt-rt-v5",
+    soniox_model: "stt-rt-v6",
   }))).toEqual({ provider: "remote_deepgram", model_id: "nova-2", provider_preset: "" });
 });
 
@@ -51,7 +51,7 @@ test("custom API selection preserves its model instead of using unrelated provid
       base_url: "https://speech.example.test/v1",
     },
     selected_model: "local-model",
-    soniox_model: "stt-rt-v5",
+    soniox_model: "stt-rt-v6",
   }))).toEqual(compatible("custom", "my-transcriber"));
 });
 
@@ -66,8 +66,8 @@ test("legacy system live selection restores Soniox independently of global dicta
     live_sound_transcription_provider: "system",
     transcription_provider: "remote_deepgram",
     deepgram_model: "nova-2",
-    soniox_model: "stt-rt-v5",
-  }))).toEqual({ provider: "remote_soniox", model_id: "stt-rt-v5", provider_preset: "" });
+    soniox_model: "stt-rt-v6",
+  }))).toEqual({ provider: "remote_soniox", model_id: "stt-rt-v6", provider_preset: "" });
 });
 
 test("legacy Deepgram live selection falls back when its model is missing", () => {
@@ -158,7 +158,7 @@ test("cloud catalog capabilities agree with capabilities resolved from each sele
 });
 
 test("Soniox exposes live diarization but reserves timestamps and language hints for supported workflows", () => {
-  const selection: SttModelSelection = { provider: "remote_soniox", model_id: "stt-rt-v5" };
+  const selection: SttModelSelection = { provider: "remote_soniox", model_id: "stt-rt-v6" };
   expect(sttSupports(selection, "diarization", "live")).toBe(true);
   expect(sttSupports(selection, "timestamps", "file")).toBe(true);
   expect(sttSupports(selection, "timestamps", "live")).toBe(false);

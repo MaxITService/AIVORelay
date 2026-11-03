@@ -45,7 +45,7 @@ test("custom endpoints using an OpenAI realtime model name retain generic post-p
 test("Soniox live preview keeps a cloud realtime transcript reversible", () => {
   expect(getPostProcessingAvailability(settings({
     transcription_provider: "remote_soniox",
-    soniox_model: "stt-rt-v5",
+    soniox_model: "stt-rt-v6",
     soniox_live_enabled: true,
     soniox_live_preview_enabled: true,
   }))).toEqual(allowed);

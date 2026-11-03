@@ -204,8 +204,8 @@ fn replay_guard(id: i64, samples: &[f32]) -> HistoryReplayGuard {
     HistoryReplayGuard::start(app(), id, samples.len()).expect("history replay guard")
 }
 
-const SONIOX_LIVE_MODEL: &str = "stt-rt-v5";
-const SONIOX_FILE_MODEL: &str = "stt-async-v5";
+const SONIOX_LIVE_MODEL: &str = "stt-rt-v6";
+const SONIOX_FILE_MODEL: &str = "stt-async-v6";
 
 fn soniox_live_options() -> SonioxRealtimeOptions {
     SonioxRealtimeOptions {

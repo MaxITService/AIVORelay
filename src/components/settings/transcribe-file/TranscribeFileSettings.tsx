@@ -396,7 +396,7 @@ export const TranscribeFileSettings: React.FC = () => {
   const sonioxModel =
     transcriptionProvider === "remote_soniox"
       ? (fileSelection.model_id ?? "")
-      : ((settings as any)?.soniox_model ?? "stt-rt-v5");
+      : ((settings as any)?.soniox_model ?? "stt-rt-v6");
   const isSonioxProvider = transcriptionProvider === "remote_soniox";
   const isDeepgramProvider = transcriptionProvider === "remote_deepgram";
   const remoteModelId =
@@ -1929,12 +1929,12 @@ export const TranscribeFileSettings: React.FC = () => {
               </div>
             )}
             {showSonioxFileOptions &&
-              sonioxModel.trim() !== "stt-async-v5" &&
+              sonioxModel.trim() !== "stt-async-v6" &&
               !infoMessage && (
                 <div className="mt-3 rounded-lg border border-[#9b5de5]/40 bg-[#9b5de5]/10 p-3">
                   <p className="text-xs text-[#d7b9ff]">
                     {t("transcribeFile.soniox.autoSwitchNotice", {
-                      targetModel: "stt-async-v5",
+                      targetModel: "stt-async-v6",
                       selectedModel:
                         sonioxModel.trim() || t("transcribeFile.emptyValue"),
                     })}

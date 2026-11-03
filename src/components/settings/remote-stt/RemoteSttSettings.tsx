@@ -59,9 +59,16 @@ type RemoteSttInterfaceId =
 const REALTIME_AGENT_PROMPT_TEMPLATE =
   "Additional context for speech-to-text transcription. Current language setting: ${language}. Translate to English: ${translate_to_english}. Preserve the speaker's language unless translation is enabled. Use context to create proper punctuation and fix recognition errors only when the intended words are recoverable from audio and context. If speech is not recoverable because of microphone noise, speech defects, or background noise, use [⚠️inaudible⚠️] instead of guessing. The user may provide custom words that are rare in the language; try to recognize them properly. Make sure to properly recognize names, product names, and vocabulary exactly when recognizable.";
 
-const SONIOX_DEFAULT_REALTIME_MODEL = "stt-rt-v5";
-const SONIOX_DEFAULT_ASYNC_MODEL = "stt-async-v5";
+const SONIOX_DEFAULT_REALTIME_MODEL = "stt-rt-v6";
+const SONIOX_DEFAULT_ASYNC_MODEL = "stt-async-v6";
 const SONIOX_ASYNC_MODEL_MAX_CHARS = 32;
+const SONIOX_DEPRECATED_REALTIME_MODEL = "stt-rt-v5";
+
+// Mirrors SonioxRealtimeManager::model_supports_endpoint_sensitivity.
+const sonioxModelSupportsEndpointSensitivity = (model: string) => {
+  const version = /^stt-rt-v(\d+)$/.exec(model.trim())?.[1];
+  return version !== undefined && Number(version) >= 5;
+};
 
 type PersistentHintInputProps = React.ComponentProps<typeof Input> & {
   hint: React.ReactNode;
@@ -243,10 +250,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     ? trimmedSonioxModel
     : "custom";
   const isSonioxRealtimeModel = trimmedSonioxModel.startsWith("stt-rt");
-  const isSonioxRealtimeV5Model =
-    trimmedSonioxModel === SONIOX_DEFAULT_REALTIME_MODEL;
-  const showSonioxRealtimeV5Upgrade =
-    isSonioxRealtimeModel && !isSonioxRealtimeV5Model;
+  const showSonioxRealtimeModelUpgrade =
+    trimmedSonioxModel === SONIOX_DEPRECATED_REALTIME_MODEL;
   const isSonioxAsyncModel = trimmedSonioxModel.startsWith("stt-async");
   const effectiveRemoteBaseUrl =
     remotePreset === "custom"
@@ -468,7 +473,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const sonioxRealtimeControlsEnabled =
     sonioxModelMode === "custom" || isSonioxRealtimeModel;
   const sonioxEndpointSensitivityEnabled =
-    sonioxRealtimeControlsEnabled && isSonioxRealtimeV5Model;
+    sonioxRealtimeControlsEnabled &&
+    sonioxModelSupportsEndpointSensitivity(trimmedSonioxModel);
 
   const [debugLines, setDebugLines] = useState<string[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<
@@ -698,14 +704,14 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         value: SONIOX_DEFAULT_REALTIME_MODEL,
         label: t(
           "settings.advanced.soniox.model.options.realtime",
-          "stt-rt-v5 - Real-time",
+          "stt-rt-v6 - Real-time",
         ),
       },
       {
         value: SONIOX_DEFAULT_ASYNC_MODEL,
         label: t(
           "settings.advanced.soniox.model.options.async",
-          "stt-async-v5 - Async",
+          "stt-async-v6 - Async",
         ),
       },
       {
@@ -1115,7 +1121,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       toast.success(
         t(
           "settings.advanced.soniox.model.upgradeSuccess",
-          "Soniox realtime model updated to stt-rt-v5.",
+          "Soniox realtime model updated to stt-rt-v6.",
         ),
       );
     } catch (error) {
@@ -2334,14 +2340,14 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 />
               </SettingContainer>
 
-              {showSonioxRealtimeV5Upgrade && (
+              {showSonioxRealtimeModelUpgrade && (
                 <div className="mx-4 rounded border border-cyan-500/30 bg-cyan-500/10 p-3 text-sm text-cyan-100">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <p className="font-medium">
                         {t(
                           "settings.advanced.soniox.model.upgradeTitle",
-                          "Soniox real-time v5 is available",
+                          "Soniox real-time v6 is available",
                         )}
                       </p>
                       <p className="mt-1 text-cyan-200/90">
@@ -2369,7 +2375,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                       />
                       {t(
                         "settings.advanced.soniox.model.upgradeButton",
-                        "Update to stt-rt-v5",
+                        "Update to stt-rt-v6",
                       )}
                     </Button>
                   </div>
@@ -2397,7 +2403,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                       setCustomSonioxModelInput(event.target.value)
                     }
                     onBlur={handleCustomSonioxModelBlur}
-                    placeholder="stt-rt-v5"
+                    placeholder="stt-rt-v6"
                     maxLength={
                       customSonioxModelIsAsync
                         ? SONIOX_ASYNC_MODEL_MAX_CHARS
@@ -2406,7 +2412,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     hint={
                       customSonioxModelIsAsync
                         ? `${customSonioxModelLength}/${SONIOX_ASYNC_MODEL_MAX_CHARS}`
-                        : "stt-rt-v5"
+                        : "stt-rt-v6"
                     }
                     hintClassName={
                       customSonioxModelIsAsync &&

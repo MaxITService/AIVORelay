@@ -1421,7 +1421,7 @@ fn append_soniox_model_items(
             settings::SONIOX_DEFAULT_MODEL.to_string(),
             settings::SONIOX_DEFAULT_MODEL.to_string(),
         ),
-        ("stt-async-v5".to_string(), "stt-async-v5".to_string()),
+        ("stt-async-v6".to_string(), "stt-async-v6".to_string()),
     ];
     let current_model = inputs.soniox_model.trim();
     if !current_model.is_empty() && !models.iter().any(|(model_id, _)| model_id == current_model) {
@@ -2120,9 +2120,9 @@ mod tests {
         );
         assert_eq!(
             parse_model_menu_selection(&format!(
-                "{TRAY_MODEL_MENU_PREFIX}remote_soniox::stt-rt-v5"
+                "{TRAY_MODEL_MENU_PREFIX}remote_soniox::stt-rt-v6"
             )),
-            Some(TrayModelSelection::RemoteSoniox("stt-rt-v5".to_string()))
+            Some(TrayModelSelection::RemoteSoniox("stt-rt-v6".to_string()))
         );
         assert_eq!(parse_model_menu_selection("some-other-id"), None);
     }

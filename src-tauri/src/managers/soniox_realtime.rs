@@ -255,7 +255,7 @@ impl SonioxRealtimeManager {
     fn normalize_model_for_realtime(model: &str) -> String {
         let trimmed = model.trim();
         if trimmed.is_empty() {
-            return "stt-rt-v5".to_string();
+            return "stt-rt-v6".to_string();
         }
         if let Some(version) = trimmed.strip_prefix("stt-async-v") {
             return format!("stt-rt-v{}", version);
@@ -264,7 +264,11 @@ impl SonioxRealtimeManager {
     }
 
     fn model_supports_endpoint_sensitivity(model: &str) -> bool {
-        model.trim() == "stt-rt-v5"
+        model
+            .trim()
+            .strip_prefix("stt-rt-v")
+            .and_then(|version| version.parse::<u32>().ok())
+            .is_some_and(|version| version >= 5)
     }
 
     fn normalize_language_hints(language_hints: Vec<String>) -> Result<Option<Vec<String>>> {
@@ -1049,18 +1053,28 @@ mod tests {
             ..SonioxRealtimeOptions::default()
         };
         let (payload, keepalive, show_preview) = SonioxRealtimeManager::build_start_payload(
-            "stt-rt-v5".to_string(), options,
+            "stt-rt-v6".to_string(), options,
         ).unwrap();
         let payload: Value = serde_json::from_str(&payload).unwrap();
 
         assert!(payload.get("api_key").is_none());
         assert!(payload.get("authorization").is_none());
-        assert_eq!(payload["model"], "stt-rt-v5");
+        assert_eq!(payload["model"], "stt-rt-v6");
         assert_eq!(payload["language_hints"], serde_json::json!(["zh"]));
         assert_eq!(payload["language_hints_strict"], true);
         assert_eq!(payload["max_endpoint_delay_ms"], 500);
         assert_eq!(payload["sample_rate"], 16_000);
         assert_eq!(keepalive, MIN_KEEPALIVE_INTERVAL_SECONDS);
         assert!(!show_preview);
+    }
+
+    #[test]
+    fn endpoint_sensitivity_is_sent_only_for_v5_and_newer_realtime_models() {
+        for model in ["stt-rt-v5", "stt-rt-v6", " stt-rt-v7 "] {
+            assert!(SonioxRealtimeManager::model_supports_endpoint_sensitivity(model));
+        }
+        for model in ["stt-rt-v4", "stt-rt-v3", "stt-async-v6", "stt-rt-preview", ""] {
+            assert!(!SonioxRealtimeManager::model_supports_endpoint_sensitivity(model));
+        }
     }
 }

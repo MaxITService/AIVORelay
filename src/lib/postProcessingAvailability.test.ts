@@ -17,7 +17,7 @@ assert.equal(
   getPostProcessingAvailability(
     settings({
       transcription_provider: "remote_soniox",
-      soniox_model: "stt-rt-v5",
+      soniox_model: "stt-rt-v6",
       soniox_live_enabled: false,
     }),
   ).available,
@@ -124,7 +124,7 @@ assert.equal(
   getPostProcessingAvailability(
     settings({
       transcription_provider: "remote_soniox",
-      soniox_model: "stt-rt-v5",
+      soniox_model: "stt-rt-v6",
       soniox_live_enabled: true,
       preview_output_only_enabled: false,
       soniox_live_preview_enabled: false,
@@ -137,7 +137,7 @@ assert.equal(
   getPostProcessingAvailability(
     settings({
       transcription_provider: "remote_soniox",
-      soniox_model: "stt-rt-v5",
+      soniox_model: "stt-rt-v6",
       soniox_live_enabled: true,
       preview_output_only_enabled: true,
     }),
@@ -172,7 +172,7 @@ assert.equal(
 const liveProviders: Partial<AppSettings>[] = [
   { transcription_provider: "local", selected_model: "streaming-model",
     native_streaming_live_output_models: ["streaming-model"] },
-  { transcription_provider: "remote_soniox", soniox_model: "stt-rt-v5",
+  { transcription_provider: "remote_soniox", soniox_model: "stt-rt-v6",
     soniox_live_enabled: true },
   { transcription_provider: "remote_deepgram", deepgram_model: "nova-3",
     deepgram_live_enabled: true },
@@ -296,7 +296,7 @@ assert.deepEqual(getProfileOutputSummary(nativeLocal({ auto_submit: true }),
   { profilePreviewOutputOnlyEnabled: false }, [streamingModel]), { route: "insertion", llmAvailable: true });
 // Live remote provider: Preview only with the live preview window; otherwise it types directly.
 const sonioxLive = (overrides: Partial<AppSettings> = {}) => settings({
-  transcription_provider: "remote_soniox", soniox_model: "stt-rt-v5", soniox_live_enabled: true,
+  transcription_provider: "remote_soniox", soniox_model: "stt-rt-v6", soniox_live_enabled: true,
   paste_method: "ctrl_v", auto_submit: false, ...overrides,
 });
 assert.equal(buffersOutputForKeyActions("external_script", "", "", false), true);
@@ -315,7 +315,7 @@ const profileOverride = (stt_model_selection_override: SttModelSelection, extra 
 });
 const localWhisper: SttModelSelection = { provider: "local", provider_preset: "", model_id: "whisper-small" };
 const localStreaming: SttModelSelection = { provider: "local", provider_preset: "", model_id: "streaming-model" };
-const sonioxRealtime: SttModelSelection = { provider: "remote_soniox", provider_preset: "", model_id: "stt-rt-v5" };
+const sonioxRealtime: SttModelSelection = { provider: "remote_soniox", provider_preset: "", model_id: "stt-rt-v6" };
 assert.equal(getPostProcessingAvailability(sonioxLive(profileOverride(localWhisper))).available, true);
 assert.equal(getPostProcessingAvailability(sonioxLive({
   transcription_provider: "local", selected_model: "whisper-small", ...profileOverride(sonioxRealtime),
