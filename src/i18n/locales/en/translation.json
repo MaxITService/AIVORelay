@@ -1060,11 +1060,11 @@
       "normalizationAuto": "Automatic",
       "normalizationOn": "Always on",
       "normalizationOff": "Off",
-      "cartesiaSonic35ControlsNote": "Sonic 3.5 treats speed, volume, and emotion as natural-language guidance rather than exact signal processing. The recommended preset keeps speed and volume at 1.0 and lets the model infer emotion.",
+      "cartesiaSonic35ControlsNote": "Sonic treats speed, volume, and emotion as natural-language guidance rather than exact signal processing. The recommended preset keeps speed and volume at 1.0 and lets the model infer emotion.",
       "cartesiaVolumeTitle": "Cartesia volume",
       "cartesiaVolumeDescription": "Guides generated loudness from 0.5 to 2.0. One keeps the documented natural default.",
       "cartesiaEmotionTitle": "Cartesia emotion",
-      "cartesiaEmotionDescription": "Optional Sonic 3.5 emotion. Automatic lets the model infer delivery from the text.",
+      "cartesiaEmotionDescription": "Optional Sonic emotion. Automatic lets the model infer delivery from the text.",
       "emotionAutomatic": "Automatic",
       "emotion": {
         "neutral": "Neutral",

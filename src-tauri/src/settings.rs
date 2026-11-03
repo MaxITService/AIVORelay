@@ -1782,9 +1782,9 @@ fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
         ),
         builtin_tts_synthesis_preset(
             "builtin_tts_murf_falcon2",
-            "Murf AI — Falcon 2 (Recommended)",
+            "Murf AI — Falcon 2.1 (Recommended)",
             TtsProvider::Murf,
-            "falcon-2",
+            "falcon-2.1",
             DEFAULT_TTS_MURF_VOICE,
             "en-US",
             1.0,
@@ -1827,9 +1827,9 @@ fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
         ),
         builtin_tts_synthesis_preset(
             "builtin_tts_cartesia_sonic_3_5",
-            "Cartesia — Sonic 3.5 (Recommended)",
+            "Cartesia — Sonic 3.6 (Recommended)",
             TtsProvider::Cartesia,
-            "sonic-3.5",
+            "sonic-3.6",
             DEFAULT_TTS_CARTESIA_VOICE,
             "en",
             1.0,
@@ -5125,7 +5125,7 @@ fn default_tts_separate_key_source() -> TtsKeySource {
 }
 
 fn default_tts_murf_model() -> String {
-    "falcon-2".to_string()
+    "falcon-2.1".to_string()
 }
 
 fn default_tts_murf_voice() -> String {
@@ -5173,7 +5173,7 @@ fn default_tts_elevenlabs_style() -> f32 {
 }
 
 fn default_tts_cartesia_model() -> String {
-    "sonic-3.5".to_string()
+    "sonic-3.6".to_string()
 }
 
 fn default_tts_cartesia_voice() -> String {
@@ -9378,11 +9378,11 @@ mod tests {
         assert_eq!(settings.deepgram_model, "flux-kit-en");
         assert_eq!(settings.openai_model, "gpt-4o-mini-tts");
         assert_eq!(settings.openai_voice, "marin");
-        assert_eq!(settings.murf_model, "falcon-2");
+        assert_eq!(settings.murf_model, "falcon-2.1");
         assert_eq!(settings.murf_voice, "Gordon");
         assert_eq!(settings.elevenlabs_model, "eleven_flash_v2_5");
         assert_eq!(settings.elevenlabs_voice, "JBFqnCBsd6RMkjVDRZzb");
-        assert_eq!(settings.cartesia_model, "sonic-3.5");
+        assert_eq!(settings.cartesia_model, "sonic-3.6");
         assert_eq!(
             settings.cartesia_voice,
             "f786b574-daa5-4673-aa0c-cbe3e8534c02"
@@ -9629,7 +9629,7 @@ mod tests {
             .select_scope_provider(TtsOperationScope::Interactive, TtsProvider::Murf)
             .unwrap();
         assert_eq!(settings.provider, TtsProvider::Murf);
-        assert_eq!(settings.murf_model, "falcon-2");
+        assert_eq!(settings.murf_model, "falcon-2.1");
         assert_eq!(
             settings.interactive_synthesis.selected_preset_id,
             "builtin_tts_murf_falcon2"

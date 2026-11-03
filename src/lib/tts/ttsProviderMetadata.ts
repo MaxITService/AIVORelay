@@ -76,7 +76,7 @@ export const TTS_PROVIDER_DEFAULTS: Record<
     speed: 1,
   },
   murf: {
-    model: "falcon-2",
+    model: "falcon-2.1",
     voice: "Gordon",
     language: "en-US",
     speed: 1,
@@ -88,7 +88,7 @@ export const TTS_PROVIDER_DEFAULTS: Record<
     speed: 1,
   },
   cartesia: {
-    model: "sonic-3.5",
+    model: "sonic-3.6",
     voice: "f786b574-daa5-4673-aa0c-cbe3e8534c02",
     language: "en",
     speed: 1,
@@ -242,7 +242,7 @@ export const OPENAI_MODEL_OPTIONS = [
   "tts-1-hd",
 ];
 
-export const MURF_MODEL_OPTIONS = ["falcon-2", "gen2"];
+export const MURF_MODEL_OPTIONS = ["falcon-2.1", "falcon-2", "gen2"];
 
 export const ELEVENLABS_MODEL_OPTIONS = [
   "eleven_flash_v2_5",
@@ -250,7 +250,7 @@ export const ELEVENLABS_MODEL_OPTIONS = [
   "eleven_v3",
 ];
 
-export const CARTESIA_MODEL_OPTIONS = ["sonic-3.5"];
+export const CARTESIA_MODEL_OPTIONS = ["sonic-3.6", "sonic-3.5"];
 
 export const AIVORELAY_TTS_GUIDE_URL =
   "https://github.com/MaxITService/AIVORelay/blob/main/CLI-TEXT-TO-SPEECH.md";

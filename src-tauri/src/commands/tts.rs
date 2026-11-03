@@ -77,7 +77,7 @@ pub async fn get_tts_voice_catalog(
             .as_deref()
             .unwrap_or(&settings.murf_model)
             .trim();
-        if !matches!(model, "falcon-2" | "gen2") {
+        if !matches!(model, "falcon-2.1" | "falcon-2" | "gen2") {
             return Err(format!("Unsupported Murf TTS model: {model}"));
         }
         settings.murf_model = model.to_string();
@@ -1661,7 +1661,7 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.murf_key_source = crate::settings::TtsKeySource::Separate;
     settings.elevenlabs_key_source = crate::settings::TtsKeySource::Separate;
     settings.cartesia_key_source = crate::settings::TtsKeySource::Separate;
-    settings.murf_model = nonempty_setting(settings.murf_model, "falcon-2");
+    settings.murf_model = nonempty_setting(settings.murf_model, "falcon-2.1");
     settings.murf_voice = normalize_murf_voice(&settings.murf_model, settings.murf_voice);
     settings.murf_language = nonempty_setting(settings.murf_language, "en-US");
     settings.murf_rate = settings.murf_rate.clamp(-50, 50);
@@ -1683,7 +1683,7 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.elevenlabs_similarity_boost =
         finite_clamped(settings.elevenlabs_similarity_boost, 0.75, 0.0, 1.0);
     settings.elevenlabs_style = finite_clamped(settings.elevenlabs_style, 0.0, 0.0, 1.0);
-    settings.cartesia_model = nonempty_setting(settings.cartesia_model, "sonic-3.5");
+    settings.cartesia_model = nonempty_setting(settings.cartesia_model, "sonic-3.6");
     settings.cartesia_voice =
         nonempty_setting(settings.cartesia_voice, DEFAULT_TTS_CARTESIA_VOICE);
     settings.cartesia_language =
@@ -1842,7 +1842,7 @@ fn normalize_synthesis_config(
             config.language.clear();
         }
         TtsProvider::Murf => {
-            config.model = nonempty_setting(std::mem::take(&mut config.model), "falcon-2");
+            config.model = nonempty_setting(std::mem::take(&mut config.model), "falcon-2.1");
             config.voice = normalize_murf_voice(&config.model, std::mem::take(&mut config.voice));
             config.language = nonempty_setting(std::mem::take(&mut config.language), "en-US");
         }
@@ -1859,7 +1859,7 @@ fn normalize_synthesis_config(
                 .to_ascii_lowercase();
         }
         TtsProvider::Cartesia => {
-            config.model = nonempty_setting(std::mem::take(&mut config.model), "sonic-3.5");
+            config.model = nonempty_setting(std::mem::take(&mut config.model), "sonic-3.6");
             config.voice = nonempty_setting(
                 std::mem::take(&mut config.voice),
                 DEFAULT_TTS_CARTESIA_VOICE,
