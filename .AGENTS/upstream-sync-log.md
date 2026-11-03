@@ -6,6 +6,36 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Completed intake and consolidation (2026-11-03):
+- Safe review cursor for the next intake: `82dfab9f` — Merge branch 'main' of
+  github.com:cjpais/Handy. All 28 commits after `7bfb2e2c`, including both
+  parents and resolutions of the two merges, have been classified.
+- Source integration is complete on `main`, including `db2d8943` — merge:
+  consolidate 1.0.52 source changes into main. There are no deferred source
+  adaptations in this reviewed corridor. This is not runtime verification.
+- `693aa634` — better pref languages: adapted as the profile-aware searchable
+  language picker in `dfd10cc6` — feat(language): configure profile detection
+  with visible downloads and recording gates.
+- `3d940311` — feat(tray): add language switching submenu (#1319): adapted in
+  `001987f2` — feat(tray): switch languages for the active transcription profile.
+- The five existing equivalents were checked by the requested Claude Sonnet
+  review: failed History deletion reporting, seek start position, late audio
+  cleanup, multi-line dotool, and visible file preparation. The late-source
+  hardening is `1abac7f6` — fix(audio): release sources resolved after player
+  cleanup. These are not five additional pending cherry-picks.
+- Intentional exclusions: `e4869fc0` — chore: cargo fmt; `4c811d7e` — chore:
+  bump Playwright to 1.64.1 so CI can install Chromium on Ubuntu 26.04 runners
+  (the upstream dependency/CI path is absent here); `4fd7ac49` — 0.10.0 release
+  notes; `69420ed7` — release v0.10.0. The fork's Linux shortcut defaults are
+  retained for `298653c8` — fix(shortcuts): avoid the ibus hotkey on Linux
+  defaults (#2367), because upstream's proposed combination conflicts here.
+- `033c627c` — Add transcription hook (#930): only the explicitly requested
+  opt-in External Script stdout insertion was adapted. The implicit hook
+  directory and upstream stdin protocol are deliberately excluded.
+- No builds, tests, typechecks, formatters, app/dev-process actions or pushes
+  were run. Release version/copy and generated bindings remain pending the
+  user's post-consolidation build. macOS/AirPods and Linux remain unverified.
+
 Platform follow-up committed (2026-11-02):
 - `8c293dd4` (`fix(macos): prevent silent AirPods recordings when also playing
   audio from iPhone (#1991)`) is adapted by `b99e4337`
@@ -19,16 +49,16 @@ Platform follow-up committed (2026-11-02):
   None skips the X11 hotkey plugin, normal/dynamic shortcuts and passive key
   listeners. Saved bindings are retained, CLI/tray control remains, and the
   Linux-only selector reports the active backend and required restart.
-- Both adaptations are committed on `main` only. They supersede their initial
-  deferred classification below. Other intake work remains uncommitted.
+- Both adaptations are committed on `main` and propagated to Store. They
+  supersede their initial deferred classification below.
   Static source/diff review and JSON/TOML parsing only; no builds, tests,
   typechecks, formatters, app/dev-process actions or pushes were performed.
   macOS/AirPods and Linux/Wayland runtime behavior remains unverified.
 
 Intake implementation (2026-11-02; committed 2026-11-03):
 - Fetched through `82dfab9f` (`Merge branch 'main' of github.com:cjpais/Handy`),
-  28 commits after the safe cursor `7bfb2e2c`. The cursor remains unchanged:
-  the final per-profile language-menu integration is recorded separately below.
+  28 commits after the previous cursor `7bfb2e2c`. The completed intake and
+  current cursor are recorded above.
 - Ten ordinary upstream commits were adapted into focused `main` commits:
   - `0ed36e11` (`fix: reuse one HTTP client for post-processing requests`):
     shared connections with per-request provider headers, retaining the
@@ -73,7 +103,7 @@ Intake implementation (2026-11-02; committed 2026-11-03):
   `033c627c` is committed as `a2afd43c` (`feat(output): insert captured stdout
   from external paste scripts`); the implicit hook protocol is excluded.
   `693aa634` (language picker) and `3d940311` (tray language) are implemented
-  in the release-preparation checkout and await consolidation into `main`.
+  in `main` after the consolidation recorded above.
 - Excluded: `e4869fc0` (formatting), `4c811d7e` (unused Playwright path),
   `4fd7ac49` (Handy release notes) and `69420ed7` (Handy release version).
 - Both parents, final trees, parent-relative, combined and remerge diffs were
