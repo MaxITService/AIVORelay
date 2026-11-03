@@ -3,11 +3,11 @@ import { MODEL_CAPABILITY_LANGUAGES } from "@/lib/constants/languages";
 
 const knownLanguages = new Set(MODEL_CAPABILITY_LANGUAGES.map((language) => languageIdentity(language.value)));
 
-/** Browser languages are suggestions for model comparison, not dictation settings. */
+/** Locale suggestions are for model comparison, not dictation settings. */
 export function suggestedModelLanguages(locales: readonly string[]): string[] {
   const result: string[] = [];
   for (const locale of locales) {
-    const code = languageIdentity(locale.replace(/_/g, "-"));
+    const code = languageIdentity(locale.split(/[.@]/, 1)[0].replace(/_/g, "-"));
     if (knownLanguages.has(code) && !result.includes(code)) result.push(code);
   }
   return result;

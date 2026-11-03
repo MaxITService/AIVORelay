@@ -162,6 +162,7 @@ windows = { version = "0.61.3", features = [
   "Wdk_Graphics_Direct3D",
   "Foundation_Collections",
   "Foundation",
+  "System_UserProfile",
   "Media_Core",
   "Media_SpeechSynthesis",
   "Storage_Streams",

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { type } from "@tauri-apps/plugin-os";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { commands, type ModelInfo } from "@/bindings";
+import { invoke } from "@tauri-apps/api/core";
 import {
   beginModelDownloadActivationIntent,
   cancelModelDownloadActivationIntent,
@@ -68,7 +69,17 @@ const Onboarding: React.FC<OnboardingProps> = ({
   const [modelLanguages, setModelLanguages] = useState<string[]>(() =>
     suggestedModelLanguages(typeof navigator === "undefined" ? [] : navigator.languages),
   );
+  const modelLanguagesEdited = useRef(false);
   const recommendations = useMemo(() => recommendedModels(availableModels, modelLanguages), [availableModels, modelLanguages]);
+
+  useEffect(() => {
+    let active = true;
+    void invoke<string[]>("get_system_preferred_languages").then((locales) => {
+      const suggestions = suggestedModelLanguages(locales);
+      if (active && !modelLanguagesEdited.current && suggestions.length > 0) setModelLanguages(suggestions);
+    }).catch((error) => console.warn("Could not read system language suggestions", error));
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (showFullCatalog || mode === "permissions") return;
@@ -477,13 +488,16 @@ const Onboarding: React.FC<OnboardingProps> = ({
                   <label htmlFor="onboarding-model-language" className="text-sm font-medium text-[#f5f5f5]">
                     {t("onboarding.modelLanguages.title", "Languages to compare")}
                   </label>
-                  <p className="text-xs text-[#a0a0a0]">{t("onboarding.modelLanguages.hint", "Suggestions are based on the interface locale. Add or remove languages to compare models; this does not change your dictation settings.")}</p>
+                  <p className="text-xs text-[#a0a0a0]">{t("onboarding.modelLanguages.hint", "Suggestions use your system or interface languages. Add or remove languages to compare models; this does not change your dictation settings.")}</p>
                   <select
                     id="onboarding-model-language"
                     value=""
                     onChange={(event) => {
                       const code = languageIdentity(event.target.value);
-                      if (code) setModelLanguages((current) => current.includes(code) ? current : [...current, code]);
+                      if (code) {
+                        modelLanguagesEdited.current = true;
+                        setModelLanguages((current) => current.includes(code) ? current : [...current, code]);
+                      }
                     }}
                     className="w-full rounded-lg border border-[#4a4a4a] bg-[#202020] p-2 text-sm text-[#f5f5f5]"
                   >
@@ -494,7 +508,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
                   </select>
                   <div className="flex flex-wrap gap-2">
                     {modelLanguages.map((code) => (
-                      <button key={code} type="button" onClick={() => setModelLanguages((current) => current.filter((item) => item !== code))} className="rounded-full border border-[#4a4a4a] px-3 py-1 text-xs text-[#d0d0d0] hover:border-[#ff4d8d]" aria-label={t("onboarding.modelLanguages.remove", { defaultValue: "Remove {{language}}", language: MODEL_CAPABILITY_LANGUAGES.find((item) => languageIdentity(item.value) === code)?.label ?? code })}>
+                      <button key={code} type="button" onClick={() => { modelLanguagesEdited.current = true; setModelLanguages((current) => current.filter((item) => item !== code)); }} className="rounded-full border border-[#4a4a4a] px-3 py-1 text-xs text-[#d0d0d0] hover:border-[#ff4d8d]" aria-label={t("onboarding.modelLanguages.remove", { defaultValue: "Remove {{language}}", language: MODEL_CAPABILITY_LANGUAGES.find((item) => languageIdentity(item.value) === code)?.label ?? code })}>
                         {MODEL_CAPABILITY_LANGUAGES.find((item) => languageIdentity(item.value) === code)?.label ?? code} ×
                       </button>
                     ))}
