@@ -194,7 +194,11 @@ export class GaplessTtsPlayer {
         }
       })
       .catch(() => undefined);
-    const position = this.currentPosition();
+    this.emitPausedSnapshot();
+  }
+
+  private emitPausedSnapshot() {
+    const position = this.snapshotPosition();
     this.callbacks.onSnapshot({
       chunkIndex: position?.chunkIndex ?? null,
       isPlaying: false,
@@ -250,6 +254,10 @@ export class GaplessTtsPlayer {
       0,
       target.sourceOffset === null ? target.fraction : null,
     );
+    if (!this.desiredPlaying) {
+      // The monitor is stopped while paused; show the new time right away.
+      this.emitPausedSnapshot();
+    }
     return target.playbackProgress;
   }
 
@@ -520,14 +528,48 @@ export class GaplessTtsPlayer {
       : null;
   }
 
+  // A restart (seek, rate or effect change) drops the scheduled sources until
+  // its target chunk is decoded again. Report the restart target meanwhile, so
+  // the overlay keeps a valid timeline instead of a zero duration.
+  private snapshotPosition(): PlaybackPosition | null {
+    const position = this.currentPosition();
+    if (
+      position ||
+      this.scheduled.length > 0 ||
+      this.rawBuffers.size === 0 ||
+      this.nextChunkIndex === null
+    ) {
+      return position;
+    }
+    const raw = this.rawBuffers.get(this.nextChunkIndex);
+    if (!raw) {
+      return this.positionOnTimeline(
+        this.nextChunkIndex,
+        0,
+        0,
+        this.pendingSourceFraction ?? 0,
+      );
+    }
+    return this.positionOnTimeline(
+      this.nextChunkIndex,
+      this.pendingSourceFraction !== null
+        ? raw.duration * this.pendingSourceFraction
+        : this.pendingSourceOffset,
+      this.pendingPauseOffset,
+    );
+  }
+
   private positionOnTimeline(
     chunkIndex: number,
     sourceOffset: number,
     pauseOffset = 0,
+    // Places a target that is not decoded yet at this fraction of the
+    // estimated chunk duration; decoded targets always resolve exactly.
+    undecodedFraction: number | null = null,
   ): PlaybackPosition | null {
     let elapsed = 0;
     let targetStart: number | null = null;
-    let target: AudioBuffer | null = null;
+    let target: { duration: number } | null = null;
     let targetPauseDuration = 0;
     // Generated chunks that were never decoded (seek skipped over them) are
     // sized by the average decoded chunk, so the timeline spans the whole result.
@@ -542,6 +584,12 @@ export class GaplessTtsPlayer {
     for (const chunk of this.chunks) {
       const raw = this.rawBuffers.get(chunk.index);
       if (!raw) {
+        if (chunk.index === chunkIndex && undecodedFraction !== null) {
+          targetStart = elapsed;
+          target = { duration: estimatedDuration };
+          targetPauseDuration = Math.max(0, chunk.pauseAfterMs) / 1_000;
+          sourceOffset = estimatedDuration * undecodedFraction;
+        }
         elapsed +=
           estimatedDuration + Math.max(0, chunk.pauseAfterMs) / 1_000;
         continue;
@@ -648,7 +696,7 @@ export class GaplessTtsPlayer {
     const update = () => {
       this.animationFrame = null;
       const context = this.context;
-      const position = this.currentPosition();
+      const position = this.snapshotPosition();
       const active = context
         ? this.scheduled.find(
             (entry) =>
