@@ -1,10 +1,18 @@
 import { expect, test } from "bun:test";
-import { missingModelLanguages, suggestedModelLanguages } from "./modelLanguages";
+import { missingModelLanguages, parseModelLanguagePreference, suggestedModelLanguages } from "./modelLanguages";
 
 test("suggestions normalize locales, deduplicate aliases, and ignore unknown languages", () => {
   expect(suggestedModelLanguages(["zh-TW", "zh_CN", "iw", "he", "zz-ZZ", "en-US"])).toEqual(["zh", "he", "en"]);
   expect(suggestedModelLanguages([])).toEqual([]);
   expect(suggestedModelLanguages(["ru_RU.UTF-8", "de_DE@euro"])).toEqual(["ru", "de"]);
+});
+
+test("saved model comparison languages distinguish no preference from an empty choice", () => {
+  expect(parseModelLanguagePreference(null)).toBeNull();
+  expect(parseModelLanguagePreference("not-json")).toBeNull();
+  expect(parseModelLanguagePreference('["en", 1]')).toBeNull();
+  expect(parseModelLanguagePreference("[]")).toEqual([]);
+  expect(parseModelLanguagePreference('["iw", "he", "zz"]')).toEqual(["he"]);
 });
 
 test("model language coverage respects regional codes and language aliases", () => {

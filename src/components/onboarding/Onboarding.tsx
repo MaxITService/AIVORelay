@@ -20,7 +20,7 @@ import { AiAssistTip } from "../shared/AiAssistTip";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { getShortcutGuideMode } from "./shortcutGuide";
 import { MODEL_CAPABILITY_LANGUAGES } from "@/lib/constants/languages";
-import { suggestedModelLanguages } from "./modelLanguages";
+import { readModelLanguagePreference, saveModelLanguagePreference, suggestedModelLanguages } from "./modelLanguages";
 import { languageIdentity } from "@handy-computer/models";
 import { recommendedModels } from "./modelRecommendations";
 
@@ -66,10 +66,16 @@ const Onboarding: React.FC<OnboardingProps> = ({
   const [welcomeVariant, setWelcomeVariant] = useState<WelcomeVariant>(initialProgress.welcomeVariant);
   const [showRemoteWizard, setShowRemoteWizard] = useState(initialProgress.showRemoteWizard);
   const [isSkipping, setIsSkipping] = useState(false);
+  const [storedModelLanguages] = useState(readModelLanguagePreference);
   const [modelLanguages, setModelLanguages] = useState<string[]>(() =>
-    suggestedModelLanguages(typeof navigator === "undefined" ? [] : navigator.languages),
+    storedModelLanguages ?? suggestedModelLanguages(typeof navigator === "undefined" ? [] : navigator.languages),
   );
-  const modelLanguagesEdited = useRef(false);
+  const modelLanguagesEdited = useRef(storedModelLanguages !== null);
+  const changeModelLanguages = (next: string[]) => {
+    modelLanguagesEdited.current = true;
+    setModelLanguages(next);
+    saveModelLanguagePreference(next);
+  };
   const recommendations = useMemo(() => recommendedModels(availableModels, modelLanguages), [availableModels, modelLanguages]);
 
   useEffect(() => {
@@ -495,8 +501,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
                     onChange={(event) => {
                       const code = languageIdentity(event.target.value);
                       if (code) {
-                        modelLanguagesEdited.current = true;
-                        setModelLanguages((current) => current.includes(code) ? current : [...current, code]);
+                        changeModelLanguages(modelLanguages.includes(code) ? modelLanguages : [...modelLanguages, code]);
                       }
                     }}
                     className="w-full rounded-lg border border-[#4a4a4a] bg-[#202020] p-2 text-sm text-[#f5f5f5]"
@@ -508,7 +513,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
                   </select>
                   <div className="flex flex-wrap gap-2">
                     {modelLanguages.map((code) => (
-                      <button key={code} type="button" onClick={() => { modelLanguagesEdited.current = true; setModelLanguages((current) => current.filter((item) => item !== code)); }} className="rounded-full border border-[#4a4a4a] px-3 py-1 text-xs text-[#d0d0d0] hover:border-[#ff4d8d]" aria-label={t("onboarding.modelLanguages.remove", { defaultValue: "Remove {{language}}", language: MODEL_CAPABILITY_LANGUAGES.find((item) => languageIdentity(item.value) === code)?.label ?? code })}>
+                      <button key={code} type="button" onClick={() => changeModelLanguages(modelLanguages.filter((item) => item !== code))} className="rounded-full border border-[#4a4a4a] px-3 py-1 text-xs text-[#d0d0d0] hover:border-[#ff4d8d]" aria-label={t("onboarding.modelLanguages.remove", { defaultValue: "Remove {{language}}", language: MODEL_CAPABILITY_LANGUAGES.find((item) => languageIdentity(item.value) === code)?.label ?? code })}>
                         {MODEL_CAPABILITY_LANGUAGES.find((item) => languageIdentity(item.value) === code)?.label ?? code} ×
                       </button>
                     ))}

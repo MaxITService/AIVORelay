@@ -27,6 +27,10 @@ import { ModelSelectionProfileNotice } from "./ModelSelectionProfileNotice";
 import { ModelFilterBar } from "./ModelFilterBar";
 import { ModelReleaseDate } from "../../shared/ModelReleaseDate";
 import { invalidateModelDownloadActivationIntent } from "@/lib/modelDownloadActivation";
+import { languageIdentity } from "@handy-computer/models";
+import { MODEL_CAPABILITY_LANGUAGES } from "@/lib/constants/languages";
+import { readModelLanguagePreference, saveModelLanguagePreference } from "@/components/onboarding/modelLanguages";
+import { modelLanguageGrades } from "@/components/onboarding/modelGrades";
 import {
   getRemoteApiRows,
   resolveRemoteApiRow,
@@ -127,6 +131,20 @@ const ModelFilterSummaryBar: React.FC<ModelFilterSummaryBarProps> = ({
 
 export const ModelsSettings: React.FC = () => {
   const { t } = useTranslation();
+  const [comparisonLanguages, setComparisonLanguages] = useState<string[]>(() => readModelLanguagePreference() ?? []);
+  const changeComparisonLanguages = (languages: string[]) => {
+    setComparisonLanguages(languages);
+    saveModelLanguagePreference(languages);
+  };
+  const renderLanguageGrades = (model: ModelInfo) => {
+    const grades = modelLanguageGrades(model, comparisonLanguages);
+    if (!grades.length) return null;
+    return <p className="mt-1 text-xs text-[#a0a0a0]">
+      {t("onboarding.modelLanguages.benchmarks", "Language benchmark grades")}: {grades.map((grade) =>
+        `${grade.language}: ${grade.kind === "measured" ? grade.label : grade.kind === "unmeasured" ? t("onboarding.modelLanguages.unmeasured", "not measured") : t("onboarding.modelLanguages.unsupported", "not supported")}`
+      ).join("; ")}
+    </p>;
+  };
   const {
     models,
     currentModel,
@@ -748,6 +766,19 @@ export const ModelsSettings: React.FC = () => {
         </p>
       </div>
 
+      <SettingsGroup title={t("onboarding.modelLanguages.title", "Languages to compare")}>
+        <div className="space-y-2 px-4 py-3">
+          <p className="text-xs text-[#a0a0a0]">{t("onboarding.modelLanguages.savedHint", "These languages are saved for model comparison and do not change dictation settings. Grades use FLEURS data for the catalog's default model files.")}</p>
+          <select aria-label={t("onboarding.modelLanguages.add", "Add a language…")} value="" onChange={(event) => {
+            const code = languageIdentity(event.target.value);
+            if (code && !comparisonLanguages.includes(code)) changeComparisonLanguages([...comparisonLanguages, code]);
+          }} className="w-full rounded-lg border border-[#4a4a4a] bg-[#202020] p-2 text-sm text-[#f5f5f5]">
+            <option value="">{t("onboarding.modelLanguages.add", "Add a language…")}</option>
+            {MODEL_CAPABILITY_LANGUAGES.filter((language) => !comparisonLanguages.includes(languageIdentity(language.value))).map((language) => <option key={language.value} value={language.value}>{language.label}</option>)}
+          </select>
+          <div className="flex flex-wrap gap-2">{comparisonLanguages.map((code) => <button key={code} type="button" className="rounded-full border border-[#4a4a4a] px-3 py-1 text-xs text-[#d0d0d0] hover:border-[#ff4d8d]" onClick={() => changeComparisonLanguages(comparisonLanguages.filter((item) => item !== code))} aria-label={t("onboarding.modelLanguages.remove", { defaultValue: "Remove {{language}}", language: MODEL_CAPABILITY_LANGUAGES.find((item) => languageIdentity(item.value) === code)?.label ?? code })}>{MODEL_CAPABILITY_LANGUAGES.find((item) => languageIdentity(item.value) === code)?.label ?? code} ×</button>)}</div>
+        </div>
+      </SettingsGroup>
       <ModelFilterBar
         filterBarRef={filterBarRef}
         scrollMarginTop={`calc(${profileNoticeHeight}px + 2.25rem)`}
@@ -849,6 +880,7 @@ export const ModelsSettings: React.FC = () => {
                   <p className="text-xs text-[#a0a0a0] mt-1">
                     {getTranslatedModelDescription(model, t)}
                   </p>
+                  {renderLanguageGrades(model)}
                   <p className="mt-1 flex items-center gap-1.5 text-xs text-[#8a8a8a]">
                     <Download aria-hidden="true" className="h-3.5 w-3.5" />
                     <span>
@@ -933,6 +965,7 @@ export const ModelsSettings: React.FC = () => {
                 <p className="text-xs text-[#a0a0a0] mt-1">
                   {getTranslatedModelDescription(model, t)}
                 </p>
+                {renderLanguageGrades(model)}
                 <ModelMetadataPanel
                   model={model}
                   showProfileScopedSettings={isActive}
