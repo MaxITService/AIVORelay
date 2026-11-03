@@ -1805,6 +1805,7 @@ pub fn run(cli_args: CliArgs) {
         commands::language_detection::get_language_detection_config,
         commands::language_detection::set_language_detection_config,
         commands::language_detection::language_detector_downloaded,
+        commands::language_detection::get_local_language_detection_status,
         commands::language_detection::download_language_detector,
         commands::language_detection::cancel_language_detector_download,
         commands::file_transcription::cancel_file_transcription,

@@ -20,6 +20,33 @@ pub fn language_detector_downloaded(manager: State<'_, Arc<ModelManager>>) -> bo
 
 #[tauri::command]
 #[specta::specta]
+pub fn get_local_language_detection_status(
+    app: AppHandle,
+    manager: State<'_, Arc<ModelManager>>,
+) -> Option<crate::language_detection::policy::LanguageStatus> {
+    let settings = get_settings(&app);
+    if settings.spoken_languages.is_empty() || settings.selected_language != "auto" {
+        return None;
+    }
+    let model = manager.get_model_info(&settings.selected_model)?;
+    let detector = crate::catalog::LANGUAGE_DETECTOR.as_ref()?;
+    if !crate::language_detection::engine_accepts_language(&model.engine_type) {
+        return Some(crate::language_detection::policy::LanguageStatus::Auto);
+    }
+    let languages = crate::language_detection::policy::ModelLanguages {
+        languages: &model.supported_languages,
+        detects: model.supports_language_detection,
+        // Dictation can also use native streaming, which is handled separately.
+        streaming: false,
+    };
+    Some(crate::language_detection::policy::status(
+        &settings.selected_language, &settings.spoken_languages, &languages,
+        settings.language_detection, &detector.labels, manager.language_detector_path().is_some(),
+    ))
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn download_language_detector(manager: State<'_, Arc<ModelManager>>) -> Result<(), String> {
     manager.download_language_detector().await.map_err(|error| format!("{error:#}"))
 }
