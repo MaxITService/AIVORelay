@@ -613,13 +613,13 @@ pub(crate) async fn ensure_local_model_downloaded_for_use(
         let model_info = model_manager
             .get_model_info(model_id)
             .ok_or_else(|| format!("Model not found: {model_id}"))?;
-        if model_info.is_downloaded {
-            return Ok(());
-        }
         if model_info.is_downloading {
             waited_for_existing_download = true;
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             continue;
+        }
+        if model_info.is_downloaded {
+            return Ok(());
         }
         if waited_for_existing_download {
             return Err(format!("Model download did not complete: {model_id}"));
