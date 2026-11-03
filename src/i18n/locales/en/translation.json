@@ -5138,6 +5138,7 @@
       "save": "Save to History",
       "saving": "Saving to History…",
       "open": "Saved. Open History",
+      "openFileTranscription": "Transcribe an audio file",
       "hint": "History keeps a separate mono audio copy and follows your History retention settings."
     },
     "batch": {
