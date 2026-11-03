@@ -43,6 +43,17 @@ pub enum LanguageSource {
     Fallback,
 }
 
+impl LanguageSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Selected => "selected",
+            Self::Model => "model",
+            Self::Detected => "detected",
+            Self::Fallback => "fallback",
+        }
+    }
+}
+
 /// Some native engines ignore language hints entirely; let them decide instead
 /// of running the detector and reporting a choice they cannot honor.
 pub fn engine_accepts_language(engine: &crate::managers::model::EngineType) -> bool {

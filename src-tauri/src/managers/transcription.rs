@@ -2431,7 +2431,7 @@ impl TranscriptionManager {
             translate_to_english,
         );
 
-        let mut detector_language_applied = false;
+        let mut language_applied = false;
         let result = {
             let mut engine_guard = self.engine.lock().unwrap();
             let engine = engine_guard.as_mut().ok_or_else(|| {
@@ -2440,7 +2440,7 @@ impl TranscriptionManager {
 
             match engine {
                 LoadedEngine::TranscribeCpp(session) => {
-                    detector_language_applied = transcribe_cpp_run_options(
+                    language_applied = transcribe_cpp_run_options(
                         session, &effective_language, translate_to_english, TimestampKind::Segment,
                     ).language.is_some();
                     let initial_prompt = prompt_override
@@ -2492,7 +2492,7 @@ impl TranscriptionManager {
                         "yue" => Some("yue".to_string()),
                         _ => None,
                     };
-                    detector_language_applied = language.is_some();
+                    language_applied = language.is_some();
                     let params = SenseVoiceParams {
                         language,
                         use_itn: Some(true),
@@ -2510,7 +2510,7 @@ impl TranscriptionManager {
                     } else {
                         Some(recognition_language.to_string())
                     };
-                    detector_language_applied = language.is_some();
+                    language_applied = language.is_some();
                     let options = TranscribeOptions {
                         language,
                         translate: translate_to_english,
@@ -2528,7 +2528,7 @@ impl TranscriptionManager {
                     } else {
                         Some(recognition_language.to_string())
                     };
-                    detector_language_applied = language.is_some();
+                    language_applied = language.is_some();
                     let options = TranscribeOptions {
                         language,
                         ..Default::default()
@@ -2570,8 +2570,7 @@ impl TranscriptionManager {
             }
         }
 
-        let recorded_language = (matches!(language_decision.source, crate::language_detection::LanguageSource::Detected)
-            && detector_language_applied).then_some(language_decision);
+        let recorded_language = language_applied.then_some(language_decision);
         Ok((final_result, recorded_language))
     }
 

@@ -8123,7 +8123,6 @@ async fn apply_post_processing_and_history(
                 return;
             }
         }
-        let language = language_decision.and_then(|decision| decision.language);
         let save_result = if let Some(id) = failed_history_entry_id {
             hm.update_transcription(
                 id,
@@ -8138,7 +8137,7 @@ async fn apply_post_processing_and_history(
                 processed.post_process_requested,
                 processed.post_processed_text.clone(),
                 processed.post_process_prompt.clone(),
-                language,
+                language_decision,
             )
         } else {
             hm.save_transcription(
@@ -8147,7 +8146,7 @@ async fn apply_post_processing_and_history(
                 processed.post_process_requested,
                 processed.post_processed_text.clone(),
                 processed.post_process_prompt.clone(),
-                language,
+                language_decision,
             )
             .await
         };
