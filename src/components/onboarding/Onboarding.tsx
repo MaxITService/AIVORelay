@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { type } from "@tauri-apps/plugin-os";
 import { ArrowRight, Sparkles } from "lucide-react";
@@ -21,6 +21,7 @@ import { getShortcutGuideMode } from "./shortcutGuide";
 import { MODEL_CAPABILITY_LANGUAGES } from "@/lib/constants/languages";
 import { suggestedModelLanguages } from "./modelLanguages";
 import { languageIdentity } from "@handy-computer/models";
+import { recommendedModels } from "./modelRecommendations";
 
 type WelcomeVariant = "local" | "remote";
 type OnboardingMode = "permissions" | "select" | "local" | "welcome";
@@ -67,6 +68,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
   const [modelLanguages, setModelLanguages] = useState<string[]>(() =>
     suggestedModelLanguages(typeof navigator === "undefined" ? [] : navigator.languages),
   );
+  const recommendations = useMemo(() => recommendedModels(availableModels, modelLanguages), [availableModels, modelLanguages]);
 
   useEffect(() => {
     if (showFullCatalog || mode === "permissions") return;
@@ -191,7 +193,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
   };
 
   const getRecommendedBadge = (model: ModelInfo): boolean => {
-    return model.is_recommended;
+    return recommendations.has(model.id);
   };
 
   const handleSelectLocal = async () => {
@@ -497,6 +499,9 @@ const Onboarding: React.FC<OnboardingProps> = ({
                       </button>
                     ))}
                   </div>
+                  {modelLanguages.length > 0 && recommendations.size === 0 && (
+                    <p className="text-xs text-[#a0a0a0]">{t("onboarding.modelLanguages.noRecommendations", "No measured recommendation is available for all chosen languages. You can still choose from the models below.")}</p>
+                  )}
                 </div>
                 {availableModels
                   .filter((model) => getRecommendedBadge(model))
@@ -505,6 +510,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
                       key={model.id}
                       model={model}
                       variant="featured"
+                      recommendationRole={recommendations.get(model.id)}
                       modelLanguages={modelLanguages}
                       disabled={downloading}
                       onSelect={handleModelSelection}
