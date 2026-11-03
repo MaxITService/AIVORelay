@@ -728,17 +728,19 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.50",
+      "since": "Since version 1.0.51",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "fileQueues": "File transcription and file-to-speech batches are now saved queues: they survive a restart, wait and retry while the engine is busy, keep earlier results, and no longer cut off the end of resampled audio.",
-        "recordingQueue": "Optionally queue a new recording started while the previous one is still being processed, instead of ignoring it.",
-        "modelCleanup": "Remove unused local speech-to-text and text-to-speech models to free disk space. Deleting a model removes all its cached copies, and alternate quantizations already on disk now appear with their catalog details.",
-        "onboarding": "The first-start wizard shows each model's quantization and suggests asking an AI chat for help with setup.",
-        "ttsOverlay": "In the read-aloud overlay, the playback effect applies to all audio, and seeking can jump to parts that haven't been decoded yet.",
-        "streamingOutput": "Text from streaming transcription stays with the recording that produced it, even when recordings follow each other closely.",
-        "pushToTalk": "A held push-to-talk key keeps its mode when the recording starts from the queue, and History orders entries made in the same second correctly."
+        "languageDetection": "Switch between languages without selecting one before every recording. In Speech / Microphone, choose the languages you speak and use Auto for transcription. A separate downloadable language detector can select the language before supported local models transcribe completed audio. Live streaming still uses the recognition model's own language detection or the configured fallback.",
+        "onboarding": "Choosing a local speech model is easier: the first-start wizard compares support and recognition scores for your selected languages and recommends suitable models. It remembers those languages and can resume an interrupted setup.",
+        "dictationPractice": "Try dictation during setup to check your microphone and shortcut before using the app elsewhere. If no speech is heard, the wizard helps you choose another microphone; if recognition is slow, it flags that too. On macOS, it guides you through the required permissions.",
+        "fileHistory": "Drag an audio file into the app from another settings page to open file transcription. When the transcript is ready, save it and its audio to History and follow the link to the saved entry. For a batch, you can enable saving each completed file automatically.",
+        "fileQueueRecovery": "A file waiting for the local recognition engine is retried when the engine becomes available. If the app view reloads during conversion, the interrupted file is marked as failed instead of silently starting over, so you can decide whether to retry.",
+        "modelDownloads": "When downloading a speech model, you can now see roughly how much time remains, alongside its progress.",
+        "ttsPlayback": "When listening to generated speech, the seek bar stays usable while playback restarts after a jump. You can adjust the position again without waiting for the previous seek to finish.",
+        "cloudVoices": "New Cartesia configurations and built-in presets use Sonic 3.6. Murf configurations now explicitly select Falcon 2.1; the earlier Falcon 2 identifier already uses that model on Murf's service. Existing saved model selections and presets are not overwritten.",
+        "regionalChinese": "Traditional Chinese output now offers regional variants for Taiwan and Hong Kong. Select the variant you need in the Chinese output settings for your transcription profile."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"

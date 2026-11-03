@@ -67,13 +67,15 @@ const SMART_HELP_ACTIONS = [
 
 // A settings search entry opens the exact setting the same way settings search does.
 const WHATS_NEW_ITEMS = [
-  { key: "help.whatsNew.items.fileQueues", destination: "transcribeFile", searchEntryId: "file-transcription-input" },
-  { key: "help.whatsNew.items.recordingQueue", destination: "advanced", searchEntryId: "queue-recording-during-processing" },
-  { key: "help.whatsNew.items.modelCleanup", destination: "models", searchEntryId: "models" },
+  { key: "help.whatsNew.items.languageDetection", destination: "general", searchEntryId: "profiles" },
   { key: "help.whatsNew.items.onboarding", destination: "debug", searchEntryId: "first-start-wizard" },
-  { key: "help.whatsNew.items.ttsOverlay", destination: "textToSpeech", searchEntryId: "tts-overlay" },
-  { key: "help.whatsNew.items.streamingOutput", destination: "models", searchEntryId: "api-keys" },
-  { key: "help.whatsNew.items.pushToTalk", destination: "general", searchEntryId: "active-profile-shortcut" },
+  { key: "help.whatsNew.items.dictationPractice", destination: "debug", searchEntryId: "first-start-wizard" },
+  { key: "help.whatsNew.items.fileHistory", destination: "transcribeFile", searchEntryId: "file-transcription-input" },
+  { key: "help.whatsNew.items.fileQueueRecovery", destination: "transcribeFile", searchEntryId: "file-transcription-input" },
+  { key: "help.whatsNew.items.modelDownloads", destination: "models", searchEntryId: "models" },
+  { key: "help.whatsNew.items.ttsPlayback", destination: "textToSpeech", searchEntryId: "tts-overlay" },
+  { key: "help.whatsNew.items.cloudVoices", destination: "textToSpeech", searchEntryId: "tts" },
+  { key: "help.whatsNew.items.regionalChinese", destination: "general", searchEntryId: "default-profile" },
 ] as const;
 
 export const HelpSettings: React.FC = () => {
