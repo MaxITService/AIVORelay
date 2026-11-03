@@ -10,6 +10,7 @@ import { getRemoteApiDisplayLabel } from "../../lib/utils/remoteSttDisplay";
 import ModelStatusButton from "./ModelStatusButton";
 import ModelDropdown from "./ModelDropdown";
 import DownloadProgressDisplay from "./DownloadProgressDisplay";
+import { sampleDownload, type DownloadStats } from "./downloadStats";
 import { isMoonshineStreamingModel } from "./nativeStreamingModel";
 import { useSettings } from "../../hooks/useSettings";
 import { useModelDeletions } from "../../hooks/useModelDeletions";
@@ -44,12 +45,6 @@ type ModelStatus =
   | "unloaded"
   | "none";
 
-interface DownloadStats {
-  startTime: number;
-  lastUpdate: number;
-  totalDownloaded: number;
-  speed: number;
-}
 
 interface ModelSelectorProps {
   onError?: (error: string) => void;
@@ -114,6 +109,17 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (downloadStats.size === 0) return;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setDownloadStats((previous) => new Map(
+        Array.from(previous, ([id, stats]) => [id, sampleDownload(stats, stats.latestDownloaded, now)]),
+      ));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [downloadStats.size]);
+
+  useEffect(() => {
     if (modelDeletions.change?.status !== "failed") return;
     void loadModels();
     void loadCurrentModel();
@@ -174,44 +180,10 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         });
         setModelStatus("downloading");
 
-        // Update download stats for speed calculation
         const now = Date.now();
         setDownloadStats((prev) => {
-          const current = prev.get(progress.model_id);
           const newStats = new Map(prev);
-
-          if (!current) {
-            // First progress update - initialize
-            newStats.set(progress.model_id, {
-              startTime: now,
-              lastUpdate: now,
-              totalDownloaded: progress.downloaded,
-              speed: 0,
-            });
-          } else {
-            // Calculate speed over last few seconds
-            const timeDiff = (now - current.lastUpdate) / 1000; // seconds
-            const bytesDiff = progress.downloaded - current.totalDownloaded;
-
-            if (timeDiff > 0.5) {
-              // Update speed every 500ms
-              const currentSpeed = bytesDiff / (1024 * 1024) / timeDiff; // MB/s
-              // Smooth the speed with exponential moving average, but ensure positive values
-              const validCurrentSpeed = Math.max(0, currentSpeed);
-              const smoothedSpeed =
-                current.speed > 0
-                  ? current.speed * 0.8 + validCurrentSpeed * 0.2
-                  : validCurrentSpeed;
-
-              newStats.set(progress.model_id, {
-                startTime: current.startTime,
-                lastUpdate: now,
-                totalDownloaded: progress.downloaded,
-                speed: Math.max(0, smoothedSpeed),
-              });
-            }
-          }
-
+          newStats.set(progress.model_id, sampleDownload(prev.get(progress.model_id), progress.downloaded, now));
           return newStats;
         });
       },

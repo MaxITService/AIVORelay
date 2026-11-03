@@ -1880,6 +1880,7 @@
     }
   },
   "modelSelector": {
+    "remainingTime": "~{{time}} left",
     "remoteApiRows": {
       "groq": {
         "title": "Remote via Groq",
