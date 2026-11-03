@@ -14,9 +14,6 @@ import { RenderCrashBoundary } from "./components/RenderCrashBoundary";
 import { useSettings } from "./hooks/useSettings";
 import { commands } from "@/bindings";
 import { listen } from "@tauri-apps/api/event";
-import { navigateToSettingsAnchor } from "./lib/anchorNavigation";
-import { getTranscriptionProfileAnchorId } from "./lib/transcriptionProfileNavigation";
-import { writeWindowState } from "./hooks/useWindowState";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { type } from "@tauri-apps/plugin-os";
@@ -25,6 +22,10 @@ import { OPEN_FIRST_START_WIZARD_EVENT } from "./constants/appEvents";
 import type { ModelStateEvent } from "./lib/types/events";
 import type { WindowsMicrophonePermissionStatus } from "./lib/types/windowsPermissions";
 import { queueIncomingAudio, shouldRouteAudioDrop } from "./components/settings/transcribe-file/incomingAudio";
+import { LANGUAGE_DETECTOR_ID } from "./components/settings/languageDetectorDownload";
+import { navigateToSettingsAnchor } from "./lib/anchorNavigation";
+import { getTranscriptionProfileAnchorId } from "./lib/transcriptionProfileNavigation";
+import { writeWindowState } from "./hooks/useWindowState";
 
 type RecordingErrorPayload = {
   error_type: "microphone_permission_denied" | "no_input_device" | "unknown";
@@ -414,6 +415,37 @@ function App() {
         });
       }
     });
+    const openModelDownloads = (detector: boolean) => navigateToSettingsAnchor({
+      activateSection: () => useNavigationStore.getState().setSection("models"),
+      targetId: detector ? "settings-language-detector-download" : "settings-section-models",
+    });
+    const unlistenOpenModelDownloads = listen<{ detector: boolean }>("open-model-downloads", ({ payload }) => {
+      openModelDownloads(payload.detector);
+    });
+    const unlistenRecordingBlockedByDetector = listen<{ downloading: boolean }>("recording-blocked-language-detector", ({ payload }) => {
+      toast.warning(t(payload.downloading ? "settings.spokenLanguage.blockedDownloadingTitle" : "settings.spokenLanguage.blockedMissingTitle"), {
+        id: "recording-blocked-language-detector",
+        duration: 8000,
+        description: t(payload.downloading ? "settings.spokenLanguage.blockedDownloadingDescription" : "settings.spokenLanguage.blockedMissingDescription"),
+        action: { label: t("sidebar.models"), onClick: () => openModelDownloads(true) },
+      });
+    });
+    const unlistenRecordingBlockedByDownload = listen<OnDemandModelDownloadPayload>(
+      "recording-blocked-model-downloading",
+      (event) => {
+        toast.warning(t("modelSelector.recordingBlockedDownloadTitle"), {
+          id: "recording-blocked-model-downloading",
+          duration: 8000,
+          description: t("modelSelector.recordingBlockedDownloadDescription", {
+            model: event.payload.model_name || event.payload.model_id,
+          }),
+          action: {
+            label: t("sidebar.models"),
+            onClick: () => openModelDownloads(false),
+          },
+        });
+      },
+    );
     const unlistenModelState = listen<ModelStateEvent>(
       "model-state-changed",
       (event) => {
@@ -442,7 +474,7 @@ function App() {
       toast.error(
         t("errors.modelDownloadFailed", {
           model:
-            event.payload.model_id || t("errors.modelDownloadFailedUnknown"),
+            event.payload.model_id === LANGUAGE_DETECTOR_ID ? t("settings.spokenLanguage.detectorModel") : event.payload.model_id || t("errors.modelDownloadFailedUnknown"),
         }),
         {
           duration: ERROR_TOAST_DURATION_MS,
@@ -468,7 +500,12 @@ function App() {
       "model-download-progress",
       (event) => {
         const modelId = event.payload.model_id;
-        if (!modelId || notifiedModelDownloadStarts.current.has(modelId)) {
+        // The detector downloads beside a model and never becomes the active one.
+        if (
+          !modelId ||
+          modelId === LANGUAGE_DETECTOR_ID ||
+          notifiedModelDownloadStarts.current.has(modelId)
+        ) {
           return;
         }
 
@@ -514,6 +551,9 @@ function App() {
       unlistenRecording.then((unlisten) => unlisten());
       unlistenPaste.then((unlisten) => unlisten());
       unlistenLiveWindow.then((unlisten) => unlisten());
+      unlistenRecordingBlockedByDownload.then((unlisten) => unlisten());
+      unlistenRecordingBlockedByDetector.then((unlisten) => unlisten());
+      unlistenOpenModelDownloads.then((unlisten) => unlisten());
       unlistenModelState.then((unlisten) => unlisten());
       unlistenModelDownloadFailed.then((unlisten) => unlisten());
       unlistenOnDemandModelDownload.then((unlisten) => unlisten());

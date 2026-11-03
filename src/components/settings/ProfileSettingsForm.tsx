@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { ChevronDown, RefreshCcw, RotateCcw } from "lucide-react";
+import { ChevronDown, ChevronUp, RefreshCcw, RotateCcw } from "lucide-react";
 import { commands, type TranscriptionProfile, type ModelInfo } from "@/bindings";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { Button } from "../ui/Button";
@@ -35,6 +35,9 @@ import { navigateToSettingsAnchor } from "../../lib/anchorNavigation";
 import { getShortcutAnchorId, getShortcutSettingsSection } from "@/lib/shortcutAnchors";
 import { openLivePreviewSettings } from "../../lib/transcriptionProfileNavigation";
 import { llmPromptOverrideFromInput } from "./profileSettingsPayload";
+import { LanguageDetectionSettings } from "./LanguageDetectionSettings";
+import { getProfileSpokenLanguageState } from "./profileSpokenLanguage";
+import { getLocalizedLanguageLabel } from "./models/ModelMetadataPanel";
 
 /** Open the shared provider, model, key, and prompt configuration. */
 const openPostProcessingSettings = () => {
@@ -188,7 +191,10 @@ Return only the cleaned transcript.
 Transcript:
 \${output}`;
 
-export type ExtendedTranscriptionProfile = Omit<TranscriptionProfile, "output_settings"> & {
+export type ExtendedTranscriptionProfile = Omit<TranscriptionProfile, "output_settings" | "spoken_languages" | "language_detection" | "language_detection_window_secs"> & {
+  spoken_languages?: string[];
+  language_detection?: "when_needed" | "always";
+  language_detection_window_secs?: number;
   output_settings?: OutputSettings;
   automatic_app_rules: string[];
   include_in_cycle: boolean;
@@ -254,7 +260,7 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
   globalGeminiLanguageCode, globalGeminiVocabulary, localSttModels, globalSttModelSelection,
   automaticAppProfilesEnabled,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [isSaving, setIsUpdating] = useState(false);
   const isUpdating = disabled || isSaving;
   const isDefault = scope === "global";
@@ -269,6 +275,16 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
   const effectiveSttSelection = profile.stt_model_selection_override ?? globalSttModelSelection;
   const { languageOptions, supportsSttPrompt, promptLimit, isSonioxProvider, isGeminiProvider } =
     profileSttPresentation(effectiveSttSelection, localSttModels);
+  const [languageDetectionOpen, setLanguageDetectionOpen] = useWindowState(`profile-${profile.id}-language-detection`, false);
+  const localLanguageModel = effectiveSttSelection.provider === "local"
+    ? localSttModels.find(model => model.id === effectiveSttSelection.model_id) : undefined;
+  const spokenLanguages = profile.spoken_languages ?? [];
+  const spokenLanguageState = getProfileSpokenLanguageState(profile, localLanguageModel, settings);
+  const spokenLanguageLabel = (code: string) => getLocalizedLanguageLabel(code, i18n.resolvedLanguage ?? i18n.language);
+  const spokenLanguageSummary = t(`settings.spokenLanguage.${spokenLanguageState.summaryKey}`, {
+    languages: spokenLanguageState.compatible.map(spokenLanguageLabel).join(", "),
+    language: spokenLanguageState.summaryLanguage ? spokenLanguageLabel(spokenLanguageState.summaryLanguage) : "",
+  });
   const showSonioxLanguageFallbackWarning = !languageOptions.some(option => option.value === profile.language);
   const postProcessingAvailable = getPostProcessingAvailability(settings, {
     sttSelection: effectiveSttSelection,
@@ -491,10 +507,16 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
 
   // Instant update handlers
   const handleLanguageChange = async (newLanguage: string) => {
-    if (newLanguage === profile.language) return;
+    if (newLanguage === "auto_spoken") {
+      setLanguageDetectionOpen(true);
+      await commitFieldsPatch({ language: "auto", language_detection: "always" });
+      return;
+    }
+    setLanguageDetectionOpen(false);
+    if (newLanguage === (spokenLanguageState.selected ? "auto_spoken" : profile.language)) return;
     setIsUpdating(true);
     try {
-      await onCommit({ language: newLanguage });
+      await onCommit({ language: newLanguage, ...(newLanguage === "auto" ? { spoken_languages: [], language_detection: "when_needed" } : {}) });
     } finally {
       setIsUpdating(false);
     }
@@ -982,17 +1004,51 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
                 id={`profile-language-${profile.id}`}
                 sortKey="profile-languages"
                 fixedDirection="asc"
-                pinnedValues={["auto", "os_input"]}
-                selectedValue={profile.language}
-                options={effectiveLanguageOptions.map((l) => ({
+                pinnedValues={["auto", "auto_spoken", "os_input"]}
+                selectedValue={spokenLanguageState.selected ? "auto_spoken" : profile.language}
+                options={[...effectiveLanguageOptions.map((l) => ({
                   value: l.value,
-                  label: l.label,
+                  label: l.value === "auto"
+                    ? t(localLanguageModel && !localLanguageModel.supports_language_detection
+                      ? "settings.spokenLanguage.modelDefaultAuto" : "settings.spokenLanguage.modelAuto")
+                    : l.label,
                   className: l.className,
-                }))}
+                })), ...(effectiveSttSelection.provider === "local" ? [{
+                  value: "auto_spoken",
+                  label: t("settings.spokenLanguage.multipleAuto"),
+                  className: "text-amber-400",
+                  disabled: !spokenLanguageState.canUsePreferences,
+                  title: !spokenLanguageState.canUsePreferences ? spokenLanguageSummary : undefined,
+                }] : [])]}
                 onSelect={(value) => value && handleLanguageChange(value)}
                 placeholder={t("settings.general.language.auto")}
                 disabled={isUpdating}
               />
+              {effectiveSttSelection.provider === "local" && profile.language === "auto" && (profile.language_detection === "always" || languageDetectionOpen || spokenLanguages.length > 0) && (
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-2 text-xs text-amber-400">
+                    <span>{spokenLanguageSummary}</span>
+                    <button type="button" className="inline-flex shrink-0 items-center gap-1 underline underline-offset-2 hover:text-amber-300"
+                      aria-expanded={languageDetectionOpen} aria-controls={`profile-language-detection-${profile.id}`}
+                      onClick={() => setLanguageDetectionOpen(!languageDetectionOpen)}>
+                      {t(languageDetectionOpen ? "settings.spokenLanguage.collapse" : "settings.spokenLanguage.configure")}
+                      {languageDetectionOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                    </button>
+                  </div>
+                  <Collapse open={languageDetectionOpen} id={`profile-language-detection-${profile.id}`} keepMounted>
+                    <LanguageDetectionSettings
+                      config={{ spoken_languages: spokenLanguages, mode: profile.language_detection ?? "always", window_secs: profile.language_detection_window_secs ?? 5 }}
+                      availableLanguages={effectiveSttSelection.provider === "local"
+                        ? languageOptions.filter(option => option.value !== "auto" && option.value !== "os_input").map(option => option.value) : []}
+                      supportsSelection={spokenLanguageState.canUsePreferences}
+                      usesPreferences={spokenLanguageState.selected}
+                      unavailableReason={spokenLanguageSummary}
+                      disabled={isUpdating}
+                      onChange={next => commitFieldsPatch({ spoken_languages: next.spoken_languages, language_detection: next.mode, language_detection_window_secs: next.window_secs })}
+                    />
+                  </Collapse>
+                </div>
+              )}
               {isSonioxProvider && (
                 <div className="flex items-center gap-1.5 mt-1.5">
                   <Tooltip content={t("settings.advanced.soniox.languageHintsStrict.titleTooltip", "This option only appears if a Soniox model is used")}>

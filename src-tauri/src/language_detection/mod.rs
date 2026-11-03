@@ -269,6 +269,53 @@ mod tests {
     }
 
     #[test]
+    fn unusable_detector_output_falls_back() {
+        let fallback = LanguageDecision {
+            language: Some("he".to_string()),
+            source: LanguageSource::Fallback,
+        };
+        let outputs: [&[(&str, f32)]; 4] = [
+            &[],
+            &[("iw", f32::NAN), ("en", 0.1)],
+            &[("en", f32::INFINITY)],
+            // A label outside the allowed set must not pick a language by accident.
+            &[("fr", 0.9), ("iw", 0.1)],
+        ];
+        for output in outputs {
+            let decision = detect(DetectFallback::FirstLanguage).decide(Some(&SPEECH), |_, _| ranked(output));
+            assert_eq!(decision, fallback, "{output:?}");
+        }
+    }
+
+    #[test]
+    fn half_a_second_of_speech_is_enough_to_detect() {
+        let decision = detect(DetectFallback::Native).decide(Some(&SPEECH[..MIN_SPEECH_SAMPLES]), |speech, _| {
+            assert_eq!(speech.len(), MIN_SPEECH_SAMPLES);
+            ranked(&[("en", 0.6), ("iw", 0.4)])
+        });
+        assert_eq!(decision.language.as_deref(), Some("en"));
+        assert_eq!(decision.source, LanguageSource::Detected);
+    }
+
+    #[test]
+    fn fixed_and_native_plans_never_run_the_detector() {
+        let fixed = Plan::Fixed {
+            language: "de".to_string(),
+            source: LanguageSource::Selected,
+        };
+        assert!(!fixed.detects());
+        let decision = fixed.decide(Some(&SPEECH), |_, _| panic!("a fixed language needs no detection"));
+        assert_eq!(decision.language.as_deref(), Some("de"));
+        assert_eq!(decision.source, LanguageSource::Selected);
+
+        assert!(!Plan::Native.detects());
+        let decision = Plan::Native.decide(Some(&SPEECH), |_, _| panic!("the model detects on its own"));
+        assert_eq!(decision.intent(), "auto");
+        assert_eq!(decision.source, LanguageSource::Model);
+        assert!(detect(DetectFallback::Native).detects());
+    }
+
+    #[test]
     fn old_settings_without_detector_fields_keep_previous_behavior() {
         let mut value = serde_json::to_value(crate::settings::get_default_settings()).unwrap();
         let object = value.as_object_mut().unwrap();

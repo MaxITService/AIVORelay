@@ -35,6 +35,9 @@ export type OverlayErrorCategory =
   | "ParseError"
   | "ExtensionOffline"
   | "MicrophoneUnavailable"
+  | "ModelDownloading"
+  | "LanguageDetectorDownloading"
+  | "LanguageDetectorMissing"
   | "NoText"
   | "GeminiEarlyFinalizationNoText"
   | "Unknown";
@@ -138,6 +141,9 @@ export function fallbackCodeFromCategory(
     ParseError: "E_PARSE",
     ExtensionOffline: "E_EXT",
     MicrophoneUnavailable: "E_MIC",
+    ModelDownloading: "E_UNKNOWN",
+    LanguageDetectorDownloading: "E_UNKNOWN",
+    LanguageDetectorMissing: "E_UNKNOWN",
     NoText: "E_UNKNOWN",
     GeminiEarlyFinalizationNoText: "E_UNKNOWN",
     Unknown: "E_UNKNOWN",

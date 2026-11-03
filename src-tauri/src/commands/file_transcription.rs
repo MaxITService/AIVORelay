@@ -124,6 +124,9 @@ fn default_file_profile_snapshot(
         id: "file_transcription".to_string(),
         name: "Transcribe File".to_string(),
         language: settings.selected_language.clone(),
+        spoken_languages: settings.spoken_languages.clone(),
+        language_detection: settings.language_detection,
+        language_detection_window_secs: settings.language_detection_window_secs,
         chinese_script: Some(crate::chinese_script::resolve_chinese_script(settings, None)),
         translate_to_english: settings.translate_to_english,
         description: String::new(),
@@ -868,9 +871,30 @@ pub async fn transcribe_audio_file(
     if use_local {
         let local_model_id = model_override
             .as_deref()
-            .unwrap_or(settings.selected_model.as_str());
-        crate::commands::models::ensure_local_model_downloaded_for_use(&app, local_model_id)
-            .await?;
+            .unwrap_or(settings.selected_model.as_str())
+            .to_string();
+        file_operation.ensure_active()?;
+        let download_app = app.clone();
+        // Downloads are shared with dictation and other files. Cancel this
+        // conversion's wait without dropping the download worker or its guard.
+        let mut download = tauri::async_runtime::spawn(async move {
+            crate::commands::models::ensure_local_model_downloaded_for_use(
+                &download_app,
+                &local_model_id,
+            )
+            .await
+        });
+        loop {
+            file_operation.ensure_active()?;
+            tokio::select! {
+                result = &mut download => {
+                    file_operation.ensure_active()?;
+                    result.map_err(|error| format!("Model download task failed: {error}"))??;
+                    break;
+                }
+                _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+            }
+        }
     }
     let gemini_config = if is_gemini {
         let os_locale = crate::input_source::get_language_from_input_source();
@@ -1357,6 +1381,9 @@ pub async fn transcribe_audio_file(
         let transcription_model_id = model_override
             .as_deref()
             .unwrap_or(&settings.selected_model);
+        let (spoken_languages, detection_mode, detection_window_secs) = profile.as_ref()
+            .map(|p| (p.spoken_languages.as_slice(), p.language_detection, p.language_detection_window_secs))
+            .unwrap_or((&settings.spoken_languages, settings.language_detection, settings.language_detection_window_secs));
         let result = if needs_segments {
             if let Some(p) = &profile {
                 tm.transcribe_file_with_segments(
@@ -1370,9 +1397,9 @@ pub async fn transcribe_audio_file(
                     ),
                     apply_custom_words_enabled,
                     Some(settings.chinese_script),
-                    &settings.spoken_languages,
-                    settings.language_detection,
-                    settings.language_detection_window_secs,
+                    spoken_languages,
+                    detection_mode,
+                    detection_window_secs,
                 )
                 .map_err(|e| format!("Local transcription failed: {}", e))
             } else {
@@ -1383,9 +1410,9 @@ pub async fn transcribe_audio_file(
                     None,
                     apply_custom_words_enabled,
                     Some(settings.chinese_script),
-                    &settings.spoken_languages,
-                    settings.language_detection,
-                    settings.language_detection_window_secs,
+                    spoken_languages,
+                    detection_mode,
+                    detection_window_secs,
                 )
                 .map_err(|e| format!("Local transcription failed: {}", e))
             }
@@ -1402,13 +1429,13 @@ pub async fn transcribe_audio_file(
                     ),
                     apply_custom_words_enabled,
                     Some(settings.chinese_script),
-                    &settings.spoken_languages,
-                    settings.language_detection,
-                    settings.language_detection_window_secs,
+                    spoken_languages,
+                    detection_mode,
+                    detection_window_secs,
                 )
                 .map_err(|e| format!("Local transcription failed: {}", e))
             } else {
-                tm.transcribe_file_text(samples, None, None, None, apply_custom_words_enabled, Some(settings.chinese_script), &settings.spoken_languages, settings.language_detection, settings.language_detection_window_secs)
+                tm.transcribe_file_text(samples, None, None, None, apply_custom_words_enabled, Some(settings.chinese_script), spoken_languages, detection_mode, detection_window_secs)
                     .map_err(|e| format!("Local transcription failed: {}", e))
             };
             text_result.map(|(text, meta)| (text, None, meta))

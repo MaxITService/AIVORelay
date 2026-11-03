@@ -1483,12 +1483,12 @@ pub fn change_transcription_provider_setting(
     let mut settings = settings::get_settings(&app);
     settings.transcription_provider = parsed;
     settings::write_settings(&app, settings);
+    crate::tray::refresh_tray_menu(&app, None);
 
     if parsed == TranscriptionProvider::Local {
         std::thread::spawn(crate::managers::transcription::prewarm_local_transcription_backends);
     }
 
-    crate::tray::refresh_tray_menu(&app, None);
     Ok(())
 }
 
@@ -5599,11 +5599,19 @@ pub fn change_diarization_speaker_name_profiles_setting(
     Ok(())
 }
 
+fn profile_language_detection_window_secs() -> u32 { 5 }
+
 #[derive(Deserialize, Debug, Clone, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AddTranscriptionProfilePayload {
     pub name: String,
     pub language: String,
+    #[serde(default)]
+    pub spoken_languages: Vec<String>,
+    #[serde(default)]
+    pub language_detection: crate::language_detection::LanguageDetectionMode,
+    #[serde(default = "profile_language_detection_window_secs")]
+    pub language_detection_window_secs: u32,
     pub translate_to_english: bool,
     #[serde(default)]
     pub automatic_app_rules: Option<Vec<String>>,
@@ -5640,6 +5648,12 @@ pub struct UpdateTranscriptionProfilePayload {
     pub id: String,
     pub name: String,
     pub language: String,
+    #[serde(default)]
+    pub spoken_languages: Vec<String>,
+    #[serde(default)]
+    pub language_detection: crate::language_detection::LanguageDetectionMode,
+    #[serde(default = "profile_language_detection_window_secs")]
+    pub language_detection_window_secs: u32,
     pub translate_to_english: bool,
     /// `None` preserves rules for callers built before automatic profiles.
     #[serde(default)]
@@ -5677,6 +5691,9 @@ pub fn add_transcription_profile(
     let AddTranscriptionProfilePayload {
         name,
         language,
+        spoken_languages,
+        language_detection,
+        language_detection_window_secs,
         translate_to_english,
         automatic_app_rules,
         system_prompt,
@@ -5788,10 +5805,16 @@ pub fn add_transcription_profile(
         }
     }
 
+    let spoken_languages = crate::commands::language_detection::normalized_spoken_languages(
+        spoken_languages, language_detection_window_secs,
+    )?;
     let new_profile = settings::TranscriptionProfile {
         id: profile_id.clone(),
         name: name.clone(),
         language,
+        spoken_languages,
+        language_detection,
+        language_detection_window_secs,
         chinese_script,
         translate_to_english,
         description: description.clone(),
@@ -5845,6 +5868,9 @@ pub fn update_transcription_profile(
         id,
         name,
         language,
+        spoken_languages,
+        language_detection,
+        language_detection_window_secs,
         translate_to_english,
         automatic_app_rules,
         system_prompt,
@@ -5893,6 +5919,11 @@ pub fn update_transcription_profile(
 
     profile.name = name.clone();
     profile.language = language;
+    profile.spoken_languages = crate::commands::language_detection::normalized_spoken_languages(
+        spoken_languages, language_detection_window_secs,
+    )?;
+    profile.language_detection = language_detection;
+    profile.language_detection_window_secs = language_detection_window_secs;
     profile.translate_to_english = translate_to_english;
     profile.description = description.clone();
     if let Some(automatic_app_rules) = automatic_app_rules {

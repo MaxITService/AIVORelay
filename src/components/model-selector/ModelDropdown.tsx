@@ -19,6 +19,7 @@ import { useListSortDirection } from "../../hooks/useListSortPreference";
 import { ModelSelectionProfileNotice } from "../settings/models/ModelSelectionProfileNotice";
 import { ModelDeleteAction } from "../shared/ModelDeleteAction";
 import { cancelModelDeletion } from "@/lib/modelDeletion";
+import { LanguageDetectorDownload } from "../shared/LanguageDetectorDownload";
 import type { useModelDeletions } from "../../hooks/useModelDeletions";
 
 interface DownloadProgress {
@@ -486,6 +487,10 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
           </div>
         );
       })}
+
+      <div className="mt-2 border-t border-mid-gray/20 px-4 py-3">
+        <LanguageDetectorDownload />
+      </div>
 
       {/* No Models Available */}
       {availableModels.length === 0 && downloadableModels.length === 0 && (
