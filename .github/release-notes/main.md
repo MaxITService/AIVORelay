@@ -26,7 +26,9 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 - The read-aloud seek bar remains usable while playback restarts after a jump, allowing you to adjust the position again immediately.
 - New Cartesia configurations and built-in presets use **Sonic 3.6**. Murf configurations explicitly select **Falcon 2.1**; Murf's earlier Falcon 2 identifier already routes to this model. Existing saved selections and presets are not overwritten, and earlier supported model IDs remain selectable.
-- The same hotkey can no longer be assigned to two actions, including actions whose feature is turned off (for example, AI Replace and Send to Extension).
+- The same hotkey can no longer be assigned to two actions, including actions whose feature is turned off (for example, AI Replace and Send to Extension). On update, a conflicting shortcut that could not register is cleared with a notification so you can assign another one.
+- Click an error message to dismiss it. Active warnings in the tray and footer clear automatically after 30 seconds, while their messages remain in session history.
+- The model-list refresh button gently pulses until the server list is loaded. Its tooltip explains how to load the list and search for a model.
 - Fixed AI Replace triggering apps that react to a double Ctrl press (such as Obsidian's Double Shift plugin) when it cut the selected text.
 - Fixed saved API keys being reported as missing on Linux and macOS, and corrected Linux/macOS packaging dependencies.
 - Included upstream Handy improvements and fixes.
