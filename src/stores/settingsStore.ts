@@ -21,6 +21,7 @@ import type { ProfileOutputSettings } from "@/lib/profileOutputSettings";
 export type ChineseScript = "as_transcribed" | "simplified" | "traditional" | "traditional_tw" | "traditional_hk";
 export type Settings = GeneratedSettings & {
   chinese_script?: ChineseScript;
+  external_script_capture_stdout?: boolean;
   mute_immediately?: boolean;
   transcription_output_defaults?: ProfileOutputSettings;
 };
@@ -269,6 +270,8 @@ const settingUpdaters: {
     commands.changeWordCorrectionThresholdSetting(value as number),
   paste_method: (value) => commands.changePasteMethodSetting(value as string),
   typing_tool: (value) => commands.changeTypingToolSetting(value as string),
+  external_script_capture_stdout: (value) =>
+    invoke("change_external_script_capture_stdout_setting", { enabled: Boolean(value) }),
   external_script_path: (value) =>
     commands.changeExternalScriptPathSetting((value as string | null) ?? null),
   paste_delay_ms: (value) =>

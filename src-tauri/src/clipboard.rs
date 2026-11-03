@@ -2158,13 +2158,118 @@ fn paste_direct(app_handle: &AppHandle, text: &str) -> Result<(), String> {
     with_enigo(app_handle, move |enigo| input::paste_text_direct(enigo, &text))
 }
 
-/// Hands text to the user's configured external paste script.
-fn paste_external_script(app_handle: &AppHandle, text: &str, can_continue: impl Fn() -> bool) -> Result<bool, String> {
-    let script_path = get_settings(app_handle)
-        .external_script_path
+/// Captures stdout without blocking cancellation on a full pipe or inherited fd.
+/// The argument contract stays the same as the existing external paste mode.
+fn capture_external_script(
+    text: &str,
+    script_path: &str,
+    timeout: Duration,
+    can_continue: impl Fn() -> bool,
+) -> Result<Option<String>, String> {
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::sync::mpsc;
+    const MAX_OUTPUT_BYTES: u64 = 8 * 1024 * 1024;
+    if !can_continue() { return Ok(None); }
+    let mut command = Command::new(script_path);
+    command.arg(text).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut child = command.spawn()
+        .map_err(|e| format!("Failed to execute external script '{}': {}", script_path, e))?;
+    let stdout = child.stdout.take().expect("stdout was piped");
+    let (sender, receiver) = mpsc::channel();
+    let reader = std::thread::Builder::new().name("script-stdout".into()).spawn(move || {
+        let mut bytes = Vec::new();
+        let result = stdout.take(MAX_OUTPUT_BYTES + 1).read_to_end(&mut bytes)
+            .map_err(|e| format!("Failed to read external script output: {}", e))
+            .and_then(|_| {
+                if bytes.len() as u64 > MAX_OUTPUT_BYTES {
+                    Err("External script output exceeds 8 MiB".to_string())
+                } else {
+                    String::from_utf8(bytes).map_err(|_| "External script output is not valid UTF-8".to_string())
+                }
+            });
+        let _ = sender.send(result);
+    });
+    if let Err(error) = reader {
+        terminate_external_script(&mut child);
+        return Err(format!("Failed to read external script output: {}", error));
+    }
+    let deadline = Instant::now() + timeout;
+    let mut exited = false;
+    let mut output = None;
+    loop {
+        if !can_continue() || crate::output_dispatch::is_cancelled() {
+            terminate_external_script(&mut child);
+            return Ok(None);
+        }
+        match receiver.try_recv() {
+            Ok(Ok(text)) => output = Some(text),
+            Ok(Err(error)) => {
+                terminate_external_script(&mut child);
+                return Err(error);
+            }
+            Err(mpsc::TryRecvError::Disconnected) if output.is_none() => {
+                terminate_external_script(&mut child);
+                return Err("External script output reader stopped unexpectedly".to_string());
+            }
+            _ => {}
+        }
+        if !exited {
+            match child.try_wait() {
+                Ok(Some(status)) if status.success() => exited = true,
+                Ok(Some(status)) => {
+                    terminate_external_script(&mut child);
+                    return Err(format!("External script '{}' failed with exit code {:?}", script_path, status.code()));
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    terminate_external_script(&mut child);
+                    return Err(format!("Failed to wait for external script: {}", error));
+                }
+            }
+        }
+        if exited && output.is_some() {
+            let mut text = output.take().unwrap();
+            // Remove one shell-print newline, preserving intentional whitespace.
+            if text.ends_with('\n') {
+                text.pop();
+                if text.ends_with('\r') { text.pop(); }
+            }
+            return Ok(Some(text));
+        }
+        // This also bounds a descendant that keeps stdout open after its parent exits.
+        if Instant::now() >= deadline {
+            terminate_external_script(&mut child);
+            return Err(format!("External script '{}' did not finish within {} seconds", script_path, timeout.as_secs_f64()));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+enum ExternalScriptDelivery { Cancelled, Empty, Delivered }
+
+/// Hands text to the script, or inserts its stdout when explicitly enabled.
+fn paste_external_script(app_handle: &AppHandle, text: &str, can_continue: impl Fn() -> bool) -> Result<ExternalScriptDelivery, String> {
+    let settings = get_settings(app_handle);
+    let script_path = settings.external_script_path
         .filter(|path| !path.trim().is_empty())
         .ok_or("External script path is not configured")?;
-    paste_via_external_script(text, &script_path, EXTERNAL_SCRIPT_TIMEOUT, can_continue)
+    if !settings.external_script_capture_stdout {
+        return paste_via_external_script(text, &script_path, EXTERNAL_SCRIPT_TIMEOUT, can_continue)
+            .map(|delivered| if delivered { ExternalScriptDelivery::Delivered } else { ExternalScriptDelivery::Cancelled });
+    }
+    let Some(output) = capture_external_script(text, &script_path, EXTERNAL_SCRIPT_TIMEOUT, &can_continue)? else {
+        return Ok(ExternalScriptDelivery::Cancelled);
+    };
+    if !can_continue() || crate::output_dispatch::is_cancelled() { return Ok(ExternalScriptDelivery::Cancelled); }
+    if output.is_empty() { return Ok(ExternalScriptDelivery::Empty); }
+    paste_direct(app_handle, &output)?;
+    Ok(ExternalScriptDelivery::Delivered)
 }
 
 fn send_return_key(app: &AppHandle, key_type: AutoSubmitKey) -> Result<(), String> {
@@ -2549,8 +2654,13 @@ pub(crate) fn paste_with_output_settings(
             paste_direct(&app_handle, &text)?;
         }
         PasteMethod::ExternalScript => {
-            if !paste_external_script(&app_handle, &text, &output_can_continue)? {
-                return Ok(false);
+            match paste_external_script(&app_handle, &text, &output_can_continue)? {
+                ExternalScriptDelivery::Cancelled => return Ok(false),
+                ExternalScriptDelivery::Empty => {
+                    settings.early_opening_key.mark_completed();
+                    return Ok(true); // Do not send auto-submit for deliberately empty output.
+                }
+                ExternalScriptDelivery::Delivered => {}
             }
         }
         PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
@@ -2759,7 +2869,7 @@ fn paste_stream_chunk_with_output(
                 paste_direct(&app_handle, &text)?;
             }
             PasteMethod::ExternalScript => {
-                if !paste_external_script(&app_handle, &text, &target_is_current)? {
+                if matches!(paste_external_script(&app_handle, &text, &target_is_current)?, ExternalScriptDelivery::Cancelled) {
                     return Err(TARGET_WINDOW_CHANGED_ERROR.to_string());
                 }
             }
@@ -2808,7 +2918,7 @@ fn paste_stream_chunk_with_output(
                 paste_direct(&app_handle, &text)?;
             }
             PasteMethod::ExternalScript => {
-                if !paste_external_script(&app_handle, &text, &target_is_current)? {
+                if matches!(paste_external_script(&app_handle, &text, &target_is_current)?, ExternalScriptDelivery::Cancelled) {
                     return Err(TARGET_WINDOW_CHANGED_ERROR.to_string());
                 }
             }
@@ -3491,6 +3601,70 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
             remaining_clipboard_consumer_grace(None, paste_sent_at),
             Duration::ZERO
         );
+    }
+
+    #[cfg(unix)]
+    fn stdout_script(body: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = std::env::temp_dir().join(format!("aivorelay-stdout-{}-{}.sh", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::write(&path, format!("#!/bin/sh\n{}\n", body)).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_stdout_preserves_argument_unicode_and_multiline_text() {
+        let script = stdout_script("printf '%s\\n' \"$1\"");
+        let text = "Привет\nsecond line";
+        let result = capture_external_script(text, script.to_str().unwrap(), Duration::from_secs(2), || true);
+        std::fs::remove_file(script).unwrap();
+        assert_eq!(result.unwrap(), Some(text.to_string()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_stdout_distinguishes_empty_success_from_failure() {
+        for (body, succeeds) in [("exit 0", true), ("printf partial; exit 3", false)] {
+            let script = stdout_script(body);
+            let result = capture_external_script("input", script.to_str().unwrap(), Duration::from_secs(2), || true);
+            std::fs::remove_file(script).unwrap();
+            if succeeds { assert_eq!(result.unwrap(), Some(String::new())); }
+            else { assert!(result.is_err()); }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_stdout_drains_more_than_a_pipe_buffer() {
+        let script = stdout_script("head -c 262144 /dev/zero | tr '\\000' x");
+        let result = capture_external_script("input", script.to_str().unwrap(), Duration::from_secs(2), || true);
+        std::fs::remove_file(script).unwrap();
+        assert_eq!(result.unwrap().unwrap(), "x".repeat(262144));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_stdout_cancellation_interrupts_a_running_script() {
+        let script = stdout_script("sleep 5; printf late");
+        let started = Instant::now();
+        let result = capture_external_script("input", script.to_str().unwrap(), Duration::from_secs(2),
+            || started.elapsed() < Duration::from_millis(60));
+        std::fs::remove_file(script).unwrap();
+        assert_eq!(result.unwrap(), None);
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_stdout_timeout_includes_inherited_pipe_after_parent_exits() {
+        let script = stdout_script("sleep 5 &\nexit 0");
+        let started = Instant::now();
+        let result = capture_external_script("input", script.to_str().unwrap(), Duration::from_millis(80), || true);
+        std::fs::remove_file(script).unwrap();
+        assert!(result.unwrap_err().contains("did not finish"));
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[cfg(unix)]

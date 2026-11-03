@@ -3893,6 +3893,15 @@ pub fn change_external_script_path_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_external_script_capture_stdout_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.external_script_capture_stdout = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_paste_delay_ms_setting(app: AppHandle, delay: u64) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.paste_delay_ms = delay;
