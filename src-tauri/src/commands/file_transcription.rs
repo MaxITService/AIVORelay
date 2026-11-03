@@ -1370,6 +1370,8 @@ pub async fn transcribe_audio_file(
                     ),
                     apply_custom_words_enabled,
                     Some(settings.chinese_script),
+                    &settings.spoken_languages,
+                    settings.language_detection,
                 )
                 .map_err(|e| format!("Local transcription failed: {}", e))
             } else {
@@ -1380,6 +1382,8 @@ pub async fn transcribe_audio_file(
                     None,
                     apply_custom_words_enabled,
                     Some(settings.chinese_script),
+                    &settings.spoken_languages,
+                    settings.language_detection,
                 )
                 .map_err(|e| format!("Local transcription failed: {}", e))
             }
@@ -1396,10 +1400,12 @@ pub async fn transcribe_audio_file(
                     ),
                     apply_custom_words_enabled,
                     Some(settings.chinese_script),
+                    &settings.spoken_languages,
+                    settings.language_detection,
                 )
                 .map_err(|e| format!("Local transcription failed: {}", e))
             } else {
-                tm.transcribe_file_text(samples, None, None, None, apply_custom_words_enabled, Some(settings.chinese_script))
+                tm.transcribe_file_text(samples, None, None, None, apply_custom_words_enabled, Some(settings.chinese_script), &settings.spoken_languages, settings.language_detection)
                     .map_err(|e| format!("Local transcription failed: {}", e))
             };
             text_result.map(|(text, meta)| (text, None, meta))
