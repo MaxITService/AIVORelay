@@ -459,8 +459,7 @@ pub fn debug_show_error_overlay(app: AppHandle, category: String) {
     show_error_overlay(&app, error_category);
 }
 
-/// Returns whether a feature-specific LLM API key is stored in secure storage.
-/// On non-Windows platforms this always returns false.
+/// Returns whether a feature-specific LLM API key is stored.
 #[specta::specta]
 #[tauri::command]
 pub fn llm_has_stored_api_key(
@@ -473,48 +472,39 @@ pub fn llm_has_stored_api_key(
         return Ok(false);
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        let settings = get_settings(&app);
-        let has_key = match feature {
-            LlmFeature::PostProcessing => {
+    let settings = get_settings(&app);
+    let has_key = match feature {
+        LlmFeature::PostProcessing => {
+            !crate::secure_keys::get_post_process_api_key(provider_id)
+                .trim()
+                .is_empty()
+        }
+        LlmFeature::AiReplace => {
+            let use_post_process_key =
+                settings.ai_replace_provider_id.as_deref() != Some(provider_id);
+
+            if use_post_process_key {
                 !crate::secure_keys::get_post_process_api_key(provider_id)
                     .trim()
                     .is_empty()
+            } else {
+                !crate::secure_keys::get_ai_replace_api_key(provider_id)
+                    .trim()
+                    .is_empty()
             }
-            LlmFeature::AiReplace => {
-                let use_post_process_key =
-                    settings.ai_replace_provider_id.as_deref() != Some(provider_id);
+        }
+        LlmFeature::VoiceCommand => {
+            let use_post_process_key =
+                settings.voice_command_provider_id.as_deref() != Some(provider_id);
 
-                if use_post_process_key {
-                    !crate::secure_keys::get_post_process_api_key(provider_id)
-                        .trim()
-                        .is_empty()
-                } else {
-                    !crate::secure_keys::get_ai_replace_api_key(provider_id)
-                        .trim()
-                        .is_empty()
-                }
+            if use_post_process_key {
+                !crate::secure_keys::get_post_process_api_key(provider_id)
+                    .trim()
+                    .is_empty()
+            } else {
+                crate::secure_keys::get_voice_command_api_key(provider_id).is_some()
             }
-            LlmFeature::VoiceCommand => {
-                let use_post_process_key =
-                    settings.voice_command_provider_id.as_deref() != Some(provider_id);
-
-                if use_post_process_key {
-                    !crate::secure_keys::get_post_process_api_key(provider_id)
-                        .trim()
-                        .is_empty()
-                } else {
-                    crate::secure_keys::get_voice_command_api_key(provider_id).is_some()
-                }
-            }
-        };
-        Ok(has_key)
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = (app, feature);
-        Ok(false)
-    }
+        }
+    };
+    Ok(has_key)
 }
