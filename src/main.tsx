@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { Toaster } from "sonner";
 import { platform } from "@tauri-apps/plugin-os";
 import App from "./App";
+import { ActiveNoticeConnection } from "./components/footer/SessionNoticeChip";
 import { RenderCrashBoundary } from "./components/RenderCrashBoundary";
 import { installFrontendErrorLogging } from "./lib/frontendErrorLog";
 
@@ -27,6 +28,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
         },
       }}
     />
+    <ActiveNoticeConnection />
     <RenderCrashBoundary>
       <App />
     </RenderCrashBoundary>

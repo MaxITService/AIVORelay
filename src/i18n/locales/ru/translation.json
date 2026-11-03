@@ -1,4 +1,13 @@
 {
+  "notices": {
+    "active": "Уведомления: {{count}}",
+    "title": "Активные уведомления",
+    "empty": "Нет активных проблем.",
+    "dismiss": "Убрать уведомление",
+    "history": "История ошибок и предупреждений за сеанс",
+    "dismissHelp": "Закрытие уведомления не отменяет задачу. Сообщение остаётся в истории сеанса.",
+    "openSettings": "Открыть настройки"
+  },
   "modelCleanup": {
     "remaining": "Остались файлы",
     "unknownSize": "Не измерено",
@@ -4545,6 +4554,8 @@
     "portableUpdateButton": "Скачать установщик"
   },
   "common": {
+    "sessionNotices": "Сообщения за сеанс: {{count}}",
+    "sessionNoticesDescription": "Открыть ошибки и предупреждения за текущий сеанс. Среди них могут быть уже решённые проблемы.",
     "resetSetting": "Сбросить «{{setting}}» к значению по умолчанию",
     "playbackPosition": "Позиция воспроизведения",
     "retry": "Повторить",
@@ -4576,6 +4587,9 @@
     "dismiss": "Увольнять"
   },
   "errors": {
+    "fileTranscriptionFailedTitle": "Не удалось распознать файл",
+    "modelLoadFailedTitle": "Не удалось загрузить модель",
+    "postProcessNoticeTitle": "Не удалось обработать текст",
     "loadDirectory": "Ошибка загрузки каталога: {{error}}.",
     "modelLoadFailed": "Не удалось загрузить модель: {{model}}",
     "modelLoadFailedUnknown": "Неизвестная модель",

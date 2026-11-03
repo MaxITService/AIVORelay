@@ -744,10 +744,39 @@ pub async fn transcribe_audio_file(
     _profile_id: Option<String>,
     save_to_file: bool,
     output_format: Option<OutputFormat>,
+    model_override: Option<String>,
+    custom_words_enabled_override: Option<bool>,
+    soniox_options_override: Option<SonioxFileTranscriptionOptions>,
+    deepgram_options_override: Option<DeepgramFileTranscriptionOptions>,
+) -> Result<FileTranscriptionResult, String> {
+    let mut generation = None;
+    let result = transcribe_audio_file_inner(app.clone(), file_path, _profile_id, save_to_file,
+        output_format, model_override, custom_words_enabled_override, soniox_options_override,
+        deepgram_options_override, &mut generation).await;
+    match &result {
+        Ok(_) => { if let Some(generation) = generation { crate::notices::succeed(&app, "file", generation); } },
+        Err(error) if !error.to_ascii_lowercase().contains("cancel")
+            && !error.contains("still running or stopping")
+            && !error.contains("unavailable while another transcription") => {
+            crate::notices::raise(&app, "file", generation, "error", "File transcription failed",
+                Some("errors.fileTranscriptionFailedTitle"), Some(error.clone()), Some("transcribe"));
+        }
+        Err(_) => {}
+    }
+    result
+}
+
+async fn transcribe_audio_file_inner(
+    app: AppHandle,
+    file_path: String,
+    _profile_id: Option<String>,
+    save_to_file: bool,
+    output_format: Option<OutputFormat>,
     mut model_override: Option<String>,
     custom_words_enabled_override: Option<bool>,
     soniox_options_override: Option<SonioxFileTranscriptionOptions>,
     deepgram_options_override: Option<DeepgramFileTranscriptionOptions>,
+    notice_generation: &mut Option<u64>,
 ) -> Result<FileTranscriptionResult, String> {
     let path = PathBuf::from(&file_path);
     let format = output_format.unwrap_or_default();
@@ -864,6 +893,7 @@ pub async fn transcribe_audio_file(
         *active = Some(Arc::clone(&operation));
         FileOperationGuard { operation, local_guard }
     };
+    *notice_generation = Some(crate::notices::begin_next(&app, "file"));
     let file_operation = &file_operation_guard.operation;
     if use_local {
         let local_model_id = model_override

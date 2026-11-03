@@ -33,6 +33,7 @@ mod llm_live_output;
 mod managers;
 mod memory;
 mod no_clobber;
+mod notices;
 mod overlay;
 mod plus_overlay_state;
 mod portable;
@@ -897,6 +898,10 @@ fn initialize_core_logic(app_handle: &AppHandle) {
             }
 
             match event.id.as_ref() {
+                "active_notices" => {
+                    restart_with_webview_ui(app);
+                    notices::request_open(app);
+                }
                 "settings" => {
                     restart_with_webview_ui(app);
                 }
@@ -1400,6 +1405,9 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_paste_method_setting,
         shortcut::get_available_typing_tools,
         shortcut::change_typing_tool_setting,
+        notices::get_active_notices,
+        notices::dismiss_active_notice,
+        notices::publish_ui_notice,
         shortcut::change_external_script_path_setting,
         shortcut::change_external_script_capture_stdout_setting,
         shortcut::change_paste_delay_ms_setting,
@@ -1984,6 +1992,7 @@ pub fn run(cli_args: CliArgs) {
         .manage(Mutex::new(ShortcutToggleStates::default()))
         .manage(Mutex::new(session_manager::SessionState::default()))
         .manage(recording_auto_stop::new_managed_state())
+        .manage(notices::NoticeStore::default())
         .manage(
             std::sync::Mutex::new(std::collections::HashSet::<String>::new())
                 as shortcut::RdevShortcutsSet,

@@ -426,6 +426,8 @@ function App() {
           {
             duration: ERROR_TOAST_DURATION_MS,
             description: event.payload.error,
+            retainActive: false,
+            recordHistory: false,
           },
         );
       },
