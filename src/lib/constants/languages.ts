@@ -7,6 +7,8 @@ export interface Language {
 const LANGUAGE_ALIASES = new Map([
   ["nb", "no"],
   ["fil", "tl"],
+  ["iw", "he"],
+  ["jw", "jv"],
 ]);
 
 export const LANGUAGES: Language[] = [
@@ -123,11 +125,12 @@ export const LANGUAGES: Language[] = [
  * equivalent model-family codes share one intent.
  */
 export const recognitionLanguage = (languageCode: string): string => {
-  const separatorIndex = languageCode.search(/[-_]/);
+  const normalizedCode = languageCode.trim().toLowerCase();
+  const separatorIndex = normalizedCode.search(/[-_]/);
   const baseCode =
     separatorIndex === -1
-      ? languageCode
-      : languageCode.slice(0, separatorIndex);
+      ? normalizedCode
+      : normalizedCode.slice(0, separatorIndex);
 
   return LANGUAGE_ALIASES.get(baseCode) ?? baseCode;
 };

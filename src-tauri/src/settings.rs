@@ -248,6 +248,13 @@ pub struct TranscriptionProfile {
     pub name: String,
     /// Language code for speech recognition (e.g., "fr", "es", "auto")
     pub language: String,
+    /// Independent languages and detector preferences for this profile's Auto mode.
+    #[serde(default)]
+    pub spoken_languages: Vec<String>,
+    #[serde(default)]
+    pub language_detection: crate::language_detection::LanguageDetectionMode,
+    #[serde(default = "default_language_detection_window_secs")]
+    pub language_detection_window_secs: u32,
     /// None inherits the global script preference.
     #[serde(default)]
     pub chinese_script: Option<ChineseScript>,

@@ -35,6 +35,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { getTranscriptionProfileAnchorId } from "../../lib/transcriptionProfileNavigation";
 import { availableProfileName, getProfileNameError, profileNameErrorFromBackend, type ProfileNameError } from "../../lib/profileNames";
 import { cloneProfileSettings, profileSettingsPayload, profileUpdatePayload } from "./profileSettingsPayload";
+import { getProfileSpokenLanguageState } from "./profileSpokenLanguage";
 
 const profileNameErrorMessage = (reason: ProfileNameError | null, t: ReturnType<typeof useTranslation>["t"]) => {
   if (reason === "required") return t("settings.transcriptionProfiles.nameEmpty", "Enter a profile name.");
@@ -128,14 +129,24 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   const renameErrorId = `profile-name-error-${profile.id}`;
   const effectiveSttSelection = profile.stt_model_selection_override ?? globalSttModelSelection;
   const { isGeminiProvider, supportsTranslation } = useProfileSttCapabilities(effectiveSttSelection, localSttModels);
+  const languageModel = effectiveSttSelection.provider === "local"
+    ? localSttModels.find(model => model.id === effectiveSttSelection.model_id) : undefined;
+  const spokenLanguageState = getProfileSpokenLanguageState(profile, languageModel, settings);
+  const spokenAuto = profile.language === "auto" && Boolean(languageModel) &&
+    (profile.language_detection === "always" || (profile.spoken_languages?.length ?? 0) > 0);
+  const spokenAutoLabel = t(`settings.spokenLanguage.${spokenLanguageState.summaryKey}`, {
+    languages: spokenLanguageState.compatible.map(code => getLocalizedLanguageLabel(code, i18n.resolvedLanguage ?? i18n.language)).join(", "),
+    language: spokenLanguageState.summaryLanguage ? getLocalizedLanguageLabel(spokenLanguageState.summaryLanguage, i18n.resolvedLanguage ?? i18n.language) : "",
+  });
   const languageLabel = useMemo(() => {
+    if (spokenAuto) return spokenAutoLabel;
     if (!isGeminiProvider) return LANGUAGES.find(option => option.value === profile.language)?.label ?? profile.language;
     const code = profile.gemini_language_code_override ?? globalGeminiLanguageCode;
     if (code === "auto") return t("settings.gemini.language.auto", "Auto Detect");
     if (code === "os_input") return t("settings.gemini.language.osInput", "Follow OS Input Language");
     const locale = GEMINI_LOCALES.find(([, value]) => value === code);
     return locale ? `${locale[0]} (${code})` : code;
-  }, [isGeminiProvider, profile.language, profile.gemini_language_code_override, globalGeminiLanguageCode, t]);
+  }, [isGeminiProvider, profile.language, profile.gemini_language_code_override, globalGeminiLanguageCode, spokenAuto, spokenAutoLabel, t]);
   const modelLabel = useMemo(() => {
     if (!isDefault && profile.stt_model_selection_override == null) {
       return t("settings.transcriptionProfiles.summary.modelFromDefault");
@@ -152,7 +163,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   const summaryLanguageCode = isGeminiProvider
     ? profile.gemini_language_code_override ?? globalGeminiLanguageCode
     : profile.language;
-  const summaryLanguageLabel = summaryLanguageCode === "auto"
+  const summaryLanguageLabel = spokenAuto ? spokenAutoLabel : summaryLanguageCode === "auto"
     ? t("settings.general.language.auto")
     : summaryLanguageCode === "os_input"
       ? t("settings.general.language.followOsInput")
@@ -330,7 +341,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                 {summary}
               </span>
             ) : <span className="text-xs text-mid-gray break-words">
-              {languageLabel}
+              <span className={spokenAuto || summaryLanguageCode === "os_input" ? "text-amber-400" : undefined}>{languageLabel}</span>
               {supportsTranslation && profile.translate_to_english && (
                 <span className="text-purple-400 ml-1">
                   {t("settings.transcriptionProfiles.toEnglish", "→ EN")}
@@ -647,6 +658,9 @@ export const TranscriptionProfiles: React.FC = () => {
   const globalProfile: ExtendedTranscriptionProfile = {
     id: "default", name: t("settings.transcriptionProfiles.defaultProfile"),
     language: settings?.selected_language ?? "auto", translate_to_english: settings?.translate_to_english ?? false,
+    spoken_languages: settings?.spoken_languages ?? [],
+    language_detection: settings?.language_detection ?? "when_needed",
+    language_detection_window_secs: settings?.language_detection_window_secs ?? 5,
     automatic_app_rules: [], include_in_cycle: false,
     push_to_talk: settings?.push_to_talk ?? true, auto_shortcut_activation: settings?.auto_shortcut_activation ?? false,
     preview_output_only_enabled: settings?.preview_output_only_enabled ?? false,
@@ -830,6 +844,14 @@ export const TranscriptionProfiles: React.FC = () => {
   });
   const handleGlobalProfileCommit = (patch: Partial<ExtendedTranscriptionProfile>) => queueProfileCommit("default", async () => {
     try {
+      if ("spoken_languages" in patch || "language_detection" in patch || "language_detection_window_secs" in patch) {
+        const current = useSettingsStore.getState().settings;
+        await invoke("set_language_detection_config", {
+          spokenLanguages: patch.spoken_languages ?? current?.spoken_languages ?? [],
+          mode: patch.language_detection ?? current?.language_detection ?? "when_needed",
+          windowSecs: patch.language_detection_window_secs ?? current?.language_detection_window_secs ?? 5,
+        });
+      }
       if (patch.output_settings) await invoke("change_transcription_output_settings", {
         profileId: "default", output: { ...getGlobalProfileOutputDefaults(useSettingsStore.getState().settings), ...patch.output_settings },
       });

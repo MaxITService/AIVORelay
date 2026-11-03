@@ -47,6 +47,8 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
         <progress
           value={percentage}
           max={100}
+          title={item.label ? `${item.label}: ${Math.round(percentage)}%` : `${Math.round(percentage)}%`}
+          aria-label={item.label}
           className={`${progressClasses} [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-mid-gray/20 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-logo-primary`}
         />
         {(showSpeed || showLabel) && (
@@ -79,14 +81,15 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
               key={item.id}
               value={percentage}
               max={100}
-              title={item.label || `${percentage}%`}
+              title={item.label ? `${item.label}: ${Math.round(percentage)}%` : `${Math.round(percentage)}%`}
+              aria-label={item.label}
               className="w-3 h-1.5 [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-mid-gray/20 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-logo-primary"
             />
           );
         })}
       </div>
       <div className="text-xs text-text/60 min-w-fit">
-        {progress.length} downloading...
+        {t("modelSelector.downloadingMultiple", { count: progress.length })}
       </div>
     </div>
   );

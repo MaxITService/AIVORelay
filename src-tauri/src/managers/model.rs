@@ -674,6 +674,8 @@ impl Drop for ModelDownloadGuard<'_> {
     }
 }
 
+const LANGUAGE_DETECTOR_ID: &str = "language-detector";
+
 fn detector_download_urls(repo: &str, revision: &str, filename: &str) -> [String; 2] {
     [
         format!("https://huggingface.co/{repo}/resolve/{revision}/{filename}"),
@@ -702,6 +704,20 @@ fn detector_file_matches(
 }
 
 impl ModelManager {
+    pub fn language_detector_download_progress(&self) -> Option<DownloadProgress> {
+        let tokens = self.cancellation_tokens.lock().unwrap();
+        if !tokens.contains_key(LANGUAGE_DETECTOR_ID) { return None; }
+        let detector = crate::catalog::LANGUAGE_DETECTOR.as_ref()?;
+        let downloaded = self.models_dir.join(format!("{}.partial", detector.filename))
+            .metadata().map(|metadata| metadata.len()).unwrap_or(0).min(detector.size_bytes);
+        Some(DownloadProgress {
+            model_id: LANGUAGE_DETECTOR_ID.to_string(),
+            downloaded,
+            total: detector.size_bytes,
+            percentage: downloaded as f64 / detector.size_bytes.max(1) as f64 * 100.0,
+        })
+    }
+
     pub fn language_detector_path(&self) -> Option<PathBuf> {
         let detector = crate::catalog::LANGUAGE_DETECTOR.as_ref()?;
         let mut candidates = hf_cached_paths_in(
@@ -718,37 +734,55 @@ impl ModelManager {
     }
 
     pub fn cancel_language_detector_download(&self) {
-        if let Some(token) = self.cancellation_tokens.lock().unwrap().get("language-detector") {
+        if let Some(token) = self.cancellation_tokens.lock().unwrap().get(LANGUAGE_DETECTOR_ID) {
             token.cancel();
         }
     }
 
     async fn download_language_detector_with(&self, cancel: CancellationToken) -> Result<()> {
-        const ID: &str = "language-detector";
         let detector = crate::catalog::LANGUAGE_DETECTOR.as_ref()
             .ok_or_else(|| anyhow::anyhow!("Language detector is missing from the catalog"))?;
         {
             let mut tokens = self.cancellation_tokens.lock().unwrap();
-            if tokens.contains_key(ID) {
+            if tokens.contains_key(LANGUAGE_DETECTOR_ID) {
                 anyhow::bail!("Language detector download is already running");
             }
-            tokens.insert(ID.to_string(), cancel.clone());
+            tokens.insert(LANGUAGE_DETECTOR_ID.to_string(), cancel.clone());
         }
-        let _guard = ModelDownloadGuard { manager: self, model_id: ID };
+        let _guard = ModelDownloadGuard { manager: self, model_id: LANGUAGE_DETECTOR_ID };
         if self.language_detector_path().is_some() {
             return Ok(());
         }
-        let partial = self.models_dir.join(format!("{}.partial", detector.filename));
+        let _ = self.app_handle.emit("model-download-progress", DownloadProgress {
+            model_id: LANGUAGE_DETECTOR_ID.to_string(), downloaded: 0,
+            total: detector.size_bytes, percentage: 0.0,
+        });
         let urls = detector_download_urls(&detector.repo_id, &detector.revision, &detector.filename);
+        self.download_language_detector_from(detector, &urls, cancel).await
+    }
+
+    /// Fetches the detector from the first of `urls` that delivers it.
+    async fn download_language_detector_from(
+        &self, detector: &crate::catalog::LanguageDetectorFile, urls: &[String], cancel: CancellationToken,
+    ) -> Result<()> {
+        let partial = self.models_dir.join(format!("{}.partial", detector.filename));
         let mut last_error = None;
         for url in urls {
-            match self.download_http_file(ID, &url, &partial, Some(detector.size_bytes), Some(&detector.sha256), cancel.clone()).await {
+            match self.download_http_file(LANGUAGE_DETECTOR_ID, url, &partial, Some(detector.size_bytes), Some(&detector.sha256), cancel.clone()).await {
                 Ok(true) => {
                     let destination = self.models_dir.join(&detector.filename);
-                    if destination.exists() { fs::remove_file(&destination)?; }
-                    fs::rename(&partial, destination)?;
-                    let _ = self.app_handle.emit("model-download-complete", ID);
-                    return Ok(());
+                    let installed = (|| -> Result<()> {
+                        if destination.exists() { fs::remove_file(&destination)?; }
+                        fs::rename(&partial, &destination)?;
+                        Ok(())
+                    })();
+                    match installed {
+                        Ok(()) => {
+                            let _ = self.app_handle.emit("model-download-complete", LANGUAGE_DETECTOR_ID);
+                            return Ok(());
+                        }
+                        Err(error) => { last_error = Some(error); break; }
+                    }
                 }
                 Ok(false) => return Ok(()),
                 Err(error) => {
@@ -757,7 +791,13 @@ impl ModelManager {
                 }
             }
         }
-        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Language detector download failed")))
+        // Progress was shown, so listeners need a terminal event to clear it.
+        let error = last_error.unwrap_or_else(|| anyhow::anyhow!("Language detector download failed"));
+        let _ = self.app_handle.emit(
+            "model-download-failed",
+            serde_json::json!({ "model_id": LANGUAGE_DETECTOR_ID, "error": format!("{error:#}") }),
+        );
+        Err(error)
     }
 
     pub fn new(app_handle: &AppHandle) -> Result<Self> {
@@ -2255,9 +2295,15 @@ impl ModelManager {
         if resume_from > 0 {
             request = request.header("Range", format!("bytes={}-", resume_from));
         }
-        let mut response = tokio::time::timeout(DOWNLOAD_STALL_TIMEOUT, request.send())
-            .await
-            .map_err(|_| anyhow::anyhow!("Download stalled while connecting to {}", url))??;
+        let mut response = tokio::select! {
+            _ = cancel_token.cancelled() => {
+                self.finish_cancelled_partial_download(model_id, partial_path);
+                return Ok(false);
+            }
+            response = tokio::time::timeout(DOWNLOAD_STALL_TIMEOUT, request.send()) => {
+                response.map_err(|_| anyhow::anyhow!("Download stalled while connecting to {}", url))??
+            }
+        };
 
         if resume_from > 0 && response.status() == reqwest::StatusCode::OK {
             warn!(
@@ -2267,9 +2313,15 @@ impl ModelManager {
             drop(response);
             let _ = fs::remove_file(partial_path);
             resume_from = 0;
-            response = tokio::time::timeout(DOWNLOAD_STALL_TIMEOUT, client.get(url).send())
-                .await
-                .map_err(|_| anyhow::anyhow!("Download stalled while restarting {}", model_id))??;
+            response = tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    self.finish_cancelled_partial_download(model_id, partial_path);
+                    return Ok(false);
+                }
+                response = tokio::time::timeout(DOWNLOAD_STALL_TIMEOUT, client.get(url).send()) => {
+                    response.map_err(|_| anyhow::anyhow!("Download stalled while restarting {}", model_id))??
+                }
+            };
         }
 
         if !response.status().is_success()
@@ -2634,7 +2686,7 @@ impl ModelManager {
         result
     }
 
-    async fn download_detector_for_model(&self, model: &ModelInfo, cancel: &CancellationToken) {
+    fn download_detector_for_model(&self, model: &ModelInfo) {
         let languages = crate::language_detection::policy::ModelLanguages {
             languages: &model.supported_languages,
             detects: model.supports_language_detection,
@@ -2642,32 +2694,18 @@ impl ModelManager {
         };
         if !crate::language_detection::policy::requires_language_detector(&languages) { return; }
 
-        let mut waited = false;
-        loop {
-            if cancel.is_cancelled() || self.language_detector_path().is_some() { return; }
-            let running = self.cancellation_tokens.lock().unwrap().contains_key("language-detector");
-            if running {
-                waited = true;
-                tokio::select! {
-                    _ = cancel.cancelled() => return,
-                    _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {}
-                }
-                continue;
-            }
-            if waited { return; }
-            match self.download_language_detector_with(cancel.child_token()).await {
-                Ok(()) => return,
-                Err(error) => {
-                    // Another caller may have claimed the detector between the
-                    // check above and our attempt. Wait for that transfer.
-                    if self.cancellation_tokens.lock().unwrap().contains_key("language-detector") {
-                        continue;
-                    }
+        if self.language_detector_path().is_some() { return; }
+        // The detector is a shared, independently cancellable download. A
+        // completed STT install must not remain at 100% waiting for it.
+        let Some(manager) = self.app_handle.try_state::<Arc<ModelManager>>() else { return; };
+        let manager = Arc::clone(&manager);
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = manager.download_language_detector().await {
+                if manager.language_detector_download_progress().is_none() {
                     warn!("Could not download language detector: {error:#}");
-                    return;
                 }
             }
-        }
+        });
     }
 
     pub async fn download_model(&self, model_id: &str) -> Result<()> {
@@ -2696,11 +2734,8 @@ impl ModelManager {
                 .download_hf_model(&model_info, repo_id, revision, filename, cancel_token.clone())
                 .await?;
             if completed {
-                if !cancel_token.is_cancelled() {
-                    self.download_detector_for_model(&model_info, &cancel_token).await;
-                }
-                let event = if cancel_token.is_cancelled() { "model-download-cancelled" } else { "model-download-complete" };
-                let _ = self.app_handle.emit(event, model_id);
+                let _ = self.app_handle.emit("model-download-complete", model_id);
+                self.download_detector_for_model(&model_info);
             }
             return Ok(());
         }
@@ -2721,9 +2756,8 @@ impl ModelManager {
                 let _ = fs::remove_file(&partial_path);
             }
             self.update_download_status()?;
-            self.download_detector_for_model(&model_info, &cancel_token).await;
-            let event = if cancel_token.is_cancelled() { "model-download-cancelled" } else { "model-download-complete" };
-            let _ = self.app_handle.emit(event, model_id);
+            let _ = self.app_handle.emit("model-download-complete", model_id);
+            self.download_detector_for_model(&model_info);
             return Ok(());
         }
 
@@ -2851,12 +2885,6 @@ impl ModelManager {
                 fs::rename(&partial_path, &model_path)?;
             }
 
-            self.download_detector_for_model(&model_info, &cancel_token).await;
-            if cancel_token.is_cancelled() {
-                let _ = self.app_handle.emit("model-download-cancelled", model_id);
-                return Ok(());
-            }
-
             {
                 let mut models = self.available_models.lock().unwrap();
                 if let Some(model) = models.get_mut(model_id) {
@@ -2867,6 +2895,7 @@ impl ModelManager {
             }
 
             let _ = self.app_handle.emit("model-download-complete", model_id);
+            self.download_detector_for_model(&model_info);
 
             info!(
                 "Successfully downloaded model {} to {:?}",
@@ -3252,6 +3281,217 @@ mod tests {
         assert!(!super::detector_file_matches(&file, 13, &"0".repeat(64), &cache));
         assert!(!super::detector_file_matches(&file, 99, &hash, &cache));
         assert!(file.exists());
+    }
+
+    #[test]
+    fn language_aliases_match_the_frontend_identity() {
+        // Mirrors src/lib/languageIdentity.test.ts: the spoken-language picker
+        // hides what the frontend calls a duplicate, and saving drops what this
+        // calls one, so both must group codes the same way.
+        let same = [("no", "nb"), ("tl", "fil"), ("he", "iw"), ("jv", "jw"), ("pt", "pt-BR"), ("zh", "zh-Hant")];
+        for (left, right) in same {
+            assert_eq!(super::canonical_language_code(left), super::canonical_language_code(right), "{left} {right}");
+        }
+        let distinct = ["zh", "yue", "pt", "en", "no", "he", "tl", "jv"];
+        for (index, left) in distinct.iter().enumerate() {
+            for right in &distinct[index + 1..] {
+                assert_ne!(super::canonical_language_code(left), super::canonical_language_code(right), "{left} {right}");
+            }
+        }
+    }
+
+    fn detector_test_app() -> &'static tauri::AppHandle {
+        static APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+        APP.get_or_init(|| {
+            crate::tls::initialize();
+            let builder = tauri::Builder::default();
+            // `any_thread` exists only on Windows and Linux; macOS tests must stay on
+            // the main thread.
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            let builder = builder.any_thread();
+            let app = builder
+                .build(tauri::test::mock_context(tauri::test::noop_assets()))
+                .expect("test app");
+            let handle = app.handle().clone();
+            std::mem::forget(app);
+            handle
+        })
+    }
+
+    /// Detector downloads share one id, so their events would mix across tests.
+    static DETECTOR_DOWNLOADS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn detector_manager(models_dir: &Path) -> ModelManager {
+        ModelManager {
+            app_handle: detector_test_app().clone(),
+            models_dir: models_dir.to_path_buf(),
+            available_models: std::sync::Mutex::new(HashMap::new()),
+            missing_selection_notice: std::sync::Mutex::new(None),
+            cancellation_tokens: std::sync::Mutex::new(HashMap::new()),
+            verified_detectors: std::sync::Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn detector_file(body: &[u8]) -> crate::catalog::LanguageDetectorFile {
+        use sha2::Digest;
+        crate::catalog::LanguageDetectorFile {
+            repo_id: "owner/detector".to_string(),
+            revision: "pinned".to_string(),
+            filename: "detector.gguf".to_string(),
+            size_bytes: body.len() as u64,
+            sha256: format!("{:x}", sha2::Sha256::digest(body)),
+            labels: Vec::new(),
+        }
+    }
+
+    fn http(status: &str, body: &[u8]) -> Vec<u8> {
+        let mut response = format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        response.extend_from_slice(body);
+        response
+    }
+
+    /// Serves one canned response per connection, in order.
+    fn serve(responses: Vec<Vec<u8>>) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for response in responses {
+                let Ok((mut stream, _)) = listener.accept() else { return };
+                // Read the request first: closing an unread socket resets it on Windows.
+                let mut request = Vec::new();
+                let mut buffer = [0; 1024];
+                while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    match stream.read(&mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => request.extend_from_slice(&buffer[..read]),
+                    }
+                }
+                let _ = stream.write_all(&response);
+            }
+        });
+        format!("http://{address}/detector.gguf")
+    }
+
+    /// Records the detector's `model-download-*` events, in order.
+    struct DetectorEvents {
+        ids: Vec<tauri::EventId>,
+        seen: std::sync::Arc<std::sync::Mutex<Vec<&'static str>>>,
+    }
+
+    impl DetectorEvents {
+        fn record() -> Self {
+            use tauri::Listener;
+            let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let ids = ["progress", "complete", "cancelled", "failed"]
+                .into_iter()
+                .map(|kind| {
+                    let seen = seen.clone();
+                    detector_test_app().listen_any(format!("model-download-{kind}"), move |event| {
+                        if event.payload().contains(super::LANGUAGE_DETECTOR_ID) {
+                            seen.lock().unwrap().push(kind);
+                        }
+                    })
+                })
+                .collect();
+            Self { ids, seen }
+        }
+
+        fn saw_progress(&self) -> bool {
+            self.seen.lock().unwrap().contains(&"progress")
+        }
+
+        /// The events that end the download for the UI.
+        fn terminal(&self) -> Vec<&'static str> {
+            self.seen.lock().unwrap().iter().copied().filter(|kind| *kind != "progress").collect()
+        }
+    }
+
+    impl Drop for DetectorEvents {
+        fn drop(&mut self) {
+            use tauri::Listener;
+            for id in self.ids.drain(..) {
+                detector_test_app().unlisten(id);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn detector_download_failure_ends_its_progress_with_a_failed_event() {
+        let _serial = DETECTOR_DOWNLOADS.lock().unwrap_or_else(|error| error.into_inner());
+        let dir = HfCacheFixture::new();
+        let manager = detector_manager(&dir.0);
+        let events = DetectorEvents::record();
+        // The first source drops the connection halfway; the mirror is missing.
+        let urls = [serve(vec![http("200 OK", b"dete")]), serve(vec![http("404 Not Found", b"")])];
+        let result = manager
+            .download_language_detector_from(&detector_file(b"detector"), &urls, CancellationToken::new())
+            .await;
+        assert!(result.is_err());
+        assert!(events.saw_progress());
+        // Without a terminal event the UI shows the download running forever.
+        assert_eq!(events.terminal(), ["failed"]);
+        assert!(!dir.0.join("detector.gguf").exists());
+    }
+
+    #[tokio::test]
+    async fn cancelled_detector_download_reports_cancelled_and_leaves_no_files() {
+        let _serial = DETECTOR_DOWNLOADS.lock().unwrap_or_else(|error| error.into_inner());
+        let dir = HfCacheFixture::new();
+        let manager = detector_manager(&dir.0);
+        let events = DetectorEvents::record();
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let urls = [serve(vec![http("200 OK", b"detector")])];
+        let result = manager
+            .download_language_detector_from(&detector_file(b"detector"), &urls, cancel)
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(events.terminal(), ["cancelled"]);
+        assert!(!dir.0.join("detector.gguf").exists());
+        assert!(!dir.0.join("detector.gguf.partial").exists());
+    }
+
+    #[tokio::test]
+    async fn detector_download_falls_back_to_the_mirror_without_reporting_failure() {
+        let _serial = DETECTOR_DOWNLOADS.lock().unwrap_or_else(|error| error.into_inner());
+        for first in [http("404 Not Found", b""), http("200 OK", b"corrupt!")] {
+            let dir = HfCacheFixture::new();
+            let manager = detector_manager(&dir.0);
+            let events = DetectorEvents::record();
+            let urls = [serve(vec![first]), serve(vec![http("200 OK", b"detector")])];
+            manager
+                .download_language_detector_from(&detector_file(b"detector"), &urls, CancellationToken::new())
+                .await
+                .unwrap();
+            assert_eq!(events.terminal(), ["complete"]);
+            assert_eq!(fs::read(dir.0.join("detector.gguf")).unwrap(), b"detector");
+            assert!(!dir.0.join("detector.gguf.partial").exists());
+        }
+    }
+
+    #[tokio::test]
+    async fn second_detector_download_is_refused_without_ending_the_first() {
+        let _serial = DETECTOR_DOWNLOADS.lock().unwrap_or_else(|error| error.into_inner());
+        let dir = HfCacheFixture::new();
+        let manager = detector_manager(&dir.0);
+        let running = CancellationToken::new();
+        manager
+            .cancellation_tokens
+            .lock()
+            .unwrap()
+            .insert(super::LANGUAGE_DETECTOR_ID.to_string(), running.clone());
+        let events = DetectorEvents::record();
+        let error = manager.download_language_detector().await.unwrap_err();
+        assert!(error.to_string().contains("already running"));
+        assert!(events.terminal().is_empty());
+        assert!(manager.cancellation_tokens.lock().unwrap().contains_key(super::LANGUAGE_DETECTOR_ID));
+        manager.cancel_language_detector_download();
+        assert!(running.is_cancelled());
     }
 
     #[test]
