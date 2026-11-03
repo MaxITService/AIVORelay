@@ -87,7 +87,7 @@ export const LanguageDetectionSettings: React.FC = () => {
     <SettingsGroup title={t("settings.spokenLanguage.title", "Spoken language detection")}>
       <div className="space-y-3 p-4 text-sm text-text">
         <p className="text-text/70">{t("settings.spokenLanguage.description", "Choose the languages you speak. For Auto, a local model can select between them before transcription. The first compatible language is used if detection is unavailable. Leave the list empty to keep the existing behavior.")}</p>
-        <p className="text-text/70">{t("settings.spokenLanguage.streaming", "Native live streaming uses the transcription model's own language behavior. Unsupported languages and short or noisy speech can make detection unreliable.")}</p>
+        <p className="text-text/70">{t("settings.spokenLanguage.streaming", "Live streaming uses the model's own detection when available, otherwise the first compatible language. Unsupported languages and short or noisy speech can make detection unreliable.")}</p>
         <p className="text-text/70">{t("settings.spokenLanguage.unsupportedEngine", "Models that cannot accept a language selection use their own detection, even in Always mode.")}</p>
         <select className="w-full rounded border border-white/20 bg-mid-gray p-2" disabled={!config || busy} value="" onChange={(event) => {
           const value = event.target.value;

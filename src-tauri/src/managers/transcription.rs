@@ -943,6 +943,8 @@ impl TranscriptionManager {
         translate_to_english: bool,
         on_committed_text: Option<NativeStreamCommittedCallback>,
         chinese_script_override: Option<ChineseScript>,
+        spoken_languages: Vec<String>,
+        detection_mode: crate::language_detection::LanguageDetectionMode,
     ) {
         if self.stream_router.is_open() || self.active_stream_worker.load(Ordering::Acquire) != 0 {
             warn!("start_stream called while a stream worker is already active");
@@ -971,6 +973,8 @@ impl TranscriptionManager {
                 translate_to_english,
                 on_committed_text,
                 chinese_script_override,
+                spoken_languages,
+                detection_mode,
             )
         });
     }
@@ -983,6 +987,8 @@ impl TranscriptionManager {
         translate_to_english: bool,
         on_committed_text: Option<NativeStreamCommittedCallback>,
         chinese_script_override: Option<ChineseScript>,
+        spoken_languages: Vec<String>,
+        detection_mode: crate::language_detection::LanguageDetectionMode,
     ) {
         let _worker = StreamWorkerGuard {
             worker_id,
@@ -1000,8 +1006,30 @@ impl TranscriptionManager {
 
         let model_id = self.get_current_model().unwrap_or_default();
         let loading_generation = self.loading_generation.load(Ordering::Acquire);
-        let effective_language =
-            effective_language_for_model(&self.model_manager, &model_id, &selected_language);
+        let effective_language = if selected_language == "auto" && !spoken_languages.is_empty() {
+            match (self.model_manager.get_model_info(&model_id), crate::catalog::LANGUAGE_DETECTOR.as_ref()) {
+                (Some(model), Some(detector)) => {
+                    let languages = crate::language_detection::policy::ModelLanguages {
+                        languages: &model.supported_languages,
+                        detects: model.supports_language_detection,
+                        streaming: true,
+                    };
+                    match crate::language_detection::policy::plan(
+                        &selected_language, &spoken_languages, &languages, detection_mode, &detector.labels,
+                    ) {
+                        crate::language_detection::policy::Plan::Fixed { language, .. } => language,
+                        crate::language_detection::policy::Plan::Native => "auto".to_string(),
+                        crate::language_detection::policy::Plan::Detect { languages, fallback, .. } => match fallback {
+                            crate::language_detection::policy::DetectFallback::Native => "auto".to_string(),
+                            crate::language_detection::policy::DetectFallback::FirstLanguage => languages.first().cloned().unwrap_or_else(|| "auto".to_string()),
+                        },
+                    }
+                }
+                _ => effective_language_for_model(&self.model_manager, &model_id, &selected_language),
+            }
+        } else {
+            effective_language_for_model(&self.model_manager, &model_id, &selected_language)
+        };
         if self
             .active_engine_lease
             .compare_exchange(0, worker_id, Ordering::AcqRel, Ordering::Acquire)
