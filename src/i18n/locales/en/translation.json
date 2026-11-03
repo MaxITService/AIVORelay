@@ -4032,7 +4032,10 @@
           "placeholderApple": "Apple Intelligence",
           "placeholderWithOptions": "Search or select a model",
           "placeholderNoOptions": "Type a model name",
-          "refreshModels": "Refresh models"
+          "refreshModels": "Refresh models",
+          "fetchModelsHint": "The model list has not been loaded yet. Click to fetch it from the server, then search by typing part of a model name. You can also enter a model ID manually.",
+          "refreshModelsHint": "Refresh the model list from the server, then search by typing part of a model name. This keeps your selected model.",
+          "fetchingModelsHint": "Loading the model list from the server…"
         },
         "transcription": {
           "title": "Transcription Post-Processing",

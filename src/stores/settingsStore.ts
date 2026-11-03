@@ -104,7 +104,7 @@ interface SettingsStore {
   fetchLlmModels: (
     feature: "post_processing" | "ai_replace" | "voice_command",
   ) => Promise<string[]>;
-  setPostProcessModelOptions: (providerId: string, models: string[]) => void;
+  setPostProcessModelOptions: (providerId: string, models: string[] | null) => void;
   setTranscriptionProvider: (providerId: string) => Promise<void>;
   updateRemoteSttBaseUrl: (baseUrl: string) => Promise<void>;
   updateRemoteSttModelId: (modelId: string) => Promise<void>;
@@ -1538,7 +1538,7 @@ export const useSettingsStore = create<SettingsStore>()(
 
       // Clear cached model options for the new provider so the dropdown
       // doesn't show stale models from a previous fetch or base_url.
-      setPostProcessModelOptions(providerId, []);
+      setPostProcessModelOptions(providerId, null);
 
       try {
         await commands.setPostProcessProvider(providerId);
@@ -1662,12 +1662,7 @@ export const useSettingsStore = create<SettingsStore>()(
         }
 
         // Clear cached model options only after both backend writes succeed.
-        set((state) => ({
-          postProcessModelOptions: {
-            ...state.postProcessModelOptions,
-            [providerId]: [],
-          },
-        }));
+        get().setPostProcessModelOptions(providerId, null);
 
         // Single refresh after both backend writes.
         await refreshSettings();
@@ -1681,12 +1676,7 @@ export const useSettingsStore = create<SettingsStore>()(
 
     updatePostProcessApiKey: async (providerId, apiKey) => {
       // Clear cached models when API key changes - user should click refresh after
-      set((state) => ({
-        postProcessModelOptions: {
-          ...state.postProcessModelOptions,
-          [providerId]: [],
-        },
-      }));
+      get().setPostProcessModelOptions(providerId, null);
       return get().updatePostProcessSetting("api_key", providerId, apiKey);
     },
 
@@ -1720,12 +1710,12 @@ export const useSettingsStore = create<SettingsStore>()(
     },
 
     setPostProcessModelOptions: (providerId, models) =>
-      set((state) => ({
-        postProcessModelOptions: {
-          ...state.postProcessModelOptions,
-          [providerId]: models,
-        },
-      })),
+      set((state) => {
+        const options = { ...state.postProcessModelOptions };
+        if (models === null) delete options[providerId];
+        else options[providerId] = models;
+        return { postProcessModelOptions: options };
+      }),
 
     fetchLlmModels: async (
       feature: "post_processing" | "ai_replace" | "voice_command",
@@ -1802,6 +1792,7 @@ export const useSettingsStore = create<SettingsStore>()(
       const { setUpdating, refreshSettings } = get();
       const updateKey = `ai_replace_api_key:${providerId}`;
 
+      get().setPostProcessModelOptions(providerId, null);
       setUpdating(updateKey, true);
 
       try {
@@ -1866,6 +1857,7 @@ export const useSettingsStore = create<SettingsStore>()(
       const { setUpdating, refreshSettings } = get();
       const updateKey = `voice_command_api_key:${providerId}`;
 
+      get().setPostProcessModelOptions(providerId, null);
       setUpdating(updateKey, true);
 
       try {

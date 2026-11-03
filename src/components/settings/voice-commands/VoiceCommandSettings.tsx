@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useSettings } from "@/hooks/useSettings";
 import { useTranslation } from "react-i18next";
-import { RefreshCcw } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { VoiceCommand, commands, ExecutionPolicy } from "@/bindings";
 import { HandyShortcut } from "../HandyShortcut";
@@ -11,7 +10,7 @@ import { ProviderSelect } from "../PostProcessingSettingsApi/ProviderSelect";
 import { BaseUrlField } from "../PostProcessingSettingsApi/BaseUrlField";
 import { ApiKeyField } from "../PostProcessingSettingsApi/ApiKeyField";
 import { ModelSelect } from "../PostProcessingSettingsApi/ModelSelect";
-import { ResetButton } from "../../ui/ResetButton";
+import { ModelRefreshButton } from "../PostProcessingSettingsApi/ModelRefreshButton";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { Collapse } from "../../ui/Collapse";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
@@ -768,27 +767,15 @@ export default function VoiceCommandSettings() {
                             onBlur={() => {}}
                             className="llm-api-model-select"
                           />
-                          <ResetButton
+                          <ModelRefreshButton
+                            providerId={voiceCommandProviderState.selectedProvider?.id || ""}
                             onClick={
                               voiceCommandProviderState.handleRefreshModels
                             }
-                            disabled={
-                              voiceCommandProviderState.isFetchingModels ||
-                              voiceCommandProviderState.isAppleProvider
-                            }
-                            ariaLabel={t(
-                              "settings.postProcessing.api.model.refreshModels",
-                            )}
+                            isFetching={voiceCommandProviderState.isFetchingModels}
+                            disabled={voiceCommandProviderState.isAppleProvider}
                             className="llm-api-refresh"
-                          >
-                            <RefreshCcw
-                              className={`h-4 w-4 ${
-                                voiceCommandProviderState.isFetchingModels
-                                  ? "animate-spin"
-                                  : ""
-                              }`}
-                            />
-                          </ResetButton>
+                          />
                         </div>
                       </div>
                     </>
