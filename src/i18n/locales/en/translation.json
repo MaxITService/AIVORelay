@@ -1880,7 +1880,11 @@
       "covered": "Lists all chosen languages",
       "noRecommendations": "No measured recommendation is available for all chosen languages. You can still choose from the models below.",
       "faster": "Faster",
-      "moreAccurate": "More accurate"
+      "moreAccurate": "More accurate",
+      "benchmarks": "Language benchmark grades",
+      "benchmarkNote": "Grades use FLEURS benchmark data for the catalog's default model files. Real-world accuracy can differ.",
+      "unmeasured": "not measured",
+      "unsupported": "not supported"
     },
     "welcome": {
       "title": "You're all set!",
