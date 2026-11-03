@@ -293,19 +293,7 @@ fn run_key_action(action: impl FnOnce() + Send + 'static) {
     }
 }
 
-#[cfg(target_os = "windows")]
-fn modifiers_held() -> bool {
-    use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
-    // Shift, Ctrl, Alt, left and right Win.
-    [0x10, 0x11, 0x12, 0x5B, 0x5C]
-        .into_iter()
-        .any(|key| (unsafe { GetAsyncKeyState(key) } as u16 & 0x8000) != 0)
-}
-
-#[cfg(not(target_os = "windows"))]
-fn modifiers_held() -> bool {
-    false
-}
+use crate::input::modifiers_held;
 
 /// Waits (without a time limit) until the hotkey modifiers are released, then presses the
 /// opening key. `still_active` must turn false when the recording is cancelled or over, so

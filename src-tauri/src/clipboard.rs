@@ -2964,6 +2964,9 @@ fn restore_cut_selection_from_backup(app_handle: &AppHandle, text: &str) -> Resu
 }
 
 pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> {
+    if !input::wait_for_modifiers_released(std::time::Duration::from_secs(3)) {
+        warn!("Hotkey modifiers still held before cutting the selection; cutting anyway");
+    }
     let _capture_guard = lock_clipboard_transaction("capturing selected text")?;
     let clipboard = app_handle.clipboard();
     let clipboard_backup = clipboard.read_text().unwrap_or_default();
