@@ -6,9 +6,10 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## release/microsoft-store
 
-Last synced commit from `main`: `72b72d57` — feat(models): highlight server lists that have not been loaded.
+Last synced commit from `main`: `a3846298` — docs(release): mention Soniox v6 in 1.0.52 notes and What's New.
 Maintenance rule: after a successful `main` -> `release/microsoft-store` propagation, update this main-copy cursor and the `release/microsoft-store` worktree copy together.
 Note: the cursor covers the reviewed source state reflected in Store content, including documented intentional exclusions; docs-only cursor updates do not advance it and excluded commits are not pending work.
+Latest Soniox change (2026-11-03): main 445b1e2c/a8345893/a3846298 map to Store 7e3b2a70/f4bc432d/749dcdc7. Soniox defaults moved to v6; v5 users get a startup update toast. Frontend typecheck/translations passed; no cargo build.
 Latest UI change (2026-11-03): main 72b72d57 maps to Store f09fd445. LLM model refresh buttons highlight unfetched server lists and provide localized fetching/search hints. Static review only; the current user dev console is unavailable, no separate build/tests started.
 Latest runtime fix (2026-11-03): main 28fc0b92 maps to Store 4763ad08. Active warning indicators now expire after 30 seconds; dismissing an error clears its linked notice and tray warning. Static review only for this fix: the user dev console is unavailable, and no separate build/tests were started.
 Current alignment (2026-11-03): source consolidation, numeric version 1.0.52, approved English/Russian What's New and regenerated branch-specific bindings are committed. Main bdfee1b8 maps to Store c14e108f; main 1b3077b6 maps to Store cf4dc08d. Startup duplicate-shortcut migration 676192c6 maps to Store 387362f6 before the respective version bumps; only failed bindings conflicting with registered actions are cleared, with retained localized startup toasts. Both Windows x64 debug Tauri builds (including TypeScript and Vite) passed on Rust 1.99.1 after debug startup regenerated bindings. No tests, installers, signing, tags or pushes were run. Main-only README and release notes remain excluded; Store AVX2, updater 2.10.0 and packaging boundaries are preserved.
