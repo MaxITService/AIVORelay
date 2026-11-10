@@ -333,15 +333,6 @@ Bundled and optional runtime components are listed in
 
 ---
 
-## My other projects:
-
-- [OneClickPrompts: Your Quick Prompt Companion for Multiple AI Chats!](https://github.com/MaxITService/OneClickPrompts)
-- [Console2Ai: Send PowerShell buffer to AI](https://github.com/MaxITService/Console2Ai)
-- [AI for Complete Beginners: Guide to LLMs](https://medium.com/@maxim.fomins/ai-for-complete-beginners-guide-llms-f19c4b8a8a79)
-- [Ping-Plotter the PowerShell only Ping Plotting script](https://github.com/MaxITService/Ping-Plotter-PS51)
-
----
-
 ## 🎙️ Recording Control CLI
 
 With AivoRelay already running, invoke the same executable to control dictation
@@ -390,3 +381,14 @@ terminal:
 
 Provider credentials and detailed conversion behavior remain configured in
 the matching app settings pages.
+
+---
+
+## My projects
+
+- [AivoRelay](https://github.com/MaxITService/AIVORelay) — AI voice dictation and text-to-speech for Windows.
+- [OneClickPrompts](https://github.com/MaxITService/OneClickPrompts) — reusable prompt buttons for AI chats.
+- [Mouse & Key Studio](https://github.com/MaxITService/MouseKeyStudio) — Logitech device settings, button remapping and macros for Windows.
+- [Console2Ai](https://github.com/MaxITService/Console2Ai) — send a PowerShell buffer to AI.
+- [AI for Complete Beginners](https://medium.com/@maxim.fomins/ai-for-complete-beginners-guide-llms-f19c4b8a8a79) — an introductory guide to LLMs.
+- [Ping-Plotter](https://github.com/MaxITService/Ping-Plotter-PS51) — a PowerShell ping plotting script.
