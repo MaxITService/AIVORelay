@@ -5,6 +5,7 @@ use crate::managers::tts_history::{
     TtsHistoryEntry, TtsHistoryManager, TtsHistoryScope, TtsHistorySourceKind,
 };
 use crate::settings::{
+    elevenlabs_supports_speed,
     LLMPrompt, TtsKeySource, TtsLlmScope, TtsOutputFormat, TtsProvider, TtsSettings,
     DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE,
 };
@@ -748,15 +749,15 @@ fn set_model_and_voice(
             TtsProvider::ElevenLabs => {
                 if !matches!(
                     model.as_str(),
-                    "eleven_flash_v2_5" | "eleven_v3" | "eleven_multilingual_v2"
+                    "eleven_flash_v2_5" | "eleven_v3" | "eleven_v4_turbo" | "eleven_multilingual_v2"
                 ) {
                     return Err(
-                        "ElevenLabs model must be eleven_flash_v2_5, eleven_v3, or eleven_multilingual_v2"
+                        "ElevenLabs model must be eleven_flash_v2_5, eleven_v3, eleven_v4_turbo, or eleven_multilingual_v2"
                             .to_string(),
                     );
                 }
                 settings.elevenlabs_model = model;
-                if settings.elevenlabs_model == "eleven_v3" {
+                if !elevenlabs_supports_speed(&settings.elevenlabs_model) {
                     settings.speed = 1.0;
                 }
             }

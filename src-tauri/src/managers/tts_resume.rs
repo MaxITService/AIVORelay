@@ -9,6 +9,7 @@ use super::tts::{
     PROVIDER_PCM_SAMPLE_RATE,
 };
 use crate::settings::{
+    elevenlabs_supports_speaker_boost, elevenlabs_supports_speed, elevenlabs_supports_style,
     ElevenLabsTextNormalization, TtsKeySource, TtsProvider, TtsSettings,
 };
 use anyhow::{anyhow, Context, Result};
@@ -527,7 +528,7 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
             },
             settings.elevenlabs_voice.trim(),
             "",
-            if settings.elevenlabs_model == "eleven_v3" {
+            if !elevenlabs_supports_speed(&settings.elevenlabs_model) {
                 1.0
             } else {
                 settings.speed.clamp(0.7, 1.2)
@@ -536,8 +537,12 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
                 stability_bits: settings.elevenlabs_stability.to_bits(),
                 similarity_boost_bits: (settings.elevenlabs_model != "eleven_v3")
                     .then_some(settings.elevenlabs_similarity_boost.to_bits()),
-                style_bits: settings.elevenlabs_style.to_bits(),
-                use_speaker_boost: (settings.elevenlabs_model != "eleven_v3")
+                style_bits: if elevenlabs_supports_style(&settings.elevenlabs_model) {
+                    settings.elevenlabs_style.to_bits()
+                } else {
+                    0.0_f32.to_bits()
+                },
+                use_speaker_boost: elevenlabs_supports_speaker_boost(&settings.elevenlabs_model)
                     .then_some(settings.elevenlabs_use_speaker_boost),
                 apply_text_normalization: settings.elevenlabs_apply_text_normalization,
             },
@@ -2141,6 +2146,28 @@ mod tests {
         let inferred = synthesis_signature(&chunks, &settings).unwrap();
         settings.elevenlabs_language = "en".to_string();
         assert_eq!(synthesis_signature(&chunks, &settings).unwrap(), inferred);
+    }
+
+    #[test]
+    fn elevenlabs_v4_turbo_resume_tracks_similarity_and_ignores_unused_controls() {
+        let chunks = vec![TtsChunk {
+            index: 1,
+            text: "hello".to_string(),
+            character_count: 5,
+            boundary_after: TtsBoundary::End,
+        }];
+        let mut settings = TtsSettings {
+            provider: TtsProvider::ElevenLabs,
+            elevenlabs_model: "eleven_v4_turbo".to_string(),
+            ..TtsSettings::default()
+        };
+        let signature = synthesis_signature(&chunks, &settings).unwrap();
+        settings.speed = 1.2;
+        settings.elevenlabs_style = 0.7;
+        settings.elevenlabs_use_speaker_boost = !settings.elevenlabs_use_speaker_boost;
+        assert_eq!(synthesis_signature(&chunks, &settings).unwrap(), signature);
+        settings.elevenlabs_similarity_boost = 0.25;
+        assert_ne!(synthesis_signature(&chunks, &settings).unwrap(), signature);
     }
 
     #[test]

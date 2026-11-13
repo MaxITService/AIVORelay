@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/elevenlabs-tts-endpoint
+      - feat/elevenlabs-v4-turbo
   workflow_dispatch:
 
 permissions:
@@ -23,6 +24,6 @@ jobs:
       asset-prefix: aivorelay-elevenlabs-fix
       upload-artifacts: true
       sign-binaries: false
-      backend-test-filter: elevenlabs_tts_url_
+      backend-test-filter: elevenlabs
       # ort-sys rc.12 assumes the pre-1.100 Cargo build-directory layout.
       rust-toolchain: "1.99.1"
