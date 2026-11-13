@@ -1075,6 +1075,18 @@ pub(crate) const DEFAULT_TTS_OPENAI_COMPATIBLE_VOICE: &str = "alloy";
 pub(crate) const DEFAULT_TTS_MURF_VOICE: &str = "Gordon";
 pub(crate) const DEFAULT_TTS_MURF_GEN2_VOICE: &str = "en-US-natalie";
 pub(crate) const DEFAULT_TTS_ELEVENLABS_MODEL: &str = "eleven_flash_v2_5";
+
+pub(crate) fn elevenlabs_supports_speed(model: &str) -> bool {
+    !matches!(model, "eleven_v3" | "eleven_v4_turbo")
+}
+
+pub(crate) fn elevenlabs_supports_style(model: &str) -> bool {
+    model != "eleven_v4_turbo"
+}
+
+pub(crate) fn elevenlabs_supports_speaker_boost(model: &str) -> bool {
+    !matches!(model, "eleven_v3" | "eleven_v4_turbo")
+}
 pub(crate) const DEFAULT_TTS_ELEVENLABS_VOICE: &str = "JBFqnCBsd6RMkjVDRZzb";
 pub(crate) const DEFAULT_TTS_CARTESIA_VOICE: &str =
     "f786b574-daa5-4673-aa0c-cbe3e8534c02";
@@ -1452,7 +1464,7 @@ impl TtsSynthesisConfig {
             }
         }
         settings.speed = if self.provider == TtsProvider::Murf
-            || (self.provider == TtsProvider::ElevenLabs && self.model == "eleven_v3")
+            || (self.provider == TtsProvider::ElevenLabs && !elevenlabs_supports_speed(&self.model))
         {
             1.0
         } else {
@@ -1810,6 +1822,15 @@ fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
             "ElevenLabs — Flash v2.5 (Interactive)",
             TtsProvider::ElevenLabs,
             "eleven_flash_v2_5",
+            DEFAULT_TTS_ELEVENLABS_VOICE,
+            "en",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_elevenlabs_v4_turbo",
+            "ElevenLabs — Eleven v4 Turbo (Fast, Expressive)",
+            TtsProvider::ElevenLabs,
+            "eleven_v4_turbo",
             DEFAULT_TTS_ELEVENLABS_VOICE,
             "en",
             1.0,

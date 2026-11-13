@@ -22,6 +22,7 @@ use crate::managers::tts_llm::{self, TtsLlmProgress};
 use crate::managers::tts_resume::{self, ResumeOrigin, ResumeWorkspace, WatcherResumeTask};
 use crate::managers::windows_tts::{self, WINDOWS_TTS_PROVIDER_LIMIT};
 use crate::settings::{
+    elevenlabs_supports_speaker_boost, elevenlabs_supports_speed, elevenlabs_supports_style,
     apply_text_replacements, ElevenLabsTextNormalization, TtsKeySource, TtsLlmScope,
     TtsOutputFormat, TtsProvider, TtsSettings, DEFAULT_TTS_CARTESIA_VOICE,
     DEFAULT_TTS_DEEPGRAM_MODEL, DEFAULT_TTS_ELEVENLABS_MODEL, DEFAULT_TTS_ELEVENLABS_VOICE,
@@ -74,6 +75,7 @@ pub const DEEPGRAM_CHARACTER_LIMIT: usize = 2_000;
 pub const OPENAI_CHARACTER_LIMIT: usize = 4_096;
 pub const MURF_CHARACTER_LIMIT: usize = 3_000;
 pub const ELEVENLABS_V3_CHARACTER_LIMIT: usize = 5_000;
+pub const ELEVENLABS_V4_TURBO_CHARACTER_LIMIT: usize = 10_000;
 pub const ELEVENLABS_MULTILINGUAL_V2_CHARACTER_LIMIT: usize = 10_000;
 pub const ELEVENLABS_FLASH_V2_5_CHARACTER_LIMIT: usize = 40_000;
 pub const CARTESIA_CONSERVATIVE_CHARACTER_LIMIT: usize = 4_000;
@@ -574,6 +576,7 @@ impl TtsManager {
                 "eleven_flash_v2_5" => ELEVENLABS_FLASH_V2_5_CHARACTER_LIMIT,
                 "eleven_multilingual_v2" => ELEVENLABS_MULTILINGUAL_V2_CHARACTER_LIMIT,
                 "eleven_v3" => ELEVENLABS_V3_CHARACTER_LIMIT,
+                "eleven_v4_turbo" => ELEVENLABS_V4_TURBO_CHARACTER_LIMIT,
                 _ => ELEVENLABS_V3_CHARACTER_LIMIT,
             },
             TtsProvider::Cartesia => CARTESIA_CONSERVATIVE_CHARACTER_LIMIT,
@@ -673,7 +676,7 @@ impl TtsManager {
         if settings.provider == TtsProvider::ElevenLabs {
             if !matches!(
                 settings.elevenlabs_model.as_str(),
-                "eleven_v3" | "eleven_multilingual_v2" | "eleven_flash_v2_5"
+                "eleven_v3" | "eleven_v4_turbo" | "eleven_multilingual_v2" | "eleven_flash_v2_5"
             ) {
                 return Err(anyhow!(
                     "Unsupported ElevenLabs TTS model: {}",
@@ -691,10 +694,11 @@ impl TtsManager {
                 32,
             )?;
             validate_iso_639_1_code("ElevenLabs language", &settings.elevenlabs_language)?;
-            if settings.elevenlabs_model == "eleven_v3" {
+            if !elevenlabs_supports_speed(&settings.elevenlabs_model) {
                 if settings.speed != 1.0 {
                     return Err(anyhow!(
-                        "ElevenLabs speed is unavailable for the Eleven v3 model"
+                        "ElevenLabs speed is unavailable for model {}",
+                        settings.elevenlabs_model
                     ));
                 }
             } else {
@@ -3665,62 +3669,8 @@ impl TtsManager {
                 }
             }
             TtsProvider::ElevenLabs => {
-                let mut url = reqwest::Url::parse(ELEVENLABS_TTS_BASE_URL).map_err(|error| {
-                    ProviderAttemptError {
-                        status: None,
-                        safe_message: format!("Invalid ElevenLabs endpoint: {error}"),
-                        transient: false,
-                        retry_after: None,
-                    }
-                })?;
-                url.path_segments_mut()
-                    .map_err(|_| ProviderAttemptError {
-                        status: None,
-                        safe_message: "Invalid ElevenLabs endpoint".to_string(),
-                        transient: false,
-                        retry_after: None,
-                    })?
-                    .push(nonempty_or(
-                        &settings.elevenlabs_voice,
-                        DEFAULT_TTS_ELEVENLABS_VOICE,
-                    ));
-                url.query_pairs_mut()
-                    .append_pair("output_format", "pcm_24000");
-                let is_v3 = settings.elevenlabs_model == "eleven_v3";
-                let mut voice_settings = json!({
-                    "stability": settings.elevenlabs_stability.clamp(0.0, 1.0),
-                    "style": settings.elevenlabs_style.clamp(0.0, 1.0),
-                });
-                if !is_v3 {
-                    voice_settings["similarity_boost"] = Value::from(
-                        settings.elevenlabs_similarity_boost.clamp(0.0, 1.0),
-                    );
-                    voice_settings["use_speaker_boost"] =
-                        Value::Bool(settings.elevenlabs_use_speaker_boost);
-                    voice_settings["speed"] = Value::from(settings.speed.clamp(0.7, 1.2));
-                }
-                let mut body = json!({
-                    "text": text,
-                    "model_id": nonempty_or(
-                        &settings.elevenlabs_model,
-                        DEFAULT_TTS_ELEVENLABS_MODEL
-                    ),
-                    "voice_settings": voice_settings,
-                    "apply_text_normalization": elevenlabs_normalization_value(
-                        settings.elevenlabs_apply_text_normalization
-                    ),
-                });
-                // ElevenLabs supports language_code for Flash v2.5 and Eleven
-                // v3. Multilingual v2 is the documented exception and infers
-                // language directly from the input text.
-                if elevenlabs_sends_language(
-                    &settings.elevenlabs_model,
-                    &settings.elevenlabs_language,
-                ) {
-                    body["language_code"] = Value::String(
-                        settings.elevenlabs_language.trim().to_ascii_lowercase(),
-                    );
-                }
+                let url = elevenlabs_tts_url(&settings.elevenlabs_voice)?;
+                let body = elevenlabs_tts_body(settings, text);
                 self.client
                     .post(url)
                     .header("xi-api-key", api_key)
@@ -4787,6 +4737,29 @@ fn validate_finite_range(label: &str, value: f32, minimum: f32, maximum: f32) ->
     }
 }
 
+fn elevenlabs_tts_url(voice: &str) -> std::result::Result<reqwest::Url, ProviderAttemptError> {
+    let mut url = reqwest::Url::parse(ELEVENLABS_TTS_BASE_URL).map_err(|error| {
+        ProviderAttemptError {
+            status: None,
+            safe_message: format!("Invalid ElevenLabs endpoint: {error}"),
+            transient: false,
+            retry_after: None,
+        }
+    })?;
+    url.path_segments_mut()
+        .map_err(|_| ProviderAttemptError {
+            status: None,
+            safe_message: "Invalid ElevenLabs endpoint".to_string(),
+            transient: false,
+            retry_after: None,
+        })?
+        .pop_if_empty()
+        .push(nonempty_or(voice, DEFAULT_TTS_ELEVENLABS_VOICE));
+    url.query_pairs_mut()
+        .append_pair("output_format", "pcm_24000");
+    Ok(url)
+}
+
 /// Whether the ElevenLabs request carries `language_code`. The resume signature
 /// uses the same rule so a language change invalidates resumable jobs.
 pub(crate) fn elevenlabs_sends_language(model: &str, language: &str) -> bool {
@@ -4799,6 +4772,40 @@ fn nonempty_or<'a>(value: &'a str, fallback: &'a str) -> &'a str {
     } else {
         value.trim()
     }
+}
+
+fn elevenlabs_tts_body(settings: &TtsSettings, text: &str) -> Value {
+    let mut voice_settings = json!({
+        "stability": settings.elevenlabs_stability.clamp(0.0, 1.0),
+    });
+    if settings.elevenlabs_model != "eleven_v3" {
+        voice_settings["similarity_boost"] =
+            Value::from(settings.elevenlabs_similarity_boost.clamp(0.0, 1.0));
+    }
+    if elevenlabs_supports_style(&settings.elevenlabs_model) {
+        voice_settings["style"] = Value::from(settings.elevenlabs_style.clamp(0.0, 1.0));
+    }
+    if elevenlabs_supports_speaker_boost(&settings.elevenlabs_model) {
+        voice_settings["use_speaker_boost"] = Value::Bool(settings.elevenlabs_use_speaker_boost);
+    }
+    if elevenlabs_supports_speed(&settings.elevenlabs_model) {
+        voice_settings["speed"] = Value::from(settings.speed.clamp(0.7, 1.2));
+    }
+    let mut body = json!({
+        "text": text,
+        "model_id": nonempty_or(&settings.elevenlabs_model, DEFAULT_TTS_ELEVENLABS_MODEL),
+        "voice_settings": voice_settings,
+        "apply_text_normalization": elevenlabs_normalization_value(
+            settings.elevenlabs_apply_text_normalization
+        ),
+    });
+    // Multilingual v2 infers language directly from the text. Other models accept
+    // a language hint; resume signatures use this same rule.
+    if elevenlabs_sends_language(&settings.elevenlabs_model, &settings.elevenlabs_language) {
+        body["language_code"] =
+            Value::String(settings.elevenlabs_language.trim().to_ascii_lowercase());
+    }
+    body
 }
 
 fn elevenlabs_normalization_value(value: ElevenLabsTextNormalization) -> &'static str {
@@ -6321,6 +6328,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn elevenlabs_tts_url_has_one_separator_before_the_voice() {
+        let url = elevenlabs_tts_url("custom-voice").unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://api.elevenlabs.io/v1/text-to-speech/custom-voice?output_format=pcm_24000"
+        );
+    }
+
+    #[test]
+    fn elevenlabs_tts_url_preserves_voice_fallback_and_path_encoding() {
+        let fallback = elevenlabs_tts_url("  ").unwrap();
+        assert_eq!(
+            fallback.path(),
+            format!("/v1/text-to-speech/{DEFAULT_TTS_ELEVENLABS_VOICE}")
+        );
+        let encoded = elevenlabs_tts_url("  custom/voice  ").unwrap();
+        assert_eq!(encoded.path(), "/v1/text-to-speech/custom%2Fvoice");
+    }
+
+    #[test]
     fn deepgram_tts_routes_flux_and_aura_to_their_required_endpoints() {
         assert_eq!(deepgram_tts_url("flux-kit-en"), DEEPGRAM_FLUX_TTS_URL);
         assert_eq!(deepgram_tts_url("aura-2-thalia-en"), DEEPGRAM_AURA_TTS_URL);
@@ -6399,10 +6426,57 @@ mod tests {
     }
 
     #[test]
+    fn elevenlabs_v4_turbo_request_omits_unsupported_controls() {
+        let mut settings = TtsSettings {
+            provider: TtsProvider::ElevenLabs,
+            elevenlabs_model: "eleven_v4_turbo".to_string(),
+            elevenlabs_stability: 0.5,
+            elevenlabs_similarity_boost: 0.75,
+            elevenlabs_style: 0.8,
+            elevenlabs_use_speaker_boost: true,
+            ..TtsSettings::default()
+        };
+        TtsManager::validate_settings(&settings).unwrap();
+        let body = elevenlabs_tts_body(&settings, "Hello.");
+        assert_eq!(body["model_id"], "eleven_v4_turbo");
+        assert_eq!(body["text"], "Hello.");
+        assert_eq!(body["language_code"], "en");
+        assert_eq!(body["voice_settings"], json!({
+            "stability": 0.5,
+            "similarity_boost": 0.75,
+        }));
+        settings.speed = 1.2;
+        assert!(TtsManager::validate_settings(&settings).is_err());
+    }
+
+    #[test]
+    fn elevenlabs_request_preserves_existing_model_controls() {
+        let mut settings = TtsSettings {
+            provider: TtsProvider::ElevenLabs,
+            ..TtsSettings::default()
+        };
+        let flash = elevenlabs_tts_body(&settings, "Hello.");
+        assert!(flash["voice_settings"].get("speed").is_some());
+        assert!(flash["voice_settings"].get("style").is_some());
+        assert!(flash["voice_settings"].get("use_speaker_boost").is_some());
+        settings.elevenlabs_model = "eleven_v3".to_string();
+        let v3 = elevenlabs_tts_body(&settings, "Hello.");
+        assert!(v3["voice_settings"].get("speed").is_none());
+        assert!(v3["voice_settings"].get("similarity_boost").is_none());
+        assert!(v3["voice_settings"].get("style").is_some());
+        settings.elevenlabs_model = "eleven_multilingual_v2".to_string();
+        assert!(elevenlabs_tts_body(&settings, "Hello.").get("language_code").is_none());
+    }
+
+    #[test]
     fn new_cloud_provider_limits_are_model_aware() {
         assert_eq!(
             TtsManager::provider_character_limit(TtsProvider::Murf, "falcon-2"),
             MURF_CHARACTER_LIMIT
+        );
+        assert_eq!(
+            TtsManager::provider_character_limit(TtsProvider::ElevenLabs, "eleven_v4_turbo"),
+            ELEVENLABS_V4_TURBO_CHARACTER_LIMIT
         );
         assert_eq!(
             TtsManager::provider_character_limit(TtsProvider::ElevenLabs, "eleven_v3"),

@@ -5,6 +5,7 @@
 //! removed; external user output paths are metadata and are never deleted.
 
 use crate::settings::{
+    elevenlabs_supports_speaker_boost, elevenlabs_supports_speed, elevenlabs_supports_style,
     ElevenLabsTextNormalization, TtsOutputFormat, TtsProvider, TtsSettings,
 };
 use anyhow::{anyhow, Context, Result};
@@ -200,12 +201,16 @@ pub fn provider_synthesis_config_from_settings(settings: &TtsSettings) -> Option
         },
         TtsProvider::ElevenLabs => ProviderSynthesisConfigSnapshot::ElevenLabs {
             version: 1,
-            speed: (settings.elevenlabs_model != "eleven_v3").then_some(settings.speed),
+            speed: elevenlabs_supports_speed(&settings.elevenlabs_model).then_some(settings.speed),
             stability: settings.elevenlabs_stability,
             similarity_boost: (settings.elevenlabs_model != "eleven_v3")
                 .then_some(settings.elevenlabs_similarity_boost),
-            style: settings.elevenlabs_style,
-            use_speaker_boost: (settings.elevenlabs_model != "eleven_v3")
+            style: if elevenlabs_supports_style(&settings.elevenlabs_model) {
+                settings.elevenlabs_style
+            } else {
+                0.0
+            },
+            use_speaker_boost: elevenlabs_supports_speaker_boost(&settings.elevenlabs_model)
                 .then_some(settings.elevenlabs_use_speaker_boost),
             apply_text_normalization: settings.elevenlabs_apply_text_normalization,
         },
@@ -264,16 +269,20 @@ pub fn apply_provider_synthesis_config(
             apply_text_normalization,
         } if settings.provider == TtsProvider::ElevenLabs && version == 1 => {
             settings.elevenlabs_stability = stability;
-            settings.elevenlabs_style = style;
-            if settings.elevenlabs_model == "eleven_v3" {
+            if elevenlabs_supports_style(&settings.elevenlabs_model) {
+                settings.elevenlabs_style = style;
+            }
+            if !elevenlabs_supports_speed(&settings.elevenlabs_model) {
                 settings.speed = 1.0;
-            } else {
-                if let Some(speed) = speed {
-                    settings.speed = speed;
-                }
+            } else if let Some(speed) = speed {
+                settings.speed = speed;
+            }
+            if settings.elevenlabs_model != "eleven_v3" {
                 if let Some(similarity_boost) = similarity_boost {
                     settings.elevenlabs_similarity_boost = similarity_boost;
                 }
+            }
+            if elevenlabs_supports_speaker_boost(&settings.elevenlabs_model) {
                 if let Some(use_speaker_boost) = use_speaker_boost {
                     settings.elevenlabs_use_speaker_boost = use_speaker_boost;
                 }
@@ -1547,6 +1556,28 @@ mod tests {
 
         source.provider = TtsProvider::Murf;
         assert!(apply_provider_synthesis_config(&mut source, &serialized).is_err());
+    }
+
+    #[test]
+    fn elevenlabs_v4_turbo_history_restores_similarity_and_keeps_fixed_speed() {
+        let mut settings = TtsSettings {
+            provider: TtsProvider::ElevenLabs,
+            elevenlabs_model: "eleven_v4_turbo".to_string(),
+            elevenlabs_similarity_boost: 0.75,
+            elevenlabs_style: 0.8,
+            ..TtsSettings::default()
+        };
+        let snapshot = provider_synthesis_config_from_settings(&settings).unwrap();
+        let controls: serde_json::Value = serde_json::from_str(&snapshot).unwrap();
+        assert!(controls.get("speed").is_none());
+        assert!(controls.get("use_speaker_boost").is_none());
+        assert_eq!(controls["similarity_boost"], 0.75);
+        settings.speed = 1.2;
+        settings.elevenlabs_similarity_boost = 0.25;
+        apply_provider_synthesis_config(&mut settings, &snapshot).unwrap();
+        assert_eq!(settings.speed, 1.0);
+        assert_eq!(settings.elevenlabs_similarity_boost, 0.75);
+        assert_eq!(settings.elevenlabs_style, 0.8);
     }
 
     #[test]

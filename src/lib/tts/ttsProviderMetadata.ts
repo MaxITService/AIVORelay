@@ -246,6 +246,7 @@ export const MURF_MODEL_OPTIONS = ["falcon-2.1", "falcon-2", "gen2"];
 
 export const ELEVENLABS_MODEL_OPTIONS = [
   "eleven_flash_v2_5",
+  "eleven_v4_turbo",
   "eleven_multilingual_v2",
   "eleven_v3",
 ];
