@@ -24,3 +24,5 @@ jobs:
       upload-artifacts: true
       sign-binaries: false
       backend-test-filter: elevenlabs_tts_url_
+      # ort-sys rc.12 assumes the pre-1.100 Cargo build-directory layout.
+      rust-toolchain: "1.99.1"
