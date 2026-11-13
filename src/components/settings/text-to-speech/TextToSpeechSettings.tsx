@@ -475,7 +475,7 @@ const providerInputLimit = (provider: TtsProvider, model: string): number => ({
   elevenlabs:
     model === "eleven_flash_v2_5"
       ? 40000
-      : model === "eleven_multilingual_v2"
+      : ["eleven_multilingual_v2", "eleven_v4_turbo"].includes(model)
         ? 10000
         : 5000,
   cartesia: 4000,
@@ -986,9 +986,11 @@ const ELEVENLABS_MODEL_SELECT_OPTIONS: SelectOption[] =
     label:
       value === "eleven_flash_v2_5"
         ? "Flash v2.5"
-        : value === "eleven_multilingual_v2"
-          ? "Multilingual v2"
-          : "Eleven v3",
+        : value === "eleven_v4_turbo"
+          ? "Eleven v4 Turbo"
+          : value === "eleven_multilingual_v2"
+            ? "Multilingual v2"
+            : "Eleven v3",
   }));
 
 const CARTESIA_MODEL_SELECT_OPTIONS: SelectOption[] =
@@ -1477,7 +1479,8 @@ const applySynthesisConfig = (
     provider: config.provider,
     speed:
       config.provider === "murf" ||
-      (config.provider === "elevenlabs" && config.model === "eleven_v3")
+      (config.provider === "elevenlabs" &&
+        ["eleven_v3", "eleven_v4_turbo"].includes(config.model))
         ? 1
         : config.speed,
     openai_instructions: config.voice_instructions,
@@ -1951,6 +1954,9 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       : providerCapabilities.speed;
   const elevenV3Selected =
     tts.provider === "elevenlabs" && tts.elevenlabs_model === "eleven_v3";
+  const elevenV4TurboSelected =
+    tts.provider === "elevenlabs" && tts.elevenlabs_model === "eleven_v4_turbo";
+  const elevenFixedSpeedSelected = elevenV3Selected || elevenV4TurboSelected;
   const openAiInstructionsSupported =
     !tts.openai_model.trim() ||
     tts.openai_model.trim().startsWith("gpt-4o-mini-tts");
@@ -5091,7 +5097,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 )}
               </SettingContainer>
             )}
-          {tts.provider !== "murf" && !elevenV3Selected && (
+          {tts.provider !== "murf" && !elevenFixedSpeedSelected && (
               <SettingContainer
                 grouped
                 title={t("textToSpeech.voice.speedTitle")}
@@ -5192,6 +5198,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           )}
           {tts.provider === "elevenlabs" && (
             <>
+              {elevenV4TurboSelected && (
+                <div className="bg-sky-400/10 px-6 py-3 text-sm text-sky-100">
+                  {t("textToSpeech.voice.elevenV4ControlsNote")}
+                </div>
+              )}
               {elevenV3Selected && (
                 <div className="bg-sky-400/10 px-6 py-3 text-sm text-sky-100">
                   {t("textToSpeech.voice.elevenV3ControlsNote")}
@@ -5241,26 +5252,28 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   />
                 </SettingContainer>
               )}
-              <SettingContainer
-                grouped
-                title={t("textToSpeech.voice.elevenStyleTitle")}
-                description={t("textToSpeech.voice.elevenStyleDescription")}
-              >
-                <CommittedNumberInput
-                  className="w-28"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={tts.elevenlabs_style}
-                  onCommit={(elevenlabs_style) =>
-                    void updateTts(
-                      { elevenlabs_style },
-                      "elevenlabs_style",
-                    )
-                  }
-                />
-              </SettingContainer>
-              {!elevenV3Selected && (
+              {!elevenV4TurboSelected && (
+                <SettingContainer
+                  grouped
+                  title={t("textToSpeech.voice.elevenStyleTitle")}
+                  description={t("textToSpeech.voice.elevenStyleDescription")}
+                >
+                  <CommittedNumberInput
+                    className="w-28"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={tts.elevenlabs_style}
+                    onCommit={(elevenlabs_style) =>
+                      void updateTts(
+                        { elevenlabs_style },
+                        "elevenlabs_style",
+                      )
+                    }
+                  />
+                </SettingContainer>
+              )}
+              {!elevenFixedSpeedSelected && (
                 <ToggleSwitch
                   grouped
                   checked={tts.elevenlabs_use_speaker_boost}

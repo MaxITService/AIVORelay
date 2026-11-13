@@ -22,6 +22,7 @@ use crate::managers::tts_history::{
     metadata_from_settings, TtsHistoryManager, TtsHistoryScope, TtsHistorySourceKind,
 };
 use crate::settings::{
+    elevenlabs_supports_speaker_boost, elevenlabs_supports_speed, elevenlabs_supports_style,
     get_settings, ElevenLabsTextNormalization, LLMPrompt, TextReplacement,
     TranscriptionProvider, TtsKeySource, TtsOutputFormat, TtsProvider, TtsSettings,
     DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE,
@@ -909,13 +910,16 @@ fn apply_tts_provider_override(
             TtsProvider::ElevenLabs => {
                 if !matches!(
                     model,
-                    "eleven_flash_v2_5" | "eleven_v3" | "eleven_multilingual_v2"
+                    "eleven_flash_v2_5" | "eleven_v3" | "eleven_v4_turbo" | "eleven_multilingual_v2"
                 ) {
                     return Err(CliFailure::usage(
-                        "--tts-model for elevenlabs must be eleven_flash_v2_5, eleven_v3, or eleven_multilingual_v2",
+                        "--tts-model for elevenlabs must be eleven_flash_v2_5, eleven_v3, eleven_v4_turbo, or eleven_multilingual_v2",
                     ));
                 }
                 settings.elevenlabs_model = model.to_string();
+                if !elevenlabs_supports_speed(&settings.elevenlabs_model) {
+                    settings.speed = 1.0;
+                }
             }
             TtsProvider::Cartesia => {
                 if !matches!(model, "sonic-3.6" | "sonic-3.5") {
@@ -1092,10 +1096,13 @@ fn apply_tts_conversion_overrides(
             ));
         }
         if settings.provider == TtsProvider::ElevenLabs
-            && settings.elevenlabs_model == "eleven_v3"
+            && !elevenlabs_supports_speed(&settings.elevenlabs_model)
         {
             return Err(CliFailure::usage(
-                "--tts-speed is not supported by Eleven v3; use v3 audio tags and punctuation to guide pacing",
+                format!(
+                    "--tts-speed is not supported by {}; use audio tags and punctuation to guide pacing",
+                    settings.elevenlabs_model
+                ),
             ));
         }
         if !speed.is_finite() {
@@ -1194,6 +1201,11 @@ fn apply_tts_conversion_overrides(
             TtsProvider::ElevenLabs,
             "--tts-elevenlabs-style",
         )?;
+        if !elevenlabs_supports_style(&settings.elevenlabs_model) {
+            return Err(CliFailure::usage(
+                "--tts-elevenlabs-style is unavailable for Eleven v4 Turbo",
+            ));
+        }
         settings.elevenlabs_style =
             validate_cli_float_range("--tts-elevenlabs-style", value, 0.0, 1.0)?;
     }
@@ -1203,9 +1215,12 @@ fn apply_tts_conversion_overrides(
             TtsProvider::ElevenLabs,
             "--tts-elevenlabs-speaker-boost",
         )?;
-        if settings.elevenlabs_model == "eleven_v3" {
+        if !elevenlabs_supports_speaker_boost(&settings.elevenlabs_model) {
             return Err(CliFailure::usage(
-                "--tts-elevenlabs-speaker-boost is unavailable for Eleven v3",
+                format!(
+                    "--tts-elevenlabs-speaker-boost is unavailable for {}",
+                    settings.elevenlabs_model
+                ),
             ));
         }
         settings.elevenlabs_use_speaker_boost = value;
@@ -1737,6 +1752,11 @@ fn effective_provider_controls(settings: &TtsSettings) -> Value {
             "pitch": settings.murf_pitch,
             "style": settings.murf_style,
         }),
+        TtsProvider::ElevenLabs if settings.elevenlabs_model == "eleven_v4_turbo" => json!({
+            "stability": settings.elevenlabs_stability,
+            "similarity_boost": settings.elevenlabs_similarity_boost,
+            "apply_text_normalization": settings.elevenlabs_apply_text_normalization,
+        }),
         TtsProvider::ElevenLabs if settings.elevenlabs_model == "eleven_v3" => json!({
             "stability": settings.elevenlabs_stability,
             "style": settings.elevenlabs_style,
@@ -1762,7 +1782,7 @@ fn effective_provider_controls(settings: &TtsSettings) -> Value {
 fn effective_tts_speed(settings: &TtsSettings) -> f32 {
     match settings.provider {
         TtsProvider::Murf => 1.0,
-        TtsProvider::ElevenLabs if settings.elevenlabs_model == "eleven_v3" => 1.0,
+        TtsProvider::ElevenLabs if !elevenlabs_supports_speed(&settings.elevenlabs_model) => 1.0,
         _ => settings.speed,
     }
 }
@@ -2452,6 +2472,36 @@ mod tests {
         assert_eq!(settings.elevenlabs_model, "eleven_flash_v2_5");
         assert_eq!(settings.elevenlabs_language, "en");
         assert_eq!(settings.speed, 1.1);
+    }
+
+    #[test]
+    fn elevenlabs_v4_turbo_cli_accepts_similarity_and_rejects_unsupported_controls() {
+        let args = CliArgs {
+            tts_provider: Some(CliTtsProvider::Elevenlabs),
+            tts_model: Some("eleven_v4_turbo".to_string()),
+            tts_elevenlabs_similarity_boost: Some(0.75),
+            ..CliArgs::default()
+        };
+        let mut settings = TtsSettings {
+            speed: 1.2,
+            ..TtsSettings::default()
+        };
+        apply_tts_provider_override(&args, &mut settings).unwrap();
+        apply_tts_conversion_overrides(&args, &mut settings).unwrap();
+        assert_eq!(settings.speed, 1.0);
+        let controls = effective_provider_controls(&settings);
+        assert_eq!(controls["similarity_boost"], 0.75);
+        assert!(controls.get("speed").is_none());
+        assert!(controls.get("style").is_none());
+        assert!(controls.get("use_speaker_boost").is_none());
+        for (flag, overrides) in [
+            ("--tts-speed", CliArgs { tts_speed: Some(1.1), ..CliArgs::default() }),
+            ("--tts-elevenlabs-style", CliArgs { tts_elevenlabs_style: Some(0.5), ..CliArgs::default() }),
+            ("--tts-elevenlabs-speaker-boost", CliArgs { tts_elevenlabs_speaker_boost: Some(true), ..CliArgs::default() }),
+        ] {
+            let error = apply_tts_conversion_overrides(&overrides, &mut settings).unwrap_err();
+            assert!(error.message.contains(flag), "{}", error.message);
+        }
     }
 
     #[test]

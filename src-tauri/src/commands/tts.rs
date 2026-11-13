@@ -21,6 +21,7 @@ use crate::managers::tts_llm;
 use crate::managers::tts_resume::UiFileJobSummary;
 use crate::managers::windows_tts::{self, WindowsVoiceCatalog};
 use crate::settings::{
+    elevenlabs_supports_speed,
     get_settings, write_settings, LlmPostProcessBenchmarkResult, TtsLlmScope, TtsOperationScope,
     TtsOutputFormat, TtsPlaybackEffect, TtsProvider, TtsScopeSynthesisSettings, TtsSettings,
     TtsSynthesisConfig, APPLE_INTELLIGENCE_PROVIDER_ID, DEFAULT_TTS_CARTESIA_VOICE,
@@ -1763,7 +1764,7 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
         TtsProvider::OpenAi => settings.speed.clamp(0.25, 4.0),
         TtsProvider::OpenAiCompatible => settings.speed.clamp(0.25, 4.0),
         TtsProvider::Murf => 1.0,
-        TtsProvider::ElevenLabs if settings.elevenlabs_model == "eleven_v3" => 1.0,
+        TtsProvider::ElevenLabs if !elevenlabs_supports_speed(&settings.elevenlabs_model) => 1.0,
         TtsProvider::ElevenLabs => settings.speed.clamp(0.7, 1.2),
         TtsProvider::Cartesia => settings.speed.clamp(0.6, 1.5),
         TtsProvider::Edge => settings.speed.clamp(0.5, 2.0),
@@ -1895,7 +1896,7 @@ fn normalize_synthesis_config(
         TtsProvider::Deepgram => normalize_deepgram_tts_speed(&config.model, config.speed),
         TtsProvider::OpenAi | TtsProvider::OpenAiCompatible => config.speed.clamp(0.25, 4.0),
         TtsProvider::Murf => 1.0,
-        TtsProvider::ElevenLabs if config.model == "eleven_v3" => 1.0,
+        TtsProvider::ElevenLabs if !elevenlabs_supports_speed(&config.model) => 1.0,
         TtsProvider::ElevenLabs => config.speed.clamp(0.7, 1.2),
         TtsProvider::Cartesia => config.speed.clamp(0.6, 1.5),
         TtsProvider::Edge
