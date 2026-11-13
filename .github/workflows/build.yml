@@ -36,6 +36,10 @@ on:
         required: false
         type: boolean
         default: false
+      backend-test-filter:
+        required: false
+        type: string
+        default: ""
     secrets:
       CODE_CERT_MAXITSERVICE_01_2026:
         required: false
@@ -654,6 +658,20 @@ jobs:
           args: ${{ inputs.build-args }}
 
       # Uploaded even for releases: decodes frontend stack traces in user logs.
+      - name: Run targeted backend tests
+        if: inputs.backend-test-filter != ''
+        shell: bash
+        env:
+          BACKEND_TEST_FILTER: ${{ inputs.backend-test-filter }}
+        run: |
+          set -euo pipefail
+          export PATH="$GITHUB_WORKSPACE/src-tauri/transcribe-libs:$PATH"
+          args=(--manifest-path src-tauri/Cargo.toml --lib)
+          if [ "${{ steps.build-profile.outputs.profile }}" = "release" ]; then
+            args+=(--release)
+          fi
+          cargo test "${args[@]}" "$BACKEND_TEST_FILTER"
+
       - name: Upload frontend sourcemaps
         uses: actions/upload-artifact@v4
         continue-on-error: true
