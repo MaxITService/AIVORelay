@@ -1,0 +1,28 @@
+name: "Build ElevenLabs fix for Windows"
+
+on:
+  push:
+    branches:
+      - fix/elevenlabs-tts-endpoint
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: elevenlabs-fix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    uses: ./.github/workflows/build.yml
+    with:
+      platform: windows-latest
+      target: x86_64-pc-windows-msvc
+      build-args: --bundles msi --no-sign --config src-tauri/tauri.package-check.conf.json
+      asset-prefix: aivorelay-elevenlabs-fix
+      upload-artifacts: true
+      sign-binaries: false
+      backend-test-filter: elevenlabs_tts_url_
+      # ort-sys rc.12 assumes the pre-1.100 Cargo build-directory layout.
+      rust-toolchain: "1.99.1"

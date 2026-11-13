@@ -36,6 +36,14 @@ on:
         required: false
         type: boolean
         default: false
+      backend-test-filter:
+        required: false
+        type: string
+        default: ""
+      rust-toolchain:
+        required: false
+        type: string
+        default: stable
     secrets:
       CODE_CERT_MAXITSERVICE_01_2026:
         required: false
@@ -214,6 +222,7 @@ jobs:
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ inputs.rust-toolchain }}
           # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
           targets: ${{ contains(inputs.platform, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
@@ -654,6 +663,20 @@ jobs:
           args: ${{ inputs.build-args }}
 
       # Uploaded even for releases: decodes frontend stack traces in user logs.
+      - name: Run targeted backend tests
+        if: inputs.backend-test-filter != ''
+        shell: bash
+        env:
+          BACKEND_TEST_FILTER: ${{ inputs.backend-test-filter }}
+        run: |
+          set -euo pipefail
+          export PATH="$GITHUB_WORKSPACE/src-tauri/transcribe-libs:$PATH"
+          args=(--manifest-path src-tauri/Cargo.toml --lib)
+          if [ "${{ steps.build-profile.outputs.profile }}" = "release" ]; then
+            args+=(--release)
+          fi
+          cargo test "${args[@]}" "$BACKEND_TEST_FILTER"
+
       - name: Upload frontend sourcemaps
         uses: actions/upload-artifact@v4
         continue-on-error: true
