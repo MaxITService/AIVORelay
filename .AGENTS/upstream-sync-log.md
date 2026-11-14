@@ -6,6 +6,68 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Reviewed intake (2026-11-14):
+- Safe review cursor: `aca89851` — release v0.10.1. All 32 ordinary commits
+  after `82dfab9f` were reviewed; this corridor contains no merge commits.
+- Integrated or adapted 19 commits (including one partial adaptation):
+  - `73cc8579` in `569089770` — fix(deps): update TLS dependencies for security
+    advisories. Targeted Cargo resolution, preserving the fork graph; the new
+    rustls also requires a newer AWS-LC backend. No upstream lockfile import.
+  - `40b8e722` in `468ae690d` — fix(overlay): disable WebView2 context menu on
+    the recording overlay (#2403).
+  - `bd87c72c`, `e2861031`, `310749bd` in `6cba15143` — fix(linux): respect
+    display overrides and package update support. Fork-prefixed AppImage
+    backend override, Gamescope WSI policy before workers, package-aware updater.
+  - `c530a49c` in `c8d8e1058` — fix: keep X11 overlay resizable so Bottom stays
+    on screen (#2447); fork dynamic window geometry retained.
+  - `dce29768` in `2619ab27f` — fix(macos): reset stale grants when requesting
+    permissions. Recheck grants before resetting only this app's permissions.
+  - `ca4a6116` in `d2a65af45` — fix(transcription): discard punctuation-only
+    local results, after the fork's language-aware cleanup.
+  - `d6543027`, `70f490ec` in `404250daf` — fix(notices): explain missing
+    models and silent microphones. Reuse pre-VAD capture reports and existing
+    notice generations/settings navigation; keep onboarding diagnostics.
+  - `2eab8fc2` in `e9aab187e` — fix: replace the transcription worker after a
+    backend error (#2485). Retain fork partial-result recovery and safe abort
+    fault injection instead of undefined null-pointer writes.
+  - `f2483011` in `7629dd4e8` — fix(download): use hf-hub Range fallback for
+    filtering proxies. Compared the pinned fork's tokio source against the
+    upstream final tree: cancellation and x-linked-size behavior are preserved.
+  - `0ff1ce1e`, `f01b807e` in `3139f69ef` — fix(deps): update native
+    transcription and shortcut libraries. Native ModelOptions updated in both
+    the worker and in-process language detector; backend features retained.
+  - `3c7a538a` in `6302bb6cd` — fix: find the ydotoold socket when
+    YDOTOOL_SOCKET is not set (#2427).
+  - `bd4b0271` in `db95a8b4c` — fix: try the next paste tool when one fails on
+    Linux (#2495), adapted to the fork's shared paste-key dispatcher.
+  - `e5294479` in `2653f5e58` — fix(windows): report blocked input into
+    elevated windows. Query at shared Enigo dispatch; retain existing error
+    reporting and clipboard/session cleanup. Unknown integrity stays fail-open.
+  - `d2ee8717` in `5e28277ff` — fix(overlay): don't steal focus when the overlay
+    falls back to X11 (#2488).
+  - `4a096e35` partially in `37f465693` — fix(linux): send the Insert keysym for
+    Shift+Insert. Retain existing defaults and saved delays. PRIMARY-selection
+    ownership/restore needs a separate adaptation to the fork's streaming
+    clipboard transactions; no settings migration was added.
+- Retained existing fork behavior: `88185c8b` (the recursive WebView log target
+  is absent); `0911f2b9` (bounded 600-second LLM requests and cancellation,
+  preserving long reasoning rather than imposing upstream's 60-second limit);
+  `27322df7` (model-list requests already have a 60-second timeout);
+  `c67ec6a8`, `b5920f25` (evidence-aware Chinese conversion and Japanese/Korean
+  protection); `56c7e217` (event timestamps already captured before dequeue).
+- Intentionally excluded: `1fe3ae27`, `2696c497`, `1472087b` (the new Opus
+  decoder and its ARM build fixes target upstream's separate Symphonia decoder;
+  the fork uses Rodio with duration/memory preflight and streaming file paths.
+  This optional feature needs a separate decoder integration); `d628da4c`
+  (handy-recorder is absent); `1e10e719` (the fork does not send custom words in
+  native RunOptions.vocabulary); `7102b634` (upstream build-guide housekeeping);
+  `aca89851` (upstream release version).
+- Source/diff review and JSON/TOML parsing only. Cargo update resolved selected
+  dependency versions without compiling. No builds, tests, typechecks,
+  formatters, app/dev-process actions or pushes were run. Generated bindings
+  require the user's next dev launch. Linux/macOS and runtime behavior remain
+  unverified. Work stayed on `main`; release/frozen branches were not changed.
+
 Completed intake and consolidation (2026-11-03):
 - Safe review cursor for the next intake: `82dfab9f` — Merge branch 'main' of
   github.com:cjpais/Handy. All 28 commits after `7bfb2e2c`, including both
