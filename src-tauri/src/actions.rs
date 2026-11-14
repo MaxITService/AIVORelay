@@ -2356,6 +2356,10 @@ fn start_recording_with_feedback_with_settings(
         };
         if let Some(error) = error {
             warn!("Not starting recording: {error}");
+            if model_id.trim().is_empty() {
+                crate::notices::raise(app, "model", None, "error", "No model selected",
+                    Some("errors.noModelSelectedTitle"), Some(error.clone()), Some("models"));
+            }
             let _ = app.emit(
                 "model-state-changed",
                 crate::managers::transcription::ModelStateEvent {

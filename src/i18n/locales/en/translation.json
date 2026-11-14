@@ -5160,6 +5160,8 @@
     "modelDownloadFailed": "Failed to download model: {{model}}",
     "modelDownloadFailedUnknown": "Unknown model",
     "noInputDeviceTitle": "No Microphone Found",
+    "noModelSelectedTitle": "No Model Selected",
+    "microphoneSilentTitle": "Microphone Is Silent",
     "noInputDevice": "No audio input device was detected. Please connect a microphone or headset and try again.",
     "microphonePermissionDeniedTitle": "Microphone Access Blocked",
     "microphonePermissionDenied": "Windows privacy settings do not allow AivoRelay to use the microphone. Allow microphone access for desktop apps and try again."
