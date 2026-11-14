@@ -10,7 +10,7 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 - Portable users can choose **Advanced → Portable Data Storage** to keep data beside the app or in this computer's standard user folder. Restart to apply the choice; existing files are never moved or merged. Windows API keys remain in Windows Credential Manager; choosing another key-storage location is planned for a future version.
 - Portable update prompts explain that the MSI installs or updates the desktop copy without updating the portable folder or importing its data.
 - **Transcribe File**, including saving its audio to **History**, now opens `.opus`, `.oga`, Ogg Opus, and WebM Opus recordings directly.
-- Added **ElevenLabs v4 Turbo** in **Speak selected text** and **Text file to MP3**, with voice controls and inline audio tags. Fixed an ElevenLabs request address issue.
+- Added **ElevenLabs v4 Turbo** in **Speak selected text** and **Text file to MP3**, with voice controls and inline audio tags. Fixed an ElevenLabs request address issue. Thanks to @waLLxAck for the contribution.
 - With a clipboard paste method, an **experimental, off-by-default** option can leave the finished transcript on the clipboard when Windows blocks insertion into an administrator window. An in-app notice explains how to paste with `Ctrl+V`; enabling this option overrides clipboard restoration for that fallback.
 - Improved Linux `Shift+Insert` support, selection restoration, paste-tool fallback, overlay positioning, and input-tool detection. Improved macOS permission rechecks.
 - Added clearer missing-model and silent-microphone notices. Local recognition ignores punctuation-only results, can recover after graphics errors, and handles model downloads through filtering proxies more reliably.
