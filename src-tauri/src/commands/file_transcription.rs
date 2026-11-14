@@ -1,6 +1,6 @@
 //! File transcription commands - transcribe audio files to text
 //!
-//! Supports common audio formats: wav, mp3, m4a, ogg, flac, webm
+//! Supports common audio formats: wav, mp3, m4a, ogg, oga, opus, flac, webm
 //! Uses the same transcription infrastructure as live recording.
 
 use crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID;
@@ -582,7 +582,7 @@ pub fn get_file_transcription_recording_state(
 }
 
 /// Supported audio file extensions
-pub(super) const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "flac", "webm"];
+pub(super) const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "oga", "opus", "flac", "webm"];
 const SONIOX_LATEST_ASYNC_MODEL: &str = "stt-async-v6";
 const FILE_TRANSCRIPTION_CANCELLED_MESSAGE: &str = "File transcription was cancelled";
 const FILE_TRANSCRIPTION_MODEL_LOAD_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -1958,6 +1958,12 @@ fn probe_audio_duration(path: &PathBuf) -> Result<f64, String> {
     use std::fs::File;
     use std::io::BufReader;
 
+    if let Some(source) = crate::audio_toolkit::audio::opus::OpusInput::open(path)? {
+        return source.duration.ok_or_else(|| {
+            "The Opus audio duration could not be determined safely before decoding. Convert the file to WAV and try again.".to_string()
+        });
+    }
+
     let extension = path
         .extension()
         .and_then(|extension| extension.to_str())
@@ -2029,6 +2035,11 @@ fn decode_audio_for_history(path: &PathBuf) -> Result<Vec<f32>, String> {
     use rodio::Source;
     use std::fs::File;
     use std::io::BufReader;
+
+    if let Some(source) = crate::audio_toolkit::audio::opus::OpusInput::open(path)? {
+        let channels = source.channels;
+        return resample_history_input(source, crate::audio_toolkit::audio::opus::SAMPLE_RATE, channels);
+    }
 
     let extension = path.extension().and_then(|value| value.to_str())
         .unwrap_or_default().to_lowercase();
@@ -2137,6 +2148,11 @@ fn decode_audio_file(path: &PathBuf) -> Result<Vec<f32>, String> {
     use std::fs::File;
     use std::io::BufReader; // Import trait for sample_rate() and channels()
 
+    if let Some(source) = crate::audio_toolkit::audio::opus::OpusInput::open(path)? {
+        let channels = source.channels;
+        return resample_history_input(source, crate::audio_toolkit::audio::opus::SAMPLE_RATE, channels);
+    }
+
     let extension = path
         .extension()
         .and_then(|e| e.to_str())
@@ -2208,7 +2224,7 @@ fn audio_mime_type_for_extension(extension: &str) -> Option<&'static str> {
     match extension {
         "m4a" => Some("audio/mp4"),
         "mp3" => Some("audio/mpeg"),
-        "ogg" => Some("audio/ogg"),
+        "ogg" | "oga" | "opus" => Some("audio/ogg"),
         "flac" => Some("audio/flac"),
         "webm" => Some("audio/webm"),
         _ => None,

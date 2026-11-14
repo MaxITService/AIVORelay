@@ -3,6 +3,8 @@ import { isSupportedAudioPath, queueIncomingAudio, shouldQueueIncomingAudio, sho
 
 test("routes supported audio only outside file and speech workspaces", () => {
   expect(isSupportedAudioPath("C:\\folder.wav\\voice.MP3")).toBe(true);
+  expect(isSupportedAudioPath("/tmp/voice.OPUS")).toBe(true);
+  expect(isSupportedAudioPath("/tmp/voice.oga")).toBe(true);
   expect(isSupportedAudioPath("C:\\folder.wav\\no-extension")).toBe(false);
   expect(isSupportedAudioPath("/tmp/.wav")).toBe(false);
   expect(shouldRouteAudioDrop("general", ["notes.txt", "/tmp/voice.wav"])).toBe(true);

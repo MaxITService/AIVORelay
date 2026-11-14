@@ -3,6 +3,7 @@ mod device;
 #[cfg(target_os = "macos")]
 mod headset_macos;
 mod noise_suppression;
+pub(crate) mod opus;
 mod recorder;
 mod resampler;
 mod utils;

@@ -5332,7 +5332,7 @@
     "dropZone": {
       "title": "Drop audio file here or click to browse",
       "subtitle": "Select an audio file to transcribe",
-      "formats": "WAV, MP3, M4A, OGG, FLAC, WebM"
+      "formats": "WAV, MP3, M4A, OGG, OGA, Opus, FLAC, WebM"
     },
     "profileLabel": "Transcription profile",
     "usingProfile": "Using profile",
