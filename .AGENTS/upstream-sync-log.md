@@ -16,13 +16,19 @@ Reviewed intake (2026-11-14):
   passed, plus TypeScript typecheck. No real elevated-window input was tested.
 - Safe review cursor: `aca89851` — release v0.10.1. All 32 ordinary commits
   after `82dfab9f` were reviewed; this corridor contains no merge commits.
-- Integrated or adapted 20 commits (including one partial adaptation):
+- Integrated or adapted 22 commits (including one partial adaptation):
   - `1fe3ae27` — feat(audio): decode Opus files with the vendored codec.
     Streaming Ogg/Opus/WebM input reuses the fork's libopus and 16 kHz
     resampler; existing duration checks and non-Opus decoding are preserved.
     Added Opus/OGA to GUI and CLI imports. The upstream mono and stereo
     120 ms fixtures pass in an isolated native codec harness; cargo check and
     the frontend incoming-audio tests pass. No upstream lockfile import.
+  - `2696c497`, `1472087b` — Windows ARM64 Opus build fixes adapted to the
+    fork's verified vendored libopus, without adding a second codec dependency.
+    CMake disables intrinsics only for the Windows/aarch64 target, including
+    cross-compiles; other targets retain their optimizations. The new mono and
+    stereo in-memory codec round-trip test passes on Windows x64. ARM64
+    compilation, linking and runtime still require ARM64 CI or hardware.
   - `73cc8579` in `569089770` — fix(deps): update TLS dependencies for security
     advisories. Targeted Cargo resolution, preserving the fork graph; the new
     rustls also requires a newer AWS-LC backend. No upstream lockfile import.
@@ -68,8 +74,7 @@ Reviewed intake (2026-11-14):
   `27322df7` (model-list requests already have a 60-second timeout);
   `c67ec6a8`, `b5920f25` (evidence-aware Chinese conversion and Japanese/Korean
   protection); `56c7e217` (event timestamps already captured before dequeue).
-- Intentionally excluded: `2696c497`, `1472087b` (Opus ARM build fixes still
-  need adaptation to the fork's vendored CMake build); `d628da4c`
+- Intentionally excluded: `d628da4c`
   (handy-recorder is absent); `1e10e719` (the fork does not send custom words in
   native RunOptions.vocabulary); `7102b634` (upstream build-guide housekeeping);
   `aca89851` (upstream release version).
