@@ -4566,6 +4566,16 @@
         "title": "App Data Directory",
         "description": "Location where AivoRelay stores its data"
       },
+      "portableStorage": {
+        "title": "Portable Data Storage",
+        "description": "Choose where this portable copy stores settings, models, history and other app data. The choice takes effect after restarting AivoRelay.",
+        "portable": "Beside the app (Data folder)",
+        "desktop": "Desktop app data folder",
+        "active": "Currently using: {{location}}",
+        "keepData": "Data stays in each folder. Switching uses the settings already in the selected folder, or defaults if it is empty. Files are not copied or deleted.",
+        "restartRequired": "Restart AivoRelay to use the selected folder.",
+        "restart": "Restart AivoRelay"
+      },
       "sourceCode": {
         "title": "Source Code",
         "description": "View source code and contribute to this project",
