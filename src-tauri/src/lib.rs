@@ -1277,7 +1277,7 @@ pub fn run(cli_args: CliArgs) {
     memory::init_allocator();
 
     tls::initialize();
-    portable::init();
+    portable::init().expect("Failed to initialize app data storage");
 
     if cli_args.cancel && cli_file_conversion::request_headless_conversion_cancel() {
         return;
@@ -1638,6 +1638,8 @@ pub fn run(cli_args: CliArgs) {
         commands::cancel_operation,
         commands::get_app_dir_path,
         commands::is_portable,
+        commands::get_portable_storage,
+        commands::set_portable_storage,
         commands::get_app_settings,
         commands::take_settings_store_reset_notice,
         commands::consume_speech_only_recovery_notice,

@@ -89,7 +89,21 @@ pub fn get_app_dir_path(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 #[specta::specta]
 pub fn is_portable() -> bool {
-    crate::portable::data_dir().is_some()
+    crate::portable::is_portable()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_portable_storage(
+    app: AppHandle,
+) -> Result<Option<crate::portable::PortableStorageStatus>, String> {
+    crate::portable::storage_status(&app)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_portable_storage(mode: crate::portable::StorageMode) -> Result<(), String> {
+    crate::portable::set_storage_mode(mode)
 }
 
 #[tauri::command]
