@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
-use log::{debug, info, warn};
+use log::{info, warn};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -486,7 +486,6 @@ impl Reson8RealtimeManager {
     {
         let mut audio_input_closed = false;
         let mut flush_sent = false;
-        let mut flush_confirmed = false;
         let mut accumulated_text = String::new();
 
         loop {
@@ -552,9 +551,6 @@ impl Reson8RealtimeManager {
                             ))
                         })?,
                         None => {
-                            if flush_confirmed {
-                                break;
-                            }
                             return Err(anyhow!(
                                 "Reson8 WebSocket closed before flush confirmation was received"
                             ));
@@ -586,7 +582,6 @@ impl Reson8RealtimeManager {
                                 }
                                 ServerEvent::FlushConfirmed => {
                                     if flush_sent {
-                                        flush_confirmed = true;
                                         break;
                                     }
                                 }
@@ -606,9 +601,6 @@ impl Reson8RealtimeManager {
                         }
                         Message::Pong(_) | Message::Binary(_) => {}
                         Message::Close(_) => {
-                            if flush_confirmed {
-                                break;
-                            }
                             return Err(anyhow!(
                                 "Reson8 WebSocket closed before flush confirmation was received"
                             ));
