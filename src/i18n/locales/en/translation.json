@@ -3159,7 +3159,7 @@
           "movingTitle": "Moving the portable folder vs. Desktop storage",
           "movingBody": "In Data folder mode, moving or copying the portable app folder carries the Data folder and your storage choice with it. Some Hugging Face models may also be read from an existing cache on this computer; those external cache files do not travel with the portable folder. In Desktop app data folder mode, data remains on this computer in your per-user folder and does not travel with the portable app; opening the portable app on another computer or user account uses that machine's own desktop folder.",
           "updatesTitle": "Portable updates",
-          "updatesBody": "Switching to Desktop app data folder does not turn a portable copy into an installed app. This copy remains a portable distribution, so automatic in-app self-updates stay unavailable and update checks will prompt you to download the installer manually.",
+          "updatesBody": "Switching to Desktop app data folder does not turn a portable copy into an installed app. This copy remains a portable distribution, so automatic in-app self-updates stay unavailable and update checks will prompt you to download the installer manually. The offered MSI installs or updates the desktop version. Your portable folder stays in place, and its Data folder is not imported into the desktop version automatically.",
           "caveatsTitle": "Portability limits (keys & external paths)",
           "caveatsBody": "Not everything lives inside the Data folder. On Windows, saved API keys are stored in Windows Credential Manager for this Windows user account independently of the storage mode: switching between Data folder and Desktop storage on the same Windows account still uses those same saved keys (they do not become separate per folder), while moving the portable folder to another PC or Windows account does not carry saved API keys. (On Linux and macOS, API keys are stored in the settings file inside the active data folder.) External folders you choose yourself (such as TTS watched folders, screenshot folder, extension export folder, or custom script/command paths) stay where they point and may not exist on another machine; launch-at-login registrations are also tied to this computer and executable path."
         }
@@ -5096,7 +5096,7 @@
     "preparing": "Preparing...",
     "checkForUpdates": "Check for updates",
     "portableUpdateTitle": "Manual update required",
-    "portableUpdateMessage": "The portable version cannot update itself. Download and run the signed MSI installer to finish updating. Your existing portable Data folder will not be deleted.",
+    "portableUpdateMessage": "The portable version cannot update itself. The signed MSI installer installs or updates the desktop version. Your portable folder is not updated automatically; its existing Data folder stays in place and is not imported into the desktop version automatically.",
     "portableUpdateButton": "Download installer",
     "vramLabel": "VRAM",
     "vramUnavailable": "VRAM N/A",
