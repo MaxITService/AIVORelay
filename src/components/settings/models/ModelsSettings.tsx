@@ -540,7 +540,7 @@ export const ModelsSettings: React.FC = () => {
             }`}
           >
             <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <Cloud className={`w-4 h-4 ${row.iconClassName}`} />
                   <p className="text-sm font-medium text-[#f5f5f5]">
@@ -569,6 +569,7 @@ export const ModelsSettings: React.FC = () => {
                 <Button
                   variant="secondary"
                   size="sm"
+                  className="shrink-0 whitespace-nowrap"
                   disabled={switchingRemoteApiId === row.id || isCustomUnavailable}
                   onClick={() => void handleRemoteApiSelect(row)}
                 >
