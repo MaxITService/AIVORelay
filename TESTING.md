@@ -87,6 +87,14 @@ Run it with:
 
 Update this section every time new tests are added.
 
+### Reson8 Rumble-2 language adaptation (2026-11-14)
+
+- `reson8_language::tests` covers the authoritative 56-code Rumble-2 catalog, frontend/backend catalog parity, provider-code aliases (`no` → `nb`, `tl` → `fil`, `jw` → `jv`), case/region and Chinese script normalization, unsupported-language omission, duplicate hints, and comma-list joining.
+- `managers::remote_stt::tests::reson8_prerecorded_request_` verifies the prerecorded request wrapper applies those rules (including unsupported Hebrew) and never sends `auto`.
+- Frontend `src/lib/constants/reson8Languages.test.ts` and `src/lib/sttLanguageOptions.test.ts` cover catalog identity matching and provider/model-scoped profile choices, including unrelated presets retaining their normal list.
+- Run the backend batch while AivoRelay is open with `.\test-local.ps1 -LibOnly -Filter 'reson8_language::tests','managers::remote_stt::tests::reson8_prerecorded_request_','tray_language::tests::provider_scope_matches_rumble_2_and_keeps_soniox_behavior'`.
+- Run the frontend checks with `bun test ./src/lib/constants/reson8Languages.test.ts ./src/lib/sttLanguageOptions.test.ts`.
+
 ### Reson8 finalized-chunk transport (2026-11-14)
 
 - `managers::reson8_realtime::tests` exercises request construction, finalized-only parsing, chunk boundaries, audio drain/flush confirmation, early peer closure, overflow abort, and credential redaction using in-memory transports.

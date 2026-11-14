@@ -19,8 +19,8 @@ import { InfoTooltip } from "../ui/InfoTooltip";
 import { SonioxContextEditor, isSonioxContextValid } from "./SonioxContextEditor";
 import type { ModelOption } from "./PostProcessingSettingsApi/types";
 import type { useSettings } from "../../hooks/useSettings";
-import { LANGUAGES, supportsLanguageCode } from "../../lib/constants/languages";
-import { isLanguageSupportedBySoniox } from "../../lib/constants/sonioxLanguages";
+import { LANGUAGES } from "../../lib/constants/languages";
+import { sttLanguageOptions } from "../../lib/sttLanguageOptions";
 import { getModelPromptInfo } from "./TranscriptionSystemPrompt";
 import { useNavigationStore } from "../../stores/navigationStore";
 import { getPostProcessingAvailability } from "../../lib/postProcessingAvailability";
@@ -30,7 +30,10 @@ import { ChineseScriptFields } from "./ChineseScript";
 import { SttModelSelector } from "./SttModelSelector";
 import { KeyActionsBadge, ProfileOutputSettingsFields, getGlobalProfileOutputDefaults, profileKeyActionsEnabled, profileOutputDefaults } from "./ProfileOutputSettings";
 import type { ProfileOutputSettings as OutputSettings } from "@/lib/profileOutputSettings";
-import type { SttModelSelection } from "../../lib/sttModelSelection";
+import {
+  isReson8Selection,
+  type SttModelSelection,
+} from "../../lib/sttModelSelection";
 import { navigateToSettingsAnchor } from "../../lib/anchorNavigation";
 import { getShortcutAnchorId, getShortcutSettingsSection } from "@/lib/shortcutAnchors";
 import { openLivePreviewSettings } from "../../lib/transcriptionProfileNavigation";
@@ -91,6 +94,7 @@ export const profileSttPresentation = (
   const provider = selection.provider;
   const modelId = selection.model_id ?? "";
   const isSonioxProvider = provider === "remote_soniox";
+  const isReson8Provider = isReson8Selection(selection);
   const isGeminiProvider =
     provider === "remote_openai_compatible" &&
     modelId.toLowerCase().includes("gemini-3.5-transcribe");
@@ -104,25 +108,12 @@ export const profileSttPresentation = (
       : provider === "remote_openai_compatible"
         ? getModelPromptInfo(modelId, undefined, false)
         : getModelPromptInfo(modelId, localModel?.engine_type);
-  const languageOptions = isSonioxProvider
-    ? LANGUAGES.filter((language) =>
-        isLanguageSupportedBySoniox(language.value),
-      )
-    : provider === "local" && localModel?.supported_languages?.length
-      ? LANGUAGES.filter(
-          (language) =>
-            language.value === "auto" ||
-            language.value === "os_input" ||
-            supportsLanguageCode(
-              localModel.supported_languages,
-              language.value,
-            ),
-        )
-      : LANGUAGES;
+  const languageOptions = sttLanguageOptions(selection, localModels);
 
   return {
     isGeminiProvider,
     isSonioxProvider,
+    isReson8Provider,
     languageOptions,
     promptLimit: promptInfo.supportsPrompt ? promptInfo.charLimit : 0,
     supportsSttPrompt: promptInfo.supportsPrompt,
@@ -273,7 +264,7 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
     ? "settings.general.pushToTalk.autoPttDisabledHelp"
     : "settings.general.pushToTalk.description");
   const effectiveSttSelection = profile.stt_model_selection_override ?? globalSttModelSelection;
-  const { languageOptions, supportsSttPrompt, promptLimit, isSonioxProvider, isGeminiProvider } =
+  const { languageOptions, supportsSttPrompt, promptLimit, isSonioxProvider, isReson8Provider, isGeminiProvider } =
     profileSttPresentation(effectiveSttSelection, localSttModels);
   const [languageDetectionOpen, setLanguageDetectionOpen] = useWindowState(`profile-${profile.id}-language-detection`, false);
   const localLanguageModel = effectiveSttSelection.provider === "local"
@@ -285,7 +276,7 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
     languages: spokenLanguageState.compatible.map(spokenLanguageLabel).join(", "),
     language: spokenLanguageState.summaryLanguage ? spokenLanguageLabel(spokenLanguageState.summaryLanguage) : "",
   });
-  const showSonioxLanguageFallbackWarning = !languageOptions.some(option => option.value === profile.language);
+  const showSttLanguageFallbackWarning = !languageOptions.some(option => option.value === profile.language);
   const postProcessingAvailable = getPostProcessingAvailability(settings, {
     sttSelection: effectiveSttSelection,
     profilePreviewOutputOnlyEnabled: profile.preview_output_only_enabled,
@@ -447,13 +438,16 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
       const locale = GEMINI_LOCALES.find(([, value]) => value === selection);
       return locale ? `${locale[0]} (${selection})` : selection;
     }
-    const lang = LANGUAGES.find((l) => l.value === profile.language);
+    const lang =
+      LANGUAGES.find((l) => l.value === profile.language) ??
+      languageOptions.find((l) => l.value === profile.language);
     return (
       lang?.label || profile.language || t("settings.general.language.auto")
     );
   }, [
     globalGeminiLanguageCode,
     isGeminiProvider,
+    languageOptions,
     profile.gemini_language_code_override,
     profile.language,
     t,
@@ -469,12 +463,14 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
         value: profile.language,
         label: isSonioxProvider
           ? `${languageLabel} (fallback to auto in Soniox)`
-          : `${languageLabel} (fallback to auto for selected model)`,
+          : isReson8Provider
+            ? `${languageLabel} (fallback to auto in Reson8)`
+            : `${languageLabel} (fallback to auto for selected model)`,
         className: "text-amber-400",
       },
       ...languageOptions,
     ];
-  }, [languageLabel, languageOptions, profile.language, isSonioxProvider]);
+  }, [languageLabel, languageOptions, profile.language, isSonioxProvider, isReson8Provider]);
 
   const promptLength = systemPromptDraft.length;
   const isOverLimit = promptLimit > 0 && promptLength > promptLimit;
@@ -1078,17 +1074,22 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
                   <InfoTooltip content={t("settings.advanced.soniox.languageHintsStrict.description")} />
                 </div>
               )}
-              {showSonioxLanguageFallbackWarning && (
+              {showSttLanguageFallbackWarning && (
                 <p className="text-xs text-amber-400/90">
                   {isSonioxProvider
                     ? t(
                         "settings.transcriptionProfiles.sonioxLanguageFallbackWarning",
                         "This language is not supported by Soniox. Soniox requests will fallback to auto-detect.",
                       )
-                    : t(
-                        "settings.transcriptionProfiles.localModelLanguageFallbackWarning",
-                        "This language is not supported by the selected local model. Requests will fallback to auto-detect.",
-                      )}
+                    : isReson8Provider
+                      ? t(
+                          "settings.transcriptionProfiles.reson8LanguageFallbackWarning",
+                          "This language is not supported by Reson8 Rumble-2. Reson8 requests will fallback to auto-detect.",
+                        )
+                      : t(
+                          "settings.transcriptionProfiles.localModelLanguageFallbackWarning",
+                          "This language is not supported by the selected local model. Requests will fallback to auto-detect.",
+                        )}
                 </p>
               )}
               </div>

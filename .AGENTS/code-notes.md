@@ -42,6 +42,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/commands/key_listener.rs` | Commands for key listener. |
 | `src-tauri/src/shortcut_handy_keys.rs` | Ported upstream HandyKeys shortcut backend and backend-side shortcut recording. |
 | `src-tauri/src/language_resolver.rs` | Soniox language resolver. |
+| `src-tauri/src/reson8_language.rs` | Reson8 Rumble-2 supported-language catalog and request normalization: maps UI/OS identities (`no`, `tl`, `jw`, Chinese script variants) to provider codes (`nb`, `fil`, `jv`, `zh`), deduplicates comma lists, and omits unsupported or auto values so the API auto-detects. |
 | `src-tauri/src/language_detection/` | CPU-only VoxLingua language selection for local completed-audio transcription, with preferred-language policy, bounded speech extraction, native-stream fallback and an empty-preferences compatibility default. The separate model is downloaded with SHA-256 verification through `ModelManager`. |
 | `src-tauri/src/text_replacement_decapitalize.rs` | Decapitalize trigger. |
 | `src-tauri/src/llm_live_output.rs` | Live insertion of a streamed LLM post-processing answer (per profile, Default = `post_process_live_stream_insert`): replacements, decapitalize and held whitespace via the shared stream-chunk engine; `actions.rs` `LlmLiveInsert` pastes through `live_output_buffer` with the live-STT window/clipboard/cancel path. An error before the first text falls back to the plain transcription. |
@@ -119,6 +120,8 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/model-selector/nativeStreamingModel.ts` | Shared frontend detection for Moonshine streaming models whose external output is final-only. |
 | `src/components/settings/debug/ShortcutEngineSelector.tsx` | Shortcut engine toggle UI. |
 | `src/lib/constants/sonioxLanguages.ts` | Soniox languages mapping. |
+| `src/lib/constants/reson8Languages.ts` | Reson8 Rumble-2 supported-language catalog plus recognition-identity normalization for provider-code matching. |
+| `src/lib/sttLanguageOptions.ts` | Provider/model-scoped language choices shared by profile settings and regression tests. |
 | `src/lib/constants/remoteSttProviders.ts` | Remote STT preset metadata for Groq/OpenAI/custom URL handling. |
 | `src/components/settings/text-to-speech/TextToSpeechSettings.tsx` | Interactive TTS providers, secure key source, a bundled playable voice gallery that can apply exact sample settings, searchable/grouped/creatable provider values, live voice refresh where provider APIs permit it, grouped help with human documentation links, two-step local download consent and source/path/size/license disclosure, voice prompt presets, preprocessing, chunk/retry controls, non-destructive playback pitch/effects, overlay keys, opt-in in-memory Listen Later queue, opt-in Interactive History replay fallback, and Interactive History. |
 | `src/components/settings/text-to-speech/TtsVoiceGallery.tsx` | Collapsed-by-default, provider-grouped gallery of bundled Ogg Opus voice samples shared by Interactive and File TTS; cards disclose and apply the exact sample synthesis settings. |
