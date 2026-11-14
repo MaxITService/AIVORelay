@@ -889,6 +889,9 @@ fn lock_enigo_and_run<T>(
     app_handle: &AppHandle,
     f: impl FnOnce(&mut Enigo) -> Result<T, String>,
 ) -> Result<T, String> {
+    if crate::utils::foreground_window_is_elevated() {
+        return Err("Windows blocks input into a window running with higher privileges. Paste the text manually, or run AivoRelay with matching privileges.".to_string());
+    }
     let enigo_state = app_handle
         .try_state::<EnigoState>()
         .ok_or("Enigo state not initialized")?;
