@@ -692,7 +692,7 @@ mod tests {
     fn test_filter_filler_words_case_insensitive() {
         let text = "UM this is UH a test";
         let result = filter_transcription_output(text, "en", &None);
-        assert_eq!(result, "this is a test");
+        assert_eq!(result, "This is a test");
     }
 
     #[test]
@@ -734,7 +734,50 @@ mod tests {
     fn test_filter_combined() {
         let text = "  Um, so [AUDIO] I was, uh, thinking (pause) about this  ";
         let result = filter_transcription_output(text, "en", &None);
-        assert_eq!(result, "so I was, thinking about this");
+        assert_eq!(result, "So I was, thinking about this");
+    }
+
+    #[test]
+    fn test_filter_preserves_ha_names() {
+        for text in ["Ha Long Bay is beautiful.", "Ha Noi is the capital.", "ha ha"] {
+            assert_eq!(filter_transcription_output(text, "en", &None), text);
+        }
+    }
+
+    #[test]
+    fn test_filter_restores_sentence_capitals() {
+        for (text, expected) in [
+            (
+                "Um, so I think we should ship it.",
+                "So I think we should ship it.",
+            ),
+            ("That works. Um, let me check.", "That works. Let me check."),
+            ("He said, Um, not today.", "He said, not today."),
+            ("um, so I think", "so I think"),
+            ("Um, uh, let's go.", "Let's go."),
+            ("Um, über alles.", "Über alles."),
+            ("Um, 42 things.", "42 things."),
+        ] {
+            assert_eq!(filter_transcription_output(text, "en", &None), expected);
+        }
+    }
+
+    #[test]
+    fn test_filter_custom_fillers_restore_capitals_only_when_enabled() {
+        let fillers = Some(vec!["maybe".to_string()]);
+        assert_eq!(
+            filter_transcription_output("Maybe, this works.", "en", &fillers),
+            "This works."
+        );
+        assert_eq!(
+            remove_filler_words(
+                "Maybe, this works.",
+                &OutputLanguageEvidence::Unknown,
+                &fillers,
+                false,
+            ),
+            "Maybe, this works."
+        );
     }
 
     #[test]
