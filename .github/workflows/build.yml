@@ -923,6 +923,9 @@ jobs:
           }
           Copy-Item $exePath $stagingDir/
 
+          # portable::init() uses this marker to keep app data beside the EXE.
+          New-Item -ItemType File -Force -Path (Join-Path $stagingDir "portable") | Out-Null
+
           $runtimeDlls = Get-ChildItem "src-tauri/transcribe-libs" -Filter "*.dll" -ErrorAction SilentlyContinue
           if (-not $runtimeDlls) {
             Write-Error "src-tauri/transcribe-libs contains no DLLs; Windows builds must stage app-local runtime DLLs"
