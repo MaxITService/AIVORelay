@@ -12,6 +12,128 @@ const DESKTOP_DATA_PREFERENCE: &str = "use-desktop-data";
 const REDIRECTED_HF_HOME_ENV: &str = "AIVORELAY_PORTABLE_HF_HOME";
 const ORIGINAL_HF_HOME_ENV: &str = "AIVORELAY_ORIGINAL_HF_HOME";
 
+#[cfg(any(test, target_os = "windows"))]
+const WIN32_ERROR_SUCCESS: i32 = 0;
+#[cfg(any(test, target_os = "windows"))]
+const WIN32_ERROR_INSUFFICIENT_BUFFER: i32 = 122;
+#[cfg(any(test, target_os = "windows"))]
+const WIN32_APPMODEL_ERROR_NO_PACKAGE: i32 = 15_700;
+
+#[cfg(any(test, target_os = "windows"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowsPackageIdentity {
+    Unpackaged,
+    Packaged,
+    UnexpectedError(i32),
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn classify_package_identity_code(code: i32) -> WindowsPackageIdentity {
+    match code {
+        WIN32_APPMODEL_ERROR_NO_PACKAGE => WindowsPackageIdentity::Unpackaged,
+        WIN32_ERROR_SUCCESS | WIN32_ERROR_INSUFFICIENT_BUFFER => WindowsPackageIdentity::Packaged,
+        other => WindowsPackageIdentity::UnexpectedError(other),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn detect_windows_package_identity() -> Result<WindowsPackageIdentity, String> {
+    use windows::core::{s, w};
+    use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+
+    type PackageNameFn = unsafe extern "system" fn(*mut u32, *mut u16) -> i32;
+
+    // Resolve dynamically so startup keeps the existing minimum Windows version
+    // and avoids extra Windows-SDK crate features.
+    let kernel32 = unsafe { GetModuleHandleW(w!("kernel32.dll")) }
+        .map_err(|error| format!("GetModuleHandleW(kernel32.dll) failed: {error}"))?;
+    let address = unsafe {
+        GetProcAddress(kernel32, s!("GetCurrentPackageFullName"))
+            .or_else(|| GetProcAddress(kernel32, s!("GetCurrentPackageFamilyName")))
+    }
+    .ok_or_else(|| "AppModel package-identity API is unavailable in kernel32.dll".to_string())?;
+
+    // SAFETY: `GetProcAddress` returned the documented AppModel query symbol
+    // (`LONG WINAPI (UINT32*, PWSTR)`).
+    let query_fn: PackageNameFn = unsafe { std::mem::transmute(address) };
+    let mut buffer = [0u16; 256];
+    let mut length = buffer.len() as u32;
+    // SAFETY: `length` holds `buffer`'s capacity in UTF-16 code units and
+    // `buffer` is valid for writes up to `length` elements.
+    let code = unsafe { query_fn(&mut length, buffer.as_mut_ptr()) };
+    Ok(classify_package_identity_code(code))
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn should_allow_portable_for_identity(identity: Result<WindowsPackageIdentity, String>) -> bool {
+    match identity {
+        Ok(WindowsPackageIdentity::Unpackaged) => true,
+        Ok(WindowsPackageIdentity::Packaged) => false,
+        Ok(WindowsPackageIdentity::UnexpectedError(code)) => {
+            log::warn!(
+                "Windows package identity check returned unexpected code {code}; disabling portable storage"
+            );
+            false
+        }
+        Err(error) => {
+            log::warn!(
+                "Windows package identity check failed ({error}); disabling portable storage"
+            );
+            false
+        }
+    }
+}
+
+fn portable_allowed_on_host() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        should_allow_portable_for_identity(detect_windows_package_identity())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        true
+    }
+}
+
+struct ResolvedPortablePaths {
+    exe_dir: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
+    portable_hf_home: Option<PathBuf>,
+}
+
+fn resolve_portable_paths(
+    exe_dir: &Path,
+    portable_allowed: bool,
+) -> Result<ResolvedPortablePaths, String> {
+    if !portable_allowed {
+        return Ok(ResolvedPortablePaths {
+            exe_dir: None,
+            data_dir: None,
+            portable_hf_home: None,
+        });
+    }
+
+    let is_portable = exe_dir
+        .join("portable")
+        .try_exists()
+        .map_err(|error| format!("Cannot read portable marker: {error}"))?;
+    let data_dir = if is_portable && configured_mode(exe_dir)? == StorageMode::Portable {
+        let data_dir = exe_dir.join("Data");
+        std::fs::create_dir_all(&data_dir)
+            .map_err(|error| format!("Cannot create portable data directory: {error}"))?;
+        Some(data_dir)
+    } else {
+        None
+    };
+    let portable_hf_home = data_dir.as_deref().map(hugging_face_home);
+
+    Ok(ResolvedPortablePaths {
+        exe_dir: is_portable.then(|| exe_dir.to_path_buf()),
+        data_dir,
+        portable_hf_home,
+    })
+}
+
 pub fn init() -> Result<(), String> {
     // Tauri restarts inherit our environment. Undo only our own redirection
     // before selecting this session's storage mode, preserving user overrides.
@@ -28,28 +150,24 @@ pub fn init() -> Result<(), String> {
     std::env::remove_var(ORIGINAL_HF_HOME_ENV);
     PREVIOUS_HF_HOME.get_or_init(|| std::env::var_os("HF_HOME").map(PathBuf::from));
 
+    if !portable_allowed_on_host() {
+        PORTABLE_EXE_DIR.get_or_init(|| None);
+        PORTABLE_DATA_DIR.get_or_init(|| None);
+        return Ok(());
+    }
+
     let exe_path = std::env::current_exe().map_err(|error| error.to_string())?;
     let exe_dir = exe_path.parent().ok_or("Cannot resolve executable directory")?;
-    let is_portable = exe_dir
-        .join("portable")
-        .try_exists()
-        .map_err(|error| format!("Cannot read portable marker: {error}"))?;
-    let data_dir = if is_portable && configured_mode(exe_dir)? == StorageMode::Portable {
-        let data_dir = exe_dir.join("Data");
-        std::fs::create_dir_all(&data_dir)
-            .map_err(|error| format!("Cannot create portable data directory: {error}"))?;
-        let portable_hf_home = hugging_face_home(&data_dir);
+    let resolved = resolve_portable_paths(exe_dir, true)?;
+    if let Some(portable_hf_home) = &resolved.portable_hf_home {
         if let Some(home) = &hf_home {
             std::env::set_var(ORIGINAL_HF_HOME_ENV, home);
         }
-        std::env::set_var(REDIRECTED_HF_HOME_ENV, &portable_hf_home);
+        std::env::set_var(REDIRECTED_HF_HOME_ENV, portable_hf_home);
         std::env::set_var("HF_HOME", portable_hf_home);
-        Some(data_dir)
-    } else {
-        None
-    };
-    PORTABLE_EXE_DIR.get_or_init(|| is_portable.then(|| exe_dir.to_path_buf()));
-    PORTABLE_DATA_DIR.get_or_init(|| data_dir);
+    }
+    PORTABLE_EXE_DIR.get_or_init(|| resolved.exe_dir);
+    PORTABLE_DATA_DIR.get_or_init(|| resolved.data_dir);
     Ok(())
 }
 
@@ -203,8 +321,10 @@ pub fn store_path(relative: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        configured_mode, hugging_face_home, original_hf_home, save_storage_mode, StorageMode,
-        DESKTOP_DATA_PREFERENCE,
+        classify_package_identity_code, configured_mode, hugging_face_home, original_hf_home,
+        resolve_portable_paths, save_storage_mode, should_allow_portable_for_identity, StorageMode,
+        WindowsPackageIdentity, DESKTOP_DATA_PREFERENCE, WIN32_APPMODEL_ERROR_NO_PACKAGE,
+        WIN32_ERROR_INSUFFICIENT_BUFFER, WIN32_ERROR_SUCCESS,
     };
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -373,5 +493,83 @@ mod tests {
         );
         let changed = Some(std::ffi::OsString::from("user-changed-hf-home"));
         assert_eq!(original_hf_home(changed.clone(), redirected, original), changed);
+    }
+
+    #[test]
+    fn windows_package_identity_classification_handles_packaged_unpackaged_and_errors() {
+        assert_eq!(
+            classify_package_identity_code(WIN32_APPMODEL_ERROR_NO_PACKAGE),
+            WindowsPackageIdentity::Unpackaged
+        );
+        assert_eq!(
+            classify_package_identity_code(WIN32_ERROR_SUCCESS),
+            WindowsPackageIdentity::Packaged
+        );
+        assert_eq!(
+            classify_package_identity_code(WIN32_ERROR_INSUFFICIENT_BUFFER),
+            WindowsPackageIdentity::Packaged
+        );
+        assert_eq!(
+            classify_package_identity_code(87),
+            WindowsPackageIdentity::UnexpectedError(87)
+        );
+    }
+
+    #[test]
+    fn portable_storage_policy_allows_only_explicitly_unpackaged_identity() {
+        assert!(should_allow_portable_for_identity(Ok(
+            WindowsPackageIdentity::Unpackaged
+        )));
+        assert!(!should_allow_portable_for_identity(Ok(
+            WindowsPackageIdentity::Packaged
+        )));
+        assert!(!should_allow_portable_for_identity(Ok(
+            WindowsPackageIdentity::UnexpectedError(5)
+        )));
+        assert!(!should_allow_portable_for_identity(Err(
+            "api unavailable".to_string()
+        )));
+    }
+
+    #[test]
+    fn disallowed_portable_storage_ignores_marker_and_skips_data_dir_creation() {
+        let root = unique_temp_dir("packaged-guard");
+        let marker = root.0.join("portable");
+        std::fs::write(&marker, b"portable-marker").unwrap();
+
+        let resolved = resolve_portable_paths(&root.0, false).unwrap();
+        assert!(resolved.exe_dir.is_none());
+        assert!(resolved.data_dir.is_none());
+        assert!(resolved.portable_hf_home.is_none());
+        assert!(!root.0.join("Data").exists());
+        assert_eq!(std::fs::read(&marker).unwrap(), b"portable-marker");
+    }
+
+    #[test]
+    fn allowed_portable_storage_resolves_marker_and_desktop_preference() {
+        let root = unique_temp_dir("unpackaged-portable");
+        let missing_marker = resolve_portable_paths(&root.0, true).unwrap();
+        assert!(missing_marker.exe_dir.is_none());
+        assert!(missing_marker.data_dir.is_none());
+        assert!(missing_marker.portable_hf_home.is_none());
+
+        std::fs::write(root.0.join("portable"), b"").unwrap();
+        let active_portable = resolve_portable_paths(&root.0, true).unwrap();
+        assert_eq!(active_portable.exe_dir.as_deref(), Some(root.0.as_path()));
+        assert_eq!(
+            active_portable.data_dir.as_deref(),
+            Some(root.0.join("Data").as_path())
+        );
+        assert_eq!(
+            active_portable.portable_hf_home.as_deref(),
+            Some(root.0.join("Data").join("huggingface").as_path())
+        );
+        assert!(root.0.join("Data").is_dir());
+
+        save_storage_mode(&root.0, StorageMode::Desktop).unwrap();
+        let desktop_pref = resolve_portable_paths(&root.0, true).unwrap();
+        assert_eq!(desktop_pref.exe_dir.as_deref(), Some(root.0.as_path()));
+        assert!(desktop_pref.data_dir.is_none());
+        assert!(desktop_pref.portable_hf_home.is_none());
     }
 }
