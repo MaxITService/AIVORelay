@@ -89,6 +89,18 @@ function Get-AivoRelayLaunchProcesses {
     }
 }
 
+function Test-AivoRelayProductionPath {
+    param([string]$Path, [string]$TargetRoot, [string]$CargoTargetDir)
+
+    if (-not $Path -or $Path -match '(?i)\\debug\\') { return $false }
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    foreach ($root in @($TargetRoot, $CargoTargetDir)) {
+        $prefix = [IO.Path]::GetFullPath($root).TrimEnd('\', '/') + '\'
+        if ($fullPath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+    }
+    return $true
+}
+
 function Assert-AivoRelayLaunchPorts {
     [CmdletBinding()]
     param([int[]]$Ports)
@@ -107,68 +119,25 @@ function Assert-AivoRelayLaunchPorts {
     }
 }
 
-function Assert-AivoRelayLaunchConfirmation {
-    if (-not [Environment]::UserInteractive -or [Console]::IsInputRedirected) {
-        throw 'Close the listed AivoRelay processes, or run the launcher in an interactive PowerShell to confirm with Enter.'
-    }
-    $answer = Read-Host 'Press Enter to stop these processes and continue; type anything to cancel'
-    if ($answer -ne '') {
-        throw 'AivoRelay launch cancelled; the existing processes were left running.'
-    }
-}
-
 function Confirm-AivoRelayLaunch {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$TargetRoot,
         [string]$CargoTargetDir = 'Q:\t\d',
-        [int[]]$Ports = @(1420)
+        [int[]]$Ports = @(1420),
+        [switch]$NoSwitch
     )
 
-    $lookup = @{ TargetRoot = $TargetRoot; CargoTargetDir = $CargoTargetDir }
-    $running = @(Get-AivoRelayLaunchProcesses @lookup)
-    if ($running.Count -eq 0) {
-        Assert-AivoRelayLaunchPorts -Ports $Ports
-        return
-    }
-
-    Write-Host 'An AivoRelay app or development session is already running:' -ForegroundColor Yellow
-    $running | Sort-Object Depth, ProcessId |
-        Select-Object Name, ProcessId, ExecutablePath | Format-Table -AutoSize | Out-Host
-    Assert-AivoRelayLaunchConfirmation
-
-    # Stop controllers first so they cannot respawn the app/server. Validate
-    # creation times immediately before stopping, in case a PID was reused.
-    foreach ($process in ($running | Sort-Object Depth, ProcessId)) {
-        $current = Get-CimInstance Win32_Process -Filter "ProcessId = $($process.ProcessId)" -ErrorAction Stop
-        if (-not $current -or $current.CreationDate -ne $process.CreationDate) { continue }
-        try {
-            $instance = Get-Process -Id $process.ProcessId -ErrorAction Stop
-            if ($process.Name -match '^aivorelay(\.exe)?$' -and $instance.CloseMainWindow()) {
-                $null = $instance.WaitForExit(1500)
-            }
-            if (-not $instance.HasExited) {
-                Stop-Process -InputObject $instance -Force -ErrorAction Stop
-                if (-not $instance.WaitForExit(5000)) {
-                    throw 'The process did not exit.'
-                }
-            }
+    # The switching launcher manages production itself. Only -NoSwitch needs
+    # the old process lookup, and it must never prompt or terminate processes.
+    if ($NoSwitch) {
+        $running = @(Get-AivoRelayLaunchProcesses -TargetRoot $TargetRoot -CargoTargetDir $CargoTargetDir)
+        if ($running.Count -gt 0) {
+            Write-Host 'An AivoRelay app or development session is already running:' -ForegroundColor Yellow
+            $running | Sort-Object Depth, ProcessId |
+                Select-Object Name, ProcessId, ExecutablePath | Format-Table -AutoSize | Out-Host
+            throw 'AivoRelay launch cancelled (-NoSwitch): close the existing app/dev session first. No processes were stopped.'
         }
-        catch {
-            if (Get-CimInstance Win32_Process -Filter "ProcessId = $($process.ProcessId)" -ErrorAction Stop |
-                Where-Object { $_.CreationDate -eq $process.CreationDate }) {
-                throw "Could not stop $($process.Name) [$($process.ProcessId)]: $($_.Exception.Message)"
-            }
-        }
-    }
-
-    # Allow the previous interactive launcher's finally block to restore its
-    # temporary Cargo config before Fast-Dev snapshots that file again.
-    Start-Sleep -Milliseconds 500
-    $remaining = @(Get-AivoRelayLaunchProcesses @lookup)
-    if ($remaining.Count -gt 0) {
-        throw 'An AivoRelay process is still running or was restarted. Close that session before launching again.'
     }
     Assert-AivoRelayLaunchPorts -Ports $Ports
-    Write-Host 'Previous AivoRelay processes stopped. Continuing launch...' -ForegroundColor Green
 }

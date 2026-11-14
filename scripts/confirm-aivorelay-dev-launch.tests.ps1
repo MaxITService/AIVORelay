@@ -4,38 +4,15 @@ Set-StrictMode -Version Latest
 
 $script:processFixture = @()
 $script:checks = 0
-$script:stopChecks = $false
-$script:stopped = @()
-$script:reusedId = -1
+$script:forbidLookup = $false
 function Get-CimInstance {
     param([string]$ClassName, [string]$Filter, [string]$ErrorAction)
-    if ($Filter) {
-        if (-not $script:stopChecks) { throw 'A read-only selection test must not inspect processes for termination.' }
-        if ($Filter -notmatch '^ProcessId = (\d+)$') { throw 'Unexpected process lookup.' }
-        $id = [int]$Matches[1]
-        if ($id -eq $script:reusedId) {
-            # The snapshot's PID now belongs to a newly created process.
-            return New-ProcessFixture $id 0 aivorelay.exe '' 10
-        }
-        return $script:processFixture | Where-Object ProcessId -eq $id
-    }
+    if ($script:forbidLookup) { throw 'Switching mode must not perform the old process preflight.' }
+    if ($Filter) { throw 'Preflight must never inspect processes for termination.' }
     return $script:processFixture
 }
-function Stop-Process {
-    param($InputObject, [switch]$Force, [string]$ErrorAction)
-    if (-not $script:stopChecks) { throw 'These tests must never stop a real process.' }
-    $script:stopped += $InputObject.Id
-    $InputObject.HasExited = $true
-    $script:processFixture = @($script:processFixture | Where-Object ProcessId -ne $InputObject.Id)
-}
-function Get-Process {
-    param([int]$Id, [string]$ErrorAction)
-    if (-not $script:stopChecks) { throw 'These tests must never access a real process for termination.' }
-    $process = [pscustomobject]@{ Id = $Id; HasExited = $false }
-    $process | Add-Member ScriptMethod CloseMainWindow { return $false }
-    $process | Add-Member ScriptMethod WaitForExit { param($Timeout) return $this.HasExited }
-    return $process
-}
+function Stop-Process { throw 'Preflight must never stop a real process.' }
+function Get-Process { throw 'Preflight must never access a process for termination.' }
 function Read-Host { throw 'A non-interactive launch must not prompt or stop a process.' }
 function Assert-Equal {
     param($Actual, $Expected, [string]$Message)
@@ -76,7 +53,7 @@ $script:processFixture = @(
 )
 Assert-Equal (Get-SelectedIds) @(101, 102, 103, 104, 105, 106) 'Dev process tree selection'
 $depths = @(Get-AivoRelayLaunchProcesses -TargetRoot 'Q:\AIVORelay' | Sort-Object ProcessId | ForEach-Object { $_.Depth })
-Assert-Equal $depths @(0, 1, 2, 3, 4, 3) 'Controllers precede children when stopping'
+Assert-Equal $depths @(0, 1, 2, 3, 4, 3) 'Controller/child depth ordering'
 
 $script:processFixture = @(
     (New-ProcessFixture 210 0 node.exe 'node Q:\AIVORelay-store\node_modules\vite.js'),
@@ -110,16 +87,34 @@ Assert-Equal (Get-SelectedIds) @() 'No processes running'
 Confirm-AivoRelayLaunch -TargetRoot 'Q:\AIVORelay' -Ports @()
 $script:checks++
 
-if ([Console]::IsInputRedirected -or -not [Environment]::UserInteractive) {
-    $script:processFixture = @((New-ProcessFixture 500 0 aivorelay.exe ''))
+# Default switching mode skips the old lookup even with an existing session.
+$script:processFixture = @((New-ProcessFixture 500 0 aivorelay.exe ''))
+$script:forbidLookup = $true
+try {
+    Confirm-AivoRelayLaunch -TargetRoot 'Q:\AIVORelay' -Ports @()
+    $script:checks++
+} finally {
+    $script:forbidLookup = $false
+}
+
+# -NoSwitch refuses an existing app or dev tree without prompting/stopping it.
+foreach ($fixture in @(
+    (New-ProcessFixture 501 0 aivorelay.exe ''),
+    (New-ProcessFixture 502 0 node.exe 'node Q:\AIVORelay\node_modules\vite.js')
+)) {
+    $script:processFixture = @($fixture)
     $blocked = $false
-    try { Confirm-AivoRelayLaunch -TargetRoot 'Q:\AIVORelay' -Ports @() }
+    try { Confirm-AivoRelayLaunch -TargetRoot 'Q:\AIVORelay' -Ports @() -NoSwitch }
     catch {
-        if ($_.Exception.Message -notlike 'Close the listed AivoRelay processes*') { throw }
+        if ($_.Exception.Message -notlike 'AivoRelay launch cancelled (-NoSwitch)*') { throw }
         $blocked = $true
     }
-    Assert-Equal $blocked $true 'Non-interactive launch requires explicit interactive confirmation'
+    Assert-Equal $blocked $true 'NoSwitch refuses an existing session without confirmation'
+    Assert-Equal @($script:processFixture.ProcessId) @($fixture.ProcessId) 'Preflight leaves the existing session untouched'
 }
+$script:processFixture = @()
+Confirm-AivoRelayLaunch -TargetRoot 'Q:\AIVORelay' -Ports @() -NoSwitch
+$script:checks++
 
 # Test port ownership using only an ephemeral listener created by this test.
 $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
@@ -139,40 +134,4 @@ try {
 Assert-AivoRelayLaunchPorts -Ports @($port, $port)
 $script:checks++
 
-# All OS process operations above are replaced by fixture-only functions.
-# Simulate approval/cancellation to exercise the actual stop ordering safely.
-function Assert-AivoRelayLaunchConfirmation { throw 'test cancellation' }
-$script:processFixture = @((New-ProcessFixture 600 0 aivorelay.exe ''))
-$cancelled = $false
-try { Confirm-AivoRelayLaunch -TargetRoot 'Q:\AIVORelay' -Ports @() }
-catch {
-    if ($_.Exception.Message -ne 'test cancellation') { throw }
-    $cancelled = $true
-}
-Assert-Equal $cancelled $true 'Cancelled confirmation does not stop any process'
-Assert-Equal $script:stopped @() 'Cancellation preserves the running process'
-
-function Assert-AivoRelayLaunchConfirmation {}
-$script:stopChecks = $true
-$script:processFixture = @(
-    (New-ProcessFixture 610 0 bun.exe 'bun x tauri dev'),
-    (New-ProcessFixture 611 610 node.exe 'node Q:\AIVORelay\node_modules\tauri.js' 1),
-    (New-ProcessFixture 612 611 aivorelay.exe '' 2),
-    (New-ProcessFixture 620 0 bun.exe 'bun C:\DesktopApp\orchestrator.js')
-)
-Confirm-AivoRelayLaunch -TargetRoot 'Q:\AIVORelay' -Ports @()
-Assert-Equal $script:stopped @(610, 611, 612) 'Approved stop closes the controller before its children'
-Assert-Equal @($script:processFixture.ProcessId) @(620) 'Approved stop leaves unrelated sessions running'
-
-$script:stopped = @()
-$script:reusedId = 630
-$script:processFixture = @((New-ProcessFixture 630 0 aivorelay.exe ''))
-$blocked = $false
-try { Confirm-AivoRelayLaunch -TargetRoot 'Q:\AIVORelay' -Ports @() }
-catch {
-    if ($_.Exception.Message -notlike 'An AivoRelay process is still running*') { throw }
-    $blocked = $true
-}
-Assert-Equal $blocked $true 'Replaced process requires a new confirmation'
-Assert-Equal $script:stopped @() 'A reused PID is never stopped using old approval'
 Write-Host "PASS: $script:checks launcher checks; no real process was stopped."
