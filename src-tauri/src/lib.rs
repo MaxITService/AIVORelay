@@ -61,6 +61,8 @@ mod tray_language;
 mod url_security;
 mod tls;
 mod utils;
+#[cfg(target_os = "linux")]
+pub use utils::{apply_aivorelay_gdk_backend, disable_gamescope_wsi_layer};
 mod webview_hardening;
 mod webview_mode;
 pub mod webkit_renderer;
@@ -2050,6 +2052,15 @@ pub fn run(cli_args: CliArgs) {
                 "Vulkan layer policy: VK_LOADER_LAYERS_DISABLE={:?}, AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS={:?}",
                 std::env::var_os("VK_LOADER_LAYERS_DISABLE"),
                 std::env::var_os("AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS"),
+            );
+
+            #[cfg(target_os = "linux")]
+            log::info!(
+                "Linux display/compute policy: GDK_BACKEND={:?}, AIVORELAY_GDK_BACKEND={:?}, DISABLE_GAMESCOPE_WSI={:?} (set by AivoRelay: {})",
+                std::env::var_os("GDK_BACKEND"),
+                std::env::var_os("AIVORELAY_GDK_BACKEND"),
+                std::env::var_os("DISABLE_GAMESCOPE_WSI"),
+                utils::gamescope_wsi_disabled_by_aivorelay(),
             );
 
             if headless_mode {

@@ -6020,9 +6020,68 @@ fn ensure_remote_stt_defaults(settings: &mut AppSettings) -> bool {
 
 pub const SETTINGS_STORE_PATH: &str = "settings_store.json";
 
+/// How this build was packaged, as far as the updater is concerned. Mirrors
+/// the Linux cases of `tauri::utils::platform::BundleType`; `Other` covers
+/// every other stamped type and `None` (at the call site) a binary the bundler
+/// did not stamp, such as a source, AUR or other distro build.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+enum BundleKind {
+    AppImage,
+    Deb,
+    Rpm,
+    Other,
+}
+
+/// Whether the updater plugin can install an update on Linux. It runs
+/// `dpkg -i` for a deb build, `rpm -U` for an rpm build, and otherwise swaps
+/// the running AppImage. A build with no bundle type, or one whose tool is
+/// missing (the deb repacked for Arch), would only fail after a password
+/// prompt. Pure so it can be tested on any OS.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn linux_self_update_possible(kind: Option<BundleKind>, has_tool: impl Fn(&str) -> bool) -> bool {
+    match kind {
+        Some(BundleKind::AppImage) => true,
+        Some(BundleKind::Deb) => has_tool("dpkg"),
+        Some(BundleKind::Rpm) => has_tool("rpm"),
+        Some(BundleKind::Other) | None => false,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn self_update_possible() -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    use tauri::utils::config::BundleType;
+    use tauri::utils::platform::bundle_type;
+
+    let kind = bundle_type().map(|b| match b {
+        BundleType::AppImage => BundleKind::AppImage,
+        BundleType::Deb => BundleKind::Deb,
+        BundleType::Rpm => BundleKind::Rpm,
+        _ => BundleKind::Other,
+    });
+    let has_tool = |name: &str| {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        std::env::split_paths(&path)
+            .chain(["/usr/bin", "/bin", "/usr/sbin", "/sbin"].map(std::path::PathBuf::from))
+            .any(|dir| {
+                std::fs::metadata(dir.join(name))
+                    .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+                    .unwrap_or(false)
+            })
+    };
+    linux_self_update_possible(kind, has_tool)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn self_update_possible() -> bool {
+    true
+}
+
 /// True when the packaging forces update checks off (AIVORELAY_DISABLE_UPDATER),
 /// as the Nix package does: its install path is immutable, so self-update cannot
-/// work. This is a runtime overlay and is never written to the stored settings.
+/// work. Linux packages without a supported bundle type or installer tool are
+/// also disabled. This overlay is never written to the stored settings.
 pub fn update_checks_forced_disabled() -> bool {
     static FORCED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *FORCED.get_or_init(|| {
@@ -6031,7 +6090,7 @@ pub fn update_checks_forced_disabled() -> bool {
                 value.trim().to_ascii_lowercase().as_str(),
                 "" | "0" | "false" | "no" | "off"
             )
-        })
+        }) || !self_update_possible()
     })
 }
 

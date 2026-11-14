@@ -309,6 +309,11 @@ Execute PowerShell scripts with your voice. Pre-write scripts... or make LLM wri
 
 For Linux input and shortcut troubleshooting, see the [Ubuntu GNOME Wayland guide](docs/troubleshooting/ubuntu-26-04-gnome-wayland/README.md). The guide describes input permissions, ydotool, and the fork's shortcut settings.
 
+To opt into native Wayland with the AppImage, launch it with
+`AIVORELAY_GDK_BACKEND=wayland ./AivoRelay.AppImage` (replace the filename with
+your downloaded AppImage). Its launcher forces X11 by default, so setting
+`GDK_BACKEND` alone does not override it.
+
 ## This extension has only been built and tested for Windows. If you need other platforms, Handy can do it but without additional features.
 
 ## 🔧 Original Features of upstream app "Handy"
