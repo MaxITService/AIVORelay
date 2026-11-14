@@ -734,20 +734,18 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.51",
+      "since": "Since version 1.0.52",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "languageDetection": "Switch between languages without selecting one before every recording. In Speech / Microphone, choose the languages you speak and use Auto for transcription. A separate downloadable language detector can select the language before supported local models transcribe completed audio. Live streaming still uses the recognition model's own language detection or the configured fallback.",
-        "onboarding": "Choosing a local speech model is easier: the first-start wizard compares support and recognition scores for your selected languages and recommends suitable models. It remembers those languages and can resume an interrupted setup.",
-        "dictationPractice": "Try dictation during setup to check your microphone and shortcut before using the app elsewhere. If no speech is heard, the wizard helps you choose another microphone; if recognition is slow, it flags that too. On macOS, it guides you through the required permissions.",
-        "fileHistory": "Drag an audio file into the app from another settings page to open file transcription. When the transcript is ready, save it and its audio to History and follow the link to the saved entry. For a batch, you can enable saving each completed file automatically.",
-        "fileQueueRecovery": "A file waiting for the local recognition engine is retried when the engine becomes available. If the app view reloads during conversion, the interrupted file is marked as failed instead of silently starting over, so you can decide whether to retry.",
-        "modelDownloads": "When downloading a speech model, you can now see roughly how much time remains, alongside its progress.",
-        "ttsPlayback": "When listening to generated speech, the seek bar stays usable while playback restarts after a jump. You can adjust the position again without waiting for the previous seek to finish.",
-        "cloudVoices": "New Cartesia configurations and built-in presets use Sonic 3.6. Murf configurations now explicitly select Falcon 2.1; the earlier Falcon 2 identifier already uses that model on Murf's service. Existing saved model selections and presets are not overwritten.",
-        "regionalChinese": "Traditional Chinese output now offers regional variants for Taiwan and Hong Kong. Select the variant you need in the Chinese output settings for your transcription profile.",
-        "sonioxV6": "Soniox cloud recognition now uses the new Soniox v6 models by default. If you still use v5, the app offers a one-click update: Soniox turns v5 off on December 15, 2026."
+        "reson8Rumble2": "Use Reson8 (rumble-2) for cloud speech recognition in live dictation, Live Monitor, and audio file transcription, with language choices filtered to what Reson8 supports. Live dictation inserts finalized chunks only (without an interim preview), and file transcription outputs plain text (SRT/VTT subtitle timestamps are not supported).",
+        "cloudProfileControls": "Choosing a cloud speech model in a custom transcription profile now changes only that profile. When API-key controls need the shared settings, a link opens the Default profile settings without changing your active profile.",
+        "portableStorage": "In the portable version, Advanced → Portable Data Storage lets you switch between storing app data in the Data folder beside the app and this computer's standard per-user desktop folder. The change takes effect after restarting AivoRelay without copying, moving, merging, or deleting existing files. On Windows, saved API keys stay in Windows Credential Manager for your Windows account regardless of storage mode (separate API-key storage is planned for a future version).",
+        "opusAudioImport": "Transcribe File now opens .opus, .oga, Ogg Opus, and WebM Opus recordings directly, including when saving their audio to History.",
+        "elevatedWindowClipboard": "When Windows blocks automatic input into an administrator window, AivoRelay explains why. With a clipboard paste method, an experimental profile option can leave the finished transcript on the clipboard after recording stops and show an in-app notice for manual Ctrl+V pasting.",
+        "linuxPrimaryPaste": "On Linux, Shift+Insert works with the selection clipboard and restores its previous contents after pasting. If a paste shortcut tool fails, AivoRelay tries the next available tool.",
+        "elevenLabsV4Turbo": "Speak selected text and Text file to MP3 now support Eleven v4 Turbo, with voice controls and inline audio tags. An ElevenLabs request address issue is fixed.",
+        "recordingAndModelReliability": "Clearer notices explain when no speech model is selected or the microphone is silent. Local recognition ignores punctuation-only results and can recover after a graphics error. Model downloads handle filtering proxies more reliably."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"
