@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
@@ -6,9 +6,26 @@ import { RefreshCw } from "lucide-react";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import {
   commands,
+  type SttModelSelection,
   type TranscriptionProfile,
   type UpdateTranscriptionProfilePayload,
 } from "@/bindings";
+import { navigateToSettingsAnchor } from "@/lib/anchorNavigation";
+import { getTranscriptionProfileAnchorId } from "@/lib/transcriptionProfileNavigation";
+import {
+  buildOpenAiReadinessSelection,
+  createCredentialRequestGate,
+  getOpenAiCredentialAccessMode,
+  planDeepgramModelChange,
+  planGeminiRouteChange,
+  planProviderChange,
+  planRemoteInterfaceChange,
+  planRemoteModelIdChange,
+  planSonioxModelChange,
+  resolveActiveTranscriptionProfile,
+  resolveRemoteSttProfileContext,
+} from "@/lib/remoteSttProfileContext";
+import { useNavigationStore } from "@/stores/navigationStore";
 import { useSettings } from "../../../hooks/useSettings";
 import {
   REMOTE_STT_PRESETS,
@@ -152,19 +169,30 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     updateRemoteSttDebugMode,
   } = useSettings();
 
-  const provider = String(settings?.transcription_provider ?? "local");
   const remoteSettings = settings?.remote_stt;
-  const rawRemotePreset = String(
-    (remoteSettings as any)?.provider_preset ?? "groq",
+  const activeProfileId = settings?.active_profile_id ?? "default";
+  const activeProfile = useMemo<TranscriptionProfile | null>(
+    () => resolveActiveTranscriptionProfile(settings),
+    [settings],
   );
-  const remotePreset: RemoteSttPreset =
-    rawRemotePreset in REMOTE_STT_PRESETS
-      ? (rawRemotePreset as RemoteSttPreset)
-      : "custom";
-  const remoteAllowInsecureHttp = Boolean(
-    (remoteSettings as any)?.allow_insecure_http ?? false,
+  const remoteContext = useMemo(
+    () => resolveRemoteSttProfileContext(settings, activeProfile),
+    [settings, activeProfile],
   );
-  const sonioxModel = (settings as any)?.soniox_model ?? SONIOX_DEFAULT_REALTIME_MODEL;
+  const {
+    isProfileScoped,
+    provider,
+    remotePreset,
+    effectiveRemoteModelId,
+    effectiveSonioxModel: sonioxModel,
+    effectiveDeepgramModel: deepgramModel,
+    effectiveRemoteBaseUrl,
+    allowInsecureHttp: remoteAllowInsecureHttp,
+    canMutateOpenAiCredentials,
+    canEditCustomEndpoint,
+  } = remoteContext;
+  const openAiCredentialAccessMode =
+    getOpenAiCredentialAccessMode(remoteContext);
   const sonioxTimeout = Number((settings as any)?.soniox_timeout_seconds ?? 30);
   const sonioxLiveEnabled = Boolean(
     (settings as any)?.soniox_live_enabled ?? true,
@@ -201,7 +229,6 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const sonioxLiveInstantStop = Boolean(
     (settings as any)?.soniox_live_instant_stop ?? false,
   );
-  const deepgramModel = (settings as any)?.deepgram_model ?? "nova-3";
   const deepgramTimeout = Number(
     (settings as any)?.deepgram_timeout_seconds ?? 3600,
   );
@@ -243,6 +270,14 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const isDeepgramProvider = provider === "remote_deepgram";
   const isCloudProvider =
     isRemoteOpenAiProvider || isSonioxProvider || isDeepgramProvider;
+  const canEditCredentials =
+    isSonioxProvider || isDeepgramProvider || canMutateOpenAiCredentials;
+  const credentialContextKey = `${activeProfileId}|${provider}|${
+    isRemoteOpenAiProvider ? remotePreset : ""
+  }|${isRemoteOpenAiProvider ? remoteContext.globalRemotePreset : ""}`;
+  const credentialRequestGateRef = useRef(createCredentialRequestGate());
+  credentialRequestGateRef.current.setContext(credentialContextKey);
+  const keyStatusRequestIdRef = useRef(0);
   const trimmedSonioxModel = sonioxModel.trim();
   const isKnownSonioxPreset =
     trimmedSonioxModel === SONIOX_DEFAULT_REALTIME_MODEL ||
@@ -254,34 +289,27 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const showSonioxRealtimeModelUpgrade =
     trimmedSonioxModel === SONIOX_DEPRECATED_REALTIME_MODEL;
   const isSonioxAsyncModel = trimmedSonioxModel.startsWith("stt-async");
-  const effectiveRemoteBaseUrl =
-    remotePreset === "custom"
-      ? remoteSettings?.base_url ?? ""
-      : (REMOTE_STT_PRESETS[remotePreset]?.baseUrl ??
-          remoteSettings?.base_url ??
-          "");
   const currentRemoteInterface: RemoteSttInterfaceId =
     remotePreset === "groq"
       ? "groq"
       : remotePreset === "vercel" || remotePreset === "google"
-        ? ((remoteSettings?.model_id ?? "") ===
-             "google/gemini-3.5-transcribe-live" ||
-           (remoteSettings?.model_id ?? "") === "gemini-3.5-transcribe-live"
+        ? (effectiveRemoteModelId === "google/gemini-3.5-transcribe-live" ||
+           effectiveRemoteModelId === "gemini-3.5-transcribe-live"
           ? "gemini_live"
           : "gemini_transcribe")
       : remotePreset === "reson8"
         ? "reson8"
       : remotePreset === "custom"
         ? "custom"
-        : (remoteSettings?.model_id ?? "") === "gpt-transcribe"
+        : effectiveRemoteModelId === "gpt-transcribe"
           ? "openai_transcribe"
-        : (remoteSettings?.model_id ?? "") === "gpt-live-transcribe"
+        : effectiveRemoteModelId === "gpt-live-transcribe"
           ? "openai_live_transcribe"
-        : (remoteSettings?.model_id ?? "") === "gpt-realtime-whisper"
+        : effectiveRemoteModelId === "gpt-realtime-whisper"
           ? "openai_realtime_whisper"
-        : (remoteSettings?.model_id ?? "") === "gpt-realtime-2"
+        : effectiveRemoteModelId === "gpt-realtime-2"
           ? "openai_realtime_agent_legacy"
-        : (remoteSettings?.model_id ?? "") === "gpt-realtime-translate"
+        : effectiveRemoteModelId === "gpt-realtime-translate"
           ? "openai_realtime_translate"
           : "openai_realtime_agent";
   const geminiModelDisplayName =
@@ -312,22 +340,11 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       : currentRemoteInterface === "custom"
         ? "Stored separately for the Custom remote endpoint in Windows Credential Manager."
         : "Stored separately for OpenAI in Windows Credential Manager.";
-  const activeProfileId = settings?.active_profile_id ?? "default";
-  const activeProfile = useMemo<TranscriptionProfile | null>(() => {
-    if (activeProfileId === "default") {
-      return null;
-    }
-    return (
-      (settings?.transcription_profiles ?? []).find(
-        (profile) => profile.id === activeProfileId,
-      ) ?? null
-    );
-  }, [activeProfileId, settings?.transcription_profiles]);
   const activeProfileUsesSttPrompt = Boolean(
     activeProfile?.stt_prompt_override_enabled,
   );
   const effectiveRealtimePromptModelId =
-    remoteSettings?.model_id?.trim() || "gpt-realtime-2.1";
+    effectiveRemoteModelId.trim() || "gpt-realtime-2.1";
   const globalRealtimeAgentPrompt =
     settings?.transcription_prompts?.[effectiveRealtimePromptModelId] ?? "";
   const storedRealtimeAgentPrompt = activeProfileUsesSttPrompt
@@ -407,11 +424,9 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   );
   const [openAiRealtimeWhisperKeywordsInput, setOpenAiRealtimeWhisperKeywordsInput] =
     useState(openAiRealtimeWhisperKeywords);
-  const [modelIdInput, setModelIdInput] = useState(
-    remoteSettings?.model_id ?? "",
-  );
+  const [modelIdInput, setModelIdInput] = useState(effectiveRemoteModelId);
   const [customModelId, setCustomModelId] = useState(
-    remotePreset === "custom" ? (remoteSettings?.model_id ?? "") : "",
+    remotePreset === "custom" ? effectiveRemoteModelId : "",
   );
   const [sonioxModelMode, setSonioxModelMode] = useState(derivedSonioxModelMode);
   const [customSonioxModelInput, setCustomSonioxModelInput] = useState<string>(
@@ -508,20 +523,18 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   }, [openAiRealtimeWhisperKeywords]);
 
   useEffect(() => {
-    setModelIdInput(remoteSettings?.model_id ?? "");
-  }, [remoteSettings?.model_id]);
+    setModelIdInput(effectiveRemoteModelId);
+  }, [effectiveRemoteModelId]);
 
   useEffect(() => {
     if (remotePreset === "custom") {
-      setCustomModelId(remoteSettings?.model_id ?? "");
+      setCustomModelId(effectiveRemoteModelId);
     }
-  }, [remotePreset, remoteSettings?.model_id]);
+  }, [remotePreset, effectiveRemoteModelId]);
 
   useEffect(() => {
     setSonioxModelMode(derivedSonioxModelMode);
-    if (!isKnownSonioxPreset) {
-      setCustomSonioxModelInput(sonioxModel);
-    }
+    setCustomSonioxModelInput(isKnownSonioxPreset ? "" : sonioxModel);
   }, [sonioxModel, isKnownSonioxPreset, derivedSonioxModelMode]);
 
   useEffect(() => {
@@ -569,30 +582,101 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   }, [deepgramEndpointingMs]);
 
   useEffect(() => {
+    setApiKeyInput("");
+    setIsEditingKey(false);
+    setApiKeyLoading(false);
+    setHasApiKey(false);
+    setHasKeyStatusLoaded(false);
+    setConnectionStatus("idle");
+    setConnectionMessage(null);
+  }, [credentialContextKey]);
+
+  useEffect(() => {
+    keyStatusRequestIdRef.current += 1;
+    const requestId = keyStatusRequestIdRef.current;
+    const isCurrentContext = credentialRequestGateRef.current.capture();
+    let cancelled = false;
+
+    const isStale = () =>
+      cancelled ||
+      keyStatusRequestIdRef.current !== requestId ||
+      !isCurrentContext();
+
+    if (!isCloudProvider) {
+      setHasApiKey(false);
+      setHasKeyStatusLoaded(true);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (
+      isRemoteOpenAiProvider &&
+      openAiCredentialAccessMode === "unavailable_custom"
+    ) {
+      setHasApiKey(false);
+      setHasKeyStatusLoaded(true);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     setHasKeyStatusLoaded(false);
 
     const loadApiKeyStatus = async () => {
       try {
         if (isDeepgramProvider) {
           const hasDeepgramKey = await invoke<boolean>("deepgram_has_api_key");
+          if (isStale()) return;
           setHasApiKey(Boolean(hasDeepgramKey));
+        } else if (isSonioxProvider) {
+          const result = await commands.sonioxHasApiKey();
+          if (isStale()) return;
+          if (result.status === "ok") {
+            setHasApiKey(result.data);
+          }
+        } else if (openAiCredentialAccessMode === "readiness_readonly") {
+          const readiness = await commands.sttModelSelectionsReadiness([
+            buildOpenAiReadinessSelection({
+              remotePreset,
+              effectiveRemoteModelId,
+            }),
+          ]);
+          if (isStale()) return;
+          setHasApiKey(Boolean(readiness?.[0]?.ready));
         } else {
-          const result = isSonioxProvider
-            ? await commands.sonioxHasApiKey()
-            : await commands.remoteSttHasApiKey();
+          const result = await commands.remoteSttHasApiKey();
+          if (isStale()) return;
           if (result.status === "ok") {
             setHasApiKey(result.data);
           }
         }
       } catch (error) {
-        console.error("Failed to check API key status:", error);
+        if (!isStale()) {
+          console.error("Failed to check API key status:", error);
+        }
       } finally {
-        setHasKeyStatusLoaded(true);
+        if (!isStale()) {
+          setHasKeyStatusLoaded(true);
+        }
       }
     };
 
-    loadApiKeyStatus();
-  }, [provider, remotePreset, isSonioxProvider, isDeepgramProvider]);
+    void loadApiKeyStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    credentialContextKey,
+    effectiveRemoteModelId,
+    isCloudProvider,
+    isDeepgramProvider,
+    isRemoteOpenAiProvider,
+    isSonioxProvider,
+    openAiCredentialAccessMode,
+    remotePreset,
+  ]);
 
   useEffect(() => {
     if (!hasKeyStatusLoaded) {
@@ -608,7 +692,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   useEffect(() => {
     setConnectionStatus("idle");
     setConnectionMessage(null);
-  }, [baseUrlInput, hasApiKey, provider, remotePreset, remoteSettings?.model_id]);
+  }, [baseUrlInput, hasApiKey, provider, remotePreset, effectiveRemoteModelId]);
 
   useEffect(() => {
     if (!isRemoteOpenAiProvider) {
@@ -844,8 +928,37 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     return options;
   }, [modelIdInput]);
 
+  const handleOpenDefaultProfile = () => {
+    navigateToSettingsAnchor({
+      activateSection: () =>
+        useNavigationStore.getState().setSection("general"),
+      targetId: getTranscriptionProfileAnchorId("default"),
+      block: "center",
+    });
+  };
+
+  const saveProfileModelSelection = async (selection: SttModelSelection) => {
+    const result =
+      await commands.changeActiveProfileSttModelSelectionOverride(selection);
+    if (result.status === "error") {
+      throw new Error(result.error);
+    }
+    await refreshSettings();
+  };
+
   const handleProviderChange = (value: string | null) => {
     if (!value) return;
+    const plan = planProviderChange(
+      remoteContext,
+      value as Parameters<typeof planProviderChange>[1],
+      settings,
+    );
+    if (plan.kind === "profile_override") {
+      void saveProfileModelSelection(plan.selection).catch((error) => {
+        toast.error(String(error));
+      });
+      return;
+    }
     void setTranscriptionProvider(value).catch((error) => {
       toast.error(String(error));
     });
@@ -900,6 +1013,17 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         setCustomModelId(modelIdInput.trim());
       }
 
+      const plan = planRemoteInterfaceChange(
+        remoteContext,
+        nextPreset,
+        nextModel,
+      );
+      if (plan.kind === "profile_override") {
+        await saveProfileModelSelection(plan.selection);
+        setModelIdInput(plan.selection.model_id ?? "");
+        return;
+      }
+
       if (nextPreset !== remotePreset) {
         await invoke("change_remote_stt_provider_preset_setting", {
           preset: nextPreset,
@@ -913,21 +1037,29 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
       await refreshSettings();
     } catch (error) {
+      setModelIdInput(effectiveRemoteModelId);
       toast.error(String(error));
     }
   };
 
   const handleGeminiRouteChange = async (value: string | null) => {
     if (value !== "vercel" && value !== "google") return;
+    const isGeminiLive = currentRemoteInterface === "gemini_live";
+    const plan = planGeminiRouteChange(remoteContext, value, isGeminiLive);
     try {
       setApiKeyInput("");
       setHasApiKey(false);
       setHasKeyStatusLoaded(false);
+      if (plan.kind === "profile_override") {
+        await saveProfileModelSelection(plan.selection);
+        setModelIdInput(plan.selection.model_id ?? "");
+        return;
+      }
       const result = await commands.changeRemoteSttProviderPresetSetting(value);
       if (result.status === "error") {
         throw new Error(result.error);
       }
-      const nextModel = currentRemoteInterface === "gemini_live"
+      const nextModel = isGeminiLive
         ? (value === "vercel" ? "google/gemini-3.5-transcribe-live" : "gemini-3.5-transcribe-live")
         : REMOTE_STT_PRESETS[value].defaultModel;
       if (
@@ -939,11 +1071,13 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       setModelIdInput(nextModel);
       await refreshSettings();
     } catch (error) {
+      setModelIdInput(effectiveRemoteModelId);
       toast.error(String(error));
     }
   };
 
   const handleRemoteHttpOverrideChange = async (enabled: boolean) => {
+    if (!canEditCustomEndpoint) return;
     try {
       await invoke("change_remote_stt_allow_insecure_http_setting", { enabled });
       await refreshSettings();
@@ -953,6 +1087,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   };
 
   const handleBaseUrlBlur = async () => {
+    if (!canEditCustomEndpoint) return;
     const trimmed = baseUrlInput.trim();
     if (trimmed !== (remoteSettings?.base_url ?? "")) {
       try {
@@ -966,6 +1101,37 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
   const handleModelIdBlur = () => {
     const trimmed = modelIdInput.trim();
+    if (isProfileScoped) {
+      if (remotePreset === "custom" && !canEditCustomEndpoint) {
+        setModelIdInput(effectiveRemoteModelId);
+        setCustomModelId(effectiveRemoteModelId);
+        return;
+      }
+      if (!trimmed) {
+        setModelIdInput(effectiveRemoteModelId);
+        if (remotePreset === "custom") {
+          setCustomModelId(effectiveRemoteModelId);
+        }
+        return;
+      }
+      if (remotePreset === "custom") {
+        setCustomModelId(trimmed);
+      }
+      if (trimmed !== effectiveRemoteModelId) {
+        const plan = planRemoteModelIdChange(remoteContext, trimmed);
+        if (plan.kind === "profile_override") {
+          void saveProfileModelSelection(plan.selection).catch((error) => {
+            setModelIdInput(effectiveRemoteModelId);
+            if (remotePreset === "custom") {
+              setCustomModelId(effectiveRemoteModelId);
+            }
+            toast.error(String(error));
+          });
+        }
+      }
+      return;
+    }
+
     if (remotePreset === "custom") {
       setCustomModelId(trimmed);
     }
@@ -977,6 +1143,18 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const handleGroqModelChange = (value: string | null) => {
     if (!value) return;
     setModelIdInput(value);
+    if (isProfileScoped) {
+      if (value !== effectiveRemoteModelId) {
+        const plan = planRemoteModelIdChange(remoteContext, value);
+        if (plan.kind === "profile_override") {
+          void saveProfileModelSelection(plan.selection).catch((error) => {
+            setModelIdInput(effectiveRemoteModelId);
+            toast.error(String(error));
+          });
+        }
+      }
+      return;
+    }
     if (value !== (remoteSettings?.model_id ?? "")) {
       void updateRemoteSttModelId(value);
     }
@@ -1094,6 +1272,14 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
     const nextModel = nextMode;
     if (nextModel !== sonioxModel) {
+      const plan = planSonioxModelChange(remoteContext, nextModel);
+      if (plan.kind === "profile_override") {
+        void saveProfileModelSelection(plan.selection).catch((error) => {
+          setSonioxModelMode(derivedSonioxModelMode);
+          toast.error(String(error));
+        });
+        return;
+      }
       void updateSetting("soniox_model" as any, nextModel as any);
     }
   };
@@ -1118,6 +1304,14 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       return;
     }
     if (trimmed !== sonioxModel) {
+      const plan = planSonioxModelChange(remoteContext, trimmed);
+      if (plan.kind === "profile_override") {
+        void saveProfileModelSelection(plan.selection).catch((error) => {
+          setCustomSonioxModelInput(isKnownSonioxPreset ? "" : sonioxModel);
+          toast.error(String(error));
+        });
+        return;
+      }
       void updateSetting("soniox_model" as any, trimmed as any);
     }
   };
@@ -1128,13 +1322,21 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     setCustomSonioxModelInput("");
 
     try {
-      const result = await commands.changeSonioxModelSetting(
+      const plan = planSonioxModelChange(
+        remoteContext,
         SONIOX_DEFAULT_REALTIME_MODEL,
       );
-      if (result.status === "error") {
-        throw new Error(result.error);
+      if (plan.kind === "profile_override") {
+        await saveProfileModelSelection(plan.selection);
+      } else {
+        const result = await commands.changeSonioxModelSetting(
+          SONIOX_DEFAULT_REALTIME_MODEL,
+        );
+        if (result.status === "error") {
+          throw new Error(result.error);
+        }
+        await refreshSettings();
       }
-      await refreshSettings();
       toast.success(
         t(
           "settings.advanced.soniox.model.upgradeSuccess",
@@ -1277,6 +1479,14 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     if (!value) return;
     setDeepgramModelInput(value);
     if (value !== deepgramModel) {
+      const plan = planDeepgramModelChange(remoteContext, value);
+      if (plan.kind === "profile_override") {
+        void saveProfileModelSelection(plan.selection).catch((error) => {
+          setDeepgramModelInput(deepgramModel);
+          toast.error(String(error));
+        });
+        return;
+      }
       void updateSetting("deepgram_model" as any, value as any);
     }
   };
@@ -1346,18 +1556,22 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   };
 
   const handleSaveApiKey = async () => {
-    if (!apiKeyInput.trim()) return;
+    const trimmedKey = apiKeyInput.trim();
+    if (!canEditCredentials || !trimmedKey) return;
+    const isCurrentContext = credentialRequestGateRef.current.capture();
     setApiKeyLoading(true);
     try {
       if (isDeepgramProvider) {
-        await invoke("deepgram_set_api_key", { apiKey: apiKeyInput.trim() });
+        await invoke("deepgram_set_api_key", { apiKey: trimmedKey });
+        if (!isCurrentContext()) return;
         setApiKeyInput("");
         setHasApiKey(true);
         setIsEditingKey(false);
       } else {
         const result = isSonioxProvider
-          ? await commands.sonioxSetApiKey(apiKeyInput.trim())
-          : await commands.remoteSttSetApiKey(apiKeyInput.trim());
+          ? await commands.sonioxSetApiKey(trimmedKey)
+          : await commands.remoteSttSetApiKey(trimmedKey);
+        if (!isCurrentContext()) return;
         if (result.status === "ok") {
           setApiKeyInput("");
           setHasApiKey(true);
@@ -1367,23 +1581,31 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         }
       }
     } catch (error) {
-      toast.error(String(error));
+      if (isCurrentContext()) {
+        toast.error(String(error));
+      }
     } finally {
-      setApiKeyLoading(false);
+      if (isCurrentContext()) {
+        setApiKeyLoading(false);
+      }
     }
   };
 
   const handleClearApiKey = async () => {
+    if (!canEditCredentials) return;
+    const isCurrentContext = credentialRequestGateRef.current.capture();
     setApiKeyLoading(true);
     try {
       if (isDeepgramProvider) {
         await invoke("deepgram_clear_api_key");
+        if (!isCurrentContext()) return;
         setHasApiKey(false);
         setApiKeyInput("");
       } else {
         const result = isSonioxProvider
           ? await commands.sonioxClearApiKey()
           : await commands.remoteSttClearApiKey();
+        if (!isCurrentContext()) return;
         if (result.status === "ok") {
           setHasApiKey(false);
           setApiKeyInput("");
@@ -1392,13 +1614,18 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         }
       }
     } catch (error) {
-      toast.error(String(error));
+      if (isCurrentContext()) {
+        toast.error(String(error));
+      }
     } finally {
-      setApiKeyLoading(false);
+      if (isCurrentContext()) {
+        setApiKeyLoading(false);
+      }
     }
   };
 
   const handleStartReplaceKey = () => {
+    if (!canEditCredentials) return;
     setApiKeyInput("");
     setIsEditingKey(true);
   };
@@ -1409,13 +1636,16 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   };
 
   const handleTestConnection = async () => {
+    if (!canEditCredentials) return;
     const baseUrl = baseUrlInput.trim();
     if (!baseUrl || !hasApiKey) return;
+    const isCurrentContext = credentialRequestGateRef.current.capture();
 
     setConnectionStatus("checking");
     setConnectionMessage(null);
     try {
       const result = await commands.remoteSttTestConnection(baseUrl);
+      if (!isCurrentContext()) return;
       if (result.status === "ok") {
         setConnectionStatus("success");
         setConnectionMessage(
@@ -1430,6 +1660,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         );
       }
     } catch (error) {
+      if (!isCurrentContext()) return;
       setConnectionStatus("error");
       setConnectionMessage(
         t("settings.advanced.remoteStt.connection.failed", {
@@ -1481,7 +1712,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     if (currentRemoteInterface === "openai_realtime_translate") {
       return ["language", "translateToEnglish"];
     }
-    const modelId = remoteSettings?.model_id ?? "";
+    const modelId = effectiveRemoteModelId;
     const supportsPrompt = getModelPromptInfo(
       modelId,
       undefined,
@@ -1499,13 +1730,14 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     ];
   }, [
     currentRemoteInterface,
+    effectiveRemoteModelId,
     isDeepgramProvider,
     isRemoteOpenAiProvider,
     isSonioxProvider,
-    remoteSettings?.model_id,
   ]);
   const canTestConnection =
     isRemoteOpenAiProvider &&
+    canEditCredentials &&
     baseUrlInput.trim().length > 0 &&
     hasKeyStatusLoaded &&
     hasApiKey &&
@@ -1585,9 +1817,29 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   onBlur={() => void handleBaseUrlBlur()}
                   placeholder={t("settings.advanced.remoteStt.baseUrl.placeholder")}
                   className="w-full"
-                  disabled={remotePreset !== "custom"}
+                  disabled={!canEditCustomEndpoint}
                 />
               </SettingContainer>
+
+              {isProfileScoped &&
+                remotePreset === "custom" &&
+                !canEditCustomEndpoint && (
+                  <div className="mx-4 rounded-lg border border-amber-400/35 bg-amber-400/10 p-3 text-xs text-amber-100">
+                    <p>
+                      {t(
+                        "modelSelector.profileRemoteCustomGuard",
+                        "Custom endpoint URL and HTTP settings are shared globally and can only be edited when the Default profile uses the Custom preset.",
+                      )}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleOpenDefaultProfile}
+                      className="mt-2 inline-flex font-medium text-amber-200 underline decoration-amber-300/70 underline-offset-2 transition-colors hover:text-white"
+                    >
+                      {t("modelSelector.openDefaultProfile", "Open Default profile")}
+                    </button>
+                  </div>
+                )}
 
               {(currentRemoteInterface === "gemini_transcribe" ||
                 currentRemoteInterface === "gemini_live") && (
@@ -1898,7 +2150,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
                   <SettingContainer
                     title="Realtime transcription delay"
-                    description={`Controls how much audio context ${remoteSettings?.model_id} gets before AivoRelay asks for a transcript chunk. Faster settings show text sooner; slower settings provide more context.`}
+                    description={`Controls how much audio context ${effectiveRemoteModelId} gets before AivoRelay asks for a transcript chunk. Faster settings show text sooner; slower settings provide more context.`}
                     descriptionMode={descriptionMode}
                     grouped={grouped}
                     layout="stacked"
@@ -1924,7 +2176,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                       "openai_realtime_whisper_flatten_enabled" as any,
                     )}
                     label="Wait for the complete recording"
-                    description={`Record the whole utterance first, then send it to ${remoteSettings?.model_id} for a final transcript instead of showing live deltas.`}
+                    description={`Record the whole utterance first, then send it to ${effectiveRemoteModelId} for a final transcript instead of showing live deltas.`}
                     descriptionMode={descriptionMode}
                     grouped={grouped}
                   />
@@ -2130,7 +2382,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                             AivoRelay opens a Realtime WebSocket for
                             <span className="font-mono">
                               {" "}
-                              {remoteSettings?.model_id?.trim() || "gpt-realtime-2.1"}
+                              {effectiveRemoteModelId.trim() || "gpt-realtime-2.1"}
                             </span>,
                             sends 24 kHz PCM audio, asks for text-only output,
                             and collects text deltas as the transcript.
@@ -2249,6 +2501,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     onChange={(enabled) =>
                       void handleRemoteHttpOverrideChange(enabled)
                     }
+                    disabled={!canEditCustomEndpoint}
                     isUpdating={false}
                     label={t("settings.advanced.remoteStt.customHttpOverride.title")}
                     description={t(
@@ -2303,6 +2556,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     onBlur={handleModelIdBlur}
                     placeholder={t("settings.advanced.remoteStt.modelId.placeholder")}
                     className="w-full"
+                    disabled={isProfileScoped && !canEditCustomEndpoint}
                   />
                 </SettingContainer>
               )}
@@ -3324,14 +3578,35 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
             layout="stacked"
           >
             <div className="flex flex-col gap-3 rounded-lg border border-mid-gray/30 bg-mid-gray/5 p-3">
+              {isRemoteOpenAiProvider && !canMutateOpenAiCredentials && (
+                <div className="rounded-md border border-amber-400/35 bg-amber-400/10 p-2.5 text-xs text-amber-100">
+                  <p>
+                    {t("modelSelector.profileRemoteCredentialsGuard", {
+                      provider: REMOTE_STT_PRESETS[remotePreset].label,
+                      defaultValue:
+                        "Read-only in this profile: OpenAI-compatible credentials and connection tests follow the Default profile's active preset. Open the Default profile to edit or test {{provider}} credentials.",
+                    })}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleOpenDefaultProfile}
+                    className="mt-1.5 inline-flex font-medium text-amber-200 underline decoration-amber-300/70 underline-offset-2 transition-colors hover:text-white"
+                  >
+                    {t("modelSelector.openDefaultProfile", "Open Default profile")}
+                  </button>
+                </div>
+              )}
+
               {hasApiKey && !isEditingKey ? (
                 <StoredApiKeyDisplay
+                  disabled={!canEditCredentials}
                   loading={apiKeyLoading}
                   onDelete={handleClearApiKey}
                   onReplace={handleStartReplaceKey}
                 />
               ) : (
                 <ApiKeyEditor
+                  disabled={!canEditCredentials}
                   loading={apiKeyLoading}
                   value={apiKeyInput}
                   onChange={setApiKeyInput}

@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next";
+import type { RemoteSttSettings, SttModelSelection } from "@/bindings";
 
 export type RemoteApiRowId =
   | "groq"
@@ -137,4 +138,85 @@ export const resolveRemoteApiRow = (
         : "google/gemini-3.5-transcribe"
     : row.modelId;
   return { preset, modelId };
+};
+
+export type RemoteApiGlobalCustomSettings = Pick<
+  Partial<RemoteSttSettings>,
+  "provider_preset" | "base_url" | "model_id"
+>;
+
+export type RemoteApiSelectionPlan =
+  | {
+      target: "global";
+      preset: RemoteApiRow["preset"];
+      modelId?: string;
+    }
+  | {
+      target: "profile";
+      selection: SttModelSelection;
+    }
+  | {
+      target: "blocked";
+      reason: "custom_unconfigured";
+    };
+
+export const getConfiguredCustomRemoteSttModelId = (
+  globalRemoteStt?: RemoteApiGlobalCustomSettings | null,
+): string | null => {
+  if (globalRemoteStt?.provider_preset?.trim() !== "custom") {
+    return null;
+  }
+  const baseUrl = globalRemoteStt.base_url?.trim();
+  const modelId = globalRemoteStt.model_id?.trim();
+  if (!baseUrl || !modelId) {
+    return null;
+  }
+  return modelId;
+};
+
+export const resolveRemoteApiSelection = (
+  row: RemoteApiRow,
+  {
+    isCustomProfile,
+    currentEffectivePreset,
+    globalRemoteStt,
+  }: {
+    isCustomProfile: boolean;
+    currentEffectivePreset?: string | null;
+    globalRemoteStt?: RemoteApiGlobalCustomSettings | null;
+  },
+): RemoteApiSelectionPlan => {
+  const { preset, modelId } = resolveRemoteApiRow(row, currentEffectivePreset);
+  if (!isCustomProfile) {
+    return { target: "global", preset, modelId };
+  }
+
+  if (row.id === "custom") {
+    const customModelId = getConfiguredCustomRemoteSttModelId(globalRemoteStt);
+    if (!customModelId) {
+      return { target: "blocked", reason: "custom_unconfigured" };
+    }
+    return {
+      target: "profile",
+      selection: {
+        provider: "remote_openai_compatible",
+        provider_preset: "custom",
+        model_id: customModelId,
+      },
+    };
+  }
+
+  const profileModelId = modelId?.trim();
+  if (!profileModelId) {
+    return { target: "blocked", reason: "custom_unconfigured" };
+  }
+
+  return {
+    target: "profile",
+    selection: {
+      provider: "remote_openai_compatible",
+      provider_preset: preset,
+      model_id: profileModelId,
+    },
+  };
 };
