@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 use transcribe_cpp::{
-    Backend, BackendMask, DeviceType, Feature, Model, ModelOptions, Session, Stream,
+    Backend, BackendMask, DeviceType, ErrorKind, Feature, Model, ModelOptions, Session, Stream,
 };
 
 /// Prefix on worker log lines so the parent can tell them apart from raw
@@ -114,15 +114,18 @@ pub fn run() -> i32 {
             }
             Request::Run { options } => match session.as_mut() {
                 Some((session, info)) => {
-                    inject_fault("run", info.on_gpu);
-                    match session.run(&pcm, &options) {
-                        Ok(transcript) => Response::Transcript(transcript),
-                        Err(transcribe_cpp::Error::OutputTruncated { message, partial: Some(partial) })
-                        | Err(transcribe_cpp::Error::OutputRepetition { message, partial: Some(partial) }) => {
-                            warn!("Native decode stopped early; retaining partial transcription: {}", message);
-                            Response::Transcript(*partial)
+                    if inject_fault("run", info.on_gpu) {
+                        injected_backend_error()
+                    } else {
+                        match session.run(&pcm, &options) {
+                            Ok(transcript) => Response::Transcript(transcript),
+                            Err(transcribe_cpp::Error::OutputTruncated { message, partial: Some(partial) })
+                            | Err(transcribe_cpp::Error::OutputRepetition { message, partial: Some(partial) }) => {
+                                warn!("Native decode stopped early; retaining partial transcription: {}", message);
+                                Response::Transcript(*partial)
+                            }
+                            Err(e) => run_error(e),
                         }
-                        Err(e) => Response::Error(e.to_string()),
                     }
                 }
                 None => not_loaded(),
@@ -141,7 +144,7 @@ pub fn run() -> i32 {
                         crate::memory::trim_freed_memory();
                         continue;
                     }
-                    Err(e) => Response::Error(e.to_string()),
+                    Err(e) => run_error(e),
                 },
                 None => not_loaded(),
             },
@@ -203,18 +206,24 @@ fn serve_stream(
     while let Ok(Incoming { request, pcm }) = requests.recv() {
         let (response, done) = match request {
             Request::Feed => {
-                inject_fault("feed", on_gpu);
+                if inject_fault("feed", on_gpu) {
+                    write_message(output, &injected_backend_error(), None)?;
+                    continue;
+                }
                 match stream.feed(&pcm) {
                     Ok(update) => {
                         let text = (update.committed_changed || update.tentative_changed)
                             .then(|| stream.text());
                         (Response::Fed { update, text }, false)
                     }
-                    Err(e) => (Response::Error(e.to_string()), false),
+                    Err(e) => (run_error(e), false),
                 }
             }
             Request::Finalize { want_language } => {
-                inject_fault("finalize", on_gpu);
+                if inject_fault("finalize", on_gpu) {
+                    write_message(output, &injected_backend_error(), None)?;
+                    break;
+                }
                 match stream.finalize() {
                     Ok(update) => {
                         let language = if want_language {
@@ -233,7 +242,7 @@ fn serve_stream(
                         )
                     }
                     // Finalize ends the stream even when it fails.
-                    Err(e) => (Response::Error(e.to_string()), true),
+                    Err(e) => (run_error(e), true),
                 }
             }
             Request::StreamReset => {
@@ -255,6 +264,22 @@ fn serve_stream(
 
 fn not_loaded() -> Response {
     Response::Error("no model loaded".to_string())
+}
+
+/// A failed run, feed or finalize. A backend error (a lost GPU device, a
+/// failed graph compute) can leave this process's backend unusable for
+/// every later run, so it gets its own response and the parent replaces
+/// the worker.
+fn run_error(e: transcribe_cpp::Error) -> Response {
+    if e.kind() == ErrorKind::Backend {
+        Response::BackendError(e.to_string())
+    } else {
+        Response::Error(e.to_string())
+    }
+}
+
+fn injected_backend_error() -> Response {
+    Response::BackendError("injected backend error".to_string())
 }
 
 fn load(
@@ -327,26 +352,28 @@ fn load(
 }
 
 /// Debug-build fault injection for exercising crash/hang recovery:
-/// `HANDY_WORKER_FAULT=<abort|segv|hang>@<init|list|load|run|feed|finalize>`
-/// (`abort` is what `GGML_ASSERT` ends in, `segv` also simulates abnormal exit)
+/// `HANDY_WORKER_FAULT=<abort|segv|hang|backend>@<init|list|load|run|feed|finalize>`
+/// (`abort` is what `GGML_ASSERT` ends in, `segv` also simulates abnormal exit,
+/// `backend` a backend error such as a lost device, which returns true so the
+/// caller answers with it; only at `run`, `feed` and `finalize`)
 /// (`init` is backend registration, before the hello). With `HANDY_WORKER_FAULT_ONCE=<marker
 /// path>` it fires only in the first worker to reach that stage (the marker
 /// file records that it fired). With `HANDY_WORKER_FAULT_GPU_ONLY=1` it fires
 /// only on a GPU (backend init and device listing count as GPU work unless
 /// the worker is CPU-only), so recovery on CPU can succeed.
 #[cfg(debug_assertions)]
-fn inject_fault(stage: &str, on_gpu: bool) {
+fn inject_fault(stage: &str, on_gpu: bool) -> bool {
     let Ok(spec) = std::env::var("HANDY_WORKER_FAULT") else {
-        return;
+        return false;
     };
     let Some((kind, at)) = spec.split_once('@') else {
-        return;
+        return false;
     };
     if at != stage {
-        return;
+        return false;
     }
     if !on_gpu && std::env::var_os("HANDY_WORKER_FAULT_GPU_ONLY").is_some() {
-        return;
+        return false;
     }
     if let Some(marker) = std::env::var_os("HANDY_WORKER_FAULT_ONCE") {
         if std::fs::OpenOptions::new()
@@ -355,7 +382,7 @@ fn inject_fault(stage: &str, on_gpu: bool) {
             .open(&marker)
             .is_err()
         {
-            return;
+            return false;
         }
     }
     eprintln!("injected fault: {kind} at {stage}");
@@ -367,12 +394,15 @@ fn inject_fault(stage: &str, on_gpu: bool) {
         "hang" => loop {
             std::thread::sleep(std::time::Duration::from_secs(3600));
         },
-        _ => {}
+        "backend" => true,
+        _ => false,
     }
 }
 
 #[cfg(not(debug_assertions))]
-fn inject_fault(_stage: &str, _on_gpu: bool) {}
+fn inject_fault(_stage: &str, _on_gpu: bool) -> bool {
+    false
+}
 
 #[cfg(all(test, debug_assertions))]
 mod fault_tests {
