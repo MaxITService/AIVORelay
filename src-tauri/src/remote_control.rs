@@ -4,7 +4,7 @@ use crate::managers::history::HistoryManager;
 use crate::{clipboard, utils};
 use log::{error, warn};
 use std::sync::{mpsc, Arc, OnceLock};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 // The Windows single-instance callback runs inside the native window procedure.
@@ -81,7 +81,7 @@ fn execute_transcript(app: &AppHandle, action: TranscriptCommand) -> Result<(), 
                     text, handle.clone(), method,
                 ) {
                     error!("Failed to paste transcript from CLI: {error}");
-                    let _ = handle.emit("paste-error", ());
+                    crate::actions::emit_paste_error(&handle, &error);
                 }
             }).map_err(|error| format!("Failed to schedule transcript paste: {error}"))
         }

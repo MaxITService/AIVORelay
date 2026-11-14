@@ -195,6 +195,8 @@ webkit2gtk-sys = "2.0"
 # Wayland overlay placement (layer-shell surface) and its GTK window type.
 gtk-layer-shell = { version = "0.8", features = ["v0_6"] }
 gtk = "0.18"
+# Persistent X11 PRIMARY selection ownership (reuses arboard already in Cargo.lock).
+arboard = { version = "3.6.1", default-features = false }
 transcribe-cpp = { version = "=0.4.2", default-features = false, features = ["serde",
   "dynamic-backends",
   "vulkan",
