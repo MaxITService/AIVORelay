@@ -4077,6 +4077,7 @@ pub fn change_transcription_output_settings(
         // The fields above live on AppSettings; keep only Default-only values
         // here so no stale copy can diverge from the saved global settings.
         settings.transcription_output_defaults = settings::ProfileOutputSettings {
+            copy_on_elevated_window: output.copy_on_elevated_window,
             check_active_window: output.check_active_window,
             live_window_resume_delay_ms: output.live_window_resume_delay_ms,
             live_window_stop_action: output.live_window_stop_action,
