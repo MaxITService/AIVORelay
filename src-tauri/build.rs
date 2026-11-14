@@ -101,6 +101,13 @@ fn build_xiph_opus() {
 
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         config.define("OPUS_STATIC_RUNTIME", "OFF");
+        if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("aarch64") {
+            // Windows ARM64 builds with clang-cl, which defines _MSC_VER without
+            // MSVC's __emit (breaking celt/arm/armcpu.c). Disabling only runtime
+            // detection while aarch64 presumes NEON leaves celt_inner_prod_neon
+            // undeclared in opus 1.5.2 CMake, so build plain C on Windows ARM64.
+            config.define("OPUS_DISABLE_INTRINSICS", "ON");
+        }
     }
 
     let install_dir = config.build();
