@@ -7,6 +7,7 @@ import {
   requestMicrophonePermission,
 } from "tauri-plugin-macos-permissions-api";
 import { commands } from "@/bindings";
+import { invoke } from "@tauri-apps/api/core";
 import { initializeInputSystem } from "@/lib/initializeInput";
 
 interface Props {
@@ -59,8 +60,12 @@ const MacPermissionsOnboarding: React.FC<Props> = ({ onComplete }) => {
   const request = async (permission: "microphone" | "accessibility") => {
     try {
       if (permission === "microphone") {
-        if (microphone === false) await requestMicrophonePermission();
-      } else {
+        if (!(await checkMicrophonePermission())) {
+          await invoke("reset_macos_permission", { permission });
+          await requestMicrophonePermission();
+        }
+      } else if (!(await checkAccessibilityPermission())) {
+        await invoke("reset_macos_permission", { permission });
         await requestAccessibilityPermission();
       }
       await refresh();
