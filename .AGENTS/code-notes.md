@@ -166,6 +166,14 @@ Files that are added by this fork rather than upstream files that were modified.
 
 ### Backend Support
 
+Windows elevated-window clipboard fallback is controlled per profile by
+`ProfileOutputSettings.copy_on_elevated_window`, default off. When enabled,
+completed clipboard-backed output copies the full transcript for manual Ctrl+V
+instead of restoring the previous clipboard. The captured history policy still
+applies; manual copying reports undelivered text and never sends auto-submit.
+Streaming cleanup records successful clipboard writes even when the subsequent
+keystroke fails, so disabled fallback still restores the saved clipboard formats.
+
 | File | Current State |
 | --- | --- |
 | `src-tauri/src/commands/mod.rs` | Exports custom commands. |

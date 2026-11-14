@@ -7,6 +7,13 @@ This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
 Reviewed intake (2026-11-14):
+- Windows elevation follow-up: manual-copy fallback is now opt-in per profile
+  (`copy_on_elevated_window`, default off). Disabled fallback preserves the
+  selected restore policy, including after a live chunk's blocked keystroke.
+  Enabled fallback copies the complete transcript and retains the captured
+  clipboard-history policy; its notice does not imply automatic delivery.
+  Combined Windows verification: 1235 library tests and 387 frontend tests
+  passed, plus TypeScript typecheck. No real elevated-window input was tested.
 - Safe review cursor: `aca89851` — release v0.10.1. All 32 ordinary commits
   after `82dfab9f` were reviewed; this corridor contains no merge commits.
 - Integrated or adapted 20 commits (including one partial adaptation):

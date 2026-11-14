@@ -87,6 +87,12 @@ Run it with:
 
 Update this section every time new tests are added.
 
+### Optional elevated-window clipboard fallback (2026-11-14)
+
+- `clipboard::tests::elevated_fallback_` uses injected window detection and clipboard writes. It checks the disabled path never queries the foreground window or overwrites saved formats, ordinary/non-clipboard output stays unchanged, complete-text copying follows the history policy for every restore mode, and failed copies never claim success.
+- `settings::tests::elevated_clipboard_fallback_is_independent_per_profile_and_captured` checks the opt-in default, independent profiles, and recording/serialization snapshots.
+- Run with `.\test-local.ps1 -LibOnly -Filter 'elevated_fallback_','elevated_clipboard_fallback_'`. These tests never access the real clipboard or an administrator window.
+
 ### Reson8 Rumble-2 language adaptation (2026-11-14)
 
 - `reson8_language::tests` covers the authoritative 56-code Rumble-2 catalog, frontend/backend catalog parity, provider-code aliases (`no` → `nb`, `tl` → `fil`, `jw` → `jv`), case/region and Chinese script normalization, unsupported-language omission, duplicate hints, and comma-list joining.

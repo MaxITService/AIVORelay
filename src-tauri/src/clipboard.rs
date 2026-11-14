@@ -890,7 +890,7 @@ fn lock_enigo_and_run<T>(
     f: impl FnOnce(&mut Enigo) -> Result<T, String>,
 ) -> Result<T, String> {
     if crate::utils::foreground_window_is_elevated() {
-        return Err("Windows blocks input into a window running with higher privileges. Paste the text manually, or run AivoRelay with matching privileges.".to_string());
+        return Err("Windows blocks input into a window running with higher privileges. Run AivoRelay with matching privileges to allow automatic input.".to_string());
     }
     let enigo_state = app_handle
         .try_state::<EnigoState>()
@@ -966,6 +966,33 @@ fn write_transcription_text(
 fn exclude_final_write_from_history(settings: &ResolvedOutputSettings) -> bool {
     settings.clipboard_handling != ClipboardHandling::KeepTranscription
         && !settings.clipboard_history_allowed
+}
+
+const ELEVATED_CLIPBOARD_FALLBACK_NOTICE: &str =
+    "Windows blocks automatic input into this administrator window. The transcript was copied to the clipboard; press Ctrl+V to paste it manually.";
+
+fn uses_elevated_clipboard_fallback(settings: &ResolvedOutputSettings) -> bool {
+    settings.copy_on_elevated_window && matches!(
+        settings.paste_method,
+        PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert
+    )
+}
+
+/// Returns a notice through the existing delivery-error path, never a successful
+/// insertion (which could send auto-submit or discard an undelivered preview).
+/// Callers serialize the write with other clipboard/output operations.
+fn copy_for_elevated_window(
+    text: &str,
+    settings: &ResolvedOutputSettings,
+    is_elevated: impl FnOnce() -> bool,
+    copy: impl FnOnce(&str, bool) -> Result<(), String>,
+) -> Result<(), String> {
+    if !uses_elevated_clipboard_fallback(settings) || !is_elevated() {
+        return Ok(());
+    }
+    let text = convert_text_for_clipboard(text, settings.convert_lf_to_crlf);
+    copy(&text, exclude_final_write_from_history(settings))?;
+    Err(ELEVATED_CLIPBOARD_FALLBACK_NOTICE.to_string())
 }
 
 /// Final full-text transcription write at the end of an operation. Unless
@@ -2534,6 +2561,21 @@ pub(crate) fn complete_dictation_output(
         end_streaming_paste_session_if_matches(app, operation_id)?;
         return Ok(false);
     }
+    // Failed live keystrokes must not leave only the last chunk available for
+    // manual paste. Restore the session first, then publish the complete text
+    // only when the user explicitly permits overriding clipboard restoration.
+    if uses_elevated_clipboard_fallback(&settings)
+        && crate::utils::foreground_window_is_elevated()
+    {
+        crate::live_output_buffer::cancel_unfinished(operation_id);
+        end_streaming_paste_session_if_matches(app, operation_id)?;
+        let _clipboard_guard = lock_clipboard_transaction("copying for an elevated window")?;
+        let _output_guard = lock_output();
+        if !can_continue() { return Ok(false); }
+        copy_for_elevated_window(final_text, &settings,
+            crate::utils::foreground_window_is_elevated,
+            |text, excluded| write_transcription_text(app, text, excluded))?;
+    }
     if settings.buffers_external_output() {
         return paste_with_output_settings(final_text.to_string(), app.clone(), &settings, can_continue);
     }
@@ -2674,6 +2716,10 @@ pub(crate) fn paste_with_output_settings(
         let remaining = crate::early_open::remaining_delay_ms(settings.recording_start_delay_ms, at.elapsed());
         if !wait_for_output_delay(remaining, &output_can_continue) { return Ok(false); }
     }
+    if !output_can_continue() { return Ok(false); }
+    copy_for_elevated_window(&text, settings,
+        crate::utils::foreground_window_is_elevated,
+        |text, excluded| write_transcription_text(&app_handle, text, excluded))?;
     if !settings.before_insert_key.is_empty() {
         if !output_can_continue() { return Ok(false); }
         send_output_key(&app_handle, &settings.before_insert_key)?;
@@ -2920,7 +2966,9 @@ fn paste_stream_chunk_with_output(
                 );
                 // Streaming chunks are always excluded from the clipboard
                 // history; only the final full-text write may be captured.
-                let paste_sent_at = paste_via_clipboard_no_restore_guarded(
+                #[cfg(target_os = "windows")]
+                let sequence_before_write = win_clipboard::last_write_sequence();
+                let paste_result = paste_via_clipboard_no_restore_guarded(
                     &text,
                     &app_handle,
                     &paste_method,
@@ -2928,18 +2976,23 @@ fn paste_stream_chunk_with_output(
                     convert_lf_to_crlf,
                     true,
                     &target_is_current,
-                )?;
+                );
                 if let Some(session) = stream_session_guard.as_mut() {
-                    if let Some(paste_sent_at) = paste_sent_at {
-                        session.last_clipboard_paste_sent_at = Some(paste_sent_at);
+                    if let Ok(Some(paste_sent_at)) = &paste_result {
+                        session.last_clipboard_paste_sent_at = Some(*paste_sent_at);
                     }
                     #[cfg(target_os = "windows")]
                     {
-                        // An interrupted delay still wrote the chunk to the
-                        // clipboard, so restoration must track that write.
-                        session.last_clipboard_sequence = Some(win_clipboard::last_write_sequence());
+                        // A blocked keystroke or interrupted delay may still
+                        // follow a successful write. Track it before returning
+                        // the error so cleanup can restore the saved formats.
+                        let sequence = win_clipboard::last_write_sequence();
+                        if sequence != sequence_before_write {
+                            session.last_clipboard_sequence = Some(sequence);
+                        }
                     }
                 }
+                let paste_sent_at = paste_result?;
                 if paste_sent_at.is_none() {
                     return Err(TARGET_WINDOW_CHANGED_ERROR.to_string());
                 }
@@ -3107,6 +3160,51 @@ pub fn capture_selection_text_copy(app_handle: &AppHandle) -> Result<String, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn elevated_fallback_is_opt_in_and_preserves_clipboard_policy() {
+        let mut output = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
+        output.paste_method = PasteMethod::CtrlV;
+        assert!(copy_for_elevated_window("full transcript", &output,
+            || panic!("Disabled fallback must not query the foreground window"),
+            |_, _| panic!("Disabled fallback must preserve clipboard formats")).is_ok());
+
+        output.copy_on_elevated_window = true;
+        for handling in [ClipboardHandling::RestorePlainText, ClipboardHandling::RestoreAdvanced,
+            ClipboardHandling::RestoreAdvancedOwned, ClipboardHandling::KeepTranscription]
+        {
+            for history_allowed in [false, true] {
+                output.clipboard_handling = handling;
+                output.clipboard_history_allowed = history_allowed;
+                let mut written = None;
+                let error = copy_for_elevated_window("first chunk\nfinal chunk", &output, || true,
+                    |text, excluded| { written = Some((text.to_string(), excluded)); Ok(()) }).unwrap_err();
+                let expected_text = if cfg!(target_os = "windows") {
+                    "first chunk\r\nfinal chunk"
+                } else { "first chunk\nfinal chunk" };
+                assert_eq!(written, Some((expected_text.to_string(),
+                    handling != ClipboardHandling::KeepTranscription && !history_allowed)));
+                assert_eq!(error, ELEVATED_CLIPBOARD_FALLBACK_NOTICE);
+            }
+        }
+    }
+
+    #[test]
+    fn elevated_fallback_never_claims_a_failed_copy_succeeded() {
+        let mut output = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
+        output.paste_method = PasteMethod::CtrlV;
+        output.copy_on_elevated_window = true;
+        assert_eq!(copy_for_elevated_window("text", &output, || true,
+            |_, _| Err("clipboard busy".into())), Err("clipboard busy".into()));
+        assert!(copy_for_elevated_window("text", &output, || false,
+            |_, _| panic!("Normal windows must use ordinary insertion")).is_ok());
+        for method in [PasteMethod::Direct, PasteMethod::None, PasteMethod::ExternalScript] {
+            output.paste_method = method;
+            assert!(copy_for_elevated_window("text", &output,
+                || panic!("Non-clipboard output must not query the window"),
+                |_, _| panic!("Non-clipboard output must not write the clipboard")).is_ok());
+        }
+    }
 
     #[cfg(target_os = "linux")]
     const YDOTOOL_0_1_8_HELP: &str = r#"

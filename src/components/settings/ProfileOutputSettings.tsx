@@ -30,6 +30,7 @@ export const getGlobalProfileOutputDefaults = (settings: Settings | null | undef
     paste_method: settings?.paste_method ?? "ctrl_v",
     clipboard_handling: settings?.clipboard_handling ?? "restore_plain_text",
     clipboard_history_allowed: settings?.clipboard_history_allowed ?? true,
+    copy_on_elevated_window: settings?.transcription_output_defaults?.copy_on_elevated_window ?? false,
     convert_lf_to_crlf: settings?.convert_lf_to_crlf ?? true,
     paste_delay_ms: settings?.paste_delay_ms ?? 60,
     check_active_window: settings?.transcription_output_defaults?.check_active_window ?? false,
@@ -479,6 +480,9 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
                 <Dropdown className="w-full max-w-full md:w-[200px] [&>button]:min-w-0" options={clipboardChoices} selectedValue={selected("clipboard_handling")} disabled={busy} onSelect={value => void save({ clipboard_handling: value as OutputSettings["clipboard_handling"] })} />
               </SettingContainer>
         {osType === "windows" && <OutputDependencies nested>
+                <SettingContainer id={`profile-output-${scopeKey}-elevated-clipboard`} title={t("profileOutput.copyOnElevatedWindow")} description={t("profileOutput.copyOnElevatedWindowHelp")} descriptionMode="tooltip" tooltipWide grouped={true} compact={true}>
+                  <Dropdown className="w-full max-w-full md:w-[200px] [&>button]:min-w-0" options={booleanChoices} selectedValue={selected("copy_on_elevated_window")} disabled={busy} onSelect={value => void save({ copy_on_elevated_window: value === "true" })} />
+                </SettingContainer>
                 {effective("clipboard_handling") !== "keep_transcription" && <SettingContainer id={`profile-output-${scopeKey}-clipboard-history`} title={t("settings.advanced.clipboardHandling.history.title")} description={t("settings.advanced.clipboardHandling.history.description")} descriptionMode="tooltip" grouped={true} compact={true}>
                   <Dropdown className="w-full max-w-full md:w-[200px] [&>button]:min-w-0" options={booleanChoices} selectedValue={selected("clipboard_history_allowed")} disabled={busy} onSelect={value => void save({ clipboard_history_allowed: value === "true" })} />
                 </SettingContainer>}
