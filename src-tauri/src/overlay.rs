@@ -2180,7 +2180,7 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
     // to the window's bottom edge, was drawn below the screen (#1950). The
     // window has no decorations, so this offers the user nothing new.
     #[cfg(target_os = "linux")]
-    let resizable = !utils::is_wayland();
+    let resizable = !crate::utils::is_wayland();
     #[cfg(not(target_os = "linux"))]
     let resizable = false;
 
