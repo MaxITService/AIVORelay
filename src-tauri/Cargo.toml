@@ -92,9 +92,9 @@ tar = "0.4.44"
 flate2 = "1.0"
 bzip2 = "0.5"
 transcribe-rs = { version = "0.3.8", features = ["onnx", "vad-silero"] }
-transcribe-cpp = { version = "=0.4.0", default-features = false, features = ["serde"] }
+transcribe-cpp = { version = "=0.4.2", default-features = false, features = ["serde"] }
 hf-hub = { git = "https://github.com/JavaGT/hf-hub", rev = "1fee8e5", features = ["tokio"] }
-handy-keys = "0.3.4"
+handy-keys = "0.3.5"
 ferrous-opencc = "0.2.3"
 clap = { version = "4", features = ["derive"] }
 keyring = "2.3.3"
@@ -128,13 +128,13 @@ tauri-plugin-single-instance = "2.3.2"
 tauri-plugin-updater = "2.10.0"
 
 [target.'cfg(all(windows, target_arch = "x86_64"))'.dependencies]
-transcribe-cpp = { version = "=0.4.0", default-features = false, features = ["serde",
+transcribe-cpp = { version = "=0.4.2", default-features = false, features = ["serde",
   "dynamic-backends",
   "vulkan",
 ] }
 
 [target.'cfg(all(windows, target_arch = "aarch64"))'.dependencies]
-transcribe-cpp = { version = "=0.4.0", default-features = false, features = ["serde"] }
+transcribe-cpp = { version = "=0.4.2", default-features = false, features = ["serde"] }
 
 [target.'cfg(windows)'.dependencies]
 transcribe-rs = { version = "0.3.8", features = ["ort-directml", "vad-silero"] }
@@ -183,10 +183,10 @@ objc2-core-foundation = { version = "0.3.2", default-features = false, features 
 
 # Intel Macs use CPU inference to avoid ggml Metal shader initialization hangs.
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
-transcribe-cpp = { version = "=0.4.0", default-features = false, features = ["serde", "metal"] }
+transcribe-cpp = { version = "=0.4.2", default-features = false, features = ["serde", "metal"] }
 
 [target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
-transcribe-cpp = { version = "=0.4.0", default-features = false, features = ["serde"] }
+transcribe-cpp = { version = "=0.4.2", default-features = false, features = ["serde"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Read the linked WebKitGTK version before selecting the overlay renderer.
@@ -194,7 +194,7 @@ webkit2gtk-sys = "2.0"
 # Wayland overlay placement (layer-shell surface) and its GTK window type.
 gtk-layer-shell = { version = "0.8", features = ["v0_6"] }
 gtk = "0.18"
-transcribe-cpp = { version = "=0.4.0", default-features = false, features = ["serde",
+transcribe-cpp = { version = "=0.4.2", default-features = false, features = ["serde",
   "dynamic-backends",
   "vulkan",
 ] }
