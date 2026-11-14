@@ -122,7 +122,10 @@ const getOutputRouteContext = (
     const isGeminiRealtime =
       (preset === "vercel" && model === STT_MODEL_IDS.vercelGeminiLive) ||
       (preset === "google" && model === STT_MODEL_IDS.googleGeminiLive);
-    remoteLiveOutput = isOpenAiRealtime || isGeminiRealtime;
+    const isReson8Realtime =
+      preset === "reson8" && model === STT_MODEL_IDS.reson8Rumble2;
+    remoteLiveOutput =
+      isOpenAiRealtime || isGeminiRealtime || isReson8Realtime;
   }
 
   return {

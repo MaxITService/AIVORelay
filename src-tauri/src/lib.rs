@@ -115,6 +115,7 @@ use managers::llm_operation::LlmOperationTracker;
 use managers::model::ModelManager;
 use managers::openai_realtime_whisper::OpenAiRealtimeWhisperManager;
 use managers::remote_stt::RemoteSttManager;
+use managers::reson8_realtime::Reson8RealtimeManager;
 use managers::send_selected_text_history::SendSelectedTextHistoryManager;
 use managers::soniox_realtime::SonioxRealtimeManager;
 use managers::soniox_stt::SonioxSttManager;
@@ -610,6 +611,9 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         GeminiRealtimeManager::new(app_handle)
             .expect("Failed to initialize Gemini 3.5 Transcribe Live"),
     );
+    let reson8_realtime_manager = Arc::new(
+        Reson8RealtimeManager::new(app_handle).expect("Failed to initialize Reson8 realtime STT"),
+    );
     let soniox_realtime_manager = Arc::new(
         SonioxRealtimeManager::new(app_handle).expect("Failed to initialize Soniox realtime STT"),
     );
@@ -638,6 +642,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(remote_stt_manager.clone());
     app_handle.manage(openai_realtime_whisper_manager.clone());
     app_handle.manage(gemini_realtime_manager.clone());
+    app_handle.manage(reson8_realtime_manager.clone());
     app_handle.manage(soniox_realtime_manager.clone());
     app_handle.manage(soniox_stt_manager.clone());
     app_handle.manage(deepgram_realtime_manager.clone());

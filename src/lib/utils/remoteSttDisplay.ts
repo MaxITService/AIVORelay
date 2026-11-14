@@ -69,6 +69,10 @@ export const getRemoteApiDisplayLabel = (
     return "Google: Gemini 3.5 Transcribe";
   }
 
+  if (preset === "reson8") {
+    return "Reson8: rumble-2";
+  }
+
   if (preset === "custom") {
     return getHostname(remoteStt?.base_url) || "Custom API";
   }

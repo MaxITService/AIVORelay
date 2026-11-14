@@ -1957,6 +1957,10 @@
         "title": "Remote via Gemini 3.5 Transcribe Live",
         "description": "Low-latency streaming via Gemini 3.5 Transcribe Live over Vercel AI Gateway or Google"
       },
+      "reson8": {
+        "title": "Remote via Reson8 (rumble-2)",
+        "description": "Live output inserts finalized chunks only. Interim transcript preview is not supported. Also supports prerecorded file transcription."
+      },
       "custom": {
         "title": "Remote via Custom API",
         "description": "Custom OpenAI-compatible transcription endpoint"
@@ -5328,6 +5332,9 @@
     "cancelling": "Cancelling...",
     "cancelled": "File transcription cancelled.",
     "liveModelUnsupported": "Gemini Live cannot transcribe files. In Models, select the regular Gemini 3.5 Transcribe model.",
+    "reson8": {
+      "subtitlesUnsupported": "Reson8 Rumble-2 does not support SRT/VTT subtitle timestamps in this integration. Select Text output."
+    },
     "selectFileBeforeTranscribing": "Select a file before starting transcription. You can configure the model and options now.",
     "dropZone": {
       "title": "Drop audio file here or click to browse",

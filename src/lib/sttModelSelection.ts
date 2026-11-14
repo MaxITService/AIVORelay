@@ -15,6 +15,7 @@ export const STT_MODEL_IDS = {
   vercelGeminiLive: "google/gemini-3.5-transcribe-live",
   googleGeminiBatch: "gemini-3.5-transcribe",
   vercelGeminiBatch: "google/gemini-3.5-transcribe",
+  reson8Rumble2: "rumble-2",
   whisperLargeV3Turbo: "whisper-large-v3-turbo",
 } as const;
 
@@ -26,6 +27,11 @@ export const isGeminiLiveSelection = (
     selection.model_id === STT_MODEL_IDS.vercelGeminiLive) ||
     (selection.provider_preset === "google" &&
       selection.model_id === STT_MODEL_IDS.googleGeminiLive));
+
+export const isReson8Selection = (selection: SttModelSelection): boolean =>
+  selection.provider === "remote_openai_compatible" &&
+  selection.provider_preset === "reson8" &&
+  selection.model_id === STT_MODEL_IDS.reson8Rumble2;
 
 const isGeminiBatchSelection = (selection: SttModelSelection): boolean =>
   selection.provider === "remote_openai_compatible" &&
@@ -103,6 +109,9 @@ const GEMINI_LIVE_CAPABILITIES = capabilities(["dictation", "live"], {
   languageHints: ["dictation", "live"],
   vocabulary: ["dictation", "live"],
 });
+const RESON8_CAPABILITIES = capabilities(["dictation", "file", "live"], {
+  languageHints: ["dictation", "file", "live"],
+});
 const GENERIC_REMOTE_CAPABILITIES = capabilities(["dictation", "file"], {
   languageHints: ["dictation", "file"],
 });
@@ -160,6 +169,9 @@ export const sttModelCapabilities = (
 
   if (isGeminiLiveSelection(selection)) {
     return GEMINI_LIVE_CAPABILITIES;
+  }
+  if (isReson8Selection(selection)) {
+    return RESON8_CAPABILITIES;
   }
   if (isGeminiBatchSelection(selection)) {
     return selection.provider_preset === "google"
@@ -229,7 +241,9 @@ export const legacyLiveSttSelection = (
       model_id: modelId,
       provider_preset: preset,
     };
-    return isGeminiLiveSelection(selection) ? selection : null;
+    return isGeminiLiveSelection(selection) || isReson8Selection(selection)
+      ? selection
+      : null;
   }
   if (liveProvider === "remote_soniox" || liveProvider === "system") {
     return {
@@ -301,6 +315,13 @@ export const sttCatalog = (
         "Gemini 3.5 Transcribe Live",
         GEMINI_LIVE_CAPABILITIES,
       ),
+      remoteSelection(
+        "reson8",
+        "Reson8",
+        STT_MODEL_IDS.reson8Rumble2,
+        "Rumble 2 (Final chunks only)",
+        RESON8_CAPABILITIES,
+      ),
     ];
 
   if (workflow === "live") {
@@ -345,6 +366,13 @@ export const sttCatalog = (
       STT_MODEL_IDS.googleGeminiBatch,
       "Gemini 3.5 Transcribe",
       GEMINI_CAPABILITIES,
+    ),
+    remoteSelection(
+      "reson8",
+      "Reson8",
+      STT_MODEL_IDS.reson8Rumble2,
+      "Rumble 2",
+      RESON8_CAPABILITIES,
     ),
     remoteSelection("openai", "OpenAI", "gpt-transcribe", "GPT Transcribe"),
     remoteSelection(

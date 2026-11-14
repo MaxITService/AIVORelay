@@ -33,6 +33,7 @@ pub(crate) fn parse_provider_error_value(json: &Value, fallback: &str) -> String
         "/message",
         "/detail",
         "/error",
+        "/title",
     ] {
         if let Some(value) = json.pointer(pointer) {
             if let Some(message) = value.as_str() {

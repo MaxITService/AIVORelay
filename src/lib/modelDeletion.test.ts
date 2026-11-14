@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, expect, spyOn, test } from "bun:test";
 import { sessionToast } from "@/lib/sessionToast";
 
 type Job = {
@@ -52,10 +52,6 @@ const tauriInternals = {
     return handler(args);
   },
 };
-
-// `@/i18n` relies on Vite's import.meta.glob, so it cannot be loaded by bun;
-// no other test imports it, which makes this module mock harmless to leak.
-mock.module("@/i18n", () => ({ default: { t: (key: string) => key } }));
 
 let api: typeof import("./modelDeletion");
 let toastError: ReturnType<typeof spyOn>;

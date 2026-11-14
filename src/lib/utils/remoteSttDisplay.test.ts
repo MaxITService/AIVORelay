@@ -43,3 +43,10 @@ assert.equal(
   }),
   "Google: Gemini 3.5 Transcribe Live",
 );
+assert.equal(
+  getRemoteApiDisplayLabel({
+    provider_preset: "reson8",
+    model_id: "rumble-2",
+  }),
+  "Reson8: rumble-2",
+);

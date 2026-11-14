@@ -25,6 +25,10 @@ use crate::managers::openai_realtime_whisper::{
     OpenAiRealtimeWhisperOptions,
 };
 use crate::managers::remote_stt::RemoteSttManager;
+use crate::managers::reson8_realtime::{
+    FinalChunkCallback as Reson8FinalChunkCallback, Reson8RealtimeManager, Reson8RealtimeOptions,
+    RESON8_LIVE_FINALIZE_TIMEOUT_MS,
+};
 use crate::managers::soniox_realtime::{
     FinalChunkCallback, SonioxRealtimeManager, SonioxRealtimeOptions,
 };
@@ -38,7 +42,8 @@ use crate::settings::{
 use crate::stream_chunk_processor::StreamChunkProcessor;
 use crate::tray::{change_tray_icon, claim_tray_state, commit_tray_sync, TrayIconState};
 use crate::url_security::{
-    REMOTE_STT_PRESET_GOOGLE, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_VERCEL,
+    REMOTE_STT_PRESET_GOOGLE, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_RESON8,
+    REMOTE_STT_PRESET_VERCEL,
 };
 use crate::utils::{
     self, show_finalizing_overlay, show_recording_overlay, show_sending_overlay,
@@ -177,6 +182,8 @@ static SONIOX_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
 static DEEPGRAM_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static OPENAI_REALTIME_WHISPER_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+static RESON8_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 #[derive(Debug)]
 struct PendingGeminiBackgroundFinalization {
@@ -854,6 +861,24 @@ fn mark_openai_realtime_whisper_stream_emitted(binding_id: &str) {
 
 fn take_openai_realtime_whisper_stream_emitted(binding_id: &str) -> bool {
     OPENAI_REALTIME_WHISPER_STREAM_EMITTED
+        .lock()
+        .ok()
+        .and_then(|mut map| map.remove(binding_id))
+        .unwrap_or(false)
+}
+
+fn set_reson8_stream_emitted(binding_id: &str, emitted: bool) {
+    if let Ok(mut map) = RESON8_STREAM_EMITTED.lock() {
+        map.insert(binding_id.to_string(), emitted);
+    }
+}
+
+fn mark_reson8_stream_emitted(binding_id: &str) {
+    set_reson8_stream_emitted(binding_id, true);
+}
+
+fn take_reson8_stream_emitted(binding_id: &str) -> bool {
+    RESON8_STREAM_EMITTED
         .lock()
         .ok()
         .and_then(|mut map| map.remove(binding_id))
@@ -2108,7 +2133,8 @@ fn post_process_allowed_for_output_route(
         }
         TranscriptionProvider::RemoteOpenAiCompatible => {
             (should_use_openai_realtime_whisper_live(settings)
-                || should_use_gemini_realtime_live(settings))
+                || should_use_gemini_realtime_live(settings)
+                || should_use_reson8_realtime_live(settings))
                 && !output_is_held_in_preview
         }
     };
@@ -2655,6 +2681,16 @@ fn start_recording_with_feedback_with_settings(
                     gemini_realtime_manager.push_audio_frame_for_operation(Some(operation_id), frame);
                 })));
             }
+            TranscriptionProvider::RemoteOpenAiCompatible
+                if should_use_reson8_realtime_live(&settings) =>
+            {
+                let reson8_realtime_manager =
+                    Arc::clone(&app.state::<Arc<Reson8RealtimeManager>>());
+                reson8_realtime_manager.prepare_session(Some(operation_id));
+                gemini_stream_callback = Some(rm.capture_stream_audio_for_history(Arc::new(move |frame| {
+                    reson8_realtime_manager.push_audio_frame_for_operation(Some(operation_id), frame);
+                })));
+            }
             _ => {}
         }
     }
@@ -2800,6 +2836,7 @@ fn start_recording_with_feedback_with_settings(
                 app.state::<Arc<DeepgramRealtimeManager>>().cancel();
                 app.state::<Arc<OpenAiRealtimeWhisperManager>>().cancel();
                 app.state::<Arc<GeminiRealtimeManager>>().cancel_if_matches(Some(operation_id));
+                app.state::<Arc<Reson8RealtimeManager>>().cancel_if_matches(Some(operation_id));
                 if use_native_local_streaming {
                     tm.cancel_stream();
                 }
@@ -2841,6 +2878,7 @@ fn start_recording_with_feedback_with_settings(
             app.state::<Arc<DeepgramRealtimeManager>>().cancel();
             app.state::<Arc<OpenAiRealtimeWhisperManager>>().cancel();
             app.state::<Arc<GeminiRealtimeManager>>().cancel_if_matches(Some(operation_id));
+            app.state::<Arc<Reson8RealtimeManager>>().cancel_if_matches(Some(operation_id));
             if use_native_local_streaming {
                 tm.cancel_stream();
             }
@@ -3756,14 +3794,17 @@ async fn get_transcription_or_cleanup_detailed(
     let openai_realtime_whisper_manager =
         Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
     let gemini_realtime_manager = Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
+    let reson8_realtime_manager = Arc::clone(&app.state::<Arc<Reson8RealtimeManager>>());
     let has_soniox_live_session = soniox_live_manager.has_active_session();
     let has_deepgram_live_session = deepgram_live_manager.has_active_session();
     let has_openai_realtime_whisper_session = openai_realtime_whisper_manager.has_active_session();
     let has_gemini_realtime_session = gemini_realtime_manager.has_active_session();
+    let has_reson8_realtime_session = reson8_realtime_manager.has_active_session();
     let has_live_session = has_soniox_live_session
         || has_deepgram_live_session
         || has_openai_realtime_whisper_session
-        || has_gemini_realtime_session;
+        || has_gemini_realtime_session
+        || has_reson8_realtime_session;
 
     let rm_for_stop = Arc::clone(&rm);
     let binding_for_stop = binding_id.to_string();
@@ -3797,6 +3838,9 @@ async fn get_transcription_or_cleanup_detailed(
             }
             if has_gemini_realtime_session {
                 gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+            }
+            if has_reson8_realtime_session {
+                reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
             }
             return TranscriptionFetchOutcome::Success((String::new(), samples));
         }
@@ -3900,6 +3944,36 @@ async fn get_transcription_or_cleanup_detailed(
             }
         }
 
+        if has_reson8_realtime_session
+            && should_use_reson8_realtime_live(&recording_settings)
+        {
+            match reson8_realtime_manager
+                .finish_session_if_matches(
+                    Some(recording_operation_id),
+                    RESON8_LIVE_FINALIZE_TIMEOUT_MS,
+                )
+                .await
+            {
+                Ok(text) => {
+                    reson8_realtime_manager.clear_reported_runtime_error();
+                    let filtered = apply_profile_output_filters(
+                        &recording_settings,
+                        text,
+                        captured_profile_id.as_deref(),
+                    );
+                    return TranscriptionFetchOutcome::Success((filtered, samples));
+                }
+                Err(err) => {
+                    let err_str = format!("{}", err);
+                    if !reson8_realtime_manager.take_reported_runtime_error(&err_str) {
+                        let _ = app.emit("remote-stt-error", err_str.clone());
+                        crate::plus_overlay_state::handle_transcription_error(app, &err_str);
+                    }
+                    return TranscriptionFetchOutcome::ErrorOverlayShown;
+                }
+            }
+        }
+
         if is_transcribe_binding_id(binding_id)
             && recording_settings.text_replacement_decapitalize_after_edit_key_enabled
         {
@@ -3941,6 +4015,7 @@ async fn get_transcription_or_cleanup_detailed(
             deepgram_live_manager.cancel();
             openai_realtime_whisper_manager.cancel();
             gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+            reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
         }
         debug!("No samples retrieved from recording stop");
         utils::hide_recording_overlay(app);
@@ -4779,6 +4854,20 @@ fn should_use_gemini_realtime_live(settings: &AppSettings) -> bool {
     is_gemini_realtime_selected(settings)
 }
 
+fn is_reson8_realtime_configured(settings: &AppSettings) -> bool {
+    settings.remote_stt.provider_preset == REMOTE_STT_PRESET_RESON8
+        && Reson8RealtimeManager::is_realtime_model(&settings.remote_stt.model_id)
+}
+
+fn is_reson8_realtime_selected(settings: &AppSettings) -> bool {
+    settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible
+        && is_reson8_realtime_configured(settings)
+}
+
+fn should_use_reson8_realtime_live(settings: &AppSettings) -> bool {
+    is_reson8_realtime_selected(settings)
+}
+
 fn should_route_live_output_to_preview(settings: &AppSettings) -> bool {
     if !settings.soniox_live_preview_enabled {
         return false;
@@ -4796,6 +4885,7 @@ fn should_route_live_output_to_preview(settings: &AppSettings) -> bool {
         TranscriptionProvider::RemoteOpenAiCompatible => {
             should_use_openai_realtime_whisper_live(settings)
                 || should_use_gemini_realtime_live(settings)
+                || should_use_reson8_realtime_live(settings)
         }
         _ => false,
     }
@@ -6425,11 +6515,13 @@ fn drop_preview_recording_without_finalize(
     let _ = take_soniox_stream_emitted(binding_id);
     let _ = take_deepgram_stream_emitted(binding_id);
     let _ = take_openai_realtime_whisper_stream_emitted(binding_id);
+    let _ = take_reson8_stream_emitted(binding_id);
 
     app.state::<Arc<SonioxRealtimeManager>>().cancel();
     app.state::<Arc<DeepgramRealtimeManager>>().cancel();
     app.state::<Arc<OpenAiRealtimeWhisperManager>>().cancel();
     app.state::<Arc<GeminiRealtimeManager>>().cancel();
+    app.state::<Arc<Reson8RealtimeManager>>().cancel();
 
     utils::hide_recording_overlay(app);
     change_tray_icon(app, TrayIconState::Idle);
@@ -7145,8 +7237,31 @@ pub(crate) fn live_sound_use_live_streaming(settings: &AppSettings) -> bool {
         TranscriptionProvider::RemoteOpenAiCompatible => {
             should_use_openai_realtime_whisper_for_live_sound(settings)
                 || is_gemini_realtime_configured(settings)
+                || is_reson8_realtime_configured(settings)
         }
         _ => false,
+    }
+}
+
+pub(crate) fn build_reson8_options_for_live_sound(
+    settings: &AppSettings,
+) -> Reson8RealtimeOptions {
+    let profile = resolve_profile_for_binding(settings, LIVE_SOUND_TRANSCRIPTION_BINDING_ID);
+    build_reson8_realtime_options(settings, profile)
+}
+
+fn build_reson8_realtime_options(
+    settings: &AppSettings,
+    profile: Option<&crate::settings::TranscriptionProfile>,
+) -> Reson8RealtimeOptions {
+    let language = profile
+        .as_ref()
+        .map(|p| p.language.clone())
+        .unwrap_or_else(|| settings.selected_language.clone());
+    Reson8RealtimeOptions {
+        model: settings.remote_stt.model_id.clone(),
+        language: Some(language),
+        preset: settings.remote_stt.provider_preset.clone(),
     }
 }
 
@@ -7263,6 +7378,7 @@ pub(crate) fn should_use_live_streaming(settings: &AppSettings) -> bool {
         TranscriptionProvider::RemoteOpenAiCompatible => {
             should_use_openai_realtime_whisper_live(settings)
                 || should_use_gemini_realtime_live(settings)
+                || should_use_reson8_realtime_live(settings)
         }
         _ => false,
     }
@@ -7308,6 +7424,11 @@ pub(crate) async fn perform_history_live_transcription(
                     crate::gemini_config::GeminiWorkflow::Dictation,
                 );
                 app.state::<Arc<GeminiRealtimeManager>>().transcribe_history_replay(
+                    samples, &api_key, options, replay,
+                ).await
+            } else if should_use_reson8_realtime_live(settings) {
+                let options = build_reson8_realtime_options(settings, profile);
+                app.state::<Arc<Reson8RealtimeManager>>().transcribe_history_replay(
                     samples, &api_key, options, replay,
                 ).await
             } else {
@@ -7364,8 +7485,11 @@ fn should_use_live_for_recording(app: &AppHandle, binding_id: &str) -> bool {
                     Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
                 let gemini_realtime_manager =
                     Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
+                let reson8_realtime_manager =
+                    Arc::clone(&app.state::<Arc<Reson8RealtimeManager>>());
                 (openai_realtime_whisper_manager.has_active_session()
-                    || gemini_realtime_manager.has_active_session())
+                    || gemini_realtime_manager.has_active_session()
+                    || reson8_realtime_manager.has_active_session())
                     && should_use_live_streaming(captured_settings)
             }
             _ => false,
@@ -7453,6 +7577,28 @@ fn setup_and_start_live(
             let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
                 .map_err(|e| format!("{}", e))?;
             gemini_realtime_manager
+                .start_session(
+                    binding_id,
+                    session_manager::recording_operation_id(app, binding_id),
+                    &api_key,
+                    options,
+                    None,
+                )
+                .map_err(|e| {
+                    app.state::<Arc<AudioRecordingManager>>()
+                        .clear_stream_frame_callback();
+                    format!("{}", e)
+                })
+        }
+        TranscriptionProvider::RemoteOpenAiCompatible
+            if should_use_reson8_realtime_live(settings) =>
+        {
+            let options = build_reson8_realtime_options(settings, profile);
+            let reson8_realtime_manager =
+                Arc::clone(&app.state::<Arc<Reson8RealtimeManager>>());
+            let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
+                .map_err(|e| format!("{}", e))?;
+            reson8_realtime_manager
                 .start_session(
                     binding_id,
                     session_manager::recording_operation_id(app, binding_id),
@@ -8008,6 +8154,7 @@ mod transcription_post_process_tests {
             (TranscriptionProvider::RemoteDeepgram, "", ""),
             (TranscriptionProvider::RemoteOpenAiCompatible, "openai", "gpt-live-transcribe"),
             (TranscriptionProvider::RemoteOpenAiCompatible, "google", "gemini-3.5-transcribe-live"),
+            (TranscriptionProvider::RemoteOpenAiCompatible, "reson8", "rumble-2"),
         ] {
             let mut settings = get_default_settings();
             settings.transcription_provider = provider;
@@ -8678,6 +8825,7 @@ impl ShortcutAction for TranscribeAction {
             let _ = take_soniox_stream_emitted(&binding_id);
             let _ = take_deepgram_stream_emitted(&binding_id);
             let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
+            let _ = take_reson8_stream_emitted(&binding_id);
             let stream_processor = if preview_output_only_enabled {
                 None
             } else {
@@ -9150,6 +9298,165 @@ impl ShortcutAction for TranscribeAction {
                         );
                     }
                 }
+                TranscriptionProvider::RemoteOpenAiCompatible
+                    if should_use_reson8_realtime_live(&settings) =>
+                {
+                    let reson8_realtime_manager =
+                        Arc::clone(&app.state::<Arc<Reson8RealtimeManager>>());
+                    let api_key = match crate::managers::remote_stt::get_remote_stt_api_key(
+                        &settings.remote_stt,
+                    ) {
+                        Ok(api_key) => api_key,
+                        Err(err) => {
+                            let _ = take_stream_chunk_processor(&binding_id);
+                            let _ = take_reson8_stream_emitted(&binding_id);
+                            let err_str = format!("{}", err);
+                            if !preview_output_only_enabled {
+                                queue_streaming_paste_session_end(&app_handle, recording_operation_id);
+                            }
+                            app_handle
+                                .state::<Arc<AudioRecordingManager>>()
+                                .clear_stream_frame_callback();
+                            if preview_output_only_enabled {
+                                crate::managers::preview_output_mode::deactivate_session(
+                                    &app_handle,
+                                );
+                                crate::overlay::end_soniox_live_preview_session();
+                                crate::overlay::hide_soniox_live_preview_window(&app_handle);
+                                crate::overlay::reset_soniox_live_preview(&app_handle);
+                            }
+                            crate::utils::cancel_current_operation(&app_handle);
+                            let _ = app_handle.emit("remote-stt-error", err_str.clone());
+                            crate::plus_overlay_state::handle_transcription_error(
+                                &app_handle,
+                                &err_str,
+                            );
+                            return;
+                        }
+                    };
+
+                    set_reson8_stream_emitted(&binding_id, false);
+                    let reson8_stream_insert_timeout_ms =
+                        settings.paste_delay_ms.saturating_add(1500);
+                    let chunk_callback = stream_processor.map(|stream_processor| {
+                        Arc::new({
+                            let ah_for_cb = app_handle.clone();
+                            let binding_id_for_cb = binding_id.clone();
+                            move |chunk: String| {
+                                if chunk.is_empty() {
+                                    return;
+                                }
+                                let delta = match stream_processor.lock() {
+                                    Ok(mut processor) => processor.push_chunk(&chunk),
+                                    Err(_) => {
+                                        warn!("Failed to lock Reson8 live stream processor");
+                                        return;
+                                    }
+                                };
+                                if delta.is_empty() {
+                                    return;
+                                }
+                                let delta_ending = delta.chars().last();
+                                let processor_for_paste = Arc::clone(&stream_processor);
+                                let ah_for_clip = ah_for_cb.clone();
+                                let binding_id_for_paste = binding_id_for_cb.clone();
+                                if let Err(error) = crate::output_dispatch::run_sync(
+                                    reson8_stream_insert_timeout_ms,
+                                    move || {
+                                        if !operation_stamp.is_current(&ah_for_clip)
+                                            || operation_stamp.was_cancelled(&ah_for_clip)
+                                        {
+                                            debug!(
+                                                "Skipping queued Reson8 live chunk for stale or cancelled operation {}",
+                                                operation_stamp.operation_id
+                                            );
+                                            return;
+                                        }
+                                        match crate::clipboard::paste_stream_chunk_for_operation(
+                                            delta,
+                                            ah_for_clip.clone(),
+                                            operation_stamp.operation_id,
+                                        ) {
+                                            Ok(()) => {
+                                                if let Ok(mut processor) =
+                                                    processor_for_paste.lock()
+                                                {
+                                                    processor.record_output_ending(delta_ending);
+                                                }
+                                                mark_reson8_stream_emitted(&binding_id_for_paste);
+                                            }
+                                            Err(error) => {
+                                                let message = format!(
+                                                    "Failed to insert Reson8 live stream chunk: {}",
+                                                    error
+                                                );
+                                                warn!("{}", message);
+                                                handle_remote_transcription_error(
+                                                    &ah_for_clip,
+                                                    &message,
+                                                    false,
+                                                );
+                                            }
+                                        }
+                                    },
+                                ) {
+                                    let message = format!(
+                                        "Reson8 live stream insertion was not confirmed: {}",
+                                        error
+                                    );
+                                    warn!("{}", message);
+                                    handle_remote_transcription_error(&ah_for_cb, &message, false);
+                                }
+                            }
+                        }) as Reson8FinalChunkCallback
+                    });
+
+                    let start_result = reson8_realtime_manager.start_session(
+                        &binding_id,
+                        Some(recording_operation_id),
+                        &api_key,
+                        build_reson8_realtime_options(&settings, profile),
+                        chunk_callback,
+                    );
+
+                    if let Err(err) = start_result {
+                        if !operation_stamp.is_current(&app_handle)
+                            || operation_stamp.was_cancelled(&app_handle)
+                        {
+                            debug!(
+                                "Ignoring Reson8 startup failure for stale operation {}",
+                                recording_operation_id
+                            );
+                            return;
+                        }
+                        let _ = take_stream_chunk_processor(&binding_id);
+                        let _ = take_reson8_stream_emitted(&binding_id);
+                        let err_str = format!("{}", err);
+                        if !preview_output_only_enabled {
+                            queue_streaming_paste_session_end(&app_handle, recording_operation_id);
+                        }
+                        app_handle
+                            .state::<Arc<AudioRecordingManager>>()
+                            .clear_stream_frame_callback();
+                        if preview_output_only_enabled {
+                            crate::managers::preview_output_mode::deactivate_session(&app_handle);
+                            crate::overlay::end_soniox_live_preview_session();
+                            crate::overlay::hide_soniox_live_preview_window(&app_handle);
+                            crate::overlay::reset_soniox_live_preview(&app_handle);
+                        }
+                        crate::utils::cancel_current_operation(&app_handle);
+                        let _ = app_handle.emit("remote-stt-error", err_str.clone());
+                        crate::plus_overlay_state::handle_transcription_error(
+                            &app_handle,
+                            &err_str,
+                        );
+                    } else {
+                        debug!(
+                            "Reson8 live session started for binding '{}'",
+                            binding_id
+                        );
+                    }
+                }
                 _ => {}
             }
         }
@@ -9169,6 +9476,7 @@ impl ShortcutAction for TranscribeAction {
         let openai_realtime_whisper_manager =
             Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
         let gemini_realtime_manager = Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
+        let reson8_realtime_manager = Arc::clone(&app.state::<Arc<Reson8RealtimeManager>>());
         let use_live_streaming = should_use_live_for_recording(app, binding_id);
         let invoked_from_preview_action = shortcut_str.contains("preview_output_mode")
             || binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID;
@@ -9184,6 +9492,7 @@ impl ShortcutAction for TranscribeAction {
                     let _ = take_soniox_stream_emitted(binding_id);
                     let _ = take_deepgram_stream_emitted(binding_id);
                     let _ = take_openai_realtime_whisper_stream_emitted(binding_id);
+                    let _ = take_reson8_stream_emitted(binding_id);
                     return; // No active session - nothing to do
                 }
             };
@@ -9210,10 +9519,15 @@ impl ShortcutAction for TranscribeAction {
                 should_use_openai_realtime_whisper_live(&recording_settings);
             let is_gemini_live_provider =
                 should_use_gemini_realtime_live(&recording_settings);
+            let is_reson8_live_provider =
+                should_use_reson8_realtime_live(&recording_settings);
             let live_instant_stop = !buffered_output && !early_opening_key
                 && if is_deepgram_live_provider {
                 recording_settings.deepgram_live_instant_stop
-            } else if is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
+            } else if is_openai_realtime_whisper_live_provider
+                || is_gemini_live_provider
+                || is_reson8_live_provider
+            {
                 false
             } else {
                 recording_settings.soniox_live_instant_stop
@@ -9224,6 +9538,8 @@ impl ShortcutAction for TranscribeAction {
                 OPENAI_REALTIME_WHISPER_LIVE_FINALIZE_TIMEOUT_MS
             } else if is_gemini_live_provider {
                 GEMINI_LIVE_FINALIZE_TIMEOUT_MS
+            } else if is_reson8_live_provider {
+                RESON8_LIVE_FINALIZE_TIMEOUT_MS
             } else {
                 recording_settings.soniox_live_finalize_timeout_ms
             };
@@ -9292,7 +9608,8 @@ impl ShortcutAction for TranscribeAction {
                 );
                 let rm = Arc::clone(&ah.state::<Arc<AudioRecordingManager>>());
                 let (mut stream_processor, had_soniox_stream_output,
-                    mut had_deepgram_stream_output, mut had_openai_realtime_whisper_stream_output) = {
+                    mut had_deepgram_stream_output, mut had_openai_realtime_whisper_stream_output,
+                    mut had_reson8_stream_output) = {
                     // Claim only in-memory bookkeeping under this lock. Audio
                     // I/O and callback cleanup use capture ownership below.
                     let state = ah.state::<ManagedSessionState>();
@@ -9306,7 +9623,11 @@ impl ShortcutAction for TranscribeAction {
                     }
                     let stream_processor = take_stream_chunk_processor(&binding_id);
                     let had_soniox_stream_output =
-                        if is_deepgram_live_provider || is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
+                        if is_deepgram_live_provider
+                            || is_openai_realtime_whisper_live_provider
+                            || is_gemini_live_provider
+                            || is_reson8_live_provider
+                        {
                             false
                         } else {
                             take_soniox_stream_emitted(&binding_id)
@@ -9316,8 +9637,11 @@ impl ShortcutAction for TranscribeAction {
                     let had_openai_realtime_whisper_stream_output =
                         (is_openai_realtime_whisper_live_provider || is_gemini_live_provider)
                             && take_openai_realtime_whisper_stream_emitted(&binding_id);
+                    let had_reson8_stream_output = is_reson8_live_provider
+                        && take_reson8_stream_emitted(&binding_id);
                     (stream_processor, had_soniox_stream_output,
-                        had_deepgram_stream_output, had_openai_realtime_whisper_stream_output)
+                        had_deepgram_stream_output, had_openai_realtime_whisper_stream_output,
+                        had_reson8_stream_output)
                 };
                 // No global lock crosses the device wait. The audio manager
                 // atomically claims the capture by operation ID before stopping.
@@ -9335,10 +9659,14 @@ impl ShortcutAction for TranscribeAction {
                 let samples = match samples {
                     Some(samples) => samples,
                     None => {
-                        if is_gemini_live_provider
+                        if (is_gemini_live_provider || is_reson8_live_provider)
                             && (!operation_stamp.is_current(&ah) || operation_stamp.was_cancelled(&ah))
                         {
-                            gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                            if is_gemini_live_provider {
+                                gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                            } else {
+                                reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                            }
                             return;
                         }
                         if live_instant_stop {
@@ -9348,6 +9676,8 @@ impl ShortcutAction for TranscribeAction {
                                 openai_realtime_whisper_manager.cancel();
                             } else if is_gemini_live_provider {
                                 gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                            } else if is_reson8_live_provider {
+                                reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
                             } else {
                                 soniox_live_manager.cancel();
                             }
@@ -9364,13 +9694,17 @@ impl ShortcutAction for TranscribeAction {
                                 gemini_realtime_manager
                                     .finish_session_if_matches(Some(recording_operation_id), live_finalize_timeout_ms)
                                     .await
+                            } else if is_reson8_live_provider {
+                                reson8_realtime_manager
+                                    .finish_session_if_matches(Some(recording_operation_id), live_finalize_timeout_ms)
+                                    .await
                             } else {
                                 soniox_live_manager
                                     .finish_session(live_finalize_timeout_ms)
                                     .await
                             };
                         }
-                        if is_gemini_live_provider
+                        if (is_gemini_live_provider || is_reson8_live_provider)
                             && (!operation_stamp.is_current(&ah) || operation_stamp.was_cancelled(&ah))
                         {
                             return;
@@ -9393,10 +9727,14 @@ impl ShortcutAction for TranscribeAction {
                         return;
                     }
                 };
-                if is_gemini_live_provider
+                if (is_gemini_live_provider || is_reson8_live_provider)
                     && (!operation_stamp.is_current(&ah) || operation_stamp.was_cancelled(&ah))
                 {
-                    gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                    if is_gemini_live_provider {
+                        gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                    } else {
+                        reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                    }
                     return;
                 }
 
@@ -9404,6 +9742,8 @@ impl ShortcutAction for TranscribeAction {
                     had_deepgram_stream_output
                 } else if is_openai_realtime_whisper_live_provider || is_gemini_live_provider {
                     had_openai_realtime_whisper_stream_output
+                } else if is_reson8_live_provider {
+                    had_reson8_stream_output
                 } else {
                     had_soniox_stream_output
                 };
@@ -9433,6 +9773,8 @@ impl ShortcutAction for TranscribeAction {
                         openai_realtime_whisper_manager.cancel();
                     } else if is_gemini_live_provider {
                         gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                    } else if is_reson8_live_provider {
+                        reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
                     } else {
                         soniox_live_manager.cancel();
                     }
@@ -9506,6 +9848,8 @@ impl ShortcutAction for TranscribeAction {
                         openai_realtime_whisper_manager.cancel();
                     } else if is_gemini_live_provider {
                         gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                    } else if is_reson8_live_provider {
+                        reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
                     } else {
                         soniox_live_manager.cancel();
                     }
@@ -9555,6 +9899,10 @@ impl ShortcutAction for TranscribeAction {
                             .finish_session_if_matches(Some(recording_operation_id), live_finalize_timeout_ms)
                             .await
                     }
+                } else if is_reson8_live_provider {
+                    reson8_realtime_manager
+                        .finish_session_if_matches(Some(recording_operation_id), live_finalize_timeout_ms)
+                        .await
                 } else if preview_output_only_enabled || buffered_output {
                     // Preview and buffered output are still reversible, so
                     // let complete-recording replay repair a Soniox timeout.
@@ -9659,6 +10007,11 @@ impl ShortcutAction for TranscribeAction {
                 if is_gemini_live_provider
                     && (operation_stamp.was_cancelled(&ah)
                         || (!gemini_finalization_is_background && !operation_stamp.is_current(&ah)))
+                {
+                    return;
+                }
+                if is_reson8_live_provider
+                    && (operation_stamp.was_cancelled(&ah) || !operation_stamp.is_current(&ah))
                 {
                     return;
                 }
@@ -9788,6 +10141,8 @@ impl ShortcutAction for TranscribeAction {
                     Ok(text) => {
                         if is_gemini_live_provider {
                             gemini_realtime_manager.clear_reported_runtime_error();
+                        } else if is_reson8_live_provider {
+                            reson8_realtime_manager.clear_reported_runtime_error();
                         }
                         apply_profile_output_filters(
                             &recording_settings,
@@ -9797,13 +10152,16 @@ impl ShortcutAction for TranscribeAction {
                     }
                     Err(err) => {
                         let err_str = format!("{}", err);
-                        let runtime_error_already_reported = is_gemini_live_provider
-                            && gemini_realtime_manager.take_reported_runtime_error(&err_str);
+                        let runtime_error_already_reported = (is_gemini_live_provider
+                            && gemini_realtime_manager.take_reported_runtime_error(&err_str))
+                            || (is_reson8_live_provider
+                                && reson8_realtime_manager.take_reported_runtime_error(&err_str));
                         let can_replay_soniox = should_replay_soniox_live_timeout(
                             &err_str,
                             !is_deepgram_live_provider
                                 && !is_openai_realtime_whisper_live_provider
-                                && !is_gemini_live_provider,
+                                && !is_gemini_live_provider
+                                && !is_reson8_live_provider,
                             preview_output_only_enabled,
                             had_soniox_stream_output && !buffered_output,
                         );
@@ -9930,6 +10288,9 @@ impl ShortcutAction for TranscribeAction {
                     had_openai_realtime_whisper_stream_output |=
                         take_openai_realtime_whisper_stream_emitted(&binding_id);
                 }
+                if is_reson8_live_provider {
+                    had_reson8_stream_output |= take_reson8_stream_emitted(&binding_id);
+                }
 
                 if let Some(processor) = stream_processor.as_ref() {
                     let tail_delta = match processor.lock() {
@@ -9947,7 +10308,7 @@ impl ShortcutAction for TranscribeAction {
                         }
                         let ah_for_clip = ah.clone();
                         let binding_id_for_tail = binding_id.clone();
-                        let queue_result = if is_gemini_live_provider {
+                        let queue_result = if is_gemini_live_provider || is_reson8_live_provider {
                             crate::output_dispatch::run_sync(
                                 recording_settings.paste_delay_ms.saturating_add(1500),
                                 move || {
@@ -9955,7 +10316,7 @@ impl ShortcutAction for TranscribeAction {
                                         || operation_stamp.was_cancelled(&ah_for_clip)
                                     {
                                         debug!(
-                                            "Skipping queued Gemini live stream tail for stale or cancelled operation {}",
+                                            "Skipping queued live stream tail for stale or cancelled operation {}",
                                             operation_stamp.operation_id
                                         );
                                         return;
@@ -9966,17 +10327,27 @@ impl ShortcutAction for TranscribeAction {
                                         operation_stamp.operation_id,
                                     ) {
                                         Ok(()) => {
-                                            mark_openai_realtime_whisper_stream_emitted(
-                                                &binding_id_for_tail,
-                                            );
-                                            confirm_gemini_background_delivery(
-                                                &ah_for_clip,
-                                                operation_stamp.operation_id,
-                                            );
+                                            if is_reson8_live_provider {
+                                                mark_reson8_stream_emitted(&binding_id_for_tail);
+                                            } else {
+                                                mark_openai_realtime_whisper_stream_emitted(
+                                                    &binding_id_for_tail,
+                                                );
+                                                confirm_gemini_background_delivery(
+                                                    &ah_for_clip,
+                                                    operation_stamp.operation_id,
+                                                );
+                                            }
                                         }
                                         Err(error) => {
+                                            let provider_label = if is_reson8_live_provider {
+                                                "Reson8 Rumble-2"
+                                            } else {
+                                                "Gemini 3.5 Transcribe Live"
+                                            };
                                             let message = format!(
-                                                "Failed to insert Gemini 3.5 Transcribe Live stream tail: {}",
+                                                "Failed to insert {} stream tail: {}",
+                                                provider_label,
                                                 error
                                             );
                                             warn!("{}", message);
@@ -10011,9 +10382,15 @@ impl ShortcutAction for TranscribeAction {
                             })
                         };
                         if let Err(err) = queue_result {
-                            if is_gemini_live_provider {
+                            if is_gemini_live_provider || is_reson8_live_provider {
+                                let provider_label = if is_reson8_live_provider {
+                                    "Reson8 Rumble-2"
+                                } else {
+                                    "Gemini 3.5 Transcribe Live"
+                                };
                                 let message = format!(
-                                    "Gemini 3.5 Transcribe Live stream tail insertion was not confirmed: {}",
+                                    "{} stream tail insertion was not confirmed: {}",
+                                    provider_label,
                                     err
                                 );
                                 warn!("{}", message);
@@ -10029,6 +10406,7 @@ impl ShortcutAction for TranscribeAction {
                     let had_live_output = had_soniox_stream_output
                         || had_deepgram_stream_output
                         || had_openai_realtime_whisper_stream_output
+                        || had_reson8_stream_output
                         || (preview_output_only_enabled && preview_has_new_output());
                     if !preview_output_only_enabled {
                         end_streaming_paste_session_after_output_queue(
@@ -10151,7 +10529,8 @@ impl ShortcutAction for TranscribeAction {
                 let binding_id_for_final_output = binding_id.clone();
                 if let Err(err) = crate::output_dispatch::run_sync(output_timeout_ms, move || {
                     if operation_stamp.was_cancelled(&ah_clone)
-                        || (is_gemini_live_provider && !operation_stamp.is_current(&ah_clone))
+                        || ((is_gemini_live_provider || is_reson8_live_provider)
+                            && !operation_stamp.is_current(&ah_clone))
                     {
                         debug!(
                             "Skipping queued live output for stale or cancelled operation {}",
@@ -10163,6 +10542,7 @@ impl ShortcutAction for TranscribeAction {
                         if is_deepgram_live_provider
                             || is_openai_realtime_whisper_live_provider
                             || is_gemini_live_provider
+                            || is_reson8_live_provider
                         {
                             // Some live providers may return all stable text only at finalization;
                             // if no stream chunks were actually inserted, paste the final text now.
@@ -10179,27 +10559,37 @@ impl ShortcutAction for TranscribeAction {
                                     || take_openai_realtime_whisper_stream_emitted(
                                         &binding_id_for_final_output,
                                     )
+                            } else if is_reson8_live_provider {
+                                had_reson8_stream_output
+                                    || take_reson8_stream_emitted(&binding_id_for_final_output)
                             } else {
                                 had_openai_realtime_whisper_stream_output
                             };
                             if !had_provider_stream_output {
-                                let fallback_result = if is_gemini_live_provider {
-                                    crate::clipboard::paste_stream_chunk_for_operation(
-                                        final_text_for_ui.clone(),
-                                        ah_clone.clone(),
-                                        operation_stamp.operation_id,
-                                    )
-                                } else {
-                                    crate::clipboard::paste_stream_chunk_for_recording(
-                                        final_text_for_ui.clone(),
-                                        ah_clone.clone(),
-                                        operation_stamp.operation_id,
-                                    )
-                                };
-                                if is_gemini_live_provider {
+                                let fallback_result =
+                                    if is_gemini_live_provider || is_reson8_live_provider {
+                                        crate::clipboard::paste_stream_chunk_for_operation(
+                                            final_text_for_ui.clone(),
+                                            ah_clone.clone(),
+                                            operation_stamp.operation_id,
+                                        )
+                                    } else {
+                                        crate::clipboard::paste_stream_chunk_for_recording(
+                                            final_text_for_ui.clone(),
+                                            ah_clone.clone(),
+                                            operation_stamp.operation_id,
+                                        )
+                                    };
+                                if is_gemini_live_provider || is_reson8_live_provider {
                                     if let Err(error) = fallback_result {
+                                        let provider_label = if is_reson8_live_provider {
+                                            "Reson8 Rumble-2"
+                                        } else {
+                                            "Gemini 3.5 Transcribe Live"
+                                        };
                                         let message = format!(
-                                            "Failed to insert finalized Gemini 3.5 Transcribe Live text: {}",
+                                            "Failed to insert finalized {} text: {}",
+                                            provider_label,
                                             error
                                         );
                                         warn!("{}", message);
@@ -13059,6 +13449,12 @@ pub fn preview_clear_action(app: AppHandle) -> Result<(), String> {
         .restart_session()
     {
         warn!("Failed to restart Gemini 3.5 Transcribe Live session: {}", e);
+    }
+    if let Err(e) = app
+        .state::<Arc<Reson8RealtimeManager>>()
+        .restart_session()
+    {
+        warn!("Failed to restart Reson8 Rumble-2 session: {}", e);
     }
     if crate::managers::preview_output_mode::is_active() {
         crate::managers::preview_output_mode::set_recording_prefix_text(&app, String::new());

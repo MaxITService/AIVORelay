@@ -29,6 +29,8 @@ pub(crate) fn validate_live_sound_model_selection(
                 && selection.model_id == VERCEL_GEMINI_LIVE_MODEL)
                 || (selection.provider_preset == "google"
                     && selection.model_id == GOOGLE_GEMINI_LIVE_MODEL)
+                || (selection.provider_preset == crate::url_security::REMOTE_STT_PRESET_RESON8
+                    && selection.model_id == crate::url_security::REMOTE_STT_RESON8_DEFAULT_MODEL)
         }
         TranscriptionProvider::Local => false,
     };
@@ -94,6 +96,7 @@ fn validate_live_sound_model_readiness(
         TranscriptionProvider::RemoteOpenAiCompatible => match selection.provider_preset.as_str() {
             "google" => "Google",
             "vercel" => "Vercel",
+            crate::url_security::REMOTE_STT_PRESET_RESON8 => "Reson8",
             _ => "Remote STT",
         },
         TranscriptionProvider::Local => "Local STT",
@@ -404,6 +407,11 @@ mod tests {
                 model_id: "gemini-3.5-transcribe-live".to_string(),
                 provider_preset: "google".to_string(),
             },
+            SttModelSelection {
+                provider: TranscriptionProvider::RemoteOpenAiCompatible,
+                model_id: "rumble-2".to_string(),
+                provider_preset: "reson8".to_string(),
+            },
         ];
         for selection in supported {
             assert!(validate_live_sound_model_selection(&selection).is_ok());
@@ -429,6 +437,11 @@ mod tests {
                 provider: TranscriptionProvider::RemoteOpenAiCompatible,
                 model_id: "gemini-3.5-transcribe-live-custom".to_string(),
                 provider_preset: "google".to_string(),
+            },
+            SttModelSelection {
+                provider: TranscriptionProvider::RemoteOpenAiCompatible,
+                model_id: "resonant-1".to_string(),
+                provider_preset: "reson8".to_string(),
             },
         ];
         for selection in unsupported {

@@ -176,11 +176,12 @@ const liveProviders: Partial<AppSettings>[] = [
     soniox_live_enabled: true },
   { transcription_provider: "remote_deepgram", deepgram_model: "nova-3",
     deepgram_live_enabled: true },
-  ...(["openai", "google", "vercel"] as const).map((preset) => ({
+  ...(["openai", "google", "vercel", "reson8"] as const).map((preset) => ({
     transcription_provider: "remote_openai_compatible" as const,
     remote_stt: { provider_preset: preset, model_id: preset === "openai"
       ? "gpt-live-transcribe" : preset === "google"
-        ? "gemini-3.5-transcribe-live" : "google/gemini-3.5-transcribe-live" } as any,
+        ? "gemini-3.5-transcribe-live" : preset === "reson8"
+          ? "rumble-2" : "google/gemini-3.5-transcribe-live" } as any,
   })),
 ];
 

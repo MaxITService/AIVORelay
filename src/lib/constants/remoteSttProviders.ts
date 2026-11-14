@@ -23,6 +23,12 @@ export const REMOTE_STT_PRESETS = {
     baseUrl: "https://generativelanguage.googleapis.com/v1beta",
     defaultModel: "gemini-3.5-transcribe",
   },
+  reson8: {
+    id: "reson8",
+    label: "Reson8",
+    baseUrl: "https://api.reson8.dev/v1",
+    defaultModel: "rumble-2",
+  },
   custom: {
     id: "custom",
     label: "Custom",

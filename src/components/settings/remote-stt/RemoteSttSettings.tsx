@@ -48,6 +48,7 @@ type RemoteSttInterfaceId =
   | "groq"
   | "gemini_transcribe"
   | "gemini_live"
+  | "reson8"
   | "openai_transcribe"
   | "openai_live_transcribe"
   | "openai_realtime_whisper"
@@ -268,6 +269,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
            (remoteSettings?.model_id ?? "") === "gemini-3.5-transcribe-live"
           ? "gemini_live"
           : "gemini_transcribe")
+      : remotePreset === "reson8"
+        ? "reson8"
       : remotePreset === "custom"
         ? "custom"
         : (remoteSettings?.model_id ?? "") === "gpt-transcribe"
@@ -290,6 +293,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       ? "Vercel AI Gateway API Key"
       : remotePreset === "google"
         ? "Google Gemini API Key"
+    : currentRemoteInterface === "reson8"
+      ? "Reson8 API Key"
     : currentRemoteInterface === "groq"
       ? "Groq API Key"
       : currentRemoteInterface === "custom"
@@ -300,6 +305,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       ? "Stored separately for Vercel AI Gateway in Windows Credential Manager."
       : remotePreset === "google"
         ? "Stored separately for Google Gemini API in Windows Credential Manager."
+    : currentRemoteInterface === "reson8"
+      ? "Stored separately for Reson8 in Windows Credential Manager."
     : currentRemoteInterface === "groq"
       ? "Stored separately for Groq in Windows Credential Manager."
       : currentRemoteInterface === "custom"
@@ -738,6 +745,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           label: "Google Gemini 3.5 Transcribe Live · Live (Realtime)",
         },
         {
+          value: "reson8",
+          label: "Reson8 rumble-2 · Live (final chunks) & file",
+        },
+        {
           value: "openai_transcribe",
           label: "OpenAI gpt-transcribe · File / post-recording",
         },
@@ -776,6 +787,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         "Dedicated Gemini 3.5 Transcribe API for completed recordings and audio files. Vercel AI Gateway is the default route.",
       gemini_live:
         "Low-latency streaming via Gemini 3.5 Transcribe Live. Vercel AI Gateway is the default route.",
+      reson8:
+        "Reson8 Rumble-2 streams finalized live chunks and also transcribes completed files. Interim transcript preview is not supported.",
       openai_transcribe:
         "Recommended for completed recordings, file transcription, and batch workloads.",
       openai_live_transcribe:
@@ -848,12 +861,16 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           ? remotePreset === "google" || remotePreset === "vercel"
             ? remotePreset
             : "vercel"
+        : interfaceId === "reson8"
+          ? "reson8"
         : interfaceId === "custom"
           ? "custom"
           : "openai";
     const nextModel =
       interfaceId === "groq"
         ? REMOTE_STT_PRESETS.groq.defaultModel
+        : interfaceId === "reson8"
+          ? REMOTE_STT_PRESETS.reson8.defaultModel
         : interfaceId === "gemini_transcribe"
           ? nextPreset === "google"
             ? REMOTE_STT_PRESETS.google.defaultModel
@@ -1458,6 +1475,9 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     ) {
       return ["geminiLanguage", "customVocabulary"];
     }
+    if (currentRemoteInterface === "reson8") {
+      return ["language"];
+    }
     if (currentRemoteInterface === "openai_realtime_translate") {
       return ["language", "translateToEnglish"];
     }
@@ -1776,6 +1796,27 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     </>
                   )}
                 </>
+              )}
+
+              {currentRemoteInterface === "reson8" && (
+                <div className="mx-4 rounded-lg border border-emerald-400/25 bg-emerald-400/5 p-3 text-xs text-text/80">
+                  <p className="font-medium text-emerald-200">
+                    Reson8 · rumble-2
+                  </p>
+                  <p className="mt-1">
+                    {t(
+                      "modelSelector.remoteApiRows.reson8.description",
+                      "Live output inserts finalized chunks only. Interim transcript preview is not supported. Also supports prerecorded file transcription.",
+                    )}
+                  </p>
+                  <p className="mt-1 text-text/65">
+                    Uses Reson8&apos;s native WebSocket realtime and prerecorded
+                    HTTP endpoints with <code>Authorization: ApiKey</code>.
+                    Optional language selection sends the ISO language hint when
+                    configured; free-form STT prompts, translation, and SRT/VTT
+                    subtitle timestamps are not supported.
+                  </p>
+                </div>
               )}
 
               {(currentRemoteInterface === "openai_live_transcribe" ||
@@ -3315,7 +3356,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
               <div className="flex flex-col gap-2">
                 {showOpenAiFields &&
                   currentRemoteInterface !== "gemini_transcribe" &&
-                  currentRemoteInterface !== "gemini_live" && (
+                  currentRemoteInterface !== "gemini_live" &&
+                  currentRemoteInterface !== "reson8" && (
                   <>
                     <div className="flex items-center gap-2">
                       <Button
