@@ -202,8 +202,35 @@ pub fn store_path(relative: &str) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{configured_mode, hugging_face_home, original_hf_home, save_storage_mode, StorageMode};
-    use std::path::Path;
+    use super::{
+        configured_mode, hugging_face_home, original_hf_home, save_storage_mode, StorageMode,
+        DESKTOP_DATA_PREFERENCE,
+    };
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct TempDirGuard(PathBuf);
+
+    impl Drop for TempDirGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn unique_temp_dir(label: &str) -> TempDirGuard {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "aivorelay-{label}-{}-{unique}-{seq}",
+            std::process::id(),
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        TempDirGuard(path)
+    }
 
     #[test]
     fn hugging_face_home_is_inside_portable_data() {
@@ -238,6 +265,100 @@ mod tests {
         assert_eq!(std::fs::read(settings).unwrap(), b"existing settings");
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn save_storage_mode_rejects_directory_preference_and_preserves_data() {
+        let root = unique_temp_dir("dir-pref");
+        let data_dir = root.0.join("Data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let marker = root.0.join("portable");
+        std::fs::write(&marker, b"portable-marker").unwrap();
+        let settings = data_dir.join("settings_store.json");
+        std::fs::write(&settings, b"portable settings").unwrap();
+
+        let pref_dir = root.0.join(DESKTOP_DATA_PREFERENCE);
+        let sentinel = pref_dir.join("keep.txt");
+        std::fs::create_dir_all(&pref_dir).unwrap();
+        std::fs::write(&sentinel, b"do not delete").unwrap();
+
+        let desktop_err = save_storage_mode(&root.0, StorageMode::Desktop).unwrap_err();
+        assert!(desktop_err.starts_with("Cannot save portable storage preference: "));
+
+        let portable_err = save_storage_mode(&root.0, StorageMode::Portable).unwrap_err();
+        assert!(portable_err.starts_with("Cannot save portable storage preference: "));
+
+        assert!(configured_mode(&root.0).unwrap() == StorageMode::Desktop);
+        assert!(pref_dir.is_dir());
+        assert_eq!(std::fs::read(&sentinel).unwrap(), b"do not delete");
+        assert!(marker.is_file());
+        assert_eq!(std::fs::read(&marker).unwrap(), b"portable-marker");
+        assert_eq!(std::fs::read(&settings).unwrap(), b"portable settings");
+    }
+
+    #[test]
+    fn save_storage_mode_fails_when_executable_directory_is_missing() {
+        let root = unique_temp_dir("missing-exe");
+        let missing_exe_dir = root.0.join("missing-exe-dir");
+        let sibling_desktop_data = root.0.join("desktop-data");
+        std::fs::create_dir_all(&sibling_desktop_data).unwrap();
+        let desktop_settings = sibling_desktop_data.join("settings_store.json");
+        std::fs::write(&desktop_settings, b"desktop settings").unwrap();
+
+        let desktop_err = save_storage_mode(&missing_exe_dir, StorageMode::Desktop).unwrap_err();
+        assert!(desktop_err.starts_with("Cannot save portable storage preference: "));
+        assert!(!missing_exe_dir.exists());
+        assert!(!missing_exe_dir.join(DESKTOP_DATA_PREFERENCE).exists());
+
+        assert!(configured_mode(&missing_exe_dir).unwrap() == StorageMode::Portable);
+        save_storage_mode(&missing_exe_dir, StorageMode::Portable).unwrap();
+        assert!(!missing_exe_dir.exists());
+        assert_eq!(std::fs::read(&desktop_settings).unwrap(), b"desktop settings");
+    }
+
+    #[test]
+    fn switching_storage_mode_does_not_touch_or_migrate_desktop_data() {
+        let root = unique_temp_dir("no-migrate");
+        let exe_dir = root.0.join("portable-app");
+        let portable_data = exe_dir.join("Data");
+        let portable_hf = portable_data.join("huggingface");
+        let desktop_data = root.0.join("desktop-app-data");
+        std::fs::create_dir_all(&portable_hf).unwrap();
+        std::fs::create_dir_all(&desktop_data).unwrap();
+
+        let marker = exe_dir.join("portable");
+        std::fs::write(&marker, b"portable-marker").unwrap();
+        let portable_settings = portable_data.join("settings_store.json");
+        std::fs::write(&portable_settings, b"{\"mode\":\"portable\"}").unwrap();
+        let portable_model = portable_hf.join("model.bin");
+        std::fs::write(&portable_model, b"portable-model").unwrap();
+
+        let desktop_settings = desktop_data.join("settings_store.json");
+        std::fs::write(&desktop_settings, b"{\"mode\":\"desktop\"}").unwrap();
+        let desktop_only = desktop_data.join("history.db");
+        std::fs::write(&desktop_only, b"desktop-history").unwrap();
+
+        save_storage_mode(&exe_dir, StorageMode::Desktop).unwrap();
+        let pref_path = exe_dir.join(DESKTOP_DATA_PREFERENCE);
+        assert!(configured_mode(&exe_dir).unwrap() == StorageMode::Desktop);
+        assert!(pref_path.is_file());
+        assert_eq!(std::fs::read(&pref_path).unwrap(), b"");
+        assert_eq!(std::fs::read(&marker).unwrap(), b"portable-marker");
+        assert_eq!(std::fs::read(&portable_settings).unwrap(), b"{\"mode\":\"portable\"}");
+        assert_eq!(std::fs::read(&portable_model).unwrap(), b"portable-model");
+        assert_eq!(std::fs::read(&desktop_settings).unwrap(), b"{\"mode\":\"desktop\"}");
+        assert_eq!(std::fs::read(&desktop_only).unwrap(), b"desktop-history");
+        assert!(!desktop_data.join("huggingface").exists());
+
+        save_storage_mode(&exe_dir, StorageMode::Portable).unwrap();
+        assert!(configured_mode(&exe_dir).unwrap() == StorageMode::Portable);
+        assert!(!pref_path.exists());
+        assert_eq!(std::fs::read(&marker).unwrap(), b"portable-marker");
+        assert_eq!(std::fs::read(&portable_settings).unwrap(), b"{\"mode\":\"portable\"}");
+        assert_eq!(std::fs::read(&portable_model).unwrap(), b"portable-model");
+        assert!(!portable_data.join("history.db").exists());
+        assert_eq!(std::fs::read(&desktop_settings).unwrap(), b"{\"mode\":\"desktop\"}");
+        assert_eq!(std::fs::read(&desktop_only).unwrap(), b"desktop-history");
     }
 
     #[test]
