@@ -2201,6 +2201,7 @@ fn transcription_provider_name(
         TranscriptionProvider::RemoteOpenAiCompatible => match remote_provider_preset {
             "vercel" => "Vercel AI Gateway (Gemini 3.5 Transcribe)",
             "google" => "Google Gemini API (Gemini 3.5 Transcribe)",
+            "reson8" => "Reson8 (Rumble-2)",
             _ => "OpenAI-compatible",
         },
         TranscriptionProvider::RemoteSoniox => "Soniox",

@@ -107,3 +107,12 @@ test("Gemini live output honors the active custom profile's preview setting", ()
   expect(getPostProcessingAvailability(current, { profilePreviewOutputOnlyEnabled: false }))
     .toEqual(directOutput);
 });
+
+test("Reson8 rumble-2 live output is blocked unless preview mode is active, without matching custom endpoints", () => {
+  expect(getPostProcessingAvailability(remote("reson8", "rumble-2"))).toEqual(directOutput);
+  expect(getPostProcessingAvailability({
+    ...remote("reson8", "rumble-2"),
+    preview_output_only_enabled: true,
+  })).toEqual(allowed);
+  expect(getPostProcessingAvailability(remote("custom", "rumble-2"))).toEqual(allowed);
+});

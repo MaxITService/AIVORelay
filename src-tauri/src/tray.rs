@@ -9,8 +9,8 @@ use crate::tray_i18n::get_tray_translations;
 use crate::url_security::{
     REMOTE_STT_GOOGLE_DEFAULT_MODEL, REMOTE_STT_GROQ_DEFAULT_MODEL,
     REMOTE_STT_OPENAI_DEFAULT_MODEL, REMOTE_STT_PRESET_CUSTOM, REMOTE_STT_PRESET_GOOGLE,
-    REMOTE_STT_PRESET_GROQ, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_VERCEL,
-    REMOTE_STT_VERCEL_DEFAULT_MODEL,
+    REMOTE_STT_PRESET_GROQ, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_RESON8,
+    REMOTE_STT_PRESET_VERCEL, REMOTE_STT_RESON8_DEFAULT_MODEL, REMOTE_STT_VERCEL_DEFAULT_MODEL,
 };
 use crate::{commands::audio, settings};
 use log::{debug, error, info, trace, warn};
@@ -1150,6 +1150,7 @@ fn build_model_menu_label(inputs: &MenuInputs, fallback_label: &str) -> String {
                 REMOTE_STT_PRESET_OPENAI => "OpenAI",
                 REMOTE_STT_PRESET_VERCEL => "Vercel",
                 REMOTE_STT_PRESET_GOOGLE => "Google",
+                REMOTE_STT_PRESET_RESON8 => "Reson8",
                 REMOTE_STT_PRESET_CUSTOM => TRAY_MODEL_CUSTOM_SUFFIX,
                 _ => TRAY_MODEL_REMOTE_LABEL,
             };
@@ -1337,6 +1338,11 @@ fn append_remote_openai_model_items(
             REMOTE_STT_PRESET_GOOGLE.to_string(),
             GEMINI_LIVE_GOOGLE_DEFAULT_MODEL.to_string(),
             "Google: Gemini 3.5 Transcribe Live (Realtime)".to_string(),
+        ),
+        (
+            REMOTE_STT_PRESET_RESON8.to_string(),
+            REMOTE_STT_RESON8_DEFAULT_MODEL.to_string(),
+            "Reson8: rumble-2 (live / file)".to_string(),
         ),
         (
             REMOTE_STT_PRESET_OPENAI.to_string(),

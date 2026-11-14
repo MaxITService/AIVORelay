@@ -6,6 +6,7 @@ pub const REMOTE_STT_PRESET_GROQ: &str = "groq";
 pub const REMOTE_STT_PRESET_OPENAI: &str = "openai";
 pub const REMOTE_STT_PRESET_VERCEL: &str = "vercel";
 pub const REMOTE_STT_PRESET_GOOGLE: &str = "google";
+pub const REMOTE_STT_PRESET_RESON8: &str = "reson8";
 pub const REMOTE_STT_PRESET_CUSTOM: &str = "custom";
 
 pub const REMOTE_STT_GROQ_BASE_URL: &str = "https://api.groq.com/openai/v1";
@@ -13,11 +14,13 @@ pub const REMOTE_STT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const REMOTE_STT_VERCEL_BASE_URL: &str = "https://ai-gateway.vercel.sh/v4/ai";
 pub const REMOTE_STT_GOOGLE_BASE_URL: &str =
     "https://generativelanguage.googleapis.com/v1beta";
+pub const REMOTE_STT_RESON8_BASE_URL: &str = "https://api.reson8.dev/v1";
 
 pub const REMOTE_STT_GROQ_DEFAULT_MODEL: &str = "whisper-large-v3-turbo";
 pub const REMOTE_STT_OPENAI_DEFAULT_MODEL: &str = "gpt-realtime-2.1";
 pub const REMOTE_STT_VERCEL_DEFAULT_MODEL: &str = "google/gemini-3.5-transcribe";
 pub const REMOTE_STT_GOOGLE_DEFAULT_MODEL: &str = "gemini-3.5-transcribe";
+pub const REMOTE_STT_RESON8_DEFAULT_MODEL: &str = "rumble-2";
 pub const REMOTE_STT_CUSTOM_DEFAULT_BASE_URL: &str = REMOTE_STT_OPENAI_BASE_URL;
 pub const REMOTE_STT_CUSTOM_DEFAULT_MODEL: &str = REMOTE_STT_OPENAI_DEFAULT_MODEL;
 
@@ -120,6 +123,7 @@ pub fn remote_stt_base_url_for_preset(preset: &str) -> Option<&'static str> {
         REMOTE_STT_PRESET_OPENAI => Some(REMOTE_STT_OPENAI_BASE_URL),
         REMOTE_STT_PRESET_VERCEL => Some(REMOTE_STT_VERCEL_BASE_URL),
         REMOTE_STT_PRESET_GOOGLE => Some(REMOTE_STT_GOOGLE_BASE_URL),
+        REMOTE_STT_PRESET_RESON8 => Some(REMOTE_STT_RESON8_BASE_URL),
         REMOTE_STT_PRESET_CUSTOM => None,
         _ => None,
     }
@@ -131,6 +135,7 @@ pub fn remote_stt_default_model_for_preset(preset: &str) -> Option<&'static str>
         REMOTE_STT_PRESET_OPENAI => Some(REMOTE_STT_OPENAI_DEFAULT_MODEL),
         REMOTE_STT_PRESET_VERCEL => Some(REMOTE_STT_VERCEL_DEFAULT_MODEL),
         REMOTE_STT_PRESET_GOOGLE => Some(REMOTE_STT_GOOGLE_DEFAULT_MODEL),
+        REMOTE_STT_PRESET_RESON8 => Some(REMOTE_STT_RESON8_DEFAULT_MODEL),
         _ => None,
     }
 }
@@ -142,6 +147,7 @@ pub fn infer_remote_stt_preset(base_url: &str) -> &'static str {
         REMOTE_STT_OPENAI_BASE_URL => REMOTE_STT_PRESET_OPENAI,
         REMOTE_STT_VERCEL_BASE_URL => REMOTE_STT_PRESET_VERCEL,
         REMOTE_STT_GOOGLE_BASE_URL => REMOTE_STT_PRESET_GOOGLE,
+        REMOTE_STT_RESON8_BASE_URL => REMOTE_STT_PRESET_RESON8,
         _ => REMOTE_STT_PRESET_CUSTOM,
     }
 }
@@ -161,6 +167,7 @@ pub fn validate_remote_stt_base_url(
         REMOTE_STT_PRESET_OPENAI => Ok(REMOTE_STT_OPENAI_BASE_URL.to_string()),
         REMOTE_STT_PRESET_VERCEL => Ok(REMOTE_STT_VERCEL_BASE_URL.to_string()),
         REMOTE_STT_PRESET_GOOGLE => Ok(REMOTE_STT_GOOGLE_BASE_URL.to_string()),
+        REMOTE_STT_PRESET_RESON8 => Ok(REMOTE_STT_RESON8_BASE_URL.to_string()),
         REMOTE_STT_PRESET_CUSTOM => validate_network_base_url(
             override_base_url.unwrap_or(&settings.base_url),
             settings.allow_insecure_http,
@@ -259,6 +266,7 @@ mod tests {
             (REMOTE_STT_PRESET_OPENAI, REMOTE_STT_OPENAI_BASE_URL),
             (REMOTE_STT_PRESET_VERCEL, REMOTE_STT_VERCEL_BASE_URL),
             (REMOTE_STT_PRESET_GOOGLE, REMOTE_STT_GOOGLE_BASE_URL),
+            (REMOTE_STT_PRESET_RESON8, REMOTE_STT_RESON8_BASE_URL),
         ] {
             let settings = remote_settings(preset, "http://saved.example.test/v1", true);
             assert_eq!(
@@ -298,6 +306,10 @@ mod tests {
             Some(REMOTE_STT_GOOGLE_BASE_URL)
         );
         assert_eq!(
+            remote_stt_base_url_for_preset(REMOTE_STT_PRESET_RESON8),
+            Some(REMOTE_STT_RESON8_BASE_URL)
+        );
+        assert_eq!(
             remote_stt_base_url_for_preset(REMOTE_STT_PRESET_CUSTOM),
             None
         );
@@ -322,6 +334,10 @@ mod tests {
             remote_stt_default_model_for_preset(REMOTE_STT_PRESET_GOOGLE),
             Some(REMOTE_STT_GOOGLE_DEFAULT_MODEL)
         );
+        assert_eq!(
+            remote_stt_default_model_for_preset(REMOTE_STT_PRESET_RESON8),
+            Some(REMOTE_STT_RESON8_DEFAULT_MODEL)
+        );
         assert_eq!(remote_stt_default_model_for_preset("custom"), None);
     }
 
@@ -342,6 +358,10 @@ mod tests {
         assert_eq!(
             infer_remote_stt_preset("https://generativelanguage.googleapis.com/v1beta/"),
             REMOTE_STT_PRESET_GOOGLE
+        );
+        assert_eq!(
+            infer_remote_stt_preset("https://api.reson8.dev/v1/"),
+            REMOTE_STT_PRESET_RESON8
         );
     }
 

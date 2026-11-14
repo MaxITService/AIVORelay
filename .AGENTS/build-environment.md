@@ -37,7 +37,9 @@ Use the user's interactive dev functions for full dev builds instead of reproduc
 
 A native dependency failure while preparing `cargo test` in `Q:\t\c` does not by itself show that the dev build, release build, or a GitHub package build is broken. Identify which workflow and target directory failed before changing build scripts or dependencies.
 
-Use `test-local.ps1` for backend tests. If AivoRelay is running, leave its process guard enabled: close the app before runtime tests, or use `-NoRun` when compile-only verification is sufficient. Do not use `-SkipChecks` merely to work around a running production instance.
+Use `test-local.ps1` for backend tests. `-LibOnly` runs isolated library unit tests alongside a running AivoRelay; `-List` and `-NoRun` are also allowed because they do not execute test bodies. Unrestricted runs still require closing the app. Keep the same-target build guard enabled; do not use `-SkipChecks` merely to work around a running production instance.
+
+Non-ignored library unit tests must not open microphone capture, modify the real clipboard, register global shortcuts, or read/write the user's app settings, history, credentials, or model cache. Use injected state/transports, unique temporary directories, and ephemeral loopback ports. Tests requiring real hardware, downloaded models, or live services must remain explicitly ignored smoke tests; run them separately after checking their resource requirements. See [[TESTING|Testing]].
 
 `-Filter` accepts one or more Rust test-name filters. Pass an array with `-Exact` to compile once and run several exact tests through one test-runner process; call the script in-process as below, because `pwsh -File` mis-binds the array:
 

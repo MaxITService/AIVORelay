@@ -14,6 +14,7 @@ use crate::managers::gemini_realtime::{
 };
 use crate::managers::history::HistoryManager;
 use crate::managers::openai_realtime_whisper::OpenAiRealtimeWhisperManager;
+use crate::managers::reson8_realtime::{Reson8RealtimeManager, RESON8_LIVE_FINALIZE_TIMEOUT_MS};
 use crate::managers::soniox_realtime::SonioxRealtimeManager;
 use crate::settings::{get_settings, AppSettings, LiveSoundCaptureSource, TranscriptionProvider};
 use log::{info, warn};
@@ -27,6 +28,7 @@ enum ActiveRealtimeManager {
     Deepgram(Arc<DeepgramRealtimeManager>),
     OpenAiRealtimeWhisper(Arc<OpenAiRealtimeWhisperManager>),
     Gemini(Arc<GeminiRealtimeManager>),
+    Reson8(Arc<Reson8RealtimeManager>),
 }
 
 impl ActiveRealtimeManager {
@@ -36,6 +38,7 @@ impl ActiveRealtimeManager {
             Self::Deepgram(manager) => manager.cancel(),
             Self::OpenAiRealtimeWhisper(manager) => manager.cancel(),
             Self::Gemini(manager) => manager.cancel(),
+            Self::Reson8(manager) => manager.cancel(),
         }
     }
 }
@@ -107,6 +110,13 @@ fn wire_mic_clock_callback(
                 m.push_audio_frame(mixed);
             })));
         }
+        ActiveRealtimeManager::Reson8(m) => {
+            let m = Arc::clone(m);
+            mic_recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                let mixed = mix_with_secondary_buf(&frame, &loopback_buf);
+                m.push_audio_frame(mixed);
+            })));
+        }
     }
 }
 
@@ -131,6 +141,12 @@ fn wire_primary_callback(recorder: &mut AudioRecorder, manager: &ActiveRealtimeM
             })));
         }
         ActiveRealtimeManager::Gemini(manager) => {
+            let manager = Arc::clone(manager);
+            recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                manager.push_audio_frame(frame);
+            })));
+        }
+        ActiveRealtimeManager::Reson8(manager) => {
             let manager = Arc::clone(manager);
             recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
                 manager.push_audio_frame(frame);
@@ -233,6 +249,9 @@ fn start_live_session(
             let is_gemini = (settings.remote_stt.provider_preset == crate::url_security::REMOTE_STT_PRESET_VERCEL
                 || settings.remote_stt.provider_preset == crate::url_security::REMOTE_STT_PRESET_GOOGLE)
                 && GeminiRealtimeManager::is_realtime_model(&settings.remote_stt.model_id);
+            let is_reson8 = settings.remote_stt.provider_preset
+                == crate::url_security::REMOTE_STT_PRESET_RESON8
+                && Reson8RealtimeManager::is_realtime_model(&settings.remote_stt.model_id);
 
             if is_gemini {
                 let manager = Arc::new(GeminiRealtimeManager::new(app).map_err(|e| {
@@ -260,6 +279,31 @@ fn start_live_session(
                     })?;
 
                 Ok(ActiveRealtimeManager::Gemini(manager))
+            } else if is_reson8 {
+                let manager = Arc::new(Reson8RealtimeManager::new(app).map_err(|e| {
+                    format!("Failed to create Reson8 live manager: {}", e)
+                })?);
+
+                let manager_cb = Arc::clone(&manager);
+                recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                    manager_cb.push_audio_frame(frame);
+                })));
+
+                let api_key =
+                    crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
+                        .map_err(|e| format!("Failed to get Reson8 API key: {}", e))?;
+                let options = crate::actions::build_reson8_options_for_live_sound(settings);
+                manager
+                    .start_session(
+                        crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
+                        None,
+                        &api_key,
+                        options,
+                        None,
+                    )
+                    .map_err(|e| format!("Failed to start Reson8 live session: {}", e))?;
+
+                Ok(ActiveRealtimeManager::Reson8(manager))
             } else {
                 let manager =
                     Arc::new(OpenAiRealtimeWhisperManager::new(app).map_err(|e| {
@@ -293,7 +337,7 @@ fn start_live_session(
         }
 
         _ => Err(
-            "Live streaming requires Soniox, Deepgram, OpenAI Realtime Whisper, or Gemini 3.5 Transcribe Live"
+            "Live streaming requires Soniox, Deepgram, OpenAI Realtime Whisper, Gemini 3.5 Transcribe Live, or Reson8 Rumble-2"
                 .to_string(),
         ),
     }
@@ -671,6 +715,46 @@ pub fn stop(app: &AppHandle) {
                             "Live Sound Gemini 3.5 Transcribe Live finalization error: {}",
                             e
                         );
+                        if crate::managers::live_sound_transcription::is_session_current(session_id)
+                        {
+                            crate::managers::live_sound_transcription::set_error_if_session_matches(
+                                &app,
+                                session_id,
+                                Some(error_message.clone()),
+                            );
+                            let _ = app.emit("remote-stt-error", error_message);
+                        }
+                    }
+                }
+                crate::managers::live_sound_transcription::set_recording_if_session_matches(
+                    &app, session_id, false,
+                );
+            });
+        }
+
+        Some(ActiveRealtimeManager::Reson8(manager)) => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                match manager
+                    .finish_session(RESON8_LIVE_FINALIZE_TIMEOUT_MS)
+                    .await
+                {
+                    Ok(text) => {
+                        if !text.trim().is_empty() {
+                            let history_manager = app.state::<Arc<HistoryManager>>();
+                            if let Err(error) = history_manager
+                                .save_text_only_transcription(text.trim().to_string())
+                            {
+                                warn!(
+                                    "Live Sound Reson8 transcript was retained in the session, but History persistence failed: {}",
+                                    error
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let error_message = format!("Reson8 finalization failed: {}", e);
+                        warn!("Live Sound Reson8 finalization error: {}", e);
                         if crate::managers::live_sound_transcription::is_session_current(session_id)
                         {
                             crate::managers::live_sound_transcription::set_error_if_session_matches(

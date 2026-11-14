@@ -244,6 +244,8 @@ export const ModelsSettings: React.FC = () => {
              remoteModelId === "gemini-3.5-transcribe-live"
             ? "gemini_live"
             : "gemini_transcribe")
+        : remotePreset === "reson8"
+          ? "reson8"
         : remotePreset === "custom"
           ? "custom"
           : remoteModelId === "gpt-transcribe"
@@ -531,7 +533,7 @@ export const ModelsSettings: React.FC = () => {
                     </span>
                   )}
                 </div>
-                {(isActive || row.notRecommended) && (
+                {(isActive || row.notRecommended || row.id === "reson8") && (
                   <p className="text-xs text-[#a0a0a0] mt-1">
                     {row.notRecommended && (
                       <>

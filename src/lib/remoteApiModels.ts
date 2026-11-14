@@ -4,6 +4,7 @@ export type RemoteApiRowId =
   | "groq"
   | "gemini_transcribe"
   | "gemini_live"
+  | "reson8"
   | "openai_transcribe"
   | "openai_live_transcribe"
   | "openai_realtime_whisper"
@@ -17,7 +18,7 @@ export type RemoteApiRow = {
   title: string;
   description: string;
   notRecommended?: boolean;
-  preset: "groq" | "openai" | "vercel" | "google" | "custom";
+  preset: "groq" | "openai" | "vercel" | "google" | "reson8" | "custom";
   modelId?: string;
   iconClassName: string;
 };
@@ -46,6 +47,14 @@ export const getRemoteApiRows = (t: TFunction): RemoteApiRow[] => [
     preset: "vercel",
     modelId: "google/gemini-3.5-transcribe-live",
     iconClassName: "text-amber-400",
+  },
+  {
+    id: "reson8",
+    title: t("modelSelector.remoteApiRows.reson8.title"),
+    description: t("modelSelector.remoteApiRows.reson8.description"),
+    preset: "reson8",
+    modelId: "rumble-2",
+    iconClassName: "text-emerald-300",
   },
   {
     id: "custom",

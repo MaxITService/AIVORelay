@@ -17,7 +17,8 @@ use crate::subtitle::{
 use crate::url_security::{
     infer_remote_stt_preset, validate_remote_stt_base_url, REMOTE_STT_OPENAI_BASE_URL,
     REMOTE_STT_GOOGLE_DEFAULT_MODEL, REMOTE_STT_PRESET_CUSTOM, REMOTE_STT_PRESET_GOOGLE,
-    REMOTE_STT_PRESET_GROQ, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_VERCEL,
+    REMOTE_STT_PRESET_GROQ, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_RESON8,
+    REMOTE_STT_PRESET_VERCEL, REMOTE_STT_RESON8_BASE_URL, REMOTE_STT_RESON8_DEFAULT_MODEL,
     REMOTE_STT_VERCEL_DEFAULT_MODEL,
 };
 use anyhow::{anyhow, Result};
@@ -43,6 +44,7 @@ const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 /// Gemini file transcription can accept up to one hour of audio. Leave an
 /// additional processing margin while retaining a finite request deadline.
 const GEMINI_FILE_REQUEST_TIMEOUT_GRACE_SECS: u64 = 5 * 60;
+const MAX_RESON8_PRERECORDED_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
 const REMOTE_STT_SERVICE: &str = "fi.maxits.aivorelay";
 const REMOTE_STT_USER_PREFIX: &str = "remote_stt_api_key";
@@ -241,6 +243,11 @@ struct TranscriptionResponse {
     text: String,
     #[serde(default)]
     segments: Vec<SubtitleSegment>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Reson8PrerecordedResponse {
+    text: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -534,6 +541,107 @@ fn build_google_gemini_request(
         .header("x-goog-api-key", api_key)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body(serialized_body)
+}
+
+pub(crate) fn resolve_reson8_language(language: Option<&str>) -> Option<String> {
+    let raw = language?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    let resolved = if raw.eq_ignore_ascii_case("os_input") {
+        crate::input_source::get_language_from_input_source()?
+    } else {
+        raw.to_string()
+    };
+
+    let candidates: Vec<String> = resolved
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty() && !part.eq_ignore_ascii_case("auto"))
+        .map(|part| {
+            if part.eq_ignore_ascii_case("zh-Hans") || part.eq_ignore_ascii_case("zh-Hant") {
+                "zh".to_string()
+            } else {
+                part.to_string()
+            }
+        })
+        .collect();
+
+    if candidates.is_empty() {
+        None
+    } else {
+        Some(candidates.join(","))
+    }
+}
+
+fn build_reson8_prerecorded_request(
+    client: &reqwest::Client,
+    base_url: &str,
+    api_key: &str,
+    language: Option<&str>,
+    wav_bytes: Vec<u8>,
+) -> Result<reqwest::RequestBuilder> {
+    let endpoint = format!(
+        "{}/speech-to-text/prerecorded",
+        base_url.trim_end_matches('/')
+    );
+    let mut url = reqwest::Url::parse(&endpoint)
+        .map_err(|error| anyhow!("Invalid Reson8 prerecorded URL: {error}"))?;
+    {
+        let mut query = url.query_pairs_mut();
+        query.append_pair("model", REMOTE_STT_RESON8_DEFAULT_MODEL);
+        if let Some(language) = language.map(str::trim).filter(|lang| !lang.is_empty()) {
+            query.append_pair("language", language);
+        }
+    }
+
+    Ok(client
+        .post(url)
+        .header(
+            reqwest::header::AUTHORIZATION,
+            format!("ApiKey {}", api_key.trim()),
+        )
+        .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+        .body(wav_bytes))
+}
+
+async fn read_bounded_reson8_response(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>> {
+    if let Some(content_length) = response.content_length() {
+        if content_length > max_bytes as u64 {
+            return Err(anyhow!(
+                "Reson8 prerecorded response exceeded the {} byte limit ({} bytes)",
+                max_bytes,
+                content_length
+            ));
+        }
+    }
+
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| anyhow!("Reson8 prerecorded response could not be read: {error}"))?
+    {
+        let next_len = body.len().checked_add(chunk.len()).ok_or_else(|| {
+            anyhow!(
+                "Reson8 prerecorded response exceeded the {} byte limit",
+                max_bytes
+            )
+        })?;
+        if next_len > max_bytes {
+            return Err(anyhow!(
+                "Reson8 prerecorded response exceeded the {} byte limit",
+                max_bytes
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    Ok(body)
 }
 
 fn validate_google_gemini_inline_request_size(serialized_body: Vec<u8>) -> Result<Vec<u8>> {
@@ -1125,11 +1233,31 @@ impl RemoteSttManager {
             }
         }
 
+        if settings.provider_preset == REMOTE_STT_PRESET_RESON8
+            && settings.model_id.trim() != REMOTE_STT_RESON8_DEFAULT_MODEL
+        {
+            let message = format!(
+                "The Reson8 route only supports model '{}', but settings contain '{}'. Select Reson8 Rumble-2 again in Settings -> Models.",
+                REMOTE_STT_RESON8_DEFAULT_MODEL,
+                settings.model_id.trim()
+            );
+            self.record_error(settings, message.clone());
+            return Err(anyhow!(message));
+        }
+
         if request_segments && !supports_subtitle_timestamps(&settings.model_id) {
-            return Err(anyhow!(
-                "Model '{}' does not expose segment timestamps through its OpenAI-compatible transcription endpoint. Select Text output or a timestamp-capable Whisper model.",
-                settings.model_id
-            ));
+            let message = if settings.provider_preset == REMOTE_STT_PRESET_RESON8 {
+                format!(
+                    "Model '{}' does not expose subtitle segment timestamps in this integration. Select Text output or a timestamp-capable model.",
+                    settings.model_id
+                )
+            } else {
+                format!(
+                    "Model '{}' does not expose segment timestamps through its OpenAI-compatible transcription endpoint. Select Text output or a timestamp-capable Whisper model.",
+                    settings.model_id
+                )
+            };
+            return Err(anyhow!(message));
         }
 
         let api_key = get_remote_stt_api_key_for_request(settings).map_err(|e| {
@@ -1137,6 +1265,15 @@ impl RemoteSttManager {
             self.record_error(settings, message.clone());
             anyhow!(message)
         })?;
+
+        if settings.provider_preset == REMOTE_STT_PRESET_RESON8 && translate_to_english {
+            let message = format!(
+                "{} does not support Translate to English. Disable translation or select another model.",
+                settings.model_id
+            );
+            self.record_error(settings, message.clone());
+            return Err(anyhow!(message));
+        }
 
         if uses_plural_language_hints(&settings.model_id) && translate_to_english {
             let message = format!(
@@ -1259,6 +1396,24 @@ impl RemoteSttManager {
         })?;
 
         let file_size = wav_bytes.len();
+
+        if settings.provider_preset == REMOTE_STT_PRESET_RESON8 {
+            if prompt.as_deref().is_some_and(|value| !value.trim().is_empty()) {
+                self.record_info(
+                    settings,
+                    "Reson8 Rumble-2 does not accept a free-form STT prompt; AivoRelay omitted it from the request.".to_string(),
+                );
+            }
+            return self
+                .transcribe_reson8_prerecorded(
+                    settings,
+                    &base_url,
+                    &wav_bytes,
+                    resolve_reson8_language(language.as_deref()),
+                    &api_key.value,
+                )
+                .await;
+        }
 
         if gemini_expected_model.is_some() {
             if prompt.as_deref().is_some_and(|value| !value.trim().is_empty()) {
@@ -1641,6 +1796,120 @@ impl RemoteSttManager {
             );
         }
         Ok(result)
+    }
+
+    async fn transcribe_reson8_prerecorded(
+        &self,
+        settings: &RemoteSttSettings,
+        base_url: &str,
+        wav_bytes: &[u8],
+        language: Option<String>,
+        api_key: &str,
+    ) -> Result<RemoteFileTranscription> {
+        let request = build_reson8_prerecorded_request(
+            &self.client,
+            base_url,
+            api_key,
+            language.as_deref(),
+            wav_bytes.to_vec(),
+        )
+        .map_err(|error| {
+            let message = redact_remote_stt_api_key(&error.to_string(), api_key);
+            self.record_error(
+                settings,
+                remote_stt_log_value(&error.to_string(), api_key, settings.unsafe_log_secrets),
+            );
+            anyhow!(message)
+        })?;
+
+        if settings.debug_mode == RemoteSttDebugMode::Verbose {
+            self.record_info(
+                settings,
+                format!(
+                    "Reson8 prerecorded request model={} wav_bytes={} language={}",
+                    REMOTE_STT_RESON8_DEFAULT_MODEL,
+                    wav_bytes.len(),
+                    language.as_deref().unwrap_or("auto")
+                ),
+            );
+        }
+
+        let start = Instant::now();
+        let response = request.send().await.map_err(|error| {
+            let raw_message = format!("Reson8 prerecorded request failed: {}", error);
+            self.record_error(
+                settings,
+                remote_stt_log_value(&raw_message, api_key, settings.unsafe_log_secrets),
+            );
+            anyhow!(redact_remote_stt_api_key(&raw_message, api_key))
+        })?;
+        let status = response.status();
+        let body = read_bounded_reson8_response(response, MAX_RESON8_PRERECORDED_RESPONSE_BYTES)
+            .await
+            .map_err(|error| {
+                let raw_message = error.to_string();
+                self.record_error(
+                    settings,
+                    remote_stt_log_value(&raw_message, api_key, settings.unsafe_log_secrets),
+                );
+                anyhow!(redact_remote_stt_api_key(&raw_message, api_key))
+            })?;
+        let elapsed_ms = start.elapsed().as_millis();
+
+        if settings.debug_mode == RemoteSttDebugMode::Verbose {
+            self.record_info(
+                settings,
+                format!(
+                    "Reson8 prerecorded response status={} elapsed_ms={}",
+                    status, elapsed_ms
+                ),
+            );
+        }
+
+        if !status.is_success() {
+            let snippet = remote_stt_log_snippet(
+                &String::from_utf8_lossy(&body),
+                api_key,
+                500,
+                settings.unsafe_log_secrets,
+            );
+            self.record_error(
+                settings,
+                format!(
+                    "Reson8 prerecorded failed: status={} elapsed_ms={} body_snippet={}",
+                    status, elapsed_ms, snippet
+                ),
+            );
+            return Err(anyhow!(redact_remote_stt_api_key(
+                &parse_provider_error(&body, status),
+                api_key,
+            )));
+        }
+
+        let parsed: Reson8PrerecordedResponse = serde_json::from_slice(&body).map_err(|error| {
+            let raw_message = format!("Reson8 prerecorded response could not be parsed: {}", error);
+            self.record_error(
+                settings,
+                remote_stt_log_value(&raw_message, api_key, settings.unsafe_log_secrets),
+            );
+            anyhow!(redact_remote_stt_api_key(&raw_message, api_key))
+        })?;
+
+        if settings.debug_mode == RemoteSttDebugMode::Verbose {
+            self.record_info(
+                settings,
+                format!(
+                    "Reson8 prerecorded success output_len={}",
+                    parsed.text.len()
+                ),
+            );
+        }
+
+        Ok(RemoteFileTranscription {
+            text: parsed.text,
+            segments: Vec::new(),
+            ..Default::default()
+        })
     }
 
     fn migrate_legacy_api_key_after_success<T>(
@@ -2149,6 +2418,14 @@ impl RemoteSttManager {
             anyhow!(message)
         })?;
 
+        if settings.provider_preset == REMOTE_STT_PRESET_RESON8
+            || base_url == REMOTE_STT_RESON8_BASE_URL
+        {
+            let message = "Reson8 does not provide a /models connection-test endpoint. Save your API key and verify it by recording or transcribing a file.".to_string();
+            self.record_info(settings, message.clone());
+            return Err(anyhow!(message));
+        }
+
         let url = format!("{}/models", base_url);
 
         if settings.debug_mode == RemoteSttDebugMode::Verbose {
@@ -2214,6 +2491,7 @@ fn remote_stt_api_key_scope(settings: &RemoteSttSettings) -> &'static str {
         REMOTE_STT_PRESET_OPENAI => REMOTE_STT_PRESET_OPENAI,
         REMOTE_STT_PRESET_VERCEL => REMOTE_STT_PRESET_VERCEL,
         REMOTE_STT_PRESET_GOOGLE => REMOTE_STT_PRESET_GOOGLE,
+        REMOTE_STT_PRESET_RESON8 => REMOTE_STT_PRESET_RESON8,
         REMOTE_STT_PRESET_CUSTOM => REMOTE_STT_PRESET_CUSTOM,
         _ => infer_remote_stt_preset(&settings.base_url),
     }
@@ -2222,7 +2500,7 @@ fn remote_stt_api_key_scope(settings: &RemoteSttSettings) -> &'static str {
 fn remote_stt_allows_legacy_api_key_fallback(settings: &RemoteSttSettings) -> bool {
     !matches!(
         remote_stt_api_key_scope(settings),
-        REMOTE_STT_PRESET_VERCEL | REMOTE_STT_PRESET_GOOGLE
+        REMOTE_STT_PRESET_VERCEL | REMOTE_STT_PRESET_GOOGLE | REMOTE_STT_PRESET_RESON8
     )
 }
 
@@ -2232,6 +2510,7 @@ fn remote_stt_api_key_provider_label(settings: &RemoteSttSettings) -> &'static s
         REMOTE_STT_PRESET_OPENAI => "GPT Realtime",
         REMOTE_STT_PRESET_VERCEL => "Vercel AI Gateway",
         REMOTE_STT_PRESET_GOOGLE => "Google Gemini API",
+        REMOTE_STT_PRESET_RESON8 => "Reson8",
         REMOTE_STT_PRESET_CUSTOM => "Custom API",
         _ => "Remote API",
     }
@@ -2415,18 +2694,20 @@ pub fn has_remote_stt_api_key(settings: &RemoteSttSettings) -> bool {
 mod tests {
     use super::{
         build_google_gemini_request, build_google_gemini_request_body,
-        build_openai_realtime_agent_session_update, build_vercel_gemini_request,
-        build_vercel_gemini_request_body, gemini_file_request_timeout,
-        parse_google_gemini_response,
+        build_openai_realtime_agent_session_update, build_reson8_prerecorded_request,
+        build_vercel_gemini_request, build_vercel_gemini_request_body, gemini_file_request_timeout,
+        parse_google_gemini_response, redact_remote_stt_api_key,
         remote_stt_allows_legacy_api_key_fallback, remote_stt_api_key_clear_targets,
-        redact_remote_stt_api_key,
-        remote_stt_api_key_redaction_marker, remote_stt_log_value, select_remote_stt_api_key,
-        supports_subtitle_timestamps, supports_translation,
-        uses_plural_language_hints, validate_google_gemini_inline_request_size,
-        GoogleInteractionsTranscriptionResponse, RemoteSttApiKeySource, TranscriptionResponse,
+        remote_stt_api_key_redaction_marker, remote_stt_api_key_user, remote_stt_log_value,
+        resolve_reson8_language, select_remote_stt_api_key, supports_subtitle_timestamps,
+        supports_translation, uses_plural_language_hints,
+        validate_google_gemini_inline_request_size, GoogleInteractionsTranscriptionResponse,
+        RemoteSttApiKeySource, Reson8PrerecordedResponse, TranscriptionResponse,
         GEMINI_FILE_REQUEST_TIMEOUT_GRACE_SECS, GOOGLE_GEMINI_INLINE_REQUEST_LIMIT_BYTES,
     };
-    use crate::url_security::{REMOTE_STT_GOOGLE_BASE_URL, REMOTE_STT_VERCEL_BASE_URL};
+    use crate::url_security::{
+        REMOTE_STT_GOOGLE_BASE_URL, REMOTE_STT_RESON8_BASE_URL, REMOTE_STT_VERCEL_BASE_URL,
+    };
     use crate::gemini_config::{EffectiveGeminiConfig, GeminiRoute};
     use crate::settings::GeminiTranscriptionMode;
 
@@ -2997,5 +3278,67 @@ mod tests {
 
         assert!(targets.scoped);
         assert!(targets.legacy);
+    }
+
+    #[test]
+    fn reson8_prerecorded_request_uses_apikey_auth_and_raw_octet_stream_body() {
+        let request = build_reson8_prerecorded_request(
+            &reqwest::Client::new(),
+            REMOTE_STT_RESON8_BASE_URL,
+            "  test-reson8-key  ",
+            Some("en"),
+            vec![1, 2, 3, 4],
+        )
+        .unwrap()
+        .build()
+        .unwrap();
+
+        assert_eq!(request.method(), reqwest::Method::POST);
+        assert_eq!(
+            request.url().as_str(),
+            "https://api.reson8.dev/v1/speech-to-text/prerecorded?model=rumble-2&language=en"
+        );
+        assert_eq!(request.headers()["authorization"], "ApiKey test-reson8-key");
+        assert_eq!(
+            request.headers()["content-type"],
+            "application/octet-stream"
+        );
+        assert_eq!(request.body().unwrap().as_bytes().unwrap(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn reson8_prerecorded_request_omits_language_when_absent_and_never_sends_auto() {
+        assert_eq!(resolve_reson8_language(None), None);
+        assert_eq!(resolve_reson8_language(Some("auto")), None);
+        assert_eq!(resolve_reson8_language(Some(" AUTO ")), None);
+        assert_eq!(resolve_reson8_language(Some("zh-Hans")), Some("zh".to_string()));
+
+        let request = build_reson8_prerecorded_request(
+            &reqwest::Client::new(),
+            REMOTE_STT_RESON8_BASE_URL,
+            "test-reson8-key",
+            resolve_reson8_language(Some("auto")).as_deref(),
+            vec![9],
+        )
+        .unwrap()
+        .build()
+        .unwrap();
+
+        assert_eq!(
+            request.url().as_str(),
+            "https://api.reson8.dev/v1/speech-to-text/prerecorded?model=rumble-2"
+        );
+    }
+
+    #[test]
+    fn reson8_route_keeps_isolated_key_scope_and_conservative_capabilities() {
+        let settings = remote_settings("reson8");
+        assert_eq!(remote_stt_api_key_user(&settings), "remote_stt_api_key_reson8");
+        assert!(!remote_stt_allows_legacy_api_key_fallback(&settings));
+        assert!(!supports_translation("rumble-2"));
+        assert!(!supports_subtitle_timestamps("rumble-2"));
+        let parsed: Reson8PrerecordedResponse =
+            serde_json::from_value(serde_json::json!({ "text": "hello world" })).unwrap();
+        assert_eq!(parsed.text, "hello world");
     }
 }

@@ -5,7 +5,7 @@ Windows backend tests in this fork must be runnable through the checked-in harne
 ## Requirements
 
 - Minimum free disk space for tests: `50 GB`.
-- No active `cargo`, `tauri`, `rustc`, or `bun` processes when starting a Rust test run.
+- No other build may use the same Cargo target directory. Unrelated processes and a dev build in a different target directory can keep running.
 - Visual Studio 2022 C++ build tools, LLVM/clang, and Rust must be installed.
 
 ## Primary Commands
@@ -32,6 +32,8 @@ Windows backend tests in this fork must be runnable through the checked-in harne
 
 ## Harness Notes
 
+- `-LibOnly` can run while AivoRelay is open. Non-ignored library tests use injected state/transports, unique temporary files, and ephemeral loopback ports; they must not use microphone capture, the real clipboard, global shortcuts, or the user's settings, history, credentials, or model cache. Real hardware/model/service smoke tests remain explicitly ignored and require separate resource checks.
+- `-List` and `-NoRun` also work while AivoRelay is open. Unrestricted runs retain the app-process guard. Keep build-process checks enabled; `-SkipChecks` is not needed for isolated unit tests.
 - `test-local.ps1` imports the same MSVC environment setup used for local builds.
 - The harness configures `BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc` and `LIBCLANG_PATH` for native Cargo dependencies under `cargo test`.
 - The harness uses a short `CARGO_TARGET_DIR` to reduce Windows path-length pain.
@@ -84,6 +86,13 @@ Run it with:
 ## Documented Backend Test Areas
 
 Update this section every time new tests are added.
+
+### Reson8 finalized-chunk transport (2026-11-14)
+
+- `managers::reson8_realtime::tests` exercises request construction, finalized-only parsing, chunk boundaries, audio drain/flush confirmation, early peer closure, overflow abort, and credential redaction using in-memory transports.
+- The overflow test keeps the peer connected and bounds completion with a timeout, so an unrelated EOF cannot race the expected error. It also checks socket closure and that no audio was sent after abort.
+- The flush-handshake test releases the mock confirmation only after the client sends its request, avoiding impossible early acknowledgements and scheduler-dependent failures. A timeout catches stalled finalization.
+- Run while AivoRelay is open with `pwsh -NoProfile -File .\test-local.ps1 -LibOnly -Filter 'managers::reson8_realtime::tests'`.
 
 ### Profile output window guard and insertion feedback (2026-10-11)
 

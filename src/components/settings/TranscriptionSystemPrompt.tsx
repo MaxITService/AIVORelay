@@ -25,6 +25,7 @@ const NO_PROMPT_PATTERNS = [
   "sense-voice",
   "sense_voice",
   "gemini-3.5-transcribe",
+  "rumble-2",
 ];
 
 export interface ModelPromptInfo {

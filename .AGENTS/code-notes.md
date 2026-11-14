@@ -15,6 +15,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/commands/connector.rs` | Commands: status, queue, cancel, bundled extension export. |
 | `src-tauri/src/commands/asset_preview.rs` | Stages file-transcription previews using a hard link or copy. GUI startup removes abandoned regular files from `transcribe-file-preview` only when their filename timestamp predates this run; source mtimes are not used because hard links share them. |
 | `src-tauri/src/managers/remote_stt.rs` | Remote STT manager (OpenAI/Soniox). |
+| `src-tauri/src/managers/reson8_realtime.rs` | Reson8 Rumble-2 finalized-chunk WebSocket transport, bounded audio queue, operation-scoped cancellation, and flush-confirmed finalization. Unit tests use in-memory peers. |
 | `src-tauri/src/managers/provider_error.rs` | Shared bounded provider-error parser for concise TTS/STT UI and CLI messages while retaining technical response details in diagnostic logs. |
 | `src-tauri/src/commands/remote_stt.rs` | Commands for remote STT & keys. |
 | `src-tauri/src/managers/deepgram_stt.rs` | Deepgram non-live/live-finalize transcription manager. |

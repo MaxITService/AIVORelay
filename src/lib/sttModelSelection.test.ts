@@ -19,6 +19,7 @@ describe("workflow-specific STT model menus", () => {
       "deepgram:nova-3",
       "vercel:google/gemini-3.5-transcribe-live",
       "google:gemini-3.5-transcribe-live",
+      "reson8:rumble-2",
     ]);
     expect(options.every(option => option.capabilities.workflows.includes("live"))).toBe(true);
     expect(options.some(option => option.selection.provider === "local")).toBe(false);
@@ -178,5 +179,24 @@ describe("STT selection compatibility", () => {
     expect(sttSupports(customGemini, "vocabulary", "dictation")).toBe(false);
     expect(sttSupports(customGemini, "languageHints", "file")).toBe(true);
     expect(sttModelCapabilities(suffixedLiveGemini).workflows).not.toContain("live");
+  });
+
+  it("exposes Reson8 rumble-2 across dictation, file, and live without custom endpoint leakage", () => {
+    const reson8: SttModelSelection = {
+      provider: "remote_openai_compatible",
+      provider_preset: "reson8",
+      model_id: "rumble-2",
+    };
+    const customRumble: SttModelSelection = {
+      provider: "remote_openai_compatible",
+      provider_preset: "custom",
+      model_id: "rumble-2",
+    };
+
+    expect(sttModelCapabilities(reson8).workflows).toEqual(["dictation", "file", "live"]);
+    expect(sttSupports(reson8, "languageHints", "live")).toBe(true);
+    expect(sttSupports(reson8, "diarization", "file")).toBe(false);
+    expect(sttSupports(reson8, "timestamps", "file")).toBe(false);
+    expect(sttModelCapabilities(customRumble).workflows).not.toContain("live");
   });
 });

@@ -5,6 +5,7 @@ use crate::managers::gemini_realtime::GeminiRealtimeManager;
 use crate::managers::llm_operation::LlmOperationTracker;
 use crate::managers::openai_realtime_whisper::OpenAiRealtimeWhisperManager;
 use crate::managers::remote_stt::RemoteSttManager;
+use crate::managers::reson8_realtime::Reson8RealtimeManager;
 use crate::managers::soniox_realtime::SonioxRealtimeManager;
 use crate::managers::soniox_stt::SonioxSttManager;
 use crate::managers::transcription::TranscriptionManager;
@@ -276,6 +277,8 @@ pub(crate) fn cancel_current_operation_guarded(
     openai_realtime_whisper_manager.cancel();
     let gemini_realtime_manager = app.state::<Arc<GeminiRealtimeManager>>();
     gemini_realtime_manager.cancel();
+    let reson8_realtime_manager = app.state::<Arc<Reson8RealtimeManager>>();
+    reson8_realtime_manager.cancel();
     let soniox_live_manager = app.state::<Arc<SonioxRealtimeManager>>();
     soniox_live_manager.cancel();
     let soniox_stt_manager = app.state::<Arc<SonioxSttManager>>();

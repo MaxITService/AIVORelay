@@ -3,6 +3,7 @@ import type { AppSettings } from "@/bindings";
 import {
   globalSttSelection,
   isGeminiLiveSelection,
+  isReson8Selection,
   legacyLiveSttSelection,
   sttCatalog,
   sttModelCapabilities,
@@ -215,4 +216,29 @@ test("generic OpenAI, Groq, and custom models keep file language hints without u
     expect(sttSupports(selection, "timestamps", "file")).toBe(false);
     expect(sttModelCapabilities(selection).workflows).not.toContain("live");
   }
+});
+
+test("Reson8 rumble-2 supports dictation, file, and live without unsupported UI controls, and does not leak to custom", () => {
+  const reson8 = compatible("reson8", "rumble-2");
+  expect(isReson8Selection(reson8)).toBe(true);
+  expect(sttProviderId(reson8)).toBe("reson8");
+  expect(sttModelCapabilities(reson8).workflows).toEqual(["dictation", "file", "live"]);
+  expect(sttSupports(reson8, "languageHints", "dictation")).toBe(true);
+  expect(sttSupports(reson8, "languageHints", "file")).toBe(true);
+  expect(sttSupports(reson8, "languageHints", "live")).toBe(true);
+  expect(sttSupports(reson8, "diarization", "file")).toBe(false);
+  expect(sttSupports(reson8, "timestamps", "file")).toBe(false);
+  expect(sttSupports(reson8, "vocabulary", "dictation")).toBe(false);
+  expect(legacyLiveSttSelection(settings({
+    live_sound_transcription_provider: "remote_openai_compatible",
+    remote_stt: {
+      provider_preset: "reson8",
+      model_id: "rumble-2",
+    } as AppSettings["remote_stt"],
+  }))).toEqual(reson8);
+
+  const customRumble = compatible("custom", "rumble-2");
+  expect(isReson8Selection(customRumble)).toBe(false);
+  expect(sttProviderId(customRumble)).toBe("custom");
+  expect(sttModelCapabilities(customRumble).workflows).not.toContain("live");
 });
