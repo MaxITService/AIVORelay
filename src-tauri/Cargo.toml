@@ -93,7 +93,7 @@ flate2 = "1.0"
 bzip2 = "0.5"
 transcribe-rs = { version = "0.3.8", features = ["onnx", "vad-silero"] }
 transcribe-cpp = { version = "=0.4.2", default-features = false, features = ["serde"] }
-hf-hub = { git = "https://github.com/JavaGT/hf-hub", rev = "1fee8e5", features = ["tokio"] }
+hf-hub = { git = "https://github.com/cjpais/hf-hub", rev = "fc273554a88ce5f5372c84386a9adf535ba71a1c", features = ["tokio"] }
 handy-keys = "0.3.5"
 ferrous-opencc = "0.2.3"
 clap = { version = "4", features = ["derive"] }
