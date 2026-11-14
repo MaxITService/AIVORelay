@@ -15,6 +15,12 @@ fn env_flag_enabled(name: &str) -> bool {
 }
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    {
+        aivorelay_app_lib::apply_aivorelay_gdk_backend();
+        aivorelay_app_lib::disable_gamescope_wsi_layer();
+    }
+
     aivorelay_app_lib::webkit_renderer::apply();
 
     #[cfg(target_os = "windows")]

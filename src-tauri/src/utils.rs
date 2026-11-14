@@ -260,6 +260,56 @@ pub fn env_flag_enabled(name: &str) -> bool {
     }
 }
 
+#[cfg(target_os = "linux")]
+static GAMESCOPE_WSI_DISABLED_BY_AIVORELAY: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Only set `DISABLE_GAMESCOPE_WSI` when the user hasn't set it (even to empty).
+#[cfg(target_os = "linux")]
+fn should_disable_gamescope_wsi(existing: Option<&std::ffi::OsStr>) -> bool {
+    existing.is_none()
+}
+
+/// Disable the Gamescope WSI layer, which aborts during Vulkan device creation
+/// on SteamOS (#2264). AivoRelay only uses Vulkan for compute, so it isn't needed.
+#[cfg(target_os = "linux")]
+pub fn disable_gamescope_wsi_layer() {
+    let existing = std::env::var_os("DISABLE_GAMESCOPE_WSI");
+    if should_disable_gamescope_wsi(existing.as_deref()) {
+        std::env::set_var("DISABLE_GAMESCOPE_WSI", "1");
+        GAMESCOPE_WSI_DISABLED_BY_AIVORELAY.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// True when [`disable_gamescope_wsi_layer`] set the variable itself.
+#[cfg(target_os = "linux")]
+pub fn gamescope_wsi_disabled_by_aivorelay() -> bool {
+    GAMESCOPE_WSI_DISABLED_BY_AIVORELAY.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The `GDK_BACKEND` value requested through `AIVORELAY_GDK_BACKEND`, if any.
+/// Empty or whitespace-only values count as unset.
+#[cfg(target_os = "linux")]
+fn requested_gdk_backend(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|v| !v.is_empty())
+}
+
+/// Copy `AIVORELAY_GDK_BACKEND` into `GDK_BACKEND` when it is set.
+///
+/// The AppImage's `apprun-hooks/linuxdeploy-plugin-gtk.sh` unconditionally
+/// runs `export GDK_BACKEND=x11` (a workaround for tauri-apps/tauri#8541) after
+/// the user's environment, so `GDK_BACKEND=wayland ./AivoRelay.AppImage` never
+/// reaches AivoRelay. The hook cannot overwrite a variable it does not know about,
+/// so `AIVORELAY_GDK_BACKEND=wayland ./AivoRelay.AppImage` is the opt-in to native
+/// Wayland (cjpais/Handy#1729, #2034). Must run before GTK initializes.
+#[cfg(target_os = "linux")]
+pub fn apply_aivorelay_gdk_backend() {
+    let requested = std::env::var("AIVORELAY_GDK_BACKEND").ok();
+    if let Some(backend) = requested_gdk_backend(requested.as_deref()) {
+        std::env::set_var("GDK_BACKEND", backend);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
