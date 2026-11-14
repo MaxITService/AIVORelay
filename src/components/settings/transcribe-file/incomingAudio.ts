@@ -1,4 +1,4 @@
-export const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "flac", "webm"];
+export const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "oga", "opus", "flac", "webm"];
 
 export function isSupportedAudioPath(path: string): boolean {
   const name = path.split(/[\\/]/).pop() ?? "";

@@ -40,7 +40,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 
 const TEXT_EXTENSIONS: &[&str] = &["txt", "md"];
-const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "flac", "webm"];
+const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "oga", "opus", "flac", "webm"];
 const TTS_LLM_INSTRUCTIONS_MAX_CHARS: usize = 32_768;
 const UTF8_BOM_BYTES: usize = 3;
 const UTF8_MAX_BYTES_PER_CHAR: usize = 4;
