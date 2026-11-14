@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { BookOpen, ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SettingContainer } from "../ui/SettingContainer";
 import { Dropdown } from "../ui/Dropdown";
@@ -59,6 +60,50 @@ export const PortableStorageSettings: React.FC = () => {
   if (!status && !error) return null;
 
   const label = (mode: StorageMode) => t(`settings.advanced.portableStorage.${mode}`);
+  const activePath = status
+    ? status.active_mode === "portable"
+      ? status.portable_path
+      : status.desktop_path
+    : "";
+  const configuredPath = status
+    ? status.configured_mode === "portable"
+      ? status.portable_path
+      : status.desktop_path
+    : "";
+  const pendingRestart = status ? status.active_mode !== status.configured_mode : false;
+
+  const helpSections = [
+    {
+      key: "session",
+      title: t("settings.advanced.portableStorage.help.sessionTitle"),
+      body: t("settings.advanced.portableStorage.help.sessionBody"),
+    },
+    {
+      key: "data",
+      title: t("settings.advanced.portableStorage.help.dataTitle"),
+      body: t("settings.advanced.portableStorage.help.dataBody"),
+    },
+    {
+      key: "writable",
+      title: t("settings.advanced.portableStorage.help.writableTitle"),
+      body: t("settings.advanced.portableStorage.help.writableBody"),
+    },
+    {
+      key: "moving",
+      title: t("settings.advanced.portableStorage.help.movingTitle"),
+      body: t("settings.advanced.portableStorage.help.movingBody"),
+    },
+    {
+      key: "updates",
+      title: t("settings.advanced.portableStorage.help.updatesTitle"),
+      body: t("settings.advanced.portableStorage.help.updatesBody"),
+    },
+    {
+      key: "caveats",
+      title: t("settings.advanced.portableStorage.help.caveatsTitle"),
+      body: t("settings.advanced.portableStorage.help.caveatsBody"),
+    },
+  ];
 
   return (
     <SettingContainer
@@ -82,16 +127,34 @@ export const PortableStorageSettings: React.FC = () => {
               disabled={changing}
               onSelect={(mode) => void changeMode(mode)}
             />
-            <p className="text-xs text-mid-gray">
-              {t("settings.advanced.portableStorage.active", { location: label(status.active_mode) })}
-            </p>
-            <div className="text-xs font-mono break-all text-mid-gray">
-              {status.configured_mode === "portable" ? status.portable_path : status.desktop_path}
+            <div className="space-y-2 rounded-lg border border-mid-gray/20 bg-mid-gray/5 px-3 py-2.5 text-xs">
+              <div>
+                <p className="font-medium text-text/85">
+                  {t("settings.advanced.portableStorage.active", {
+                    location: label(status.active_mode),
+                  })}
+                </p>
+                <div className="mt-0.5 font-mono break-all text-mid-gray">
+                  {activePath}
+                </div>
+              </div>
+              {pendingRestart && (
+                <div className="border-t border-mid-gray/15 pt-2">
+                  <p className="font-medium text-amber-300">
+                    {t("settings.advanced.portableStorage.afterRestart", {
+                      location: label(status.configured_mode),
+                    })}
+                  </p>
+                  <div className="mt-0.5 font-mono break-all text-amber-200/80">
+                    {configuredPath}
+                  </div>
+                </div>
+              )}
             </div>
             <p className="text-xs text-mid-gray">
               {t("settings.advanced.portableStorage.keepData")}
             </p>
-            {status.active_mode !== status.configured_mode && (
+            {pendingRestart && (
               <div className="space-y-2">
                 <p className="text-sm text-amber-400">
                   {t("settings.advanced.portableStorage.restartRequired")}
@@ -101,6 +164,55 @@ export const PortableStorageSettings: React.FC = () => {
                 </Button>
               </div>
             )}
+            <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-xs font-medium text-[#d7b9ff] outline-none transition-colors hover:bg-mid-gray/10 hover:text-[#eadcff] focus-visible:ring-2 focus-visible:ring-[#ff4d8d]/40 [&::-webkit-details-marker]:hidden">
+                <span className="flex min-w-0 items-center gap-2">
+                  <BookOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span>{t("settings.advanced.portableStorage.help.summary")}</span>
+                </span>
+                <ChevronDown
+                  className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180"
+                  aria-hidden="true"
+                />
+              </summary>
+
+              <div className="space-y-3 border-t border-mid-gray/20 px-3 py-3 text-xs leading-relaxed text-text/75">
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-text/90">
+                    {t("settings.advanced.portableStorage.help.modesTitle")}
+                  </h4>
+                  <div className="space-y-2 rounded-md border border-mid-gray/15 bg-black/15 p-2.5">
+                    <div>
+                      <p className="font-medium text-text/85">{label("portable")}</p>
+                      <p className="mt-0.5 text-text/70">
+                        {t("settings.advanced.portableStorage.help.portableMode")}
+                      </p>
+                      <div className="mt-1 font-mono break-all text-mid-gray">
+                        {status.portable_path}
+                      </div>
+                    </div>
+                    <div className="border-t border-mid-gray/15 pt-2">
+                      <p className="font-medium text-text/85">{label("desktop")}</p>
+                      <p className="mt-0.5 text-text/70">
+                        {t("settings.advanced.portableStorage.help.desktopMode")}
+                      </p>
+                      <div className="mt-1 font-mono break-all text-mid-gray">
+                        {status.desktop_path}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <dl className="space-y-2.5">
+                  {helpSections.map((section) => (
+                    <div key={section.key} className="space-y-0.5">
+                      <dt className="font-semibold text-text/90">{section.title}</dt>
+                      <dd className="text-text/70">{section.body}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            </details>
           </>
         )}
         {error && <p role="alert" className="text-sm text-red-400">{error}</p>}

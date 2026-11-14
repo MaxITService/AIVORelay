@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { AppSettings } from "@/bindings";
+import { commands, type AppSettings } from "@/bindings";
 import { usePresence } from "@/hooks/usePresence";
-import type { SettingsSearchEntry } from "./settingsSearchTypes";
+import type {
+  SettingsSearchContext,
+  SettingsSearchEntry,
+} from "./settingsSearchTypes";
 import {
   findNormalizedMatchRange,
   normalizeSearchText,
@@ -58,7 +61,33 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
   const [query, setQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [isPortable, setIsPortable] = useState<boolean | null>(null);
   const normalizedQuery = normalizeSearchText(query);
+
+  useEffect(() => {
+    let disposed = false;
+    void commands
+      .isPortable()
+      .then((portable) => {
+        if (!disposed) {
+          setIsPortable(portable);
+        }
+      })
+      .catch((reason) => {
+        console.warn("Failed to detect portable mode for settings search:", reason);
+        if (!disposed) {
+          setIsPortable(false);
+        }
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  const searchContext = useMemo<SettingsSearchContext>(
+    () => ({ isPortable }),
+    [isPortable],
+  );
 
   const results = useMemo(() => {
     if (!normalizedQuery) return [];
@@ -105,7 +134,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
                 : Number.POSITIVE_INFINITY;
         const isAvailable =
           available.has(entry.section) &&
-          (entry.isAvailable?.(settings) ?? true);
+          (entry.isAvailable?.(settings, searchContext) ?? true);
         const unavailableReason = isAvailable
           ? null
           : entry.unavailableReasonKey
@@ -172,6 +201,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
     availableSections,
     entries,
     normalizedQuery,
+    searchContext,
     sectionLabelKey,
     settings,
     t,
@@ -244,7 +274,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({
   const selectEntry = (entry: SettingsSearchEntry) => {
     if (
       !availableSections.includes(entry.section) ||
-      entry.isAvailable?.(settings) === false
+      entry.isAvailable?.(settings, searchContext) === false
     ) {
       return;
     }
