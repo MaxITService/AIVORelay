@@ -389,10 +389,17 @@ function App() {
         toast.error(detail, { duration: ERROR_TOAST_DURATION_MS });
       },
     );
-    const unlistenPaste = listen("paste-error", () => {
+    const unlistenPaste = listen<string | null>("paste-error", ({ payload }) => {
+      if (payload === "elevatedClipboardCopy") {
+        toast.warning(t("errors.elevatedClipboardTitle"), {
+          duration: ERROR_TOAST_DURATION_MS,
+          description: t("errors.elevatedClipboardCopied"),
+        });
+        return;
+      }
       toast.error(t("errors.pasteFailedTitle"), {
         duration: ERROR_TOAST_DURATION_MS,
-        description: t("errors.pasteFailed"),
+        description: t(payload === "elevationBlocked" ? "errors.elevationBlocked" : "errors.pasteFailed"),
       });
     });
     const unlistenLiveWindow = listen<{ state: string; pendingChars: number }>("live-window-output-state", ({ payload }) => {

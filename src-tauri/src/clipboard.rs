@@ -38,6 +38,8 @@ struct StreamingPasteSession {
     text_backup: String,
     #[cfg(not(target_os = "windows"))]
     image_backup: ClipboardImageBackup,
+    #[cfg(target_os = "linux")]
+    primary_backup: Option<crate::primary_selection::PrimaryBackup>,
     last_clipboard_paste_sent_at: Option<Instant>,
     #[cfg(target_os = "windows")]
     last_clipboard_sequence: Option<u32>,
@@ -88,7 +90,18 @@ struct DictationOutputSession {
     settings: ResolvedOutputSettings,
     delivered: bool,
     failed: bool,
+    chunk_error: Option<String>,
     held_whitespace: HeldTrailingWhitespace,
+}
+
+impl DictationOutputSession {
+    fn record_chunk_result(&mut self, result: &Result<(), String>, has_text: bool) {
+        self.failed |= result.is_err();
+        if let Err(error) = result {
+            self.chunk_error.get_or_insert_with(|| error.clone());
+        }
+        self.delivered |= result.is_ok() && has_text && self.settings.paste_method != PasteMethod::None;
+    }
 }
 
 /// The newest recording owns live chunks. An older operation may still have its
@@ -122,7 +135,7 @@ impl DictationOutputSessions {
                 self.sessions.remove(0);
             }
             self.sessions.push(DictationOutputSession {
-                operation_id, settings, delivered: false, failed: false,
+                operation_id, settings, delivered: false, failed: false, chunk_error: None,
                 held_whitespace: HeldTrailingWhitespace::default(),
             });
         }
@@ -885,12 +898,15 @@ pub(crate) fn with_enigo<T: Send + 'static>(
     }
 }
 
+pub(crate) const ELEVATION_BLOCKED_ERROR: &str =
+    "Windows blocks input into a window running with higher privileges. Run AivoRelay with matching privileges to allow automatic input.";
+
 fn lock_enigo_and_run<T>(
     app_handle: &AppHandle,
     f: impl FnOnce(&mut Enigo) -> Result<T, String>,
 ) -> Result<T, String> {
     if crate::utils::foreground_window_is_elevated() {
-        return Err("Windows blocks input into a window running with higher privileges. Run AivoRelay with matching privileges to allow automatic input.".to_string());
+        return Err(ELEVATION_BLOCKED_ERROR.to_string());
     }
     let enigo_state = app_handle
         .try_state::<EnigoState>()
@@ -968,7 +984,7 @@ fn exclude_final_write_from_history(settings: &ResolvedOutputSettings) -> bool {
         && !settings.clipboard_history_allowed
 }
 
-const ELEVATED_CLIPBOARD_FALLBACK_NOTICE: &str =
+pub(crate) const ELEVATED_CLIPBOARD_FALLBACK_NOTICE: &str =
     "Windows blocks automatic input into this administrator window. The transcript was copied to the clipboard; press Ctrl+V to paste it manually.";
 
 fn uses_elevated_clipboard_fallback(settings: &ResolvedOutputSettings) -> bool {
@@ -1125,6 +1141,98 @@ fn wait_for_clipboard_history_capture(
     let _ = (exclude_from_history, clipboard_handling);
 }
 
+#[cfg(any(test, target_os = "linux"))]
+fn prepare_streaming_primary_chunk(
+    primary_backup: &mut Option<crate::primary_selection::PrimaryBackup>,
+    primary_backend: &dyn crate::primary_selection::PrimarySelectionBackend,
+    converted_text: &str,
+) -> Result<(), String> {
+    match primary_backup {
+        None => {
+            let backup =
+                crate::primary_selection::prepare_primary_write(primary_backend, converted_text)?;
+            *primary_backup = Some(backup);
+            Ok(())
+        }
+        Some(backup) => {
+            crate::primary_selection::update_primary_write(primary_backend, backup, converted_text)
+        }
+    }
+}
+
+#[cfg(any(test, target_os = "linux"))]
+fn streaming_chunk_with_primary(
+    primary_backup: &mut Option<crate::primary_selection::PrimaryBackup>,
+    use_primary: bool,
+    primary_backend: &dyn crate::primary_selection::PrimarySelectionBackend,
+    converted_text: &str,
+    run_clipboard_paste: impl FnOnce() -> Result<Option<Instant>, String>,
+) -> Result<Option<Instant>, String> {
+    if use_primary {
+        prepare_streaming_primary_chunk(primary_backup, primary_backend, converted_text)?;
+    }
+    run_clipboard_paste()
+}
+
+#[cfg(any(test, target_os = "linux"))]
+fn finish_streaming_backup_restore(
+    primary_backup: Option<crate::primary_selection::PrimaryBackup>,
+    primary_backend: &dyn crate::primary_selection::PrimarySelectionBackend,
+    restore_clipboard: impl FnOnce() -> Result<(), String>,
+    mut report_primary_error: impl FnMut(&str),
+) -> Result<(), String> {
+    let clipboard_result = restore_clipboard();
+    if let Some(backup) = primary_backup {
+        if let Err(error) =
+            crate::primary_selection::restore_primary_if_unchanged(primary_backend, backup)
+        {
+            report_primary_error(&format!("PRIMARY selection restoration failed: {}", error));
+        }
+    }
+    clipboard_result
+}
+
+#[cfg(any(test, target_os = "linux"))]
+fn paste_with_primary_and_clipboard(
+    converted_text: &str,
+    use_primary: bool,
+    primary_backend: &dyn crate::primary_selection::PrimarySelectionBackend,
+    run_clipboard_paste: impl FnOnce() -> Result<Option<Instant>, String>,
+    wait_consumer_grace: impl FnOnce(Option<Instant>),
+    restore_clipboard: impl FnOnce() -> Result<(), String>,
+    mut report_cleanup_error: impl FnMut(&str),
+) -> Result<bool, String> {
+    let primary_backup = if use_primary {
+        Some(crate::primary_selection::prepare_primary_write(
+            primary_backend,
+            converted_text,
+        )?)
+    } else {
+        None
+    };
+
+    let paste_result = run_clipboard_paste();
+    if let Ok(Some(paste_sent_at)) = &paste_result {
+        wait_consumer_grace(Some(*paste_sent_at));
+    }
+
+    let clipboard_restore_result = restore_clipboard();
+
+    if let Some(backup) = primary_backup {
+        if let Err(error) =
+            crate::primary_selection::restore_primary_if_unchanged(primary_backend, backup)
+        {
+            report_cleanup_error(&format!("PRIMARY selection restoration failed: {}", error));
+        }
+    }
+
+    delivery_after_clipboard_cleanup(
+        paste_result.map(|sent_at| sent_at.is_some()),
+        clipboard_restore_result,
+        report_cleanup_error,
+    )
+}
+
 fn restore_streaming_session_backup(
     session: StreamingPasteSession,
     app_handle: &AppHandle,
@@ -1133,8 +1241,8 @@ fn restore_streaming_session_backup(
     if session.last_clipboard_sequence.is_none() {
         return Ok(());
     }
+    #[cfg(target_os = "windows")]
     if restores_all_clipboard_formats(session.clipboard_handling) {
-        #[cfg(target_os = "windows")]
         if let Some(backup) = session.advanced_backup {
             return restore_advanced_clipboard_with_text_fallback(
                 app_handle,
@@ -1146,16 +1254,42 @@ fn restore_streaming_session_backup(
         }
     }
 
-    if restores_clipboard_contents(session.clipboard_handling) {
-        #[cfg(target_os = "windows")]
-        win_clipboard::write_text_if_unchanged(
-            &session.text_backup, true, session.last_clipboard_sequence,
-        )?;
-        #[cfg(not(target_os = "windows"))]
-        restore_clipboard_backup(app_handle, &session.text_backup, &session.image_backup)?;
+    #[cfg(target_os = "windows")]
+    {
+        if restores_clipboard_contents(session.clipboard_handling) {
+            win_clipboard::write_text_if_unchanged(
+                &session.text_backup, true, session.last_clipboard_sequence,
+            )?;
+        }
+        Ok(())
     }
 
-    Ok(())
+    #[cfg(target_os = "linux")]
+    {
+        let clipboard_handling = session.clipboard_handling;
+        let text_backup = session.text_backup;
+        let image_backup = session.image_backup;
+        finish_streaming_backup_restore(
+            session.primary_backup,
+            &crate::primary_selection::LinuxPrimaryBackend,
+            || {
+                if restores_clipboard_contents(clipboard_handling) {
+                    restore_clipboard_backup(app_handle, &text_backup, &image_backup)
+                } else {
+                    Ok(())
+                }
+            },
+            |error| warn!("{}", error),
+        )
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        if restores_clipboard_contents(session.clipboard_handling) {
+            restore_clipboard_backup(app_handle, &session.text_backup, &session.image_backup)?;
+        }
+        Ok(())
+    }
 }
 
 fn restore_streaming_session(
@@ -1272,6 +1406,8 @@ pub fn begin_streaming_paste_session(
         text_backup,
         #[cfg(not(target_os = "windows"))]
         image_backup,
+        #[cfg(target_os = "linux")]
+        primary_backup: None,
         last_clipboard_paste_sent_at: None,
         #[cfg(target_os = "windows")]
         last_clipboard_sequence: None,
@@ -1457,60 +1593,94 @@ fn paste_via_clipboard_guarded(
     #[cfg(not(target_os = "windows"))]
     let image_backup = backup_clipboard_image(app_handle, &text_backup, clipboard_handling);
 
-    // The non-streaming paste write is also the final write.
-    let paste_result = paste_via_clipboard_no_restore_guarded(
-        text,
-        app_handle,
-        paste_method,
-        paste_delay_ms,
-        convert_lf_to_crlf,
-        exclude_final_from_history,
-        can_continue,
-    );
-    if let Ok(Some(paste_sent_at)) = &paste_result {
-        wait_for_clipboard_consumer(Some(*paste_sent_at));
-    }
-
-    // Restore clipboard based on handling mode.
-    #[cfg(target_os = "windows")]
-    if let Some(backup) = advanced_backup {
-        let restore_result = restore_advanced_clipboard_with_text_fallback(
-            app_handle,
-            backup,
-            &text_backup,
-            uses_documented_clipboard_owner(clipboard_handling),
-            None,
-        );
-        return delivery_after_clipboard_cleanup(
-            paste_result.map(|sent_at| sent_at.is_some()), restore_result,
+    #[cfg(target_os = "linux")]
+    {
+        let converted = convert_text_for_clipboard(text, convert_lf_to_crlf);
+        let use_primary = crate::primary_selection::uses_primary_selection(*paste_method);
+        return paste_with_primary_and_clipboard(
+            &converted,
+            use_primary,
+            &crate::primary_selection::LinuxPrimaryBackend,
+            || {
+                paste_via_clipboard_no_restore_guarded(
+                    text,
+                    app_handle,
+                    paste_method,
+                    paste_delay_ms,
+                    convert_lf_to_crlf,
+                    exclude_final_from_history,
+                    can_continue,
+                )
+            },
+            wait_for_clipboard_consumer,
+            || {
+                if restores_clipboard_contents(clipboard_handling) {
+                    restore_clipboard_backup(app_handle, &text_backup, &image_backup)
+                } else {
+                    Ok(())
+                }
+            },
             |error| warn!("Clipboard restoration failed after paste attempt: {}", error),
         );
     }
 
-    // Text-only restore for RestorePlainText and as the fallback when an advanced
-    // backup could not be created (including non-Windows platforms).
-    let restore_result = if matches!(
-        clipboard_handling,
-        ClipboardHandling::RestorePlainText
-            | ClipboardHandling::RestoreAdvanced
-            | ClipboardHandling::RestoreAdvancedOwned
-    ) {
-        #[cfg(target_os = "windows")]
-        {
-            restore_plain_text_without_history(app_handle, &text_backup)
+    #[cfg(not(target_os = "linux"))]
+    {
+        // The non-streaming paste write is also the final write.
+        let paste_result = paste_via_clipboard_no_restore_guarded(
+            text,
+            app_handle,
+            paste_method,
+            paste_delay_ms,
+            convert_lf_to_crlf,
+            exclude_final_from_history,
+            can_continue,
+        );
+        if let Ok(Some(paste_sent_at)) = &paste_result {
+            wait_for_clipboard_consumer(Some(*paste_sent_at));
         }
-        #[cfg(not(target_os = "windows"))]
-        {
-            restore_clipboard_backup(app_handle, &text_backup, &image_backup)
-        }
-    } else {
-        Ok(())
-    };
 
-    delivery_after_clipboard_cleanup(
-        paste_result.map(|sent_at| sent_at.is_some()), restore_result,
-        |error| warn!("Clipboard restoration failed after paste attempt: {}", error),
-    )
+        // Restore clipboard based on handling mode.
+        #[cfg(target_os = "windows")]
+        if let Some(backup) = advanced_backup {
+            let restore_result = restore_advanced_clipboard_with_text_fallback(
+                app_handle,
+                backup,
+                &text_backup,
+                uses_documented_clipboard_owner(clipboard_handling),
+                None,
+            );
+            return delivery_after_clipboard_cleanup(
+                paste_result.map(|sent_at| sent_at.is_some()), restore_result,
+                |error| warn!("Clipboard restoration failed after paste attempt: {}", error),
+            );
+        }
+
+        // Text-only restore for RestorePlainText and as the fallback when an advanced
+        // backup could not be created (including non-Windows platforms).
+        let restore_result = if matches!(
+            clipboard_handling,
+            ClipboardHandling::RestorePlainText
+                | ClipboardHandling::RestoreAdvanced
+                | ClipboardHandling::RestoreAdvancedOwned
+        ) {
+            #[cfg(target_os = "windows")]
+            {
+                restore_plain_text_without_history(app_handle, &text_backup)
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                restore_clipboard_backup(app_handle, &text_backup, &image_backup)
+            }
+        } else {
+            Ok(())
+        };
+
+        delivery_after_clipboard_cleanup(
+            paste_result.map(|sent_at| sent_at.is_some()), restore_result,
+            |error| warn!("Clipboard restoration failed after paste attempt: {}", error),
+        )
+    }
 }
 
 /// Sends the paste key combination with the first Linux-native tool that works.
@@ -1996,6 +2166,7 @@ fn write_clipboard_via_wl_copy(text: &str) -> Result<(), String> {
     let status = Command::new("wl-copy")
         .arg("--")
         .arg(text)
+        .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -2552,7 +2723,7 @@ pub(crate) fn complete_dictation_output(
     // Consume the configuration before delivery so every return path,
     // including an interrupted delay or clipboard error, releases it.
     let config = lock_dictation_output_sessions().take(operation_id);
-    let Some(DictationOutputSession { settings, mut delivered, failed, mut held_whitespace, .. }) = config else {
+    let Some(DictationOutputSession { settings, mut delivered, failed, chunk_error, mut held_whitespace, .. }) = config else {
         return finalize_streaming_paste_session_if_matches(app, operation_id, final_text);
     };
     if !can_continue() || final_text.trim().is_empty() {
@@ -2560,21 +2731,6 @@ pub(crate) fn complete_dictation_output(
         crate::live_output_buffer::cancel_unfinished(operation_id);
         end_streaming_paste_session_if_matches(app, operation_id)?;
         return Ok(false);
-    }
-    // Failed live keystrokes must not leave only the last chunk available for
-    // manual paste. Restore the session first, then publish the complete text
-    // only when the user explicitly permits overriding clipboard restoration.
-    if uses_elevated_clipboard_fallback(&settings)
-        && crate::utils::foreground_window_is_elevated()
-    {
-        crate::live_output_buffer::cancel_unfinished(operation_id);
-        end_streaming_paste_session_if_matches(app, operation_id)?;
-        let _clipboard_guard = lock_clipboard_transaction("copying for an elevated window")?;
-        let _output_guard = lock_output();
-        if !can_continue() { return Ok(false); }
-        copy_for_elevated_window(final_text, &settings,
-            crate::utils::foreground_window_is_elevated,
-            |text, excluded| write_transcription_text(app, text, excluded))?;
     }
     if settings.buffers_external_output() {
         return paste_with_output_settings(final_text.to_string(), app.clone(), &settings, can_continue);
@@ -2601,6 +2757,31 @@ pub(crate) fn complete_dictation_output(
             return Ok(false);
         }
     }
+    // Manual clipboard fallback follows the same opening-key and pinned-window
+    // gates as live text. Decide under the output locks before removing either
+    // session, and query elevation once so a negative decision cannot destroy a
+    // protected remainder or the streaming clipboard backup.
+    if uses_elevated_clipboard_fallback(&settings) {
+        let _clipboard_guard = lock_clipboard_transaction("copying for an elevated window")?;
+        let mut streaming = STREAMING_PASTE_SESSION.lock()
+            .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
+        let _output_guard = lock_output();
+        let early_target_current = early_press.is_none_or(|(_, window)|
+            output_target_allows_delivery(settings.check_active_window, window, output_foreground_window));
+        if can_continue() && early_target_current
+            && crate::live_output_buffer::target_allows_clipboard_fallback(operation_id)
+            && crate::utils::foreground_window_is_elevated()
+        {
+            crate::live_output_buffer::cancel_unfinished(operation_id);
+            if streaming.as_ref().is_some_and(|session| session.operation_id == operation_id) {
+                if let Some(session) = streaming.take() {
+                    restore_streaming_session(session, app)?;
+                }
+            }
+            copy_for_elevated_window(final_text, &settings, || true,
+                |text, excluded| write_transcription_text(app, text, excluded))?;
+        }
+    }
     // Same route as chunks, and before `finish`, so ordering and window protection hold.
     let trailing = held_whitespace.resolve(settings.trailing_whitespace_mode);
     if !trailing.is_empty() && settings.paste_method != PasteMethod::None {
@@ -2624,7 +2805,11 @@ pub(crate) fn complete_dictation_output(
     let retained_live_output = live_finish.is_some();
     let delivered_to_target = retained_live_output || streaming_delivery_succeeded(
         delivered, failed, settings.paste_method, can_continue());
-    let result = delivery_after_clipboard_cleanup(Ok(delivered_to_target), cleanup_result, |error| {
+    let delivery_result = match chunk_error.filter(|_| !retained_live_output) {
+        Some(error) => Err(error),
+        None => Ok(delivered_to_target),
+    };
+    let result = delivery_after_clipboard_cleanup(delivery_result, cleanup_result, |error| {
         warn!("Streaming dictation final clipboard update or restoration failed after chunk delivery: {}", error);
     });
     if let Some((_, window)) = early_press {
@@ -2861,10 +3046,9 @@ fn paste_stream_chunk_for_output(
     }
     let has_text = !text.is_empty();
     let result = paste_stream_chunk_with_output(text, app_handle, output.as_ref().map(|(_, settings)| settings), operation_id, None);
-    if let Some((operation_id, settings)) = output {
+    if let Some((operation_id, _)) = output {
         if let Some(session) = lock_dictation_output_sessions().get_mut(operation_id) {
-            session.failed |= result.is_err();
-            session.delivered |= result.is_ok() && has_text && settings.paste_method != PasteMethod::None;
+            session.record_chunk_result(&result, has_text);
         }
     }
     result
@@ -2968,15 +3152,53 @@ fn paste_stream_chunk_with_output(
                 // history; only the final full-text write may be captured.
                 #[cfg(target_os = "windows")]
                 let sequence_before_write = win_clipboard::last_write_sequence();
-                let paste_result = paste_via_clipboard_no_restore_guarded(
-                    &text,
-                    &app_handle,
-                    &paste_method,
-                    paste_delay_ms,
-                    convert_lf_to_crlf,
-                    true,
-                    &target_is_current,
-                );
+                let paste_result = {
+                    #[cfg(target_os = "linux")]
+                    if let Some(session) = stream_session_guard.as_mut() {
+                        let converted = convert_text_for_clipboard(&text, convert_lf_to_crlf);
+                        let use_primary =
+                            crate::primary_selection::uses_primary_selection(paste_method);
+                        streaming_chunk_with_primary(
+                            &mut session.primary_backup,
+                            use_primary,
+                            &crate::primary_selection::LinuxPrimaryBackend,
+                            &converted,
+                            || {
+                                paste_via_clipboard_no_restore_guarded(
+                                    &text,
+                                    &app_handle,
+                                    &paste_method,
+                                    paste_delay_ms,
+                                    convert_lf_to_crlf,
+                                    true,
+                                    &target_is_current,
+                                )
+                            },
+                        )
+                    } else {
+                        paste_via_clipboard_no_restore_guarded(
+                            &text,
+                            &app_handle,
+                            &paste_method,
+                            paste_delay_ms,
+                            convert_lf_to_crlf,
+                            true,
+                            &target_is_current,
+                        )
+                    }
+                    #[cfg(not(target_os = "linux"))]
+                    {
+                        paste_via_clipboard_no_restore_guarded(
+                            &text,
+                            &app_handle,
+                            &paste_method,
+                            paste_delay_ms,
+                            convert_lf_to_crlf,
+                            true,
+                            &target_is_current,
+                        )
+                    }
+                };
                 if let Some(session) = stream_session_guard.as_mut() {
                     if let Ok(Some(paste_sent_at)) = &paste_result {
                         session.last_clipboard_paste_sent_at = Some(*paste_sent_at);
@@ -3372,6 +3594,23 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
         assert!(finished.settings.buffers_external_output());
         assert!(finished.delivered);
         assert!(sessions.current().is_none());
+        assert!(sessions.take(7).is_none());
+    }
+
+    #[test]
+    fn streaming_error_keeps_its_reason_after_later_chunks_and_session_cleanup() {
+        let settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
+        let mut sessions = DictationOutputSessions::default();
+        sessions.begin(7, Some(settings));
+        let session = sessions.get_mut(7).unwrap();
+        session.record_chunk_result(&Err(ELEVATION_BLOCKED_ERROR.to_string()), true);
+        session.record_chunk_result(&Err("Later clipboard failure".to_string()), true);
+        session.record_chunk_result(&Ok(()), true);
+        let finished = sessions.take(7).unwrap();
+        assert!(finished.failed);
+        assert_eq!(finished.chunk_error.as_deref(), Some(ELEVATION_BLOCKED_ERROR));
+        assert!(!streaming_delivery_succeeded(finished.delivered, finished.failed,
+            finished.settings.paste_method, true));
         assert!(sessions.take(7).is_none());
     }
 
@@ -3877,5 +4116,534 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
             .expect("external script should return without waiting for its child");
         fs::remove_file(script_path).expect("remove external script");
         assert!(result.is_ok());
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    enum PrimaryMockOp {
+        Read,
+        Write(String),
+        Clear,
+    }
+
+    struct MockPrimaryBackend {
+        reads: std::cell::RefCell<std::collections::VecDeque<crate::primary_selection::PrimaryRead>>,
+        writes: std::cell::RefCell<std::collections::VecDeque<Result<(), String>>>,
+        clear_result: std::cell::RefCell<Result<(), String>>,
+        ops: std::cell::RefCell<Vec<PrimaryMockOp>>,
+    }
+
+    impl MockPrimaryBackend {
+        fn new(
+            reads: impl IntoIterator<Item = crate::primary_selection::PrimaryRead>,
+            writes: impl IntoIterator<Item = Result<(), String>>,
+        ) -> Self {
+            Self {
+                reads: std::cell::RefCell::new(reads.into_iter().collect()),
+                writes: std::cell::RefCell::new(writes.into_iter().collect()),
+                clear_result: std::cell::RefCell::new(Ok(())),
+                ops: std::cell::RefCell::new(Vec::new()),
+            }
+        }
+
+        fn with_clear_result(self, result: Result<(), String>) -> Self {
+            *self.clear_result.borrow_mut() = result;
+            self
+        }
+
+        fn ops(&self) -> Vec<PrimaryMockOp> {
+            self.ops.borrow().clone()
+        }
+    }
+
+    impl crate::primary_selection::PrimarySelectionBackend for MockPrimaryBackend {
+        fn read_status(&self) -> crate::primary_selection::PrimaryRead {
+            self.ops.borrow_mut().push(PrimaryMockOp::Read);
+            self.reads
+                .borrow_mut()
+                .pop_front()
+                .unwrap_or_else(|| panic!("unexpected read_status call"))
+        }
+
+        fn write(&self, text: &str) -> Result<(), String> {
+            self.ops
+                .borrow_mut()
+                .push(PrimaryMockOp::Write(text.to_string()));
+            self.writes
+                .borrow_mut()
+                .pop_front()
+                .unwrap_or(Ok(()))
+        }
+
+        fn clear(&self) -> Result<(), String> {
+            self.ops.borrow_mut().push(PrimaryMockOp::Clear);
+            self.clear_result.borrow().clone()
+        }
+    }
+
+    #[test]
+    fn primary_selection_routing_matrix_covers_all_paste_methods_and_platforms() {
+        use crate::primary_selection::uses_primary_selection_on_platform;
+
+        let all_methods = [
+            PasteMethod::CtrlV,
+            PasteMethod::Direct,
+            PasteMethod::None,
+            PasteMethod::ExternalScript,
+            PasteMethod::CtrlShiftV,
+            PasteMethod::ShiftInsert,
+        ];
+
+        for method in all_methods {
+            assert_eq!(
+                uses_primary_selection_on_platform(true, method),
+                method == PasteMethod::ShiftInsert,
+                "Linux routing mismatch for {method:?}"
+            );
+            assert!(
+                !uses_primary_selection_on_platform(false, method),
+                "Non-Linux platforms must never use PRIMARY for {method:?}"
+            );
+        }
+
+        let no_primary = MockPrimaryBackend::new([], []);
+        let mut shortcut_called = false;
+        let result = paste_with_primary_and_clipboard(
+            "hello",
+            false,
+            &no_primary,
+            || {
+                shortcut_called = true;
+                Ok(Some(Instant::now()))
+            },
+            |_| {},
+            || Ok(()),
+            |err| panic!("unexpected cleanup error: {err}"),
+        );
+        assert_eq!(result, Ok(true));
+        assert!(shortcut_called);
+        assert!(no_primary.ops().is_empty());
+    }
+
+    #[test]
+    fn primary_initial_read_or_write_failure_prevents_clipboard_and_shortcut() {
+        use crate::primary_selection::PrimaryRead;
+
+        let unavailable_backend = MockPrimaryBackend::new(
+            [PrimaryRead::Unavailable("wl-paste timed out".to_string())],
+            [],
+        );
+        let mut clipboard_or_shortcut_ran = false;
+        let mut restore_ran = false;
+        let err = paste_with_primary_and_clipboard(
+            "dictated",
+            true,
+            &unavailable_backend,
+            || {
+                clipboard_or_shortcut_ran = true;
+                Ok(Some(Instant::now()))
+            },
+            |_| panic!("grace wait must not run when shortcut was never sent"),
+            || {
+                restore_ran = true;
+                Ok(())
+            },
+            |_| {},
+        )
+        .unwrap_err();
+        assert!(err.contains("PRIMARY selection is unavailable"));
+        assert!(!clipboard_or_shortcut_ran);
+        assert!(!restore_ran);
+        assert_eq!(unavailable_backend.ops(), vec![PrimaryMockOp::Read]);
+
+        let write_fail_backend = MockPrimaryBackend::new(
+            [PrimaryRead::Text("user highlight".to_string())],
+            [Err("compositor rejected primary write".to_string())],
+        );
+        let mut shortcut_ran = false;
+        let err = paste_with_primary_and_clipboard(
+            "dictated",
+            true,
+            &write_fail_backend,
+            || {
+                shortcut_ran = true;
+                Ok(Some(Instant::now()))
+            },
+            |_| {},
+            || Ok(()),
+            |_| {},
+        )
+        .unwrap_err();
+        assert!(err.contains("PRIMARY selection could not be written"));
+        assert!(!shortcut_ran);
+        assert_eq!(
+            write_fail_backend.ops(),
+            vec![
+                PrimaryMockOp::Read,
+                PrimaryMockOp::Write("dictated".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn primary_unchanged_restores_previous_text_and_clears_when_empty() {
+        use crate::primary_selection::PrimaryRead;
+
+        let non_empty_backend = MockPrimaryBackend::new(
+            [
+                PrimaryRead::Text("old selection".to_string()),
+                PrimaryRead::Text("dictated".to_string()),
+            ],
+            [Ok(()), Ok(())],
+        );
+        let mut grace_waited = false;
+        let result = paste_with_primary_and_clipboard(
+            "dictated",
+            true,
+            &non_empty_backend,
+            || Ok(Some(Instant::now())),
+            |sent_at| grace_waited = sent_at.is_some(),
+            || Ok(()),
+            |err| panic!("unexpected warning: {err}"),
+        );
+        assert_eq!(result, Ok(true));
+        assert!(grace_waited);
+        assert_eq!(
+            non_empty_backend.ops(),
+            vec![
+                PrimaryMockOp::Read,
+                PrimaryMockOp::Write("dictated".to_string()),
+                PrimaryMockOp::Read,
+                PrimaryMockOp::Write("old selection".to_string()),
+            ]
+        );
+
+        let empty_backend = MockPrimaryBackend::new(
+            [
+                PrimaryRead::Empty,
+                PrimaryRead::Text("dictated".to_string()),
+            ],
+            [Ok(())],
+        );
+        let result = paste_with_primary_and_clipboard(
+            "dictated",
+            true,
+            &empty_backend,
+            || Ok(Some(Instant::now())),
+            |_| {},
+            || Ok(()),
+            |err| panic!("unexpected warning: {err}"),
+        );
+        assert_eq!(result, Ok(true));
+        assert_eq!(
+            empty_backend.ops(),
+            vec![
+                PrimaryMockOp::Read,
+                PrimaryMockOp::Write("dictated".to_string()),
+                PrimaryMockOp::Read,
+                PrimaryMockOp::Clear,
+            ]
+        );
+    }
+
+    #[test]
+    fn primary_restore_skips_overwrite_when_changed_cleared_or_unknown() {
+        use crate::primary_selection::PrimaryRead;
+
+        let restore_reads = [
+            PrimaryRead::Text("user selected something else".to_string()),
+            PrimaryRead::Empty,
+            PrimaryRead::Unavailable("wl-paste timed out".to_string()),
+            PrimaryRead::Unavailable("X11 read error".to_string()),
+            PrimaryRead::Unavailable("compositor lacks primary".to_string()),
+        ];
+
+        for restore_read in restore_reads {
+            let backend = MockPrimaryBackend::new(
+                [PrimaryRead::Text("original".to_string()), restore_read],
+                [Ok(())],
+            );
+            let result = paste_with_primary_and_clipboard(
+                "dictated",
+                true,
+                &backend,
+                || Ok(Some(Instant::now())),
+                |_| {},
+                || Ok(()),
+                |err| panic!("skipping restore must not fail: {err}"),
+            );
+            assert_eq!(result, Ok(true));
+            assert_eq!(
+                backend.ops(),
+                vec![
+                    PrimaryMockOp::Read,
+                    PrimaryMockOp::Write("dictated".to_string()),
+                    PrimaryMockOp::Read,
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn primary_restore_error_is_nonfatal_and_independent_of_clipboard_restore() {
+        use crate::primary_selection::PrimaryRead;
+
+        // 1. Delivered paste succeeds even when PRIMARY clear/restore fails.
+        let primary_err_backend = MockPrimaryBackend::new(
+            [
+                PrimaryRead::Empty,
+                PrimaryRead::Text("dictated".to_string()),
+            ],
+            [Ok(())],
+        )
+        .with_clear_result(Err("wl-copy clear failed".to_string()));
+        let mut warnings = Vec::new();
+        let res = paste_with_primary_and_clipboard(
+            "dictated",
+            true,
+            &primary_err_backend,
+            || Ok(Some(Instant::now())),
+            |_| {},
+            || Ok(()),
+            |w| warnings.push(w.to_string()),
+        );
+        assert_eq!(res, Ok(true));
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("wl-copy clear failed"));
+
+        // 2. CLIPBOARD restore error does not skip PRIMARY restore, and delivery stays Ok(true).
+        let primary_ok_backend = MockPrimaryBackend::new(
+            [
+                PrimaryRead::Text("old".to_string()),
+                PrimaryRead::Text("dictated".to_string()),
+            ],
+            [Ok(()), Ok(())],
+        );
+        let mut warnings = Vec::new();
+        let res = paste_with_primary_and_clipboard(
+            "dictated",
+            true,
+            &primary_ok_backend,
+            || Ok(Some(Instant::now())),
+            |_| {},
+            || Err("clipboard restore failed".to_string()),
+            |w| warnings.push(w.to_string()),
+        );
+        assert_eq!(res, Ok(true));
+        assert_eq!(warnings, vec!["clipboard restore failed".to_string()]);
+        assert_eq!(
+            primary_ok_backend.ops(),
+            vec![
+                PrimaryMockOp::Read,
+                PrimaryMockOp::Write("dictated".to_string()),
+                PrimaryMockOp::Read,
+                PrimaryMockOp::Write("old".to_string()),
+            ]
+        );
+
+        // 3. Failed shortcut preserves delivery error even when PRIMARY restore also fails.
+        let both_fail_backend = MockPrimaryBackend::new(
+            [
+                PrimaryRead::Text("old".to_string()),
+                PrimaryRead::Text("dictated".to_string()),
+            ],
+            [Ok(()), Err("primary restore failed".to_string())],
+        );
+        let mut warnings = Vec::new();
+        let res = paste_with_primary_and_clipboard(
+            "dictated",
+            true,
+            &both_fail_backend,
+            || Err("shortcut failed".to_string()),
+            |_| {},
+            || Ok(()),
+            |w| warnings.push(w.to_string()),
+        );
+        assert_eq!(res, Err("shortcut failed".to_string()));
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("primary restore failed"));
+    }
+
+    #[test]
+    fn streaming_primary_multi_chunk_cancel_failure_stale_and_keep_transcription() {
+        use crate::primary_selection::PrimaryRead;
+
+        // 1. Multi-chunk retains original snapshot, final full-text CLIPBOARD publish does not touch PRIMARY,
+        //    and KeepTranscription still restores PRIMARY once.
+        let multi_backend = MockPrimaryBackend::new(
+            [
+                PrimaryRead::Text("user original".to_string()),
+                PrimaryRead::Text("chunk two".to_string()),
+            ],
+            [Ok(()), Ok(()), Ok(())],
+        );
+        let mut session_primary_backup = None;
+        assert!(streaming_chunk_with_primary(
+            &mut session_primary_backup,
+            true,
+            &multi_backend,
+            "chunk one",
+            || Ok(Some(Instant::now())),
+        )
+        .unwrap()
+        .is_some());
+        assert_eq!(
+            session_primary_backup.as_ref().unwrap().saved.as_deref(),
+            Some("user original")
+        );
+
+        // Chunk 2 failure does not send shortcut and preserves chunk 1 snapshot/last_written.
+        let fail_chunk2_backend = MockPrimaryBackend::new(
+            [],
+            [Err("primary update failed".to_string())],
+        );
+        let mut chunk2_shortcut_called = false;
+        let chunk2_err = streaming_chunk_with_primary(
+            &mut session_primary_backup,
+            true,
+            &fail_chunk2_backend,
+            "chunk two failed",
+            || {
+                chunk2_shortcut_called = true;
+                Ok(Some(Instant::now()))
+            },
+        )
+        .unwrap_err();
+        assert!(chunk2_err.contains("could not be updated"));
+        assert!(!chunk2_shortcut_called);
+        assert_eq!(
+            session_primary_backup.as_ref().unwrap().last_written,
+            "chunk one"
+        );
+
+        // Successful chunk 2 updates last_written while keeping original snapshot.
+        assert!(streaming_chunk_with_primary(
+            &mut session_primary_backup,
+            true,
+            &multi_backend,
+            "chunk two",
+            || Ok(Some(Instant::now())),
+        )
+        .unwrap()
+        .is_some());
+        assert_eq!(
+            session_primary_backup.as_ref().unwrap().saved.as_deref(),
+            Some("user original")
+        );
+        assert_eq!(
+            session_primary_backup.as_ref().unwrap().last_written,
+            "chunk two"
+        );
+
+        // KeepTranscription keeps CLIPBOARD untouched (no-op restore_clipboard) while restoring PRIMARY once.
+        let handling = ClipboardHandling::KeepTranscription;
+        let restore_res = finish_streaming_backup_restore(
+            session_primary_backup.take(),
+            &multi_backend,
+            || {
+                assert!(!restores_clipboard_contents(handling));
+                Ok(())
+            },
+            |err| panic!("unexpected restore error: {err}"),
+        );
+        assert!(restore_res.is_ok());
+        assert!(session_primary_backup.is_none());
+        assert_eq!(
+            multi_backend.ops(),
+            vec![
+                PrimaryMockOp::Read,
+                PrimaryMockOp::Write("chunk one".to_string()),
+                PrimaryMockOp::Write("chunk two".to_string()),
+                PrimaryMockOp::Read,
+                PrimaryMockOp::Write("user original".to_string()),
+            ]
+        );
+
+        // 2. Cancellation before first chunk never reads, writes, or clears PRIMARY.
+        let untouched_backend = MockPrimaryBackend::new([], []);
+        let mut empty_backup = None;
+        assert!(finish_streaming_backup_restore(
+            empty_backup.take(),
+            &untouched_backend,
+            || Ok(()),
+            |err| panic!("unexpected error: {err}"),
+        )
+        .is_ok());
+        assert!(untouched_backend.ops().is_empty());
+
+        // 3. Failure AFTER PRIMARY write (e.g. CLIPBOARD write or keystroke failed) retains backup and restores both.
+        let post_write_fail_backend = MockPrimaryBackend::new(
+            [
+                PrimaryRead::Text("before failure".to_string()),
+                PrimaryRead::Text("chunk after primary write".to_string()),
+            ],
+            [Ok(()), Ok(())],
+        );
+        let mut tracked_backup = None;
+        let chunk_err = streaming_chunk_with_primary(
+            &mut tracked_backup,
+            true,
+            &post_write_fail_backend,
+            "chunk after primary write",
+            || Err("clipboard write or shortcut failed".to_string()),
+        )
+        .unwrap_err();
+        assert_eq!(chunk_err, "clipboard write or shortcut failed");
+        assert!(tracked_backup.is_some());
+        let mut clipboard_restored = false;
+        assert!(finish_streaming_backup_restore(
+            tracked_backup.take(),
+            &post_write_fail_backend,
+            || {
+                clipboard_restored = true;
+                Ok(())
+            },
+            |err| panic!("unexpected error: {err}"),
+        )
+        .is_ok());
+        assert!(clipboard_restored);
+        assert_eq!(
+            post_write_fail_backend.ops(),
+            vec![
+                PrimaryMockOp::Read,
+                PrimaryMockOp::Write("chunk after primary write".to_string()),
+                PrimaryMockOp::Read,
+                PrimaryMockOp::Write("before failure".to_string()),
+            ]
+        );
+
+        // 4. Stale session replacement restores previous PRIMARY even if CLIPBOARD restore fails.
+        let stale_backend = MockPrimaryBackend::new(
+            [
+                PrimaryRead::Text("stale original".to_string()),
+                PrimaryRead::Text("stale chunk".to_string()),
+            ],
+            [Ok(()), Ok(())],
+        );
+        let mut stale_backup = None;
+        streaming_chunk_with_primary(
+            &mut stale_backup,
+            true,
+            &stale_backend,
+            "stale chunk",
+            || Ok(Some(Instant::now())),
+        )
+        .unwrap();
+        let stale_clipboard_err = finish_streaming_backup_restore(
+            stale_backup.take(),
+            &stale_backend,
+            || Err("stale clipboard restore failed".to_string()),
+            |err| panic!("unexpected primary error: {err}"),
+        )
+        .unwrap_err();
+        assert_eq!(stale_clipboard_err, "stale clipboard restore failed");
+        assert_eq!(
+            stale_backend.ops(),
+            vec![
+                PrimaryMockOp::Read,
+                PrimaryMockOp::Write("stale chunk".to_string()),
+                PrimaryMockOp::Read,
+                PrimaryMockOp::Write("stale original".to_string()),
+            ]
+        );
     }
 }

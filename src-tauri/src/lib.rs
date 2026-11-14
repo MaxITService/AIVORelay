@@ -37,6 +37,8 @@ mod notices;
 mod overlay;
 mod plus_overlay_state;
 mod portable;
+#[cfg(any(test, target_os = "linux"))]
+mod primary_selection;
 mod recording_auto_stop;
 mod recording_model_loading;
 mod remote_control;

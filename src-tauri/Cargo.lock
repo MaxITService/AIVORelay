@@ -87,6 +87,7 @@ version = "1.0.52"
 dependencies = [
  "aes-gcm",
  "anyhow",
+ "arboard",
  "axum",
  "base64 0.22.1",
  "bzip2",

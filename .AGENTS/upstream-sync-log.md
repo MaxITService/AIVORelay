@@ -7,6 +7,17 @@ This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
 Reviewed intake (2026-11-14):
+- Completion follow-up: Windows ARM64 Opus flags and Linux Shift+Insert PRIMARY
+  ownership/restore are now adapted. Combined Windows x64 verification passed:
+  1249 library tests (25 ignored), 387 frontend tests and TypeScript typecheck.
+  Pure/injected PRIMARY tests do not access the real desktop. Linux compilation
+  and X11/Wayland runtime, ARM64 compilation/runtime and real elevated-window
+  interaction remain unverified. The running app was not stopped or restarted.
+- User-output review fixes: manual clipboard fallback honors opening-key and
+  protected-window gates, reports localized manual Ctrl+V guidance, and retains
+  the first streaming paste error through cleanup. Repaste/CLI share that
+  feedback. Gemini/Reson8 paste failures no longer replace the recording overlay
+  with a remote-transcription error before final output handling.
 - Windows elevation follow-up: manual-copy fallback is now opt-in per profile
   (`copy_on_elevated_window`, default off). Disabled fallback preserves the
   selected restore policy, including after a live chunk's blocked keystroke.
@@ -16,7 +27,7 @@ Reviewed intake (2026-11-14):
   passed, plus TypeScript typecheck. No real elevated-window input was tested.
 - Safe review cursor: `aca89851` — release v0.10.1. All 32 ordinary commits
   after `82dfab9f` were reviewed; this corridor contains no merge commits.
-- Integrated or adapted 22 commits (including one partial adaptation):
+- Integrated or adapted 22 commits:
   - `1fe3ae27` — feat(audio): decode Opus files with the vendored codec.
     Streaming Ogg/Opus/WebM input reuses the fork's libopus and 16 kHz
     resampler; existing duration checks and non-Opus decoding are preserved.
@@ -64,10 +75,14 @@ Reviewed intake (2026-11-14):
     reporting and clipboard/session cleanup. Unknown integrity stays fail-open.
   - `d2ee8717` in `5e28277ff` — fix(overlay): don't steal focus when the overlay
     falls back to X11 (#2488).
-  - `4a096e35` partially in `37f465693` — fix(linux): send the Insert keysym for
-    Shift+Insert. Retain existing defaults and saved delays. PRIMARY-selection
-    ownership/restore needs a separate adaptation to the fork's streaming
-    clipboard transactions; no settings migration was added.
+  - `4a096e35` — Linux Shift+Insert keysym and PRIMARY selection support.
+    `37f465693` supplied the Insert keysym; completion adds lazy streaming
+    backup and selection ownership with independent restore, including
+    KeepTranscription. Failed preparation blocks the shortcut; unknown or
+    changed selection state is never blindly restored. Wayland uses bounded
+    wl-clipboard helpers, X11 a persistent arboard owner. The existing locked
+    arboard package is now a direct Linux dependency; no package updates,
+    defaults/delay changes or settings migration were added.
 - Retained existing fork behavior: `88185c8b` (the recursive WebView log target
   is absent); `0911f2b9` (bounded 600-second LLM requests and cancellation,
   preserving long reasoning rather than imposing upstream's 60-second limit);

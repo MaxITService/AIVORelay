@@ -43,6 +43,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/shortcut_handy_keys.rs` | Ported upstream HandyKeys shortcut backend and backend-side shortcut recording. |
 | `src-tauri/src/language_resolver.rs` | Soniox language resolver. |
 | `src-tauri/src/reson8_language.rs` | Reson8 Rumble-2 supported-language catalog and request normalization: maps UI/OS identities (`no`, `tl`, `jw`, Chinese script variants) to provider codes (`nb`, `fil`, `jv`, `zh`), deduplicates comma lists, and omits unsupported or auto values so the API auto-detects. |
+| `src-tauri/src/primary_selection.rs` | Linux Shift+Insert PRIMARY selection transport and injected transaction helpers. Wayland uses bounded wl-clipboard helpers; X11 retains an arboard owner. Unknown backup/write state blocks the paste, and restoration only replaces unchanged transcription-owned text. Other paste methods never touch PRIMARY. |
 | `src-tauri/src/language_detection/` | CPU-only VoxLingua language selection for local completed-audio transcription, with preferred-language policy, bounded speech extraction, native-stream fallback and an empty-preferences compatibility default. The separate model is downloaded with SHA-256 verification through `ModelManager`. |
 | `src-tauri/src/text_replacement_decapitalize.rs` | Decapitalize trigger. |
 | `src-tauri/src/llm_live_output.rs` | Live insertion of a streamed LLM post-processing answer (per profile, Default = `post_process_live_stream_insert`): replacements, decapitalize and held whitespace via the shared stream-chunk engine; `actions.rs` `LlmLiveInsert` pastes through `live_output_buffer` with the live-STT window/clipboard/cancel path. An error before the first text falls back to the plain transcription. |
@@ -173,6 +174,19 @@ instead of restoring the previous clipboard. The captured history policy still
 applies; manual copying reports undelivered text and never sends auto-submit.
 Streaming cleanup records successful clipboard writes even when the subsequent
 keystroke fails, so disabled fallback still restores the saved clipboard formats.
+Manual copying respects the opening-key gate and the protected live target before
+discarding a stream buffer. Delivery errors retain their first chunk failure
+reason; frontend feedback localizes the administrator-window/manual Ctrl+V notice
+without exposing raw errors. Repaste and CLI paste use the same notice classifier.
+Gemini and Reson8 chunk insertion failures stay on the output session's final
+delivery path instead of raising remote-transcription overlays while recording.
+
+Linux Shift+Insert writes both CLIPBOARD and PRIMARY. PRIMARY is backed up lazily
+for streaming, and restored even when KeepTranscription retains CLIPBOARD or its
+restoration fails. Restoration skips changed, cleared or unreadable selections;
+failed PRIMARY preparation prevents the shortcut from pasting stale user text.
+Existing clipboard delays, consumer grace, defaults and other platforms remain
+unchanged. Native Wayland support is required on Wayland; X11 is not a fallback.
 
 | File | Current State |
 | --- | --- |

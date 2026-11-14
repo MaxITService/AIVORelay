@@ -6919,6 +6919,26 @@ fn finish_dictation_paste_result(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum PasteFailureNotice {
+    Generic,
+    ElevatedClipboardCopy,
+    ElevationBlocked,
+}
+
+fn paste_failure_notice(error: &str) -> PasteFailureNotice {
+    match error {
+        crate::clipboard::ELEVATED_CLIPBOARD_FALLBACK_NOTICE => PasteFailureNotice::ElevatedClipboardCopy,
+        crate::clipboard::ELEVATION_BLOCKED_ERROR => PasteFailureNotice::ElevationBlocked,
+        _ => PasteFailureNotice::Generic,
+    }
+}
+
+pub(crate) fn emit_paste_error(app: &AppHandle, error: &str) {
+    let _ = app.emit("paste-error", paste_failure_notice(error));
+}
+
 fn report_dictation_paste_result(
     app: &AppHandle,
     result: Result<bool, String>,
@@ -6927,13 +6947,28 @@ fn report_dictation_paste_result(
 ) -> bool {
     finish_dictation_paste_result(result, has_text, cancelled, |error| {
         warn!("Failed to insert dictation text: {}", error);
-        let _ = app.emit("paste-error", ());
+        emit_paste_error(app, error);
     })
 }
 
 #[cfg(test)]
 mod dictation_paste_feedback_tests {
-    use super::finish_dictation_paste_result;
+    use super::{finish_dictation_paste_result, paste_failure_notice, PasteFailureNotice};
+
+    #[test]
+    fn elevated_clipboard_notice_is_specific_and_never_counts_as_delivery() {
+        for (error, expected, wire_value) in [
+            (crate::clipboard::ELEVATED_CLIPBOARD_FALLBACK_NOTICE, PasteFailureNotice::ElevatedClipboardCopy, "elevatedClipboardCopy"),
+            (crate::clipboard::ELEVATION_BLOCKED_ERROR, PasteFailureNotice::ElevationBlocked, "elevationBlocked"),
+            ("Clipboard is busy", PasteFailureNotice::Generic, "generic"),
+        ] {
+            let mut notices = Vec::new();
+            assert!(!finish_dictation_paste_result(Err(error.to_string()), true, false,
+                |error| notices.push(paste_failure_notice(error))));
+            assert_eq!(notices, vec![expected]);
+            assert_eq!(serde_json::to_value(expected).unwrap(), wire_value);
+        }
+    }
 
     #[test]
     fn cancelled_insertion_and_stream_failure_each_report_once() {
@@ -9306,13 +9341,6 @@ impl ShortcutAction for TranscribeAction {
                                                     error
                                                 );
                                                 warn!("{}", message);
-                                                if !background_finalization {
-                                                    handle_remote_transcription_error(
-                                                        &ah_for_clip,
-                                                        &message,
-                                                        false,
-                                                    );
-                                                }
                                             }
                                         }
                                     },
@@ -9322,7 +9350,6 @@ impl ShortcutAction for TranscribeAction {
                                         error
                                     );
                                     warn!("{}", message);
-                                    handle_remote_transcription_error(&ah_for_cb, &message, false);
                                 }
                             }
                         }) as OpenAiRealtimeWhisperFinalChunkCallback
@@ -9468,11 +9495,6 @@ impl ShortcutAction for TranscribeAction {
                                                     error
                                                 );
                                                 warn!("{}", message);
-                                                handle_remote_transcription_error(
-                                                    &ah_for_clip,
-                                                    &message,
-                                                    false,
-                                                );
                                             }
                                         }
                                     },
@@ -9482,7 +9504,6 @@ impl ShortcutAction for TranscribeAction {
                                         error
                                     );
                                     warn!("{}", message);
-                                    handle_remote_transcription_error(&ah_for_cb, &message, false);
                                 }
                             }
                         }) as Reson8FinalChunkCallback
@@ -10668,11 +10689,6 @@ impl ShortcutAction for TranscribeAction {
                                             error
                                         );
                                         warn!("{}", message);
-                                        handle_remote_transcription_error(
-                                            &ah_clone,
-                                            &message,
-                                            false,
-                                        );
                                     }
                                 }
                             }
@@ -12489,7 +12505,8 @@ impl ShortcutAction for RepastLastAction {
                         &get_settings(&ah), None,
                     ).without_key_actions();
                     crate::output_dispatch::run(move || {
-                        let _ = utils::paste_with_output_settings(text_to_paste, ah_clone, &output, || true);
+                        let result = utils::paste_with_output_settings(text_to_paste, ah_clone.clone(), &output, || true);
+                        report_dictation_paste_result(&ah_clone, result, true, false);
                     })
                     .ok();
                 }

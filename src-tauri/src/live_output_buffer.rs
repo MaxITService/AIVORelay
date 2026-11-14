@@ -62,8 +62,12 @@ impl Buffer {
             paused: false, returned_at: None, frozen: false, check_window: true }
     }
 
+    fn owns_target(&self, current: Option<WindowTarget>) -> bool {
+        !self.check_window || (self.target.is_some() && current == self.target)
+    }
+
     fn ready(&mut self, current: Option<WindowTarget>, now: Instant) -> bool {
-        if self.check_window && (self.target.is_none() || current != self.target) {
+        if !self.owns_target(current) {
             self.paused = true;
             self.returned_at = None;
             return false;
@@ -162,6 +166,14 @@ pub(crate) fn allows_delivery(operation_id: u64) -> bool {
         session.operation_id == operation_id && !session.buffer.frozen && !session.failed
             && (!session.buffer.check_window
                 || (session.buffer.target.is_some() && foreground_target() == session.buffer.target))))
+}
+
+/// Clipboard fallback must respect the pinned window even after keystrokes failed.
+/// Failure/frozen flags block further typing, but do not change who owns the text.
+pub(crate) fn target_allows_clipboard_fallback(operation_id: u64) -> bool {
+    SESSION.lock().ok().is_some_and(|guard| guard.as_ref()
+        .filter(|session| session.operation_id == operation_id)
+        .is_none_or(|session| session.buffer.owns_target(foreground_target())))
 }
 
 /// Discards the session. A finished wait-for-window remainder is not inserted, so tell the user
@@ -516,6 +528,19 @@ mod tests {
         buffer.pending.push_str("remaining");
         buffer.frozen = true;
         assert_eq!(buffer.take_ready(target(1), now), None);
+    }
+
+    #[test]
+    fn clipboard_fallback_keeps_target_ownership_after_a_typing_failure() {
+        let mut buffer = Buffer::new(target(1), 0);
+        buffer.frozen = true;
+        assert!(buffer.owns_target(target(1)));
+        assert!(!buffer.owns_target(target(2)));
+        assert!(!buffer.owns_target(None));
+        buffer.target = None;
+        assert!(!buffer.owns_target(None));
+        buffer.check_window = false;
+        assert!(buffer.owns_target(target(2)));
     }
 
     #[test]
