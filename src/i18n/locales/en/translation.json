@@ -1052,6 +1052,7 @@
       "unsetStyle": "Automatic / no style",
       "elevenStabilityTitle": "ElevenLabs stability",
       "elevenStabilityDescription": "Controls delivery consistency from 0 to 1. Lower values are more expressive; higher values are steadier.",
+      "elevenV4ControlsNote": "Eleven v4 Turbo uses Stability, Similarity, text normalization, and inline audio tags. Numeric speed, Style, and Speaker Boost are unavailable; use audio tags and punctuation to guide pacing and emotion.",
       "elevenV3ControlsNote": "Eleven v3 uses Stability, Style, text normalization, and inline audio tags. Numeric speed, Similarity, and Speaker Boost are unavailable for this model; its optional language code is used only as a pronunciation and normalization hint.",
       "elevenSimilarityTitle": "ElevenLabs similarity boost",
       "elevenSimilarityDescription": "Controls how closely the result follows the selected voice from 0 to 1.",
