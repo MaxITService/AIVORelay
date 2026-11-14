@@ -1319,4 +1319,150 @@ mod tests {
         assert!(formatted.contains("Bad key"));
         assert!(!formatted.contains("super-secret-key"));
     }
+
+    fn synthetic_active_session(operation_id: Option<u64>, initial_text: &str) -> ActiveSession {
+        let (audio_tx, _audio_rx) = mpsc::channel(4);
+        let (control_tx, _control_rx) = mpsc::unbounded_channel();
+        let join_handle = JoinHandle::Tokio(tokio::spawn(std::future::pending::<Result<()>>()));
+        ActiveSession {
+            binding_id: "test-binding".to_string(),
+            operation_id,
+            audio_tx,
+            control_tx,
+            final_text: Arc::new(Mutex::new(initial_text.to_string())),
+            join_handle,
+        }
+    }
+
+    async fn abort_and_join(session: ActiveSession) {
+        session.join_handle.abort();
+        let _ = session.join_handle.await;
+    }
+
+    #[tokio::test]
+    async fn drive_session_loop_cancel_closes_socket_without_flush_or_emissions() {
+        let (audio_tx, audio_rx) = mpsc::channel(4);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let final_text = Arc::new(Mutex::new(String::new()));
+        let emitted_callbacks = Arc::new(Mutex::new(Vec::<String>::new()));
+        let emitted_callbacks_cb = Arc::clone(&emitted_callbacks);
+        let on_final_chunk: FinalChunkCallback = Arc::new(move |chunk| {
+            emitted_callbacks_cb.lock().push(chunk);
+        });
+        let live_events = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+        let live_events_cb = Arc::clone(&live_events);
+
+        control_tx.send(ControlMessage::Cancel).unwrap();
+
+        let mut sink = VecSink::new();
+        // Keep both the audio channel and peer stream pending so Cancel is the only ready branch.
+        let mut stream = futures_util::stream::pending();
+
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            Reson8RealtimeManager::drive_session_loop(
+                &mut sink,
+                &mut stream,
+                audio_rx,
+                control_rx,
+                Arc::clone(&final_text),
+                Some(on_final_chunk),
+                "key".to_string(),
+                "flush-test-cancel".to_string(),
+                SessionEvents {
+                    live_final_chunk: Box::new(move |delta, accumulated| {
+                        live_events_cb
+                            .lock()
+                            .push((delta.to_string(), accumulated.to_string()));
+                    }),
+                },
+            ),
+        )
+        .await
+        .expect("cancel must terminate the session loop promptly")
+        .unwrap();
+
+        drop(audio_tx);
+        drop(control_tx);
+
+        assert!(sink.closed);
+        assert!(sink.sent.is_empty());
+        assert!(final_text.lock().is_empty());
+        assert!(emitted_callbacks.lock().is_empty());
+        assert!(live_events.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn detach_session_if_matches_preserves_newer_active_and_pending_operations() {
+        let mut active = Some(synthetic_active_session(Some(2), "new words"));
+        let mut pending = Some(PendingAudio {
+            operation_id: Some(2),
+            frames: vec![vec![7, 8]],
+            overflow_error: Some("pending overflow".to_string()),
+        });
+
+        assert!(detach_session_if_matches(&mut active, &mut pending, Some(1)).is_none());
+        assert!(detach_session_if_matches(&mut active, &mut pending, None).is_none());
+
+        let surviving_active = active.take().expect("newer active session must remain");
+        let active_op = surviving_active.operation_id;
+        let active_text = surviving_active.final_text.lock().clone();
+        abort_and_join(surviving_active).await;
+
+        assert_eq!(active_op, Some(2));
+        assert_eq!(active_text, "new words");
+        let surviving_pending = pending.as_ref().expect("newer pending audio must remain");
+        assert_eq!(surviving_pending.operation_id, Some(2));
+        assert_eq!(surviving_pending.frames, vec![vec![7, 8]]);
+        assert_eq!(
+            surviving_pending.overflow_error.as_deref(),
+            Some("pending overflow")
+        );
+
+        let mut active = Some(synthetic_active_session(Some(1), "old words"));
+        let detached = detach_session_if_matches(&mut active, &mut pending, Some(1))
+            .expect("matching active session must detach");
+        let detached_op = detached.operation_id;
+        abort_and_join(detached).await;
+
+        assert_eq!(detached_op, Some(1));
+        assert!(active.is_none());
+        let surviving_pending = pending.as_ref().expect("newer pending audio must remain");
+        assert_eq!(surviving_pending.operation_id, Some(2));
+        assert_eq!(surviving_pending.frames, vec![vec![7, 8]]);
+    }
+
+    #[tokio::test]
+    async fn detach_session_if_matches_clears_only_matching_active_and_pending_state() {
+        for operation_id in [None, Some(1)] {
+            let mut active = Some(synthetic_active_session(operation_id, "matched"));
+            let mut pending = Some(PendingAudio {
+                operation_id,
+                frames: vec![vec![1, 2]],
+                overflow_error: None,
+            });
+
+            let detached = detach_session_if_matches(&mut active, &mut pending, operation_id)
+                .expect("matching active session must detach");
+            let detached_op = detached.operation_id;
+            abort_and_join(detached).await;
+
+            assert_eq!(detached_op, operation_id);
+            assert!(active.is_none());
+            assert!(pending.is_none());
+        }
+
+        let mut active = None;
+        let mut pending = Some(PendingAudio {
+            operation_id: Some(2),
+            frames: vec![vec![3, 4]],
+            overflow_error: None,
+        });
+        assert!(detach_session_if_matches(&mut active, &mut pending, Some(1)).is_none());
+        assert_eq!(pending.as_ref().unwrap().operation_id, Some(2));
+        assert_eq!(pending.as_ref().unwrap().frames, vec![vec![3, 4]]);
+
+        assert!(detach_session_if_matches(&mut active, &mut pending, Some(2)).is_none());
+        assert!(pending.is_none());
+    }
 }
