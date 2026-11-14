@@ -12,6 +12,7 @@ import { PauseMediaWhileRecording } from "../PauseMediaWhileRecording";
 import { QueueRecordingDuringProcessing } from "../QueueRecordingDuringProcessing";
 import { ChineseScriptSetting } from "../ChineseScript";
 import { NeverLaunchWebView } from "../NeverLaunchWebView";
+import { PortableStorageSettings } from "../PortableStorageSettings";
 import { openDefaultProfileOutputSettings } from "@/lib/transcriptionProfileNavigation";
 
 export const AdvancedSettings: React.FC = () => {
@@ -45,10 +46,11 @@ export const AdvancedSettings: React.FC = () => {
         </div>
       </TellMeMore>
 
-      <SettingsGroup title={t("settings.advanced.title")}>
+      <SettingsGroup id="settings-advanced" title={t("settings.advanced.title")}>
         <ChineseScriptSetting descriptionMode="tooltip" grouped={true} />
         <StartHidden descriptionMode="tooltip" grouped={true} />
         <AutostartToggle descriptionMode="tooltip" grouped={true} />
+        <PortableStorageSettings />
         <RecordingAutoStop descriptionMode="tooltip" grouped={true} />
         <MuteWhileRecording descriptionMode="tooltip" grouped={true} />
         <PauseMediaWhileRecording descriptionMode="tooltip" grouped={true} />
