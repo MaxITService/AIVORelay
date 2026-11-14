@@ -21,14 +21,23 @@ export const PortableStorageSettings: React.FC = () => {
   const [status, setStatus] = useState<PortableStorageStatus | null>(null);
   const [changing, setChanging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     let disposed = false;
+    setLoading(true);
     void invoke<PortableStorageStatus | null>("get_portable_storage")
-      .then((value) => { if (!disposed) setStatus(value); })
-      .catch((reason) => { if (!disposed) setError(String(reason)); });
+      .then((value) => {
+        if (!disposed) {
+          setStatus(value);
+          setError(null);
+        }
+      })
+      .catch((reason) => { if (!disposed) setError(String(reason)); })
+      .finally(() => { if (!disposed) setLoading(false); });
     return () => { disposed = true; };
-  }, []);
+  }, [loadAttempt]);
 
   const changeMode = async (mode: string) => {
     if (!status || mode === status.configured_mode) return;
@@ -216,6 +225,19 @@ export const PortableStorageSettings: React.FC = () => {
           </>
         )}
         {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
+        {!status && error && (
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={loading || changing}
+            onClick={() => {
+              setLoading(true);
+              setLoadAttempt((attempt) => attempt + 1);
+            }}
+          >
+            {t("common.retry")}
+          </Button>
+        )}
       </div>
     </SettingContainer>
   );
