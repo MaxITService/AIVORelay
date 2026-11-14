@@ -337,7 +337,7 @@ Fast-Dev-AivoRelay -NoSwitch
 
 # Run from a second PowerShell while the app is open:
 Test-AivoRelayPlaywright
-Test-AivoRelayPlaywright -PlaywrightPort 9334 -ScreenshotPath .\aivorelay.png
+Test-AivoRelayPlaywright -PlaywrightPort 9334 -ScreenshotPath .\.AGENTS\.untracked\playwright\aivorelay.png
 ```
 
 Behavior notes:
