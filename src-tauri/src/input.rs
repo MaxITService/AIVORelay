@@ -321,8 +321,10 @@ pub fn send_paste_ctrl_shift_v(enigo: &mut Enigo) -> Result<(), String> {
 pub fn send_paste_shift_insert(enigo: &mut Enigo) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     let insert_key_code = Key::Other(0x2D); // VK_INSERT
-    #[cfg(not(target_os = "windows"))]
-    let insert_key_code = Key::Other(0x76); // XK_Insert (keycode 118 / 0x76, also used as fallback)
+    #[cfg(target_os = "linux")]
+    let insert_key_code = Key::Insert;
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    let insert_key_code = Key::Other(0x76); // Shift+Insert is not offered here
 
     // Press Shift + Insert
     enigo
