@@ -23,6 +23,7 @@ import { useSettings } from "../../hooks/useSettings";
 import { useSortedDisplayNames } from "../../hooks/useSortedDisplayNames";
 import { useModels } from "../../hooks/useModels";
 import { LANGUAGES } from "../../lib/constants/languages";
+import { RESON8_ADDITIONAL_LANGUAGE_OPTIONS } from "../../lib/constants/reson8Languages";
 import { useNavigationStore } from "../../stores/navigationStore";
 import { GEMINI_LOCALES } from "../../lib/gemini/geminiConfig";
 import ProfileSettingsForm, { useProfileSttCapabilities, type ProfileSettingsFormProps, type ProfileValidationReason, type ExtendedTranscriptionProfile, type LlmPromptSourceOption, strictModeToApi, DEFAULT_CLEAN_PROMPT } from "./ProfileSettingsForm";
@@ -140,7 +141,13 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   });
   const languageLabel = useMemo(() => {
     if (spokenAuto) return spokenAutoLabel;
-    if (!isGeminiProvider) return LANGUAGES.find(option => option.value === profile.language)?.label ?? profile.language;
+    if (!isGeminiProvider) {
+      return (
+        LANGUAGES.find(option => option.value === profile.language)?.label ??
+        RESON8_ADDITIONAL_LANGUAGE_OPTIONS.find(option => option.value === profile.language)?.label ??
+        profile.language
+      );
+    }
     const code = profile.gemini_language_code_override ?? globalGeminiLanguageCode;
     if (code === "auto") return t("settings.gemini.language.auto", "Auto Detect");
     if (code === "os_input") return t("settings.gemini.language.osInput", "Follow OS Input Language");

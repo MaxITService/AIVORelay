@@ -40,6 +40,7 @@ mod portable;
 mod recording_auto_stop;
 mod recording_model_loading;
 mod remote_control;
+mod reson8_language;
 #[cfg(target_os = "windows")]
 mod region_capture;
 mod secure_keys;

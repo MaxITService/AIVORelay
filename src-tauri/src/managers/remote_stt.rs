@@ -544,35 +544,7 @@ fn build_google_gemini_request(
 }
 
 pub(crate) fn resolve_reson8_language(language: Option<&str>) -> Option<String> {
-    let raw = language?.trim();
-    if raw.is_empty() {
-        return None;
-    }
-
-    let resolved = if raw.eq_ignore_ascii_case("os_input") {
-        crate::input_source::get_language_from_input_source()?
-    } else {
-        raw.to_string()
-    };
-
-    let candidates: Vec<String> = resolved
-        .split(',')
-        .map(str::trim)
-        .filter(|part| !part.is_empty() && !part.eq_ignore_ascii_case("auto"))
-        .map(|part| {
-            if part.eq_ignore_ascii_case("zh-Hans") || part.eq_ignore_ascii_case("zh-Hant") {
-                "zh".to_string()
-            } else {
-                part.to_string()
-            }
-        })
-        .collect();
-
-    if candidates.is_empty() {
-        None
-    } else {
-        Some(candidates.join(","))
-    }
+    crate::reson8_language::resolve_requested_language_for_reson8(language)
 }
 
 fn build_reson8_prerecorded_request(
@@ -3312,6 +3284,11 @@ mod tests {
         assert_eq!(resolve_reson8_language(Some("auto")), None);
         assert_eq!(resolve_reson8_language(Some(" AUTO ")), None);
         assert_eq!(resolve_reson8_language(Some("zh-Hans")), Some("zh".to_string()));
+        assert_eq!(resolve_reson8_language(Some("no")), Some("nb".to_string()));
+        assert_eq!(resolve_reson8_language(Some("tl")), Some("fil".to_string()));
+        assert_eq!(resolve_reson8_language(Some("jw")), Some("jv".to_string()));
+        assert_eq!(resolve_reson8_language(Some("he")), None);
+        assert_eq!(resolve_reson8_language(Some("en,he")), Some("en".to_string()));
 
         let request = build_reson8_prerecorded_request(
             &reqwest::Client::new(),
