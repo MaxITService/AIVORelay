@@ -3665,27 +3665,7 @@ impl TtsManager {
                 }
             }
             TtsProvider::ElevenLabs => {
-                let mut url = reqwest::Url::parse(ELEVENLABS_TTS_BASE_URL).map_err(|error| {
-                    ProviderAttemptError {
-                        status: None,
-                        safe_message: format!("Invalid ElevenLabs endpoint: {error}"),
-                        transient: false,
-                        retry_after: None,
-                    }
-                })?;
-                url.path_segments_mut()
-                    .map_err(|_| ProviderAttemptError {
-                        status: None,
-                        safe_message: "Invalid ElevenLabs endpoint".to_string(),
-                        transient: false,
-                        retry_after: None,
-                    })?
-                    .push(nonempty_or(
-                        &settings.elevenlabs_voice,
-                        DEFAULT_TTS_ELEVENLABS_VOICE,
-                    ));
-                url.query_pairs_mut()
-                    .append_pair("output_format", "pcm_24000");
+                let url = elevenlabs_tts_url(&settings.elevenlabs_voice)?;
                 let is_v3 = settings.elevenlabs_model == "eleven_v3";
                 let mut voice_settings = json!({
                     "stability": settings.elevenlabs_stability.clamp(0.0, 1.0),
@@ -4785,6 +4765,29 @@ fn validate_finite_range(label: &str, value: f32, minimum: f32, maximum: f32) ->
     } else {
         Ok(())
     }
+}
+
+fn elevenlabs_tts_url(voice: &str) -> std::result::Result<reqwest::Url, ProviderAttemptError> {
+    let mut url = reqwest::Url::parse(ELEVENLABS_TTS_BASE_URL).map_err(|error| {
+        ProviderAttemptError {
+            status: None,
+            safe_message: format!("Invalid ElevenLabs endpoint: {error}"),
+            transient: false,
+            retry_after: None,
+        }
+    })?;
+    url.path_segments_mut()
+        .map_err(|_| ProviderAttemptError {
+            status: None,
+            safe_message: "Invalid ElevenLabs endpoint".to_string(),
+            transient: false,
+            retry_after: None,
+        })?
+        .pop_if_empty()
+        .push(nonempty_or(voice, DEFAULT_TTS_ELEVENLABS_VOICE));
+    url.query_pairs_mut()
+        .append_pair("output_format", "pcm_24000");
+    Ok(url)
 }
 
 /// Whether the ElevenLabs request carries `language_code`. The resume signature
@@ -6319,6 +6322,26 @@ fn opus_comment_header(vendor: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn elevenlabs_tts_url_has_one_separator_before_the_voice() {
+        let url = elevenlabs_tts_url("custom-voice").unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://api.elevenlabs.io/v1/text-to-speech/custom-voice?output_format=pcm_24000"
+        );
+    }
+
+    #[test]
+    fn elevenlabs_tts_url_preserves_voice_fallback_and_path_encoding() {
+        let fallback = elevenlabs_tts_url("  ").unwrap();
+        assert_eq!(
+            fallback.path(),
+            format!("/v1/text-to-speech/{DEFAULT_TTS_ELEVENLABS_VOICE}")
+        );
+        let encoded = elevenlabs_tts_url("  custom/voice  ").unwrap();
+        assert_eq!(encoded.path(), "/v1/text-to-speech/custom%2Fvoice");
+    }
 
     #[test]
     fn deepgram_tts_routes_flux_and_aura_to_their_required_endpoints() {
