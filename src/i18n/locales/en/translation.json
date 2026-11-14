@@ -60,6 +60,7 @@
     "before": "Press this key after recording ends, before insertion",
     "clipboard": "Clipboard after insertion",
     "copyOnElevatedWindow": "Copy transcript when an administrator window blocks insertion",
+    "copyOnElevatedWindowWarning": "(Probably not working. Will be fixed in future versions.)",
     "copyOnElevatedWindowHelp": "Off by default. When enabled, the complete transcript is left on the clipboard for manual Ctrl+V if Windows blocks automatic input. This overrides clipboard restoration, including saved formats, for that operation. The clipboard-history choice still applies.",
     "beforeHelp": "Pressed only after recording finishes and the text is ready, immediately before insertion. This is independent of the key at recording start: you can choose different keys, enable both, or turn either off. With this key enabled, live text accumulates and is inserted once at the end. After the key is pressed, its own pause elapses before the text is inserted.",
     "after": "Press this key after insertion",

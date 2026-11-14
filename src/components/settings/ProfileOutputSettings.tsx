@@ -481,7 +481,22 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
                 <Dropdown className="w-full max-w-full md:w-[200px] [&>button]:min-w-0" options={clipboardChoices} selectedValue={selected("clipboard_handling")} disabled={busy} onSelect={value => void save({ clipboard_handling: value as OutputSettings["clipboard_handling"] })} />
               </SettingContainer>
         {osType === "windows" && <OutputDependencies nested>
-                <SettingContainer id={`profile-output-${scopeKey}-elevated-clipboard`} title={t("profileOutput.copyOnElevatedWindow")} description={t("profileOutput.copyOnElevatedWindowHelp")} descriptionMode="tooltip" tooltipWide grouped={true} compact={true}>
+                <SettingContainer
+                  id={`profile-output-${scopeKey}-elevated-clipboard`}
+                  title={
+                    <>
+                      {t("profileOutput.copyOnElevatedWindow")}{" "}
+                      <span className="text-red-400">
+                        {t("profileOutput.copyOnElevatedWindowWarning")}
+                      </span>
+                    </>
+                  }
+                  description={t("profileOutput.copyOnElevatedWindowHelp")}
+                  descriptionMode="tooltip"
+                  tooltipWide
+                  grouped={true}
+                  compact={true}
+                >
                   <Dropdown className="w-full max-w-full md:w-[200px] [&>button]:min-w-0" options={booleanChoices} selectedValue={selected("copy_on_elevated_window")} disabled={busy} onSelect={value => void save({ copy_on_elevated_window: value === "true" })} />
                 </SettingContainer>
                 {effective("clipboard_handling") !== "keep_transcription" && <SettingContainer id={`profile-output-${scopeKey}-clipboard-history`} title={t("settings.advanced.clipboardHandling.history.title")} description={t("settings.advanced.clipboardHandling.history.description")} descriptionMode="tooltip" grouped={true} compact={true}>
