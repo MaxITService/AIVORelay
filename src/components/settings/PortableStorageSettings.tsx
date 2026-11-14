@@ -58,13 +58,13 @@ export const PortableStorageSettings: React.FC = () => {
 
   if (!status && !error) return null;
 
-  const label = (mode: StorageMode) => t(`settings.about.portableStorage.${mode}`);
+  const label = (mode: StorageMode) => t(`settings.advanced.portableStorage.${mode}`);
 
   return (
     <SettingContainer
       id="settings-portable-storage"
-      title={t("settings.about.portableStorage.title")}
-      description={t("settings.about.portableStorage.description")}
+      title={t("settings.advanced.portableStorage.title")}
+      description={t("settings.advanced.portableStorage.description")}
       descriptionMode="inline"
       grouped={true}
       layout="stacked"
@@ -73,7 +73,7 @@ export const PortableStorageSettings: React.FC = () => {
         {status && (
           <>
             <Dropdown
-              ariaLabel={t("settings.about.portableStorage.title")}
+              ariaLabel={t("settings.advanced.portableStorage.title")}
               selectedValue={status.configured_mode}
               options={(["portable", "desktop"] as const).map((mode) => ({
                 value: mode,
@@ -83,21 +83,21 @@ export const PortableStorageSettings: React.FC = () => {
               onSelect={(mode) => void changeMode(mode)}
             />
             <p className="text-xs text-mid-gray">
-              {t("settings.about.portableStorage.active", { location: label(status.active_mode) })}
+              {t("settings.advanced.portableStorage.active", { location: label(status.active_mode) })}
             </p>
             <div className="text-xs font-mono break-all text-mid-gray">
               {status.configured_mode === "portable" ? status.portable_path : status.desktop_path}
             </div>
             <p className="text-xs text-mid-gray">
-              {t("settings.about.portableStorage.keepData")}
+              {t("settings.advanced.portableStorage.keepData")}
             </p>
             {status.active_mode !== status.configured_mode && (
               <div className="space-y-2">
                 <p className="text-sm text-amber-400">
-                  {t("settings.about.portableStorage.restartRequired")}
+                  {t("settings.advanced.portableStorage.restartRequired")}
                 </p>
                 <Button variant="secondary" size="sm" disabled={changing} onClick={() => void restart()}>
-                  {t("settings.about.portableStorage.restart")}
+                  {t("settings.advanced.portableStorage.restart")}
                 </Button>
               </div>
             )}

@@ -7,7 +7,6 @@ import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { Button } from "../../ui/Button";
 import { AppDataDirectory } from "../AppDataDirectory";
-import { PortableStorageSettings } from "../PortableStorageSettings";
 import { AppLanguageSelector } from "../AppLanguageSelector";
 import oneClickPromptsScreenshot from "../../../assets/OneClickPrompts-screenshot.png";
 
@@ -83,7 +82,6 @@ export const AboutSettings: React.FC = () => {
         </SettingContainer>
 
         <AppDataDirectory descriptionMode="tooltip" grouped={true} />
-        <PortableStorageSettings />
 
         <SettingContainer
           title={t("settings.about.sourceCode.title")}

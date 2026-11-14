@@ -3126,6 +3126,16 @@
       }
     },
     "advanced": {
+      "portableStorage": {
+        "title": "Portable Data Storage",
+        "description": "Choose where this portable copy stores settings, models, history and other app data. The choice takes effect after restarting AivoRelay.",
+        "portable": "Beside the app (Data folder)",
+        "desktop": "Desktop app data folder",
+        "active": "Currently using: {{location}}",
+        "keepData": "Data stays in each folder. Switching uses the settings already in the selected folder, or defaults if it is empty. Files are not copied or deleted.",
+        "restartRequired": "Restart AivoRelay to use the selected folder.",
+        "restart": "Restart AivoRelay"
+      },
       "airpodsMode": {
         "label": "AirPods mode (experimental)",
         "description": "If recordings are silent while your Bluetooth headset plays audio from an iPhone, play silent audio on that same headset during recording to bring it back to this Mac. It may interrupt phone playback. Off by default."
@@ -4567,16 +4577,6 @@
       "appDataDirectory": {
         "title": "App Data Directory",
         "description": "Location where AivoRelay stores its data"
-      },
-      "portableStorage": {
-        "title": "Portable Data Storage",
-        "description": "Choose where this portable copy stores settings, models, history and other app data. The choice takes effect after restarting AivoRelay.",
-        "portable": "Beside the app (Data folder)",
-        "desktop": "Desktop app data folder",
-        "active": "Currently using: {{location}}",
-        "keepData": "Data stays in each folder. Switching uses the settings already in the selected folder, or defaults if it is empty. Files are not copied or deleted.",
-        "restartRequired": "Restart AivoRelay to use the selected folder.",
-        "restart": "Restart AivoRelay"
       },
       "sourceCode": {
         "title": "Source Code",
