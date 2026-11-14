@@ -336,6 +336,7 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
     streamsLiveText: provider.streamsLiveText,
     pasteMethod: method ?? "ctrl_v",
     clipboardHandling: effective("clipboard_handling") ?? "restore_plain_text",
+    copyOnElevatedWindow: Boolean(effective("copy_on_elevated_window")),
     checkActiveWindow: Boolean(effective("check_active_window")),
     resumeDelayMs: effective("live_window_resume_delay_ms") ?? 500,
     stopAction: effective("live_window_stop_action") ?? "preview",

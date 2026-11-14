@@ -3,7 +3,7 @@ import { describeProfileOutputPlan, type ProfileOutputPlanInput } from "./profil
 
 const base = (overrides: Partial<ProfileOutputPlanInput> = {}): ProfileOutputPlanInput => ({
   isWindows: true, heldInPreview: false, streamsLiveText: false, pasteMethod: "ctrl_v",
-  clipboardHandling: "restore_plain_text", checkActiveWindow: false, resumeDelayMs: 500,
+  clipboardHandling: "restore_plain_text", copyOnElevatedWindow: false, checkActiveWindow: false, resumeDelayMs: 500,
   stopAction: "preview", waitLimitSecs: 0, waitLimitAction: "preview", openingKey: "", startKey: "", startDelayMs: 150, openDelayMs: 150,
   cancelKey: "", autoSubmit: false, submitKey: "enter", submitDelayMs: 50,
   labels: { method: "Clipboard (Ctrl+V)", clipboard: "Plain text only", openingKey: "Enter", startKey: "Enter", submitKey: "Enter", cancelKey: "Escape", waitLimit: "5 min" },
@@ -12,6 +12,37 @@ const base = (overrides: Partial<ProfileOutputPlanInput> = {}): ProfileOutputPla
 const keys = (items: { key: string }[]) => items.map(item => item.key);
 
 describe("describeProfileOutputPlan", () => {
+  test("Windows clipboard fallback qualifies restoration and explains manual paste", () => {
+    for (const pasteMethod of ["ctrl_v", "ctrl_shift_v", "shift_insert"] as const) {
+      const plan = describeProfileOutputPlan(base({ pasteMethod, copyOnElevatedWindow: true }));
+      expect(keys(plan.steps)).toContain("stepEndClipboardNormally");
+      expect(keys(plan.steps)).not.toContain("stepEndClipboard");
+      expect(keys(plan.ifs)).toContain("ifElevatedCopy");
+      expect(keys(plan.ifs)).toContain("ifPasteFails");
+    }
+  });
+
+  test("elevated fallback does not apply to other platforms or non-clipboard methods", () => {
+    for (const input of [
+      base({ copyOnElevatedWindow: false }),
+      base({ copyOnElevatedWindow: true, isWindows: false }),
+      ...(["direct", "external_script", "none"] as const).map((pasteMethod) =>
+        base({ pasteMethod, copyOnElevatedWindow: true })),
+    ]) {
+      const plan = describeProfileOutputPlan(input);
+      expect(keys(plan.steps)).not.toContain("stepEndClipboardNormally");
+      expect(keys(plan.ifs)).not.toContain("ifElevatedCopy");
+    }
+  });
+
+  test("manual elevated paste remains explained for live output and Preview insertion", () => {
+    for (const overrides of [{ streamsLiveText: true }, { heldInPreview: true }]) {
+      const plan = describeProfileOutputPlan(base({ ...overrides, copyOnElevatedWindow: true }));
+      expect(keys(plan.steps)).toContain("stepEndClipboardNormally");
+      expect(keys(plan.ifs)).toContain("ifElevatedCopy");
+    }
+  });
+
   test("separate start and completion keys keep their own positions and pauses", () => {
     const input = base({ streamsLiveText: true, startKey: "tab", startDelayMs: 200, openingKey: "enter", openDelayMs: 300 });
     const plan = describeProfileOutputPlan({ ...input, labels: { ...input.labels, startKey: "Tab" } });
