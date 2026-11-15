@@ -12,89 +12,6 @@ const DESKTOP_DATA_PREFERENCE: &str = "use-desktop-data";
 const REDIRECTED_HF_HOME_ENV: &str = "AIVORELAY_PORTABLE_HF_HOME";
 const ORIGINAL_HF_HOME_ENV: &str = "AIVORELAY_ORIGINAL_HF_HOME";
 
-#[cfg(any(test, target_os = "windows"))]
-const WIN32_ERROR_SUCCESS: i32 = 0;
-#[cfg(any(test, target_os = "windows"))]
-const WIN32_ERROR_INSUFFICIENT_BUFFER: i32 = 122;
-#[cfg(any(test, target_os = "windows"))]
-const WIN32_APPMODEL_ERROR_NO_PACKAGE: i32 = 15_700;
-
-#[cfg(any(test, target_os = "windows"))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WindowsPackageIdentity {
-    Unpackaged,
-    Packaged,
-    UnexpectedError(i32),
-}
-
-#[cfg(any(test, target_os = "windows"))]
-fn classify_package_identity_code(code: i32) -> WindowsPackageIdentity {
-    match code {
-        WIN32_APPMODEL_ERROR_NO_PACKAGE => WindowsPackageIdentity::Unpackaged,
-        WIN32_ERROR_SUCCESS | WIN32_ERROR_INSUFFICIENT_BUFFER => WindowsPackageIdentity::Packaged,
-        other => WindowsPackageIdentity::UnexpectedError(other),
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn detect_windows_package_identity() -> Result<WindowsPackageIdentity, String> {
-    use windows::core::{s, w};
-    use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
-
-    type PackageNameFn = unsafe extern "system" fn(*mut u32, *mut u16) -> i32;
-
-    // Resolve dynamically so startup keeps the existing minimum Windows version
-    // and avoids extra Windows-SDK crate features.
-    let kernel32 = unsafe { GetModuleHandleW(w!("kernel32.dll")) }
-        .map_err(|error| format!("GetModuleHandleW(kernel32.dll) failed: {error}"))?;
-    let address = unsafe {
-        GetProcAddress(kernel32, s!("GetCurrentPackageFullName"))
-            .or_else(|| GetProcAddress(kernel32, s!("GetCurrentPackageFamilyName")))
-    }
-    .ok_or_else(|| "AppModel package-identity API is unavailable in kernel32.dll".to_string())?;
-
-    // SAFETY: `GetProcAddress` returned the documented AppModel query symbol
-    // (`LONG WINAPI (UINT32*, PWSTR)`).
-    let query_fn: PackageNameFn = unsafe { std::mem::transmute(address) };
-    let mut buffer = [0u16; 256];
-    let mut length = buffer.len() as u32;
-    // SAFETY: `length` holds `buffer`'s capacity in UTF-16 code units and
-    // `buffer` is valid for writes up to `length` elements.
-    let code = unsafe { query_fn(&mut length, buffer.as_mut_ptr()) };
-    Ok(classify_package_identity_code(code))
-}
-
-#[cfg(any(test, target_os = "windows"))]
-fn should_allow_portable_for_identity(identity: Result<WindowsPackageIdentity, String>) -> bool {
-    match identity {
-        Ok(WindowsPackageIdentity::Unpackaged) => true,
-        Ok(WindowsPackageIdentity::Packaged) => false,
-        Ok(WindowsPackageIdentity::UnexpectedError(code)) => {
-            log::warn!(
-                "Windows package identity check returned unexpected code {code}; disabling portable storage"
-            );
-            false
-        }
-        Err(error) => {
-            log::warn!(
-                "Windows package identity check failed ({error}); disabling portable storage"
-            );
-            false
-        }
-    }
-}
-
-fn portable_allowed_on_host() -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        should_allow_portable_for_identity(detect_windows_package_identity())
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        true
-    }
-}
-
 struct ResolvedPortablePaths {
     exe_dir: Option<PathBuf>,
     data_dir: Option<PathBuf>,
@@ -150,7 +67,7 @@ pub fn init() -> Result<(), String> {
     std::env::remove_var(ORIGINAL_HF_HOME_ENV);
     PREVIOUS_HF_HOME.get_or_init(|| std::env::var_os("HF_HOME").map(PathBuf::from));
 
-    if !portable_allowed_on_host() {
+    if !crate::distribution::allows_portable_storage() {
         PORTABLE_EXE_DIR.get_or_init(|| None);
         PORTABLE_DATA_DIR.get_or_init(|| None);
         return Ok(());
@@ -321,10 +238,8 @@ pub fn store_path(relative: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_package_identity_code, configured_mode, hugging_face_home, original_hf_home,
-        resolve_portable_paths, save_storage_mode, should_allow_portable_for_identity, StorageMode,
-        WindowsPackageIdentity, DESKTOP_DATA_PREFERENCE, WIN32_APPMODEL_ERROR_NO_PACKAGE,
-        WIN32_ERROR_INSUFFICIENT_BUFFER, WIN32_ERROR_SUCCESS,
+        configured_mode, hugging_face_home, original_hf_home,
+        resolve_portable_paths, save_storage_mode, StorageMode, DESKTOP_DATA_PREFERENCE,
     };
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -493,42 +408,6 @@ mod tests {
         );
         let changed = Some(std::ffi::OsString::from("user-changed-hf-home"));
         assert_eq!(original_hf_home(changed.clone(), redirected, original), changed);
-    }
-
-    #[test]
-    fn windows_package_identity_classification_handles_packaged_unpackaged_and_errors() {
-        assert_eq!(
-            classify_package_identity_code(WIN32_APPMODEL_ERROR_NO_PACKAGE),
-            WindowsPackageIdentity::Unpackaged
-        );
-        assert_eq!(
-            classify_package_identity_code(WIN32_ERROR_SUCCESS),
-            WindowsPackageIdentity::Packaged
-        );
-        assert_eq!(
-            classify_package_identity_code(WIN32_ERROR_INSUFFICIENT_BUFFER),
-            WindowsPackageIdentity::Packaged
-        );
-        assert_eq!(
-            classify_package_identity_code(87),
-            WindowsPackageIdentity::UnexpectedError(87)
-        );
-    }
-
-    #[test]
-    fn portable_storage_policy_allows_only_explicitly_unpackaged_identity() {
-        assert!(should_allow_portable_for_identity(Ok(
-            WindowsPackageIdentity::Unpackaged
-        )));
-        assert!(!should_allow_portable_for_identity(Ok(
-            WindowsPackageIdentity::Packaged
-        )));
-        assert!(!should_allow_portable_for_identity(Ok(
-            WindowsPackageIdentity::UnexpectedError(5)
-        )));
-        assert!(!should_allow_portable_for_identity(Err(
-            "api unavailable".to_string()
-        )));
     }
 
     #[test]

@@ -455,7 +455,12 @@
   "models": {
     "missingSelection": "Ранее выбранная модель {{model}} больше недоступна.",
     "replacementSelected": "Вместо неё выбрана модель {{model}}.",
-    "chooseReplacement": "Выберите другую модель, чтобы продолжить."
+    "chooseReplacement": "Выберите другую модель, чтобы продолжить.",
+    "missingSelectionTitle": "Модель недоступна в этой версии",
+    "missingSelectionDialogBody": "Сохранённой модели {{model}} нет в этой версии. Выбрана доступная локальная модель: {{replacement}}.",
+    "alwaysSwitch": "Всегда переключаться автоматически",
+    "autoSwitched": "Модели {{model}} нет в этой версии. Выбрана {{replacement}}.",
+    "autoSwitchTurnOff": "Спрашивать в следующий раз"
   },
   "tray": {
     "language": "Язык",
@@ -1680,6 +1685,11 @@
     "reson8": {
       "subtitlesUnsupported": "Reson8 Rumble-2 не поддерживает субтитры SRT/VTT с таймкодами в этой интеграции. Выберите формат Text."
     },
+    "elevenlabs": {
+      "outputFormatHint": "Расшифровка файлов через ElevenLabs использует HTTP-компаньон scribe_v3 и поддерживает точные пословные таймкоды для субтитров SRT и VTT.",
+      "companionNoticeTitle": "Расшифровка файлов ElevenLabs · HTTP-компаньон scribe_v3",
+      "companionNotice": "Расшифровка файлов через ElevenLabs автоматически использует HTTP-эндпоинт для готовых записей scribe_v3 (POST /v1/speech-to-text), даже если выбрана модель scribe_v3_live. Поддерживает субтитры Text, SRT и VTT с пословными таймкодами, учитывает языковую подсказку активного профиля или общих настроек и применяет пользовательские слова локально после расшифровки, если включён параметр «Применять пользовательские слова»."
+    },
     "selectFileBeforeTranscribing": "Перед запуском транскрипции выберите файл. Модель и параметры можно настроить уже сейчас.",
     "gemini": {
       "googleInlineLimit": "Google Direct требует, чтобы полный inline-запрос JSON был меньше {{limitSize}} МБ. После подготовки WAV и кодирования base64 практический лимит аудио составляет около {{duration}} независимо от размера исходного сжатого файла.",
@@ -2109,7 +2119,8 @@
     },
     "remoteSttWizard": {
       "engineOptions": {
-        "gemini": "Gemini"
+        "gemini": "Gemini",
+        "elevenlabs": "ElevenLabs Scribe v3 Live"
       },
       "geminiInfo": "Gemini 3.5 Transcribe поддерживает быструю живую диктовку и распознавание после завершения записи. Выберите маршрут подключения и введите соответствующий API-ключ.",
       "geminiRecommendation": "Для первоначальной настройки рекомендуется Vercel AI Gateway. Позже маршрут и параметры Gemini можно изменить в разделе «Модели».",
@@ -2129,7 +2140,10 @@
         },
         "vercelHint": "Используйте отдельный ключ Vercel AI Gateway и настройте Spend Quota до отправки речи.",
         "googleWarning": "Прямой маршрут Google экспериментальный. Для него нужен API-ключ Google Gemini и биллинг, настроенный вне AivoRelay."
-      }
+      },
+      "elevenlabsInfo": "ElevenLabs Scribe v3 Live (scribe_v3_live) передаёт промежуточный и финальный текст по WebSocket (включая диаризацию спикеров в Live Monitor), а для готовых записей и расшифровки файлов использует HTTP-компаньон scribe_v3.",
+      "elevenlabsDetails": "Использует https://api.elevenlabs.io/v1 с отдельным STT-ключом (изолированным от TTS). В live-режиме пользовательские слова передаются как keyterm_library; для готовых записей и файлов они применяются локально после расшифровки. Свободные STT-промпты и перевод на английский не поддерживаются.",
+      "elevenlabsApiKeyPlaceholder": "Введите ваш API-ключ ElevenLabs"
     },
     "modelLanguages": {
       "title": "Языки для сравнения",
@@ -2187,6 +2201,10 @@
       "reson8": {
         "title": "Облачный сервис через Reson8 (rumble-2)",
         "description": "Live-вывод вставляет только финализированные фрагменты. Промежуточный предпросмотр текста не поддерживается. Также поддерживает расшифровку готовых аудиофайлов."
+      },
+      "elevenlabs": {
+        "title": "Облачный сервис через ElevenLabs (Scribe v3 Live)",
+        "description": "Потоковая диктовка и Live Monitor используют Scribe v3 Live. Файлы обрабатывает Scribe v3 с поддержкой субтитров SRT/VTT. Разделение спикеров доступно в Live Monitor."
       },
       "custom": {
         "title": "Облачный сервис через собственный API",
@@ -2291,9 +2309,18 @@
       "customDescription": "Выбор модели здесь применяется к этому профилю.",
       "defaultDescription": "Изменение модели профиля по умолчанию также затрагивает профили без собственного выбора модели."
     },
+    "cardCapabilities": {
+      "dictation": "Диктовка",
+      "live": "Потоковая диктовка",
+      "files": "Файлы",
+      "subtitles": "Субтитры (SRT/VTT)",
+      "speakersFile": "Спикеры в файлах",
+      "speakersLive": "Спикеры в Live Monitor",
+      "custom": "Возможности зависят от вашего сервера и модели."
+    },
     "profileSettingsNotice": {
-      "title": "У этой модели есть дополнительные настройки в профилях транскрипции",
-      "description": "Проверьте <profileLink>Speech / Mic</profileLink> → Manage Profiles. Настройки профиля переопределяют или дополняют параметры модели на этой странице.",
+      "title": "У этой модели есть необязательные дополнительные настройки в профилях транскрипции",
+      "description": "При необходимости настройте их в <profileLink>Speech / Mic</profileLink> → Manage Profiles. Настройки профиля переопределяют или дополняют параметры модели на этой странице.",
       "features": {
         "language": "Язык",
         "translateToEnglish": "Перевод на английский",
@@ -2404,6 +2431,9 @@
     "liveSoundTranscription": {
       "audio": {
         "microphoneOnly": "На этой платформе Live Monitor использует микрофон. Захват системного звука пока доступен только в Windows."
+      },
+      "elevenlabs": {
+        "liveNotice": "ElevenLabs Scribe v3 Live передаёт по WebSocket как промежуточные предпросмотры, так и финализированные фрагменты речи, поддерживает live-диаризацию спикеров с автоматическим объединением реплик и использует языковую подсказку активного профиля или общих настроек, а также пользовательские слова (keyterm_library)."
       }
     },
     "sttModelSelector": {
@@ -2441,6 +2471,7 @@
       "saveName": "Сохранить название профиля",
       "clickToRename": "Нажмите, чтобы переименовать",
       "selectModelToEditGlobalPrompt": "Выберите активную модель транскрипции, чтобы редактировать этот промпт.",
+      "elevenlabsLanguageFallbackWarning": "Этот язык не поддерживается ElevenLabs Scribe. Запросы к ElevenLabs будут использовать автоопределение.",
       "createFailed": "Не удалось создать профиль.",
       "shortcutAssignFailed": "Профиль создан, но назначить ему горячую клавишу не удалось: {{error}}. Её можно задать в карточке профиля.",
       "creatingProfile": "Создание профиля…",
@@ -3681,6 +3712,21 @@
             "empty": "Диагностических событий пока нет.",
             "clear": "Очистить"
           }
+        },
+        "elevenlabs": {
+          "interfaceLabel": "ElevenLabs Scribe v3 · Live (scribe_v3_live) и Файл (scribe_v3)",
+          "interfaceHint": "ElevenLabs Scribe v3 Live (scribe_v3_live) передаёт промежуточный и финальный текст по WebSocket (включая диаризацию в Live Monitor), а для готовых записей и файлов использует HTTP-компаньон scribe_v3; сама модель scribe_v3 работает только с готовыми записями и файлами по HTTP.",
+          "apiKeyTitle": "API-ключ ElevenLabs STT",
+          "apiKeyDescription": "Ключ ElevenLabs STT хранится отдельно от ключей ElevenLabs TTS.",
+          "apiKeyPlaceholder": "Введите ваш API-ключ ElevenLabs",
+          "modelTitle": "Модель ElevenLabs STT",
+          "modelDescription": "Выберите scribe_v3_live для диктовки в реальном времени и Live Monitor с автоматическим файловым компаньоном scribe_v3, или scribe_v3 только для готовых записей и расшифровки файлов по HTTP.",
+          "modelLiveOption": "scribe_v3_live — Потоковый WebSocket + файловый компаньон scribe_v3 (Рекомендуется)",
+          "modelFileOption": "scribe_v3 — Только готовые записи и файлы по HTTP (без live-потока)",
+          "scribeV3FileOnlyNotice": "scribe_v3 поддерживает только готовые диктовки и расшифровку файлов (Text, SRT, VTT с пословными таймкодами) — потоковый режим, промежуточный предпросмотр и Live Monitor для scribe_v3 не поддерживаются.",
+          "infoTitle": "ElevenLabs · Scribe v3 Live (scribe_v3_live) и Scribe v3 (scribe_v3)",
+          "infoDetails": "При выборе scribe_v3_live живая диктовка и Live Monitor работают по ElevenLabs Realtime WebSocket (xi-api-key, 16 кГц PCM), а резервный режим готовых записей и «Расшифровка файла» явно используют HTTP-компаньон scribe_v3 (POST /v1/speech-to-text) с пословными таймкодами для Text, SRT и VTT. Прямой выбор scribe_v3 использует только HTTP-транскрипцию готовых записей и файлов (без live-режима). Поддерживается языковая подсказка активного профиля или общих настроек. В live-режиме пользовательские слова передаются как keyterm_library; для готовых записей и файлов они применяются локально после расшифровки. Свободные STT-промпты и перевод на английский не поддерживаются.",
+          "apiKeysLink": "API-ключи ElevenLabs"
         }
       },
       "acceleration": {
@@ -4442,7 +4488,8 @@
       },
       "updateChecks": {
         "label": "Проверьте наличие обновлений",
-        "description": "Автоматически проверять наличие новых версий AivoRelay"
+        "description": "Автоматически проверять наличие новых версий AivoRelay",
+        "lockedDescription": "Отключено системной конфигурацией (AIVORELAY_DISABLE_UPDATER)"
       },
       "soundTheme": {
         "label": "Звуковая тема",
@@ -4658,9 +4705,13 @@
     "downloading": "Загрузка... {{progress}} %",
     "installing": "Установка...",
     "preparing": "Подготовка...",
-    "checkForUpdates": "Проверьте наличие обновлений"
+    "checkForUpdates": "Проверьте наличие обновлений",
+    "portableUpdateTitle": "Требуется обновление вручную",
+    "portableUpdateMessage": "Портативная версия не может обновить себя сама. Подписанный MSI-установщик устанавливает или обновляет десктопную версию. Портативная папка автоматически не обновляется; её существующая папка Data остаётся на месте и автоматически в десктопную версию не переносится.",
+    "portableUpdateButton": "Скачать установщик"
   },
   "common": {
+    "ok": "ОК",
     "sessionNotices": "Сообщения за сеанс: {{count}}",
     "sessionNoticesDescription": "Открыть ошибки и предупреждения за текущий сеанс. Среди них могут быть уже решённые проблемы.",
     "resetSetting": "Сбросить «{{setting}}» к значению по умолчанию",

@@ -82,4 +82,14 @@ describe("region capture geometry", () => {
       ),
     ).toEqual({ x: 1, y: 1, width: 124, height: 99 });
   });
+
+  test("moving a saved selection after the display shrinks keeps it inside the new canvas", () => {
+    const savedRegion = { x: 640, y: 420, width: 500, height: 300 };
+    const smallerDisplay = { width: 320, height: 200 };
+
+    expect(
+      moveRegionWithinBounds(savedRegion, { x: 50, y: -50 }, smallerDisplay),
+    ).toEqual({ x: 0, y: 0, width: 320, height: 200 });
+    expect(savedRegion).toEqual({ x: 640, y: 420, width: 500, height: 300 });
+  });
 });

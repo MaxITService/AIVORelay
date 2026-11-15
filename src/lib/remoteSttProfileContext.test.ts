@@ -488,6 +488,123 @@ describe("remoteSttProfileContext", () => {
     expect(normalizeRemoteSttPreset(undefined)).toBe("groq");
     expect(normalizeRemoteSttPreset("")).toBe("groq");
     expect(normalizeRemoteSttPreset("reson8")).toBe("reson8");
+    expect(normalizeRemoteSttPreset("elevenlabs")).toBe("elevenlabs");
     expect(normalizeRemoteSttPreset("unknown_vendor")).toBe("custom");
+  });
+
+  test("resolves ElevenLabs profile overrides and dedicated credential isolation without global leakage", () => {
+    const profileWithEmptyModel = makeProfile({
+      id: "profile-elevenlabs",
+      name: "ElevenLabs",
+      stt_model_selection_override: {
+        provider: "remote_openai_compatible",
+        provider_preset: "elevenlabs",
+        model_id: "",
+      },
+    });
+    const globalGroqSettings = makeSettings({
+      active_profile_id: profileWithEmptyModel.id,
+      transcription_profiles: [profileWithEmptyModel],
+      transcription_provider: "local",
+      remote_stt: {
+        provider_preset: "groq",
+        base_url: REMOTE_STT_PRESETS.groq.baseUrl,
+        model_id: "whisper-large-v3-turbo",
+        allow_insecure_http: false,
+        debug_capture: false,
+        debug_mode: "normal",
+      },
+    });
+
+    const mismatchContext = resolveRemoteSttProfileContext(
+      globalGroqSettings,
+      resolveActiveTranscriptionProfile(globalGroqSettings),
+    );
+    expect(mismatchContext.provider).toBe("remote_openai_compatible");
+    expect(mismatchContext.remotePreset).toBe("elevenlabs");
+    expect(mismatchContext.effectiveRemoteModelId).toBe("scribe_v3_live");
+    expect(mismatchContext.effectiveModelId).toBe("scribe_v3_live");
+    expect(mismatchContext.effectiveRemoteBaseUrl).toBe(
+      "https://api.elevenlabs.io/v1",
+    );
+    expect(mismatchContext.canEditCustomEndpoint).toBe(false);
+    expect(mismatchContext.canMutateOpenAiCredentials).toBe(false);
+    expect(mismatchContext.canReadOpenAiReadiness).toBe(true);
+    expect(getOpenAiCredentialAccessMode(mismatchContext)).toBe(
+      "readiness_readonly",
+    );
+    expect(buildOpenAiReadinessSelection(mismatchContext)).toEqual({
+      provider: "remote_openai_compatible",
+      provider_preset: "elevenlabs",
+      model_id: "scribe_v3_live",
+    });
+
+    const samePresetSettings = makeSettings({
+      active_profile_id: profileWithEmptyModel.id,
+      transcription_profiles: [
+        makeProfile({
+          id: "profile-elevenlabs",
+          stt_model_selection_override: {
+            provider: "remote_openai_compatible",
+            provider_preset: "elevenlabs",
+            model_id: "scribe_v3",
+          },
+        }),
+      ],
+      transcription_provider: "local",
+      remote_stt: {
+        provider_preset: "elevenlabs",
+        base_url: REMOTE_STT_PRESETS.elevenlabs.baseUrl,
+        model_id: "scribe_v3_live",
+        allow_insecure_http: false,
+        debug_capture: false,
+        debug_mode: "normal",
+      },
+    });
+    const sameContext = resolveRemoteSttProfileContext(
+      samePresetSettings,
+      resolveActiveTranscriptionProfile(samePresetSettings),
+    );
+    expect(sameContext.canMutateOpenAiCredentials).toBe(true);
+    expect(sameContext.effectiveRemoteModelId).toBe("scribe_v3");
+    expect(getOpenAiCredentialAccessMode(sameContext)).toBe("global_rw");
+    expect(planRemoteModelIdChange(sameContext, "scribe_v3_live")).toEqual({
+      kind: "profile_override",
+      selection: {
+        provider: "remote_openai_compatible",
+        provider_preset: "elevenlabs",
+        model_id: "scribe_v3_live",
+      },
+    });
+
+    const defaultContext = resolveRemoteSttProfileContext(
+      globalGroqSettings,
+      null,
+    );
+    expect(
+      planRemoteInterfaceChange(defaultContext, "elevenlabs", ""),
+    ).toEqual({
+      kind: "global",
+      setting: {
+        type: "remote_stt_preset_and_model",
+        preset: "elevenlabs",
+        modelId: "scribe_v3_live",
+      },
+    });
+
+    const customContext = resolveRemoteSttProfileContext(
+      makeSettings({
+        transcription_provider: "remote_openai_compatible",
+        remote_stt: {
+          provider_preset: "custom",
+          base_url: "https://example.com/v1",
+          model_id: "custom-model",
+          allow_insecure_http: false,
+          debug_capture: false,
+          debug_mode: "normal",
+        },
+      }),
+      null,
+    );
   });
 });

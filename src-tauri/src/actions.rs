@@ -14,6 +14,10 @@ use crate::managers::deepgram_realtime::{
     FinalChunkCallback as DeepgramFinalChunkCallback,
 };
 use crate::managers::deepgram_stt::{DeepgramSttManager, DeepgramTranscriptionOptions};
+use crate::managers::elevenlabs_realtime::{
+    ElevenLabsRealtimeManager, ElevenLabsRealtimeOptions,
+    FinalChunkCallback as ElevenLabsFinalChunkCallback, ELEVENLABS_LIVE_FINALIZE_TIMEOUT_MS,
+};
 use crate::managers::gemini_realtime::{
     GeminiRealtimeManager, GeminiRealtimeOptions, GEMINI_LIVE_FINALIZE_TIMEOUT_MS,
 };
@@ -184,6 +188,8 @@ static DEEPGRAM_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
 static OPENAI_REALTIME_WHISPER_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static RESON8_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+static ELEVENLABS_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 #[derive(Debug)]
 struct PendingGeminiBackgroundFinalization {
@@ -885,6 +891,24 @@ fn take_reson8_stream_emitted(binding_id: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn set_elevenlabs_stream_emitted(binding_id: &str, emitted: bool) {
+    if let Ok(mut map) = ELEVENLABS_STREAM_EMITTED.lock() {
+        map.insert(binding_id.to_string(), emitted);
+    }
+}
+
+fn mark_elevenlabs_stream_emitted(binding_id: &str) {
+    set_elevenlabs_stream_emitted(binding_id, true);
+}
+
+fn take_elevenlabs_stream_emitted(binding_id: &str) -> bool {
+    ELEVENLABS_STREAM_EMITTED
+        .lock()
+        .ok()
+        .and_then(|mut map| map.remove(binding_id))
+        .unwrap_or(false)
+}
+
 fn register_gemini_background_finalization(
     binding_id: &str,
     operation_id: u64,
@@ -933,7 +957,11 @@ fn gemini_background_output_allowed(app: &AppHandle, operation_stamp: OperationS
     };
     gemini_background_output_may_continue(
         &pending.output_withheld,
-        || operation_stamp.is_current(app) || session_manager::is_idle(app),
+        || !operation_stamp.was_cancelled(app)
+            && operation_allows_final_output(
+                operation_stamp.is_current(app), session_manager::is_idle(app),
+                session_manager::is_latest_operation(operation_stamp.operation_id),
+            ),
         || {
             warn!(
                 "Skipping late Gemini text of operation {}: a newer recording or transcription owns the session",
@@ -2134,7 +2162,8 @@ fn post_process_allowed_for_output_route(
         TranscriptionProvider::RemoteOpenAiCompatible => {
             (should_use_openai_realtime_whisper_live(settings)
                 || should_use_gemini_realtime_live(settings)
-                || should_use_reson8_realtime_live(settings))
+                || should_use_reson8_realtime_live(settings)
+                || should_use_elevenlabs_realtime_live(settings))
                 && !output_is_held_in_preview
         }
     };
@@ -2232,25 +2261,21 @@ impl FinishGuard {
             warn!("Failed to queue dictation output cleanup: {}", error);
             crate::clipboard::end_dictation_output_session_if_matches(operation_id);
         }
-        let Some(_completion_guard) = session_manager::try_begin_processing_completion(
-            &self.app,
-            &self.binding_id,
-            self.operation_id,
-        ) else {
-            debug!(
-                "FinishGuard: skipped stale cleanup for shortcut '{}' operation {}",
-                self.binding_id, self.operation_id
-            );
-            return;
-        };
-        if self.unload_local_model {
-            self.app
-                .state::<Arc<TranscriptionManager>>()
-                .maybe_unload_immediately("transcription session");
-        }
-        if session_manager::exit_processing_if_matches(&self.app, self.operation_id) {
-            reset_toggle_state(&self.app, &self.binding_id);
-        }
+        let app = self.app.clone();
+        let binding_id = self.binding_id.clone();
+        let unload_local_model = self.unload_local_model;
+        session_manager::run_processing_completion(
+            &self.app, &self.binding_id, operation_id,
+            Box::new(move || {
+                if unload_local_model {
+                    app.state::<Arc<TranscriptionManager>>()
+                        .maybe_unload_immediately("transcription session");
+                }
+                if session_manager::exit_processing_if_matches(&app, operation_id) {
+                    reset_toggle_state(&app, &binding_id);
+                }
+            }),
+        );
     }
 
     fn is_current(&self) -> bool {
@@ -2691,6 +2716,16 @@ fn start_recording_with_feedback_with_settings(
                     reson8_realtime_manager.push_audio_frame_for_operation(Some(operation_id), frame);
                 })));
             }
+            TranscriptionProvider::RemoteOpenAiCompatible
+                if should_use_elevenlabs_realtime_live(&settings) =>
+            {
+                let elevenlabs_realtime_manager =
+                    Arc::clone(&app.state::<Arc<ElevenLabsRealtimeManager>>());
+                elevenlabs_realtime_manager.prepare_session(Some(operation_id));
+                gemini_stream_callback = Some(rm.capture_stream_audio_for_history(Arc::new(move |frame| {
+                    elevenlabs_realtime_manager.push_audio_frame_for_operation(Some(operation_id), frame);
+                })));
+            }
             _ => {}
         }
     }
@@ -2837,6 +2872,7 @@ fn start_recording_with_feedback_with_settings(
                 app.state::<Arc<OpenAiRealtimeWhisperManager>>().cancel();
                 app.state::<Arc<GeminiRealtimeManager>>().cancel_if_matches(Some(operation_id));
                 app.state::<Arc<Reson8RealtimeManager>>().cancel_if_matches(Some(operation_id));
+                app.state::<Arc<ElevenLabsRealtimeManager>>().cancel_if_matches(Some(operation_id));
                 if use_native_local_streaming {
                     tm.cancel_stream();
                 }
@@ -2879,6 +2915,7 @@ fn start_recording_with_feedback_with_settings(
             app.state::<Arc<OpenAiRealtimeWhisperManager>>().cancel();
             app.state::<Arc<GeminiRealtimeManager>>().cancel_if_matches(Some(operation_id));
             app.state::<Arc<Reson8RealtimeManager>>().cancel_if_matches(Some(operation_id));
+            app.state::<Arc<ElevenLabsRealtimeManager>>().cancel_if_matches(Some(operation_id));
             if use_native_local_streaming {
                 tm.cancel_stream();
             }
@@ -3703,9 +3740,8 @@ fn prepare_stop_recording_with_options(
 
     if result.is_some() {
         audio_manager.invalidate_recording_readiness();
+        crate::recording_auto_stop::cancel_auto_stop_timer(app);
     }
-
-    crate::recording_auto_stop::cancel_auto_stop_timer(app);
 
     if let Some((
         session,
@@ -3721,12 +3757,23 @@ fn prepare_stop_recording_with_options(
         // This unregisters the cancel shortcut exactly once
         session.finish();
 
-        change_tray_icon(app, TrayIconState::Transcribing);
-        if show_processing_overlay {
-            if recording_settings.transcription_provider != TranscriptionProvider::Local {
-                show_sending_overlay(app);
-            } else {
-                show_transcribing_overlay(app);
+        // A realtime failure may have published feedback before requesting Stop.
+        // Shared extension/voice actions must not replace it with "sending".
+        let processing_generation = crate::plus_overlay_state::current_recording_overlay_generation();
+        let is_gemini_live = should_use_gemini_realtime_live(&recording_settings);
+        let gemini_runtime_error_shown = is_gemini_live
+            && app.state::<Arc<GeminiRealtimeManager>>()
+                .runtime_error_was_reported(Some(operation_id), None, None);
+        if !gemini_runtime_error_shown {
+            change_tray_icon(app, TrayIconState::Transcribing);
+            if show_processing_overlay {
+                if is_gemini_live {
+                    crate::overlay::show_processing_overlay_if_generation_matches(app, processing_generation, false);
+                } else if recording_settings.transcription_provider != TranscriptionProvider::Local {
+                    show_sending_overlay(app);
+                } else {
+                    show_transcribing_overlay(app);
+                }
             }
         }
 
@@ -3795,16 +3842,19 @@ async fn get_transcription_or_cleanup_detailed(
         Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
     let gemini_realtime_manager = Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
     let reson8_realtime_manager = Arc::clone(&app.state::<Arc<Reson8RealtimeManager>>());
+    let elevenlabs_realtime_manager = Arc::clone(&app.state::<Arc<ElevenLabsRealtimeManager>>());
     let has_soniox_live_session = soniox_live_manager.has_active_session();
     let has_deepgram_live_session = deepgram_live_manager.has_active_session();
     let has_openai_realtime_whisper_session = openai_realtime_whisper_manager.has_active_session();
     let has_gemini_realtime_session = gemini_realtime_manager.has_active_session();
     let has_reson8_realtime_session = reson8_realtime_manager.has_active_session();
+    let has_elevenlabs_realtime_session = elevenlabs_realtime_manager.has_active_session();
     let has_live_session = has_soniox_live_session
         || has_deepgram_live_session
         || has_openai_realtime_whisper_session
         || has_gemini_realtime_session
-        || has_reson8_realtime_session;
+        || has_reson8_realtime_session
+        || has_elevenlabs_realtime_session;
 
     let rm_for_stop = Arc::clone(&rm);
     let binding_for_stop = binding_id.to_string();
@@ -3842,6 +3892,12 @@ async fn get_transcription_or_cleanup_detailed(
             if has_reson8_realtime_session {
                 reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
             }
+            if has_elevenlabs_realtime_session {
+                elevenlabs_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+            }
+            if has_gemini_realtime_session && gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None) {
+                return TranscriptionFetchOutcome::ErrorOverlayShown;
+            }
             return TranscriptionFetchOutcome::Success((String::new(), samples));
         }
 
@@ -3853,7 +3909,6 @@ async fn get_transcription_or_cleanup_detailed(
                 .await
             {
                 Ok(text) => {
-                    gemini_realtime_manager.clear_reported_runtime_error();
                     let filtered = apply_profile_output_filters(
                         &recording_settings,
                         text,
@@ -3863,10 +3918,8 @@ async fn get_transcription_or_cleanup_detailed(
                 }
                 Err(err) => {
                     let err_str = format!("{}", err);
-                    if !gemini_realtime_manager.take_reported_runtime_error(&err_str) {
-                        let _ = app.emit("remote-stt-error", err_str.clone());
-                        crate::plus_overlay_state::handle_transcription_error(app, &err_str);
-                    }
+                    let _ = app.emit("remote-stt-error", err_str.clone());
+                    crate::plus_overlay_state::handle_transcription_error(app, &err_str);
                     return TranscriptionFetchOutcome::ErrorOverlayShown;
                 }
             }
@@ -3923,22 +3976,37 @@ async fn get_transcription_or_cleanup_detailed(
         if has_gemini_realtime_session
             && should_use_gemini_realtime_live(&recording_settings)
         {
-            match gemini_realtime_manager
+            let result = gemini_realtime_manager
                 .finish_session_if_matches(Some(recording_operation_id), GEMINI_LIVE_FINALIZE_TIMEOUT_MS)
-                .await
-            {
+                .await;
+            if !session_manager::is_operation_current(app, recording_operation_id) {
+                return TranscriptionFetchOutcome::Cancelled;
+            }
+            match result {
                 Ok(text) => {
                     let filtered = apply_profile_output_filters(
                         &recording_settings,
                         text,
                         captured_profile_id.as_deref(),
                     );
+                    if gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None) {
+                        if !filtered.trim().is_empty() {
+                            if let Err(error) = app.state::<Arc<HistoryManager>>()
+                                .save_transcription(samples, filtered, false, None, None, None).await
+                            {
+                                warn!("Could not retain partial Gemini instruction in History: {}", error);
+                            }
+                        }
+                        return TranscriptionFetchOutcome::ErrorOverlayShown;
+                    }
                     return TranscriptionFetchOutcome::Success((filtered, samples));
                 }
                 Err(err) => {
                     let err_str = format!("{}", err);
-                    let _ = app.emit("remote-stt-error", err_str.clone());
-                    crate::plus_overlay_state::handle_transcription_error(app, &err_str);
+                    if !gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, Some(&err_str)) {
+                        let _ = app.emit("remote-stt-error", err_str.clone());
+                        crate::plus_overlay_state::handle_transcription_error(app, &err_str);
+                    }
                     return TranscriptionFetchOutcome::ErrorOverlayShown;
                 }
             }
@@ -3966,6 +4034,36 @@ async fn get_transcription_or_cleanup_detailed(
                 Err(err) => {
                     let err_str = format!("{}", err);
                     if !reson8_realtime_manager.take_reported_runtime_error(&err_str) {
+                        let _ = app.emit("remote-stt-error", err_str.clone());
+                        crate::plus_overlay_state::handle_transcription_error(app, &err_str);
+                    }
+                    return TranscriptionFetchOutcome::ErrorOverlayShown;
+                }
+            }
+        }
+
+        if has_elevenlabs_realtime_session
+            && should_use_elevenlabs_realtime_live(&recording_settings)
+        {
+            match elevenlabs_realtime_manager
+                .finish_session_if_matches(
+                    Some(recording_operation_id),
+                    ELEVENLABS_LIVE_FINALIZE_TIMEOUT_MS,
+                )
+                .await
+            {
+                Ok(text) => {
+                    elevenlabs_realtime_manager.clear_reported_runtime_error();
+                    let filtered = apply_profile_output_filters(
+                        &recording_settings,
+                        text,
+                        captured_profile_id.as_deref(),
+                    );
+                    return TranscriptionFetchOutcome::Success((filtered, samples));
+                }
+                Err(err) => {
+                    let err_str = format!("{}", err);
+                    if !elevenlabs_realtime_manager.take_reported_runtime_error(&err_str) {
                         let _ = app.emit("remote-stt-error", err_str.clone());
                         crate::plus_overlay_state::handle_transcription_error(app, &err_str);
                     }
@@ -4016,8 +4114,12 @@ async fn get_transcription_or_cleanup_detailed(
             openai_realtime_whisper_manager.cancel();
             gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
             reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+            elevenlabs_realtime_manager.cancel_if_matches(Some(recording_operation_id));
         }
         debug!("No samples retrieved from recording stop");
+        if has_gemini_realtime_session && gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None) {
+            return TranscriptionFetchOutcome::ErrorOverlayShown;
+        }
         utils::hide_recording_overlay(app);
         change_tray_icon(app, TrayIconState::Idle);
         TranscriptionFetchOutcome::ErrorNoOverlay
@@ -4565,6 +4667,18 @@ fn prepared_transcribe_start_for_binding(
     }
 }
 
+fn operation_allows_final_output(current: bool, idle: bool, latest: bool) -> bool {
+    current || (idle && latest)
+}
+
+pub(crate) fn gemini_stream_operation_allows_delivery(
+    background_finalization: bool,
+    is_current: impl FnOnce() -> bool,
+    was_cancelled: impl FnOnce() -> bool,
+) -> bool {
+    (background_finalization || is_current()) && !was_cancelled()
+}
+
 /// Decision behind `gemini_background_output_allowed`: once withheld, always withheld.
 fn gemini_background_output_may_continue(
     withheld: &AtomicBool,
@@ -4578,6 +4692,29 @@ fn gemini_background_output_may_continue(
         report_withheld();
     }
     false
+}
+
+fn gemini_early_finalization_delay(
+    settings: &AppSettings,
+    is_gemini_live_provider: bool,
+    preview_output_only_enabled: bool,
+    invoked_from_realtime_error: bool,
+    invoked_from_gemini_time_limit: bool,
+    binding_id: &str,
+) -> Option<Duration> {
+    if is_gemini_live_provider
+        && settings.gemini_live_early_finalization_enabled
+        && !preview_output_only_enabled
+        && !invoked_from_realtime_error
+        && !invoked_from_gemini_time_limit
+        && binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+    {
+        Some(Duration::from_millis(u64::from(
+            settings.gemini_live_early_finalization_delay_ms.clamp(100, 5000),
+        )))
+    } else {
+        None
+    }
 }
 
 fn should_release_vercel_gemini_after_streamed_output(
@@ -4615,7 +4752,8 @@ fn can_background_vercel_gemini_finalization(
 mod stt_workflow_tests {
     use super::{
         preview_transcribe_start_from_snapshot, resolve_active_app_window_title,
-        gemini_background_output_may_continue,
+        gemini_background_output_may_continue, gemini_stream_operation_allows_delivery,
+        gemini_early_finalization_delay,
         settings_with_model_override_for_binding,
         should_release_vercel_gemini_after_streamed_output, LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
     };
@@ -4636,6 +4774,32 @@ mod stt_workflow_tests {
         .unwrap();
         profile.stt_model_selection_override = Some(selection);
         profile
+    }
+
+    #[test]
+    fn recording_action_resolution_preserves_non_dictation_handlers() {
+        for binding in [
+            "transcribe", "send_to_extension", "send_to_extension_with_selection",
+            "send_screenshot_to_extension", "ai_replace_selection",
+        ] {
+            let resolved = super::transcribe_action_for_binding(binding).unwrap();
+            assert!(std::sync::Arc::ptr_eq(&resolved, super::ACTION_MAP.get(binding).unwrap()));
+        }
+        let profile = super::transcribe_action_for_binding("transcribe_profile_example").unwrap();
+        assert!(std::sync::Arc::ptr_eq(&profile, super::ACTION_MAP.get("transcribe").unwrap()));
+        #[cfg(target_os = "windows")]
+        {
+            let voice = super::transcribe_action_for_binding("voice_command").unwrap();
+            assert!(std::sync::Arc::ptr_eq(&voice, super::ACTION_MAP.get("voice_command").unwrap()));
+        }
+    }
+
+    #[test]
+    fn detached_finalization_stays_blocked_after_a_successor_finishes() {
+        assert!(super::operation_allows_final_output(true, false, true));
+        assert!(super::operation_allows_final_output(false, true, true));
+        assert!(!super::operation_allows_final_output(false, false, false));
+        assert!(!super::operation_allows_final_output(false, true, false));
     }
 
     #[test]
@@ -4724,6 +4888,21 @@ mod stt_workflow_tests {
     }
 
     #[test]
+    fn detached_gemini_delivery_skips_successor_lookup_but_honors_cancel() {
+        let lookups = Cell::new(0);
+        assert!(gemini_stream_operation_allows_delivery(
+            true,
+            || panic!("background delivery must not query the successor operation"),
+            || { lookups.set(lookups.get() + 1); false },
+        ));
+        assert_eq!(lookups.get(), 1);
+        assert!(!gemini_stream_operation_allows_delivery(true, || true, || true));
+        assert!(!gemini_stream_operation_allows_delivery(
+            false, || false, || panic!("stale operation must short-circuit cancellation lookup"),
+        ));
+    }
+
+    #[test]
     fn background_gemini_text_stays_out_of_a_newer_session_and_is_reported_once() {
         let withheld = AtomicBool::new(false);
         let reports = Cell::new(0);
@@ -4739,6 +4918,36 @@ mod stt_workflow_tests {
         // Once incomplete, the rest stays out even after that recording ends.
         assert!(!gemini_background_output_may_continue(&withheld, || true, report));
         assert_eq!(reports.get(), 1);
+    }
+
+    #[test]
+    fn gemini_hotkey_cutoff_respects_configured_delay_and_safety_bounds() {
+        let mut settings = get_default_settings();
+        settings.gemini_live_early_finalization_enabled = true;
+        for (configured, expected) in [(0, 100), (99, 100), (100, 100), (500, 500), (5000, 5000), (u32::MAX, 5000)] {
+            settings.gemini_live_early_finalization_delay_ms = configured;
+            assert_eq!(
+                gemini_early_finalization_delay(&settings, true, false, false, false, "transcribe"),
+                Some(std::time::Duration::from_millis(expected)),
+            );
+        }
+    }
+
+    #[test]
+    fn gemini_hotkey_cutoff_is_excluded_from_preview_errors_time_limit_and_live_monitor() {
+        let mut settings = get_default_settings();
+        settings.gemini_live_early_finalization_enabled = true;
+        for (provider, preview, error, time_limit, binding) in [
+            (false, false, false, false, "transcribe"),
+            (true, true, false, false, "transcribe"),
+            (true, false, true, false, "transcribe"),
+            (true, false, false, true, "transcribe"),
+            (true, false, false, false, LIVE_SOUND_TRANSCRIPTION_BINDING_ID),
+        ] {
+            assert!(gemini_early_finalization_delay(&settings, provider, preview, error, time_limit, binding).is_none());
+        }
+        settings.gemini_live_early_finalization_enabled = false;
+        assert!(gemini_early_finalization_delay(&settings, true, false, false, false, "transcribe").is_none());
     }
 
     #[test]
@@ -4868,6 +5077,22 @@ fn should_use_reson8_realtime_live(settings: &AppSettings) -> bool {
     is_reson8_realtime_selected(settings)
 }
 
+const ELEVENLABS_PROVIDER_PRESET: &str = "elevenlabs";
+
+fn is_elevenlabs_realtime_configured(settings: &AppSettings) -> bool {
+    settings.remote_stt.provider_preset == ELEVENLABS_PROVIDER_PRESET
+        && ElevenLabsRealtimeManager::is_realtime_model(&settings.remote_stt.model_id)
+}
+
+fn is_elevenlabs_realtime_selected(settings: &AppSettings) -> bool {
+    settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible
+        && is_elevenlabs_realtime_configured(settings)
+}
+
+fn should_use_elevenlabs_realtime_live(settings: &AppSettings) -> bool {
+    is_elevenlabs_realtime_selected(settings)
+}
+
 fn should_route_live_output_to_preview(settings: &AppSettings) -> bool {
     if !settings.soniox_live_preview_enabled {
         return false;
@@ -4886,6 +5111,7 @@ fn should_route_live_output_to_preview(settings: &AppSettings) -> bool {
             should_use_openai_realtime_whisper_live(settings)
                 || should_use_gemini_realtime_live(settings)
                 || should_use_reson8_realtime_live(settings)
+                || should_use_elevenlabs_realtime_live(settings)
         }
         _ => false,
     }
@@ -6516,12 +6742,14 @@ fn drop_preview_recording_without_finalize(
     let _ = take_deepgram_stream_emitted(binding_id);
     let _ = take_openai_realtime_whisper_stream_emitted(binding_id);
     let _ = take_reson8_stream_emitted(binding_id);
+    let _ = take_elevenlabs_stream_emitted(binding_id);
 
     app.state::<Arc<SonioxRealtimeManager>>().cancel();
     app.state::<Arc<DeepgramRealtimeManager>>().cancel();
     app.state::<Arc<OpenAiRealtimeWhisperManager>>().cancel();
     app.state::<Arc<GeminiRealtimeManager>>().cancel();
     app.state::<Arc<Reson8RealtimeManager>>().cancel();
+    app.state::<Arc<ElevenLabsRealtimeManager>>().cancel();
 
     utils::hide_recording_overlay(app);
     change_tray_icon(app, TrayIconState::Idle);
@@ -6863,6 +7091,23 @@ pub(crate) fn emit_paste_error(app: &AppHandle, error: &str) {
     let _ = app.emit("paste-error", paste_failure_notice(error));
 }
 
+fn is_output_dispatch_timeout(error: &str) -> bool {
+    error.starts_with("Timed out waiting for output task:")
+}
+
+fn combine_dictation_paste_result(
+    result: Result<bool, String>,
+    prior_dispatch_error: Option<&str>,
+) -> Result<bool, String> {
+    match result {
+        Err(error) => Err(error),
+        Ok(_) => match prior_dispatch_error {
+            Some(error) => Err(error.to_string()),
+            None => result,
+        },
+    }
+}
+
 fn report_dictation_paste_result(
     app: &AppHandle,
     result: Result<bool, String>,
@@ -6877,7 +7122,10 @@ fn report_dictation_paste_result(
 
 #[cfg(test)]
 mod dictation_paste_feedback_tests {
-    use super::{finish_dictation_paste_result, paste_failure_notice, PasteFailureNotice};
+    use super::{
+        combine_dictation_paste_result, finish_dictation_paste_result, is_output_dispatch_timeout,
+        paste_failure_notice, PasteFailureNotice,
+    };
 
     #[test]
     fn elevated_clipboard_notice_is_specific_and_never_counts_as_delivery() {
@@ -6929,6 +7177,56 @@ mod dictation_paste_feedback_tests {
                 |_| panic!("Delivered text must not be reported as a failed insertion")));
         }
     }
+
+    #[test]
+    fn output_dispatch_timeout_is_distinguished_from_enqueue_failure() {
+        assert!(is_output_dispatch_timeout(
+            "Timed out waiting for output task: timed out waiting on channel"
+        ));
+        assert!(!is_output_dispatch_timeout("Output worker is unavailable"));
+    }
+
+    #[test]
+    fn prior_tail_enqueue_failure_prevents_false_success_without_overriding_specific_notices() {
+        // An enqueue failure surfaces once as a generic paste error even if earlier chunks succeeded.
+        let mut notices = Vec::new();
+        let combined = combine_dictation_paste_result(
+            Ok(true),
+            Some("ElevenLabs Scribe v3 Live stream tail insertion was not confirmed: Output worker is unavailable"),
+        );
+        assert!(!finish_dictation_paste_result(combined, true, false, |error| {
+            notices.push(paste_failure_notice(error))
+        }));
+        assert_eq!(notices, vec![PasteFailureNotice::Generic]);
+
+        // Specific elevated/opening-key outcomes from complete_dictation_output remain authoritative.
+        for specific in [
+            crate::clipboard::ELEVATED_CLIPBOARD_FALLBACK_NOTICE,
+            crate::clipboard::ELEVATION_BLOCKED_ERROR,
+        ] {
+            let combined = combine_dictation_paste_result(
+                Err(specific.to_string()),
+                Some("Output worker is unavailable"),
+            );
+            assert_eq!(combined, Err(specific.to_string()));
+        }
+        let opening_key = combine_dictation_paste_result(
+            Err(crate::clipboard::OPENING_KEY_NOT_PRESSED_ERROR.to_string()),
+            Some("Output worker is unavailable"),
+        );
+        assert!(!finish_dictation_paste_result(opening_key, true, false, |_| {
+            panic!("The failed opening key already has its own notice")
+        }));
+
+        // User cancellation or blank text still suppresses the paste error.
+        for (has_text, cancelled) in [(true, true), (false, false)] {
+            let combined =
+                combine_dictation_paste_result(Ok(true), Some("Output worker is unavailable"));
+            assert!(!finish_dictation_paste_result(combined, has_text, cancelled, |_| {
+                panic!("Cancelled or blank output must stay quiet")
+            }));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -6968,9 +7266,29 @@ fn finalize_streaming_paste_session_after_output_queue(
     timeout_ms: u64,
     final_text: String,
 ) -> bool {
+    finalize_streaming_paste_session_after_output_queue_with_dispatch_error(
+        app,
+        operation_id,
+        operation_stamp,
+        timeout_ms,
+        final_text,
+        None,
+    )
+}
+
+fn finalize_streaming_paste_session_after_output_queue_with_dispatch_error(
+    app: &AppHandle,
+    operation_id: u64,
+    operation_stamp: OperationStamp,
+    timeout_ms: u64,
+    final_text: String,
+    prior_dispatch_error: Option<Arc<Mutex<Option<String>>>>,
+) -> bool {
     let app_for_finalize = app.clone();
     let output_finalized = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let output_finalized_in_queue = Arc::clone(&output_finalized);
+    let prior_error_in_queue = prior_dispatch_error.clone();
+    let final_text_for_fallback = final_text.clone();
     let method = crate::clipboard::dictation_output_settings(operation_id)
         .map(|output| output.paste_method).unwrap_or(crate::settings::PasteMethod::CtrlV);
     if let Err(err) = run_output_task_sync_with_result(method, timeout_ms, move || {
@@ -6989,8 +7307,20 @@ fn finalize_streaming_paste_session_after_output_queue(
         }
         // Released in the background or after a timed-out wait: a newer recording or
         // transcription owns the session, so its window must not get this trailing space.
-        if !operation_stamp.is_current(&app_for_finalize) && !session_manager::is_idle(&app_for_finalize) {
+        if !operation_allows_final_output(
+            operation_stamp.is_current(&app_for_finalize),
+            session_manager::is_idle(&app_for_finalize),
+            session_manager::is_latest_operation(operation_id),
+        ) {
+            output_finalized_in_queue.store(false, std::sync::atomic::Ordering::Release);
             crate::clipboard::drop_held_trailing_whitespace(operation_id);
+            crate::live_output_buffer::cancel_unfinished(operation_id);
+            if let Err(error) = crate::clipboard::end_streaming_paste_session_if_matches(
+                &app_for_finalize, operation_id,
+            ) {
+                warn!("Failed to restore superseded streaming session: {}", error);
+            }
+            return;
         }
         let result = crate::clipboard::complete_dictation_output(
             &app_for_finalize,
@@ -6998,6 +7328,10 @@ fn finalize_streaming_paste_session_after_output_queue(
             &final_text,
             || !operation_stamp.was_cancelled(&app_for_finalize),
         );
+        let prior_error = prior_error_in_queue
+            .as_ref()
+            .and_then(|cell| cell.lock().ok().and_then(|guard| guard.clone()));
+        let result = combine_dictation_paste_result(result, prior_error.as_deref());
         let finalized = report_dictation_paste_result(
             &app_for_finalize,
             result,
@@ -7009,10 +7343,32 @@ fn finalize_streaming_paste_session_after_output_queue(
         }
         output_finalized_in_queue.store(finalized, std::sync::atomic::Ordering::Release);
     }) {
-        warn!(
-            "{}; clipboard finalization remains queued behind pending streaming pastes",
-            err
-        );
+        if is_output_dispatch_timeout(&err) {
+            warn!(
+                "{}; clipboard finalization remains queued behind pending streaming pastes",
+                err
+            );
+        } else {
+            warn!("Failed to queue clipboard finalization: {}", err);
+            crate::live_output_buffer::cancel_unfinished(operation_id);
+            if let Err(restore_err) =
+                crate::clipboard::end_streaming_paste_session_if_matches(app, operation_id)
+            {
+                warn!(
+                    "Failed to restore clipboard after unqueued streaming finalization: {}",
+                    restore_err
+                );
+            }
+            let prior_error = prior_dispatch_error
+                .as_ref()
+                .and_then(|cell| cell.lock().ok().and_then(|guard| guard.clone()));
+            let _ = report_dictation_paste_result(
+                app,
+                Err(prior_error.unwrap_or(err)),
+                !final_text_for_fallback.trim().is_empty(),
+                operation_stamp.was_cancelled(app),
+            );
+        }
         return false;
     }
     output_finalized.load(std::sync::atomic::Ordering::Acquire)
@@ -7156,13 +7512,24 @@ fn is_recording_for_binding(app: &AppHandle, binding_id: &str) -> bool {
     )
 }
 
+fn begin_realtime_stop_if_matches(
+    app: &AppHandle,
+    binding_id: &str,
+    expected_operation_id: Option<u64>,
+) -> Option<session_manager::OperationControlGuard> {
+    let operation_id = expected_operation_id
+        .or_else(|| session_manager::recording_operation_id(app, binding_id))?;
+    session_manager::try_begin_operation_control(app, Some((binding_id, operation_id)))
+}
+
 pub(crate) fn stop_transcription_after_realtime_error(
     app: &AppHandle,
     binding_id: &str,
+    expected_operation_id: Option<u64>,
 ) -> bool {
-    if !is_recording_for_binding(app, binding_id) {
+    let Some(_control) = begin_realtime_stop_if_matches(app, binding_id, expected_operation_id) else {
         return false;
-    }
+    };
 
     let Some(action) = transcribe_action_for_binding(binding_id) else {
         warn!(
@@ -7181,10 +7548,14 @@ pub(crate) fn stop_transcription_after_realtime_error(
     true
 }
 
-pub(crate) fn stop_transcription_at_realtime_limit(app: &AppHandle, binding_id: &str) -> bool {
-    if !is_recording_for_binding(app, binding_id) {
+pub(crate) fn stop_transcription_at_realtime_limit(
+    app: &AppHandle,
+    binding_id: &str,
+    expected_operation_id: Option<u64>,
+) -> bool {
+    let Some(_control) = begin_realtime_stop_if_matches(app, binding_id, expected_operation_id) else {
         return false;
-    }
+    };
     let Some(action) = transcribe_action_for_binding(binding_id) else {
         warn!(
             "Could not finalize time-limited realtime transcription: no action is registered for binding '{}'",
@@ -7273,6 +7644,7 @@ pub(crate) fn live_sound_use_live_streaming(settings: &AppSettings) -> bool {
             should_use_openai_realtime_whisper_for_live_sound(settings)
                 || is_gemini_realtime_configured(settings)
                 || is_reson8_realtime_configured(settings)
+                || is_elevenlabs_realtime_configured(settings)
         }
         _ => false,
     }
@@ -7297,6 +7669,40 @@ fn build_reson8_realtime_options(
         model: settings.remote_stt.model_id.clone(),
         language: Some(language),
         preset: settings.remote_stt.provider_preset.clone(),
+    }
+}
+
+pub(crate) fn build_elevenlabs_options_for_live_sound(
+    settings: &AppSettings,
+) -> ElevenLabsRealtimeOptions {
+    let profile = resolve_profile_for_binding(settings, LIVE_SOUND_TRANSCRIPTION_BINDING_ID);
+    build_elevenlabs_realtime_options(settings, profile, LIVE_SOUND_TRANSCRIPTION_BINDING_ID)
+}
+
+fn build_elevenlabs_realtime_options(
+    settings: &AppSettings,
+    profile: Option<&crate::settings::TranscriptionProfile>,
+    binding_id: &str,
+) -> ElevenLabsRealtimeOptions {
+    let language = profile
+        .as_ref()
+        .map(|p| p.language.clone())
+        .unwrap_or_else(|| settings.selected_language.clone());
+    let base_url = crate::url_security::validate_remote_stt_base_url(&settings.remote_stt, None)
+        .unwrap_or_else(|_| crate::url_security::REMOTE_STT_ELEVENLABS_BASE_URL.to_string());
+    ElevenLabsRealtimeOptions {
+        base_url,
+        model_id: settings.remote_stt.model_id.clone(),
+        language_code: Some(language),
+        diarize: binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+            && settings.live_sound_enable_speaker_diarization,
+        keyterm_library: if settings.custom_words_enabled && !settings.custom_words.is_empty() {
+            settings.custom_words.clone()
+        } else {
+            Vec::new()
+        },
+        show_preview: binding_id != crate::managers::history_replay::HISTORY_REPLAY_BINDING
+            && binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
     }
 }
 
@@ -7414,6 +7820,7 @@ pub(crate) fn should_use_live_streaming(settings: &AppSettings) -> bool {
             should_use_openai_realtime_whisper_live(settings)
                 || should_use_gemini_realtime_live(settings)
                 || should_use_reson8_realtime_live(settings)
+                || should_use_elevenlabs_realtime_live(settings)
         }
         _ => false,
     }
@@ -7464,6 +7871,15 @@ pub(crate) async fn perform_history_live_transcription(
             } else if should_use_reson8_realtime_live(settings) {
                 let options = build_reson8_realtime_options(settings, profile);
                 app.state::<Arc<Reson8RealtimeManager>>().transcribe_history_replay(
+                    samples, &api_key, options, replay,
+                ).await
+            } else if should_use_elevenlabs_realtime_live(settings) {
+                let options = build_elevenlabs_realtime_options(
+                    settings,
+                    profile,
+                    crate::managers::history_replay::HISTORY_REPLAY_BINDING,
+                );
+                app.state::<Arc<ElevenLabsRealtimeManager>>().transcribe_history_replay(
                     samples, &api_key, options, replay,
                 ).await
             } else {
@@ -7522,9 +7938,12 @@ fn should_use_live_for_recording(app: &AppHandle, binding_id: &str) -> bool {
                     Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
                 let reson8_realtime_manager =
                     Arc::clone(&app.state::<Arc<Reson8RealtimeManager>>());
+                let elevenlabs_realtime_manager =
+                    Arc::clone(&app.state::<Arc<ElevenLabsRealtimeManager>>());
                 (openai_realtime_whisper_manager.has_active_session()
                     || gemini_realtime_manager.has_active_session()
-                    || reson8_realtime_manager.has_active_session())
+                    || reson8_realtime_manager.has_active_session()
+                    || elevenlabs_realtime_manager.has_active_session())
                     && should_use_live_streaming(captured_settings)
             }
             _ => false,
@@ -7634,6 +8053,28 @@ fn setup_and_start_live(
             let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
                 .map_err(|e| format!("{}", e))?;
             reson8_realtime_manager
+                .start_session(
+                    binding_id,
+                    session_manager::recording_operation_id(app, binding_id),
+                    &api_key,
+                    options,
+                    None,
+                )
+                .map_err(|e| {
+                    app.state::<Arc<AudioRecordingManager>>()
+                        .clear_stream_frame_callback();
+                    format!("{}", e)
+                })
+        }
+        TranscriptionProvider::RemoteOpenAiCompatible
+            if should_use_elevenlabs_realtime_live(settings) =>
+        {
+            let options = build_elevenlabs_realtime_options(settings, profile, binding_id);
+            let elevenlabs_realtime_manager =
+                Arc::clone(&app.state::<Arc<ElevenLabsRealtimeManager>>());
+            let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
+                .map_err(|e| format!("{}", e))?;
+            elevenlabs_realtime_manager
                 .start_session(
                     binding_id,
                     session_manager::recording_operation_id(app, binding_id),
@@ -7912,9 +8353,13 @@ fn should_run_transcription_post_process(post_process_requested: bool, text: &st
 #[cfg(test)]
 mod transcription_post_process_tests {
     use super::{
+        build_elevenlabs_options_for_live_sound, build_elevenlabs_realtime_options,
         empty_transcription_error_category, finish_transcription_output, is_blank_transcription,
+        live_sound_use_live_streaming,
         parse_openai_realtime_keywords, post_process_allowed_for_output_route,
+        resolve_profile_for_binding, settings_with_model_override_for_binding,
         should_cancel_live_quick_stop_without_finalize, should_run_transcription_post_process,
+        should_use_elevenlabs_realtime_live, should_use_live_streaming,
         skips_automatic_post_process_for_output_route,
     };
     use crate::plus_overlay_state::OverlayErrorCategory;
@@ -8190,6 +8635,7 @@ mod transcription_post_process_tests {
             (TranscriptionProvider::RemoteOpenAiCompatible, "openai", "gpt-live-transcribe"),
             (TranscriptionProvider::RemoteOpenAiCompatible, "google", "gemini-3.5-transcribe-live"),
             (TranscriptionProvider::RemoteOpenAiCompatible, "reson8", "rumble-2"),
+            (TranscriptionProvider::RemoteOpenAiCompatible, "elevenlabs", "scribe_v3_live"),
         ] {
             let mut settings = get_default_settings();
             settings.transcription_provider = provider;
@@ -8260,6 +8706,175 @@ mod transcription_post_process_tests {
             ])
         );
         assert_eq!(parse_openai_realtime_keywords(" \n<invalid>\n"), None);
+    }
+
+    #[test]
+    fn elevenlabs_routing_distinguishes_completed_only_from_live_and_scopes_by_provider_and_preset() {
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::RemoteOpenAiCompatible;
+        settings.remote_stt.provider_preset = "elevenlabs".to_string();
+        settings.remote_stt.model_id = "scribe_v3_live".to_string();
+
+        assert!(should_use_elevenlabs_realtime_live(&settings));
+        assert!(should_use_live_streaming(&settings));
+        assert!(!post_process_allowed_for_output_route(&settings, None));
+
+        // Explicit completed-dictation / file model must stay non-live.
+        settings.remote_stt.model_id = "scribe_v3".to_string();
+        assert!(!should_use_elevenlabs_realtime_live(&settings));
+        assert!(!should_use_live_streaming(&settings));
+        assert!(post_process_allowed_for_output_route(&settings, None));
+
+        // Other presets with the same model ID must never trigger ElevenLabs live routing.
+        settings.remote_stt.provider_preset = "openai".to_string();
+        settings.remote_stt.model_id = "scribe_v3_live".to_string();
+        assert!(!should_use_elevenlabs_realtime_live(&settings));
+        assert!(!should_use_live_streaming(&settings));
+
+        // Non-RemoteOpenAiCompatible top-level providers must ignore remote_stt ElevenLabs values.
+        settings.transcription_provider = TranscriptionProvider::RemoteSoniox;
+        settings.remote_stt.provider_preset = "elevenlabs".to_string();
+        settings.remote_stt.model_id = "scribe_v3_live".to_string();
+        assert!(!should_use_elevenlabs_realtime_live(&settings));
+    }
+
+    #[test]
+    fn elevenlabs_profile_override_switches_effective_live_routing_and_options() {
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::RemoteOpenAiCompatible;
+        settings.remote_stt.provider_preset = "elevenlabs".to_string();
+        settings.remote_stt.model_id = "scribe_v3".to_string();
+        settings.selected_language = "en".to_string();
+        settings.custom_words_enabled = true;
+        settings.custom_words = vec!["AivoRelay".to_string(), "Scribe".to_string()];
+
+        let mut profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
+            "id": "profile_el_live",
+            "name": "ElevenLabs Live",
+            "language": "fr",
+            "translate_to_english": false,
+            "stt_model_selection_override": {
+                "provider": "remote_openai_compatible",
+                "provider_preset": "elevenlabs",
+                "model_id": "scribe_v3_live"
+            }
+        }))
+        .unwrap();
+        settings.transcription_profiles.push(profile.clone());
+
+        let effective_live = settings_with_model_override_for_binding(
+            settings.clone(),
+            "transcribe_profile_el_live",
+        );
+        assert!(should_use_elevenlabs_realtime_live(&effective_live));
+        assert!(should_use_live_streaming(&effective_live));
+        assert_eq!(
+            effective_live.remote_stt.base_url,
+            "https://api.elevenlabs.io/v1"
+        );
+
+        let effective_profile = resolve_profile_for_binding(&effective_live, "transcribe_profile_el_live");
+        let dictation_opts = build_elevenlabs_realtime_options(
+            &effective_live,
+            effective_profile,
+            "transcribe_profile_el_live",
+        );
+        assert_eq!(dictation_opts.language_code.as_deref(), Some("fr"));
+        assert!(!dictation_opts.diarize);
+        assert!(dictation_opts.show_preview);
+        assert_eq!(
+            dictation_opts.keyterm_library,
+            vec!["AivoRelay".to_string(), "Scribe".to_string()]
+        );
+
+        // Switching the profile override back to completed-only scribe_v3 disables live routing.
+        profile.stt_model_selection_override = Some(crate::settings::SttModelSelection {
+            provider: TranscriptionProvider::RemoteOpenAiCompatible,
+            provider_preset: "elevenlabs".to_string(),
+            model_id: "scribe_v3".to_string(),
+        });
+        settings.transcription_profiles[0] = profile;
+        let effective_file = settings_with_model_override_for_binding(settings, "transcribe_profile_el_live");
+        assert!(!should_use_elevenlabs_realtime_live(&effective_file));
+        assert!(!should_use_live_streaming(&effective_file));
+    }
+
+    #[test]
+    fn build_elevenlabs_options_scopes_diarize_preview_and_keyterms() {
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::RemoteOpenAiCompatible;
+        settings.remote_stt.provider_preset = "elevenlabs".to_string();
+        settings.remote_stt.model_id = "scribe_v3_live".to_string();
+        settings.remote_stt.base_url = "https://api.elevenlabs.io/v1".to_string();
+        settings.selected_language = "es".to_string();
+        settings.custom_words_enabled = false;
+        settings.custom_words = vec!["IgnoredTerm".to_string()];
+        settings.live_sound_enable_speaker_diarization = true;
+
+        let dictation = build_elevenlabs_realtime_options(&settings, None, "transcribe");
+        assert_eq!(dictation.language_code.as_deref(), Some("es"));
+        assert!(!dictation.diarize);
+        assert!(dictation.show_preview);
+        assert!(dictation.keyterm_library.is_empty());
+
+        let replay = build_elevenlabs_realtime_options(
+            &settings,
+            None,
+            crate::managers::history_replay::HISTORY_REPLAY_BINDING,
+        );
+        assert!(!replay.diarize);
+        assert!(!replay.show_preview);
+
+        let live_monitor = build_elevenlabs_options_for_live_sound(&settings);
+        assert!(live_monitor.diarize);
+        assert!(!live_monitor.show_preview);
+    }
+
+    #[test]
+    fn build_elevenlabs_options_normalizes_stale_base_url_to_canonical_endpoint() {
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::RemoteOpenAiCompatible;
+        settings.remote_stt.provider_preset = "elevenlabs".to_string();
+        settings.remote_stt.model_id = "scribe_v3_live".to_string();
+        settings.remote_stt.base_url = "https://stale-proxy.example.com/v1".to_string();
+
+        let dictation = build_elevenlabs_realtime_options(&settings, None, "transcribe");
+        assert_eq!(
+            dictation.base_url,
+            crate::url_security::REMOTE_STT_ELEVENLABS_BASE_URL
+        );
+
+        let live_monitor = build_elevenlabs_options_for_live_sound(&settings);
+        assert_eq!(
+            live_monitor.base_url,
+            crate::url_security::REMOTE_STT_ELEVENLABS_BASE_URL
+        );
+
+        // Even with an invalid/non-preset base_url, fallback yields canonical ElevenLabs endpoint.
+        settings.remote_stt.provider_preset = "custom".to_string();
+        settings.remote_stt.base_url = "http://not-allowed.example.com/v1".to_string();
+        let fallback = build_elevenlabs_realtime_options(&settings, None, "transcribe");
+        assert_eq!(
+            fallback.base_url,
+            crate::url_security::REMOTE_STT_ELEVENLABS_BASE_URL
+        );
+    }
+
+    #[test]
+    fn live_sound_use_live_streaming_enables_scribe_v3_live_and_rejects_scribe_v3() {
+        let mut settings = get_default_settings();
+        settings.live_sound_transcription_provider =
+            crate::settings::LiveSoundTranscriptionProvider::from_transcription_provider(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+            )
+            .unwrap();
+        settings.transcription_provider = TranscriptionProvider::RemoteOpenAiCompatible;
+        settings.remote_stt.provider_preset = "elevenlabs".to_string();
+        settings.remote_stt.model_id = "scribe_v3_live".to_string();
+        assert!(live_sound_use_live_streaming(&settings));
+
+        settings.remote_stt.model_id = "scribe_v3".to_string();
+        assert!(!live_sound_use_live_streaming(&settings));
     }
 }
 
@@ -8861,6 +9476,7 @@ impl ShortcutAction for TranscribeAction {
             let _ = take_deepgram_stream_emitted(&binding_id);
             let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
             let _ = take_reson8_stream_emitted(&binding_id);
+            let _ = take_elevenlabs_stream_emitted(&binding_id);
             let stream_processor = if preview_output_only_enabled {
                 None
             } else {
@@ -9187,28 +9803,19 @@ impl ShortcutAction for TranscribeAction {
                     set_openai_realtime_whisper_stream_emitted(&binding_id, false);
                     let gemini_stream_insert_timeout_ms =
                         settings.paste_delay_ms.saturating_add(1500);
-                    let output_window = gemini_realtime_manager.output_window(recording_operation_id);
                     let chunk_callback = stream_processor.map(|stream_processor| {
-                        Arc::new({
-                            let ah_for_cb = app_handle.clone();
-                            let binding_id_for_cb = binding_id.clone();
-                            move |chunk: String| {
-                                let chunk = match output_window.as_ref() {
-                                    Some(window) => window.accept_chunk(chunk),
-                                    None => chunk,
-                                };
+                        let ah_for_factory = app_handle.clone();
+                        let binding_id_for_factory = binding_id.clone();
+                        Arc::new(move |window: Arc<crate::managers::gemini_output_window::GeminiOutputWindow>| {
+                            let output_window = window;
+                            let stream_processor = Arc::clone(&stream_processor);
+                            let ah_for_cb = ah_for_factory.clone();
+                            let binding_id_for_cb = binding_id_for_factory.clone();
+                            Arc::new(move |chunk: String| {
+                                let chunk = output_window.accept_chunk(chunk);
                                 if chunk.is_empty() {
                                     return;
                                 }
-                                let delta = match stream_processor.lock() {
-                                    Ok(mut processor) => processor.push_chunk(&chunk),
-                                    Err(_) => {
-                                        warn!("Failed to lock Gemini live stream processor");
-                                        return;
-                                    }
-                                };
-                                if delta.is_empty() { return; }
-                                let delta_ending = delta.chars().last();
                                 let processor_for_paste = Arc::clone(&stream_processor);
                                 let ah_for_clip = ah_for_cb.clone();
                                 let binding_id_for_paste = binding_id_for_cb.clone();
@@ -9216,18 +9823,19 @@ impl ShortcutAction for TranscribeAction {
                                 if let Err(error) = crate::output_dispatch::run_sync(
                                     gemini_stream_insert_timeout_ms,
                                     move || {
-                                        if output_window_for_paste.as_ref().is_some_and(|window| !window.allows_delivery()) {
-                                            debug!("Skipping Gemini chunk past early-finalization deadline (operation={})", operation_stamp.operation_id);
+                                        if !output_window_for_paste.allows_delivery() {
+                                            debug!("Skipping Gemini chunk from a replaced transport or past its deadline (operation={})", operation_stamp.operation_id);
                                             return;
                                         }
                                         let background_finalization =
                                             gemini_background_finalization_can_deliver(
                                                 operation_stamp.operation_id,
                                             );
-                                        if !background_finalization
-                                            && (!operation_stamp.is_current(&ah_for_clip)
-                                                || operation_stamp.was_cancelled(&ah_for_clip))
-                                        {
+                                        if !gemini_stream_operation_allows_delivery(
+                                            background_finalization,
+                                            || operation_stamp.is_current(&ah_for_clip),
+                                            || operation_stamp.was_cancelled(&ah_for_clip),
+                                        ) {
                                             debug!(
                                                 "Skipping queued Gemini 3.5 Transcribe Live chunk for stale or cancelled operation {}",
                                                 operation_stamp.operation_id
@@ -9239,6 +9847,15 @@ impl ShortcutAction for TranscribeAction {
                                         {
                                             return;
                                         }
+                                        let delta = match processor_for_paste.lock() {
+                                            Ok(mut processor) => processor.push_chunk(&chunk),
+                                            Err(_) => {
+                                                warn!("Failed to lock Gemini live stream processor");
+                                                return;
+                                            }
+                                        };
+                                        if delta.is_empty() { return; }
+                                        let delta_ending = delta.chars().last();
                                         match crate::clipboard::paste_stream_chunk_for_operation(
                                             delta,
                                             ah_for_clip.clone(),
@@ -9274,11 +9891,11 @@ impl ShortcutAction for TranscribeAction {
                                     );
                                     warn!("{}", message);
                                 }
-                            }
-                        }) as OpenAiRealtimeWhisperFinalChunkCallback
+                            }) as OpenAiRealtimeWhisperFinalChunkCallback
+                        }) as crate::managers::gemini_realtime::FinalChunkCallbackFactory
                     });
 
-                    let start_result = gemini_realtime_manager.start_session(
+                    let start_result = gemini_realtime_manager.start_session_with_chunk_factory(
                         &binding_id,
                         Some(recording_operation_id),
                         &api_key,
@@ -9478,6 +10095,146 @@ impl ShortcutAction for TranscribeAction {
                         );
                     }
                 }
+                TranscriptionProvider::RemoteOpenAiCompatible
+                    if should_use_elevenlabs_realtime_live(&settings) =>
+                {
+                    let elevenlabs_realtime_manager =
+                        Arc::clone(&app.state::<Arc<ElevenLabsRealtimeManager>>());
+                    let api_key = match crate::managers::remote_stt::get_remote_stt_api_key(
+                        &settings.remote_stt,
+                    ) {
+                        Ok(api_key) => api_key,
+                        Err(err) => {
+                            let _ = take_stream_chunk_processor(&binding_id);
+                            let _ = take_elevenlabs_stream_emitted(&binding_id);
+                            let err_str = format!("{}", err);
+                            if !preview_output_only_enabled {
+                                queue_streaming_paste_session_end(
+                                    &app_handle,
+                                    recording_operation_id,
+                                );
+                            }
+                            app_handle
+                                .state::<Arc<AudioRecordingManager>>()
+                                .clear_stream_frame_callback();
+                            if preview_output_only_enabled {
+                                crate::managers::preview_output_mode::deactivate_session(
+                                    &app_handle,
+                                );
+                                crate::overlay::end_soniox_live_preview_session();
+                                crate::overlay::hide_soniox_live_preview_window(&app_handle);
+                                crate::overlay::reset_soniox_live_preview(&app_handle);
+                            }
+                            crate::utils::cancel_current_operation(&app_handle);
+                            let _ = app_handle.emit("remote-stt-error", err_str.clone());
+                            crate::plus_overlay_state::handle_transcription_error(
+                                &app_handle,
+                                &err_str,
+                            );
+                            return;
+                        }
+                    };
+
+                    set_elevenlabs_stream_emitted(&binding_id, false);
+                    let elevenlabs_stream_insert_timeout_ms =
+                        settings.paste_delay_ms.saturating_add(1500);
+                    let chunk_callback = stream_processor.map(|stream_processor| {
+                        let ah_for_cb = app_handle.clone();
+                        let binding_id_for_cb = binding_id.clone();
+                        Arc::new(move |lease: Arc<crate::managers::elevenlabs_realtime::SessionLease>| {
+                            let stream_processor = Arc::clone(&stream_processor);
+                            let ah_for_cb = ah_for_cb.clone();
+                            let binding_id_for_cb = binding_id_for_cb.clone();
+                            Arc::new(move |chunk: String| {
+                                if chunk.is_empty() { return; }
+                                let processor_for_paste = Arc::clone(&stream_processor);
+                                let lease = Arc::clone(&lease);
+                                let ah_for_clip = ah_for_cb.clone();
+                                let binding_id_for_paste = binding_id_for_cb.clone();
+                                if let Err(error) = crate::output_dispatch::run_sync(
+                                    elevenlabs_stream_insert_timeout_ms,
+                                    move || {
+                                        if !lease.allows_delivery()
+                                            || !operation_stamp.is_current(&ah_for_clip)
+                                            || operation_stamp.was_cancelled(&ah_for_clip)
+                                        {
+                                            debug!("Skipping queued ElevenLabs live chunk for obsolete transport or operation {}", operation_stamp.operation_id);
+                                            return;
+                                        }
+                                        // Stateful replacements/Decapitalize belong to accepted output,
+                                        // never an old callback that was queued before Cancel or Clear.
+                                        let delta = match processor_for_paste.lock() {
+                                            Ok(mut processor) => processor.push_chunk(&chunk),
+                                            Err(_) => {
+                                                warn!("Failed to lock ElevenLabs live stream processor");
+                                                return;
+                                            }
+                                        };
+                                        if delta.is_empty() { return; }
+                                        let delta_ending = delta.chars().last();
+                                        match crate::clipboard::paste_stream_chunk_for_operation(
+                                            delta, ah_for_clip.clone(), operation_stamp.operation_id,
+                                        ) {
+                                            Ok(()) => {
+                                                if let Ok(mut processor) = processor_for_paste.lock() {
+                                                    processor.record_output_ending(delta_ending);
+                                                }
+                                                mark_elevenlabs_stream_emitted(&binding_id_for_paste);
+                                            }
+                                            Err(error) => warn!("Failed to insert ElevenLabs Scribe v3 Live stream chunk: {}", error),
+                                        }
+                                    },
+                                ) {
+                                    warn!("ElevenLabs Scribe v3 Live stream insertion was not confirmed: {}", error);
+                                }
+                            }) as ElevenLabsFinalChunkCallback
+                        }) as crate::managers::elevenlabs_realtime::FinalChunkCallbackFactory
+                    });
+
+                    let start_result = elevenlabs_realtime_manager.start_session_with_chunk_factory(
+                        &binding_id, Some(recording_operation_id), &api_key,
+                        build_elevenlabs_realtime_options(&settings, profile, &binding_id),
+                        chunk_callback, None,
+                    );
+
+                    if let Err(err) = start_result {
+                        if !operation_stamp.is_current(&app_handle)
+                            || operation_stamp.was_cancelled(&app_handle)
+                        {
+                            debug!(
+                                "Ignoring ElevenLabs startup failure for stale operation {}",
+                                recording_operation_id
+                            );
+                            return;
+                        }
+                        let _ = take_stream_chunk_processor(&binding_id);
+                        let _ = take_elevenlabs_stream_emitted(&binding_id);
+                        let err_str = format!("{}", err);
+                        if !preview_output_only_enabled {
+                            queue_streaming_paste_session_end(&app_handle, recording_operation_id);
+                        }
+                        app_handle
+                            .state::<Arc<AudioRecordingManager>>()
+                            .clear_stream_frame_callback();
+                        if preview_output_only_enabled {
+                            crate::managers::preview_output_mode::deactivate_session(&app_handle);
+                            crate::overlay::end_soniox_live_preview_session();
+                            crate::overlay::hide_soniox_live_preview_window(&app_handle);
+                            crate::overlay::reset_soniox_live_preview(&app_handle);
+                        }
+                        crate::utils::cancel_current_operation(&app_handle);
+                        let _ = app_handle.emit("remote-stt-error", err_str.clone());
+                        crate::plus_overlay_state::handle_transcription_error(
+                            &app_handle,
+                            &err_str,
+                        );
+                    } else {
+                        debug!(
+                            "ElevenLabs Scribe v3 Live session started for binding '{}'",
+                            binding_id
+                        );
+                    }
+                }
                 _ => {}
             }
         }
@@ -9490,14 +10247,13 @@ impl ShortcutAction for TranscribeAction {
 
     fn stop(&self, app: &AppHandle, binding_id: &str, shortcut_str: &str) {
         let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
-        if let Some(operation_id) = session_manager::recording_operation_id(app, binding_id) {
-            crate::live_output_buffer::stop(operation_id);
-        }
         let deepgram_live_manager = Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
         let openai_realtime_whisper_manager =
             Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
         let gemini_realtime_manager = Arc::clone(&app.state::<Arc<GeminiRealtimeManager>>());
         let reson8_realtime_manager = Arc::clone(&app.state::<Arc<Reson8RealtimeManager>>());
+        let elevenlabs_realtime_manager =
+            Arc::clone(&app.state::<Arc<ElevenLabsRealtimeManager>>());
         let use_live_streaming = should_use_live_for_recording(app, binding_id);
         let invoked_from_preview_action = shortcut_str.contains("preview_output_mode")
             || binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID;
@@ -9508,15 +10264,11 @@ impl ShortcutAction for TranscribeAction {
         if use_live_streaming {
             let stop_context = match prepare_stop_recording_with_options(app, binding_id, false) {
                 Some(context) => context,
-                None => {
-                    let _ = take_stream_chunk_processor(binding_id);
-                    let _ = take_soniox_stream_emitted(binding_id);
-                    let _ = take_deepgram_stream_emitted(binding_id);
-                    let _ = take_openai_realtime_whisper_stream_emitted(binding_id);
-                    let _ = take_reson8_stream_emitted(binding_id);
-                    return; // No active session - nothing to do
-                }
+                // The caller that won Recording -> Processing owns all output
+                // bookkeeping. A duplicate Stop must never clear its buffers.
+                None => return,
             };
+            crate::live_output_buffer::stop(stop_context.operation_id);
             let recording_settings = stop_context.recording_settings.clone();
             let buffered_output = crate::clipboard::dictation_output_is_buffered(stop_context.operation_id);
             let protected_live_output = crate::live_output_buffer::enabled(stop_context.operation_id);
@@ -9532,7 +10284,11 @@ impl ShortcutAction for TranscribeAction {
             );
             if preview_output_only_enabled {
                 crate::managers::preview_output_mode::set_recording(app, false);
-                crate::managers::preview_output_mode::set_error(app, None);
+                if !invoked_from_realtime_error
+                    && !gemini_realtime_manager.runtime_error_was_reported(Some(stop_context.operation_id), None, None)
+                {
+                    crate::managers::preview_output_mode::set_error(app, None);
+                }
             }
             let is_deepgram_live_provider =
                 recording_settings.transcription_provider == TranscriptionProvider::RemoteDeepgram;
@@ -9542,12 +10298,15 @@ impl ShortcutAction for TranscribeAction {
                 should_use_gemini_realtime_live(&recording_settings);
             let is_reson8_live_provider =
                 should_use_reson8_realtime_live(&recording_settings);
+            let is_elevenlabs_live_provider =
+                should_use_elevenlabs_realtime_live(&recording_settings);
             let live_instant_stop = !buffered_output && !early_opening_key
                 && if is_deepgram_live_provider {
                 recording_settings.deepgram_live_instant_stop
             } else if is_openai_realtime_whisper_live_provider
                 || is_gemini_live_provider
                 || is_reson8_live_provider
+                || is_elevenlabs_live_provider
             {
                 false
             } else {
@@ -9561,41 +10320,49 @@ impl ShortcutAction for TranscribeAction {
                 GEMINI_LIVE_FINALIZE_TIMEOUT_MS
             } else if is_reson8_live_provider {
                 RESON8_LIVE_FINALIZE_TIMEOUT_MS
+            } else if is_elevenlabs_live_provider {
+                ELEVENLABS_LIVE_FINALIZE_TIMEOUT_MS
             } else {
                 recording_settings.soniox_live_finalize_timeout_ms
             };
             let operation_stamp = stop_context.operation_stamp();
             let recording_operation_id = stop_context.operation_id;
-            let early_gemini_deadline = if is_gemini_live_provider && !buffered_output && !protected_live_output && !early_opening_key
-                && recording_settings.gemini_live_early_finalization_enabled
-                && !preview_output_only_enabled
-                && !invoked_from_realtime_error
-                && !invoked_from_gemini_time_limit
-                && binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID
-            {
+            let processing_generation = crate::plus_overlay_state::current_recording_overlay_generation();
+            let gemini_runtime_error_shown = is_gemini_live_provider
+                && gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None);
+            let early_gemini_deadline = gemini_early_finalization_delay(
+                &recording_settings,
+                is_gemini_live_provider && !buffered_output && !protected_live_output && !early_opening_key,
+                preview_output_only_enabled,
+                invoked_from_realtime_error || gemini_runtime_error_shown,
+                invoked_from_gemini_time_limit,
+                &binding_id,
+            ).and_then(|delay| {
                 gemini_realtime_manager.output_window(recording_operation_id).map(|window| {
-                    let delay = recording_settings.gemini_live_early_finalization_delay_ms.clamp(100, 5000);
-                    let deadline = Instant::now() + Duration::from_millis(u64::from(delay));
+                    let deadline = Instant::now() + delay;
                     window.finish_at(deadline);
-                    info!("Gemini early finalization armed (operation={}, delay_ms={})", recording_operation_id, delay);
+                    info!("Gemini early finalization armed (operation={}, delay_ms={})", recording_operation_id, delay.as_millis());
                     deadline
                 })
-            } else {
-                None
-            };
+            });
             // Live mode already streamed text while recording.
             // On stop, show explicit finalizing state unless instant-stop is enabled.
-            if live_instant_stop && !preview_output_only_enabled {
-                utils::hide_recording_overlay(app);
-            } else {
-                show_finalizing_overlay(app);
+            if !invoked_from_realtime_error && !gemini_runtime_error_shown {
+                if live_instant_stop && !preview_output_only_enabled {
+                    utils::hide_recording_overlay(app);
+                } else if is_gemini_live_provider {
+                    crate::overlay::show_processing_overlay_if_generation_matches(app, processing_generation, true);
+                } else {
+                    show_finalizing_overlay(app);
+                }
             }
+            let stop_overlay_generation = crate::plus_overlay_state::current_recording_overlay_generation();
             let pending_gemini_background_finalization =
                 if !buffered_output && !protected_live_output && !early_opening_key && early_gemini_deadline.is_none() && can_background_vercel_gemini_finalization(
                     is_gemini_live_provider,
                     &recording_settings.remote_stt.provider_preset,
                     preview_output_only_enabled,
-                    invoked_from_realtime_error,
+                    invoked_from_realtime_error || gemini_runtime_error_shown,
                     invoked_from_gemini_time_limit,
                 ) {
                     Some(register_gemini_background_finalization(
@@ -9630,7 +10397,7 @@ impl ShortcutAction for TranscribeAction {
                 let rm = Arc::clone(&ah.state::<Arc<AudioRecordingManager>>());
                 let (mut stream_processor, had_soniox_stream_output,
                     mut had_deepgram_stream_output, mut had_openai_realtime_whisper_stream_output,
-                    mut had_reson8_stream_output) = {
+                    mut had_reson8_stream_output, mut had_elevenlabs_stream_output) = {
                     // Claim only in-memory bookkeeping under this lock. Audio
                     // I/O and callback cleanup use capture ownership below.
                     let state = ah.state::<ManagedSessionState>();
@@ -9648,6 +10415,7 @@ impl ShortcutAction for TranscribeAction {
                             || is_openai_realtime_whisper_live_provider
                             || is_gemini_live_provider
                             || is_reson8_live_provider
+                            || is_elevenlabs_live_provider
                         {
                             false
                         } else {
@@ -9660,9 +10428,11 @@ impl ShortcutAction for TranscribeAction {
                             && take_openai_realtime_whisper_stream_emitted(&binding_id);
                     let had_reson8_stream_output = is_reson8_live_provider
                         && take_reson8_stream_emitted(&binding_id);
+                    let had_elevenlabs_stream_output = is_elevenlabs_live_provider
+                        && take_elevenlabs_stream_emitted(&binding_id);
                     (stream_processor, had_soniox_stream_output,
                         had_deepgram_stream_output, had_openai_realtime_whisper_stream_output,
-                        had_reson8_stream_output)
+                        had_reson8_stream_output, had_elevenlabs_stream_output)
                 };
                 // No global lock crosses the device wait. The audio manager
                 // atomically claims the capture by operation ID before stopping.
@@ -9680,13 +10450,18 @@ impl ShortcutAction for TranscribeAction {
                 let samples = match samples {
                     Some(samples) => samples,
                     None => {
-                        if (is_gemini_live_provider || is_reson8_live_provider)
+                        if (is_gemini_live_provider
+                            || is_reson8_live_provider
+                            || is_elevenlabs_live_provider)
                             && (!operation_stamp.is_current(&ah) || operation_stamp.was_cancelled(&ah))
                         {
                             if is_gemini_live_provider {
                                 gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
-                            } else {
+                            } else if is_reson8_live_provider {
                                 reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                            } else {
+                                elevenlabs_realtime_manager
+                                    .cancel_if_matches(Some(recording_operation_id));
                             }
                             return;
                         }
@@ -9699,11 +10474,14 @@ impl ShortcutAction for TranscribeAction {
                                 gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
                             } else if is_reson8_live_provider {
                                 reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                            } else if is_elevenlabs_live_provider {
+                                elevenlabs_realtime_manager
+                                    .cancel_if_matches(Some(recording_operation_id));
                             } else {
                                 soniox_live_manager.cancel();
                             }
                         } else {
-                            let _ = if is_deepgram_live_provider {
+                            let result = if is_deepgram_live_provider {
                                 deepgram_live_manager
                                     .finish_session(live_finalize_timeout_ms)
                                     .await
@@ -9719,13 +10497,30 @@ impl ShortcutAction for TranscribeAction {
                                 reson8_realtime_manager
                                     .finish_session_if_matches(Some(recording_operation_id), live_finalize_timeout_ms)
                                     .await
+                            } else if is_elevenlabs_live_provider {
+                                elevenlabs_realtime_manager
+                                    .finish_session_if_matches(
+                                        Some(recording_operation_id),
+                                        live_finalize_timeout_ms,
+                                    )
+                                    .await
                             } else {
                                 soniox_live_manager
                                     .finish_session(live_finalize_timeout_ms)
                                     .await
                             };
+                            if is_gemini_live_provider && operation_stamp.is_current(&ah) && !operation_stamp.was_cancelled(&ah) {
+                                if let Err(error) = result {
+                                    let error = error.to_string();
+                                    if !gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, Some(&error)) {
+                                        handle_remote_transcription_error(&ah, &error, false);
+                                    }
+                                }
+                            }
                         }
-                        if (is_gemini_live_provider || is_reson8_live_provider)
+                        if (is_gemini_live_provider
+                            || is_reson8_live_provider
+                            || is_elevenlabs_live_provider)
                             && (!operation_stamp.is_current(&ah) || operation_stamp.was_cancelled(&ah))
                         {
                             return;
@@ -9739,7 +10534,9 @@ impl ShortcutAction for TranscribeAction {
                         } else if !invoked_from_preview_action {
                             close_preview_output_mode_workflow(&ah, true);
                         }
-                        utils::hide_recording_overlay(&ah);
+                        if !is_gemini_live_provider || !gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None) {
+                            crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(&ah, stop_overlay_generation);
+                        }
                         change_tray_icon(&ah, TrayIconState::Idle);
                         if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
                             crate::managers::live_sound_transcription::finish_session(&ah);
@@ -9748,13 +10545,17 @@ impl ShortcutAction for TranscribeAction {
                         return;
                     }
                 };
-                if (is_gemini_live_provider || is_reson8_live_provider)
+                if (is_gemini_live_provider
+                    || is_reson8_live_provider
+                    || is_elevenlabs_live_provider)
                     && (!operation_stamp.is_current(&ah) || operation_stamp.was_cancelled(&ah))
                 {
                     if is_gemini_live_provider {
                         gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
-                    } else {
+                    } else if is_reson8_live_provider {
                         reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                    } else {
+                        elevenlabs_realtime_manager.cancel_if_matches(Some(recording_operation_id));
                     }
                     return;
                 }
@@ -9765,6 +10566,8 @@ impl ShortcutAction for TranscribeAction {
                     had_openai_realtime_whisper_stream_output
                 } else if is_reson8_live_provider {
                     had_reson8_stream_output
+                } else if is_elevenlabs_live_provider {
+                    had_elevenlabs_stream_output
                 } else {
                     had_soniox_stream_output
                 };
@@ -9796,6 +10599,8 @@ impl ShortcutAction for TranscribeAction {
                         gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
                     } else if is_reson8_live_provider {
                         reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                    } else if is_elevenlabs_live_provider {
+                        elevenlabs_realtime_manager.cancel_if_matches(Some(recording_operation_id));
                     } else {
                         soniox_live_manager.cancel();
                     }
@@ -9818,8 +10623,8 @@ impl ShortcutAction for TranscribeAction {
                             crate::managers::preview_output_mode::set_error(&ah, Some(err));
                         }
                     }
-                    if !invoked_from_realtime_error {
-                        utils::hide_recording_overlay(&ah);
+                    if !invoked_from_realtime_error && !(is_gemini_live_provider && gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None)) {
+                        crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(&ah, stop_overlay_generation);
                     }
                     change_tray_icon(&ah, TrayIconState::Idle);
                     if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
@@ -9871,6 +10676,8 @@ impl ShortcutAction for TranscribeAction {
                         gemini_realtime_manager.cancel_if_matches(Some(recording_operation_id));
                     } else if is_reson8_live_provider {
                         reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
+                    } else if is_elevenlabs_live_provider {
+                        elevenlabs_realtime_manager.cancel_if_matches(Some(recording_operation_id));
                     } else {
                         soniox_live_manager.cancel();
                     }
@@ -9924,6 +10731,13 @@ impl ShortcutAction for TranscribeAction {
                     reson8_realtime_manager
                         .finish_session_if_matches(Some(recording_operation_id), live_finalize_timeout_ms)
                         .await
+                } else if is_elevenlabs_live_provider {
+                    elevenlabs_realtime_manager
+                        .finish_session_if_matches(
+                            Some(recording_operation_id),
+                            live_finalize_timeout_ms,
+                        )
+                        .await
                 } else if preview_output_only_enabled || buffered_output {
                     // Preview and buffered output are still reversible, so
                     // let complete-recording replay repair a Soniox timeout.
@@ -9942,7 +10756,10 @@ impl ShortcutAction for TranscribeAction {
                     let text = match transcription_result {
                         Ok(text) => text,
                         Err(error) => {
-                            handle_remote_transcription_error(&ah, &error.to_string(), false);
+                            let error = error.to_string();
+                            if !gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, Some(&error)) {
+                                handle_remote_transcription_error(&ah, &error, false);
+                            }
                             end_streaming_paste_session_after_output_queue(&ah, recording_operation_id, streaming_clipboard_timeout_ms);
                             finish_guard.finish();
                             return;
@@ -9951,7 +10768,7 @@ impl ShortcutAction for TranscribeAction {
                     let app_for_output = ah.clone();
                     let had_gemini_output = had_openai_realtime_whisper_stream_output
                         || take_openai_realtime_whisper_stream_emitted(&binding_id);
-                    let overlay_generation = crate::plus_overlay_state::current_recording_overlay_generation();
+                    let overlay_generation = stop_overlay_generation;
                     let processor_for_output = stream_processor.take();
                     let binding_for_output = binding_id.clone();
                     let append_final_space =
@@ -9977,12 +10794,17 @@ impl ShortcutAction for TranscribeAction {
                                 if let Err(error) = crate::clipboard::paste_stream_chunk_for_operation(
                                     tail, app_for_output.clone(), recording_operation_id,
                                 ) {
-                                    handle_remote_transcription_error(&app_for_output, &error, false);
-                                    return;
+                                    // The output session retains this delivery failure;
+                                    // its finalizer emits the single paste notification.
+                                    warn!("Failed to insert Gemini early-finalization tail: {}", error);
                                 }
                             }
                             let _ = take_openai_realtime_whisper_stream_emitted(&binding_for_output);
-                            crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(&app_for_output, overlay_generation);
+                            if !app_for_output.state::<Arc<GeminiRealtimeManager>>()
+                                .runtime_error_was_reported(Some(recording_operation_id), None, None)
+                            {
+                                crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(&app_for_output, overlay_generation);
+                            }
                         },
                     );
                     let output_dispatched = output_result.is_ok();
@@ -9993,7 +10815,7 @@ impl ShortcutAction for TranscribeAction {
                         end_streaming_paste_session_after_output_queue(
                             &ah, recording_operation_id, streaming_clipboard_timeout_ms,
                         );
-                        if !had_gemini_output {
+                        if !had_gemini_output && !gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None) {
                             report_empty_transcription(
                                 &ah, operation_stamp, stop_context.recording_elapsed,
                                 recording_settings.dictation_quick_tap_threshold_ms, true,
@@ -10036,49 +10858,42 @@ impl ShortcutAction for TranscribeAction {
                 {
                     return;
                 }
+                if is_elevenlabs_live_provider
+                    && (operation_stamp.was_cancelled(&ah) || !operation_stamp.is_current(&ah))
+                {
+                    return;
+                }
                 if gemini_finalization_is_background {
                     if let Some(processor) = stream_processor.as_ref() {
-                        let tail_delta = match processor.lock() {
-                            Ok(mut processor) => processor.flush(),
-                            Err(_) => {
-                                warn!("Failed to lock Gemini live stream processor");
-                                String::new()
-                            }
-                        };
-                        if !tail_delta.is_empty() {
-                            let ah_for_tail = ah.clone();
-                            if let Err(error) = crate::output_dispatch::run_sync(
-                                recording_settings.paste_delay_ms.saturating_add(1500),
-                                move || {
-                                    if !gemini_background_finalization_can_deliver(
-                                        recording_operation_id,
-                                    ) {
-                                        debug!(
-                                            "Skipping Gemini background stream tail for completed operation {}",
-                                            recording_operation_id
-                                        );
-                                        return;
+                        let processor = Arc::clone(processor);
+                        let ah_for_tail = ah.clone();
+                        if let Err(error) = crate::output_dispatch::run_sync(
+                            recording_settings.paste_delay_ms.saturating_add(1500),
+                            move || {
+                                if !gemini_background_finalization_can_deliver(recording_operation_id)
+                                    || !gemini_background_output_allowed(&ah_for_tail, operation_stamp)
+                                {
+                                    return;
+                                }
+                                // Flush also runs the stateful text pipeline. A stale tail
+                                // must not consume a newer recording's edit-key trigger.
+                                let tail_delta = match processor.lock() {
+                                    Ok(mut processor) => processor.flush(),
+                                    Err(_) => {
+                                        warn!("Failed to lock Gemini live stream processor");
+                                        String::new()
                                     }
-                                    if !gemini_background_output_allowed(&ah_for_tail, operation_stamp) {
-                                        return;
-                                    }
+                                };
+                                if !tail_delta.is_empty() {
                                     if let Err(error) = crate::clipboard::paste_stream_chunk_for_operation(
-                                        tail_delta,
-                                        ah_for_tail,
-                                        recording_operation_id,
+                                        tail_delta, ah_for_tail, recording_operation_id,
                                     ) {
-                                        warn!(
-                                            "Failed to insert Gemini background stream tail: {}",
-                                            error
-                                        );
+                                        warn!("Failed to insert Gemini background stream tail: {}", error);
                                     }
-                                },
-                            ) {
-                                warn!(
-                                    "Failed to queue Gemini background stream tail: {}",
-                                    error
-                                );
-                            }
+                                }
+                            },
+                        ) {
+                            warn!("Failed to queue Gemini background stream tail: {}", error);
                         }
                     }
 
@@ -10086,10 +10901,13 @@ impl ShortcutAction for TranscribeAction {
                         let ah_for_overlay = ah.clone();
                         let overlay_generation = pending.overlay_generation;
                         if let Err(error) = crate::output_dispatch::run(move || {
-                            crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
-                                &ah_for_overlay,
-                                overlay_generation,
-                            );
+                            if !ah_for_overlay.state::<Arc<GeminiRealtimeManager>>()
+                                .runtime_error_was_reported(Some(recording_operation_id), None, None)
+                            {
+                                crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
+                                    &ah_for_overlay, overlay_generation,
+                                );
+                            }
                         }) {
                             warn!(
                                 "Failed to hide completed Gemini finalization overlay: {}",
@@ -10111,7 +10929,9 @@ impl ShortcutAction for TranscribeAction {
                                 let output_withheld = pending_gemini_background_finalization
                                     .as_ref()
                                     .is_some_and(|pending| pending.output_withheld.load(Ordering::Acquire));
-                                if output_finalized && !output_withheld && session_manager::is_idle(&ah) {
+                                if output_finalized && !output_withheld && session_manager::is_idle(&ah)
+                                    && session_manager::is_latest_operation(recording_operation_id)
+                                {
                                     play_result_ready_sound(&ah);
                                 }
                                 before_dictation_final_output(&ah, &text);
@@ -10160,10 +10980,10 @@ impl ShortcutAction for TranscribeAction {
                 let mut recovered_from_soniox_replay = false;
                 let transcription = match transcription_result {
                     Ok(text) => {
-                        if is_gemini_live_provider {
-                            gemini_realtime_manager.clear_reported_runtime_error();
-                        } else if is_reson8_live_provider {
+                        if is_reson8_live_provider {
                             reson8_realtime_manager.clear_reported_runtime_error();
+                        } else if is_elevenlabs_live_provider {
+                            elevenlabs_realtime_manager.clear_reported_runtime_error();
                         }
                         apply_profile_output_filters(
                             &recording_settings,
@@ -10174,15 +10994,19 @@ impl ShortcutAction for TranscribeAction {
                     Err(err) => {
                         let err_str = format!("{}", err);
                         let runtime_error_already_reported = (is_gemini_live_provider
-                            && gemini_realtime_manager.take_reported_runtime_error(&err_str))
+                            && gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, Some(&err_str)))
                             || (is_reson8_live_provider
-                                && reson8_realtime_manager.take_reported_runtime_error(&err_str));
+                                && reson8_realtime_manager.take_reported_runtime_error(&err_str))
+                            || (is_elevenlabs_live_provider
+                                && elevenlabs_realtime_manager
+                                    .take_reported_runtime_error(&err_str));
                         let can_replay_soniox = should_replay_soniox_live_timeout(
                             &err_str,
                             !is_deepgram_live_provider
                                 && !is_openai_realtime_whisper_live_provider
                                 && !is_gemini_live_provider
-                                && !is_reson8_live_provider,
+                                && !is_reson8_live_provider
+                                && !is_elevenlabs_live_provider,
                             preview_output_only_enabled,
                             had_soniox_stream_output && !buffered_output,
                         );
@@ -10312,16 +11136,30 @@ impl ShortcutAction for TranscribeAction {
                 if is_reson8_live_provider {
                     had_reson8_stream_output |= take_reson8_stream_emitted(&binding_id);
                 }
+                if is_elevenlabs_live_provider {
+                    had_elevenlabs_stream_output |= take_elevenlabs_stream_emitted(&binding_id);
+                }
+                let live_tail_dispatch_error: Option<Arc<Mutex<Option<String>>>> =
+                    ((is_gemini_live_provider || is_elevenlabs_live_provider) && !preview_output_only_enabled)
+                        .then(|| Arc::new(Mutex::new(None)));
 
                 if let Some(processor) = stream_processor.as_ref() {
-                    let tail_delta = match processor.lock() {
-                        Ok(mut processor) => processor.flush(),
-                        Err(_) => {
-                            warn!("Failed to lock stream chunk processor");
-                            String::new()
+                    // Both providers process accepted chunks on the output worker.
+                    // Flush behind queued chunks, after checking cancellation.
+                    let queued_tail = is_gemini_live_provider || is_elevenlabs_live_provider;
+                    let queued_tail_processor = queued_tail.then(|| Arc::clone(processor));
+                    let tail_delta = if queued_tail {
+                        String::new()
+                    } else {
+                        match processor.lock() {
+                            Ok(mut processor) => processor.flush(),
+                            Err(_) => {
+                                warn!("Failed to lock stream chunk processor");
+                                String::new()
+                            }
                         }
                     };
-                    if !tail_delta.is_empty() {
+                    if queued_tail || !tail_delta.is_empty() {
                         if is_deepgram_live_provider {
                             had_deepgram_stream_output = true;
                         } else if is_openai_realtime_whisper_live_provider {
@@ -10329,7 +11167,11 @@ impl ShortcutAction for TranscribeAction {
                         }
                         let ah_for_clip = ah.clone();
                         let binding_id_for_tail = binding_id.clone();
-                        let queue_result = if is_gemini_live_provider || is_reson8_live_provider {
+                        let tail_error_for_clip = live_tail_dispatch_error.clone();
+                        let queue_result = if is_gemini_live_provider
+                            || is_reson8_live_provider
+                            || is_elevenlabs_live_provider
+                        {
                             crate::output_dispatch::run_sync(
                                 recording_settings.paste_delay_ms.saturating_add(1500),
                                 move || {
@@ -10342,6 +11184,17 @@ impl ShortcutAction for TranscribeAction {
                                         );
                                         return;
                                     }
+                                    let tail_delta = match queued_tail_processor {
+                                        Some(processor) => match processor.lock() {
+                                            Ok(mut processor) => processor.flush(),
+                                            Err(_) => {
+                                                warn!("Failed to lock live stream tail processor");
+                                                String::new()
+                                            }
+                                        },
+                                        None => tail_delta,
+                                    };
+                                    if tail_delta.is_empty() { return; }
                                     match crate::clipboard::paste_stream_chunk_for_operation(
                                         tail_delta,
                                         ah_for_clip.clone(),
@@ -10350,6 +11203,10 @@ impl ShortcutAction for TranscribeAction {
                                         Ok(()) => {
                                             if is_reson8_live_provider {
                                                 mark_reson8_stream_emitted(&binding_id_for_tail);
+                                            } else if is_elevenlabs_live_provider {
+                                                mark_elevenlabs_stream_emitted(
+                                                    &binding_id_for_tail,
+                                                );
                                             } else {
                                                 mark_openai_realtime_whisper_stream_emitted(
                                                     &binding_id_for_tail,
@@ -10363,6 +11220,8 @@ impl ShortcutAction for TranscribeAction {
                                         Err(error) => {
                                             let provider_label = if is_reson8_live_provider {
                                                 "Reson8 Rumble-2"
+                                            } else if is_elevenlabs_live_provider {
+                                                "ElevenLabs Scribe v3 Live"
                                             } else {
                                                 "Gemini 3.5 Transcribe Live"
                                             };
@@ -10372,11 +11231,26 @@ impl ShortcutAction for TranscribeAction {
                                                 error
                                             );
                                             warn!("{}", message);
-                                            handle_remote_transcription_error(
-                                                &ah_for_clip,
-                                                &message,
-                                                false,
-                                            );
+                                            if is_gemini_live_provider || is_elevenlabs_live_provider {
+                                                if crate::clipboard::dictation_output_settings(
+                                                    operation_stamp.operation_id,
+                                                )
+                                                .is_none()
+                                                {
+                                                    if let Some(cell) = tail_error_for_clip.as_ref()
+                                                    {
+                                                        if let Ok(mut guard) = cell.lock() {
+                                                            guard.get_or_insert(error);
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                handle_remote_transcription_error(
+                                                    &ah_for_clip,
+                                                    &message,
+                                                    false,
+                                                );
+                                            }
                                         }
                                     }
                                 },
@@ -10403,9 +11277,14 @@ impl ShortcutAction for TranscribeAction {
                             })
                         };
                         if let Err(err) = queue_result {
-                            if is_gemini_live_provider || is_reson8_live_provider {
+                            if is_gemini_live_provider
+                                || is_reson8_live_provider
+                                || is_elevenlabs_live_provider
+                            {
                                 let provider_label = if is_reson8_live_provider {
                                     "Reson8 Rumble-2"
+                                } else if is_elevenlabs_live_provider {
+                                    "ElevenLabs Scribe v3 Live"
                                 } else {
                                     "Gemini 3.5 Transcribe Live"
                                 };
@@ -10415,7 +11294,18 @@ impl ShortcutAction for TranscribeAction {
                                     err
                                 );
                                 warn!("{}", message);
-                                handle_remote_transcription_error(&ah, &message, false);
+                                if is_gemini_live_provider || is_elevenlabs_live_provider {
+                                    if !is_output_dispatch_timeout(&err) {
+                                        if let Some(cell) = live_tail_dispatch_error.as_ref()
+                                        {
+                                            if let Ok(mut guard) = cell.lock() {
+                                                guard.get_or_insert(message);
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    handle_remote_transcription_error(&ah, &message, false);
+                                }
                             } else {
                                 warn!("Failed to queue Soniox stream tail paste: {}", err);
                             }
@@ -10428,6 +11318,7 @@ impl ShortcutAction for TranscribeAction {
                         || had_deepgram_stream_output
                         || had_openai_realtime_whisper_stream_output
                         || had_reson8_stream_output
+                        || had_elevenlabs_stream_output
                         || (preview_output_only_enabled && preview_has_new_output());
                     if !preview_output_only_enabled {
                         end_streaming_paste_session_after_output_queue(
@@ -10448,13 +11339,15 @@ impl ShortcutAction for TranscribeAction {
                             crate::managers::preview_output_mode::set_error(&ah, Some(err));
                         }
                     }
+                    let gemini_runtime_error_shown = is_gemini_live_provider
+                        && gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None);
                     let empty_error_shown = !invoked_from_realtime_error
-                        && !had_live_output
+                        && !gemini_runtime_error_shown && !had_live_output
                         && report_empty_transcription(
                             &ah, operation_stamp, stop_context.recording_elapsed,
                             recording_settings.dictation_quick_tap_threshold_ms, false,
                         );
-                    if !invoked_from_realtime_error && !empty_error_shown {
+                    if !invoked_from_realtime_error && !gemini_runtime_error_shown && !empty_error_shown {
                         utils::hide_recording_overlay(&ah);
                     }
                     change_tray_icon(&ah, TrayIconState::Idle);
@@ -10545,12 +11438,18 @@ impl ShortcutAction for TranscribeAction {
                     before_dictation_final_output(&ah, &final_text);
                 }
                 let output_timeout_ms = recording_settings.paste_delay_ms.saturating_add(1500);
-                let overlay_generation =
-                    crate::plus_overlay_state::current_recording_overlay_generation();
+                let overlay_generation = if is_gemini_live_provider {
+                    stop_overlay_generation
+                } else {
+                    crate::plus_overlay_state::current_recording_overlay_generation()
+                };
                 let binding_id_for_final_output = binding_id.clone();
+                let tail_error_for_final_output = live_tail_dispatch_error.clone();
                 if let Err(err) = crate::output_dispatch::run_sync(output_timeout_ms, move || {
                     if operation_stamp.was_cancelled(&ah_clone)
-                        || ((is_gemini_live_provider || is_reson8_live_provider)
+                        || ((is_gemini_live_provider
+                            || is_reson8_live_provider
+                            || is_elevenlabs_live_provider)
                             && !operation_stamp.is_current(&ah_clone))
                     {
                         debug!(
@@ -10564,6 +11463,7 @@ impl ShortcutAction for TranscribeAction {
                             || is_openai_realtime_whisper_live_provider
                             || is_gemini_live_provider
                             || is_reson8_live_provider
+                            || is_elevenlabs_live_provider
                         {
                             // Some live providers may return all stable text only at finalization;
                             // if no stream chunks were actually inserted, paste the final text now.
@@ -10583,12 +11483,18 @@ impl ShortcutAction for TranscribeAction {
                             } else if is_reson8_live_provider {
                                 had_reson8_stream_output
                                     || take_reson8_stream_emitted(&binding_id_for_final_output)
+                            } else if is_elevenlabs_live_provider {
+                                had_elevenlabs_stream_output
+                                    || take_elevenlabs_stream_emitted(&binding_id_for_final_output)
                             } else {
                                 had_openai_realtime_whisper_stream_output
                             };
                             if !had_provider_stream_output {
                                 let fallback_result =
-                                    if is_gemini_live_provider || is_reson8_live_provider {
+                                    if is_gemini_live_provider
+                                        || is_reson8_live_provider
+                                        || is_elevenlabs_live_provider
+                                    {
                                         crate::clipboard::paste_stream_chunk_for_operation(
                                             final_text_for_ui.clone(),
                                             ah_clone.clone(),
@@ -10601,10 +11507,15 @@ impl ShortcutAction for TranscribeAction {
                                             operation_stamp.operation_id,
                                         )
                                     };
-                                if is_gemini_live_provider || is_reson8_live_provider {
+                                if is_gemini_live_provider
+                                    || is_reson8_live_provider
+                                    || is_elevenlabs_live_provider
+                                {
                                     if let Err(error) = fallback_result {
                                         let provider_label = if is_reson8_live_provider {
                                             "Reson8 Rumble-2"
+                                        } else if is_elevenlabs_live_provider {
+                                            "ElevenLabs Scribe v3 Live"
                                         } else {
                                             "Gemini 3.5 Transcribe Live"
                                         };
@@ -10614,6 +11525,20 @@ impl ShortcutAction for TranscribeAction {
                                             error
                                         );
                                         warn!("{}", message);
+                                        if (is_gemini_live_provider || is_elevenlabs_live_provider)
+                                            && crate::clipboard::dictation_output_settings(
+                                                operation_stamp.operation_id,
+                                            )
+                                            .is_none()
+                                        {
+                                            if let Some(cell) =
+                                                tail_error_for_final_output.as_ref()
+                                            {
+                                                if let Ok(mut guard) = cell.lock() {
+                                                    guard.get_or_insert(error);
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -10632,7 +11557,10 @@ impl ShortcutAction for TranscribeAction {
                         }
                     }
 
-                    if !invoked_from_realtime_error {
+                    if !invoked_from_realtime_error
+                        && !(is_gemini_live_provider && ah_clone.state::<Arc<GeminiRealtimeManager>>()
+                            .runtime_error_was_reported(Some(recording_operation_id), None, None))
+                    {
                         crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
                             &ah_clone,
                             overlay_generation,
@@ -10640,6 +11568,13 @@ impl ShortcutAction for TranscribeAction {
                     }
                 }) {
                     warn!("{}", err);
+                    if (is_gemini_live_provider || is_elevenlabs_live_provider) && !is_output_dispatch_timeout(&err) {
+                        if let Some(cell) = live_tail_dispatch_error.as_ref() {
+                            if let Ok(mut guard) = cell.lock() {
+                                guard.get_or_insert(err);
+                            }
+                        }
+                    }
                 }
 
                 if !finish_guard.is_current() {
@@ -10681,13 +11616,15 @@ impl ShortcutAction for TranscribeAction {
 
                 if !preview_output_only_enabled {
                     wait_for_early_opening_key(&ah, recording_operation_id, operation_stamp).await;
-                    let output_finalized = finalize_streaming_paste_session_after_output_queue(
-                        &ah,
-                        recording_operation_id,
-                        operation_stamp,
-                        streaming_clipboard_timeout_ms,
-                        final_text.clone(),
-                    );
+                    let output_finalized =
+                        finalize_streaming_paste_session_after_output_queue_with_dispatch_error(
+                            &ah,
+                            recording_operation_id,
+                            operation_stamp,
+                            streaming_clipboard_timeout_ms,
+                            final_text.clone(),
+                            live_tail_dispatch_error,
+                        );
                     if output_finalized {
                         play_result_ready_sound(&ah);
                     }
@@ -10727,6 +11664,7 @@ impl ShortcutAction for TranscribeAction {
             Some(context) => context,
             None => return, // No active session - nothing to do
         };
+        crate::live_output_buffer::stop(stop_context.operation_id);
         let captured_profile_id = stop_context.captured_profile_id.clone();
         let current_app = stop_context.current_app.clone();
         let recording_settings = stop_context.recording_settings.clone();
@@ -13445,7 +14383,25 @@ pub fn preview_clear_action(app: AppHandle) -> Result<(), String> {
         }
     }
 
-    crate::overlay::reset_live_preview(&app);
+    let reset_preview = || {
+        crate::overlay::reset_live_preview(&app);
+        if crate::managers::preview_output_mode::is_active() {
+            crate::managers::preview_output_mode::set_recording_prefix_text(&app, String::new());
+            crate::managers::preview_output_mode::set_error(&app, None);
+        }
+    };
+    let elevenlabs = app.state::<Arc<ElevenLabsRealtimeManager>>();
+    let elevenlabs_active = elevenlabs.has_active_session();
+    if let Err(e) = elevenlabs.restart_session(|| {
+        if elevenlabs_active { reset_preview(); }
+    }) {
+        warn!("Failed to restart ElevenLabs Scribe v3 Live session: {}", e);
+    }
+    if let Err(e) = app.state::<Arc<GeminiRealtimeManager>>().restart_session(|| {
+        if !elevenlabs_active { reset_preview(); }
+    }) {
+        warn!("Failed to restart Gemini 3.5 Transcribe Live session: {}", e);
+    }
     if let Err(e) = app.state::<Arc<SonioxRealtimeManager>>().restart_session() {
         warn!("Failed to restart Soniox Realtime Session: {}", e);
     }
@@ -13462,20 +14418,10 @@ pub fn preview_clear_action(app: AppHandle) -> Result<(), String> {
         warn!("Failed to restart OpenAI Realtime Whisper Session: {}", e);
     }
     if let Err(e) = app
-        .state::<Arc<GeminiRealtimeManager>>()
-        .restart_session()
-    {
-        warn!("Failed to restart Gemini 3.5 Transcribe Live session: {}", e);
-    }
-    if let Err(e) = app
         .state::<Arc<Reson8RealtimeManager>>()
         .restart_session()
     {
         warn!("Failed to restart Reson8 Rumble-2 session: {}", e);
-    }
-    if crate::managers::preview_output_mode::is_active() {
-        crate::managers::preview_output_mode::set_recording_prefix_text(&app, String::new());
-        crate::managers::preview_output_mode::set_error(&app, None);
     }
     Ok(())
 }

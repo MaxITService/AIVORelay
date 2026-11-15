@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parseGeminiVocabulary } from "./vocabulary";
+import { parseGeminiVocabulary, validateGeminiVocabularyFile } from "./vocabulary";
 
 describe("parseGeminiVocabulary", () => {
   it.each([
@@ -57,5 +57,85 @@ describe("parseGeminiVocabulary", () => {
     const result = parseGeminiVocabulary("Gemini,,BigQuery");
     expect(result.normalizedTerms).toEqual(["Gemini", "BigQuery"]);
     expect(result.safeToPersist).toBe(false);
+  });
+
+  it("accepts Windows newline files with a UTF-8 BOM", () => {
+    const result = parseGeminiVocabulary("\uFEFFGemini\r\nKubernetes\r\nBigQuery\r\n");
+    expect(result.format).toBe("newline");
+    expect(result.normalizedTerms).toEqual(["Gemini", "Kubernetes", "BigQuery"]);
+    expect(result.errors).toEqual([]);
+    expect(result.safeToPersist).toBe(true);
+  });
+
+  it("retains commas inside quoted CSV terms", () => {
+    const result = parseGeminiVocabulary('"Acme, Inc.", Gemini');
+    expect(result.normalizedTerms).toEqual(["Acme, Inc.", "Gemini"]);
+    expect(result.safeToPersist).toBe(true);
+  });
+
+  it("reports the location of unexpected text after a closing CSV quote", () => {
+    const result = parseGeminiVocabulary('Gemini,"BigQuery"x');
+    expect(result.errors).toEqual([{
+      code: "csv_after_quote",
+      message: "Unexpected text after a closing quote.",
+      position: 18,
+    }]);
+    expect(result.safeToPersist).toBe(false);
+  });
+
+  it("rejects a quote embedded in an unquoted CSV term", () => {
+    const result = parseGeminiVocabulary('Gem"ini,BigQuery');
+    expect(result.errors).toEqual([{
+      code: "csv_quote",
+      message: "A quote must begin at the start of a CSV term.",
+      position: 4,
+    }]);
+    expect(result.safeToPersist).toBe(false);
+  });
+
+  it("rejects JSON objects instead of silently importing their properties", () => {
+    const result = parseGeminiVocabulary('{"terms":["Gemini"]}');
+    expect(result.format).toBe("json");
+    expect(result.normalizedTerms).toEqual([]);
+    expect(result.errors.map(issue => issue.code)).toEqual(["json_not_array"]);
+    expect(result.safeToPersist).toBe(false);
+  });
+
+  it("deduplicates trimmed terms while preserving distinct capitalization", () => {
+    const result = parseGeminiVocabulary('[" Gemini ", "Gemini", "gemini"]');
+    expect(result.normalizedTerms).toEqual(["Gemini", "gemini"]);
+    expect(result.warnings).toEqual([{
+      code: "duplicate",
+      message: "Duplicate term 'Gemini' was ignored; the first occurrence is retained.",
+      value: "Gemini",
+      position: 2,
+    }]);
+    expect(result.safeToPersist).toBe(true);
+  });
+
+  it("counts unique terms for the hard limit rather than duplicate input rows", () => {
+    const terms = Array.from({ length: 1000 }, (_, index) => `term-${index}`);
+    const result = parseGeminiVocabulary([...terms, "term-0"].join("\n"));
+    expect(result.normalizedTerms).toEqual(terms);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings.find(issue => issue.code === "duplicate")?.position).toBe(1001);
+    expect(result.safeToPersist).toBe(true);
+  });
+});
+
+describe("validateGeminiVocabularyFile", () => {
+  it("rejects empty files even though an empty vocabulary draft is safe to persist", () => {
+    expect(validateGeminiVocabularyFile("\uFEFF \r\n\t")).toBe("The file contains no terms.");
+    expect(validateGeminiVocabularyFile("[]")).toBe("The file contains no terms.");
+  });
+
+  it("rejects malformed imports even when they contain usable terms", () => {
+    expect(validateGeminiVocabularyFile("Gemini,,BigQuery"))
+      .toBe("Term 2 is empty. Remove the malformed separator or blank line.");
+  });
+
+  it("allows imports with duplicate and recommended-limit warnings", () => {
+    const terms = Array.from({ length: 101 }, (_, index) => `term-${index}`);
+    expect(validateGeminiVocabularyFile([...terms, "term-0"].join("\n"))).toBeNull();
   });
 });

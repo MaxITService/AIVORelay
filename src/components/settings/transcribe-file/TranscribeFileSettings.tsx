@@ -410,6 +410,9 @@ export const TranscribeFileSettings: React.FC = () => {
   const isReson8File =
     transcriptionProvider === "remote_openai_compatible" &&
     remotePreset === "reson8";
+  const isElevenLabsFile =
+    transcriptionProvider === "remote_openai_compatible" &&
+    remotePreset === "elevenlabs";
   const reson8SubtitleUnsupportedError =
     isReson8File && (outputFormat === "srt" || outputFormat === "vtt")
       ? t(
@@ -1747,6 +1750,11 @@ export const TranscribeFileSettings: React.FC = () => {
                       "transcribeFile.reson8.subtitlesUnsupported",
                       "Reson8 Rumble-2 does not support SRT/VTT subtitle timestamps in this integration. Select Text output.",
                     )
+                : isElevenLabsFile
+                  ? t(
+                      "transcribeFile.elevenlabs.outputFormatHint",
+                      "ElevenLabs File Transcription uses the scribe_v3 HTTP companion and supports accurate word-level timestamps for SRT and VTT subtitles.",
+                    )
                 : showRemoteProviderHint
                   ? t(
                       "transcribeFile.outputFormat.remoteHint",
@@ -1981,6 +1989,22 @@ export const TranscribeFileSettings: React.FC = () => {
                   </p>
                 </div>
               )}
+            {isElevenLabsFile && !infoMessage && (
+              <div className="mt-3 rounded-lg border border-cyan-400/35 bg-cyan-400/10 p-3">
+                <p className="text-xs font-medium text-cyan-200">
+                  {t(
+                    "transcribeFile.elevenlabs.companionNoticeTitle",
+                    "ElevenLabs File Transcription · scribe_v3 HTTP Companion",
+                  )}
+                </p>
+                <p className="mt-1 text-xs text-cyan-100/90">
+                  {t(
+                    "transcribeFile.elevenlabs.companionNotice",
+                    "File transcription with ElevenLabs automatically uses the scribe_v3 prerecorded HTTP companion endpoint (POST /v1/speech-to-text) even when scribe_v3_live is selected. Supports Text, SRT, and VTT subtitles with word-level timestamps, resolves the active profile/global language hint, and applies Custom Words locally after transcription when Apply Custom Words is enabled.",
+                  )}
+                </p>
+              </div>
+            )}
 
             {/* Custom Words Toggle */}
             <div className="mt-4 space-y-2">

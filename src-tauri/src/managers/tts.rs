@@ -6376,7 +6376,7 @@ mod tests {
         let soniox = soniox_catalog_entry(&json!({
             "id": "voice-id",
             "name": "Narrator",
-            "models": [{ "model": "tts-rt-v1", "status": "ready" }]
+            "models": [{ "model": "tts-rt-v2", "status": "ready" }]
         }))
         .unwrap();
         assert_eq!(soniox.id, "voice-id");

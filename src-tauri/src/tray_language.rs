@@ -1,4 +1,5 @@
 //! Profile-scoped tray language choices. Settings remain the source of truth.
+use crate::elevenlabs_language::is_supported_elevenlabs_language;
 use crate::language_detection::{engine_accepts_language, LanguageDetectionMode};
 use crate::language_resolver::is_soniox_supported_language;
 use crate::managers::model::{canonical_language_code, ModelManager};
@@ -13,6 +14,7 @@ use tauri::{AppHandle, Emitter, Manager};
 const PREFIX: &str = "profile_language:";
 const SPOKEN_AUTO: &str = "auto_spoken";
 const CONFIGURE: &str = "configure";
+const ELEVENLABS_PRESET: &str = "elevenlabs";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LanguageMenu {
@@ -60,6 +62,19 @@ fn apply_provider_language_scope(effective: &AppSettings, languages: &mut Vec<St
                 languages.push(code.to_string());
             }
         }
+    } else if effective.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible
+        && effective.remote_stt.provider_preset == ELEVENLABS_PRESET
+        && matches!(
+            effective
+                .remote_stt
+                .model_id
+                .trim()
+                .to_ascii_lowercase()
+                .as_str(),
+            "scribe_v3" | "scribe_v3_live"
+        )
+    {
+        languages.retain(|code| is_supported_elevenlabs_language(code));
     }
 }
 
@@ -399,6 +414,17 @@ mod tests {
         assert!(!soniox.contains(&"la".to_string()));
         assert!(!soniox.contains(&"ceb".to_string()));
         assert!(!soniox.contains(&"fy".to_string()));
+
+        settings.transcription_provider = TranscriptionProvider::RemoteOpenAiCompatible;
+        settings.remote_stt.provider_preset = "elevenlabs".to_string();
+        for model in ["scribe_v3", "scribe_v3_live"] {
+            settings.remote_stt.model_id = model.to_string();
+            let mut elevenlabs = unique(["en", "he", "tl", "yue", "zz"].map(str::to_string));
+            apply_provider_language_scope(&settings, &mut elevenlabs);
+            assert!(elevenlabs.contains(&"en".to_string()));
+            assert!(elevenlabs.contains(&"he".to_string()));
+            assert!(!elevenlabs.contains(&"zz".to_string()));
+        }
 
         settings.transcription_provider = TranscriptionProvider::RemoteOpenAiCompatible;
         settings.remote_stt.provider_preset = "custom".to_string();

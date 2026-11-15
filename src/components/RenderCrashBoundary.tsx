@@ -2,13 +2,17 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { commands } from "@/bindings";
 import { describeError, logRenderCrash } from "@/lib/frontendErrorLog";
+import { SilentCrashBoundary } from "./SilentCrashBoundary";
 import { Button } from "./ui/Button";
+import UpdateChecker from "./update-checker";
+import { useUpdateChecksLocked } from "@/hooks/useUpdateChecksLocked";
 
 const RenderCrashFallback: React.FC<{ section?: string; error: unknown }> = ({
   section,
   error,
 }) => {
   const { t } = useTranslation();
+  const updateChecksLocked = useUpdateChecksLocked();
   const card = (
     <div
       role="alert"
@@ -31,6 +35,15 @@ const RenderCrashFallback: React.FC<{ section?: string; error: unknown }> = ({
           {t("errors.renderCrash.openLogs")}
         </Button>
       </div>
+      {!section && updateChecksLocked === false && (
+        // The footer updater dies with the window, so offer it here: an
+        // update is often the only fix for a crash that survives a reload.
+        <div className="text-sm">
+          <SilentCrashBoundary where="crash screen update checker">
+            <UpdateChecker />
+          </SilentCrashBoundary>
+        </div>
+      )}
     </div>
   );
   if (section) return card;

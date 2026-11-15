@@ -11,6 +11,7 @@ import { sessionToast as toast } from "../../../lib/sessionToast";
 import { isMoonshineStreamingModel } from "../../model-selector/nativeStreamingModel";
 import { getModelPromptInfo } from "../TranscriptionSystemPrompt";
 import { ProfileScopedSttSettingsNotice } from "./ProfileScopedSttSettingsNotice";
+import { ModelCapabilityBadges } from "./ModelCapabilityBadges";
 
 const NATIVE_STREAMING_LATENCY_PRESETS: NativeStreamingLatencyPreset[] = [
   "fastest",
@@ -502,6 +503,9 @@ export const ModelMetadataPanel: React.FC<{
         ))}
       </div>
 
+      <ModelCapabilityBadges selection={{
+        provider: "local", provider_preset: "", model_id: model.id,
+      }} />
       {showProfileScopedSettings && (
         <ProfileScopedSttSettingsNotice
           features={[...profileScopedFeatures]}

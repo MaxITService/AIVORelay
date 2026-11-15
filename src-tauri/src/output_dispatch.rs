@@ -88,7 +88,10 @@ pub(crate) fn run_sync<T: Send + 'static>(
         let _ = sender.send(f());
     })?;
     receiver.recv_timeout(Duration::from_millis(timeout_ms))
-        .map_err(|error| format!("Timed out waiting for output task: {}", error))
+        .map_err(|error| match error {
+            mpsc::RecvTimeoutError::Timeout => format!("Timed out waiting for output task: {}", error),
+            mpsc::RecvTimeoutError::Disconnected => "Output task ended without returning a result".to_string(),
+        })
 }
 
 #[cfg(test)]
@@ -153,6 +156,15 @@ mod tests {
         release.send(()).unwrap();
         receiver.recv_timeout(Duration::from_millis(WAIT_MS))
             .expect("a timed-out task must still run in order");
+    }
+
+    #[test]
+    fn panicked_output_reports_a_missing_result_and_worker_accepts_the_next_task() {
+        let error = run_sync(WAIT_MS, || -> () { panic!("simulated output task failure"); })
+            .expect_err("a panicked task cannot return a result");
+        assert!(!error.starts_with("Timed out waiting for output task:"),
+            "a disconnected result channel is not work still queued: {}", error);
+        assert_eq!(run_sync(WAIT_MS, || 7).unwrap(), 7);
     }
 
     #[test]

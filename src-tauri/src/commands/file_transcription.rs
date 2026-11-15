@@ -1120,11 +1120,18 @@ async fn transcribe_audio_file_inner(
             if let Some(diarized_segments) = diarized_segments {
                 Some(diarized_segments)
             } else {
+                let remote_provider_label = if settings.remote_stt.provider_preset
+                    == crate::url_security::REMOTE_STT_PRESET_ELEVENLABS
+                {
+                    "ElevenLabs"
+                } else {
+                    "the selected remote model"
+                };
                 Some(post_process_remote_segments(
                     require_remote_segments(
                         transcript.segments,
                         &corrected,
-                        "the selected remote model",
+                        remote_provider_label,
                     )?,
                     &settings,
                     should_apply_custom_words,
@@ -2878,6 +2885,25 @@ mod tests {
         assert_eq!(
             profile.gemini_custom_vocabulary_override,
             Some(vec!["AIVORelay".to_string(), "Gemini".to_string()])
+        );
+    }
+
+    #[test]
+    fn elevenlabs_selection_supports_file_transcription_and_subtitle_segments() {
+        let mut settings = get_default_settings();
+        let elevenlabs = remote_selection("elevenlabs", "scribe_v3_live");
+        assert!(stt_model_selection_supports_file(&elevenlabs));
+
+        settings.active_profile_id = "profile_test".to_string();
+        settings
+            .transcription_profiles
+            .push(profile_with_selection(elevenlabs.clone()));
+        assert_eq!(compatible_initial_file_selection(&settings), elevenlabs);
+
+        let err = require_remote_segments(Vec::new(), "Hello world", "ElevenLabs").unwrap_err();
+        assert_eq!(
+            err,
+            "ElevenLabs returned transcript text without timestamps. Select Text output instead of SRT/VTT."
         );
     }
 }

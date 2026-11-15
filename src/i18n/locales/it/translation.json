@@ -499,7 +499,8 @@
       },
       "updateChecks": {
         "label": "Controlla aggiornamenti",
-        "description": "Controlla automaticamente la disponibilità di nuove versioni di AivoRelay"
+        "description": "Controlla automaticamente la disponibilità di nuove versioni di AivoRelay",
+        "lockedDescription": "Disabilitato dalla configurazione di sistema (AIVORELAY_DISABLE_UPDATER)"
       },
       "soundTheme": {
         "label": "Tema Sonoro",
@@ -606,7 +607,10 @@
     "downloading": "Download... {{progress}}%",
     "installing": "Installazione...",
     "preparing": "Preparazione...",
-    "checkForUpdates": "Controlla aggiornamenti"
+    "checkForUpdates": "Controlla aggiornamenti",
+    "portableUpdateTitle": "Aggiornamento manuale richiesto",
+    "portableUpdateMessage": "La versione portatile non può aggiornarsi da sola. Scarica ed esegui il programma di installazione MSI firmato. La cartella Data portatile esistente non verrà eliminata.",
+    "portableUpdateButton": "Scarica il programma di installazione"
   },
   "common": {
     "retry": "Riprova",

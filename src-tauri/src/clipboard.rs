@@ -91,6 +91,9 @@ struct DictationOutputSession {
     delivered: bool,
     failed: bool,
     chunk_error: Option<String>,
+    // Captured at recording start: cancellation must never turn a protected
+    // chunk into an ordinary paste when its live buffer disappears.
+    live_buffer_required: bool,
     held_whitespace: HeldTrailingWhitespace,
 }
 
@@ -127,7 +130,7 @@ pub(crate) const OPENING_KEY_NOT_PRESSED_ERROR: &str =
 const MAX_DICTATION_OUTPUT_SESSIONS: usize = 4;
 
 impl DictationOutputSessions {
-    fn begin(&mut self, operation_id: u64, settings: Option<ResolvedOutputSettings>) {
+    fn begin(&mut self, operation_id: u64, settings: Option<ResolvedOutputSettings>, live_buffer_required: bool) {
         self.current_operation_id = Some(operation_id);
         self.take(operation_id);
         if let Some(settings) = settings {
@@ -136,7 +139,7 @@ impl DictationOutputSessions {
             }
             self.sessions.push(DictationOutputSession {
                 operation_id, settings, delivered: false, failed: false, chunk_error: None,
-                held_whitespace: HeldTrailingWhitespace::default(),
+                live_buffer_required, held_whitespace: HeldTrailingWhitespace::default(),
             });
         }
     }
@@ -153,12 +156,12 @@ impl DictationOutputSessions {
         self.get(self.current_operation_id?)
     }
 
-    fn output_for_chunk(&self, operation_id: Option<u64>) -> Option<(u64, ResolvedOutputSettings)> {
+    fn output_for_chunk(&self, operation_id: Option<u64>) -> Option<(u64, ResolvedOutputSettings, bool)> {
         let session = match operation_id {
             Some(id) => self.get(id),
             None => self.current(),
         }?;
-        Some((session.operation_id, session.settings.clone()))
+        Some((session.operation_id, session.settings.clone(), session.live_buffer_required))
     }
 
     fn take(&mut self, operation_id: u64) -> Option<DictationOutputSession> {
@@ -167,7 +170,7 @@ impl DictationOutputSessions {
     }
 
     fn cancel_current(&mut self) {
-        if let Some(operation_id) = self.current_operation_id {
+        if let Some(operation_id) = self.current_operation_id.take() {
             self.take(operation_id);
         }
     }
@@ -194,10 +197,13 @@ pub(crate) fn begin_dictation_output_session(
     operation_id: u64,
     settings: Option<ResolvedOutputSettings>,
 ) {
-    lock_dictation_output_sessions().begin(operation_id, settings);
+    // Read the live buffer before taking the output-session lock: delivery
+    // takes those locks in the opposite direction while recording success.
+    let live_buffer_required = crate::live_output_buffer::enabled(operation_id);
+    lock_dictation_output_sessions().begin(operation_id, settings, live_buffer_required);
 }
 
-fn current_dictation_output() -> Option<(u64, ResolvedOutputSettings)> {
+fn current_dictation_output() -> Option<(u64, ResolvedOutputSettings, bool)> {
     lock_dictation_output_sessions().output_for_chunk(None)
 }
 
@@ -2703,9 +2709,10 @@ pub(crate) fn send_early_session_submit(
     }
 }
 
-/// After a background finalization released the streaming clipboard session, the
-/// whitespace goes through the fallback paste. It must not replace the clipboard there.
-fn trailing_whitespace_output(settings: &ResolvedOutputSettings) -> ResolvedOutputSettings {
+/// After finalization released the streaming clipboard session, trailing
+/// whitespace or a delayed protected suffix must preserve the complete transcript
+/// already published to the clipboard instead of replacing it with that suffix.
+fn streaming_fallback_output(settings: &ResolvedOutputSettings) -> ResolvedOutputSettings {
     let mut output = settings.clone();
     if !restores_clipboard_contents(output.clipboard_handling) {
         output.clipboard_handling = ClipboardHandling::RestorePlainText;
@@ -2723,7 +2730,7 @@ pub(crate) fn complete_dictation_output(
     // Consume the configuration before delivery so every return path,
     // including an interrupted delay or clipboard error, releases it.
     let config = lock_dictation_output_sessions().take(operation_id);
-    let Some(DictationOutputSession { settings, mut delivered, failed, chunk_error, mut held_whitespace, .. }) = config else {
+    let Some(DictationOutputSession { settings, mut delivered, failed, chunk_error, live_buffer_required, mut held_whitespace, .. }) = config else {
         return finalize_streaming_paste_session_if_matches(app, operation_id, final_text);
     };
     if !can_continue() || final_text.trim().is_empty() {
@@ -2785,13 +2792,13 @@ pub(crate) fn complete_dictation_output(
     // Same route as chunks, and before `finish`, so ordering and window protection hold.
     let trailing = held_whitespace.resolve(settings.trailing_whitespace_mode);
     if !trailing.is_empty() && settings.paste_method != PasteMethod::None {
-        let protected = crate::live_output_buffer::enabled(operation_id)
-            && crate::live_output_buffer::enqueue(app, operation_id, trailing.clone()).is_some();
+        let protected = route_live_buffer_chunk(live_buffer_required, ||
+            crate::live_output_buffer::enqueue(app, operation_id, trailing.clone())).is_some();
         if !protected {
             // Only trailing whitespace: the dictated text itself is already in, so a failure
             // here is logged and does not mark the dictation as undelivered.
-            let output = trailing_whitespace_output(&settings);
-            match paste_stream_chunk_with_output(trailing, app.clone(), Some(&output), Some(operation_id), None) {
+            let output = streaming_fallback_output(&settings);
+            match paste_stream_chunk_with_output(trailing, app.clone(), Some(&output), Some(operation_id), None, || true) {
                 Ok(()) => delivered = true,
                 Err(error) => warn!("Trailing whitespace after live dictation was not inserted: {}", error),
             }
@@ -3006,18 +3013,36 @@ pub(crate) fn paste_stream_chunk_for_recording(
     paste_stream_chunk_for_output(text, app_handle, output, scope)
 }
 
+/// A missing protected buffer means this operation ended, never permission to
+/// fall back to the current foreground window.
+fn route_live_buffer_chunk(
+    required: bool,
+    enqueue: impl FnOnce() -> Option<Result<(), String>>,
+) -> Option<Result<(), String>> {
+    required.then(|| enqueue().unwrap_or_else(|| Err(TARGET_WINDOW_CHANGED_ERROR.to_string())))
+}
+
+fn streaming_output_allows_delivery(
+    can_continue: &impl Fn() -> bool,
+    check_active_window: bool,
+    target_window: Option<usize>,
+    current_window: impl FnOnce() -> Option<usize>,
+) -> bool {
+    can_continue() && output_target_allows_delivery(check_active_window, target_window, current_window)
+}
+
 fn paste_stream_chunk_for_output(
     text: String,
     app_handle: AppHandle,
-    output: Option<(u64, ResolvedOutputSettings)>,
+    output: Option<(u64, ResolvedOutputSettings, bool)>,
     operation_id: Option<u64>,
 ) -> Result<(), String> {
-    if output.as_ref().is_some_and(|(_, settings)| settings.buffers_external_output()) {
+    if output.as_ref().is_some_and(|(_, settings, _)| settings.buffers_external_output()) {
         return Ok(());
     }
     // Opening key pressed at start: chunks wait in the live buffer for the key and its
     // delay. If the key failed or the recording ended, nothing is inserted (History keeps it).
-    if let Some((operation_id, settings)) = output.as_ref() {
+    if let Some((operation_id, settings, _)) = output.as_ref() {
         match settings.early_opening_key.settled_state() {
             crate::early_open::EarlyKeyState::Idle | crate::early_open::EarlyKeyState::Pressed { .. } => {}
             crate::early_open::EarlyKeyState::Waiting
@@ -3028,7 +3053,7 @@ fn paste_stream_chunk_for_output(
     // Hold back trailing whitespace before any protected-window redirect.
     // Without a session there is no finalizer, so the chunk is inserted whole.
     let text = match output.as_ref() {
-        Some((operation_id, settings)) => match lock_dictation_output_sessions().get_mut(*operation_id) {
+        Some((operation_id, settings, _)) => match lock_dictation_output_sessions().get_mut(*operation_id) {
             Some(session) => session.held_whitespace.push(settings.trailing_whitespace_mode, text),
             None => text,
         },
@@ -3037,16 +3062,15 @@ fn paste_stream_chunk_for_output(
     if text.is_empty() {
         return Ok(());
     }
-    if let Some((operation_id, _)) = output.as_ref() {
-        if crate::live_output_buffer::enabled(*operation_id) {
-            if let Some(result) = crate::live_output_buffer::enqueue(&app_handle, *operation_id, text.clone()) {
-                return result;
-            }
+    if let Some((operation_id, _, required)) = output.as_ref() {
+        if let Some(result) = route_live_buffer_chunk(*required, ||
+            crate::live_output_buffer::enqueue(&app_handle, *operation_id, text.clone())) {
+            return result;
         }
     }
     let has_text = !text.is_empty();
-    let result = paste_stream_chunk_with_output(text, app_handle, output.as_ref().map(|(_, settings)| settings), operation_id, None);
-    if let Some((operation_id, _)) = output {
+    let result = paste_stream_chunk_with_output(text, app_handle, output.as_ref().map(|(_, settings, _)| settings), operation_id, None, || true);
+    if let Some((operation_id, _, _)) = output {
         if let Some(session) = lock_dictation_output_sessions().get_mut(operation_id) {
             session.record_chunk_result(&result, has_text);
         }
@@ -3061,7 +3085,9 @@ pub(crate) fn paste_live_buffer_text(
     operation_id: u64,
     target_window: Option<usize>,
 ) -> Result<(), String> {
-    paste_stream_chunk_with_output(text, app, Some(settings), Some(operation_id), target_window)
+    let output = streaming_fallback_output(settings);
+    paste_stream_chunk_with_output(text, app, Some(&output), Some(operation_id), target_window,
+        || crate::live_output_buffer::allows_delivery(operation_id))
 }
 
 pub(crate) fn mark_live_buffer_delivered(operation_id: u64) {
@@ -3076,6 +3102,7 @@ fn paste_stream_chunk_with_output(
     output: Option<&ResolvedOutputSettings>,
     operation_id: Option<u64>,
     pinned_target_window: Option<usize>,
+    can_continue: impl Fn() -> bool,
 ) -> Result<(), String> {
     if text.is_empty() {
         return Ok(());
@@ -3120,9 +3147,8 @@ fn paste_stream_chunk_with_output(
     let target_window = if check_active_window {
         pinned_target_window.or_else(output_foreground_window)
     } else { None };
-    let target_is_current = || (pinned_target_window.is_none()
-        || operation_id.is_some_and(crate::live_output_buffer::allows_delivery))
-        && output_target_allows_delivery(check_active_window, target_window, output_foreground_window);
+    let target_is_current = || streaming_output_allows_delivery(
+        &can_continue, check_active_window, target_window, output_foreground_window);
     if !target_is_current() {
         return Err(TARGET_WINDOW_CHANGED_ERROR.to_string());
     }
@@ -3587,7 +3613,7 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
         let mut settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
         settings.before_insert_key = "enter".to_string();
         let mut sessions = DictationOutputSessions::default();
-        sessions.begin(7, Some(settings));
+        sessions.begin(7, Some(settings), false);
         sessions.get_mut(7).unwrap().delivered = true;
 
         let finished = sessions.take(7).unwrap();
@@ -3601,7 +3627,7 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
     fn streaming_error_keeps_its_reason_after_later_chunks_and_session_cleanup() {
         let settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
         let mut sessions = DictationOutputSessions::default();
-        sessions.begin(7, Some(settings));
+        sessions.begin(7, Some(settings), false);
         let session = sessions.get_mut(7).unwrap();
         session.record_chunk_result(&Err(ELEVATION_BLOCKED_ERROR.to_string()), true);
         session.record_chunk_result(&Err("Later clipboard failure".to_string()), true);
@@ -3618,7 +3644,7 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
     fn stale_dictation_output_cleanup_preserves_the_new_operation() {
         let settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
         let mut sessions = DictationOutputSessions::default();
-        sessions.begin(8, Some(settings));
+        sessions.begin(8, Some(settings), false);
         sessions.get_mut(8).unwrap().failed = true;
 
         assert!(sessions.take(7).is_none());
@@ -3633,8 +3659,8 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
         let mut buffered = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
         buffered.auto_submit = true;
         let mut sessions = DictationOutputSessions::default();
-        sessions.begin(7, Some(buffered));
-        sessions.begin(8, None);
+        sessions.begin(7, Some(buffered), false);
+        sessions.begin(8, None, false);
 
         // Live chunks follow the newest recording; 7 keeps its final delivery.
         assert!(sessions.current().is_none());
@@ -3642,7 +3668,7 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
 
         let settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
         for operation_id in 10..20 {
-            sessions.begin(operation_id, Some(settings.clone()));
+            sessions.begin(operation_id, Some(settings.clone()), false);
         }
         assert_eq!(sessions.sessions.len(), MAX_DICTATION_OUTPUT_SESSIONS);
         assert_eq!(sessions.current().unwrap().operation_id, 19);
@@ -3657,9 +3683,9 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
         new_settings.paste_method = PasteMethod::CtrlV;
 
         let mut sessions = DictationOutputSessions::default();
-        sessions.begin(7, Some(old_settings));
+        sessions.begin(7, Some(old_settings), false);
         // Background finalization keeps 7's settings while 8 becomes current.
-        sessions.begin(8, Some(new_settings));
+        sessions.begin(8, Some(new_settings), false);
 
         assert_eq!(sessions.output_for_chunk(Some(7)).unwrap().1.paste_method, PasteMethod::None);
         assert_eq!(sessions.output_for_chunk(None).unwrap().1.paste_method, PasteMethod::CtrlV);
@@ -3671,23 +3697,63 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
     fn cancel_skips_queued_chunks_but_not_the_next_recording() {
         let settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
         let mut sessions = DictationOutputSessions::default();
-        sessions.begin(7, Some(settings.clone()));
+        sessions.begin(7, Some(settings.clone()), false);
         sessions.cancel_current();
         assert!(sessions.output_for_chunk(Some(7)).is_none(), "a chunk of the cancelled recording must be skipped");
 
         // The clipboard restore runs later on the output worker and must not touch 8.
-        sessions.begin(8, Some(settings));
+        sessions.begin(8, Some(settings), false);
         assert_eq!(sessions.output_for_chunk(Some(8)).unwrap().0, 8);
         assert_eq!(sessions.output_for_chunk(None).unwrap().0, 8);
+    }
+
+    #[test]
+    fn cancel_clears_current_operation_so_queued_chunks_cannot_fall_back() {
+        let settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
+        let mut sessions = DictationOutputSessions::default();
+        sessions.begin(7, Some(settings), true);
+        sessions.cancel_current();
+        assert_eq!(sessions.current_operation_id, None);
+        assert!(sessions.output_for_chunk(None).is_none());
+    }
+
+    #[test]
+    fn protected_chunk_snapshot_cannot_fall_back_after_cancel_or_replacement() {
+        let settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
+        let mut sessions = DictationOutputSessions::default();
+        sessions.begin(7, Some(settings.clone()), true);
+        let old_chunk = sessions.output_for_chunk(Some(7)).unwrap();
+        sessions.cancel_current();
+        sessions.begin(8, Some(settings), false);
+        // The callback already captured 7 before Cancel cleared its buffer.
+        // A missing buffer must return an interruption, never ordinary-paste routing.
+        assert!(route_live_buffer_chunk(old_chunk.2, || None).unwrap().is_err());
+        assert!(route_live_buffer_chunk(old_chunk.2, || Some(Ok(()))).unwrap().is_ok());
+        assert!(route_live_buffer_chunk(sessions.output_for_chunk(Some(8)).unwrap().2,
+            || panic!("ordinary output has no protected-buffer dependency")).is_none());
+    }
+
+    #[test]
+    fn buffered_paste_delay_observes_cancel_even_without_active_window_checks() {
+        let checks = std::cell::Cell::new(0);
+        assert!(!wait_for_output_delay(5000, &|| streaming_output_allows_delivery(
+            &|| { checks.set(checks.get() + 1); checks.get() < 3 },
+            false, None, || panic!("window checks are disabled"),
+        )));
+        assert_eq!(checks.get(), 3);
+        assert!(!streaming_output_allows_delivery(&|| false, true, Some(1),
+            || panic!("cancelled output must not query the foreground window")));
+        assert!(streaming_output_allows_delivery(&|| true, false, None,
+            || panic!("window checks are disabled")));
     }
 
     #[test]
     fn late_finalization_types_no_trailing_space_into_a_newer_recording() {
         let settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
         let mut sessions = DictationOutputSessions::default();
-        sessions.begin(7, Some(settings.clone()));
+        sessions.begin(7, Some(settings.clone()), false);
         sessions.get_mut(7).unwrap().held_whitespace.push(OutputWhitespaceMode::AddIfMissing, "done".to_string());
-        sessions.begin(8, Some(settings));
+        sessions.begin(8, Some(settings), false);
         sessions.get_mut(8).unwrap().held_whitespace.push(OutputWhitespaceMode::AddIfMissing, "new ".to_string());
 
         sessions.drop_held_whitespace(7);
@@ -3699,9 +3765,9 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
     fn trailing_whitespace_never_replaces_the_clipboard() {
         let mut settings = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
         settings.clipboard_handling = ClipboardHandling::KeepTranscription;
-        assert_eq!(trailing_whitespace_output(&settings).clipboard_handling, ClipboardHandling::RestorePlainText);
+        assert_eq!(streaming_fallback_output(&settings).clipboard_handling, ClipboardHandling::RestorePlainText);
         settings.clipboard_handling = ClipboardHandling::RestoreAdvancedOwned;
-        assert_eq!(trailing_whitespace_output(&settings).clipboard_handling, ClipboardHandling::RestoreAdvancedOwned);
+        assert_eq!(streaming_fallback_output(&settings).clipboard_handling, ClipboardHandling::RestoreAdvancedOwned);
     }
 
     fn pushed(held: &mut HeldTrailingWhitespace, mode: OutputWhitespaceMode, chunks: &[&str]) -> Vec<String> {

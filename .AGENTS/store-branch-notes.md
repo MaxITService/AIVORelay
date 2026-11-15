@@ -25,13 +25,19 @@ Implementation anchors:
 - Updater/package behavior: `src-tauri/tauri.conf.json`
 - CPU baseline: `src-tauri/.cargo/config.toml`
 
+## Shared Application Source
+
+From 1.0.54, `src/`, `src-tauri/src/`, and `src-tauri/build.rs` are identical to main. The branch-local `src-tauri/app-edition` contains `store`; main contains `standard`. The marker is compiled into the binary and never depends on the working directory or Git branch at runtime.
+
+Store MSI/ZIP and MSIX all disable self-update and adjacent portable data storage through `distribution.rs`. Installer/ZIP detection is independent of edition. The Store build guard rejects nonempty updater endpoints or enabled updater artifacts. Keep AVX2, signing, packaging, lockfiles and agent documentation branch-local.
+
 ## Updater Boundary
 
 - Microsoft Store delivery must not depend on AivoRelay self-update endpoints or updater artifacts.
 - The shared `UpdateChecker` component and Tauri updater plugin still exist in this branch. Do not claim that the updater UI or plugin was completely removed.
-- Store intentionally omits the portable-install fallback command, `portableInstaller.*`, and its translation strings.
+- Portable updater helpers and translations are shared source. They are unreachable in Store because the edition locks update checks before any request or updater UI can run.
 - Updater-only changes from `main` require manual review; do not propagate them automatically.
-- The crash recovery screen must not mount `UpdateChecker` or its optional updater boundary. Keep recovery/log actions, shared frontend logging, and overlay crash boundaries. Later mixed commits must preserve this exclusion.
+- The common crash recovery screen mounts the updater only when the backend explicitly reports update checks unlocked. Store remains limited to recovery/log actions; loading or query failures also keep the updater unmounted.
 - The Store lockfiles currently retain updater `2.10.0` while `main` uses `2.10.1`. This is reviewed version drift, not a permanent API contract.
 
 ## CPU And Architecture Boundary

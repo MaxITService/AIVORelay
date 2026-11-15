@@ -587,6 +587,83 @@ mod tests {
     use super::*;
 
     #[test]
+    fn empty_cleanup_output_identifies_the_failed_part_instead_of_losing_source_text() {
+        for output in ["", " \n\t "] {
+            let error = validate_cleaned_chunk_output("Source narration", output, 2, 3)
+                .unwrap_err();
+            assert!(error.to_string().contains("empty text for part 2/3"));
+        }
+    }
+
+    #[test]
+    fn cleanup_expansion_limit_counts_unicode_characters_at_the_exact_boundary() {
+        let input = "文".repeat(1_000);
+        assert!(validate_cleaned_chunk_output(&input, &"界".repeat(5_096), 1, 1).is_ok());
+        let error = validate_cleaned_chunk_output(&input, &"界".repeat(5_097), 1, 1)
+            .unwrap_err();
+        assert!(error.to_string().contains("5096-character safety limit"));
+    }
+
+    #[test]
+    fn cleanup_byte_limit_includes_utf8_and_the_inter_chunk_separator() {
+        assert_eq!(checked_total_output_bytes(0, "界", false, 3).unwrap(), 3);
+        assert_eq!(checked_total_output_bytes(3, "界", true, 8).unwrap(), 8);
+        let error = checked_total_output_bytes(3, "界", true, 7).unwrap_err();
+        assert!(error.to_string().contains("7-byte processed-text safety limit"));
+    }
+
+    #[test]
+    fn cleanup_size_overflow_is_rejected_without_allocating_an_oversized_output() {
+        for (current, output, has_previous) in [
+            (usize::MAX, "x", false),
+            (usize::MAX - 1, "", true),
+        ] {
+            let error = checked_total_output_bytes(current, output, has_previous, usize::MAX)
+                .unwrap_err();
+            assert!(error.to_string().contains("size overflowed"));
+        }
+    }
+
+    #[test]
+    fn cleanup_fingerprint_survives_key_rotation_and_retry_changes_but_tracks_the_model() {
+        let mut config = ResolvedTtsLlmConfig {
+            provider: PostProcessProvider {
+                id: "custom".to_string(),
+                label: "Custom".to_string(),
+                base_url: "https://cleanup.example.test/v1".to_string(),
+                allow_base_url_edit: true,
+                allow_insecure_http: false,
+                models_endpoint: None,
+            },
+            api_key: "test-original-key".to_string(),
+            model: "cleanup-model".to_string(),
+            prompt_id: "cleanup-prompt".to_string(),
+            instructions: "Preserve narration while removing page numbers.".to_string(),
+            reasoning: ReasoningConfig::from_user_toggle(false, 1_024),
+            chunk_target_chars: 1_000,
+            retry_count: 1,
+            retry_base_delay_ms: 750,
+            request_timeout: Duration::from_secs(60),
+        };
+        let chunks = vec![TtsChunk {
+            index: 1,
+            text: "Hello".to_string(),
+            character_count: 5,
+            boundary_after: TtsBoundary::End,
+        }];
+        let original = cleanup_fingerprint(&config, &chunks).unwrap();
+
+        config.api_key = "test-rotated-key".to_string();
+        config.retry_count = 5;
+        config.retry_base_delay_ms = 1_500;
+        config.request_timeout = Duration::from_secs(120);
+        assert_eq!(cleanup_fingerprint(&config, &chunks).unwrap(), original);
+
+        config.model = "different-cleanup-model".to_string();
+        assert_ne!(cleanup_fingerprint(&config, &chunks).unwrap(), original);
+    }
+
+    #[test]
     fn retry_classification_does_not_retry_quota_or_auth_errors() {
         assert!(!is_retryable_error(
             "API request failed with status 429: insufficient_quota"

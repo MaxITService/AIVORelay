@@ -15,7 +15,7 @@ describe("TTS voice gallery", () => {
     const entry = TTS_VOICE_GALLERY.find((voice) => voice.id === "openai-marin")!;
     const current = {
       provider: "soniox" as TtsProvider,
-      model: "tts-rt-v1",
+      model: "tts-rt-v2",
       preprocessing_enabled: false,
       preprocessing_rules: [] as Array<{ from: string; to: string }>,
       target_chars: 200,

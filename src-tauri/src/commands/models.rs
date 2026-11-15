@@ -561,8 +561,18 @@ pub async fn get_available_models(
 #[specta::specta]
 pub fn take_missing_model_selection_notice(
     model_manager: State<'_, Arc<ModelManager>>,
-) -> Option<(String, Option<String>)> {
+) -> Option<crate::managers::model::MissingModelSelectionNotice> {
     model_manager.take_missing_selection_notice()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_auto_switch_unavailable_model(app: AppHandle, enabled: bool) {
+    let mut settings = get_settings(&app);
+    if settings.auto_switch_unavailable_model != enabled {
+        settings.auto_switch_unavailable_model = enabled;
+        write_settings(&app, settings);
+    }
 }
 
 #[tauri::command]
@@ -800,10 +810,18 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
     let previous_model_id = settings.selected_model.clone();
     let previous_provider = settings.transcription_provider;
     let previous_language = settings.selected_language.clone();
+    let previous_recent_models = settings.recent_local_models.clone();
 
     let mut updated_settings = settings;
     updated_settings.selected_model = model_id.to_string();
     updated_settings.transcription_provider = TranscriptionProvider::Local;
+    if model_info.is_downloaded {
+        // Remember what the user actually used, so another build can fall back to it.
+        crate::managers::model::push_recent_model(
+            &mut updated_settings.recent_local_models,
+            model_id,
+        );
+    }
 
     // Reset unsupported language selections so backend engines like Canary
     // never receive stale language codes from the previously active model.
@@ -865,6 +883,7 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
         reverted_settings.selected_model = previous_model_id;
         reverted_settings.transcription_provider = previous_provider;
         reverted_settings.selected_language = previous_language;
+        reverted_settings.recent_local_models = previous_recent_models;
         write_settings(app, reverted_settings);
         tray::refresh_tray_menu(app, None);
         return Err(err.to_string());

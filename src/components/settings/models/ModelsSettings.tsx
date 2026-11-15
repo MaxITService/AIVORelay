@@ -24,6 +24,7 @@ import { SettingsGroup } from "../../ui/SettingsGroup";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { RemoteSttSettings } from "../remote-stt/RemoteSttSettings";
 import { ModelMetadataPanel } from "./ModelMetadataPanel";
+import { ModelCapabilityBadges } from "./ModelCapabilityBadges";
 import { ModelSelectionProfileNotice } from "./ModelSelectionProfileNotice";
 import { ModelFilterBar } from "./ModelFilterBar";
 import { ModelReleaseDate } from "../../shared/ModelReleaseDate";
@@ -40,6 +41,7 @@ import { readModelLanguagePreference, saveModelLanguagePreference } from "@/comp
 import { modelLanguageGrades } from "@/components/onboarding/modelGrades";
 import {
   getRemoteApiRows,
+  resolveRemoteApiRow,
   resolveRemoteApiSelection,
   type RemoteApiRow,
   type RemoteApiRowId,
@@ -251,6 +253,8 @@ export const ModelsSettings: React.FC = () => {
             : "gemini_transcribe")
         : remotePreset === "reson8"
           ? "reson8"
+        : remotePreset === "elevenlabs"
+          ? "elevenlabs"
         : remotePreset === "custom"
           ? "custom"
           : remoteModelId === "gpt-transcribe"
@@ -526,6 +530,7 @@ export const ModelsSettings: React.FC = () => {
   const renderRemoteApiRows = (rows: RemoteApiRow[]) =>
     rows.map((row) => {
       const isActive = activeRemoteApiId === row.id;
+      const cardModel = resolveRemoteApiRow(row, remotePreset);
       const selectionPlan = resolveRemoteApiSelection(row, {
         isCustomProfile: Boolean(activeProfile),
         currentEffectivePreset: remotePreset,
@@ -552,7 +557,15 @@ export const ModelsSettings: React.FC = () => {
                     </span>
                   )}
                 </div>
-                {(isActive || row.notRecommended || row.id === "reson8") && (
+                <ModelCapabilityBadges selection={{
+                  provider: "remote_openai_compatible",
+                  provider_preset: cardModel.preset,
+                  model_id: cardModel.modelId || "",
+                }} />
+                {(isActive ||
+                  row.notRecommended ||
+                  row.id === "reson8" ||
+                  row.id === "elevenlabs") && (
                   <p className="text-xs text-[#a0a0a0] mt-1">
                     {row.notRecommended && (
                       <>
@@ -586,6 +599,7 @@ export const ModelsSettings: React.FC = () => {
                   type="button"
                   variant="secondary"
                   size="sm"
+                  className="shrink-0 whitespace-nowrap"
                   onClick={openDefaultProfile}
                 >
                   {t("modelSelector.openDefaultProfile")}
@@ -617,8 +631,8 @@ export const ModelsSettings: React.FC = () => {
               : ""
           }`}
         >
-          <div className="flex items-center justify-between">
-            <div className="min-w-0">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <Radio className="w-4 h-4 text-teal-400" />
                 <p className="text-sm font-medium text-[#f5f5f5]">
@@ -630,6 +644,9 @@ export const ModelsSettings: React.FC = () => {
                   </span>
                 )}
               </div>
+              <ModelCapabilityBadges selection={{
+                provider: "remote_soniox", provider_preset: "", model_id: "stt-rt-v6",
+              }} />
               {effectiveTranscriptionProvider === "remote_soniox" && (
                 <p className="text-xs text-[#a0a0a0] mt-1">
                   {t("modelSelector.remoteSonioxModeDescription")}
@@ -640,6 +657,7 @@ export const ModelsSettings: React.FC = () => {
               <Button
                 variant="secondary"
                 size="sm"
+                className="shrink-0 whitespace-nowrap"
                 onClick={() =>
                   void handleRemoteProviderSelect(
                     "remote_soniox",
@@ -674,8 +692,8 @@ export const ModelsSettings: React.FC = () => {
               : ""
           }`}
         >
-          <div className="flex items-center justify-between">
-            <div className="min-w-0">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <Radio className="w-4 h-4 text-cyan-400" />
                 <p className="text-sm font-medium text-[#f5f5f5]">
@@ -687,6 +705,9 @@ export const ModelsSettings: React.FC = () => {
                   </span>
                 )}
               </div>
+              <ModelCapabilityBadges selection={{
+                provider: "remote_deepgram", provider_preset: "", model_id: "nova-3",
+              }} />
               {effectiveTranscriptionProvider === "remote_deepgram" && (
                 <p className="text-xs text-[#a0a0a0] mt-1">
                   {t(
@@ -700,6 +721,7 @@ export const ModelsSettings: React.FC = () => {
               <Button
                 variant="secondary"
                 size="sm"
+                className="shrink-0 whitespace-nowrap"
                 onClick={() =>
                   void handleRemoteProviderSelect(
                     "remote_deepgram",
@@ -911,7 +933,7 @@ export const ModelsSettings: React.FC = () => {
                   isActive ? "bg-green-500/5" : ""
                 }`}
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span
                       title={t("modelSelector.downloadedTooltip", "Downloaded")}
@@ -960,11 +982,12 @@ export const ModelsSettings: React.FC = () => {
                   />
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   {!isActive && (
                     <Button
                       variant="secondary"
                       size="sm"
+                      className="shrink-0 whitespace-nowrap"
                       onClick={() => handleSelectModel(model.id)}
                       disabled={isSwitching || isDeleting}
                     >
@@ -1015,7 +1038,7 @@ export const ModelsSettings: React.FC = () => {
               key={model.id}
               className="px-6 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
             >
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-[#f5f5f5]">
                   <ModelReleaseDate
                     modelId={model.id}
@@ -1057,11 +1080,12 @@ export const ModelsSettings: React.FC = () => {
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 {!isActive && (
                   <Button
                     variant="secondary"
                     size="sm"
+                    className="shrink-0 whitespace-nowrap"
                     onClick={() => handleSelectModel(model.id)}
                     disabled={isSwitching || isExtracting}
                   >
@@ -1074,6 +1098,7 @@ export const ModelsSettings: React.FC = () => {
                   <Button
                     variant="secondary"
                     size="sm"
+                    className="shrink-0 whitespace-nowrap"
                     onClick={() => cancelDownload(model.id)}
                   >
                     {t("common.cancel")}
@@ -1082,6 +1107,7 @@ export const ModelsSettings: React.FC = () => {
                   <Button
                     variant="primary"
                     size="sm"
+                    className="shrink-0 whitespace-nowrap"
                     onClick={() => handleDownloadModel(model.id)}
                     disabled={isExtracting}
                   >

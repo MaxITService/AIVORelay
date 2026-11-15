@@ -195,6 +195,98 @@ pub fn get_format_extension(format: OutputFormat) -> &'static str {
 mod tests {
     use super::*;
 
+    fn timed_token(start: f32, end: f32, text: &str) -> TimedTranscriptToken {
+        TimedTranscriptToken {
+            start,
+            end,
+            text: text.to_string(),
+            prepend_space: true,
+        }
+    }
+
+    #[test]
+    fn invalid_timestamps_are_skipped_without_losing_adjacent_valid_words() {
+        let tokens = vec![
+            timed_token(0.0, 0.25, "valid"),
+            timed_token(f32::NAN, 0.5, "nan"),
+            timed_token(0.25, f32::INFINITY, "infinite"),
+            timed_token(-0.25, 0.5, "negative"),
+            timed_token(0.75, 0.5, "reversed"),
+            timed_token(0.25, 0.5, ""),
+            timed_token(1.0, 1.25, "tail"),
+        ];
+
+        let segments = timed_tokens_to_subtitle_segments(&tokens);
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].text, "valid tail");
+        assert_eq!(segments[0].start, 0.0);
+        assert_eq!(segments[0].end, 1.25);
+    }
+
+    #[test]
+    fn overlapping_word_timings_cannot_shorten_a_subtitle_cue() {
+        let tokens = vec![
+            timed_token(0.0, 2.0, "hello"),
+            timed_token(1.0, 1.5, "world"),
+            timed_token(1.5, 1.75, "again"),
+        ];
+
+        let segments = timed_tokens_to_subtitle_segments(&tokens);
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].text, "hello world again");
+        assert_eq!(segments[0].start, 0.0);
+        assert_eq!(segments[0].end, 2.0);
+    }
+
+    #[test]
+    fn subtitle_width_counts_unicode_characters_and_splits_only_after_the_limit() {
+        let mut first = timed_token(0.0, 0.25, &"界".repeat(42));
+        let mut second = timed_token(0.25, 0.5, &"界".repeat(42));
+        let mut third = timed_token(0.5, 0.75, "再");
+        first.prepend_space = false;
+        second.prepend_space = false;
+        third.prepend_space = false;
+
+        let segments = timed_tokens_to_subtitle_segments(&[first, second, third]);
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].text, "界".repeat(84));
+        assert_eq!(segments[0].end, 0.5);
+        assert_eq!(segments[1].text, "再");
+        assert_eq!(segments[1].start, 0.5);
+    }
+
+    #[test]
+    fn cjk_sentence_punctuation_finishes_readable_subtitle_cues() {
+        let tokens = vec![
+            timed_token(0.0, 1.25, "你好。"),
+            timed_token(1.25, 2.5, "再见！"),
+        ];
+
+        let segments = timed_tokens_to_subtitle_segments(&tokens);
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].text, "你好。");
+        assert_eq!(segments[0].end, 1.25);
+        assert_eq!(segments[1].text, "再见！");
+        assert_eq!(segments[1].start, 1.25);
+    }
+
+    #[test]
+    fn a_six_second_cue_is_allowed_but_the_next_word_starts_a_new_cue() {
+        let tokens = vec![
+            timed_token(0.0, 3.0, "first"),
+            timed_token(3.0, 6.0, "second"),
+            timed_token(6.0, 6.25, "third"),
+        ];
+
+        let segments = timed_tokens_to_subtitle_segments(&tokens);
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].text, "first second");
+        assert_eq!(segments[0].end, 6.0);
+        assert_eq!(segments[1].text, "third");
+        assert_eq!(segments[1].start, 6.0);
+        assert_eq!(segments[1].end, 6.25);
+    }
+
     #[test]
     fn test_srt_time_format() {
         assert_eq!(format_srt_time(0.0), "00:00:00,000");

@@ -18,6 +18,7 @@ mod cli_tts_history;
 mod clipboard;
 mod commands;
 mod early_open;
+mod elevenlabs_language;
 pub mod engine_supervisor;
 mod file_transcription_diarization;
 mod gemini_config;
@@ -37,6 +38,7 @@ mod notices;
 mod overlay;
 mod plus_overlay_state;
 mod portable;
+mod distribution;
 #[cfg(any(test, target_os = "linux"))]
 mod primary_selection;
 mod recording_auto_stop;
@@ -111,6 +113,7 @@ use managers::audio::AudioRecordingManager;
 use managers::connector::ConnectorManager;
 use managers::deepgram_realtime::DeepgramRealtimeManager;
 use managers::deepgram_stt::DeepgramSttManager;
+use managers::elevenlabs_realtime::ElevenLabsRealtimeManager;
 use managers::gemini_realtime::GeminiRealtimeManager;
 use managers::history::HistoryManager;
 use managers::key_listener::KeyListenerState;
@@ -617,6 +620,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     let reson8_realtime_manager = Arc::new(
         Reson8RealtimeManager::new(app_handle).expect("Failed to initialize Reson8 realtime STT"),
     );
+    let elevenlabs_realtime_manager = Arc::new(ElevenLabsRealtimeManager::new(app_handle));
     let soniox_realtime_manager = Arc::new(
         SonioxRealtimeManager::new(app_handle).expect("Failed to initialize Soniox realtime STT"),
     );
@@ -646,6 +650,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(openai_realtime_whisper_manager.clone());
     app_handle.manage(gemini_realtime_manager.clone());
     app_handle.manage(reson8_realtime_manager.clone());
+    app_handle.manage(elevenlabs_realtime_manager.clone());
     app_handle.manage(soniox_realtime_manager.clone());
     app_handle.manage(soniox_stt_manager.clone());
     app_handle.manage(deepgram_realtime_manager.clone());
@@ -936,7 +941,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 }
                 "check_updates" => {
                     let settings = settings::get_settings(app);
-                    if settings.update_checks_enabled {
+                    if settings::update_checks_effectively_enabled(&settings) {
                         show_main_window(app);
                         let _ = app.emit("check-for-updates", ());
                     }
@@ -1041,7 +1046,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 #[specta::specta]
 fn trigger_update_check(app: AppHandle) -> Result<(), String> {
     let settings = settings::get_settings(&app);
-    if !settings.update_checks_enabled {
+    if !settings::update_checks_effectively_enabled(&settings) {
         return Ok(());
     }
     app.emit("check-for-updates", ())
@@ -1740,6 +1745,7 @@ pub fn run(cli_args: CliArgs) {
         commands::tts_history::export_tts_history_audio,
         commands::tts_history::regenerate_tts_history_entry,
         commands::check_apple_intelligence_available,
+        commands::is_update_checks_locked,
         commands::initialize_enigo,
         commands::initialize_shortcuts,
         commands::llm_has_stored_api_key,
@@ -1749,6 +1755,7 @@ pub fn run(cli_args: CliArgs) {
         commands::model_storage::estimate_local_model_cleanup,
         commands::model_storage::cleanup_local_model,
         commands::models::take_missing_model_selection_notice,
+        commands::models::set_auto_switch_unavailable_model,
         commands::models::rescan_local_models,
         commands::models::download_model,
         commands::models::delete_model,
@@ -2152,6 +2159,7 @@ pub fn run(cli_args: CliArgs) {
                 });
                 return Ok(());
             }
+
             let settings = get_settings(app.handle());
             webview_mode::initialize(settings.never_launch_webview);
 
@@ -2159,6 +2167,7 @@ pub fn run(cli_args: CliArgs) {
             let file_log_level: log::Level = tauri_log_level.into();
             // Store the file log level in the atomic for the filter to use.
             FILE_LOG_LEVEL.store(file_log_level.to_level_filter() as u8, Ordering::Relaxed);
+            info!("App distribution: {:?}; installation: {:?}", distribution::edition(), distribution::installation());
             let app_handle = app.handle().clone();
 
             if webview_mode::webviews_disabled() {

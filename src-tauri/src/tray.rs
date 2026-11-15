@@ -1,3 +1,4 @@
+use crate::managers::elevenlabs_realtime::ELEVENLABS_SCRIBE_V3_LIVE_MODEL;
 use crate::managers::gemini_realtime::{
     GEMINI_LIVE_DEFAULT_MODEL, GEMINI_LIVE_GOOGLE_DEFAULT_MODEL,
 };
@@ -1015,13 +1016,18 @@ fn build_tray_menu(
         true,
         None::<&str>,
     )?;
-    let check_updates_i = MenuItem::with_id(
-        app,
-        "check_updates",
-        &strings.check_updates,
-        inputs.update_checks_enabled && !inputs.webviews_disabled,
-        None::<&str>,
-    )?;
+    // The item is dropped entirely, not greyed out, when packaging forbids updates.
+    let check_updates_i = if settings::update_checks_forced_disabled() {
+        None
+    } else {
+        Some(MenuItem::with_id(
+            app,
+            "check_updates",
+            &strings.check_updates,
+            inputs.update_checks_enabled && !inputs.webviews_disabled,
+            None::<&str>,
+        )?)
+    };
     #[cfg(not(debug_assertions))]
     let restart_troubleshoot_i = MenuItem::with_id(
         app,
@@ -1104,7 +1110,9 @@ fn build_tray_menu(
         menu.append(&enter_speech_only_i)?;
     }
     menu.append(&settings_i)?;
-    menu.append(&check_updates_i)?;
+    if let Some(check_updates_i) = &check_updates_i {
+        menu.append(check_updates_i)?;
+    }
     #[cfg(not(debug_assertions))]
     menu.append(&restart_troubleshoot_i)?;
     menu.append(&separator()?)?;
@@ -1144,6 +1152,7 @@ fn build_model_menu_label(inputs: &MenuInputs, fallback_label: &str) -> String {
                 REMOTE_STT_PRESET_VERCEL => "Vercel",
                 REMOTE_STT_PRESET_GOOGLE => "Google",
                 REMOTE_STT_PRESET_RESON8 => "Reson8",
+                "elevenlabs" => "ElevenLabs",
                 REMOTE_STT_PRESET_CUSTOM => TRAY_MODEL_CUSTOM_SUFFIX,
                 _ => TRAY_MODEL_REMOTE_LABEL,
             };
@@ -1336,6 +1345,16 @@ fn append_remote_openai_model_items(
             REMOTE_STT_PRESET_RESON8.to_string(),
             REMOTE_STT_RESON8_DEFAULT_MODEL.to_string(),
             "Reson8: rumble-2 (live / file)".to_string(),
+        ),
+        (
+            "elevenlabs".to_string(),
+            "scribe_v3".to_string(),
+            "ElevenLabs: scribe_v3 (file / post-recording)".to_string(),
+        ),
+        (
+            "elevenlabs".to_string(),
+            ELEVENLABS_SCRIBE_V3_LIVE_MODEL.to_string(),
+            "ElevenLabs: scribe_v3_live (live / file)".to_string(),
         ),
         (
             REMOTE_STT_PRESET_OPENAI.to_string(),
@@ -2115,6 +2134,24 @@ mod tests {
             Some(TrayModelSelection::RemoteOpenAiCompatible {
                 provider_preset: "openai".to_string(),
                 model_id: "gpt-realtime-2".to_string(),
+            })
+        );
+        assert_eq!(
+            parse_model_menu_selection(&format!(
+                "{TRAY_MODEL_MENU_PREFIX}remote_openai_compatible::elevenlabs::scribe_v3"
+            )),
+            Some(TrayModelSelection::RemoteOpenAiCompatible {
+                provider_preset: "elevenlabs".to_string(),
+                model_id: "scribe_v3".to_string(),
+            })
+        );
+        assert_eq!(
+            parse_model_menu_selection(&format!(
+                "{TRAY_MODEL_MENU_PREFIX}remote_openai_compatible::elevenlabs::scribe_v3_live"
+            )),
+            Some(TrayModelSelection::RemoteOpenAiCompatible {
+                provider_preset: "elevenlabs".to_string(),
+                model_id: "scribe_v3_live".to_string(),
             })
         );
         assert_eq!(

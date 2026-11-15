@@ -7,6 +7,7 @@ pub const REMOTE_STT_PRESET_OPENAI: &str = "openai";
 pub const REMOTE_STT_PRESET_VERCEL: &str = "vercel";
 pub const REMOTE_STT_PRESET_GOOGLE: &str = "google";
 pub const REMOTE_STT_PRESET_RESON8: &str = "reson8";
+pub const REMOTE_STT_PRESET_ELEVENLABS: &str = "elevenlabs";
 pub const REMOTE_STT_PRESET_CUSTOM: &str = "custom";
 
 pub const REMOTE_STT_GROQ_BASE_URL: &str = "https://api.groq.com/openai/v1";
@@ -15,12 +16,15 @@ pub const REMOTE_STT_VERCEL_BASE_URL: &str = "https://ai-gateway.vercel.sh/v4/ai
 pub const REMOTE_STT_GOOGLE_BASE_URL: &str =
     "https://generativelanguage.googleapis.com/v1beta";
 pub const REMOTE_STT_RESON8_BASE_URL: &str = "https://api.reson8.dev/v1";
+pub const REMOTE_STT_ELEVENLABS_BASE_URL: &str = "https://api.elevenlabs.io/v1";
 
 pub const REMOTE_STT_GROQ_DEFAULT_MODEL: &str = "whisper-large-v3-turbo";
 pub const REMOTE_STT_OPENAI_DEFAULT_MODEL: &str = "gpt-realtime-2.1";
 pub const REMOTE_STT_VERCEL_DEFAULT_MODEL: &str = "google/gemini-3.5-transcribe";
 pub const REMOTE_STT_GOOGLE_DEFAULT_MODEL: &str = "gemini-3.5-transcribe";
 pub const REMOTE_STT_RESON8_DEFAULT_MODEL: &str = "rumble-2";
+pub const REMOTE_STT_ELEVENLABS_DEFAULT_MODEL: &str = "scribe_v3_live";
+pub const REMOTE_STT_ELEVENLABS_FILE_MODEL: &str = "scribe_v3";
 pub const REMOTE_STT_CUSTOM_DEFAULT_BASE_URL: &str = REMOTE_STT_OPENAI_BASE_URL;
 pub const REMOTE_STT_CUSTOM_DEFAULT_MODEL: &str = REMOTE_STT_OPENAI_DEFAULT_MODEL;
 
@@ -81,6 +85,13 @@ fn validate_network_base_url(
     }
 }
 
+pub fn validate_remote_stt_endpoint_url(
+    input: &str,
+    allow_insecure_http: bool,
+) -> Result<String, String> {
+    validate_network_base_url(input, allow_insecure_http, "Remote STT base URL")
+}
+
 pub fn validate_openai_compatible_tts_base_url(
     raw: &str,
     allow_insecure_http: bool,
@@ -124,6 +135,7 @@ pub fn remote_stt_base_url_for_preset(preset: &str) -> Option<&'static str> {
         REMOTE_STT_PRESET_VERCEL => Some(REMOTE_STT_VERCEL_BASE_URL),
         REMOTE_STT_PRESET_GOOGLE => Some(REMOTE_STT_GOOGLE_BASE_URL),
         REMOTE_STT_PRESET_RESON8 => Some(REMOTE_STT_RESON8_BASE_URL),
+        REMOTE_STT_PRESET_ELEVENLABS => Some(REMOTE_STT_ELEVENLABS_BASE_URL),
         REMOTE_STT_PRESET_CUSTOM => None,
         _ => None,
     }
@@ -136,6 +148,7 @@ pub fn remote_stt_default_model_for_preset(preset: &str) -> Option<&'static str>
         REMOTE_STT_PRESET_VERCEL => Some(REMOTE_STT_VERCEL_DEFAULT_MODEL),
         REMOTE_STT_PRESET_GOOGLE => Some(REMOTE_STT_GOOGLE_DEFAULT_MODEL),
         REMOTE_STT_PRESET_RESON8 => Some(REMOTE_STT_RESON8_DEFAULT_MODEL),
+        REMOTE_STT_PRESET_ELEVENLABS => Some(REMOTE_STT_ELEVENLABS_DEFAULT_MODEL),
         _ => None,
     }
 }
@@ -148,6 +161,7 @@ pub fn infer_remote_stt_preset(base_url: &str) -> &'static str {
         REMOTE_STT_VERCEL_BASE_URL => REMOTE_STT_PRESET_VERCEL,
         REMOTE_STT_GOOGLE_BASE_URL => REMOTE_STT_PRESET_GOOGLE,
         REMOTE_STT_RESON8_BASE_URL => REMOTE_STT_PRESET_RESON8,
+        REMOTE_STT_ELEVENLABS_BASE_URL => REMOTE_STT_PRESET_ELEVENLABS,
         _ => REMOTE_STT_PRESET_CUSTOM,
     }
 }
@@ -168,6 +182,7 @@ pub fn validate_remote_stt_base_url(
         REMOTE_STT_PRESET_VERCEL => Ok(REMOTE_STT_VERCEL_BASE_URL.to_string()),
         REMOTE_STT_PRESET_GOOGLE => Ok(REMOTE_STT_GOOGLE_BASE_URL.to_string()),
         REMOTE_STT_PRESET_RESON8 => Ok(REMOTE_STT_RESON8_BASE_URL.to_string()),
+        REMOTE_STT_PRESET_ELEVENLABS => Ok(REMOTE_STT_ELEVENLABS_BASE_URL.to_string()),
         REMOTE_STT_PRESET_CUSTOM => validate_network_base_url(
             override_base_url.unwrap_or(&settings.base_url),
             settings.allow_insecure_http,
@@ -237,6 +252,58 @@ mod tests {
     }
 
     #[test]
+    fn loopback_lookalike_hosts_cannot_bypass_https_requirements() {
+        for host in ["localhost.example.test", "127.0.0.1.example.test"] {
+            let url = format!("http://{host}:8000/v1");
+            assert!(!is_loopback_host(&Url::parse(&url).unwrap()));
+            let settings = remote_settings(REMOTE_STT_PRESET_CUSTOM, &url, false);
+            assert!(validate_remote_stt_base_url(&settings, None)
+                .unwrap_err().contains("must use HTTPS"));
+            assert!(canonical_llm_provider_base_url(&provider("custom", &url, false))
+                .unwrap_err().contains("must use HTTPS"));
+        }
+    }
+
+    #[test]
+    fn compatible_tts_accepts_ipv6_loopback_with_or_without_an_explicit_scheme() {
+        for input in ["[::1]:8000/v1/", "http://[::1]:8000/v1/"] {
+            assert_eq!(
+                validate_openai_compatible_tts_base_url(input, false).unwrap(),
+                "http://[::1]:8000/v1"
+            );
+        }
+    }
+
+    #[test]
+    fn every_builtin_stt_preset_ignores_custom_http_endpoint_overrides() {
+        for (preset, canonical) in [
+            (REMOTE_STT_PRESET_GROQ, REMOTE_STT_GROQ_BASE_URL),
+            (REMOTE_STT_PRESET_OPENAI, REMOTE_STT_OPENAI_BASE_URL),
+            (REMOTE_STT_PRESET_VERCEL, REMOTE_STT_VERCEL_BASE_URL),
+            (REMOTE_STT_PRESET_GOOGLE, REMOTE_STT_GOOGLE_BASE_URL),
+            (REMOTE_STT_PRESET_RESON8, REMOTE_STT_RESON8_BASE_URL),
+            (REMOTE_STT_PRESET_ELEVENLABS, REMOTE_STT_ELEVENLABS_BASE_URL),
+        ] {
+            let settings = remote_settings(preset, "http://saved.example.test/v1", true);
+            assert_eq!(
+                validate_remote_stt_base_url(&settings, Some("http://override.example.test/v1"))
+                    .unwrap(),
+                canonical
+            );
+        }
+    }
+
+    #[test]
+    fn blank_compatible_tts_endpoint_uses_the_https_default() {
+        for allow_insecure_http in [false, true] {
+            assert_eq!(
+                validate_openai_compatible_tts_base_url(" \n\t ", allow_insecure_http).unwrap(),
+                REMOTE_STT_OPENAI_BASE_URL
+            );
+        }
+    }
+
+    #[test]
     fn remote_stt_base_url_for_preset_returns_expected_urls() {
         assert_eq!(
             remote_stt_base_url_for_preset(REMOTE_STT_PRESET_GROQ),
@@ -257,6 +324,10 @@ mod tests {
         assert_eq!(
             remote_stt_base_url_for_preset(REMOTE_STT_PRESET_RESON8),
             Some(REMOTE_STT_RESON8_BASE_URL)
+        );
+        assert_eq!(
+            remote_stt_base_url_for_preset(REMOTE_STT_PRESET_ELEVENLABS),
+            Some(REMOTE_STT_ELEVENLABS_BASE_URL)
         );
         assert_eq!(
             remote_stt_base_url_for_preset(REMOTE_STT_PRESET_CUSTOM),
@@ -287,6 +358,12 @@ mod tests {
             remote_stt_default_model_for_preset(REMOTE_STT_PRESET_RESON8),
             Some(REMOTE_STT_RESON8_DEFAULT_MODEL)
         );
+        assert_eq!(
+            remote_stt_default_model_for_preset(REMOTE_STT_PRESET_ELEVENLABS),
+            Some(REMOTE_STT_ELEVENLABS_DEFAULT_MODEL)
+        );
+        assert_eq!(REMOTE_STT_ELEVENLABS_DEFAULT_MODEL, "scribe_v3_live");
+        assert_eq!(REMOTE_STT_ELEVENLABS_FILE_MODEL, "scribe_v3");
         assert_eq!(remote_stt_default_model_for_preset("custom"), None);
     }
 
@@ -312,6 +389,19 @@ mod tests {
             infer_remote_stt_preset("https://api.reson8.dev/v1/"),
             REMOTE_STT_PRESET_RESON8
         );
+        assert_eq!(
+            infer_remote_stt_preset("https://api.elevenlabs.io/v1/"),
+            REMOTE_STT_PRESET_ELEVENLABS
+        );
+    }
+
+    #[test]
+    fn validate_remote_stt_endpoint_url_enforces_https_for_non_loopback() {
+        assert_eq!(
+            validate_remote_stt_endpoint_url("https://api.elevenlabs.io/v1/", false).unwrap(),
+            REMOTE_STT_ELEVENLABS_BASE_URL
+        );
+        assert!(validate_remote_stt_endpoint_url("http://api.elevenlabs.io/v1", false).is_err());
     }
 
     #[test]

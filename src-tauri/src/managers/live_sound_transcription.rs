@@ -1,6 +1,8 @@
 use crate::file_transcription_diarization::{
     normalize_raw_speaker_blocks_with_state, RawSpeakerBlock, SpeakerBlockNormalizationState,
+    UNATTRIBUTED_SPEAKER_KEY, UNATTRIBUTED_SPEAKER_NAME,
 };
+use crate::managers::elevenlabs_realtime::{ElevenLabsLivePacket, ElevenLabsLiveWord};
 use serde::Serialize;
 use specta::Type;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -34,6 +36,105 @@ pub struct LiveSoundTranscriptionStatePayload {
     pub auto_stop_remaining_seconds: Option<u64>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ElevenLabsFinalSegmentRecord {
+    segment_index: Option<u64>,
+    committed_text: String,
+    diarized_blocks: Option<Vec<RawSpeakerBlock>>,
+}
+
+fn append_elevenlabs_word_token(target: &mut String, token: &str) {
+    let trimmed = token.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let no_leading_space = trimmed.chars().next().is_some_and(|ch| {
+        matches!(
+            ch,
+            ',' | '.' | '!' | '?' | ';' | ':' | ')' | ']' | '}' | '%' | '\''
+        )
+    });
+    if !target.is_empty() && !no_leading_space {
+        target.push(' ');
+    }
+    target.push_str(trimmed);
+}
+
+fn raw_speaker_blocks_from_elevenlabs_words(words: &[ElevenLabsLiveWord]) -> Vec<RawSpeakerBlock> {
+    let has_any_speaker = words.iter().any(|word| {
+        word.speaker_id
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|id| !id.is_empty())
+    });
+    if !has_any_speaker {
+        return Vec::new();
+    }
+
+    let mut blocks: Vec<RawSpeakerBlock> = Vec::new();
+    for word in words {
+        let token = word.text.trim();
+        if token.is_empty() {
+            continue;
+        }
+        let attributed = word
+            .speaker_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
+        let speaker_key = attributed.unwrap_or(UNATTRIBUTED_SPEAKER_KEY);
+        let default_name = attributed
+            .is_none()
+            .then(|| UNATTRIBUTED_SPEAKER_NAME.to_string());
+
+        if let Some(last) = blocks.last_mut() {
+            if last.speaker_key == speaker_key {
+                append_elevenlabs_word_token(&mut last.text, token);
+                continue;
+            }
+        }
+        blocks.push(RawSpeakerBlock {
+            speaker_key: speaker_key.to_string(),
+            default_name,
+            text: token.to_string(),
+        });
+    }
+    blocks
+}
+
+fn rewrite_merged_speaker_in_blocks(
+    blocks: &mut Vec<RawSpeakerBlock>,
+    from_speaker_id: &str,
+    to_speaker_id: &str,
+) {
+    if blocks.is_empty() {
+        return;
+    }
+    let mut coalesced: Vec<RawSpeakerBlock> = Vec::with_capacity(blocks.len());
+    for mut block in blocks.drain(..) {
+        if block.speaker_key.trim() == from_speaker_id {
+            block.speaker_key = to_speaker_id.to_string();
+            block.default_name = None;
+        }
+        let text = block.text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        if let Some(last) = coalesced.last_mut() {
+            if last.speaker_key == block.speaker_key {
+                if !last.text.is_empty() {
+                    last.text.push(' ');
+                }
+                last.text.push_str(text);
+                continue;
+            }
+        }
+        block.text = text.to_string();
+        coalesced.push(block);
+    }
+    *blocks = coalesced;
+}
+
 #[derive(Clone, Debug, Default)]
 struct LiveSoundTranscriptionRuntime {
     active: bool,
@@ -46,6 +147,7 @@ struct LiveSoundTranscriptionRuntime {
     interim_text: String,
     final_raw_blocks: Vec<RawSpeakerBlock>,
     interim_raw_blocks: Vec<RawSpeakerBlock>,
+    elevenlabs_segments: Vec<ElevenLabsFinalSegmentRecord>,
     speaker_normalization_state: SpeakerBlockNormalizationState,
     final_segment_timestamps_ms: Vec<u64>,
     interim_segment_timestamps_ms: Vec<u64>,
@@ -83,14 +185,194 @@ impl LiveSoundTranscriptionRuntime {
         self.final_text.push_str(trimmed);
     }
 
+    fn apply_elevenlabs_packet(&mut self, packet: ElevenLabsLivePacket) {
+        match packet {
+            ElevenLabsLivePacket::Partial { text, words } => {
+                self.interim_text = text.trim().to_string();
+                self.interim_raw_blocks = raw_speaker_blocks_from_elevenlabs_words(&words);
+                self.interim_segment_timestamps_ms.clear();
+            }
+            ElevenLabsLivePacket::Committed {
+                text,
+                segment_index,
+            } => {
+                self.interim_text.clear();
+                self.interim_raw_blocks.clear();
+                self.interim_segment_timestamps_ms.clear();
+
+                let trimmed = text.trim();
+                if let Some(idx) = segment_index {
+                    if let Some(existing) = self
+                        .elevenlabs_segments
+                        .iter_mut()
+                        .find(|seg| seg.segment_index == Some(idx))
+                    {
+                        if existing.committed_text.is_empty() && !trimmed.is_empty() {
+                            existing.committed_text = trimmed.to_string();
+                        }
+                        return;
+                    }
+                }
+
+                if !trimmed.is_empty() {
+                    self.push_final_text(trimmed, true);
+                }
+                if !trimmed.is_empty() || segment_index.is_some() {
+                    self.elevenlabs_segments.push(ElevenLabsFinalSegmentRecord {
+                        segment_index,
+                        committed_text: trimmed.to_string(),
+                        diarized_blocks: None,
+                    });
+                }
+            }
+            ElevenLabsLivePacket::Diarized {
+                segment_index,
+                text,
+                words,
+            } => {
+                let trimmed = text.trim();
+                let mut blocks = raw_speaker_blocks_from_elevenlabs_words(&words);
+                if blocks.is_empty() && !trimmed.is_empty() {
+                    blocks.push(RawSpeakerBlock {
+                        speaker_key: UNATTRIBUTED_SPEAKER_KEY.to_string(),
+                        default_name: Some(UNATTRIBUTED_SPEAKER_NAME.to_string()),
+                        text: trimmed.to_string(),
+                    });
+                }
+
+                let existing_idx = segment_index
+                    .and_then(|idx| {
+                        self.elevenlabs_segments
+                            .iter()
+                            .position(|seg| seg.segment_index == Some(idx))
+                    })
+                    .or_else(|| {
+                        if segment_index.is_none() {
+                            self.elevenlabs_segments
+                                .iter()
+                                .position(|seg| seg.diarized_blocks.is_none())
+                        } else {
+                            None
+                        }
+                    });
+
+                if let Some(pos) = existing_idx {
+                    if self.elevenlabs_segments[pos].committed_text.is_empty()
+                        && !trimmed.is_empty()
+                    {
+                        self.elevenlabs_segments[pos].committed_text = trimmed.to_string();
+                    }
+                    self.elevenlabs_segments[pos].diarized_blocks = Some(blocks);
+                } else {
+                    if !trimmed.is_empty() {
+                        self.push_final_text(trimmed, true);
+                    }
+                    self.elevenlabs_segments.push(ElevenLabsFinalSegmentRecord {
+                        segment_index,
+                        committed_text: trimmed.to_string(),
+                        diarized_blocks: Some(blocks),
+                    });
+                }
+            }
+            ElevenLabsLivePacket::SpeakersMerged {
+                from_speaker_id,
+                to_speaker_id,
+            } => {
+                let from_id = from_speaker_id.trim();
+                let to_id = to_speaker_id.trim();
+                if from_id.is_empty() || to_id.is_empty() || from_id == to_id {
+                    return;
+                }
+                for seg in &mut self.elevenlabs_segments {
+                    if let Some(blocks) = seg.diarized_blocks.as_mut() {
+                        rewrite_merged_speaker_in_blocks(blocks, from_id, to_id);
+                    }
+                }
+                rewrite_merged_speaker_in_blocks(&mut self.final_raw_blocks, from_id, to_id);
+                rewrite_merged_speaker_in_blocks(&mut self.interim_raw_blocks, from_id, to_id);
+                self.speaker_normalization_state
+                    .merge_raw_speaker_id(from_id, to_id);
+            }
+        }
+    }
+
+    fn flush_attributed_blocks(
+        pending_raw: &mut Vec<RawSpeakerBlock>,
+        normalization: &mut SpeakerBlockNormalizationState,
+        out: &mut Vec<LiveSoundTranscriptSegmentPayload>,
+        is_interim: bool,
+    ) {
+        if pending_raw.is_empty() {
+            return;
+        }
+        let blocks = std::mem::take(pending_raw);
+        for block in normalize_raw_speaker_blocks_with_state(blocks, normalization) {
+            out.push(LiveSoundTranscriptSegmentPayload {
+                speaker_id: Some(block.speaker_id),
+                speaker_label: Some(block.default_name),
+                text: block.text,
+                is_interim,
+                timestamp_ms: 0,
+            });
+        }
+    }
+
+    fn normalize_blocks_without_burning_unattributed(
+        blocks: &[RawSpeakerBlock],
+        normalization: &mut SpeakerBlockNormalizationState,
+        out: &mut Vec<LiveSoundTranscriptSegmentPayload>,
+        is_interim: bool,
+    ) {
+        let mut pending_attributed: Vec<RawSpeakerBlock> = Vec::new();
+        for block in blocks {
+            if block.speaker_key.trim() == UNATTRIBUTED_SPEAKER_KEY {
+                Self::flush_attributed_blocks(&mut pending_attributed, normalization, out, is_interim);
+                let text = block.text.trim();
+                if !text.is_empty() {
+                    out.push(LiveSoundTranscriptSegmentPayload {
+                        speaker_id: None,
+                        speaker_label: None,
+                        text: text.to_string(),
+                        is_interim,
+                        timestamp_ms: 0,
+                    });
+                }
+            } else {
+                pending_attributed.push(block.clone());
+            }
+        }
+        Self::flush_attributed_blocks(&mut pending_attributed, normalization, out, is_interim);
+    }
+
     fn to_payload(&mut self) -> LiveSoundTranscriptionStatePayload {
         let auto_stop_remaining_seconds = self
             .auto_stop_deadline
             .filter(|_| self.recording)
             .map(|deadline| remaining_seconds(deadline.saturating_duration_since(Instant::now())));
 
-        let mut final_segments: Vec<LiveSoundTranscriptSegmentPayload> =
-            normalize_raw_speaker_blocks_with_state(
+        let has_elevenlabs_diarized = self.processed_final_text.is_none()
+            && self
+                .elevenlabs_segments
+                .iter()
+                .any(|seg| seg.diarized_blocks.is_some());
+
+        let mut final_segments: Vec<LiveSoundTranscriptSegmentPayload> = Vec::new();
+        if has_elevenlabs_diarized {
+            let blocks: Vec<RawSpeakerBlock> = self.elevenlabs_segments.iter().flat_map(|seg| {
+                seg.diarized_blocks.clone().unwrap_or_else(|| vec![RawSpeakerBlock {
+                    speaker_key: UNATTRIBUTED_SPEAKER_KEY.to_string(),
+                    default_name: Some(UNATTRIBUTED_SPEAKER_NAME.to_string()),
+                    text: seg.committed_text.clone(),
+                }])
+            }).collect();
+            Self::normalize_blocks_without_burning_unattributed(
+                &blocks,
+                &mut self.speaker_normalization_state,
+                &mut final_segments,
+                false,
+            );
+        } else {
+            final_segments = normalize_raw_speaker_blocks_with_state(
                 self.final_raw_blocks.clone(),
                 &mut self.speaker_normalization_state,
             )
@@ -103,6 +385,7 @@ impl LiveSoundTranscriptionRuntime {
                 timestamp_ms: 0,
             })
             .collect();
+        }
 
         if final_segments.is_empty() && !self.final_text.trim().is_empty() {
             final_segments.push(LiveSoundTranscriptSegmentPayload {
@@ -112,39 +395,34 @@ impl LiveSoundTranscriptionRuntime {
                 is_interim: false,
                 timestamp_ms: 0,
             });
-        } else if let Some(processed_text) = self
-            .processed_final_text
-            .as_ref()
-            .filter(|text| !text.trim().is_empty())
-        {
-            final_segments.insert(
-                0,
-                LiveSoundTranscriptSegmentPayload {
-                    speaker_id: None,
-                    speaker_label: None,
-                    text: processed_text.clone(),
-                    is_interim: false,
-                    timestamp_ms: 0,
-                },
-            );
+        } else if !has_elevenlabs_diarized {
+            if let Some(processed_text) = self
+                .processed_final_text
+                .as_ref()
+                .filter(|text| !text.trim().is_empty())
+            {
+                final_segments.insert(
+                    0,
+                    LiveSoundTranscriptSegmentPayload {
+                        speaker_id: None,
+                        speaker_label: None,
+                        text: processed_text.clone(),
+                        is_interim: false,
+                        timestamp_ms: 0,
+                    },
+                );
+            }
         }
 
-        let mut interim_segments: Vec<LiveSoundTranscriptSegmentPayload> =
-            normalize_raw_speaker_blocks_with_state(
-                self.interim_raw_blocks.clone(),
-                &mut self.speaker_normalization_state,
-            )
-            .into_iter()
-            .map(|block| LiveSoundTranscriptSegmentPayload {
-                speaker_id: Some(block.speaker_id),
-                speaker_label: Some(block.default_name),
-                text: block.text,
-                is_interim: true,
-                timestamp_ms: 0,
-            })
-            .collect();
+        let mut interim_segments: Vec<LiveSoundTranscriptSegmentPayload> = Vec::new();
+        Self::normalize_blocks_without_burning_unattributed(
+            &self.interim_raw_blocks,
+            &mut self.speaker_normalization_state,
+            &mut interim_segments,
+            true,
+        );
 
-        if self.interim_text.trim().len() > 0 && self.interim_raw_blocks.is_empty() {
+        if !self.interim_text.trim().is_empty() && interim_segments.is_empty() {
             interim_segments.push(LiveSoundTranscriptSegmentPayload {
                 speaker_id: None,
                 speaker_label: None,
@@ -481,6 +759,7 @@ pub fn clear_transcript(app: &AppHandle) -> Result<(), String> {
         state.interim_text.clear();
         state.final_raw_blocks.clear();
         state.interim_raw_blocks.clear();
+        state.elevenlabs_segments.clear();
         state.speaker_normalization_state = SpeakerBlockNormalizationState::default();
         state.final_segment_timestamps_ms.clear();
         state.interim_segment_timestamps_ms.clear();
@@ -503,6 +782,7 @@ fn replace_final_text_in_state(state: &mut LiveSoundTranscriptionRuntime, final_
     state.interim_text.clear();
     state.final_raw_blocks.clear();
     state.interim_raw_blocks.clear();
+    state.elevenlabs_segments.clear();
     state.speaker_normalization_state = SpeakerBlockNormalizationState::default();
     state.final_segment_timestamps_ms.truncate(1);
     state.interim_segment_timestamps_ms.clear();
@@ -535,4 +815,143 @@ pub fn set_interim_result_if_session_matches(
         state.interim_raw_blocks = raw_blocks;
         state.interim_segment_timestamps_ms.clear();
     });
+}
+
+pub fn apply_elevenlabs_packet_if_session_matches(
+    app: &AppHandle,
+    session_id: u64,
+    packet: ElevenLabsLivePacket,
+) {
+    update_state_if_session_matches(app, session_id, move |state| {
+        state.apply_elevenlabs_packet(packet);
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn word(text: &str, speaker_id: Option<&str>) -> ElevenLabsLiveWord {
+        ElevenLabsLiveWord {
+            text: text.to_string(),
+            start_ms: None,
+            end_ms: None,
+            speaker_id: speaker_id.map(ToOwned::to_owned),
+        }
+    }
+
+    #[test]
+    fn committed_then_diarized_replaces_segment_without_duplicating_text() {
+        let mut runtime = LiveSoundTranscriptionRuntime::default();
+        runtime.recording = true;
+
+        runtime.apply_elevenlabs_packet(ElevenLabsLivePacket::Partial {
+            text: "Hel".to_string(),
+            words: vec![word("Hel", None)],
+        });
+        let p1 = runtime.to_payload();
+        assert_eq!(p1.interim_text, "Hel");
+        assert_eq!(p1.segments.len(), 1);
+        assert!(p1.segments[0].is_interim);
+        assert_eq!(p1.segments[0].speaker_id, None);
+
+        runtime.apply_elevenlabs_packet(ElevenLabsLivePacket::Committed {
+            text: "Hello world".to_string(),
+            segment_index: Some(0),
+        });
+        let p2 = runtime.to_payload();
+        assert_eq!(p2.final_text, "Hello world");
+        assert_eq!(p2.interim_text, "");
+        assert_eq!(p2.segments.len(), 1);
+        assert!(!p2.segments[0].is_interim);
+        assert_eq!(p2.segments[0].text, "Hello world");
+
+        runtime.apply_elevenlabs_packet(ElevenLabsLivePacket::Diarized {
+            segment_index: Some(0),
+            text: "Hello world".to_string(),
+            words: vec![word("Hello", Some("spk_0")), word("world", Some("spk_1"))],
+        });
+        let p3 = runtime.to_payload();
+        assert_eq!(p3.final_text, "Hello world");
+        assert_eq!(p3.segments.len(), 2);
+        assert_eq!(p3.segments[0].speaker_id, Some(0));
+        assert_eq!(p3.segments[0].text, "Hello");
+        assert_eq!(p3.segments[1].speaker_id, Some(1));
+        assert_eq!(p3.segments[1].text, "world");
+
+        // Duplicate committed packet for the same segment index must not append again
+        runtime.apply_elevenlabs_packet(ElevenLabsLivePacket::Committed {
+            text: "Hello world".to_string(),
+            segment_index: Some(0),
+        });
+        let p4 = runtime.to_payload();
+        assert_eq!(p4.final_text, "Hello world");
+        assert_eq!(p4.segments.len(), 2);
+    }
+
+    #[test]
+    fn retroactive_speakers_merged_rewrites_committed_turns_and_coalesces_adjacent_blocks() {
+        let mut runtime = LiveSoundTranscriptionRuntime::default();
+        runtime.apply_elevenlabs_packet(ElevenLabsLivePacket::Committed {
+            text: "Hi there".to_string(),
+            segment_index: Some(0),
+        });
+        runtime.apply_elevenlabs_packet(ElevenLabsLivePacket::Diarized {
+            segment_index: Some(0),
+            text: "Hi there".to_string(),
+            words: vec![word("Hi", Some("spk_a")), word("there", Some("spk_b"))],
+        });
+        let before = runtime.to_payload();
+        assert_eq!(before.segments.len(), 2);
+        assert_eq!(before.segments[0].speaker_id, Some(0));
+        assert_eq!(before.segments[1].speaker_id, Some(1));
+
+        runtime.apply_elevenlabs_packet(ElevenLabsLivePacket::SpeakersMerged {
+            from_speaker_id: "spk_b".to_string(),
+            to_speaker_id: "spk_a".to_string(),
+        });
+        let after = runtime.to_payload();
+        assert_eq!(after.segments.len(), 1);
+        assert_eq!(after.segments[0].speaker_id, Some(0));
+        assert_eq!(after.segments[0].speaker_label.as_deref(), Some("Speaker 0"));
+        assert_eq!(after.segments[0].text, "Hi there");
+    }
+
+    #[test]
+    fn pending_committed_segment_appears_alongside_prior_diarized_without_burning_speaker_id() {
+        let mut runtime = LiveSoundTranscriptionRuntime::default();
+        runtime.apply_elevenlabs_packet(ElevenLabsLivePacket::Committed {
+            text: "First".to_string(),
+            segment_index: Some(0),
+        });
+        runtime.apply_elevenlabs_packet(ElevenLabsLivePacket::Diarized {
+            segment_index: Some(0),
+            text: "First".to_string(),
+            words: vec![word("First", Some("spk_0"))],
+        });
+        runtime.apply_elevenlabs_packet(ElevenLabsLivePacket::Committed {
+            text: "Second pending".to_string(),
+            segment_index: Some(1),
+        });
+        let pending = runtime.to_payload();
+        assert_eq!(pending.segments.len(), 2);
+        assert_eq!(pending.segments[0].speaker_id, Some(0));
+        assert_eq!(pending.segments[0].text, "First");
+        assert_eq!(pending.segments[1].speaker_id, None);
+        assert_eq!(pending.segments[1].text, "Second pending");
+
+        runtime.apply_elevenlabs_packet(ElevenLabsLivePacket::Diarized {
+            segment_index: Some(1),
+            text: "Second pending".to_string(),
+            words: vec![
+                word("Second", Some("spk_1")),
+                word("pending", Some("spk_1")),
+            ],
+        });
+        let finalized = runtime.to_payload();
+        assert_eq!(finalized.segments.len(), 2);
+        assert_eq!(finalized.segments[0].speaker_id, Some(0));
+        assert_eq!(finalized.segments[1].speaker_id, Some(1));
+        assert_eq!(finalized.segments[1].text, "Second pending");
+    }
 }

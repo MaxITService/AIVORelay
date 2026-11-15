@@ -499,7 +499,8 @@
       },
       "updateChecks": {
         "label": "检查更新",
-        "description": "自动检查 AivoRelay 的新版本"
+        "description": "自动检查 AivoRelay 的新版本",
+        "lockedDescription": "已被系统配置禁用 (AIVORELAY_DISABLE_UPDATER)"
       },
       "soundTheme": {
         "label": "声音主题",
@@ -606,7 +607,10 @@
     "downloading": "下载中... {{progress}}%",
     "installing": "安装中...",
     "preparing": "准备中...",
-    "checkForUpdates": "检查更新"
+    "checkForUpdates": "检查更新",
+    "portableUpdateTitle": "需要手动更新",
+    "portableUpdateMessage": "便携版无法自行更新。请下载并运行已签名的 MSI 安装程序。现有便携版 Data 文件夹不会被删除。",
+    "portableUpdateButton": "下载安装程序"
   },
   "common": {
     "retry": "重试",

@@ -28,6 +28,8 @@ import {
 import { useNavigationStore } from "@/stores/navigationStore";
 import { useSettings } from "../../../hooks/useSettings";
 import {
+  REMOTE_STT_ELEVENLABS_DEFAULT_MODEL,
+  REMOTE_STT_ELEVENLABS_FILE_MODEL,
   REMOTE_STT_PRESETS,
   type RemoteSttPreset,
 } from "../../../lib/constants/remoteSttProviders";
@@ -66,6 +68,7 @@ type RemoteSttInterfaceId =
   | "gemini_transcribe"
   | "gemini_live"
   | "reson8"
+  | "elevenlabs"
   | "openai_transcribe"
   | "openai_live_transcribe"
   | "openai_realtime_whisper"
@@ -299,6 +302,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           : "gemini_transcribe")
       : remotePreset === "reson8"
         ? "reson8"
+      : remotePreset === "elevenlabs"
+        ? "elevenlabs"
       : remotePreset === "custom"
         ? "custom"
         : effectiveRemoteModelId === "gpt-transcribe"
@@ -323,6 +328,11 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         ? "Google Gemini API Key"
     : currentRemoteInterface === "reson8"
       ? "Reson8 API Key"
+    : currentRemoteInterface === "elevenlabs"
+      ? t(
+          "settings.advanced.remoteStt.elevenlabs.apiKeyTitle",
+          "ElevenLabs STT API Key",
+        )
     : currentRemoteInterface === "groq"
       ? "Groq API Key"
       : currentRemoteInterface === "custom"
@@ -335,6 +345,11 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         ? "Stored separately for Google Gemini API in Windows Credential Manager."
     : currentRemoteInterface === "reson8"
       ? "Stored separately for Reson8 in Windows Credential Manager."
+    : currentRemoteInterface === "elevenlabs"
+      ? t(
+          "settings.advanced.remoteStt.elevenlabs.apiKeyDescription",
+          "Stored separately for ElevenLabs STT, independently of ElevenLabs TTS keys.",
+        )
     : currentRemoteInterface === "groq"
       ? "Stored separately for Groq in Windows Credential Manager."
       : currentRemoteInterface === "custom"
@@ -833,6 +848,13 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           label: "Reson8 rumble-2 · Live (final chunks) & file",
         },
         {
+          value: "elevenlabs",
+          label: t(
+            "settings.advanced.remoteStt.elevenlabs.interfaceLabel",
+            "ElevenLabs Scribe v3 · Live (scribe_v3_live) & File (scribe_v3)",
+          ),
+        },
+        {
           value: "openai_transcribe",
           label: "OpenAI gpt-transcribe · File / post-recording",
         },
@@ -861,7 +883,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           label: "Custom",
         },
       ],
-    [],
+    [t],
   );
 
   const remoteInterfaceHint = useMemo(() => {
@@ -873,6 +895,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         "Low-latency streaming via Gemini 3.5 Transcribe Live. Vercel AI Gateway is the default route.",
       reson8:
         "Reson8 Rumble-2 streams finalized live chunks and also transcribes completed files. Interim transcript preview is not supported.",
+      elevenlabs: t(
+        "settings.advanced.remoteStt.elevenlabs.interfaceHint",
+        "ElevenLabs Scribe v3 Live (scribe_v3_live) streams interim and finalized speech over WebSocket (plus Live Monitor diarization) and uses the scribe_v3 HTTP companion for completed recordings and files; scribe_v3 uses completed-recording and file HTTP transcription only.",
+      ),
       openai_transcribe:
         "Recommended for completed recordings, file transcription, and batch workloads.",
       openai_live_transcribe:
@@ -889,7 +915,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         "Use your own self-hosted or proxy OpenAI-compatible STT endpoint.",
     };
     return hints[currentRemoteInterface] ?? "";
-  }, [currentRemoteInterface]);
+  }, [currentRemoteInterface, t]);
 
   const showOpenAiRealtimeNotes =
     currentRemoteInterface === "openai_realtime_agent_legacy" ||
@@ -927,6 +953,33 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     }
     return options;
   }, [modelIdInput]);
+
+  const elevenlabsModelOptions = useMemo<SelectOption[]>(() => {
+    const options: SelectOption[] = [
+      {
+        value: REMOTE_STT_ELEVENLABS_DEFAULT_MODEL,
+        label: t(
+          "settings.advanced.remoteStt.elevenlabs.modelLiveOption",
+          "scribe_v3_live — Realtime WebSocket + scribe_v3 file companion (Recommended)",
+        ),
+      },
+      {
+        value: REMOTE_STT_ELEVENLABS_FILE_MODEL,
+        label: t(
+          "settings.advanced.remoteStt.elevenlabs.modelFileOption",
+          "scribe_v3 — Completed recording & file HTTP only (no live streaming)",
+        ),
+      },
+    ];
+    const current = modelIdInput.trim();
+    if (current && !options.some((option) => option.value === current)) {
+      options.push({
+        value: current,
+        label: current,
+      });
+    }
+    return options;
+  }, [modelIdInput, t]);
 
   const handleOpenDefaultProfile = () => {
     navigateToSettingsAnchor({
@@ -976,6 +1029,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
             : "vercel"
         : interfaceId === "reson8"
           ? "reson8"
+        : interfaceId === "elevenlabs"
+          ? "elevenlabs"
         : interfaceId === "custom"
           ? "custom"
           : "openai";
@@ -984,6 +1039,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         ? REMOTE_STT_PRESETS.groq.defaultModel
         : interfaceId === "reson8"
           ? REMOTE_STT_PRESETS.reson8.defaultModel
+        : interfaceId === "elevenlabs"
+          ? REMOTE_STT_PRESETS.elevenlabs.defaultModel
         : interfaceId === "gemini_transcribe"
           ? nextPreset === "google"
             ? REMOTE_STT_PRESETS.google.defaultModel
@@ -1709,6 +1766,9 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     if (currentRemoteInterface === "reson8") {
       return ["language"];
     }
+    if (currentRemoteInterface === "elevenlabs") {
+      return ["language"];
+    }
     if (currentRemoteInterface === "openai_realtime_translate") {
       return ["language", "translateToEnglish"];
     }
@@ -1737,6 +1797,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   ]);
   const canTestConnection =
     isRemoteOpenAiProvider &&
+    currentRemoteInterface !== "gemini_transcribe" &&
+    currentRemoteInterface !== "gemini_live" &&
+    currentRemoteInterface !== "reson8" &&
+    currentRemoteInterface !== "elevenlabs" &&
     canEditCredentials &&
     baseUrlInput.trim().length > 0 &&
     hasKeyStatusLoaded &&
@@ -2069,6 +2133,77 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     subtitle timestamps are not supported.
                   </p>
                 </div>
+              )}
+
+              {currentRemoteInterface === "elevenlabs" && (
+                <>
+                  <SettingContainer
+                    title={t(
+                      "settings.advanced.remoteStt.elevenlabs.modelTitle",
+                      "ElevenLabs STT Model",
+                    )}
+                    description={t(
+                      "settings.advanced.remoteStt.elevenlabs.modelDescription",
+                      "Select scribe_v3_live for realtime dictation and Live Monitor with automatic scribe_v3 file companion, or scribe_v3 for completed-recording and file HTTP transcription only.",
+                    )}
+                    descriptionMode={descriptionMode}
+                    grouped={grouped}
+                    layout="stacked"
+                  >
+                    <Select
+                      value={
+                        modelIdInput.trim() ||
+                        REMOTE_STT_ELEVENLABS_DEFAULT_MODEL
+                      }
+                      options={elevenlabsModelOptions}
+                      onChange={handleGroqModelChange}
+                      isClearable={false}
+                      className="w-full"
+                    />
+                  </SettingContainer>
+                  {(modelIdInput.trim() || effectiveRemoteModelId.trim()) ===
+                    REMOTE_STT_ELEVENLABS_FILE_MODEL && (
+                    <div className="mx-4 rounded-lg border border-amber-400/35 bg-amber-400/10 p-3 text-xs text-amber-100">
+                      {t(
+                        "settings.advanced.remoteStt.elevenlabs.scribeV3FileOnlyNotice",
+                        "scribe_v3 supports completed dictation recordings and file transcription (Text, SRT, VTT with word timestamps) only — live streaming, interim preview, and Live Monitor are not supported on scribe_v3.",
+                      )}
+                    </div>
+                  )}
+                  <div className="mx-4 rounded-lg border border-cyan-400/25 bg-cyan-400/5 p-3 text-xs text-text/80">
+                    <p className="font-medium text-cyan-200">
+                      {t(
+                        "settings.advanced.remoteStt.elevenlabs.infoTitle",
+                        "ElevenLabs · Scribe v3 Live (scribe_v3_live) & Scribe v3 (scribe_v3)",
+                      )}
+                    </p>
+                    <p className="mt-1">
+                      {t(
+                        "modelSelector.remoteApiRows.elevenlabs.description",
+                        "Realtime streaming (scribe_v3_live) with interim preview and live speaker diarization; file transcription and completed recordings use the scribe_v3 HTTP companion.",
+                      )}
+                    </p>
+                    <p className="mt-1 text-text/65">
+                      {t(
+                        "settings.advanced.remoteStt.elevenlabs.infoDetails",
+                        "When scribe_v3_live is selected, live dictation and Live Monitor stream over ElevenLabs Realtime WebSocket (xi-api-key, 16 kHz PCM), while completed-recording fallback and Transcribe File explicitly use the scribe_v3 HTTP companion (POST /v1/speech-to-text) with word-level timestamps for Text, SRT, and VTT. Selecting scribe_v3 directly uses completed-recording and file HTTP transcription only (never live). Active profile/global language hints are supported. Realtime sends Custom Words as keyterm_library; completed recordings and files apply Custom Words locally after transcription. Free-form STT prompts and Translate to English are not supported.",
+                      )}
+                    </p>
+                    <p className="mt-2">
+                      <a
+                        href="https://elevenlabs.io/app/settings/api-keys"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-cyan-300 hover:underline"
+                      >
+                        {t(
+                          "settings.advanced.remoteStt.elevenlabs.apiKeysLink",
+                          "ElevenLabs API Keys",
+                        )}
+                      </a>
+                    </p>
+                  </div>
+                </>
               )}
 
               {(currentRemoteInterface === "openai_live_transcribe" ||
@@ -3617,7 +3752,12 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                       ? t("settings.advanced.soniox.apiKey.placeholder")
                       : isDeepgramProvider
                         ? t("settings.advanced.deepgram.apiKey.placeholder")
-                        : t("settings.advanced.remoteStt.apiKey.placeholder")
+                        : currentRemoteInterface === "elevenlabs"
+                          ? t(
+                              "settings.advanced.remoteStt.elevenlabs.apiKeyPlaceholder",
+                              "Enter your ElevenLabs API key",
+                            )
+                          : t("settings.advanced.remoteStt.apiKey.placeholder")
                   }
                   showCancel={hasApiKey}
                   hint={
@@ -3632,7 +3772,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 {showOpenAiFields &&
                   currentRemoteInterface !== "gemini_transcribe" &&
                   currentRemoteInterface !== "gemini_live" &&
-                  currentRemoteInterface !== "reson8" && (
+                  currentRemoteInterface !== "reson8" &&
+                  currentRemoteInterface !== "elevenlabs" && (
                   <>
                     <div className="flex items-center gap-2">
                       <Button

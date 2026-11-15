@@ -968,6 +968,77 @@ mod tests {
     use super::DeepgramSttManager;
 
     #[test]
+    fn invalid_word_timings_do_not_reach_subtitle_output() {
+        let alternative = serde_json::json!({
+            "words": [
+                { "word": "negative", "start": -0.1, "end": 0.2 },
+                { "word": "reversed", "start": 0.5, "end": 0.4 },
+                { "word": "missing-end", "start": 0.5 },
+                { "word": "string-time", "start": "0.5", "end": 0.8 },
+                { "word": "overflow", "start": 1e100, "end": 1e101 },
+                { "word": "   ", "start": 0.5, "end": 0.8 },
+                { "word": "valid", "punctuated_word": "Valid.", "start": 1.0, "end": 2.0 }
+            ]
+        });
+
+        let tokens = DeepgramSttManager::extract_timed_words(&alternative);
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].text, "Valid.");
+        assert_eq!(tokens[0].start, 1.0);
+        assert_eq!(tokens[0].end, 2.0);
+    }
+
+    #[test]
+    fn multichannel_words_merge_chronologically_using_each_channels_best_alternative() {
+        let payload = serde_json::json!({
+            "results": {
+                "channels": [
+                    { "alternatives": [
+                        { "words": [{ "word": "later", "start": 2.0, "end": 2.5 }] },
+                        { "words": [{ "word": "lower-ranked", "start": 0.0, "end": 0.5 }] }
+                    ] },
+                    { "alternatives": [] },
+                    { "alternatives": [
+                        { "words": [{ "word": "earlier", "start": 1.0, "end": 1.5 }] }
+                    ] }
+                ]
+            }
+        });
+
+        let tokens = DeepgramSttManager::extract_prerecorded_timed_words(&payload, true);
+        assert_eq!(
+            tokens.iter().map(|token| token.text.as_str()).collect::<Vec<_>>(),
+            vec!["earlier", "later"]
+        );
+        let mono = DeepgramSttManager::extract_prerecorded_timed_words(&payload, false);
+        assert_eq!(mono.len(), 1);
+        assert_eq!(mono[0].text, "later");
+    }
+
+    #[test]
+    fn returning_speakers_keep_distinct_blocks_and_channel_scoped_identity() {
+        let alternative = serde_json::json!({
+            "words": [
+                { "word": "hello", "punctuated_word": "Hello", "speaker": 0 },
+                { "word": "there", "punctuated_word": "there.", "speaker": "0" },
+                { "word": "reply", "punctuated_word": "Reply.", "speaker": 1 },
+                { "word": "invalid", "speaker": -1 },
+                { "word": "again", "punctuated_word": "Again.", "speaker": 0 }
+            ]
+        });
+
+        let blocks = DeepgramSttManager::extract_diarized_chunk_blocks(Some(&alternative), Some(2));
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0].speaker_key, "channel:2:speaker:0");
+        assert_eq!(blocks[0].default_name.as_deref(), Some("Channel 2 Speaker 0"));
+        assert_eq!(blocks[0].text, "Hello there.");
+        assert_eq!(blocks[1].speaker_key, "channel:2:speaker:1");
+        assert_eq!(blocks[1].text, "Reply.");
+        assert_eq!(blocks[2].speaker_key, "channel:2:speaker:0");
+        assert_eq!(blocks[2].text, "Again.");
+    }
+
+    #[test]
     fn prerecorded_words_keep_provider_timestamps() {
         let payload = serde_json::json!({
             "results": {

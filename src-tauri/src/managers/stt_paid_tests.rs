@@ -1,5 +1,5 @@
-//! Paid speech-to-text requests to Soniox, Deepgram and Gemini 3.5 Transcribe with the
-//! keys saved in the app, on English speech synthesized by Windows. Ignored by default:
+//! Paid speech-to-text requests with saved provider keys: synthesized speech or an
+//! explicitly supplied MP3-derived speech fixture. Network tests are ignored by default:
 //! `./test-local.ps1 -LibOnly -Filter stt_paid,--ignored,--nocapture`
 use super::deepgram_realtime::{DeepgramRealtimeManager, DeepgramRealtimeOptions};
 use super::deepgram_stt::{DeepgramSttManager, DeepgramTranscriptionOptions};
@@ -33,7 +33,6 @@ const SENTENCES: &[&str] = &[
 ];
 const MIN_RECALL: f64 = 0.85;
 const SAMPLE_RATE: usize = 16_000;
-const FRAME_SAMPLES: usize = 480;
 const FINISH_TIMEOUT_MS: u32 = 20_000;
 const REQUEST_TIMEOUT_SECONDS: u32 = 120;
 
@@ -48,6 +47,7 @@ fn app() -> &'static AppHandle {
         #[cfg(any(target_os = "windows", target_os = "linux"))]
         let builder = builder.any_thread();
         let app = builder
+            .manage(std::sync::Mutex::new(crate::session_manager::SessionState::Idle))
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("test app");
         let handle = app.handle().clone();
@@ -158,11 +158,45 @@ fn chunk_collector() -> (ChunkLog, Arc<dyn Fn(String) + Send + Sync>) {
 
 /// Feeds the speech in real time, one 30 ms frame per tick, like the microphone.
 async fn feed_live(samples: &[f32], push: impl Fn(Vec<f32>)) {
-    let mut tick = tokio::time::interval(Duration::from_millis(30));
-    for frame in samples.chunks(FRAME_SAMPLES) {
+    feed_live_with_frame_ms(samples, 30, push).await;
+}
+
+async fn feed_live_with_frame_ms(samples: &[f32], frame_ms: u64, push: impl Fn(Vec<f32>)) {
+    let mut tick = tokio::time::interval(Duration::from_millis(frame_ms));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    for frame in samples.chunks(SAMPLE_RATE * frame_ms as usize / 1000) {
         tick.tick().await;
         push(frame.to_vec());
     }
+}
+
+/// Ordered word recall against an independently supplied speech reference.
+/// Repeated words count separately; extra hypotheses cannot hide missing speech.
+fn ordered_speech_recall(reference: &str, transcript: &str) -> (usize, usize) {
+    let reference = words(reference);
+    let transcript = words(transcript);
+    let mut matched = vec![0usize; transcript.len() + 1];
+    for expected in &reference {
+        let mut diagonal = 0;
+        for (index, heard) in transcript.iter().enumerate() {
+            let previous = matched[index + 1];
+            matched[index + 1] = if expected == heard {
+                diagonal + 1
+            } else {
+                matched[index + 1].max(matched[index])
+            };
+            diagonal = previous;
+        }
+    }
+    (*matched.last().unwrap(), reference.len())
+}
+
+#[test]
+fn speech_recall_rejects_missing_sentences_and_reordered_repetitions() {
+    assert_eq!(ordered_speech_recall("One two. One three.", "one two one three"), (4, 4));
+    assert_eq!(ordered_speech_recall("One two. One three.", "one two three"), (3, 4));
+    assert_eq!(ordered_speech_recall("One two. One three.", "three one two one"), (3, 4));
+    assert_eq!(ordered_speech_recall("Hello world. Missing speech.", "Hello world."), (2, 4));
 }
 
 /// Checks a finished live session: the words, that the streamed chunks add up to the
@@ -295,6 +329,189 @@ async fn stt_paid_soniox() {
         })
         .await,
     );
+    report.assert_ok();
+}
+
+fn speech_replay_fixture() -> (Vec<f32>, String) {
+    let path = std::env::var("AIVORELAY_STT_REPLAY_WAV")
+        .expect("set AIVORELAY_STT_REPLAY_WAV to decoded 16 kHz mono PCM16 speech");
+    let spec = hound::WavReader::open(&path).expect("open speech WAV").spec();
+    assert_eq!((spec.sample_rate, spec.channels, spec.bits_per_sample), (16_000, 1, 16));
+    let samples = crate::audio_toolkit::read_wav_samples(&path).expect("decode speech WAV");
+    let reference_path = std::env::var("AIVORELAY_STT_REPLAY_EXPECTED")
+        .expect("set AIVORELAY_STT_REPLAY_EXPECTED to a UTF-8 reference transcript");
+    let reference = std::fs::read_to_string(reference_path).expect("read speech reference");
+    assert!(words(&reference).len() >= 20, "use a meaningful reference transcript");
+    let duration = samples.len() as f64 / SAMPLE_RATE as f64;
+    assert!((30.0..=90.0).contains(&duration), "use a bounded 30–90 second speech clip");
+    (samples, reference)
+}
+
+/// Compare the same speech with Gemini's prerecorded model to isolate live-only loss.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "paid Gemini file API with a saved key and explicitly supplied speech fixture"]
+async fn stt_paid_mp3_gemini_file() {
+    let (samples, reference) = speech_replay_fixture();
+    let mut settings = gemini_settings(REMOTE_STT_PRESET_VERCEL, REMOTE_STT_VERCEL_DEFAULT_MODEL);
+    settings.gemini_file_mode = crate::settings::GeminiTranscriptionMode::Smart;
+    let key = gemini_key(&settings).expect("no saved Vercel STT key available");
+    let manager = RemoteSttManager::new(app()).expect("Gemini file manager");
+    let config = resolve_effective_config(
+        &settings, None, GeminiWorkflow::File { word_timestamps: false }, None,
+    ).expect("Gemini file configuration");
+    let started = Instant::now();
+    let result = manager.transcribe_file_with_operation(
+        manager.start_operation(), &settings.remote_stt, &samples,
+        None, None, false, false, Some(config),
+    ).await;
+    let text = result.unwrap_or_else(|error| panic!("{}",
+        super::remote_stt::redact_remote_stt_api_key(&format!("{error:#}"), &key),
+    )).text;
+    let (matched, expected) = ordered_speech_recall(&reference, &text);
+    println!("Gemini file: {matched}/{expected} reference words in {} ms; {text:?}", ms(started.elapsed()));
+    assert!((matched as f64 / expected as f64) >= MIN_RECALL,
+        "missing speech: ordered reference recall {matched}/{expected}");
+}
+
+/// Explicit paid smoke: decode a speech MP3 to 16 kHz mono PCM16 WAV first,
+/// then set AIVORELAY_STT_REPLAY_WAV to that WAV. No microphone or paste is used.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "paid live APIs with saved keys and an explicitly supplied speech fixture"]
+async fn stt_paid_mp3_live_chunks() {
+    use super::elevenlabs_realtime::{
+        ElevenLabsRealtimeManager, ElevenLabsRealtimeOptions, ELEVENLABS_LIVE_FINALIZE_TIMEOUT_MS,
+    };
+    use crate::text_replacement_decapitalize as decapitalize;
+
+    let _guard = decapitalize::TEST_MUTEX.lock().unwrap();
+    let (samples, reference) = speech_replay_fixture();
+    let frame_ms = std::env::var("AIVORELAY_STT_REPLAY_FRAME_MS")
+        .map(|value| value.parse::<u64>().expect("frame duration in milliseconds"))
+        .unwrap_or(30);
+    assert!((10..=200).contains(&frame_ms), "use bounded 10–200 ms frames");
+    let duration = samples.len() as f64 / SAMPLE_RATE as f64;
+    println!("MP3 replay: {duration:.2} seconds, {frame_ms} ms audio frames, real-time pacing");
+
+    #[derive(Default)]
+    struct Output {
+        chunks: Vec<(u128, String)>,
+        processor: StreamChunkProcessor,
+        inserted: String,
+        lowercase_at: Vec<usize>,
+        raw_len: usize,
+    }
+    let mut report = Report::default();
+    let providers = std::env::var("AIVORELAY_STT_REPLAY_PROVIDERS")
+        .unwrap_or_else(|_| "elevenlabs,vercel".to_string());
+    let providers: Vec<_> = providers.split(',').map(str::trim).collect();
+    assert!(!providers.is_empty() && providers.iter().all(|provider| matches!(*provider, "elevenlabs" | "vercel" | "google")),
+        "replay providers must be elevenlabs, vercel, and/or google");
+    for provider in providers {
+        let model = match provider {
+            "elevenlabs" => "scribe_v3_live",
+            "google" => GEMINI_LIVE_GOOGLE_DEFAULT_MODEL,
+            _ => GEMINI_LIVE_DEFAULT_MODEL,
+        };
+        let mut settings = gemini_settings(provider, model);
+        if let Ok(mode) = std::env::var("AIVORELAY_STT_REPLAY_MODE") {
+            settings.gemini_dictation_mode = Some(match mode.as_str() {
+                "smart" => crate::settings::GeminiTranscriptionMode::Smart,
+                "verbatim" => crate::settings::GeminiTranscriptionMode::Verbatim,
+                _ => panic!("replay mode must be smart or verbatim"),
+            });
+        }
+        if let Ok(language) = std::env::var("AIVORELAY_STT_REPLAY_LANGUAGE") {
+            settings.gemini_language_code = language;
+        }
+        let Ok(key) = get_remote_stt_api_key(&settings.remote_stt) else {
+            report.record(provider, Err("no saved STT key available".to_string()));
+            continue;
+        };
+        let _ = decapitalize::maybe_decapitalize_next_chunk_standard("Reset");
+        let output = Arc::new(Mutex::new(Output::default()));
+        let collected = Arc::clone(&output);
+        let start = Instant::now();
+        let callback: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |chunk| {
+            let mut output = collected.lock();
+            if let Some((offset, first)) = chunk.char_indices().find(|(_, ch)| ch.is_alphabetic()) {
+                if first.is_uppercase() {
+                    let at = output.raw_len + offset;
+                    output.lowercase_at.push(at);
+                    // Rearm within this same recording before each uppercase speech chunk.
+                    decapitalize::mark_edit_key_pressed(60_000, false);
+                }
+            }
+            let delta = output.processor.push_chunk(&chunk);
+            output.inserted.push_str(&delta);
+            output.raw_len += chunk.len();
+            output.chunks.push((start.elapsed().as_millis(), chunk));
+        });
+        let finish_started;
+        let result = if provider == "elevenlabs" {
+            let manager = ElevenLabsRealtimeManager::new(app());
+            match manager.start_session(
+                LIVE_SOUND_TRANSCRIPTION_BINDING_ID, None, &key,
+                ElevenLabsRealtimeOptions { language_code: Some("en".to_string()), ..Default::default() },
+                Some(callback),
+            ) {
+                Ok(()) => {
+                    feed_live_with_frame_ms(&samples, frame_ms, |frame| manager.push_audio_frame(frame)).await;
+                    finish_started = Instant::now();
+                    manager.finish_session(ELEVENLABS_LIVE_FINALIZE_TIMEOUT_MS).await
+                }
+                Err(error) => { finish_started = Instant::now(); Err(error) }
+            }
+        } else {
+            let manager = GeminiRealtimeManager::new(app()).expect("Gemini manager");
+            match manager.start_session(
+                LIVE_SOUND_TRANSCRIPTION_BINDING_ID, None, &key,
+                gemini_live_options(&settings).expect("Gemini options"), Some(callback),
+            ) {
+                Ok(()) => {
+                    feed_live_with_frame_ms(&samples, frame_ms, |frame| manager.push_audio_frame(frame)).await;
+                    finish_started = Instant::now();
+                    manager.finish_session(FINISH_TIMEOUT_MS).await
+                }
+                Err(error) => { finish_started = Instant::now(); Err(error) }
+            }
+        };
+        let finalize_ms = finish_started.elapsed().as_millis();
+        let mut output = output.lock();
+        let tail = output.processor.flush();
+        output.inserted.push_str(&tail);
+        let raw: String = output.chunks.iter().map(|(_, text)| text.as_str()).collect();
+        println!("{provider}: chunk arrivals {:?}", output.chunks);
+        let check = result.map_err(|error| {
+            super::remote_stt::redact_remote_stt_api_key(&format!("{error:#}"), &key)
+        }).and_then(|text| {
+            println!("{provider}: final transcript {text:?}");
+            let (matched, expected) = ordered_speech_recall(&reference, &text);
+            println!("{provider}: ordered reference recall {matched}/{expected} words");
+            if output.chunks.len() < 2 || output.chunks[0].0 >= (duration * 1000.0) as u128 {
+                return Err("no incremental output while audio was being fed".to_string());
+            }
+            if !raw.split_whitespace().eq(text.split_whitespace()) {
+                return Err("streamed chunks differ from final transcript".to_string());
+            }
+            if (matched as f64 / expected as f64) < MIN_RECALL {
+                return Err(format!("missing speech: ordered reference recall {matched}/{expected}, requires at least {:.0}%", MIN_RECALL * 100.0));
+            }
+            if output.lowercase_at.len() < 2 {
+                return Err("fewer than two uppercase speech chunks to exercise rearming".to_string());
+            }
+            let mut expected = raw.clone();
+            for &offset in output.lowercase_at.iter().rev() {
+                let first = raw[offset..].chars().next().unwrap();
+                expected.replace_range(offset..offset + first.len_utf8(), &first.to_lowercase().to_string());
+            }
+            if output.inserted != expected || decapitalize::is_any_trigger_armed_now() {
+                return Err("decapitalization changed unexpected letters or failed to consume a rearmed trigger".to_string());
+            }
+            Ok(format!("{} real chunks, {} words, finalization {finalize_ms} ms, {} decapitalization triggers consumed in one recording", output.chunks.len(), words(&text).len(), output.lowercase_at.len()))
+        });
+        let _ = decapitalize::maybe_decapitalize_next_chunk_standard("Reset");
+        report.record(provider, check);
+    }
     report.assert_ok();
 }
 

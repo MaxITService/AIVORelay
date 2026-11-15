@@ -2625,6 +2625,28 @@ pub fn show_sending_overlay(app_handle: &AppHandle) {
     );
 }
 
+/// Reserve the transition before queuing it, so a provider failure between a
+/// worker's check and this call keeps its newer error presentation authoritative.
+pub(crate) fn show_processing_overlay_if_generation_matches(
+    app_handle: &AppHandle, expected_generation: u64, finalizing: bool,
+) {
+    let Some(generation) = plus_overlay_state::advance_overlay_generation_if_matches(expected_generation) else {
+        return;
+    };
+    let settings = settings::get_settings(app_handle);
+    if !settings.recording_overlay_enabled {
+        return;
+    }
+    let payload = build_overlay_state_payload(if finalizing { "finalizing" } else { "sending" }, &settings, None, false);
+    plus_overlay_state::run_recording_overlay_update(app_handle, generation, move |app_handle| {
+        set_recording_overlay_default_layout(app_handle);
+        if let Some(window) = app_handle.get_webview_window("recording_overlay") {
+            let _ = window.emit("show-overlay", payload);
+            show_positioned_recording_overlay_window(app_handle);
+        }
+    });
+}
+
 /// Shows the thinking overlay window (for LLM processing)
 pub fn show_thinking_overlay(app_handle: &AppHandle) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.

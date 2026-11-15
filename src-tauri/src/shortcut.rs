@@ -153,6 +153,10 @@ fn uses_live_streaming_for_settings(settings: &settings::AppSettings) -> bool {
                     && crate::managers::reson8_realtime::Reson8RealtimeManager::is_realtime_model(
                         &settings.remote_stt.model_id,
                     ))
+                || (settings.remote_stt.provider_preset == "elevenlabs"
+                    && crate::managers::elevenlabs_realtime::ElevenLabsRealtimeManager::is_realtime_model(
+                        &settings.remote_stt.model_id,
+                    ))
         }
         TranscriptionProvider::Local => settings
             .native_streaming_live_output_models
@@ -6216,6 +6220,19 @@ mod stt_profile_model_tests {
             vec!["global-streaming".to_string()]);
         assert_eq!(preview_settings(TranscriptionProvider::RemoteSoniox, "stt-rt-v4"),
             vec!["global-streaming".to_string(), "profile-streaming".to_string()]);
+    }
+
+    #[test]
+    fn elevenlabs_live_streaming_distinguishes_scribe_v3_live_from_scribe_v3() {
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::RemoteOpenAiCompatible;
+        settings.remote_stt.provider_preset = "elevenlabs".to_string();
+
+        settings.remote_stt.model_id = "scribe_v3_live".to_string();
+        assert!(super::uses_live_streaming_for_settings(&settings));
+
+        settings.remote_stt.model_id = "scribe_v3".to_string();
+        assert!(!super::uses_live_streaming_for_settings(&settings));
     }
 }
 

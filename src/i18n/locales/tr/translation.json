@@ -519,7 +519,8 @@
       },
       "updateChecks": {
         "label": "Güncellemeleri Kontrol Et",
-        "description": "AivoRelay için yeni sürümleri otomatik olarak kontrol eder"
+        "description": "AivoRelay için yeni sürümleri otomatik olarak kontrol eder",
+        "lockedDescription": "Sistem yapılandırması tarafından devre dışı bırakıldı (AIVORELAY_DISABLE_UPDATER)"
       },
       "soundTheme": {
         "label": "Ses Teması",
@@ -626,7 +627,10 @@
     "downloading": "İndiriliyor... %{{progress}}",
     "installing": "Yükleniyor...",
     "preparing": "Hazırlanıyor...",
-    "checkForUpdates": "Güncellemeleri kontrol et"
+    "checkForUpdates": "Güncellemeleri kontrol et",
+    "portableUpdateTitle": "Elle güncelleme gerekiyor",
+    "portableUpdateMessage": "Taşınabilir sürüm kendini güncelleyemez. İmzalı MSI yükleyicisini indirip çalıştırın. Mevcut taşınabilir Data klasörünüz silinmez.",
+    "portableUpdateButton": "Yükleyiciyi indir"
   },
   "common": {
     "retry": "Yeniden dene",

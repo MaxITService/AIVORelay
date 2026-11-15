@@ -499,7 +499,8 @@
       },
       "updateChecks": {
         "label": "Kontrolovat aktualizace",
-        "description": "Automaticky kontrolovat nové verze AivoRelay"
+        "description": "Automaticky kontrolovat nové verze AivoRelay",
+        "lockedDescription": "Zakázáno systémovou konfigurací (AIVORELAY_DISABLE_UPDATER)"
       },
       "soundTheme": {
         "label": "Zvukový motiv",
@@ -606,7 +607,10 @@
     "downloading": "Stahování... {{progress}}%",
     "installing": "Instalace...",
     "preparing": "Příprava...",
-    "checkForUpdates": "Zkontrolovat aktualizace"
+    "checkForUpdates": "Zkontrolovat aktualizace",
+    "portableUpdateTitle": "Je vyžadována ruční aktualizace",
+    "portableUpdateMessage": "Přenosná verze se nemůže aktualizovat sama. Stáhněte a spusťte podepsaný instalátor MSI. Vaše stávající přenosná složka Data nebude odstraněna.",
+    "portableUpdateButton": "Stáhnout instalátor"
   },
   "common": {
     "retry": "Zkusit znovu",

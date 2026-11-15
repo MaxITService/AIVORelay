@@ -499,7 +499,8 @@
       },
       "updateChecks": {
         "label": "Verificar Atualizações",
-        "description": "Verificar automaticamente novas versões do AivoRelay"
+        "description": "Verificar automaticamente novas versões do AivoRelay",
+        "lockedDescription": "Desativado pela configuração do sistema (AIVORELAY_DISABLE_UPDATER)"
       },
       "soundTheme": {
         "label": "Tema de Som",
@@ -608,8 +609,8 @@
     "preparing": "Preparando...",
     "checkForUpdates": "Verificar atualizações",
     "portableUpdateTitle": "Atualização manual necessária",
-    "portableUpdateMessage": "Instalações portáteis não podem ser atualizadas automaticamente. Para atualizar: baixe o instalador NSIS mais recente do GitHub Releases, instale-o na mesma pasta e, em seguida, copie sua pasta Data/ (configurações, modelos, gravações) da versão antiga para a nova.",
-    "portableUpdateButton": "Abrir GitHub Releases"
+    "portableUpdateMessage": "A versão portátil não pode se atualizar sozinha. Baixe e execute o instalador MSI assinado. Sua pasta Data portátil existente não será excluída.",
+    "portableUpdateButton": "Baixar instalador"
   },
   "common": {
     "retry": "Tentar novamente",

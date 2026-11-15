@@ -2,13 +2,13 @@ use anyhow::{anyhow, Result};
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
-use log::{debug, info, warn};
+use log::{info, warn};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::async_runtime::JoinHandle;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -36,10 +36,29 @@ const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 pub const GEMINI_LIVE_SAFE_FINALIZE_SECS: u64 = 9 * 60 + 50;
 const GOOGLE_FINAL_TRANSCRIPT_GRACE_MS: u64 = 3_000;
 const AUDIO_QUEUE_CAPACITY: usize = 256;
+const PENDING_AUDIO_OVERFLOW_ERROR: &str =
+    "Gemini 3.5 Transcribe Live audio buffer overflowed before connection completed; aborting to avoid losing speech.";
+const PENDING_STARTUP_OVERFLOW_ERROR: &str =
+    "Gemini 3.5 Transcribe Live audio queue overflowed before session startup; aborting to avoid losing speech.";
+const ACTIVE_AUDIO_OVERFLOW_ERROR: &str =
+    "Gemini 3.5 Transcribe Live audio queue overflowed; recording aborted to avoid losing speech.";
 const GOOGLE_SETUP_TIMEOUT_SECS: u64 = 5;
 const GEMINI_LIVE_TIME_LIMIT_COMPLETED_EVENT: &str = "gemini-live-time-limit-completed";
 
 pub type FinalChunkCallback = Arc<dyn Fn(String) + Send + Sync + 'static>;
+pub(crate) type FinalChunkCallbackFactory =
+    Arc<dyn Fn(Arc<GeminiOutputWindow>) -> FinalChunkCallback + Send + Sync + 'static>;
+
+fn bind_session_chunk_callback(
+    factory: Option<&FinalChunkCallbackFactory>,
+    window: &Arc<GeminiOutputWindow>,
+) -> Option<FinalChunkCallback> {
+    let callback = factory?(Arc::clone(window));
+    let window = Arc::clone(window);
+    Some(Arc::new(move |chunk| {
+        if !window.is_cancelled() { callback(chunk); }
+    }))
+}
 
 #[derive(Clone, Debug)]
 pub struct GeminiRealtimeOptions {
@@ -68,6 +87,7 @@ impl Default for GeminiRealtimeOptions {
 enum ControlMessage {
     Finish,
     Cancel,
+    Overflow(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -220,6 +240,27 @@ struct SessionEvents {
     words_pending: Box<dyn Fn(bool) + Send + Sync>,
 }
 
+impl SessionEvents {
+    fn only_current(self, is_current: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+        let is_current = Arc::new(is_current);
+        let text_owner = Arc::clone(&is_current);
+        let stop_owner = Arc::clone(&is_current);
+        Self {
+            live_text: Box::new(move |text| {
+                if text_owner() { (self.live_text)(text); }
+            }),
+            setup_complete: self.setup_complete,
+            time_limit_stop: Box::new(move || {
+                if stop_owner() { (self.time_limit_stop)(); }
+            }),
+            time_limit_completed: Box::new(move |payload| {
+                if is_current() { (self.time_limit_completed)(payload); }
+            }),
+            words_pending: self.words_pending,
+        }
+    }
+}
+
 struct ActiveSession {
     binding_id: String,
     operation_id: Option<u64>,
@@ -228,12 +269,14 @@ struct ActiveSession {
     final_text: Arc<Mutex<String>>,
     join_handle: JoinHandle<Result<()>>,
     output_window: Arc<GeminiOutputWindow>,
+    restart_params: Option<SessionParams>,
 }
 
 struct PendingAudio {
     operation_id: Option<u64>,
     frames: Vec<Vec<u8>>,
     output_window: Arc<GeminiOutputWindow>,
+    overflow_error: Option<String>,
 }
 
 pub(crate) struct GeminiFinalizingSession {
@@ -248,18 +291,51 @@ struct SessionParams {
     operation_id: Option<u64>,
     api_key: String,
     options: GeminiRealtimeOptions,
-    on_final_chunk: Option<FinalChunkCallback>,
+    chunk_callback_factory: Option<FinalChunkCallbackFactory>,
+}
+
+#[derive(Default)]
+struct RuntimeErrorReport {
+    operation_id: Option<u64>,
+    live_sound_session_id: Option<u64>,
+    error: Option<String>,
+}
+
+impl RuntimeErrorReport {
+    fn matches(&self, operation_id: Option<u64>, live_sound_session_id: Option<u64>, error: Option<&str>) -> bool {
+        self.operation_id == operation_id && self.live_sound_session_id == live_sound_session_id
+            && self.error.as_deref().is_some_and(|reported| error.is_none_or(|error| error == reported))
+    }
+}
+
+fn report_runtime_error_before_stop(
+    report: &Mutex<RuntimeErrorReport>, error: &str, is_current: impl FnOnce() -> bool,
+    emit: impl FnOnce(), stop: impl FnOnce(),
+) {
+    if !is_current() {
+        return;
+    }
+    {
+        let mut report = report.lock();
+        if report.error.is_some() {
+            return;
+        }
+        report.error = Some(error.to_string());
+    }
+    // A fast Stop can complete Processing synchronously. Publish feedback before
+    // that transition, and retain the marker until this session is replaced.
+    emit();
+    stop();
 }
 
 pub struct GeminiRealtimeManager {
     app_handle: AppHandle,
     active_session: Arc<Mutex<Option<ActiveSession>>>,
-    session_params: Mutex<Option<SessionParams>>,
     // Always lock active_session before pending_audio, including while publishing
     // a transport, so cancellation cannot mix two operations' buffered frames.
     pending_audio: Mutex<Option<PendingAudio>>,
     time_limit_completion: Mutex<Arc<Mutex<Option<GeminiTimeLimitCompletion>>>>,
-    reported_runtime_error: Mutex<Arc<Mutex<Option<String>>>>,
+    reported_runtime_error: Mutex<Arc<Mutex<RuntimeErrorReport>>>,
 }
 
 impl GeminiRealtimeManager {
@@ -267,14 +343,14 @@ impl GeminiRealtimeManager {
         Ok(Self {
             app_handle: app_handle.clone(),
             active_session: Arc::new(Mutex::new(None)),
-            session_params: Mutex::new(None),
             pending_audio: Mutex::new(Some(PendingAudio {
                 operation_id: None,
                 frames: Vec::new(),
                 output_window: Arc::new(GeminiOutputWindow::default()),
+                overflow_error: None,
             })),
             time_limit_completion: Mutex::new(Arc::new(Mutex::new(None))),
-            reported_runtime_error: Mutex::new(Arc::new(Mutex::new(None))),
+            reported_runtime_error: Mutex::new(Arc::new(Mutex::new(RuntimeErrorReport::default()))),
         })
     }
 
@@ -359,21 +435,29 @@ impl GeminiRealtimeManager {
         anyhow!(message)
     }
 
-    pub fn restart_session(&self) -> Result<()> {
-        if !self.has_active_session() {
-            return Ok(());
-        }
-
-        let params = self.session_params.lock().clone();
+    pub(crate) fn restart_session(&self, reset_preview: impl FnOnce()) -> Result<()> {
+        let params = {
+            // Match stop's lock order: recording state, active session, pending audio.
+            // Restart is meaningful only while recording, never during finalization.
+            let state = self.app_handle.state::<crate::session_manager::ManagedSessionState>();
+            let state_guard = crate::session_manager::lock_session_state(&state, "restart Gemini session");
+            let mut active = self.active_session.lock();
+            let mut pending = self.pending_audio.lock();
+            prepare_session_restart(&mut active, &mut pending, |operation_id| {
+                operation_id.is_none_or(|id| matches!(
+                    &*state_guard,
+                    crate::session_manager::SessionState::Recording { operation_id, .. }
+                        if *operation_id == id
+                ))
+            })
+        };
+        // Old callbacks are invalidated before clearing, and the replacement
+        // cannot emit until after the clear. Never hold manager locks for UI work.
+        reset_preview();
         if let Some(p) = params {
-            self.prepare_session(p.operation_id);
-            self.start_session(
-                &p.binding_id,
-                p.operation_id,
-                &p.api_key,
-                p.options,
-                p.on_final_chunk,
-            )?;
+            // A newer prepare may win after unlocking. start_session checks its
+            // pending operation before publishing, so it cannot replace that owner.
+            self.start_session_with_chunk_factory(&p.binding_id, p.operation_id, &p.api_key, p.options, p.chunk_callback_factory)?;
         }
         Ok(())
     }
@@ -385,6 +469,20 @@ impl GeminiRealtimeManager {
         api_key: &str,
         options: GeminiRealtimeOptions,
         on_final_chunk: Option<FinalChunkCallback>,
+    ) -> Result<()> {
+        let factory = on_final_chunk.map(|callback| {
+            Arc::new(move |_: Arc<GeminiOutputWindow>| Arc::clone(&callback)) as FinalChunkCallbackFactory
+        });
+        self.start_session_with_chunk_factory(binding_id, operation_id, api_key, options, factory)
+    }
+
+    pub(crate) fn start_session_with_chunk_factory(
+        &self,
+        binding_id: &str,
+        operation_id: Option<u64>,
+        api_key: &str,
+        options: GeminiRealtimeOptions,
+        chunk_callback_factory: Option<FinalChunkCallbackFactory>,
     ) -> Result<()> {
         if api_key.trim().is_empty() {
             return Err(self.start_error("Gemini 3.5 Transcribe Live API key is missing"));
@@ -425,19 +523,33 @@ impl GeminiRealtimeManager {
             }
         }
 
+        // Publish under the recording owner's lock, in the same state->active->pending
+        // order as restart/stop. Stop may win the gap between preparing a restart
+        // and calling start_session; a matching pending buffer alone is insufficient.
+        let recording_state = self.app_handle.state::<crate::session_manager::ManagedSessionState>();
+        let owner_guard = operation_id.map(|_| {
+            crate::session_manager::lock_session_state(&recording_state, "publish Gemini session")
+        });
+        if let Some(expected_id) = operation_id {
+            if !owner_guard.as_ref().is_some_and(|state| matches!(
+                &**state,
+                crate::session_manager::SessionState::Recording { binding_id: owner_binding, operation_id, .. }
+                    if owner_binding == binding_id && *operation_id == expected_id
+            )) {
+                return Err(self.start_error("Gemini recording operation is no longer active"));
+            }
+        }
         let mut active_session_guard = self.active_session.lock();
         let mut pending_audio = self.pending_audio.lock();
-        if !pending_audio
-            .as_ref()
-            .is_some_and(|pending| pending.operation_id == operation_id)
-        {
-            return Err(self.start_error("Gemini recording operation is no longer active"));
-        }
-        if active_session_guard.is_some() {
-            return Err(self.start_error(
-                "Gemini 3.5 Transcribe Live session is already active for this profile",
-            ));
-        }
+        let pending = take_ready_pending_audio(
+            &active_session_guard,
+            &mut pending_audio,
+            operation_id,
+        )
+        .map_err(|error| self.start_error(error))?;
+        let buffered = pending.frames;
+        let output_window = pending.output_window;
+        let on_final_chunk = bind_session_chunk_callback(chunk_callback_factory.as_ref(), &output_window);
 
         let mode = match options.mode {
             GeminiTranscriptionMode::Smart => "smart",
@@ -457,19 +569,15 @@ impl GeminiRealtimeManager {
             false,
         );
 
-        {
-            let mut params_guard = self.session_params.lock();
-            *params_guard = Some(SessionParams {
-                binding_id: binding_id.to_string(),
-                operation_id,
-                api_key: api_key.to_string(),
-                options: options.clone(),
-                on_final_chunk: on_final_chunk.clone(),
-            });
-        }
+        let restart_params = Some(SessionParams {
+            binding_id: binding_id.to_string(),
+            operation_id,
+            api_key: api_key.to_string(),
+            options: options.clone(),
+            chunk_callback_factory,
+        });
 
         let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_QUEUE_CAPACITY);
-        let output_window = Arc::clone(&pending_audio.as_ref().unwrap().output_window);
         if transport == GeminiLiveTransport::VercelGateway {
             // The gateway usually sends the first stable text only after Stop.
             output_window.set_words_pending(true);
@@ -485,27 +593,25 @@ impl GeminiRealtimeManager {
             .then(crate::managers::live_sound_transcription::current_session_id);
         let api_key_for_task = api_key.trim().to_string();
         let session_audio_tx = audio_tx.clone();
+        let session_control_tx = control_tx.clone();
         let time_limit_completion = Arc::new(Mutex::new(None));
         *self.time_limit_completion.lock() = Arc::clone(&time_limit_completion);
-        let reported_runtime_error = Arc::new(Mutex::new(None));
+        let reported_runtime_error = Arc::new(Mutex::new(RuntimeErrorReport {
+            operation_id, live_sound_session_id, error: None,
+        }));
         *self.reported_runtime_error.lock() = Arc::clone(&reported_runtime_error);
 
         let join_handle = tauri::async_runtime::spawn(async move {
             let session_started = Instant::now();
             let session_result: Result<()> = async {
-                let request = build_live_websocket_request(
+                let stream = connect_live_socket(
                     transport,
                     &options.model,
                     &api_key_for_task,
-                )?;
-
-                let (stream, _) = timeout(
-                    Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS),
-                    connect_async(request),
-                )
-                .await
-                .map_err(|_| anyhow!("Timed out while connecting to Gemini 3.5 Transcribe Live"))?
-                .map_err(|e| anyhow!("Failed to connect to Gemini 3.5 Transcribe Live: {}", e))?;
+                    |request| async move {
+                        connect_async(request).await.map(|(stream, _)| stream)
+                    },
+                ).await?;
 
                 crate::managers::remote_stt::record_external_remote_stt_debug(
                     &app_handle_for_task,
@@ -519,18 +625,7 @@ impl GeminiRealtimeManager {
 
                 let (mut write, mut read) = stream.split();
 
-                let setup_payload = match transport {
-                    GeminiLiveTransport::GoogleDirect => {
-                        Self::build_google_setup_payload(&options.model, &options)
-                    }
-                    GeminiLiveTransport::VercelGateway => {
-                        Self::build_vercel_start_payload(&options)
-                    }
-                };
-                write
-                    .send(Message::Text(setup_payload.to_string().into()))
-                    .await
-                    .map_err(|e| anyhow!("Failed to send Gemini 3.5 Transcribe Live setup message: {}", e))?;
+                send_live_setup(&mut write, transport, &options).await?;
 
                 crate::managers::remote_stt::record_external_remote_stt_debug(
                     &app_handle_for_task,
@@ -551,12 +646,13 @@ impl GeminiRealtimeManager {
                     app_handle_for_task.clone(),
                     binding_id_for_task.clone(),
                     live_sound_session_id,
+                    operation_id,
                     on_final_chunk,
                     transport,
                     options.clone(),
                     Duration::from_secs(GEMINI_LIVE_SAFE_FINALIZE_SECS),
                     Arc::clone(&time_limit_completion),
-                    output_window_for_task,
+                    Arc::clone(&output_window_for_task),
                 )
                 .await
             }
@@ -584,45 +680,33 @@ impl GeminiRealtimeManager {
                     "Gemini 3.5 Transcribe Live session runtime error (binding='{}'): {}",
                     binding_id_for_task, err_str
                 );
-                let callback_is_current = live_sound_session_id
-                    .map(crate::managers::live_sound_transcription::is_session_current)
-                    .or_else(|| {
-                        operation_id.map(|operation_id| {
-                            crate::session_manager::is_operation_current(
-                                &app_handle_for_task,
-                                operation_id,
-                            )
-                        })
-                    })
-                    .unwrap_or(true);
-                if callback_is_current {
-                    *reported_runtime_error.lock() = Some(err_str.clone());
-                }
-                if callback_is_current && live_sound_session_id.is_none() {
-                    crate::actions::stop_transcription_after_realtime_error(
-                        &app_handle_for_task,
-                        &binding_id_for_task,
-                    );
-                }
-                if callback_is_current {
-                    let _ = app_handle_for_task.emit("remote-stt-error", err_str.clone());
-                    if live_sound_session_id.is_none() {
-                        crate::plus_overlay_state::handle_transcription_error(
-                            &app_handle_for_task,
-                            &err_str,
-                        );
-                    }
-                }
-
-                if crate::managers::preview_output_mode::is_active_for_binding(&binding_id_for_task)
-                {
-                    crate::managers::preview_output_mode::set_error(
-                        &app_handle_for_task,
-                        Some(err_str.clone()),
-                    );
-                }
+                report_runtime_error_before_stop(
+                    &reported_runtime_error, &err_str,
+                    || !output_window_for_task.is_cancelled()
+                        && session_callback_is_current(&app_handle_for_task, operation_id, live_sound_session_id),
+                    || {
+                        let _ = app_handle_for_task.emit("remote-stt-error", err_str.clone());
+                        if live_sound_session_id.is_none() {
+                            crate::plus_overlay_state::handle_transcription_error(&app_handle_for_task, &err_str);
+                        }
+                        if !output_window_for_task.is_cancelled()
+                            && session_callback_is_current(&app_handle_for_task, operation_id, live_sound_session_id)
+                            && crate::managers::preview_output_mode::is_active_for_binding(&binding_id_for_task)
+                        {
+                            crate::managers::preview_output_mode::set_error(&app_handle_for_task, Some(err_str.clone()));
+                        }
+                    },
+                    || {
+                        if !output_window_for_task.is_cancelled() && live_sound_session_id.is_none() {
+                            crate::actions::stop_transcription_after_realtime_error(
+                                &app_handle_for_task, &binding_id_for_task, operation_id,
+                            );
+                        }
+                    },
+                );
                 if let Some(session_id) = live_sound_session_id {
-                    if crate::managers::live_sound_transcription::is_session_current(session_id) {
+                    if !output_window_for_task.is_cancelled()
+                        && crate::managers::live_sound_transcription::is_session_current(session_id) {
                         crate::managers::live_sound_transcription::set_recording_if_session_matches(
                             &app_handle_for_task,
                             session_id,
@@ -633,7 +717,7 @@ impl GeminiRealtimeManager {
                             session_id,
                             Some(err_str.clone()),
                         );
-                        crate::managers::live_sound_audio::stop(&app_handle_for_task);
+                        crate::managers::live_sound_audio::stop_if_session_matches(&app_handle_for_task, session_id);
                     }
                 }
             } else {
@@ -660,24 +744,21 @@ impl GeminiRealtimeManager {
             final_text,
             join_handle,
             output_window,
+            restart_params,
         };
         *active_session_guard = Some(active);
 
         // Flush this operation's pre-start audio before live callbacks can send
         // newer frames or another operation can replace the pending buffer.
-        let buffered = pending_audio
-            .take()
-            .map(|pending| pending.frames)
-            .unwrap_or_default();
-        for chunk in buffered {
-            if session_audio_tx.try_send(chunk).is_err() {
-                break;
-            }
-        }
+        flush_pending_frames_to_active(buffered, &session_audio_tx, &session_control_tx);
         drop(pending_audio);
         drop(active_session_guard);
+        // Window operations may dispatch to the UI thread; never hold session state there.
+        drop(owner_guard);
 
-        if binding_id != crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+        if binding_id != crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+            && session_callback_is_current(&self.app_handle, operation_id, None)
+        {
             let preserve_existing_preview =
                 crate::managers::preview_output_mode::is_active_for_binding(binding_id);
             crate::overlay::begin_soniox_live_preview_session();
@@ -698,19 +779,12 @@ impl GeminiRealtimeManager {
         self.active_session.lock().is_some()
     }
 
-    pub fn take_reported_runtime_error(&self, error: &str) -> bool {
+    pub fn runtime_error_was_reported(
+        &self, operation_id: Option<u64>, live_sound_session_id: Option<u64>, error: Option<&str>,
+    ) -> bool {
         let reported = Arc::clone(&self.reported_runtime_error.lock());
-        let mut reported = reported.lock();
-        if reported.as_deref() != Some(error) {
-            return false;
-        }
-        *reported = None;
-        true
-    }
-
-    pub fn clear_reported_runtime_error(&self) {
-        let reported = Arc::clone(&self.reported_runtime_error.lock());
-        *reported.lock() = None;
+        let matches = reported.lock().matches(operation_id, live_sound_session_id, error);
+        matches
     }
 
     fn normalize_gemini_model(model: &str) -> String {
@@ -772,6 +846,9 @@ impl GeminiRealtimeManager {
             }),
         );
         payload["providerOptions"] = json!({ "google": Value::Object(google_options) });
+        // Google's generationComplete marks a speech boundary even when the
+        // gateway keeps the same synthetic segment ID until the session ends.
+        payload["includeRawChunks"] = json!(true);
         payload
     }
 
@@ -785,6 +862,7 @@ impl GeminiRealtimeManager {
         app_handle: AppHandle,
         binding_id: String,
         live_sound_session_id: Option<u64>,
+        operation_id: Option<u64>,
         on_final_chunk: Option<FinalChunkCallback>,
         transport: GeminiLiveTransport,
         completion_options: GeminiRealtimeOptions,
@@ -802,6 +880,9 @@ impl GeminiRealtimeManager {
         let binding_for_setup = binding_id.clone();
         let app_for_stop = app_handle.clone();
         let binding_for_stop = binding_id.clone();
+        let app_for_owner = app_handle.clone();
+        let window_for_owner = Arc::clone(&output_window);
+        let window_for_stop = Arc::clone(&output_window);
         let events = SessionEvents {
             live_text: Box::new(move |text| {
                 emit_live_text(&app_for_text, &binding_for_text, live_sound_session_id, text);
@@ -817,12 +898,16 @@ impl GeminiRealtimeManager {
             time_limit_stop: Box::new(move || {
                 let app_for_stop = app_for_stop.clone();
                 let binding_for_stop = binding_for_stop.clone();
+                let window_for_stop = Arc::clone(&window_for_stop);
                 tauri::async_runtime::spawn(async move {
-                    if binding_for_stop == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
-                        crate::managers::live_sound_audio::stop(&app_for_stop);
+                    if window_for_stop.is_cancelled() || !session_callback_is_current(&app_for_stop, operation_id, live_sound_session_id) {
+                        return;
+                    }
+                    if let Some(session_id) = live_sound_session_id {
+                        crate::managers::live_sound_audio::stop_if_session_matches(&app_for_stop, session_id);
                     } else {
                         crate::actions::stop_transcription_at_realtime_limit(
-                            &app_for_stop, &binding_for_stop,
+                            &app_for_stop, &binding_for_stop, operation_id,
                         );
                     }
                 });
@@ -831,7 +916,10 @@ impl GeminiRealtimeManager {
                 let _ = app_handle.emit(GEMINI_LIVE_TIME_LIMIT_COMPLETED_EVENT, payload);
             }),
             words_pending: Box::new(move |pending| output_window.set_words_pending(pending)),
-        };
+        }.only_current(move || {
+            !window_for_owner.is_cancelled()
+                && session_callback_is_current(&app_for_owner, operation_id, live_sound_session_id)
+        });
         Self::drive_session_loop(
             write, read, audio_rx, control_rx, final_text, binding_id,
             on_final_chunk, transport, completion_options, time_limit_duration,
@@ -862,7 +950,14 @@ impl GeminiRealtimeManager {
         let mut end_signal_sent = false;
         let mut google_setup_complete = transport == GeminiLiveTransport::VercelGateway;
         let mut accumulated_text = String::new();
+        #[cfg(test)]
+        let mut sent_pcm_bytes = 0usize;
+        let mut gateway_has_raw_transcription = false;
         let mut gateway_segment_has_delta = false;
+        let mut gateway_output_ends_with_whitespace = false;
+        let mut gateway_segment_start = 0;
+        let mut gateway_turn_boundary = false;
+        let mut gateway_boundary_after_delta = false;
         let mut direct_segment_text = String::new();
         let mut latest_interim = String::new();
         let mut time_limit_finalizing = false;
@@ -878,8 +973,36 @@ impl GeminiRealtimeManager {
         tokio::pin!(google_finish_grace);
 
         loop {
+            if let Some(control) = take_queued_control(&mut control_rx) {
+                match control {
+                    ControlMessage::Finish => {}
+                    ControlMessage::Cancel => {
+                        let _ = write.close().await;
+                        return Ok(());
+                    }
+                    ControlMessage::Overflow(message) => {
+                        record_time_limit_failure(&time_limit_completion, &message);
+                        let _ = write.close().await;
+                        return Err(anyhow!(message));
+                    }
+                }
+            }
             tokio::select! {
                 _ = &mut session_limit, if !time_limit_finalizing => {
+                    if let Some(control) = take_queued_control(&mut control_rx) {
+                        match control {
+                            ControlMessage::Finish => {}
+                            ControlMessage::Cancel => {
+                                let _ = write.close().await;
+                                return Ok(());
+                            }
+                            ControlMessage::Overflow(message) => {
+                                record_time_limit_failure(&time_limit_completion, &message);
+                                let _ = write.close().await;
+                                return Err(anyhow!(message));
+                            }
+                        }
+                    }
                     if transport == GeminiLiveTransport::GoogleDirect && !google_setup_complete {
                         return Err(anyhow!(
                             "Gemini 3.5 Transcribe Live did not confirm setup within {} seconds",
@@ -912,6 +1035,11 @@ impl GeminiRealtimeManager {
                             let _ = write.close().await;
                             return Ok(());
                         }
+                        ControlMessage::Overflow(message) => {
+                            record_time_limit_failure(&time_limit_completion, &message);
+                            let _ = write.close().await;
+                            return Err(anyhow!(message));
+                        }
                     }
                 }
                 audio_chunk = audio_rx.recv(), if google_setup_complete && !audio_input_closed => {
@@ -937,9 +1065,25 @@ impl GeminiRealtimeManager {
                                     }
                                 }
                             }
+                            #[cfg(test)]
+                            { sent_pcm_bytes += audio_chunk.len(); }
                         }
                         Some(_) => {}
                         None => {
+                            if let Some(control) = take_queued_control(&mut control_rx) {
+                                match control {
+                                    ControlMessage::Finish => {}
+                                    ControlMessage::Cancel => {
+                                        let _ = write.close().await;
+                                        return Ok(());
+                                    }
+                                    ControlMessage::Overflow(message) => {
+                                        record_time_limit_failure(&time_limit_completion, &message);
+                                        let _ = write.close().await;
+                                        return Err(anyhow!(message));
+                                    }
+                                }
+                            }
                             audio_input_closed = true;
                             let end_payload = live_audio_done_payload(transport);
                             write.send(Message::Text(end_payload.to_string().into())).await
@@ -1005,6 +1149,23 @@ impl GeminiRealtimeManager {
                         anyhow!("Invalid Gemini 3.5 Transcribe Live payload: {} (body: {})", e, preview)
                     })?;
 
+                    #[cfg(test)]
+                    if std::env::var_os("AIVORELAY_STT_REPLAY_TRACE").is_some()
+                    {
+                        // Explicit paid-replay diagnostics: only transcript fields,
+                        // never headers, credentials, or arbitrary provider errors.
+                        println!("GEMINI_RX {}", json!({
+                            "type": payload.get("type"),
+                            "id": payload.get("id"),
+                            "text": payload.get("text"),
+                            "delta": payload.get("delta"),
+                            "segments": payload.get("segments"),
+                            "warnings": payload.get("warnings"),
+                            "serverContent": payload.get("serverContent").or_else(|| payload.pointer("/rawValue/serverContent")),
+                            "fields": payload.as_object().map(|object| object.keys().collect::<Vec<_>>()),
+                        }));
+                    }
+
                     if time_limit_finalizing {
                         if let Some(message) = planned_provider_error_message(transport, &payload) {
                             time_limit_failure = Some(anyhow!(message));
@@ -1017,12 +1178,34 @@ impl GeminiRealtimeManager {
                         match part_type {
                             "transcript-delta" => {
                                 if let Some(delta) = payload.get("delta").and_then(Value::as_str) {
-                                    let delta = normalize_gateway_delta_boundary(
-                                        &accumulated_text,
-                                        delta,
-                                    );
+                                    if delta.is_empty() {
+                                        if std::mem::take(&mut gateway_boundary_after_delta) {
+                                            gateway_turn_boundary = true;
+                                        }
+                                        continue;
+                                    }
+                                    if !gateway_segment_has_delta {
+                                        gateway_segment_start = accumulated_text.len();
+                                    }
+                                    let delta = if gateway_has_raw_transcription {
+                                        // Raw events identify turns; punctuation inside a
+                                        // turn may be part of an abbreviation or token.
+                                        delta.to_string()
+                                    } else {
+                                        normalize_gateway_delta_boundary(&accumulated_text, delta)
+                                    };
+                                    let delta = if gateway_turn_boundary {
+                                        gateway_turn_boundary = delta.chars().all(gateway_attached_punctuation);
+                                        gateway_turn_delta(&accumulated_text, &delta)
+                                    } else {
+                                        delta
+                                    };
                                     accumulated_text.push_str(&delta);
+                                    gateway_output_ends_with_whitespace = delta.chars().last().is_some_and(char::is_whitespace);
                                     gateway_segment_has_delta = true;
+                                    if std::mem::take(&mut gateway_boundary_after_delta) {
+                                        gateway_turn_boundary = true;
+                                    }
                                     store_gateway_authoritative_text(
                                         &accumulated_text,
                                         &final_text,
@@ -1047,13 +1230,44 @@ impl GeminiRealtimeManager {
                                     (events.live_text)(display.trim());
                                 }
                             }
+                            "raw" => {
+                                if let Some(content) = payload.pointer("/rawValue/serverContent") {
+                                    if content.pointer("/inputTranscription/text").and_then(Value::as_str).is_some() {
+                                        gateway_has_raw_transcription = true;
+                                    }
+                                    let completed = ["generationComplete", "turnComplete"].iter()
+                                        .any(|key| content.get(key).and_then(Value::as_bool) == Some(true))
+                                        || content.pointer("/inputTranscription/finished")
+                                            .and_then(Value::as_bool) == Some(true);
+                                    if completed {
+                                        if content.pointer("/inputTranscription/text")
+                                            .and_then(Value::as_str).is_some_and(|text| !text.trim().is_empty())
+                                        {
+                                            // The mapped delta for this same raw frame follows it.
+                                            gateway_boundary_after_delta = true;
+                                        } else {
+                                            gateway_turn_boundary = true;
+                                        }
+                                    }
+                                }
+                            }
                             "transcript-final" => {
-                                if !gateway_segment_has_delta {
-                                    if let Some(text) = payload.get("text").and_then(Value::as_str) {
+                                if let Some(text) = payload.get("text").and_then(Value::as_str).filter(|text| !text.trim().is_empty()) {
+                                    if gateway_segment_has_delta {
+                                        reconcile_gateway_authoritative_text(
+                                            &mut accumulated_text, gateway_segment_start, text,
+                                            on_final_chunk.as_ref(), &mut gateway_output_ends_with_whitespace,
+                                        );
+                                    } else {
+                                        let previous_len = accumulated_text.len();
                                         accumulated_text =
                                             join_transcript_text(&accumulated_text, text);
                                         if let Some(callback) = &on_final_chunk {
-                                            callback(text.to_string());
+                                            let delta = &accumulated_text[previous_len..];
+                                            if !delta.is_empty() {
+                                                gateway_output_ends_with_whitespace = delta.chars().last().is_some_and(char::is_whitespace);
+                                                callback(delta.to_string());
+                                            }
                                         }
                                     }
                                 }
@@ -1065,19 +1279,28 @@ impl GeminiRealtimeManager {
                                 {
                                     accumulated_text.push(' ');
                                     if let Some(callback) = &on_final_chunk {
-                                        callback(" ".to_string());
+                                        if !gateway_output_ends_with_whitespace {
+                                            callback(" ".to_string());
+                                        }
                                     }
+                                    gateway_output_ends_with_whitespace = true;
                                 }
                                 store_gateway_authoritative_text(
                                     &accumulated_text,
                                     &final_text,
                                 );
                                 gateway_segment_has_delta = false;
+                                gateway_boundary_after_delta = false;
+                                gateway_turn_boundary = true;
+                                (events.live_text)(accumulated_text.trim());
                                 (events.words_pending)(false);
                             }
                             "finish" => {
                                 if let Some(text) = payload.get("text").and_then(Value::as_str) {
-                                    accumulated_text = gateway_finish_text(&accumulated_text, text);
+                                    reconcile_gateway_authoritative_text(
+                                        &mut accumulated_text, 0, text, on_final_chunk.as_ref(),
+                                        &mut gateway_output_ends_with_whitespace,
+                                    );
                                     store_gateway_authoritative_text(
                                         &accumulated_text,
                                         &final_text,
@@ -1289,6 +1512,21 @@ impl GeminiRealtimeManager {
             }
         }
 
+        if let Some(control) = take_queued_control(&mut control_rx) {
+            match control {
+                ControlMessage::Finish => {}
+                ControlMessage::Cancel => {
+                    let _ = write.close().await;
+                    return Ok(());
+                }
+                ControlMessage::Overflow(message) => {
+                    record_time_limit_failure(&time_limit_completion, &message);
+                    let _ = write.close().await;
+                    return Err(anyhow!(message));
+                }
+            }
+        }
+
         if transport == GeminiLiveTransport::GoogleDirect {
             let completed = complete_direct_segment(
                 &mut accumulated_text,
@@ -1331,6 +1569,10 @@ impl GeminiRealtimeManager {
             (events.time_limit_completed)(completion_payload);
         }
 
+        #[cfg(test)]
+        if std::env::var_os("AIVORELAY_STT_REPLAY_TRACE").is_some() {
+            println!("GEMINI_AUDIO_SENT bytes={sent_pcm_bytes} samples={}", sent_pcm_bytes / 2);
+        }
         let _ = write.close().await;
         Ok(())
     }
@@ -1350,38 +1592,16 @@ impl GeminiRealtimeManager {
         operation_id: Option<u64>,
         frame_16khz_mono: Vec<f32>,
     ) {
-        let bytes = frame_16khz_mono_to_pcm_s16le_bytes(&frame_16khz_mono);
-        let active = self.active_session.lock();
-        let sender = active
-            .as_ref()
-            .filter(|session| session.operation_id == operation_id)
-            .map(|session| session.audio_tx.clone());
-
-        let Some(sender) = sender else {
-            let mut pending = self.pending_audio.lock();
-            let Some(pending) = pending
-                .as_mut()
-                .filter(|pending| pending.operation_id == operation_id)
-            else {
-                return;
-            };
-            if pending.frames.len() >= AUDIO_QUEUE_CAPACITY {
-                let _ = pending.frames.remove(0);
-            }
-            pending.frames.push(bytes);
+        if frame_16khz_mono.is_empty() {
             return;
-        };
-
-        if let Err(e) = sender.try_send(bytes) {
-            match e {
-                mpsc::error::TrySendError::Full(_) => {
-                    debug!(
-                        "Gemini 3.5 Transcribe Live audio queue is full; dropping one audio chunk"
-                    );
-                }
-                mpsc::error::TrySendError::Closed(_) => {}
-            }
         }
+        let bytes = frame_16khz_mono_to_pcm_s16le_bytes(&frame_16khz_mono);
+        push_pcm_audio_for_operation(
+            &self.active_session,
+            &self.pending_audio,
+            operation_id,
+            bytes,
+        );
     }
 
     /// Detaches the active transport synchronously so a new recording can open
@@ -1391,21 +1611,8 @@ impl GeminiRealtimeManager {
         operation_id: Option<u64>,
     ) -> GeminiFinalizingSession {
         let mut active = self.active_session.lock();
-        let session = if active
-            .as_ref()
-            .is_some_and(|session| session.operation_id == operation_id)
-        {
-            active.take()
-        } else {
-            None
-        };
         let mut pending = self.pending_audio.lock();
-        if pending
-            .as_ref()
-            .is_some_and(|pending| pending.operation_id == operation_id)
-        {
-            *pending = None;
-        }
+        let session = detach_session_if_matches(&mut active, &mut pending, operation_id);
         GeminiFinalizingSession {
             app_handle: self.app_handle.clone(),
             active_session: Arc::clone(&self.active_session),
@@ -1431,13 +1638,17 @@ impl GeminiRealtimeManager {
     pub fn prepare_session(&self, operation_id: Option<u64>) {
         let mut active = self.active_session.lock();
         if let Some(session) = active.take() {
+            session.output_window.cancel();
             let _ = session.control_tx.send(ControlMessage::Cancel);
             session.join_handle.abort();
         }
-        *self.pending_audio.lock() = Some(PendingAudio {
+        let mut pending = self.pending_audio.lock();
+        if let Some(previous) = pending.as_ref() { previous.output_window.cancel(); }
+        *pending = Some(PendingAudio {
             operation_id,
             frames: Vec::new(),
             output_window: Arc::new(GeminiOutputWindow::default()),
+            overflow_error: None,
         });
     }
 
@@ -1452,8 +1663,19 @@ impl GeminiRealtimeManager {
     }
 
     pub fn cancel_if_matches(&self, operation_id: Option<u64>) {
-        let finalization = self.begin_finish_session_if_matches(operation_id);
-        if let Some(session) = finalization.session {
+        let session = {
+            let mut active = self.active_session.lock();
+            let mut pending = self.pending_audio.lock();
+            if let Some(previous) = pending.as_ref().filter(|p| p.operation_id == operation_id) {
+                previous.output_window.cancel();
+            }
+            if let Some(previous) = active.as_ref().filter(|s| s.operation_id == operation_id) {
+                previous.output_window.cancel();
+            }
+            detach_session_if_matches(&mut active, &mut pending, operation_id)
+        };
+        if let Some(session) = session {
+            session.output_window.cancel();
             let _ = session.control_tx.send(ControlMessage::Cancel);
             session.join_handle.abort();
         }
@@ -1471,11 +1693,14 @@ impl GeminiRealtimeManager {
         let mut active = self.active_session.lock();
         let session = active.take();
         if let Some(session) = session {
+            session.output_window.cancel();
             let _ = session.control_tx.send(ControlMessage::Cancel);
             session.join_handle.abort();
         }
 
-        *self.pending_audio.lock() = None;
+        if let Some(pending) = self.pending_audio.lock().take() {
+            pending.output_window.cancel();
+        }
         drop(active);
 
         if crate::managers::preview_output_mode::is_active() {
@@ -1489,50 +1714,17 @@ impl GeminiRealtimeManager {
 impl GeminiFinalizingSession {
     pub(crate) async fn finish_early(self, deadline: Instant) -> Result<String> {
         let Some(session) = self.session else { return Ok(String::new()); };
-        let ActiveSession { audio_tx, control_tx, final_text, mut join_handle, output_window, .. } = session;
-        let _ = control_tx.send(ControlMessage::Finish);
-        drop(audio_tx);
-        let deadline = tokio::time::Instant::from_std(deadline);
-        // Past the deadline, wait only while Gemini still owes stable text for shown words.
-        let result = loop {
-            let closes_at = output_window.closes_at().map_or(deadline, tokio::time::Instant::from_std);
-            if tokio::time::Instant::now() >= closes_at {
-                break None;
-            }
-            tokio::select! {
-                result = &mut join_handle => break Some(result),
-                _ = tokio::time::sleep_until(closes_at) => {}
-                _ = output_window.settled() => {}
-            }
-        };
-        if result.is_none() {
-            join_handle.abort();
-            // Wait for callbacks already running before scheduling the final UI write.
-            let _ = join_handle.await;
-        } else {
-            // Keep the user-configured insertion time even if the server finishes early.
-            tokio::time::sleep_until(deadline).await;
-        }
-        let text = final_text.lock().trim().to_string();
-        info!(
-            "Gemini early finalization completed (partial_text={}, waited_past_deadline_ms={})",
-            !text.is_empty(),
-            tokio::time::Instant::now().saturating_duration_since(deadline).as_millis(),
-        );
-        if self.active_session.lock().is_none()
+        let operation_id = session.operation_id;
+        let is_live_monitor = session.binding_id == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID;
+        let result = finish_early_session(session, deadline).await;
+        if !is_live_monitor && preview_cleanup_has_owner(&self.app_handle, operation_id)
+            && self.active_session.lock().is_none()
             && !crate::managers::preview_output_mode::is_active()
         {
             crate::overlay::end_soniox_live_preview_session();
             crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
         }
-        if text.is_empty() {
-            match result {
-                Some(Ok(Err(error))) => return Err(error),
-                Some(Err(error)) => return Err(anyhow!("Gemini early finalization task failed: {}", error)),
-                _ => {}
-            }
-        }
-        Ok(text)
+        result
     }
 
     pub(crate) async fn finish(self, timeout_ms: u32) -> Result<String> {
@@ -1541,6 +1733,7 @@ impl GeminiFinalizingSession {
             active_session,
             session,
         } = self;
+        let operation_id = session.as_ref().and_then(|session| session.operation_id);
         let hide_preview = |binding_id: Option<&str>| {
             if binding_id == Some(crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID) {
                 return;
@@ -1548,7 +1741,9 @@ impl GeminiFinalizingSession {
             if crate::managers::preview_output_mode::is_active() {
                 return;
             }
-            if active_session.lock().is_some() {
+            if !preview_cleanup_has_owner(&app_handle, operation_id)
+                || active_session.lock().is_some()
+            {
                 return;
             }
             crate::overlay::end_soniox_live_preview_session();
@@ -1662,6 +1857,222 @@ where
     };
     write.send(Message::Text(payload.to_string().into())).await
         .map_err(|e| anyhow!("Failed to send Gemini 3.5 Transcribe Live setup message: {}", e))
+}
+
+fn take_queued_control(
+    control_rx: &mut mpsc::UnboundedReceiver<ControlMessage>,
+) -> Option<ControlMessage> {
+    while let Ok(control) = control_rx.try_recv() {
+        match control {
+            ControlMessage::Finish => {}
+            other @ (ControlMessage::Cancel | ControlMessage::Overflow(_)) => {
+                return Some(other);
+            }
+        }
+    }
+    None
+}
+
+fn push_pcm_audio_for_operation(
+    active_session: &Mutex<Option<ActiveSession>>,
+    pending_audio: &Mutex<Option<PendingAudio>>,
+    operation_id: Option<u64>,
+    bytes: Vec<u8>,
+) {
+    if bytes.is_empty() {
+        return;
+    }
+    let active_handles = {
+        let active = active_session.lock();
+        if let Some(session) = active.as_ref().filter(|s| s.operation_id == operation_id) {
+            Some((session.audio_tx.clone(), session.control_tx.clone()))
+        } else {
+            let mut pending = pending_audio.lock();
+            if let Some(pending) = pending
+                .as_mut()
+                .filter(|pending| pending.operation_id == operation_id)
+            {
+                if pending.overflow_error.is_none() {
+                    if pending.frames.len() >= AUDIO_QUEUE_CAPACITY {
+                        pending.overflow_error = Some(PENDING_AUDIO_OVERFLOW_ERROR.to_string());
+                    } else {
+                        pending.frames.push(bytes);
+                    }
+                }
+            }
+            return;
+        }
+    };
+
+    if let Some((sender, control_tx)) = active_handles {
+        if let Err(mpsc::error::TrySendError::Full(_)) = sender.try_send(bytes) {
+            warn!("Gemini 3.5 Transcribe Live audio queue overflowed; aborting session to avoid dropping speech");
+            let _ = control_tx.send(ControlMessage::Overflow(
+                ACTIVE_AUDIO_OVERFLOW_ERROR.to_string(),
+            ));
+        }
+    }
+}
+
+fn take_ready_pending_audio(
+    active_session: &Option<ActiveSession>,
+    pending_audio: &mut Option<PendingAudio>,
+    operation_id: Option<u64>,
+) -> std::result::Result<PendingAudio, String> {
+    let Some(pending) = pending_audio.as_ref() else {
+        return Err("Gemini recording operation is no longer active".to_string());
+    };
+    if pending.operation_id != operation_id {
+        return Err("Gemini recording operation is no longer active".to_string());
+    }
+    if let Some(overflow_error) = pending.overflow_error.as_deref() {
+        return Err(overflow_error.to_string());
+    }
+    if pending.frames.len() > AUDIO_QUEUE_CAPACITY {
+        return Err(PENDING_STARTUP_OVERFLOW_ERROR.to_string());
+    }
+    if active_session.is_some() {
+        return Err(
+            "Gemini 3.5 Transcribe Live session is already active for this profile".to_string(),
+        );
+    }
+    Ok(pending_audio.take().unwrap())
+}
+
+fn flush_pending_frames_to_active(
+    buffered: Vec<Vec<u8>>,
+    audio_tx: &mpsc::Sender<Vec<u8>>,
+    control_tx: &mpsc::UnboundedSender<ControlMessage>,
+) {
+    for chunk in buffered {
+        if chunk.is_empty() {
+            continue;
+        }
+        if let Err(err) = audio_tx.try_send(chunk) {
+            if matches!(err, mpsc::error::TrySendError::Full(_)) {
+                warn!(
+                    "Gemini 3.5 Transcribe Live pre-start audio queue overflowed; aborting session to avoid dropping speech"
+                );
+                let _ = control_tx.send(ControlMessage::Overflow(
+                    ACTIVE_AUDIO_OVERFLOW_ERROR.to_string(),
+                ));
+            }
+            break;
+        }
+    }
+}
+
+fn session_callback_is_current(
+    app: &AppHandle,
+    operation_id: Option<u64>,
+    live_sound_session_id: Option<u64>,
+) -> bool {
+    live_sound_session_id
+        .map(crate::managers::live_sound_transcription::is_session_current)
+        .or_else(|| operation_id.map(|id| crate::session_manager::is_operation_current(app, id)))
+        .unwrap_or(true)
+}
+
+fn preview_cleanup_has_owner(app: &AppHandle, operation_id: Option<u64>) -> bool {
+    operation_id.is_none_or(|id| {
+        operation_owns_preview(
+            crate::session_manager::is_operation_current(app, id),
+            crate::session_manager::is_idle(app),
+            crate::session_manager::is_latest_operation(id),
+        )
+    })
+}
+
+fn operation_owns_preview(current: bool, idle: bool, latest: bool) -> bool {
+    current || (idle && latest)
+}
+
+fn prepare_session_restart(
+    active: &mut Option<ActiveSession>,
+    pending: &mut Option<PendingAudio>,
+    is_current: impl FnOnce(Option<u64>) -> bool,
+) -> Option<SessionParams> {
+    let session = active.as_ref()?;
+    let params = session.restart_params.clone()?;
+    if params.operation_id != session.operation_id
+        || pending.as_ref().is_some_and(|pending| pending.operation_id != session.operation_id)
+        || !is_current(session.operation_id)
+    {
+        return None;
+    }
+    let session = active.take().unwrap();
+    session.output_window.cancel();
+    let _ = session.control_tx.send(ControlMessage::Cancel);
+    session.join_handle.abort();
+    *pending = Some(PendingAudio {
+        operation_id: params.operation_id,
+        frames: Vec::new(),
+        output_window: Arc::new(GeminiOutputWindow::default()),
+        overflow_error: None,
+    });
+    Some(params)
+}
+
+fn detach_session_if_matches(
+    active: &mut Option<ActiveSession>,
+    pending: &mut Option<PendingAudio>,
+    operation_id: Option<u64>,
+) -> Option<ActiveSession> {
+    let session = if active.as_ref().is_some_and(|session| session.operation_id == operation_id) {
+        active.take()
+    } else {
+        None
+    };
+    if pending.as_ref().is_some_and(|pending| pending.operation_id == operation_id) {
+        *pending = None;
+    }
+    session
+}
+
+async fn finish_early_session(session: ActiveSession, deadline: Instant) -> Result<String> {
+    let ActiveSession { audio_tx, control_tx, final_text, mut join_handle, output_window, .. } = session;
+    let _ = control_tx.send(ControlMessage::Finish);
+    drop(audio_tx);
+    let deadline = tokio::time::Instant::from_std(deadline);
+    // Past the deadline, wait only while Gemini still owes stable text for shown words.
+    let mut result = loop {
+        let closes_at = output_window.closes_at().map_or(deadline, tokio::time::Instant::from_std);
+        if tokio::time::Instant::now() >= closes_at {
+            break None;
+        }
+        tokio::select! {
+            result = &mut join_handle => break Some(result),
+            _ = tokio::time::sleep_until(closes_at) => {}
+            _ = output_window.settled() => {}
+        }
+    };
+    if result.is_none() {
+        join_handle.abort();
+        // Wait for callbacks already running before scheduling the final UI write.
+        let joined = join_handle.await;
+        // abort() cannot interrupt synchronous error feedback already executing.
+        // Preserve that result instead of reporting a second, empty transcript.
+        if !matches!(&joined, Err(tauri::Error::JoinError(error)) if error.is_cancelled()) {
+            result = Some(joined);
+        }
+    } else if !matches!(&result, Some(Ok(Err(_))) | Some(Err(_))) {
+        // Keep the insertion time for success, but surface failures immediately.
+        tokio::time::sleep_until(deadline).await;
+    }
+    let text = final_text.lock().trim().to_string();
+    info!(
+        "Gemini early finalization completed (partial_text={}, waited_past_deadline_ms={})",
+        !text.is_empty(),
+        tokio::time::Instant::now().saturating_duration_since(deadline).as_millis(),
+    );
+    if text.is_empty() {
+        match result {
+            Some(Ok(Err(error))) => return Err(error),
+            Some(Err(error)) => return Err(anyhow!("Gemini early finalization task failed: {}", error)),
+            _ => {}
+        }
+    }
+    Ok(text)
 }
 
 fn build_live_websocket_request(
@@ -1778,15 +2189,94 @@ fn preserve_gateway_partial_fallback(
     display
 }
 
-/// The gateway's finish text joins segments without the sentence spaces added
-/// to streamed words. Keep the streamed text unless the words were revised.
+fn gateway_attached_punctuation(ch: char) -> bool {
+    matches!(ch, '.' | ',' | '!' | '?' | ';' | ':' | '\'' | '’' | ')' | ']' | '}' | '”' | '»' | '。' | '，' | '！' | '？')
+}
+
+fn gateway_turn_delta(committed: &str, delta: &str) -> String {
+    let attached = delta.chars().next().is_some_and(gateway_attached_punctuation);
+    if attached {
+        delta.to_string()
+    } else {
+        join_transcript_text(committed, delta)[committed.len()..].to_string()
+    }
+}
+
+/// The gateway can omit spaces at confirmed speech boundaries. Preserve
+/// streamed separators and any additional word spaces in the final result.
 fn gateway_finish_text(accumulated_text: &str, finish_text: &str) -> String {
     let words_only = |text: &str| text.chars().filter(|c| !c.is_whitespace()).collect::<String>();
-    if words_only(accumulated_text) == words_only(finish_text) {
-        accumulated_text.trim_end().to_string()
-    } else {
-        finish_text.to_string()
+    if !words_only(finish_text).starts_with(&words_only(accumulated_text)) {
+        return finish_text.trim_end().to_string();
     }
+    let mut streamed = accumulated_text.chars().peekable();
+    let mut result = String::new();
+    for ch in finish_text.chars() {
+        if !ch.is_whitespace() {
+            let mut had_separator = false;
+            while streamed.peek().is_some_and(|ch| ch.is_whitespace()) {
+                had_separator = true;
+                streamed.next();
+            }
+            if had_separator && result.chars().last().is_some_and(|last| !last.is_whitespace())
+            {
+                result.push(' ');
+            }
+            if let Some(streamed_ch) = streamed.next() {
+                debug_assert_eq!(streamed_ch, ch);
+            }
+        }
+        result.push(ch);
+    }
+    result.trim_end().to_string()
+}
+
+/// Find only text beyond the streamed character prefix. Whitespace can differ
+/// between streamed and final forms; inserted words must still match exactly.
+fn gateway_unstreamed_suffix<'a>(streamed: &str, authoritative: &'a str) -> Option<&'a str> {
+    let mut final_chars = authoritative.char_indices().filter(|(_, ch)| !ch.is_whitespace());
+    let mut consumed = 0;
+    for ch in streamed.chars().filter(|ch| !ch.is_whitespace()) {
+        let (offset, final_ch) = final_chars.next()?;
+        if ch != final_ch {
+            return None;
+        }
+        consumed = offset + final_ch.len_utf8();
+    }
+    Some(&authoritative[consumed..])
+}
+
+fn reconcile_gateway_authoritative_text(
+    accumulated_text: &mut String,
+    segment_start: usize,
+    text: &str,
+    on_final_chunk: Option<&FinalChunkCallback>,
+    output_ends_with_whitespace: &mut bool,
+) {
+    if text.trim().is_empty() {
+        return;
+    }
+    let streamed = &accumulated_text[segment_start..];
+    let authoritative = gateway_finish_text(streamed, text);
+    // Only a matching character prefix can be appended safely. A revision must
+    // update History/preview without duplicating or rewriting pasted words.
+    if let Some(suffix) = gateway_unstreamed_suffix(streamed, &authoritative) {
+        let suffix = if streamed.chars().last().is_some_and(char::is_whitespace) {
+            suffix.trim_start_matches(char::is_whitespace)
+        } else {
+            suffix
+        };
+        if !suffix.is_empty() {
+            *output_ends_with_whitespace = suffix.chars().last().is_some_and(char::is_whitespace);
+            if let Some(callback) = on_final_chunk {
+                callback(suffix.to_string());
+            }
+        }
+    } else if authoritative.trim_end() != streamed.trim_end() {
+        warn!("Gemini revised already streamed text; preserving its authoritative final transcript");
+    }
+    accumulated_text.truncate(segment_start);
+    accumulated_text.push_str(&authoritative);
 }
 
 fn store_gateway_authoritative_text(accumulated_text: &str, final_text: &Arc<Mutex<String>>) {
@@ -1964,6 +2454,7 @@ mod tests {
             GeminiRealtimeManager::build_vercel_start_payload(&options),
             json!({
                 "type": "transcription-stream.start",
+                "includeRawChunks": true,
                 "inputAudioFormat": {
                     "type": "audio/pcm",
                     "rate": 16000
@@ -2229,3 +2720,7 @@ mod tests {
         assert!(completed.was_streamed);
     }
 }
+
+#[cfg(test)]
+#[path = "gemini_realtime_network_tests.rs"]
+mod network_tests;

@@ -1,11 +1,13 @@
 import type { TFunction } from "i18next";
 import type { RemoteSttSettings, SttModelSelection } from "@/bindings";
+import type { RemoteSttPreset } from "@/lib/constants/remoteSttProviders";
 
 export type RemoteApiRowId =
   | "groq"
   | "gemini_transcribe"
   | "gemini_live"
   | "reson8"
+  | "elevenlabs"
   | "openai_transcribe"
   | "openai_live_transcribe"
   | "openai_realtime_whisper"
@@ -19,7 +21,7 @@ export type RemoteApiRow = {
   title: string;
   description: string;
   notRecommended?: boolean;
-  preset: "groq" | "openai" | "vercel" | "google" | "reson8" | "custom";
+  preset: RemoteSttPreset;
   modelId?: string;
   iconClassName: string;
 };
@@ -56,6 +58,20 @@ export const getRemoteApiRows = (t: TFunction): RemoteApiRow[] => [
     preset: "reson8",
     modelId: "rumble-2",
     iconClassName: "text-emerald-300",
+  },
+  {
+    id: "elevenlabs",
+    title: t(
+      "modelSelector.remoteApiRows.elevenlabs.title",
+      "Remote via ElevenLabs (Scribe v3 Live)",
+    ),
+    description: t(
+      "modelSelector.remoteApiRows.elevenlabs.description",
+      "Live dictation and Live Monitor use Scribe v3 Live. Files use Scribe v3 with SRT/VTT subtitles. Speaker separation is available in Live Monitor.",
+    ),
+    preset: "elevenlabs",
+    modelId: "scribe_v3_live",
+    iconClassName: "text-fuchsia-300",
   },
   {
     id: "custom",

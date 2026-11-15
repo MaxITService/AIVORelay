@@ -373,6 +373,7 @@ impl Reson8RealtimeManager {
                     crate::actions::stop_transcription_after_realtime_error(
                         &app_handle_for_task,
                         &binding_id_for_task,
+                        operation_id,
                     );
                 }
                 if callback_is_current {
@@ -384,7 +385,8 @@ impl Reson8RealtimeManager {
                         );
                     }
                 }
-                if crate::managers::preview_output_mode::is_active_for_binding(&binding_id_for_task)
+                if callback_is_current
+                    && crate::managers::preview_output_mode::is_active_for_binding(&binding_id_for_task)
                 {
                     crate::managers::preview_output_mode::set_error(
                         &app_handle_for_task,
@@ -403,7 +405,9 @@ impl Reson8RealtimeManager {
                             session_id,
                             Some(err_str.clone()),
                         );
-                        crate::managers::live_sound_audio::stop(&app_handle_for_task);
+                        crate::managers::live_sound_audio::stop_if_session_matches(
+                            &app_handle_for_task, session_id,
+                        );
                     }
                 }
             } else {

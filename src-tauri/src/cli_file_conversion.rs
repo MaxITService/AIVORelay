@@ -2202,6 +2202,7 @@ fn transcription_provider_name(
             "vercel" => "Vercel AI Gateway (Gemini 3.5 Transcribe)",
             "google" => "Google Gemini API (Gemini 3.5 Transcribe)",
             "reson8" => "Reson8 (Rumble-2)",
+            "elevenlabs" => "ElevenLabs (Scribe v3)",
             _ => "OpenAI-compatible",
         },
         TranscriptionProvider::RemoteSoniox => "Soniox",
@@ -2548,7 +2549,7 @@ mod tests {
         let args = CliArgs {
             convert_file: vec![PathBuf::from("chapter.md")],
             tts_provider: Some(CliTtsProvider::Soniox),
-            tts_model: Some("sonic-preview".to_string()),
+            tts_model: Some("tts-rt-v2".to_string()),
             tts_voice: Some("voice-id".to_string()),
             tts_language: Some("ru".to_string()),
             tts_speed: Some(1.2),
@@ -2570,7 +2571,7 @@ mod tests {
         apply_tts_conversion_overrides(&args, &mut effective).unwrap();
 
         assert_eq!(effective.provider, TtsProvider::Soniox);
-        assert_eq!(effective.soniox_model, "sonic-preview");
+        assert_eq!(effective.soniox_model, "tts-rt-v2");
         assert_eq!(effective.soniox_voice, "voice-id");
         assert_eq!(effective.soniox_language, "ru");
         assert_eq!(effective.soniox_key_source, TtsKeySource::Separate);
@@ -2908,5 +2909,16 @@ mod tests {
     fn text_preview_is_unicode_safe() {
         assert_eq!(text_preview("Привет 🌍", 8), "Привет 🌍");
         assert_eq!(text_preview("日本語テスト", 3), "日本語…");
+    }
+
+    #[test]
+    fn transcription_provider_name_describes_elevenlabs_preset() {
+        assert_eq!(
+            transcription_provider_name(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+                "elevenlabs"
+            ),
+            "ElevenLabs (Scribe v3)"
+        );
     }
 }

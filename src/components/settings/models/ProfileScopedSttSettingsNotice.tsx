@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle } from "lucide-react";
+import { Info } from "lucide-react";
 import { Trans, useTranslation } from "react-i18next";
 import {
   getTranscriptionProfileAnchorId,
@@ -43,21 +43,21 @@ export const ProfileScopedSttSettingsNotice: React.FC<{
 
   return (
     <div
-      className={`rounded-lg border border-red-500/45 bg-red-500/10 px-3 py-3 text-red-100 ${className}`}
+      className={`rounded-lg border border-[#3d3d3d] bg-white/[0.03] px-3 py-3 text-[#cfcfcf] ${className}`}
     >
       <div className="flex items-start gap-2.5">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
+        <Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[#a0a0a0]" />
         <div className="min-w-0">
-          <p className="text-xs font-semibold text-red-300">
+          <p className="text-xs font-semibold text-[#e0e0e0]">
             {t(
               "modelSelector.profileSettingsNotice.title",
-              "This model has additional settings in transcription profiles",
+              "This model has optional additional settings in transcription profiles",
             )}
           </p>
-          <p className="mt-1 text-[11px] leading-snug text-red-200/80">
+          <p className="mt-1 text-[11px] leading-snug text-[#a0a0a0]">
             <Trans
               i18nKey="modelSelector.profileSettingsNotice.description"
-              defaults="Check <profileLink>Speech / Mic</profileLink> → Manage Profiles. Profile settings override or extend the model settings shown here."
+              defaults="Configure them if needed in <profileLink>Speech / Mic</profileLink> → Manage Profiles. Profile settings override or extend the model settings shown here."
               components={{
                 profileLink: (
                   <a
@@ -66,7 +66,7 @@ export const ProfileScopedSttSettingsNotice: React.FC<{
                       event.preventDefault();
                       openActiveTranscriptionProfile();
                     }}
-                    className="font-medium text-red-100 underline decoration-red-300/70 underline-offset-2 transition-colors hover:text-white"
+                    className="font-medium text-[#cfcfcf] underline decoration-white/40 underline-offset-2 transition-colors hover:text-white"
                   />
                 ),
               }}
@@ -76,7 +76,7 @@ export const ProfileScopedSttSettingsNotice: React.FC<{
             {features.map((feature) => (
               <span
                 key={feature}
-                className="rounded-full border border-red-400/35 bg-red-500/15 px-2 py-0.5 text-[10px] font-medium text-red-200"
+                className="rounded-full border border-[#3d3d3d] bg-white/5 px-2 py-0.5 text-[10px] font-medium text-[#cfcfcf]"
               >
                 {t(
                   `modelSelector.profileSettingsNotice.features.${feature}`,

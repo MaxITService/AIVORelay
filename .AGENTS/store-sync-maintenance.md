@@ -19,6 +19,10 @@ git cherry -v release/microsoft-store main
 git reflog release/microsoft-store
 ```
 
+## Shared Source Since 1.0.54
+
+Application source is shared with main. Preserve `src-tauri/app-edition` (`store`) and branch-local build/package files; do not create per-edition runtime edits. Updater imports/helpers are allowed in common source because `distribution.rs` and the frontend lock preserve Store behavior. Merge main ancestry after reviewing source differences; preserve documentation boundaries and independently regenerate Cargo.lock.
+
 ## Propagation Order
 
 1. Apply source commits in first-parent order, using batches while they remain conflict-free.
@@ -41,8 +45,8 @@ git reflog release/microsoft-store
 ## Mixed Commits And Excluded Features
 
 - Inspect changed hunks and later edits to the same files after excluding a feature; commit titles and `git cherry` alone do not establish eligibility.
-- The emergency crash-screen updater from `927586a9` — Offer update checks on the whole-window crash screen — is intentionally excluded. Later logging and overlay fixes (`fa5a1bee` and `02dbc8e4`) were adapted around it. Preserve that result in future syncs.
-- `src/components/RenderCrashBoundary.tsx` keeps Reload and Open log folder actions, without updater imports, JSX, or its optional boundary. Keep `SilentCrashBoundary` in overlay entrypoints and retain their logging permissions.
+- The emergency updater behavior remains disabled for Store through the shared edition lock; before 1.0.54 this was implemented with source exclusions.
+- `src/components/RenderCrashBoundary.tsx` shares imports/JSX with main but must not mount the updater while the backend edition lock is unknown or enabled. Keep `SilentCrashBoundary` in overlay entrypoints and retain their logging permissions.
 - Apply only eligible hunks from mixed commits. Do not replace divergent files with complete `main` copies or import `main`'s agent code notes. Shared Help changes require the user's authorization.
 - Hidden sourcemaps outside `dist` and the separate CI artifact are eligible diagnostics; preserve Store workflow tags, signing, packaging, and AVX2 settings.
 - Audit the final source/target diff against [[.AGENTS/store-branch-notes|the Store contract]]. Record exclusions, adaptations, approved documents, and verification limits beside the cursor. Do not treat intentionally excluded commits as pending in the next sync.

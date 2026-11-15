@@ -79,14 +79,42 @@ pub(crate) fn try_begin_recording_startup() -> Option<RecordingStartupGuard> {
         .map(|_| RecordingStartupGuard)
 }
 
+type ProcessingCompletion = Box<dyn FnOnce() + Send>;
+
 struct OperationControlState {
     active: bool,
     cancel_requested: bool,
+    deferred_completion: Option<ProcessingCompletion>,
+}
+
+impl OperationControlState {
+    fn claim_or_defer_completion(&mut self, completion: ProcessingCompletion) -> Option<ProcessingCompletion> {
+        if self.active {
+            if self.deferred_completion.is_none() {
+                self.deferred_completion = Some(completion);
+            }
+            None
+        } else {
+            self.active = true;
+            Some(completion)
+        }
+    }
+
+    fn next_release_step(&mut self) -> Result<Option<ProcessingCompletion>, ()> {
+        if self.cancel_requested {
+            self.cancel_requested = false;
+            Err(())
+        } else {
+            self.active = false;
+            Ok(self.deferred_completion.take())
+        }
+    }
 }
 
 static OPERATION_CONTROL: Mutex<OperationControlState> = Mutex::new(OperationControlState {
     active: false,
     cancel_requested: false,
+    deferred_completion: None,
 });
 
 /// Keeps a new recording from starting while stop/cancel performs cleanup
@@ -98,18 +126,19 @@ pub(crate) struct OperationControlGuard {
 impl Drop for OperationControlGuard {
     fn drop(&mut self) {
         loop {
-            let mut control = OPERATION_CONTROL.lock().unwrap_or_else(|error| error.into_inner());
-            if !control.cancel_requested {
-                control.active = false;
-                drop(control);
-                crate::platform_shortcuts::notify_session_changed(&self.app);
-                return;
+            let next = OPERATION_CONTROL.lock().unwrap_or_else(|error| error.into_inner())
+                .next_release_step();
+            match next {
+                Ok(completion) => {
+                    crate::platform_shortcuts::notify_session_changed(&self.app);
+                    if let Some(completion) = completion { completion(); }
+                    return;
+                }
+                Err(()) => {
+                    // Honor Cancel before a fast async finish can release Processing.
+                    crate::utils::cancel_current_operation_guarded(&self.app, self);
+                }
             }
-            control.cancel_requested = false;
-            drop(control);
-            // A user may press Cancel while the timer is starting finalization.
-            // Honor that request before allowing any replacement recording.
-            crate::utils::cancel_current_operation_guarded(&self.app, self);
         }
     }
 }
@@ -143,32 +172,53 @@ pub(crate) fn try_begin_operation_control(
     Some(OperationControlGuard { app: app.clone() })
 }
 
-/// Holds admission closed while the matching Processing operation finishes
-/// model and shortcut cleanup. Cancellation owns cleanup if it got here first.
-pub(crate) fn try_begin_processing_completion(
+/// Runs matching Processing cleanup under admission control. A stop controller
+/// may still be returning when its async FinishGuard completes. Defer that finish
+/// until the controller releases; dropping it would strand Processing forever.
+pub(crate) fn run_processing_completion(
     app: &AppHandle,
     expected_binding: &str,
     expected_operation_id: u64,
-) -> Option<OperationControlGuard> {
+    completion: ProcessingCompletion,
+) {
     let state = app.state::<ManagedSessionState>();
     let state_guard = lock_session_state(&state, "begin processing completion");
     if !matches!(&*state_guard, SessionState::Processing { binding_id, operation_id }
         if binding_id == expected_binding && *operation_id == expected_operation_id)
     {
-        return None;
+        return;
     }
     let mut control = OPERATION_CONTROL.lock().unwrap_or_else(|error| error.into_inner());
     if control.active {
-        return None;
+        let app = app.clone();
+        let binding = expected_binding.to_string();
+        let _ = control.claim_or_defer_completion(Box::new(move || {
+            // Cancellation may have won while waiting; revalidate the owner.
+            run_processing_completion(&app, &binding, expected_operation_id, completion);
+        }));
+        return;
     }
-    control.active = true;
-    Some(OperationControlGuard { app: app.clone() })
+    let completion = control.claim_or_defer_completion(completion).unwrap();
+    drop(control);
+    drop(state_guard);
+    let _guard = OperationControlGuard { app: app.clone() };
+    completion();
 }
 
 /// Returns a process-local generation ID for a recording/processing lifecycle.
 /// The ID is created when recording starts and remains unchanged through Processing.
 pub fn next_operation_id() -> u64 {
     NEXT_OPERATION_ID.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Idle alone cannot establish ownership: a newer operation may have started
+/// and already finished while a detached provider was still finalizing.
+pub(crate) fn is_latest_operation(operation_id: u64) -> bool {
+    operation_precedes_next_id(operation_id, NEXT_OPERATION_ID.load(Ordering::Relaxed))
+}
+
+fn operation_precedes_next_id(operation_id: u64, next_id: u64) -> bool {
+    operation_id.checked_add(1) == Some(next_id)
 }
 
 /// Returns true while the recording/processing lifecycle still belongs to the
@@ -518,6 +568,59 @@ mod tests {
         let replacement = super::try_begin_recording_startup()
             .expect("replacement may start after the old startup returns");
         drop(replacement);
+    }
+
+    fn test_controller(active: bool) -> super::OperationControlState {
+        super::OperationControlState { active, cancel_requested: false, deferred_completion: None }
+    }
+
+    #[test]
+    fn fast_processing_completion_is_deferred_until_stop_controller_returns() {
+        let completed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = completed.clone();
+        let mut control = test_controller(true);
+        assert!(control.claim_or_defer_completion(Box::new(move || {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        })).is_none());
+        assert_eq!(completed.load(std::sync::atomic::Ordering::SeqCst), 0);
+        let Ok(Some(completion)) = control.next_release_step() else { panic!("finish must be retained"); };
+        assert!(!control.active);
+        completion();
+        assert_eq!(completed.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(matches!(control.next_release_step(), Ok(None)));
+    }
+
+    #[test]
+    fn cancellation_keeps_admission_closed_until_deferred_finish_can_revalidate() {
+        let mut control = test_controller(true);
+        assert!(control.claim_or_defer_completion(Box::new(|| {})).is_none());
+        control.cancel_requested = true;
+        assert!(control.next_release_step().is_err());
+        assert!(control.active);
+        assert!(!control.cancel_requested);
+        assert!(control.deferred_completion.is_some());
+        assert!(matches!(control.next_release_step(), Ok(Some(_))));
+        assert!(!control.active);
+    }
+
+    #[test]
+    fn ordinary_processing_completion_claims_admission_without_deferral() {
+        let mut control = test_controller(false);
+        let completion = control.claim_or_defer_completion(Box::new(|| {}));
+        assert!(control.active);
+        assert!(completion.is_some());
+        assert!(control.deferred_completion.is_none());
+        completion.unwrap()();
+        assert!(matches!(control.next_release_step(), Ok(None)));
+    }
+
+    #[test]
+    fn returning_to_idle_does_not_restore_an_older_operation_generation() {
+        assert!(super::operation_precedes_next_id(7, 8));
+        // Operation 8 can start and finish without the old callback ever running.
+        assert!(!super::operation_precedes_next_id(7, 9));
+        assert!(super::operation_precedes_next_id(8, 9));
+        assert!(!super::operation_precedes_next_id(u64::MAX, 0));
     }
 
     #[test]

@@ -2,10 +2,15 @@ import { describe, expect, it } from "bun:test";
 import type { SttModelSelection } from "./sttModelSelection";
 import {
   globalSttSelection,
+  isElevenLabsFileSelection,
+  isElevenLabsLiveSelection,
+  isElevenLabsSelection,
   legacyLiveSttSelection,
+  STT_MODEL_IDS,
   sttCatalog,
   sttModelDropdownOptions,
   sttModelCapabilities,
+  sttProviderId,
   sttSelectionKey,
   sttSupports,
 } from "./sttModelSelection";
@@ -20,6 +25,7 @@ describe("workflow-specific STT model menus", () => {
       "vercel:google/gemini-3.5-transcribe-live",
       "google:gemini-3.5-transcribe-live",
       "reson8:rumble-2",
+      "elevenlabs:scribe_v3_live",
     ]);
     expect(options.every(option => option.capabilities.workflows.includes("live"))).toBe(true);
     expect(options.some(option => option.selection.provider === "local")).toBe(false);
@@ -36,6 +42,8 @@ describe("workflow-specific STT model menus", () => {
     expect(optionIds).toContain("soniox:stt-async-v6");
     expect(optionIds).toContain("vercel:google/gemini-3.5-transcribe");
     expect(optionIds).toContain("google:gemini-3.5-transcribe");
+    expect(optionIds).toContain("elevenlabs:scribe_v3");
+    expect(optionIds).not.toContain("elevenlabs:scribe_v3_live");
     expect(optionIds.some(id => id.includes("transcribe-live"))).toBe(false);
 
     const googleGemini: SttModelSelection = {
@@ -101,6 +109,8 @@ describe("STT selection compatibility", () => {
     expect(catalog.map(option => option.id)).toContain("soniox:stt-rt-v6");
     expect(catalog.map(option => option.id)).toContain("soniox:stt-async-v6");
     expect(catalog.map(option => option.id)).toContain("deepgram:nova-3");
+    expect(catalog.map(option => option.id)).toContain("elevenlabs:scribe_v3_live");
+    expect(catalog.map(option => option.id)).toContain("elevenlabs:scribe_v3");
     expect(new Set(selectionKeys).size).toBe(selectionKeys.length);
   });
 
@@ -129,6 +139,16 @@ describe("STT selection compatibility", () => {
       provider: "remote_openai_compatible",
       model_id: "whisper-large-v3-turbo",
       provider_preset: "groq",
+    });
+    expect(
+      globalSttSelection({
+        transcription_provider: "remote_openai_compatible",
+        remote_stt: { provider_preset: "elevenlabs", model_id: "" },
+      } as Parameters<typeof globalSttSelection>[0]),
+    ).toEqual({
+      provider: "remote_openai_compatible",
+      model_id: "scribe_v3_live",
+      provider_preset: "elevenlabs",
     });
   });
 
@@ -198,5 +218,72 @@ describe("STT selection compatibility", () => {
     expect(sttSupports(reson8, "diarization", "file")).toBe(false);
     expect(sttSupports(reson8, "timestamps", "file")).toBe(false);
     expect(sttModelCapabilities(customRumble).workflows).not.toContain("live");
+  });
+
+  it("scopes ElevenLabs scribe_v3_live and explicit scribe_v3 capabilities and live eligibility", () => {
+    const elevenLive: SttModelSelection = {
+      provider: "remote_openai_compatible",
+      provider_preset: "elevenlabs",
+      model_id: STT_MODEL_IDS.elevenlabsScribeV3Live,
+    };
+    const elevenFile: SttModelSelection = {
+      provider: "remote_openai_compatible",
+      provider_preset: "elevenlabs",
+      model_id: STT_MODEL_IDS.elevenlabsScribeV3,
+    };
+    const customEleven: SttModelSelection = {
+      provider: "remote_openai_compatible",
+      provider_preset: "custom",
+      model_id: STT_MODEL_IDS.elevenlabsScribeV3Live,
+    };
+
+    expect(isElevenLabsLiveSelection(elevenLive)).toBe(true);
+    expect(isElevenLabsFileSelection(elevenLive)).toBe(false);
+    expect(isElevenLabsSelection(elevenLive)).toBe(true);
+    expect(isElevenLabsLiveSelection(elevenFile)).toBe(false);
+    expect(isElevenLabsFileSelection(elevenFile)).toBe(true);
+    expect(isElevenLabsSelection(elevenFile)).toBe(true);
+    expect(isElevenLabsSelection(customEleven)).toBe(false);
+    expect(sttProviderId(elevenLive)).toBe("elevenlabs");
+
+    expect(sttModelCapabilities(elevenLive)).toEqual({
+      workflows: ["dictation", "file", "live"],
+      diarization: ["live"],
+      languageHints: ["dictation", "file", "live"],
+      vocabulary: ["dictation", "file", "live"],
+      chunking: [],
+      timestamps: ["file"],
+    });
+
+    expect(sttModelCapabilities(elevenFile)).toEqual({
+      workflows: ["dictation", "file"],
+      diarization: [],
+      languageHints: ["dictation", "file"],
+      vocabulary: ["dictation", "file"],
+      chunking: [],
+      timestamps: ["file"],
+    });
+    expect(sttModelCapabilities(elevenFile).workflows).not.toContain("live");
+    expect(sttModelCapabilities(customEleven).workflows).not.toContain("live");
+
+    expect(
+      legacyLiveSttSelection({
+        live_sound_transcription_provider: "remote_openai_compatible",
+        remote_stt: {
+          provider_preset: "elevenlabs",
+          model_id: "scribe_v3_live",
+        },
+      } as Parameters<typeof legacyLiveSttSelection>[0]),
+    ).toEqual(elevenLive);
+
+    expect(
+      legacyLiveSttSelection({
+        live_sound_transcription_provider: "remote_openai_compatible",
+        remote_stt: {
+          provider_preset: "elevenlabs",
+          model_id: "scribe_v3",
+        },
+      } as Parameters<typeof legacyLiveSttSelection>[0]),
+    ).toBeNull();
   });
 });
