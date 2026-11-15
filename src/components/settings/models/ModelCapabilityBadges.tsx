@@ -16,7 +16,7 @@ export const ModelCapabilityBadges: React.FC<{
   }
 
   const capabilities = sttModelCapabilities(selection);
-  const model = selection.model_id.toLowerCase();
+  const model = (selection.model_id || "").toLowerCase();
   const files = capabilities.workflows.includes("file") &&
     (!/realtime|transcribe-live|live-transcribe/.test(model) ||
       selection.provider_preset === "elevenlabs");
