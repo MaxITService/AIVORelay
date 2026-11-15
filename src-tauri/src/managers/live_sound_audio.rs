@@ -462,6 +462,19 @@ mod tests {
         assert_eq!(stored.remote_stt.model_id, global_model);
         assert_eq!(stored.gemini_live_mode, global_gemini_mode);
     }
+
+    #[test]
+    fn a_late_stop_cannot_take_the_replacement_live_audio_session() {
+        let mut session = Some(8u64);
+        assert_eq!(super::take_matching_session(&mut session, Some(7), |id| *id), None);
+        assert_eq!(session, Some(8));
+        assert_eq!(super::take_matching_session(&mut session, Some(8), |id| *id), Some(8));
+        assert!(session.is_none());
+        assert_eq!(super::take_matching_session(&mut session, Some(8), |id| *id), None);
+        session = Some(9);
+        assert_eq!(super::take_matching_session(&mut session, None, |id| *id), Some(9));
+    }
+
 }
 
 /// Start the Live Sound independent audio pipeline.
@@ -601,12 +614,33 @@ pub fn start(app: &AppHandle, session_id: u64) -> Result<(), String> {
 /// For batch mode: stops the recorder; transcription of the captured samples
 /// is a future concern (currently no-op beyond clearing recording state).
 pub fn stop(app: &AppHandle) {
+    stop_with_expected_session(app, None);
+}
+
+pub(crate) fn stop_if_session_matches(app: &AppHandle, session_id: u64) {
+    stop_with_expected_session(app, Some(session_id));
+}
+
+fn take_matching_session<T>(
+    session: &mut Option<T>,
+    expected_id: Option<u64>,
+    session_id: impl FnOnce(&T) -> u64,
+) -> Option<T> {
+    if let Some(expected_id) = expected_id {
+        if session.as_ref().is_none_or(|current| session_id(current) != expected_id) {
+            return None;
+        }
+    }
+    session.take()
+}
+
+fn stop_with_expected_session(app: &AppHandle, expected_id: Option<u64>) {
     let session = {
         let mut guard = match SESSION.lock() {
             Ok(g) => g,
             Err(_) => return,
         };
-        guard.take()
+        take_matching_session(&mut guard, expected_id, |session| session.session_id)
     };
 
     let Some(mut session) = session else {

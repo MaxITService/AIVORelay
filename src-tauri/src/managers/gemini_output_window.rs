@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 
@@ -25,10 +26,21 @@ impl WindowState {
 #[derive(Default)]
 pub(crate) struct GeminiOutputWindow {
     state: Mutex<WindowState>,
+    cancelled: AtomicBool,
     settled: Notify,
 }
 
 impl GeminiOutputWindow {
+    /// Also invalidates queued chunks when Clear restarts the same recording.
+    pub(crate) fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+        self.settled.notify_one();
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+
     pub(crate) fn finish_at(&self, deadline: Instant) {
         self.state.lock().unwrap().deadline = Some(deadline);
     }
@@ -55,7 +67,7 @@ impl GeminiOutputWindow {
     }
 
     fn allows_delivery_at(&self, now: Instant) -> bool {
-        self.closes_at().is_none_or(|closes_at| now < closes_at)
+        !self.is_cancelled() && self.closes_at().is_none_or(|closes_at| now < closes_at)
     }
 
     pub(crate) fn accept_chunk(&self, chunk: String) -> String {
@@ -64,6 +76,7 @@ impl GeminiOutputWindow {
 
     fn accept_chunk_at(&self, chunk: String, now: Instant) -> String {
         let mut state = self.state.lock().unwrap();
+        if self.is_cancelled() { return String::new(); }
         let Some(closes_at) = state.closes_at() else { return chunk; };
         if now >= closes_at {
             return String::new();
@@ -212,4 +225,21 @@ mod tests {
         assert_eq!(window.accept_chunk_at(String::new(), now), "");
         assert_eq!(window.accept_chunk_at("!".into(), now), "!");
     }
+
+    #[test]
+    fn cancelled_transport_stays_closed_without_affecting_its_replacement() {
+        let old = GeminiOutputWindow::default();
+        assert!(old.allows_delivery());
+        old.cancel();
+        // A late words_pending/setup event cannot reopen an invalidated lease.
+        old.set_words_pending(true);
+        old.finish_at(Instant::now() + Duration::from_secs(60));
+        assert!(!old.allows_delivery());
+        assert_eq!(old.accept_chunk("old words".into()), "");
+        assert_eq!(old.accept_chunk(" ".into()), "");
+        let replacement = GeminiOutputWindow::default();
+        assert!(replacement.allows_delivery());
+        assert_eq!(replacement.accept_chunk("new words".into()), "new words");
+    }
+
 }

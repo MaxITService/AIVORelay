@@ -180,18 +180,44 @@ Run with:
   tests cover configured insertion timing, abort-and-join cleanup, partial-text
   preservation, errors without output, and overlapping detached/new sessions.
   Matching-session tests verify that an old finish cannot detach a newer
-  recording or clear its buffered audio.
+  recording or clear its buffered audio. Event-wrapper and restart tests cover
+  obsolete preview/stop/completion callbacks and preservation of newer pending
+  audio. Same-recording Clear/restart tests invalidate the old transport's queued
+  delivery, bind replacement callbacks to the new deadline window, and keep normal
+  Finish detached sessions open for final words. A rejected old chunk must leave the successor's decapitalize trigger
+  armed; these tests share the global trigger's test mutex. A blocked output-worker
+  test verifies that normal Stop flushes buffered final words after a timed-out
+  chunk still queued for insertion, and that Cancel preserves a newly armed
+  trigger. Runtime-feedback
+  tests cover notification-before-stop ordering, stale callback rejection,
+  sticky feedback scoped to recording/Live Monitor IDs, prompt early errors,
+  and a completed provider error surviving the insertion cutoff.
 - `text_replacement_decapitalize::tests` also covers repeated rearming through
   the optional three-word correction buffer and final flush. Concurrent chunk
   callers must atomically claim a single trigger exactly once; punctuation and
   lowercase chunks leave it armed, and preview never consumes it.
+- `plus_overlay_state::tests::stale_processing_transition_` uses a local atomic
+  generation to verify that a delayed processing transition cannot reserve a
+  generation already advanced by an error or invalidate that error's timer.
 - `managers::gemini_output_window::tests` covers exact deadline boundaries,
   queued delivery checks, Unicode separators, and per-recording isolation.
 - `stream_chunk_processor::tests::gemini_cutoff_` covers buffered tail flushing,
   optional final spaces, existing whitespace, empty output, and punctuation.
 - `actions::stt_workflow_tests::gemini_hotkey_cutoff_` covers eligibility and
   configured-delay bounds. The adjacent detached-delivery test covers the
-  explicit background-finalization exemption from foreground ownership checks.
+  background-finalization exemption from foreground ownership checks while
+  preserving cancellation. Adjacent tests cover preserving each recording
+  action's registered handler and the rule that returning to Idle after a
+  successor finishes does not authorize old final output. Session-manager tests
+  cover that monotonic generation, deferred completion while a Stop controller
+  holds admission, ordinary completion, and Cancel taking priority before a
+  deferred finish revalidates its owner. Live Monitor tests cover rejecting an
+  old session's stop request.
+- `output_dispatch::tests` distinguishes an actual wait timeout (work remains
+  queued) from a task panic (the result channel closed), and checks that the
+  worker still accepts later tasks after the panic.
+- These tests do not instantiate desktop windows or exercise native hotkey,
+  clipboard, or UI-thread lock interleavings. Those remain runtime checks.
 - Tests use fake credentials and no external network, microphone, real
   clipboard, or desktop windows.
 
@@ -204,6 +230,13 @@ Run the focused batch through the checked-in harness:
     'stream_chunk_processor::tests::gemini_cutoff_'
     'actions::stt_workflow_tests::gemini_hotkey_cutoff_'
     'actions::stt_workflow_tests::detached_gemini_delivery_'
+    'actions::stt_workflow_tests::recording_action_resolution_'
+    'actions::stt_workflow_tests::detached_finalization_'
+    'session_manager::tests::returning_to_idle_'
+    'session_manager::tests::fast_processing_completion_'
+    'session_manager::tests::cancellation_keeps_admission_'
+    'session_manager::tests::ordinary_processing_completion_'
+    'managers::live_sound_audio::tests::a_late_stop_'
 )
 ```
 

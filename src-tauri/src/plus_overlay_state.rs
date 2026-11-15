@@ -35,6 +35,18 @@ pub fn invalidate_error_overlay_auto_hide() -> u64 {
     generation
 }
 
+fn reserve_overlay_generation(generation: &AtomicU64, expected: u64) -> Option<u64> {
+    let next = expected.checked_add(1)?;
+    generation.compare_exchange(expected, next, Ordering::SeqCst, Ordering::SeqCst).ok().map(|_| next)
+}
+
+/// A delayed processing transition must not invalidate a newer error's timer.
+pub(crate) fn advance_overlay_generation_if_matches(expected: u64) -> Option<u64> {
+    let generation = reserve_overlay_generation(&OVERLAY_GENERATION, expected)?;
+    crate::actions::clear_any_ready_remote_recording_retry();
+    Some(generation)
+}
+
 pub fn current_recording_overlay_generation() -> u64 {
     OVERLAY_GENERATION.load(Ordering::SeqCst)
 }
@@ -1050,6 +1062,17 @@ pub fn show_mic_error_overlay(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stale_processing_transition_cannot_claim_an_error_generation() {
+        let generation = AtomicU64::new(10);
+        let stop_snapshot = generation.load(Ordering::SeqCst);
+        let error_generation = generation.fetch_add(1, Ordering::SeqCst) + 1;
+        assert_eq!(reserve_overlay_generation(&generation, stop_snapshot), None);
+        assert_eq!(generation.load(Ordering::SeqCst), error_generation);
+        assert_eq!(reserve_overlay_generation(&generation, error_generation), Some(12));
+        assert_eq!(reserve_overlay_generation(&generation, error_generation), None);
+    }
 
     fn categorize_error(err_string: &str) -> OverlayErrorCategory {
         let envelope = build_error_envelope_from_string(err_string);

@@ -933,7 +933,11 @@ fn gemini_background_output_allowed(app: &AppHandle, operation_stamp: OperationS
     };
     gemini_background_output_may_continue(
         &pending.output_withheld,
-        || operation_stamp.is_current(app) || session_manager::is_idle(app),
+        || !operation_stamp.was_cancelled(app)
+            && operation_allows_final_output(
+                operation_stamp.is_current(app), session_manager::is_idle(app),
+                session_manager::is_latest_operation(operation_stamp.operation_id),
+            ),
         || {
             warn!(
                 "Skipping late Gemini text of operation {}: a newer recording or transcription owns the session",
@@ -2232,25 +2236,21 @@ impl FinishGuard {
             warn!("Failed to queue dictation output cleanup: {}", error);
             crate::clipboard::end_dictation_output_session_if_matches(operation_id);
         }
-        let Some(_completion_guard) = session_manager::try_begin_processing_completion(
-            &self.app,
-            &self.binding_id,
-            self.operation_id,
-        ) else {
-            debug!(
-                "FinishGuard: skipped stale cleanup for shortcut '{}' operation {}",
-                self.binding_id, self.operation_id
-            );
-            return;
-        };
-        if self.unload_local_model {
-            self.app
-                .state::<Arc<TranscriptionManager>>()
-                .maybe_unload_immediately("transcription session");
-        }
-        if session_manager::exit_processing_if_matches(&self.app, self.operation_id) {
-            reset_toggle_state(&self.app, &self.binding_id);
-        }
+        let app = self.app.clone();
+        let binding_id = self.binding_id.clone();
+        let unload_local_model = self.unload_local_model;
+        session_manager::run_processing_completion(
+            &self.app, &self.binding_id, operation_id,
+            Box::new(move || {
+                if unload_local_model {
+                    app.state::<Arc<TranscriptionManager>>()
+                        .maybe_unload_immediately("transcription session");
+                }
+                if session_manager::exit_processing_if_matches(&app, operation_id) {
+                    reset_toggle_state(&app, &binding_id);
+                }
+            }),
+        );
     }
 
     fn is_current(&self) -> bool {
@@ -3703,9 +3703,8 @@ fn prepare_stop_recording_with_options(
 
     if result.is_some() {
         audio_manager.invalidate_recording_readiness();
+        crate::recording_auto_stop::cancel_auto_stop_timer(app);
     }
-
-    crate::recording_auto_stop::cancel_auto_stop_timer(app);
 
     if let Some((
         session,
@@ -3721,12 +3720,23 @@ fn prepare_stop_recording_with_options(
         // This unregisters the cancel shortcut exactly once
         session.finish();
 
-        change_tray_icon(app, TrayIconState::Transcribing);
-        if show_processing_overlay {
-            if recording_settings.transcription_provider != TranscriptionProvider::Local {
-                show_sending_overlay(app);
-            } else {
-                show_transcribing_overlay(app);
+        // A realtime failure may have published feedback before requesting Stop.
+        // Shared extension/voice actions must not replace it with "sending".
+        let processing_generation = crate::plus_overlay_state::current_recording_overlay_generation();
+        let is_gemini_live = should_use_gemini_realtime_live(&recording_settings);
+        let gemini_runtime_error_shown = is_gemini_live
+            && app.state::<Arc<GeminiRealtimeManager>>()
+                .runtime_error_was_reported(Some(operation_id), None, None);
+        if !gemini_runtime_error_shown {
+            change_tray_icon(app, TrayIconState::Transcribing);
+            if show_processing_overlay {
+                if is_gemini_live {
+                    crate::overlay::show_processing_overlay_if_generation_matches(app, processing_generation, false);
+                } else if recording_settings.transcription_provider != TranscriptionProvider::Local {
+                    show_sending_overlay(app);
+                } else {
+                    show_transcribing_overlay(app);
+                }
             }
         }
 
@@ -3842,6 +3852,9 @@ async fn get_transcription_or_cleanup_detailed(
             if has_reson8_realtime_session {
                 reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
             }
+            if has_gemini_realtime_session && gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None) {
+                return TranscriptionFetchOutcome::ErrorOverlayShown;
+            }
             return TranscriptionFetchOutcome::Success((String::new(), samples));
         }
 
@@ -3853,7 +3866,6 @@ async fn get_transcription_or_cleanup_detailed(
                 .await
             {
                 Ok(text) => {
-                    gemini_realtime_manager.clear_reported_runtime_error();
                     let filtered = apply_profile_output_filters(
                         &recording_settings,
                         text,
@@ -3863,10 +3875,8 @@ async fn get_transcription_or_cleanup_detailed(
                 }
                 Err(err) => {
                     let err_str = format!("{}", err);
-                    if !gemini_realtime_manager.take_reported_runtime_error(&err_str) {
-                        let _ = app.emit("remote-stt-error", err_str.clone());
-                        crate::plus_overlay_state::handle_transcription_error(app, &err_str);
-                    }
+                    let _ = app.emit("remote-stt-error", err_str.clone());
+                    crate::plus_overlay_state::handle_transcription_error(app, &err_str);
                     return TranscriptionFetchOutcome::ErrorOverlayShown;
                 }
             }
@@ -3923,22 +3933,37 @@ async fn get_transcription_or_cleanup_detailed(
         if has_gemini_realtime_session
             && should_use_gemini_realtime_live(&recording_settings)
         {
-            match gemini_realtime_manager
+            let result = gemini_realtime_manager
                 .finish_session_if_matches(Some(recording_operation_id), GEMINI_LIVE_FINALIZE_TIMEOUT_MS)
-                .await
-            {
+                .await;
+            if !session_manager::is_operation_current(app, recording_operation_id) {
+                return TranscriptionFetchOutcome::Cancelled;
+            }
+            match result {
                 Ok(text) => {
                     let filtered = apply_profile_output_filters(
                         &recording_settings,
                         text,
                         captured_profile_id.as_deref(),
                     );
+                    if gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None) {
+                        if !filtered.trim().is_empty() {
+                            if let Err(error) = app.state::<Arc<HistoryManager>>()
+                                .save_transcription(samples, filtered, false, None, None, None).await
+                            {
+                                warn!("Could not retain partial Gemini instruction in History: {}", error);
+                            }
+                        }
+                        return TranscriptionFetchOutcome::ErrorOverlayShown;
+                    }
                     return TranscriptionFetchOutcome::Success((filtered, samples));
                 }
                 Err(err) => {
                     let err_str = format!("{}", err);
-                    let _ = app.emit("remote-stt-error", err_str.clone());
-                    crate::plus_overlay_state::handle_transcription_error(app, &err_str);
+                    if !gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, Some(&err_str)) {
+                        let _ = app.emit("remote-stt-error", err_str.clone());
+                        crate::plus_overlay_state::handle_transcription_error(app, &err_str);
+                    }
                     return TranscriptionFetchOutcome::ErrorOverlayShown;
                 }
             }
@@ -4018,6 +4043,9 @@ async fn get_transcription_or_cleanup_detailed(
             reson8_realtime_manager.cancel_if_matches(Some(recording_operation_id));
         }
         debug!("No samples retrieved from recording stop");
+        if has_gemini_realtime_session && gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None) {
+            return TranscriptionFetchOutcome::ErrorOverlayShown;
+        }
         utils::hide_recording_overlay(app);
         change_tray_icon(app, TrayIconState::Idle);
         TranscriptionFetchOutcome::ErrorNoOverlay
@@ -4565,12 +4593,16 @@ fn prepared_transcribe_start_for_binding(
     }
 }
 
+fn operation_allows_final_output(current: bool, idle: bool, latest: bool) -> bool {
+    current || (idle && latest)
+}
+
 pub(crate) fn gemini_stream_operation_allows_delivery(
     background_finalization: bool,
     is_current: impl FnOnce() -> bool,
     was_cancelled: impl FnOnce() -> bool,
 ) -> bool {
-    background_finalization || (is_current() && !was_cancelled())
+    (background_finalization || is_current()) && !was_cancelled()
 }
 
 /// Decision behind `gemini_background_output_allowed`: once withheld, always withheld.
@@ -4671,6 +4703,32 @@ mod stt_workflow_tests {
     }
 
     #[test]
+    fn recording_action_resolution_preserves_non_dictation_handlers() {
+        for binding in [
+            "transcribe", "send_to_extension", "send_to_extension_with_selection",
+            "send_screenshot_to_extension", "ai_replace_selection",
+        ] {
+            let resolved = super::transcribe_action_for_binding(binding).unwrap();
+            assert!(std::sync::Arc::ptr_eq(&resolved, super::ACTION_MAP.get(binding).unwrap()));
+        }
+        let profile = super::transcribe_action_for_binding("transcribe_profile_example").unwrap();
+        assert!(std::sync::Arc::ptr_eq(&profile, super::ACTION_MAP.get("transcribe").unwrap()));
+        #[cfg(target_os = "windows")]
+        {
+            let voice = super::transcribe_action_for_binding("voice_command").unwrap();
+            assert!(std::sync::Arc::ptr_eq(&voice, super::ACTION_MAP.get("voice_command").unwrap()));
+        }
+    }
+
+    #[test]
+    fn detached_finalization_stays_blocked_after_a_successor_finishes() {
+        assert!(super::operation_allows_final_output(true, false, true));
+        assert!(super::operation_allows_final_output(false, true, true));
+        assert!(!super::operation_allows_final_output(false, false, false));
+        assert!(!super::operation_allows_final_output(false, true, false));
+    }
+
+    #[test]
     fn shared_model_changes_follow_inheriting_profiles_and_preserve_explicit_overrides() {
         let mut settings = get_default_settings();
         settings.transcription_provider = TranscriptionProvider::Local;
@@ -4756,14 +4814,15 @@ mod stt_workflow_tests {
     }
 
     #[test]
-    fn detached_gemini_delivery_does_not_query_the_successor_operation() {
+    fn detached_gemini_delivery_skips_successor_lookup_but_honors_cancel() {
         let lookups = Cell::new(0);
         assert!(gemini_stream_operation_allows_delivery(
             true,
+            || panic!("background delivery must not query the successor operation"),
             || { lookups.set(lookups.get() + 1); false },
-            || { lookups.set(lookups.get() + 1); true },
         ));
-        assert_eq!(lookups.get(), 0);
+        assert_eq!(lookups.get(), 1);
+        assert!(!gemini_stream_operation_allows_delivery(true, || true, || true));
         assert!(!gemini_stream_operation_allows_delivery(
             false, || false, || panic!("stale operation must short-circuit cancellation lookup"),
         ));
@@ -6939,6 +6998,23 @@ pub(crate) fn emit_paste_error(app: &AppHandle, error: &str) {
     let _ = app.emit("paste-error", paste_failure_notice(error));
 }
 
+fn is_output_dispatch_timeout(error: &str) -> bool {
+    error.starts_with("Timed out waiting for output task:")
+}
+
+fn combine_dictation_paste_result(
+    result: Result<bool, String>,
+    prior_dispatch_error: Option<&str>,
+) -> Result<bool, String> {
+    match result {
+        Err(error) => Err(error),
+        Ok(_) => match prior_dispatch_error {
+            Some(error) => Err(error.to_string()),
+            None => result,
+        },
+    }
+}
+
 fn report_dictation_paste_result(
     app: &AppHandle,
     result: Result<bool, String>,
@@ -6953,7 +7029,10 @@ fn report_dictation_paste_result(
 
 #[cfg(test)]
 mod dictation_paste_feedback_tests {
-    use super::{finish_dictation_paste_result, paste_failure_notice, PasteFailureNotice};
+    use super::{
+        combine_dictation_paste_result, finish_dictation_paste_result, is_output_dispatch_timeout,
+        paste_failure_notice, PasteFailureNotice,
+    };
 
     #[test]
     fn elevated_clipboard_notice_is_specific_and_never_counts_as_delivery() {
@@ -7005,6 +7084,56 @@ mod dictation_paste_feedback_tests {
                 |_| panic!("Delivered text must not be reported as a failed insertion")));
         }
     }
+
+    #[test]
+    fn output_dispatch_timeout_is_distinguished_from_enqueue_failure() {
+        assert!(is_output_dispatch_timeout(
+            "Timed out waiting for output task: timed out waiting on channel"
+        ));
+        assert!(!is_output_dispatch_timeout("Output worker is unavailable"));
+    }
+
+    #[test]
+    fn prior_tail_enqueue_failure_prevents_false_success_without_overriding_specific_notices() {
+        // An enqueue failure surfaces once as a generic paste error even if earlier chunks succeeded.
+        let mut notices = Vec::new();
+        let combined = combine_dictation_paste_result(
+            Ok(true),
+            Some("ElevenLabs Scribe v3 Live stream tail insertion was not confirmed: Output worker is unavailable"),
+        );
+        assert!(!finish_dictation_paste_result(combined, true, false, |error| {
+            notices.push(paste_failure_notice(error))
+        }));
+        assert_eq!(notices, vec![PasteFailureNotice::Generic]);
+
+        // Specific elevated/opening-key outcomes from complete_dictation_output remain authoritative.
+        for specific in [
+            crate::clipboard::ELEVATED_CLIPBOARD_FALLBACK_NOTICE,
+            crate::clipboard::ELEVATION_BLOCKED_ERROR,
+        ] {
+            let combined = combine_dictation_paste_result(
+                Err(specific.to_string()),
+                Some("Output worker is unavailable"),
+            );
+            assert_eq!(combined, Err(specific.to_string()));
+        }
+        let opening_key = combine_dictation_paste_result(
+            Err(crate::clipboard::OPENING_KEY_NOT_PRESSED_ERROR.to_string()),
+            Some("Output worker is unavailable"),
+        );
+        assert!(!finish_dictation_paste_result(opening_key, true, false, |_| {
+            panic!("The failed opening key already has its own notice")
+        }));
+
+        // User cancellation or blank text still suppresses the paste error.
+        for (has_text, cancelled) in [(true, true), (false, false)] {
+            let combined =
+                combine_dictation_paste_result(Ok(true), Some("Output worker is unavailable"));
+            assert!(!finish_dictation_paste_result(combined, has_text, cancelled, |_| {
+                panic!("Cancelled or blank output must stay quiet")
+            }));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -7044,9 +7173,29 @@ fn finalize_streaming_paste_session_after_output_queue(
     timeout_ms: u64,
     final_text: String,
 ) -> bool {
+    finalize_streaming_paste_session_after_output_queue_with_dispatch_error(
+        app,
+        operation_id,
+        operation_stamp,
+        timeout_ms,
+        final_text,
+        None,
+    )
+}
+
+fn finalize_streaming_paste_session_after_output_queue_with_dispatch_error(
+    app: &AppHandle,
+    operation_id: u64,
+    operation_stamp: OperationStamp,
+    timeout_ms: u64,
+    final_text: String,
+    prior_dispatch_error: Option<Arc<Mutex<Option<String>>>>,
+) -> bool {
     let app_for_finalize = app.clone();
     let output_finalized = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let output_finalized_in_queue = Arc::clone(&output_finalized);
+    let prior_error_in_queue = prior_dispatch_error.clone();
+    let final_text_for_fallback = final_text.clone();
     let method = crate::clipboard::dictation_output_settings(operation_id)
         .map(|output| output.paste_method).unwrap_or(crate::settings::PasteMethod::CtrlV);
     if let Err(err) = run_output_task_sync_with_result(method, timeout_ms, move || {
@@ -7065,8 +7214,20 @@ fn finalize_streaming_paste_session_after_output_queue(
         }
         // Released in the background or after a timed-out wait: a newer recording or
         // transcription owns the session, so its window must not get this trailing space.
-        if !operation_stamp.is_current(&app_for_finalize) && !session_manager::is_idle(&app_for_finalize) {
+        if !operation_allows_final_output(
+            operation_stamp.is_current(&app_for_finalize),
+            session_manager::is_idle(&app_for_finalize),
+            session_manager::is_latest_operation(operation_id),
+        ) {
+            output_finalized_in_queue.store(false, std::sync::atomic::Ordering::Release);
             crate::clipboard::drop_held_trailing_whitespace(operation_id);
+            crate::live_output_buffer::cancel_unfinished(operation_id);
+            if let Err(error) = crate::clipboard::end_streaming_paste_session_if_matches(
+                &app_for_finalize, operation_id,
+            ) {
+                warn!("Failed to restore superseded streaming session: {}", error);
+            }
+            return;
         }
         let result = crate::clipboard::complete_dictation_output(
             &app_for_finalize,
@@ -7074,6 +7235,10 @@ fn finalize_streaming_paste_session_after_output_queue(
             &final_text,
             || !operation_stamp.was_cancelled(&app_for_finalize),
         );
+        let prior_error = prior_error_in_queue
+            .as_ref()
+            .and_then(|cell| cell.lock().ok().and_then(|guard| guard.clone()));
+        let result = combine_dictation_paste_result(result, prior_error.as_deref());
         let finalized = report_dictation_paste_result(
             &app_for_finalize,
             result,
@@ -7085,10 +7250,32 @@ fn finalize_streaming_paste_session_after_output_queue(
         }
         output_finalized_in_queue.store(finalized, std::sync::atomic::Ordering::Release);
     }) {
-        warn!(
-            "{}; clipboard finalization remains queued behind pending streaming pastes",
-            err
-        );
+        if is_output_dispatch_timeout(&err) {
+            warn!(
+                "{}; clipboard finalization remains queued behind pending streaming pastes",
+                err
+            );
+        } else {
+            warn!("Failed to queue clipboard finalization: {}", err);
+            crate::live_output_buffer::cancel_unfinished(operation_id);
+            if let Err(restore_err) =
+                crate::clipboard::end_streaming_paste_session_if_matches(app, operation_id)
+            {
+                warn!(
+                    "Failed to restore clipboard after unqueued streaming finalization: {}",
+                    restore_err
+                );
+            }
+            let prior_error = prior_dispatch_error
+                .as_ref()
+                .and_then(|cell| cell.lock().ok().and_then(|guard| guard.clone()));
+            let _ = report_dictation_paste_result(
+                app,
+                Err(prior_error.unwrap_or(err)),
+                !final_text_for_fallback.trim().is_empty(),
+                operation_stamp.was_cancelled(app),
+            );
+        }
         return false;
     }
     output_finalized.load(std::sync::atomic::Ordering::Acquire)
@@ -7232,13 +7419,24 @@ fn is_recording_for_binding(app: &AppHandle, binding_id: &str) -> bool {
     )
 }
 
+fn begin_realtime_stop_if_matches(
+    app: &AppHandle,
+    binding_id: &str,
+    expected_operation_id: Option<u64>,
+) -> Option<session_manager::OperationControlGuard> {
+    let operation_id = expected_operation_id
+        .or_else(|| session_manager::recording_operation_id(app, binding_id))?;
+    session_manager::try_begin_operation_control(app, Some((binding_id, operation_id)))
+}
+
 pub(crate) fn stop_transcription_after_realtime_error(
     app: &AppHandle,
     binding_id: &str,
+    expected_operation_id: Option<u64>,
 ) -> bool {
-    if !is_recording_for_binding(app, binding_id) {
+    let Some(_control) = begin_realtime_stop_if_matches(app, binding_id, expected_operation_id) else {
         return false;
-    }
+    };
 
     let Some(action) = transcribe_action_for_binding(binding_id) else {
         warn!(
@@ -7257,10 +7455,14 @@ pub(crate) fn stop_transcription_after_realtime_error(
     true
 }
 
-pub(crate) fn stop_transcription_at_realtime_limit(app: &AppHandle, binding_id: &str) -> bool {
-    if !is_recording_for_binding(app, binding_id) {
+pub(crate) fn stop_transcription_at_realtime_limit(
+    app: &AppHandle,
+    binding_id: &str,
+    expected_operation_id: Option<u64>,
+) -> bool {
+    let Some(_control) = begin_realtime_stop_if_matches(app, binding_id, expected_operation_id) else {
         return false;
-    }
+    };
     let Some(action) = transcribe_action_for_binding(binding_id) else {
         warn!(
             "Could not finalize time-limited realtime transcription: no action is registered for binding '{}'",
@@ -9263,28 +9465,19 @@ impl ShortcutAction for TranscribeAction {
                     set_openai_realtime_whisper_stream_emitted(&binding_id, false);
                     let gemini_stream_insert_timeout_ms =
                         settings.paste_delay_ms.saturating_add(1500);
-                    let output_window = gemini_realtime_manager.output_window(recording_operation_id);
                     let chunk_callback = stream_processor.map(|stream_processor| {
-                        Arc::new({
-                            let ah_for_cb = app_handle.clone();
-                            let binding_id_for_cb = binding_id.clone();
-                            move |chunk: String| {
-                                let chunk = match output_window.as_ref() {
-                                    Some(window) => window.accept_chunk(chunk),
-                                    None => chunk,
-                                };
+                        let ah_for_factory = app_handle.clone();
+                        let binding_id_for_factory = binding_id.clone();
+                        Arc::new(move |window: Arc<crate::managers::gemini_output_window::GeminiOutputWindow>| {
+                            let output_window = window;
+                            let stream_processor = Arc::clone(&stream_processor);
+                            let ah_for_cb = ah_for_factory.clone();
+                            let binding_id_for_cb = binding_id_for_factory.clone();
+                            Arc::new(move |chunk: String| {
+                                let chunk = output_window.accept_chunk(chunk);
                                 if chunk.is_empty() {
                                     return;
                                 }
-                                let delta = match stream_processor.lock() {
-                                    Ok(mut processor) => processor.push_chunk(&chunk),
-                                    Err(_) => {
-                                        warn!("Failed to lock Gemini live stream processor");
-                                        return;
-                                    }
-                                };
-                                if delta.is_empty() { return; }
-                                let delta_ending = delta.chars().last();
                                 let processor_for_paste = Arc::clone(&stream_processor);
                                 let ah_for_clip = ah_for_cb.clone();
                                 let binding_id_for_paste = binding_id_for_cb.clone();
@@ -9292,8 +9485,8 @@ impl ShortcutAction for TranscribeAction {
                                 if let Err(error) = crate::output_dispatch::run_sync(
                                     gemini_stream_insert_timeout_ms,
                                     move || {
-                                        if output_window_for_paste.as_ref().is_some_and(|window| !window.allows_delivery()) {
-                                            debug!("Skipping Gemini chunk past early-finalization deadline (operation={})", operation_stamp.operation_id);
+                                        if !output_window_for_paste.allows_delivery() {
+                                            debug!("Skipping Gemini chunk from a replaced transport or past its deadline (operation={})", operation_stamp.operation_id);
                                             return;
                                         }
                                         let background_finalization =
@@ -9316,6 +9509,15 @@ impl ShortcutAction for TranscribeAction {
                                         {
                                             return;
                                         }
+                                        let delta = match processor_for_paste.lock() {
+                                            Ok(mut processor) => processor.push_chunk(&chunk),
+                                            Err(_) => {
+                                                warn!("Failed to lock Gemini live stream processor");
+                                                return;
+                                            }
+                                        };
+                                        if delta.is_empty() { return; }
+                                        let delta_ending = delta.chars().last();
                                         match crate::clipboard::paste_stream_chunk_for_operation(
                                             delta,
                                             ah_for_clip.clone(),
@@ -9351,11 +9553,11 @@ impl ShortcutAction for TranscribeAction {
                                     );
                                     warn!("{}", message);
                                 }
-                            }
-                        }) as OpenAiRealtimeWhisperFinalChunkCallback
+                            }) as OpenAiRealtimeWhisperFinalChunkCallback
+                        }) as crate::managers::gemini_realtime::FinalChunkCallbackFactory
                     });
 
-                    let start_result = gemini_realtime_manager.start_session(
+                    let start_result = gemini_realtime_manager.start_session_with_chunk_factory(
                         &binding_id,
                         Some(recording_operation_id),
                         &api_key,
@@ -9567,9 +9769,6 @@ impl ShortcutAction for TranscribeAction {
 
     fn stop(&self, app: &AppHandle, binding_id: &str, shortcut_str: &str) {
         let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
-        if let Some(operation_id) = session_manager::recording_operation_id(app, binding_id) {
-            crate::live_output_buffer::stop(operation_id);
-        }
         let deepgram_live_manager = Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
         let openai_realtime_whisper_manager =
             Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
@@ -9585,15 +9784,11 @@ impl ShortcutAction for TranscribeAction {
         if use_live_streaming {
             let stop_context = match prepare_stop_recording_with_options(app, binding_id, false) {
                 Some(context) => context,
-                None => {
-                    let _ = take_stream_chunk_processor(binding_id);
-                    let _ = take_soniox_stream_emitted(binding_id);
-                    let _ = take_deepgram_stream_emitted(binding_id);
-                    let _ = take_openai_realtime_whisper_stream_emitted(binding_id);
-                    let _ = take_reson8_stream_emitted(binding_id);
-                    return; // No active session - nothing to do
-                }
+                // The caller that won Recording -> Processing owns all output
+                // bookkeeping. A duplicate Stop must never clear its buffers.
+                None => return,
             };
+            crate::live_output_buffer::stop(stop_context.operation_id);
             let recording_settings = stop_context.recording_settings.clone();
             let buffered_output = crate::clipboard::dictation_output_is_buffered(stop_context.operation_id);
             let protected_live_output = crate::live_output_buffer::enabled(stop_context.operation_id);
@@ -9609,7 +9804,11 @@ impl ShortcutAction for TranscribeAction {
             );
             if preview_output_only_enabled {
                 crate::managers::preview_output_mode::set_recording(app, false);
-                crate::managers::preview_output_mode::set_error(app, None);
+                if !invoked_from_realtime_error
+                    && !gemini_realtime_manager.runtime_error_was_reported(Some(stop_context.operation_id), None, None)
+                {
+                    crate::managers::preview_output_mode::set_error(app, None);
+                }
             }
             let is_deepgram_live_provider =
                 recording_settings.transcription_provider == TranscriptionProvider::RemoteDeepgram;
@@ -9643,11 +9842,14 @@ impl ShortcutAction for TranscribeAction {
             };
             let operation_stamp = stop_context.operation_stamp();
             let recording_operation_id = stop_context.operation_id;
+            let processing_generation = crate::plus_overlay_state::current_recording_overlay_generation();
+            let gemini_runtime_error_shown = is_gemini_live_provider
+                && gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None);
             let early_gemini_deadline = gemini_early_finalization_delay(
                 &recording_settings,
                 is_gemini_live_provider && !buffered_output && !protected_live_output && !early_opening_key,
                 preview_output_only_enabled,
-                invoked_from_realtime_error,
+                invoked_from_realtime_error || gemini_runtime_error_shown,
                 invoked_from_gemini_time_limit,
                 &binding_id,
             ).and_then(|delay| {
@@ -9660,17 +9862,22 @@ impl ShortcutAction for TranscribeAction {
             });
             // Live mode already streamed text while recording.
             // On stop, show explicit finalizing state unless instant-stop is enabled.
-            if live_instant_stop && !preview_output_only_enabled {
-                utils::hide_recording_overlay(app);
-            } else {
-                show_finalizing_overlay(app);
+            if !invoked_from_realtime_error && !gemini_runtime_error_shown {
+                if live_instant_stop && !preview_output_only_enabled {
+                    utils::hide_recording_overlay(app);
+                } else if is_gemini_live_provider {
+                    crate::overlay::show_processing_overlay_if_generation_matches(app, processing_generation, true);
+                } else {
+                    show_finalizing_overlay(app);
+                }
             }
+            let stop_overlay_generation = crate::plus_overlay_state::current_recording_overlay_generation();
             let pending_gemini_background_finalization =
                 if !buffered_output && !protected_live_output && !early_opening_key && early_gemini_deadline.is_none() && can_background_vercel_gemini_finalization(
                     is_gemini_live_provider,
                     &recording_settings.remote_stt.provider_preset,
                     preview_output_only_enabled,
-                    invoked_from_realtime_error,
+                    invoked_from_realtime_error || gemini_runtime_error_shown,
                     invoked_from_gemini_time_limit,
                 ) {
                     Some(register_gemini_background_finalization(
@@ -9778,7 +9985,7 @@ impl ShortcutAction for TranscribeAction {
                                 soniox_live_manager.cancel();
                             }
                         } else {
-                            let _ = if is_deepgram_live_provider {
+                            let result = if is_deepgram_live_provider {
                                 deepgram_live_manager
                                     .finish_session(live_finalize_timeout_ms)
                                     .await
@@ -9799,6 +10006,14 @@ impl ShortcutAction for TranscribeAction {
                                     .finish_session(live_finalize_timeout_ms)
                                     .await
                             };
+                            if is_gemini_live_provider && operation_stamp.is_current(&ah) && !operation_stamp.was_cancelled(&ah) {
+                                if let Err(error) = result {
+                                    let error = error.to_string();
+                                    if !gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, Some(&error)) {
+                                        handle_remote_transcription_error(&ah, &error, false);
+                                    }
+                                }
+                            }
                         }
                         if (is_gemini_live_provider || is_reson8_live_provider)
                             && (!operation_stamp.is_current(&ah) || operation_stamp.was_cancelled(&ah))
@@ -9814,7 +10029,9 @@ impl ShortcutAction for TranscribeAction {
                         } else if !invoked_from_preview_action {
                             close_preview_output_mode_workflow(&ah, true);
                         }
-                        utils::hide_recording_overlay(&ah);
+                        if !is_gemini_live_provider || !gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None) {
+                            crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(&ah, stop_overlay_generation);
+                        }
                         change_tray_icon(&ah, TrayIconState::Idle);
                         if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
                             crate::managers::live_sound_transcription::finish_session(&ah);
@@ -9893,8 +10110,8 @@ impl ShortcutAction for TranscribeAction {
                             crate::managers::preview_output_mode::set_error(&ah, Some(err));
                         }
                     }
-                    if !invoked_from_realtime_error {
-                        utils::hide_recording_overlay(&ah);
+                    if !invoked_from_realtime_error && !(is_gemini_live_provider && gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None)) {
+                        crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(&ah, stop_overlay_generation);
                     }
                     change_tray_icon(&ah, TrayIconState::Idle);
                     if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
@@ -10017,7 +10234,10 @@ impl ShortcutAction for TranscribeAction {
                     let text = match transcription_result {
                         Ok(text) => text,
                         Err(error) => {
-                            handle_remote_transcription_error(&ah, &error.to_string(), false);
+                            let error = error.to_string();
+                            if !gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, Some(&error)) {
+                                handle_remote_transcription_error(&ah, &error, false);
+                            }
                             end_streaming_paste_session_after_output_queue(&ah, recording_operation_id, streaming_clipboard_timeout_ms);
                             finish_guard.finish();
                             return;
@@ -10026,7 +10246,7 @@ impl ShortcutAction for TranscribeAction {
                     let app_for_output = ah.clone();
                     let had_gemini_output = had_openai_realtime_whisper_stream_output
                         || take_openai_realtime_whisper_stream_emitted(&binding_id);
-                    let overlay_generation = crate::plus_overlay_state::current_recording_overlay_generation();
+                    let overlay_generation = stop_overlay_generation;
                     let processor_for_output = stream_processor.take();
                     let binding_for_output = binding_id.clone();
                     let append_final_space =
@@ -10052,12 +10272,17 @@ impl ShortcutAction for TranscribeAction {
                                 if let Err(error) = crate::clipboard::paste_stream_chunk_for_operation(
                                     tail, app_for_output.clone(), recording_operation_id,
                                 ) {
-                                    handle_remote_transcription_error(&app_for_output, &error, false);
-                                    return;
+                                    // The output session retains this delivery failure;
+                                    // its finalizer emits the single paste notification.
+                                    warn!("Failed to insert Gemini early-finalization tail: {}", error);
                                 }
                             }
                             let _ = take_openai_realtime_whisper_stream_emitted(&binding_for_output);
-                            crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(&app_for_output, overlay_generation);
+                            if !app_for_output.state::<Arc<GeminiRealtimeManager>>()
+                                .runtime_error_was_reported(Some(recording_operation_id), None, None)
+                            {
+                                crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(&app_for_output, overlay_generation);
+                            }
                         },
                     );
                     let output_dispatched = output_result.is_ok();
@@ -10068,7 +10293,7 @@ impl ShortcutAction for TranscribeAction {
                         end_streaming_paste_session_after_output_queue(
                             &ah, recording_operation_id, streaming_clipboard_timeout_ms,
                         );
-                        if !had_gemini_output {
+                        if !had_gemini_output && !gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None) {
                             report_empty_transcription(
                                 &ah, operation_stamp, stop_context.recording_elapsed,
                                 recording_settings.dictation_quick_tap_threshold_ms, true,
@@ -10113,47 +10338,35 @@ impl ShortcutAction for TranscribeAction {
                 }
                 if gemini_finalization_is_background {
                     if let Some(processor) = stream_processor.as_ref() {
-                        let tail_delta = match processor.lock() {
-                            Ok(mut processor) => processor.flush(),
-                            Err(_) => {
-                                warn!("Failed to lock Gemini live stream processor");
-                                String::new()
-                            }
-                        };
-                        if !tail_delta.is_empty() {
-                            let ah_for_tail = ah.clone();
-                            if let Err(error) = crate::output_dispatch::run_sync(
-                                recording_settings.paste_delay_ms.saturating_add(1500),
-                                move || {
-                                    if !gemini_background_finalization_can_deliver(
-                                        recording_operation_id,
-                                    ) {
-                                        debug!(
-                                            "Skipping Gemini background stream tail for completed operation {}",
-                                            recording_operation_id
-                                        );
-                                        return;
+                        let processor = Arc::clone(processor);
+                        let ah_for_tail = ah.clone();
+                        if let Err(error) = crate::output_dispatch::run_sync(
+                            recording_settings.paste_delay_ms.saturating_add(1500),
+                            move || {
+                                if !gemini_background_finalization_can_deliver(recording_operation_id)
+                                    || !gemini_background_output_allowed(&ah_for_tail, operation_stamp)
+                                {
+                                    return;
+                                }
+                                // Flush also runs the stateful text pipeline. A stale tail
+                                // must not consume a newer recording's edit-key trigger.
+                                let tail_delta = match processor.lock() {
+                                    Ok(mut processor) => processor.flush(),
+                                    Err(_) => {
+                                        warn!("Failed to lock Gemini live stream processor");
+                                        String::new()
                                     }
-                                    if !gemini_background_output_allowed(&ah_for_tail, operation_stamp) {
-                                        return;
-                                    }
+                                };
+                                if !tail_delta.is_empty() {
                                     if let Err(error) = crate::clipboard::paste_stream_chunk_for_operation(
-                                        tail_delta,
-                                        ah_for_tail,
-                                        recording_operation_id,
+                                        tail_delta, ah_for_tail, recording_operation_id,
                                     ) {
-                                        warn!(
-                                            "Failed to insert Gemini background stream tail: {}",
-                                            error
-                                        );
+                                        warn!("Failed to insert Gemini background stream tail: {}", error);
                                     }
-                                },
-                            ) {
-                                warn!(
-                                    "Failed to queue Gemini background stream tail: {}",
-                                    error
-                                );
-                            }
+                                }
+                            },
+                        ) {
+                            warn!("Failed to queue Gemini background stream tail: {}", error);
                         }
                     }
 
@@ -10161,10 +10374,13 @@ impl ShortcutAction for TranscribeAction {
                         let ah_for_overlay = ah.clone();
                         let overlay_generation = pending.overlay_generation;
                         if let Err(error) = crate::output_dispatch::run(move || {
-                            crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
-                                &ah_for_overlay,
-                                overlay_generation,
-                            );
+                            if !ah_for_overlay.state::<Arc<GeminiRealtimeManager>>()
+                                .runtime_error_was_reported(Some(recording_operation_id), None, None)
+                            {
+                                crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
+                                    &ah_for_overlay, overlay_generation,
+                                );
+                            }
                         }) {
                             warn!(
                                 "Failed to hide completed Gemini finalization overlay: {}",
@@ -10186,7 +10402,9 @@ impl ShortcutAction for TranscribeAction {
                                 let output_withheld = pending_gemini_background_finalization
                                     .as_ref()
                                     .is_some_and(|pending| pending.output_withheld.load(Ordering::Acquire));
-                                if output_finalized && !output_withheld && session_manager::is_idle(&ah) {
+                                if output_finalized && !output_withheld && session_manager::is_idle(&ah)
+                                    && session_manager::is_latest_operation(recording_operation_id)
+                                {
                                     play_result_ready_sound(&ah);
                                 }
                                 before_dictation_final_output(&ah, &text);
@@ -10235,9 +10453,7 @@ impl ShortcutAction for TranscribeAction {
                 let mut recovered_from_soniox_replay = false;
                 let transcription = match transcription_result {
                     Ok(text) => {
-                        if is_gemini_live_provider {
-                            gemini_realtime_manager.clear_reported_runtime_error();
-                        } else if is_reson8_live_provider {
+                        if is_reson8_live_provider {
                             reson8_realtime_manager.clear_reported_runtime_error();
                         }
                         apply_profile_output_filters(
@@ -10249,7 +10465,7 @@ impl ShortcutAction for TranscribeAction {
                     Err(err) => {
                         let err_str = format!("{}", err);
                         let runtime_error_already_reported = (is_gemini_live_provider
-                            && gemini_realtime_manager.take_reported_runtime_error(&err_str))
+                            && gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, Some(&err_str)))
                             || (is_reson8_live_provider
                                 && reson8_realtime_manager.take_reported_runtime_error(&err_str));
                         let can_replay_soniox = should_replay_soniox_live_timeout(
@@ -10387,16 +10603,27 @@ impl ShortcutAction for TranscribeAction {
                 if is_reson8_live_provider {
                     had_reson8_stream_output |= take_reson8_stream_emitted(&binding_id);
                 }
+                let live_tail_dispatch_error: Option<Arc<Mutex<Option<String>>>> =
+                    ((is_gemini_live_provider) && !preview_output_only_enabled)
+                        .then(|| Arc::new(Mutex::new(None)));
 
                 if let Some(processor) = stream_processor.as_ref() {
-                    let tail_delta = match processor.lock() {
-                        Ok(mut processor) => processor.flush(),
-                        Err(_) => {
-                            warn!("Failed to lock stream chunk processor");
-                            String::new()
+                    // Both providers process accepted chunks on the output worker.
+                    // Flush behind queued chunks, after checking cancellation.
+                    let queued_tail = is_gemini_live_provider;
+                    let queued_tail_processor = queued_tail.then(|| Arc::clone(processor));
+                    let tail_delta = if queued_tail {
+                        String::new()
+                    } else {
+                        match processor.lock() {
+                            Ok(mut processor) => processor.flush(),
+                            Err(_) => {
+                                warn!("Failed to lock stream chunk processor");
+                                String::new()
+                            }
                         }
                     };
-                    if !tail_delta.is_empty() {
+                    if queued_tail || !tail_delta.is_empty() {
                         if is_deepgram_live_provider {
                             had_deepgram_stream_output = true;
                         } else if is_openai_realtime_whisper_live_provider {
@@ -10404,7 +10631,10 @@ impl ShortcutAction for TranscribeAction {
                         }
                         let ah_for_clip = ah.clone();
                         let binding_id_for_tail = binding_id.clone();
-                        let queue_result = if is_gemini_live_provider || is_reson8_live_provider {
+                        let tail_error_for_clip = live_tail_dispatch_error.clone();
+                        let queue_result = if is_gemini_live_provider
+                            || is_reson8_live_provider
+                        {
                             crate::output_dispatch::run_sync(
                                 recording_settings.paste_delay_ms.saturating_add(1500),
                                 move || {
@@ -10417,6 +10647,17 @@ impl ShortcutAction for TranscribeAction {
                                         );
                                         return;
                                     }
+                                    let tail_delta = match queued_tail_processor {
+                                        Some(processor) => match processor.lock() {
+                                            Ok(mut processor) => processor.flush(),
+                                            Err(_) => {
+                                                warn!("Failed to lock live stream tail processor");
+                                                String::new()
+                                            }
+                                        },
+                                        None => tail_delta,
+                                    };
+                                    if tail_delta.is_empty() { return; }
                                     match crate::clipboard::paste_stream_chunk_for_operation(
                                         tail_delta,
                                         ah_for_clip.clone(),
@@ -10447,11 +10688,26 @@ impl ShortcutAction for TranscribeAction {
                                                 error
                                             );
                                             warn!("{}", message);
-                                            handle_remote_transcription_error(
-                                                &ah_for_clip,
-                                                &message,
-                                                false,
-                                            );
+                                            if is_gemini_live_provider {
+                                                if crate::clipboard::dictation_output_settings(
+                                                    operation_stamp.operation_id,
+                                                )
+                                                .is_none()
+                                                {
+                                                    if let Some(cell) = tail_error_for_clip.as_ref()
+                                                    {
+                                                        if let Ok(mut guard) = cell.lock() {
+                                                            guard.get_or_insert(error);
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                handle_remote_transcription_error(
+                                                    &ah_for_clip,
+                                                    &message,
+                                                    false,
+                                                );
+                                            }
                                         }
                                     }
                                 },
@@ -10490,7 +10746,18 @@ impl ShortcutAction for TranscribeAction {
                                     err
                                 );
                                 warn!("{}", message);
-                                handle_remote_transcription_error(&ah, &message, false);
+                                if is_gemini_live_provider {
+                                    if !is_output_dispatch_timeout(&err) {
+                                        if let Some(cell) = live_tail_dispatch_error.as_ref()
+                                        {
+                                            if let Ok(mut guard) = cell.lock() {
+                                                guard.get_or_insert(message);
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    handle_remote_transcription_error(&ah, &message, false);
+                                }
                             } else {
                                 warn!("Failed to queue Soniox stream tail paste: {}", err);
                             }
@@ -10523,13 +10790,15 @@ impl ShortcutAction for TranscribeAction {
                             crate::managers::preview_output_mode::set_error(&ah, Some(err));
                         }
                     }
+                    let gemini_runtime_error_shown = is_gemini_live_provider
+                        && gemini_realtime_manager.runtime_error_was_reported(Some(recording_operation_id), None, None);
                     let empty_error_shown = !invoked_from_realtime_error
-                        && !had_live_output
+                        && !gemini_runtime_error_shown && !had_live_output
                         && report_empty_transcription(
                             &ah, operation_stamp, stop_context.recording_elapsed,
                             recording_settings.dictation_quick_tap_threshold_ms, false,
                         );
-                    if !invoked_from_realtime_error && !empty_error_shown {
+                    if !invoked_from_realtime_error && !gemini_runtime_error_shown && !empty_error_shown {
                         utils::hide_recording_overlay(&ah);
                     }
                     change_tray_icon(&ah, TrayIconState::Idle);
@@ -10620,9 +10889,13 @@ impl ShortcutAction for TranscribeAction {
                     before_dictation_final_output(&ah, &final_text);
                 }
                 let output_timeout_ms = recording_settings.paste_delay_ms.saturating_add(1500);
-                let overlay_generation =
-                    crate::plus_overlay_state::current_recording_overlay_generation();
+                let overlay_generation = if is_gemini_live_provider {
+                    stop_overlay_generation
+                } else {
+                    crate::plus_overlay_state::current_recording_overlay_generation()
+                };
                 let binding_id_for_final_output = binding_id.clone();
+                let tail_error_for_final_output = live_tail_dispatch_error.clone();
                 if let Err(err) = crate::output_dispatch::run_sync(output_timeout_ms, move || {
                     if operation_stamp.was_cancelled(&ah_clone)
                         || ((is_gemini_live_provider || is_reson8_live_provider)
@@ -10689,6 +10962,20 @@ impl ShortcutAction for TranscribeAction {
                                             error
                                         );
                                         warn!("{}", message);
+                                        if (is_gemini_live_provider)
+                                            && crate::clipboard::dictation_output_settings(
+                                                operation_stamp.operation_id,
+                                            )
+                                            .is_none()
+                                        {
+                                            if let Some(cell) =
+                                                tail_error_for_final_output.as_ref()
+                                            {
+                                                if let Ok(mut guard) = cell.lock() {
+                                                    guard.get_or_insert(error);
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -10707,7 +10994,10 @@ impl ShortcutAction for TranscribeAction {
                         }
                     }
 
-                    if !invoked_from_realtime_error {
+                    if !invoked_from_realtime_error
+                        && !(is_gemini_live_provider && ah_clone.state::<Arc<GeminiRealtimeManager>>()
+                            .runtime_error_was_reported(Some(recording_operation_id), None, None))
+                    {
                         crate::plus_overlay_state::hide_recording_overlay_if_generation_matches(
                             &ah_clone,
                             overlay_generation,
@@ -10715,6 +11005,13 @@ impl ShortcutAction for TranscribeAction {
                     }
                 }) {
                     warn!("{}", err);
+                    if (is_gemini_live_provider) && !is_output_dispatch_timeout(&err) {
+                        if let Some(cell) = live_tail_dispatch_error.as_ref() {
+                            if let Ok(mut guard) = cell.lock() {
+                                guard.get_or_insert(err);
+                            }
+                        }
+                    }
                 }
 
                 if !finish_guard.is_current() {
@@ -10756,13 +11053,15 @@ impl ShortcutAction for TranscribeAction {
 
                 if !preview_output_only_enabled {
                     wait_for_early_opening_key(&ah, recording_operation_id, operation_stamp).await;
-                    let output_finalized = finalize_streaming_paste_session_after_output_queue(
-                        &ah,
-                        recording_operation_id,
-                        operation_stamp,
-                        streaming_clipboard_timeout_ms,
-                        final_text.clone(),
-                    );
+                    let output_finalized =
+                        finalize_streaming_paste_session_after_output_queue_with_dispatch_error(
+                            &ah,
+                            recording_operation_id,
+                            operation_stamp,
+                            streaming_clipboard_timeout_ms,
+                            final_text.clone(),
+                            live_tail_dispatch_error,
+                        );
                     if output_finalized {
                         play_result_ready_sound(&ah);
                     }
@@ -10802,6 +11101,7 @@ impl ShortcutAction for TranscribeAction {
             Some(context) => context,
             None => return, // No active session - nothing to do
         };
+        crate::live_output_buffer::stop(stop_context.operation_id);
         let captured_profile_id = stop_context.captured_profile_id.clone();
         let current_app = stop_context.current_app.clone();
         let recording_settings = stop_context.recording_settings.clone();
@@ -13520,7 +13820,16 @@ pub fn preview_clear_action(app: AppHandle) -> Result<(), String> {
         }
     }
 
-    crate::overlay::reset_live_preview(&app);
+    let reset_preview = || {
+        crate::overlay::reset_live_preview(&app);
+        if crate::managers::preview_output_mode::is_active() {
+            crate::managers::preview_output_mode::set_recording_prefix_text(&app, String::new());
+            crate::managers::preview_output_mode::set_error(&app, None);
+        }
+    };
+    if let Err(e) = app.state::<Arc<GeminiRealtimeManager>>().restart_session(reset_preview) {
+        warn!("Failed to restart Gemini 3.5 Transcribe Live session: {}", e);
+    }
     if let Err(e) = app.state::<Arc<SonioxRealtimeManager>>().restart_session() {
         warn!("Failed to restart Soniox Realtime Session: {}", e);
     }
@@ -13537,20 +13846,10 @@ pub fn preview_clear_action(app: AppHandle) -> Result<(), String> {
         warn!("Failed to restart OpenAI Realtime Whisper Session: {}", e);
     }
     if let Err(e) = app
-        .state::<Arc<GeminiRealtimeManager>>()
-        .restart_session()
-    {
-        warn!("Failed to restart Gemini 3.5 Transcribe Live session: {}", e);
-    }
-    if let Err(e) = app
         .state::<Arc<Reson8RealtimeManager>>()
         .restart_session()
     {
         warn!("Failed to restart Reson8 Rumble-2 session: {}", e);
-    }
-    if crate::managers::preview_output_mode::is_active() {
-        crate::managers::preview_output_mode::set_recording_prefix_text(&app, String::new());
-        crate::managers::preview_output_mode::set_error(&app, None);
     }
     Ok(())
 }

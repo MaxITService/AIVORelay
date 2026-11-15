@@ -101,15 +101,15 @@ impl TestSession {
             observed.chunks.push(chunk.clone());
             let accepted = output_window.accept_chunk(chunk);
             if !accepted.is_empty() {
-                let delta = observed.processor.push_chunk(&accepted);
-                // Simulated paste sink; exercise the real chunk processor and
-                // the second deadline check used before main-thread insertion.
+                // Simulated output worker: ownership is checked before the
+                // stateful processor can consume an edit-key trigger.
                 let (background, current, cancelled) = *delivery_for_callback.lock();
                 if output_window.allows_delivery()
                     && crate::actions::gemini_stream_operation_allows_delivery(
                         background, || current, || cancelled,
                     )
                 {
+                    let delta = observed.processor.push_chunk(&accepted);
                     observed.processor.record_output_ending(delta.chars().last());
                     observed.inserted.push_str(&delta);
                 }
@@ -191,6 +191,9 @@ impl TestSession {
 }
 
 fn run_test(test: impl Future<Output = ()>) {
+    // These sessions use the real shared chunk processor and its global edit
+    // trigger, so they must serialize with the decapitalization unit tests.
+    let _guard = crate::text_replacement_decapitalize::TEST_MUTEX.lock().unwrap();
     // Freeze the clock before the timer driver establishes its millisecond origin.
     tokio::runtime::Builder::new_current_thread().enable_time().start_paused(true)
         .build().unwrap().block_on(test);
@@ -249,6 +252,7 @@ fn revised_gateway_finish_updates_transcript_without_reinserting_streamed_words(
         session.frame(json!({ "type": "transcript-delta", "delta": "I scream." }));
         session.frame(json!({ "type": "transcript-final", "text": "Ice cream." }));
         session.pending().await;
+        assert_eq!(*session.final_text.lock(), "Ice cream. ");
         session.finish_input().await;
         session.frame(json!({ "type": "finish", "text": "Ice cream!" }));
         session.result().await.unwrap();
@@ -282,7 +286,7 @@ fn gateway_final_segments_reset_delta_state_and_keep_sentence_boundaries() {
         for frame in [
             json!({ "type": "transcript-delta", "delta": "Hello." }),
             json!({ "type": "transcript-delta", "delta": "Next" }),
-            json!({ "type": "transcript-final", "text": "ignored duplicate" }),
+            json!({ "type": "transcript-final", "text": "Hello.Next" }),
             json!({ "type": "transcript-final", "text": "Third." }),
             json!({ "type": "finish" }),
         ] { session.frame(frame); }
@@ -306,6 +310,238 @@ fn gateway_finish_without_sentence_spaces_keeps_the_streamed_boundaries() {
         session.result().await.unwrap();
         assert_eq!(session.observed.lock().inserted, "First sentence. Second one. ");
         assert_eq!(*session.final_text.lock(), "First sentence. Second one.");
+    });
+}
+
+#[test]
+fn gateway_empty_delta_does_not_suppress_final_only_speech() {
+    run_test(async {
+        let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+        session.frame(json!({ "type": "transcript-delta", "delta": "" }));
+        session.frame(json!({ "type": "transcript-final", "text": "Entire sentence." }));
+        session.frame(json!({ "type": "finish" }));
+        session.result().await.unwrap();
+        assert_eq!(session.observed.lock().inserted, "Entire sentence. ");
+        assert_eq!(*session.final_text.lock(), "Entire sentence. ");
+    });
+}
+
+#[test]
+fn gateway_final_and_finish_append_unstreamed_suffixes_once() {
+    run_test(async {
+        let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+        session.frame(json!({ "type": "transcript-delta", "delta": "First" }));
+        session.frame(json!({ "type": "transcript-final", "text": "First sentence." }));
+        session.frame(json!({ "type": "finish", "text": "First sentence.Last words." }));
+        session.result().await.unwrap();
+        assert_eq!(session.observed.lock().inserted, "First sentence. Last words.");
+        assert_eq!(*session.final_text.lock(), "First sentence. Last words.");
+    });
+}
+
+#[test]
+fn gateway_actual_google_generation_boundaries_separate_words_but_not_fragments() {
+    run_test(async {
+        let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+        for frame in [
+            json!({ "type": "transcript-delta", "id": "google-segment-0", "delta": "Union" }),
+            json!({ "type": "raw", "rawValue": { "serverContent": { "generationComplete": true } } }),
+            json!({ "type": "transcript-partial", "id": "google-segment-0", "text": "Address" }),
+            json!({ "type": "transcript-delta", "id": "google-segment-0", "delta": "Address" }),
+            json!({ "type": "transcript-delta", "id": "google-segment-0", "delta": " frag" }),
+            json!({ "type": "transcript-delta", "id": "google-segment-0", "delta": "ment" }),
+            json!({ "type": "transcript-final", "id": "google-segment-0", "text": "UnionAddress fragment" }),
+            json!({ "type": "finish", "text": "UnionAddress fragment" }),
+        ] { session.frame(frame); }
+        session.result().await.unwrap();
+        assert_eq!(session.observed.lock().inserted, "Union Address fragment ");
+        assert_eq!(*session.final_text.lock(), "Union Address fragment");
+    });
+}
+
+#[test]
+fn gateway_combined_raw_final_applies_boundary_after_its_mapped_delta() {
+    run_test(async {
+        let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+        for frame in [
+            json!({ "type": "transcript-delta", "delta": "frag" }),
+            json!({ "type": "raw", "rawValue": { "serverContent": {
+                "inputTranscription": { "text": "ment", "finished": true }, "generationComplete": true
+            } } }),
+            json!({ "type": "transcript-delta", "delta": "ment" }),
+            json!({ "type": "transcript-delta", "delta": "," }),
+            json!({ "type": "transcript-delta", "delta": "next" }),
+            json!({ "type": "finish", "text": "fragment, next" }),
+        ] { session.frame(frame); }
+        session.result().await.unwrap();
+        assert_eq!(session.observed.lock().inserted, "fragment, next");
+        assert_eq!(*session.final_text.lock(), "fragment, next");
+    });
+}
+
+#[test]
+fn gateway_authoritative_final_can_restore_missing_word_spaces() {
+    assert_eq!(gateway_finish_text("UnionAddress", "Union Address"), "Union Address");
+    assert_eq!(gateway_finish_text("First. Second.", "First.Second."), "First. Second.");
+}
+
+#[test]
+fn gateway_final_suffix_keeps_raw_turn_spaces_and_inserts_missing_tail() {
+    run_test(async {
+        let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+        for frame in [
+            json!({ "type": "transcript-delta", "delta": "Union" }),
+            json!({ "type": "raw", "rawValue": { "serverContent": { "generationComplete": true } } }),
+            json!({ "type": "transcript-delta", "delta": "Address" }),
+            json!({ "type": "transcript-final", "text": "UnionAddress missing tail" }),
+            json!({ "type": "finish", "text": "UnionAddress missing tail" }),
+        ] { session.frame(frame); }
+        session.result().await.unwrap();
+        assert_eq!(session.observed.lock().inserted, "Union Address missing tail ");
+        assert_eq!(*session.final_text.lock(), "Union Address missing tail");
+    });
+}
+
+#[test]
+fn gateway_skipped_mapped_delta_cannot_split_the_next_turn() {
+    run_test(async {
+        let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+        for frame in [
+            json!({ "type": "raw", "rawValue": { "serverContent": {
+                "inputTranscription": { "text": "First", "finished": true }, "generationComplete": true
+            } } }),
+            json!({ "type": "transcript-delta", "delta": "" }),
+            json!({ "type": "transcript-final", "text": "First" }),
+            json!({ "type": "transcript-delta", "delta": "Hel" }),
+            json!({ "type": "transcript-delta", "delta": "lo" }),
+            json!({ "type": "finish", "text": "First Hello" }),
+        ] { session.frame(frame); }
+        session.result().await.unwrap();
+        assert_eq!(session.observed.lock().inserted, "First Hello");
+        assert_eq!(*session.final_text.lock(), "First Hello");
+    });
+}
+
+#[test]
+fn gateway_whitespace_delta_and_empty_final_fields_do_not_drop_speech() {
+    run_test(async {
+        let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+        for frame in [
+            json!({ "type": "transcript-delta", "delta": " " }),
+            json!({ "type": "transcript-final", "text": "Entire sentence." }),
+            json!({ "type": "transcript-final", "text": "" }),
+            json!({ "type": "finish", "text": "" }),
+        ] { session.frame(frame); }
+        session.result().await.unwrap();
+        assert_eq!(session.observed.lock().inserted, " Entire sentence. ");
+        assert_eq!(*session.final_text.lock(), "Entire sentence. ");
+    });
+}
+
+#[test]
+fn gateway_leading_whitespace_does_not_hide_an_unstreamed_final_suffix() {
+    run_test(async {
+        let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+        for frame in [
+            json!({ "type": "transcript-delta", "delta": " " }),
+            json!({ "type": "transcript-delta", "delta": "Hello" }),
+            json!({ "type": "transcript-final", "text": "Hello there" }),
+            json!({ "type": "finish", "text": "Hello there" }),
+        ] { session.frame(frame); }
+        session.result().await.unwrap();
+        assert_eq!(session.observed.lock().inserted, " Hello there ");
+        assert_eq!(*session.final_text.lock(), "Hello there");
+    });
+}
+
+#[test]
+fn gateway_empty_mapped_delta_closes_only_the_previous_raw_turn() {
+    run_test(async {
+        let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+        for frame in [
+            json!({ "type": "transcript-delta", "delta": "First" }),
+            json!({ "type": "raw", "rawValue": { "serverContent": {
+                "inputTranscription": { "text": "First", "finished": true }, "generationComplete": true
+            } } }),
+            json!({ "type": "transcript-delta", "delta": "" }),
+            json!({ "type": "transcript-delta", "delta": "Hel" }),
+            json!({ "type": "transcript-delta", "delta": "lo" }),
+            json!({ "type": "finish", "text": "FirstHello" }),
+        ] { session.frame(frame); }
+        session.result().await.unwrap();
+        assert_eq!(session.observed.lock().inserted, "First Hello");
+        assert_eq!(*session.final_text.lock(), "First Hello");
+    });
+}
+
+#[test]
+fn gateway_final_suffix_survives_double_spaces_and_newlines_in_pasted_prefix() {
+    run_test(async {
+        for separator in ["  ", "\n", "\t"] {
+            let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+            for frame in [
+                json!({ "type": "transcript-delta", "delta": format!("Hello{separator}") }),
+                json!({ "type": "transcript-delta", "delta": "world" }),
+                json!({ "type": "transcript-final", "text": "Hello world today" }),
+                json!({ "type": "finish", "text": "Hello world today" }),
+            ] { session.frame(frame); }
+            session.result().await.unwrap();
+            assert_eq!(session.observed.lock().inserted, format!("Hello{separator}world today "));
+            assert_eq!(*session.final_text.lock(), "Hello world today");
+        }
+    });
+}
+
+#[test]
+fn gateway_raw_word_fragments_keep_abbreviations_and_separate_confirmed_turns() {
+    run_test(async {
+        let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+        for frame in [
+            json!({ "type": "raw", "rawValue": { "serverContent": { "inputTranscription": { "text": "U.S." } } } }),
+            json!({ "type": "transcript-delta", "delta": "U.S." }),
+            json!({ "type": "raw", "rawValue": { "serverContent": { "inputTranscription": { "text": "A" } } } }),
+            json!({ "type": "transcript-delta", "delta": "A" }),
+            json!({ "type": "raw", "rawValue": { "serverContent": { "generationComplete": true } } }),
+            json!({ "type": "transcript-delta", "delta": "Next" }),
+            json!({ "type": "finish", "text": "U.S.ANext" }),
+        ] { session.frame(frame); }
+        session.result().await.unwrap();
+        assert_eq!(session.observed.lock().inserted, "U.S.A Next");
+        assert_eq!(*session.final_text.lock(), "U.S.A Next");
+    });
+}
+
+#[test]
+fn gateway_revised_final_trailing_whitespace_cannot_glue_the_next_turn() {
+    run_test(async {
+        for ending in [" ", "\n", "\t"] {
+            let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+            for frame in [
+                json!({ "type": "transcript-delta", "delta": "I scream." }),
+                json!({ "type": "transcript-final", "text": format!("Ice cream.{ending}") }),
+                json!({ "type": "transcript-delta", "delta": "Next." }),
+                json!({ "type": "finish", "text": "Ice cream.Next." }),
+            ] { session.frame(frame); }
+            session.result().await.unwrap();
+            assert_eq!(session.observed.lock().inserted, "I scream. Next.");
+            assert_eq!(*session.final_text.lock(), "Ice cream. Next.");
+        }
+    });
+}
+
+#[test]
+fn gateway_blank_final_segments_do_not_insert_extra_whitespace() {
+    run_test(async {
+        let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+        for frame in [
+            json!({ "type": "transcript-final", "text": "First." }),
+            json!({ "type": "transcript-final", "text": "  \n\t" }),
+            json!({ "type": "transcript-final", "text": "Next." }),
+            json!({ "type": "finish", "text": "First. Next." }),
+        ] { session.frame(frame); }
+        session.result().await.unwrap();
+        assert_eq!(session.observed.lock().inserted, "First. Next. ");
+        assert_eq!(*session.final_text.lock(), "First. Next.");
     });
 }
 
@@ -744,6 +980,7 @@ where
         binding_id: "same_hotkey".to_string(), operation_id, audio_tx, control_tx,
         final_text, join_handle: JoinHandle::Tokio(tokio::spawn(task)),
         output_window: Arc::new(GeminiOutputWindow::default()),
+        restart_params: None,
     }
 }
 
@@ -921,6 +1158,7 @@ fn stale_old_finish_does_not_detach_new_session_or_clear_its_preconnect_audio() 
         let mut pending = Some(PendingAudio {
             operation_id: Some(2), frames: vec![vec![7, 8]],
             output_window: Arc::clone(&window),
+            overflow_error: None,
         });
         assert!(detach_session_if_matches(&mut active, &mut pending, Some(1)).is_none());
         assert_eq!(active.as_ref().unwrap().operation_id, Some(2));
@@ -961,6 +1199,7 @@ fn matching_detach_clears_only_its_own_pending_audio_including_live_monitor() {
             let mut active = Some(active_fixture(operation_id, "", |_, _, _| async { Ok(()) }));
             let mut pending = Some(PendingAudio {
                 operation_id, frames: vec![vec![1]], output_window: Arc::new(GeminiOutputWindow::default()),
+                overflow_error: None,
             });
             let detached = detach_session_if_matches(&mut active, &mut pending, operation_id).unwrap();
             assert!(active.is_none());
@@ -970,6 +1209,7 @@ fn matching_detach_clears_only_its_own_pending_audio_including_live_monitor() {
         let mut active = None;
         let mut pending = Some(PendingAudio {
             operation_id: Some(1), frames: vec![vec![1]], output_window: Arc::new(GeminiOutputWindow::default()),
+            overflow_error: None,
         });
         assert!(detach_session_if_matches(&mut active, &mut pending, Some(1)).is_none());
         assert!(pending.is_none());
@@ -982,6 +1222,7 @@ fn finishing_old_active_session_preserves_newer_pending_connection_buffer() {
         let mut active = Some(active_fixture(Some(1), "", |_, _, _| async { Ok(()) }));
         let mut pending = Some(PendingAudio {
             operation_id: Some(2), frames: vec![vec![9]], output_window: Arc::new(GeminiOutputWindow::default()),
+            overflow_error: None,
         });
         let old = detach_session_if_matches(&mut active, &mut pending, Some(1)).unwrap();
         assert_eq!(pending.as_ref().unwrap().operation_id, Some(2));
@@ -1216,7 +1457,7 @@ fn gateway_missing_text_fields_and_whitespace_endings_do_not_manufacture_duplica
         session.result().await.unwrap();
         assert_eq!(session.observed.lock().chunks, vec!["Words\n"]);
         assert_eq!(session.observed.lock().inserted, "Words\n");
-        assert_eq!(*session.final_text.lock(), "Words\n");
+        assert_eq!(*session.final_text.lock(), "must not repeat ");
     });
 }
 
@@ -1278,4 +1519,584 @@ fn transcript_join_preserves_existing_boundaries_and_normalizes_new_sentence_del
         ("こんにちは。", "次", " 次"), ("end!", "“Next", " “Next"),
         ("frag", "ment", "ment"), ("end.", "42", "42"),
     ] { assert_eq!(normalize_gateway_delta_boundary(left, right), delta); }
+}
+
+#[test]
+fn pending_capacity_latches_overflow_without_eviction_and_rejects_startup() {
+    let active = Mutex::new(None);
+    let pending = Mutex::new(Some(PendingAudio {
+        operation_id: Some(7),
+        frames: Vec::new(),
+        output_window: Arc::new(GeminiOutputWindow::default()),
+        overflow_error: None,
+    }));
+    for i in 0..AUDIO_QUEUE_CAPACITY {
+        push_pcm_audio_for_operation(
+            &active,
+            &pending,
+            Some(7),
+            (i as u16).to_le_bytes().to_vec(),
+        );
+    }
+    {
+        let guard = pending.lock();
+        let p = guard.as_ref().unwrap();
+        assert_eq!(p.frames.len(), AUDIO_QUEUE_CAPACITY);
+        assert!(p.overflow_error.is_none());
+    }
+
+    push_pcm_audio_for_operation(&active, &pending, Some(7), vec![99, 99]);
+    let first_error = {
+        let guard = pending.lock();
+        let p = guard.as_ref().unwrap();
+        assert_eq!(p.frames.len(), AUDIO_QUEUE_CAPACITY);
+        assert_eq!(p.frames.first().unwrap(), &[0, 0]);
+        assert_eq!(
+            p.frames.last().unwrap(),
+            &((AUDIO_QUEUE_CAPACITY - 1) as u16).to_le_bytes().to_vec()
+        );
+        p.overflow_error.clone().unwrap()
+    };
+    assert!(first_error.contains("overflowed"));
+
+    // Subsequent pushes after overflow do not mutate frames or overwrite the latched error.
+    push_pcm_audio_for_operation(&active, &pending, Some(7), vec![88, 88]);
+    {
+        let guard = pending.lock();
+        let p = guard.as_ref().unwrap();
+        assert_eq!(p.frames.len(), AUDIO_QUEUE_CAPACITY);
+        assert_eq!(p.frames.first().unwrap(), &[0, 0]);
+        assert_eq!(p.overflow_error.as_deref(), Some(first_error.as_str()));
+    }
+
+    let err = take_ready_pending_audio(&active.lock(), &mut pending.lock(), Some(7))
+        .err()
+        .expect("latched pending overflow must reject startup");
+    assert_eq!(err, first_error);
+    assert!(pending.lock().is_some());
+
+    let at_capacity = Mutex::new(Some(PendingAudio {
+        operation_id: Some(8),
+        frames: vec![vec![1, 2]; AUDIO_QUEUE_CAPACITY],
+        output_window: Arc::new(GeminiOutputWindow::default()),
+        overflow_error: None,
+    }));
+    let Ok(ready) = take_ready_pending_audio(&active.lock(), &mut at_capacity.lock(), Some(8)) else {
+        panic!("pending buffer at exact capacity should be accepted");
+    };
+    assert_eq!(ready.frames.len(), AUDIO_QUEUE_CAPACITY);
+    assert!(at_capacity.lock().is_none());
+
+    let oversized = Mutex::new(Some(PendingAudio {
+        operation_id: Some(9),
+        frames: vec![vec![1, 2]; AUDIO_QUEUE_CAPACITY + 1],
+        output_window: Arc::new(GeminiOutputWindow::default()),
+        overflow_error: None,
+    }));
+    let err = take_ready_pending_audio(&active.lock(), &mut oversized.lock(), Some(9))
+        .err()
+        .expect("oversized pending buffer must reject startup");
+    assert!(err.contains("overflowed"));
+    assert!(oversized.lock().is_some());
+}
+
+#[test]
+fn empty_audio_frames_do_not_fill_queues_or_trigger_overflow() {
+    run_test(async {
+        assert!(frame_16khz_mono_to_pcm_s16le_bytes(&[]).is_empty());
+
+        let active = Mutex::new(None);
+        let pending = Mutex::new(Some(PendingAudio {
+            operation_id: Some(1),
+            frames: Vec::new(),
+            output_window: Arc::new(GeminiOutputWindow::default()),
+            overflow_error: None,
+        }));
+        for _ in 0..(AUDIO_QUEUE_CAPACITY + 16) {
+            push_pcm_audio_for_operation(&active, &pending, Some(1), Vec::new());
+        }
+        {
+            let guard = pending.lock();
+            let p = guard.as_ref().unwrap();
+            assert!(p.frames.is_empty());
+            assert!(p.overflow_error.is_none());
+        }
+
+        for i in 0..AUDIO_QUEUE_CAPACITY {
+            push_pcm_audio_for_operation(&active, &pending, Some(1), vec![1, i as u8]);
+        }
+        push_pcm_audio_for_operation(&active, &pending, Some(1), Vec::new());
+        {
+            let guard = pending.lock();
+            let p = guard.as_ref().unwrap();
+            assert_eq!(p.frames.len(), AUDIO_QUEUE_CAPACITY);
+            assert!(p.overflow_error.is_none());
+        }
+
+        let (audio_tx, _audio_rx) = mpsc::channel(AUDIO_QUEUE_CAPACITY);
+        let (control_tx, mut control_rx) = mpsc::unbounded_channel();
+        let active_with_session = Mutex::new(Some(ActiveSession {
+            binding_id: "test".to_string(),
+            operation_id: Some(1),
+            audio_tx,
+            control_tx,
+            final_text: Arc::new(Mutex::new(String::new())),
+            join_handle: JoinHandle::Tokio(tokio::spawn(std::future::pending::<Result<()>>())),
+            output_window: Arc::new(GeminiOutputWindow::default()),
+            restart_params: None,
+        }));
+        let no_pending = Mutex::new(None);
+        for _ in 0..AUDIO_QUEUE_CAPACITY {
+            push_pcm_audio_for_operation(&active_with_session, &no_pending, Some(1), vec![2, 3]);
+        }
+        push_pcm_audio_for_operation(&active_with_session, &no_pending, Some(1), Vec::new());
+        assert!(control_rx.try_recv().is_err());
+        active_with_session.lock().take().unwrap().join_handle.abort();
+    });
+}
+
+#[test]
+fn active_full_queue_overflow_closes_socket_and_preserves_prior_final_text() {
+    run_test(async {
+        let mut session = TestSession::new(GeminiLiveTransport::VercelGateway);
+        session.frame(json!({ "type": "transcript-final", "text": "Previously accepted." }));
+        session.pending().await;
+        assert_eq!(*session.final_text.lock(), "Previously accepted. ");
+
+        let active = Mutex::new(Some(ActiveSession {
+            binding_id: "test".to_string(),
+            operation_id: Some(3),
+            audio_tx: session.audio.take().unwrap(),
+            control_tx: session.control.clone(),
+            final_text: Arc::clone(&session.final_text),
+            join_handle: JoinHandle::Tokio(tokio::spawn(std::future::pending::<Result<()>>())),
+            output_window: Arc::clone(&session.window),
+            restart_params: None,
+        }));
+        let pending = Mutex::new(None);
+
+        for _ in 0..AUDIO_QUEUE_CAPACITY {
+            push_pcm_audio_for_operation(&active, &pending, Some(3), vec![1, 2]);
+        }
+        push_pcm_audio_for_operation(&active, &pending, Some(3), vec![3, 4]);
+        active.lock().take().unwrap().join_handle.abort();
+
+        let err = session.result().await.unwrap_err().to_string();
+        assert!(err.contains("overflowed"));
+        assert_eq!(session.wire.lock().closes, 1);
+        assert_eq!(*session.final_text.lock(), "Previously accepted. ");
+        assert!(session.observed.lock().completions.is_empty());
+    });
+}
+
+#[test]
+fn stale_operation_audio_push_leaves_active_and_pending_state_unchanged() {
+    run_test(async {
+        let mut active_session = active_fixture(Some(2), "current", |audio_rx, _control_rx, _| async move {
+            let _keep_audio = audio_rx;
+            std::future::pending::<Result<()>>().await
+        });
+        for _ in 0..AUDIO_QUEUE_CAPACITY {
+            active_session.audio_tx.try_send(vec![1, 1]).unwrap();
+        }
+        let (control_tx, mut control_rx) = mpsc::unbounded_channel();
+        active_session.control_tx = control_tx;
+        let active = Mutex::new(Some(active_session));
+        let pending = Mutex::new(Some(PendingAudio {
+            operation_id: Some(2),
+            frames: vec![vec![7, 8]],
+            output_window: Arc::new(GeminiOutputWindow::default()),
+            overflow_error: None,
+        }));
+
+        for stale_op in [Some(1), None] {
+            push_pcm_audio_for_operation(&active, &pending, stale_op, vec![9, 9]);
+        }
+        assert!(control_rx.try_recv().is_err());
+        assert_eq!(pending.lock().as_ref().unwrap().frames, vec![vec![7, 8]]);
+        assert!(pending.lock().as_ref().unwrap().overflow_error.is_none());
+        active.lock().take().unwrap().join_handle.abort();
+
+        let no_active = Mutex::new(None);
+        let full_pending = Mutex::new(Some(PendingAudio {
+            operation_id: Some(2),
+            frames: vec![vec![5, 6]; AUDIO_QUEUE_CAPACITY],
+            output_window: Arc::new(GeminiOutputWindow::default()),
+            overflow_error: None,
+        }));
+        for stale_op in [Some(1), None] {
+            push_pcm_audio_for_operation(&no_active, &full_pending, stale_op, vec![9, 9]);
+        }
+        assert_eq!(full_pending.lock().as_ref().unwrap().frames.len(), AUDIO_QUEUE_CAPACITY);
+        assert!(full_pending.lock().as_ref().unwrap().overflow_error.is_none());
+    });
+}
+
+#[test]
+fn queued_overflow_before_audio_end_does_not_claim_time_limit_completion() {
+    run_test(async {
+        for route in [GeminiLiveTransport::GoogleDirect, GeminiLiveTransport::VercelGateway] {
+            let mut session = TestSession::new(route);
+            if route == GeminiLiveTransport::GoogleDirect {
+                session.ready_google().await;
+            } else {
+                session.pending().await;
+            }
+            session.control.send(ControlMessage::Overflow("queued overflow".to_string())).unwrap();
+            session.audio.take();
+            tokio::time::advance(Duration::from_secs(10)).await;
+
+            let err = session.result().await.unwrap_err().to_string();
+            assert!(err.contains("queued overflow"));
+            assert!(session.observed.lock().completions.is_empty());
+            assert_eq!(session.observed.lock().stop_count, 0);
+            assert_eq!(*session.completion.lock(), None);
+            assert_eq!(session.wire.lock().closes, 1);
+
+            let mut finalizing = TestSession::new(route);
+            if route == GeminiLiveTransport::GoogleDirect {
+                finalizing.ready_google().await;
+            } else {
+                finalizing.pending().await;
+            }
+            tokio::time::advance(Duration::from_secs(10)).await;
+            finalizing.pending().await;
+            finalizing.control.send(ControlMessage::Overflow("late overflow".to_string())).unwrap();
+            finalizing.frame(if route == GeminiLiveTransport::GoogleDirect {
+                json!({ "serverContent": { "interactionStatus": "IDLE" } })
+            } else {
+                json!({ "type": "finish", "text": "completed" })
+            });
+
+            let err = finalizing.result().await.unwrap_err().to_string();
+            assert!(err.contains("late overflow"));
+            assert!(finalizing.observed.lock().completions.is_empty());
+            assert_eq!(
+                *finalizing.completion.lock(),
+                Some(GeminiTimeLimitCompletion::Failed("late overflow".to_string()))
+            );
+            assert_eq!(finalizing.wire.lock().closes, 1);
+        }
+    });
+}
+
+
+#[test]
+fn obsolete_session_events_cannot_update_preview_stop_or_complete_a_successor() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    let current = Arc::new(AtomicBool::new(true));
+    let counts = Arc::new([AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0)]);
+    let text_counts = Arc::clone(&counts);
+    let stop_counts = Arc::clone(&counts);
+    let completion_counts = Arc::clone(&counts);
+    let owner = Arc::clone(&current);
+    let events = SessionEvents {
+        live_text: Box::new(move |_| { text_counts[0].fetch_add(1, Ordering::Relaxed); }),
+        setup_complete: Box::new(|| {}),
+        time_limit_stop: Box::new(move || { stop_counts[1].fetch_add(1, Ordering::Relaxed); }),
+        time_limit_completed: Box::new(move |_| { completion_counts[2].fetch_add(1, Ordering::Relaxed); }),
+        words_pending: Box::new(|_| {}),
+    }.only_current(move || owner.load(Ordering::Acquire));
+    for owns_session in [true, false] {
+        current.store(owns_session, Ordering::Release);
+        (events.live_text)("a late provider snapshot");
+        (events.time_limit_stop)();
+        (events.time_limit_completed)(json!({"status": "completed"}));
+    }
+    for count in counts.iter() { assert_eq!(count.load(Ordering::Relaxed), 1); }
+}
+
+#[test]
+fn old_preview_cleanup_stays_blocked_after_a_successor_returns_to_idle() {
+    assert!(operation_owns_preview(true, false, true));
+    assert!(operation_owns_preview(false, true, true));
+    assert!(!operation_owns_preview(false, false, false));
+    assert!(!operation_owns_preview(false, true, false));
+}
+
+#[test]
+fn restart_uses_only_the_locked_active_owner_and_cannot_overwrite_new_pending_audio() {
+    run_test(async {
+        let mut session = active_fixture(Some(7), "", |_, _, _| async {
+            std::future::pending::<Result<()>>().await
+        });
+        session.restart_params = Some(SessionParams {
+            binding_id: "test".to_string(), operation_id: Some(7), api_key: "dummy".to_string(),
+            options: GeminiRealtimeOptions::default(), chunk_callback_factory: None,
+        });
+        let mut active = Some(session);
+        let mut pending = None;
+        assert!(prepare_session_restart(&mut active, &mut pending, |_| false).is_none());
+        assert_eq!(active.as_ref().unwrap().operation_id, Some(7));
+        assert!(pending.is_none());
+        pending = Some(PendingAudio {
+            operation_id: Some(8), frames: vec![vec![1, 2]],
+            output_window: Arc::new(GeminiOutputWindow::default()), overflow_error: None,
+        });
+        assert!(prepare_session_restart(&mut active, &mut pending, |_| true).is_none());
+        assert_eq!(pending.as_ref().unwrap().frames, vec![vec![1, 2]]);
+        pending = None;
+        let params = prepare_session_restart(&mut active, &mut pending, |id| id == Some(7)).unwrap();
+        assert_eq!(params.operation_id, Some(7));
+        assert!(active.is_none());
+        assert_eq!(pending.as_ref().unwrap().operation_id, Some(7));
+        assert!(pending.as_ref().unwrap().frames.is_empty());
+        // Detached restart parameters are not retained anywhere after cancellation.
+        assert!(prepare_session_restart(&mut active, &mut pending, |_| true).is_none());
+    });
+}
+
+
+#[test]
+fn rejected_old_chunks_leave_the_new_recordings_decapitalize_trigger_armed() {
+    run_test(async {
+        use crate::text_replacement_decapitalize as decapitalize;
+        assert!(!decapitalize::is_any_trigger_armed_now());
+        let mut old = TestSession::new(GeminiLiveTransport::VercelGateway);
+        let mut current = TestSession::new(GeminiLiveTransport::VercelGateway);
+        *old.delivery.lock() = (false, false, false);
+        decapitalize::mark_edit_key_pressed(60_000, false);
+        old.frame(json!({"type": "transcript-delta", "delta": "Old late text"}));
+        old.pending().await;
+        assert!(old.observed.lock().inserted.is_empty());
+        assert!(decapitalize::is_any_trigger_armed_now());
+        current.frame(json!({"type": "transcript-delta", "delta": "New recording"}));
+        current.pending().await;
+        assert_eq!(current.observed.lock().inserted, "new recording");
+        assert!(!decapitalize::is_any_trigger_armed_now());
+        for session in [&mut old, &mut current] {
+            session.control.send(ControlMessage::Cancel).unwrap();
+            session.result().await.unwrap();
+        }
+        assert!(!decapitalize::is_any_trigger_armed_now());
+    });
+}
+
+#[test]
+fn runtime_error_is_published_once_before_fast_stop_releases_its_owner() {
+    let report = Mutex::new(RuntimeErrorReport { operation_id: Some(1), ..Default::default() });
+    let current = std::cell::Cell::new(true);
+    let events = std::cell::RefCell::new(Vec::new());
+    report_runtime_error_before_stop(&report, "provider failed", || current.get(),
+        || events.borrow_mut().push("error"),
+        || { events.borrow_mut().push("stop"); current.set(false); });
+    assert_eq!(*events.borrow(), ["error", "stop"]);
+    assert!(report.lock().matches(Some(1), None, Some("provider failed")));
+    // Both finalization and Live Monitor may inspect feedback; neither consumes it.
+    assert!(report.lock().matches(Some(1), None, Some("provider failed")));
+    report_runtime_error_before_stop(&report, "provider failed", || true,
+        || panic!("duplicate notification"), || panic!("duplicate stop"));
+}
+
+#[test]
+fn cancelled_or_replaced_error_callback_neither_reports_nor_stops() {
+    let report = Mutex::new(RuntimeErrorReport { operation_id: Some(1), ..Default::default() });
+    report_runtime_error_before_stop(&report, "old error", || false,
+        || panic!("stale notification"), || panic!("stale stop"));
+    assert!(!report.lock().matches(Some(1), None, None));
+}
+
+#[test]
+fn runtime_feedback_cannot_match_another_recording_or_live_monitor_session() {
+    let old = Arc::new(Mutex::new(RuntimeErrorReport { operation_id: Some(1), ..Default::default() }));
+    let new = Arc::new(Mutex::new(RuntimeErrorReport { operation_id: Some(2), ..Default::default() }));
+    report_runtime_error_before_stop(&old, "same error", || true, || {}, || {});
+    assert!(!new.lock().matches(Some(1), None, Some("same error")));
+    report_runtime_error_before_stop(&new, "same error", || true, || {}, || {});
+    assert!(!new.lock().matches(Some(1), None, Some("same error")));
+    assert!(new.lock().matches(Some(2), None, Some("same error")));
+    assert!(!new.lock().matches(Some(2), None, Some("different error")));
+    let live = RuntimeErrorReport { operation_id: None, live_sound_session_id: Some(7), error: Some("failed".into()) };
+    assert!(live.matches(None, Some(7), Some("failed")));
+    assert!(!live.matches(None, Some(8), Some("failed")));
+    assert!(!live.matches(None, None, Some("failed")));
+}
+
+#[test]
+fn early_finish_does_not_delay_provider_failure_until_insertion_deadline() {
+    run_test(async {
+        let session = active_fixture(Some(1), "", |_, _, _| async { Err(anyhow!("failed immediately")) });
+        let started = tokio::time::Instant::now();
+        let deadline = (started + Duration::from_secs(5)).into_std();
+        assert_eq!(finish_early_session(session, deadline).await.unwrap_err().to_string(), "failed immediately");
+        assert_eq!(tokio::time::Instant::now(), started);
+    });
+}
+
+#[test]
+fn early_finish_preserves_error_already_completed_when_deadline_wins() {
+    run_test(async {
+        let session = active_fixture(Some(1), "", |_, _, _| async { Err(anyhow!("failure at cutoff")) });
+        tokio::task::yield_now().await;
+        assert!(match &session.join_handle { JoinHandle::Tokio(handle) => handle.is_finished() });
+        let deadline = (tokio::time::Instant::now() - Duration::from_millis(1)).into_std();
+        assert_eq!(finish_early_session(session, deadline).await.unwrap_err().to_string(), "failure at cutoff");
+    });
+}
+
+
+#[test]
+fn same_operation_restart_rebinds_chunks_and_invalidates_queued_old_delivery() {
+    run_test(async {
+        type QueuedDelivery = Box<dyn FnOnce() + Send>;
+        let queued = Arc::new(Mutex::new(Vec::<QueuedDelivery>::new()));
+        let delivered = Arc::new(Mutex::new(String::new()));
+        let factory: FinalChunkCallbackFactory = Arc::new({
+            let queued = Arc::clone(&queued);
+            let delivered = Arc::clone(&delivered);
+            move |window| {
+                let queued = Arc::clone(&queued);
+                let delivered = Arc::clone(&delivered);
+                Arc::new(move |chunk| {
+                    let chunk = window.accept_chunk(chunk);
+                    if chunk.is_empty() { return; }
+                    let window = Arc::clone(&window);
+                    let delivered = Arc::clone(&delivered);
+                    queued.lock().push(Box::new(move || {
+                        if window.allows_delivery() { delivered.lock().push_str(&chunk); }
+                    }));
+                })
+            }
+        });
+        let mut session = active_fixture(Some(7), "", |_, _, _| async {
+            std::future::pending::<Result<()>>().await
+        });
+        session.restart_params = Some(SessionParams {
+            binding_id: "test".into(), operation_id: Some(7), api_key: "dummy".into(),
+            options: GeminiRealtimeOptions::default(), chunk_callback_factory: Some(Arc::clone(&factory)),
+        });
+        let old_window = Arc::clone(&session.output_window);
+        let old_callback = bind_session_chunk_callback(Some(&factory), &old_window).unwrap();
+        old_callback("queued before Clear".into());
+        let mut active = Some(session);
+        let mut pending = None;
+        let params = prepare_session_restart(&mut active, &mut pending, |id| id == Some(7)).unwrap();
+        let replacement = &pending.as_ref().unwrap().output_window;
+        assert_eq!(params.operation_id, Some(7));
+        assert!(old_window.is_cancelled());
+        assert!(!replacement.is_cancelled());
+        let new_callback = bind_session_chunk_callback(params.chunk_callback_factory.as_ref(), replacement).unwrap();
+        old_callback("arrived after Clear".into());
+        new_callback("replacement text".into());
+        for work in std::mem::take(&mut *queued.lock()) { work(); }
+        assert_eq!(*delivered.lock(), "replacement text");
+        // Stop now arms the replacement window, and its own callback observes it.
+        replacement.finish_at(Instant::now());
+        new_callback("late replacement tail".into());
+        assert!(queued.lock().is_empty());
+        assert_eq!(*delivered.lock(), "replacement text");
+    });
+}
+
+#[test]
+fn cancelled_transport_cannot_publish_events_under_the_same_recording_owner() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let window = Arc::new(GeminiOutputWindow::default());
+    let count = Arc::new(AtomicUsize::new(0));
+    let text_count = Arc::clone(&count);
+    let stop_count = Arc::clone(&count);
+    let completion_count = Arc::clone(&count);
+    let owner_window = Arc::clone(&window);
+    let events = SessionEvents {
+        live_text: Box::new(move |_| { text_count.fetch_add(1, Ordering::Relaxed); }),
+        setup_complete: Box::new(|| {}),
+        time_limit_stop: Box::new(move || { stop_count.fetch_add(1, Ordering::Relaxed); }),
+        time_limit_completed: Box::new(move |_| { completion_count.fetch_add(1, Ordering::Relaxed); }),
+        words_pending: Box::new(|_| {}),
+    }.only_current(move || !owner_window.is_cancelled());
+    // The operation itself remains current throughout this transport replacement.
+    (events.live_text)("before Clear");
+    window.cancel();
+    (events.live_text)("old snapshot after a blocked chunk callback returned");
+    (events.time_limit_stop)();
+    (events.time_limit_completed)(json!({"status":"completed"}));
+    assert_eq!(count.load(Ordering::Relaxed), 1);
+    let report = Arc::new(Mutex::new(RuntimeErrorReport {
+        operation_id: Some(7), live_sound_session_id: None, error: None,
+    }));
+    let calls = AtomicUsize::new(0);
+    report_runtime_error_before_stop(&report, "old socket failed", || !window.is_cancelled(),
+        || { calls.fetch_add(1, Ordering::Relaxed); },
+        || { calls.fetch_add(1, Ordering::Relaxed); });
+    assert_eq!(calls.load(Ordering::Relaxed), 0);
+    assert!(report.lock().error.is_none());
+}
+
+#[test]
+fn normal_finish_detach_keeps_transport_delivery_open_for_final_words() {
+    run_test(async {
+        let session = active_fixture(Some(7), "", |_, _, _| async { Ok(()) });
+        let window = Arc::clone(&session.output_window);
+        let mut active = Some(session);
+        let mut pending = None;
+        let detached = detach_session_if_matches(&mut active, &mut pending, Some(7)).unwrap();
+        assert!(!window.is_cancelled());
+        assert_eq!(window.accept_chunk("last words".into()), "last words");
+        detached.join_handle.await.unwrap().unwrap();
+    });
+}
+
+
+#[test]
+fn normal_stop_tail_follows_timed_out_chunks_and_skips_cancelled_processing() {
+    run_test(async {
+        use crate::text_replacement_decapitalize as decapitalize;
+        use std::sync::{atomic::{AtomicBool, Ordering}, mpsc as sync_mpsc};
+        for cancelled in [false, true] {
+            let _ = decapitalize::maybe_decapitalize_next_chunk_standard("Reset");
+            let mut settings = crate::settings::get_default_settings();
+            settings.custom_words_enabled = true;
+            settings.custom_words = vec!["AivoRelay".into()];
+            settings.soniox_realtime_fuzzy_correction_enabled = true;
+            settings.soniox_realtime_keep_safety_buffer_enabled = true;
+            settings.output_whitespace_leading_mode = crate::settings::OutputWhitespaceMode::Preserve;
+            let processor = Arc::new(Mutex::new(StreamChunkProcessor::from_settings(&settings)));
+            assert_eq!(processor.lock().push_chunk("Hello buffered words "), "");
+            let inserted = Arc::new(Mutex::new(String::new()));
+            let cancelled_flag = Arc::new(AtomicBool::new(false));
+            let (release, released) = sync_mpsc::channel::<()>();
+            let (started, has_started) = sync_mpsc::channel();
+            crate::output_dispatch::run(move || {
+                let _ = started.send(());
+                let _ = released.recv_timeout(Duration::from_secs(5));
+            }).unwrap();
+            has_started.recv_timeout(Duration::from_secs(5)).unwrap();
+            let queued_processor = Arc::clone(&processor);
+            let queued_inserted = Arc::clone(&inserted);
+            let queued_cancelled = Arc::clone(&cancelled_flag);
+            assert!(crate::output_dispatch::run_sync(10, move || {
+                if !crate::actions::gemini_stream_operation_allows_delivery(
+                    false, || true, || queued_cancelled.load(Ordering::Acquire),
+                ) { return; }
+                let delta = queued_processor.lock().push_chunk("and the final tail");
+                queued_inserted.lock().push_str(&delta);
+            }).is_err(), "the chunk remains queued after the caller times out");
+            let tail_processor = Arc::clone(&processor);
+            let tail_inserted = Arc::clone(&inserted);
+            let tail_cancelled = Arc::clone(&cancelled_flag);
+            let (done, was_done) = sync_mpsc::channel();
+            crate::output_dispatch::run(move || {
+                if crate::actions::gemini_stream_operation_allows_delivery(
+                    false, || true, || tail_cancelled.load(Ordering::Acquire),
+                ) {
+                    tail_inserted.lock().push_str(&tail_processor.lock().flush());
+                }
+                let _ = done.send(());
+            }).unwrap();
+            // A newer edit before the old output starts must survive Cancel.
+            cancelled_flag.store(cancelled, Ordering::Release);
+            decapitalize::mark_edit_key_pressed(60_000, false);
+            release.send(()).unwrap();
+            was_done.recv_timeout(Duration::from_secs(5)).unwrap();
+            if cancelled {
+                assert_eq!(*inserted.lock(), "");
+                assert!(decapitalize::is_any_trigger_armed_now());
+            } else {
+                assert_eq!(*inserted.lock(), "hello buffered words and the final tail");
+                assert_eq!(processor.lock().flush(), "");
+                assert!(!decapitalize::is_any_trigger_armed_now());
+            }
+            let _ = decapitalize::maybe_decapitalize_next_chunk_standard("Reset");
+        }
+    });
 }
