@@ -26,7 +26,6 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use futures_util::{SinkExt, Stream, StreamExt};
 use serde::Deserialize;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -70,22 +69,13 @@ const OPENAI_REALTIME_AGENT_DEFAULT_PROMPT: &str =
      The user may provide custom words that are rare in the language; try to recognize them properly. \
      Make sure to properly recognize names, product names, and vocabulary exactly when recognizable.";
 
+#[cfg(test)]
 fn remote_stt_api_key_redaction_marker(api_key: &str) -> String {
-    let digest = Sha256::digest(api_key.as_bytes());
-    let fingerprint = digest[..8]
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    format!("[redacted key, SHA-256: {fingerprint}]")
+    crate::managers::provider_error::api_key_redaction_marker(api_key)
 }
 
 pub(crate) fn redact_remote_stt_api_key(value: &str, api_key: &str) -> String {
-    let api_key = api_key.trim();
-    if api_key.is_empty() {
-        value.to_string()
-    } else {
-        value.replace(api_key, &remote_stt_api_key_redaction_marker(api_key))
-    }
+    crate::managers::provider_error::redact_secrets(value, Some(api_key))
 }
 
 fn redacted_remote_stt_snippet(value: &str, api_key: &str, max_chars: usize) -> String {
