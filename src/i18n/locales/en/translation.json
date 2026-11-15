@@ -739,18 +739,16 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.52",
+      "since": "Since version 1.0.53",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "reson8Rumble2": "Use Reson8 (rumble-2) for cloud speech recognition in live dictation, Live Monitor, and audio file transcription, with language choices filtered to what Reson8 supports. Live dictation inserts finalized chunks only (without an interim preview), and file transcription outputs plain text (SRT/VTT subtitle timestamps are not supported).",
-        "cloudProfileControls": "Choosing a cloud speech model in a custom transcription profile now changes only that profile. When API-key controls need the shared settings, a link opens the Default profile settings without changing your active profile.",
-        "portableStorage": "In the portable version, Advanced → Portable Data Storage lets you switch between storing app data in the Data folder beside the app and this computer's standard per-user desktop folder. The change takes effect after restarting AivoRelay without copying, moving, merging, or deleting existing files. On Windows, saved API keys stay in Windows Credential Manager for your Windows account regardless of storage mode (separate API-key storage is planned for a future version).",
-        "opusAudioImport": "Transcribe File now opens .opus, .oga, Ogg Opus, and WebM Opus recordings directly, including when saving their audio to History.",
-        "elevatedWindowClipboard": "When Windows blocks automatic input into an administrator window, AivoRelay explains why. With a clipboard paste method, an experimental profile option can leave the finished transcript on the clipboard after recording stops and show an in-app notice for manual Ctrl+V pasting.",
-        "linuxPrimaryPaste": "On Linux, Shift+Insert works with the selection clipboard and restores its previous contents after pasting. If a paste shortcut tool fails, AivoRelay tries the next available tool.",
-        "elevenLabsV4Turbo": "Speak selected text and Text file to MP3 now support Eleven v4 Turbo, with voice controls and inline audio tags. An ElevenLabs request address issue is fixed.",
-        "recordingAndModelReliability": "Clearer notices explain when no speech model is selected or the microphone is silent. Local recognition ignores punctuation-only results and can recover after a graphics error. Model downloads handle filtering proxies more reliably."
+        "elevenLabsScribe": "Use ElevenLabs Scribe v3 Live for live dictation and speaker-separated Live Monitor transcripts. Audio files use Scribe v3 and can be saved as text or SRT/VTT subtitles.",
+        "geminiLiveReliability": "Gemini live dictation handles Clear, Stop, cancellation, and the last words of a recording more reliably.",
+        "repeatedDecapitalization": "Decapitalize after manual edit can be triggered repeatedly during one live recording, including across separate transcript chunks.",
+        "protectedLiveOutput": "Live output preserves text waiting for the original window and avoids inserting queued text after cancellation. Clipboard restoration is more reliable.",
+        "localModelRecovery": "If automatic model fallback is enabled and the selected model is unavailable, AivoRelay can choose a recently used, downloaded local model and explain the switch.",
+        "clearerModelCards": "Model cards show live dictation, file, subtitle, and speaker-separation capabilities. Optional profile settings use a neutral hint instead of an error-colored warning."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"
@@ -4574,7 +4572,7 @@
       "updateChecks": {
         "label": "Check for Updates",
         "description": "Automatically check for new versions of AivoRelay",
-        "lockedDescription": "Disabled by system configuration (AIVORELAY_DISABLE_UPDATER)"
+        "lockedDescription": "Self-updates are disabled for this edition or by system configuration."
       },
       "soundTheme": {
         "label": "Sound Theme",

@@ -67,14 +67,12 @@ const SMART_HELP_ACTIONS = [
 
 // A settings search entry opens the exact setting the same way settings search does.
 const WHATS_NEW_ITEMS = [
-  { key: "help.whatsNew.items.reson8Rumble2", destination: "models", searchEntryId: "models" },
-  { key: "help.whatsNew.items.cloudProfileControls", destination: "models", searchEntryId: "api-keys" },
-  { key: "help.whatsNew.items.portableStorage", destination: "advanced", searchEntryId: "portable-storage" },
-  { key: "help.whatsNew.items.opusAudioImport", destination: "transcribeFile", searchEntryId: "file-transcription-input" },
-  { key: "help.whatsNew.items.elevatedWindowClipboard", destination: "general", searchEntryId: "elevated-clipboard" },
-  { key: "help.whatsNew.items.linuxPrimaryPaste", destination: "general", searchEntryId: "paste-method-delay" },
-  { key: "help.whatsNew.items.elevenLabsV4Turbo", destination: "textToSpeech", searchEntryId: "tts-voice-settings" },
-  { key: "help.whatsNew.items.recordingAndModelReliability", destination: "general", searchEntryId: "microphone-device" },
+  { key: "help.whatsNew.items.elevenLabsScribe", destination: "models", searchEntryId: "models" },
+  { key: "help.whatsNew.items.geminiLiveReliability", destination: "models", searchEntryId: "models" },
+  { key: "help.whatsNew.items.repeatedDecapitalization", destination: "textReplacement", searchEntryId: "decapitalize-after-edit" },
+  { key: "help.whatsNew.items.protectedLiveOutput", destination: "general", searchEntryId: "paste-method-delay" },
+  { key: "help.whatsNew.items.localModelRecovery", destination: "models", searchEntryId: "models" },
+  { key: "help.whatsNew.items.clearerModelCards", destination: "models", searchEntryId: "models" },
 ] as const;
 
 export const HelpSettings: React.FC = () => {
