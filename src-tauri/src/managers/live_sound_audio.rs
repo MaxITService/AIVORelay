@@ -9,6 +9,9 @@ use crate::audio_toolkit::{
     list_input_devices, list_output_devices, AudioCaptureSource, AudioRecorder,
 };
 use crate::managers::deepgram_realtime::DeepgramRealtimeManager;
+use crate::managers::elevenlabs_realtime::{
+    ElevenLabsLivePacketCallback, ElevenLabsRealtimeManager, ELEVENLABS_LIVE_FINALIZE_TIMEOUT_MS,
+};
 use crate::managers::gemini_realtime::{
     GeminiRealtimeManager, GEMINI_LIVE_FINALIZE_TIMEOUT_MS,
 };
@@ -29,6 +32,7 @@ enum ActiveRealtimeManager {
     OpenAiRealtimeWhisper(Arc<OpenAiRealtimeWhisperManager>),
     Gemini(Arc<GeminiRealtimeManager>),
     Reson8(Arc<Reson8RealtimeManager>),
+    ElevenLabs(Arc<ElevenLabsRealtimeManager>),
 }
 
 impl ActiveRealtimeManager {
@@ -39,6 +43,7 @@ impl ActiveRealtimeManager {
             Self::OpenAiRealtimeWhisper(manager) => manager.cancel(),
             Self::Gemini(manager) => manager.cancel(),
             Self::Reson8(manager) => manager.cancel(),
+            Self::ElevenLabs(manager) => manager.cancel(),
         }
     }
 }
@@ -117,6 +122,13 @@ fn wire_mic_clock_callback(
                 m.push_audio_frame(mixed);
             })));
         }
+        ActiveRealtimeManager::ElevenLabs(m) => {
+            let m = Arc::clone(m);
+            mic_recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                let mixed = mix_with_secondary_buf(&frame, &loopback_buf);
+                m.push_audio_frame(mixed);
+            })));
+        }
     }
 }
 
@@ -152,6 +164,12 @@ fn wire_primary_callback(recorder: &mut AudioRecorder, manager: &ActiveRealtimeM
                 manager.push_audio_frame(frame);
             })));
         }
+        ActiveRealtimeManager::ElevenLabs(manager) => {
+            let manager = Arc::clone(manager);
+            recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                manager.push_audio_frame(frame);
+            })));
+        }
     }
 }
 
@@ -182,6 +200,7 @@ fn mix_with_secondary_buf(primary: &[f32], secondary_buf: &Mutex<Vec<f32>>) -> V
 
 fn start_live_session(
     app: &AppHandle,
+    session_id: u64,
     settings: &AppSettings,
     recorder: &mut AudioRecorder,
 ) -> Result<ActiveRealtimeManager, String> {
@@ -252,6 +271,8 @@ fn start_live_session(
             let is_reson8 = settings.remote_stt.provider_preset
                 == crate::url_security::REMOTE_STT_PRESET_RESON8
                 && Reson8RealtimeManager::is_realtime_model(&settings.remote_stt.model_id);
+            let is_elevenlabs = settings.remote_stt.provider_preset == "elevenlabs"
+                && ElevenLabsRealtimeManager::is_realtime_model(&settings.remote_stt.model_id);
 
             if is_gemini {
                 let manager = Arc::new(GeminiRealtimeManager::new(app).map_err(|e| {
@@ -304,6 +325,38 @@ fn start_live_session(
                     .map_err(|e| format!("Failed to start Reson8 live session: {}", e))?;
 
                 Ok(ActiveRealtimeManager::Reson8(manager))
+            } else if is_elevenlabs {
+                let manager = Arc::new(ElevenLabsRealtimeManager::new(app));
+
+                let manager_cb = Arc::clone(&manager);
+                recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                    manager_cb.push_audio_frame(frame);
+                })));
+
+                let api_key =
+                    crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
+                        .map_err(|e| format!("Failed to get ElevenLabs API key: {}", e))?;
+                let options = crate::actions::build_elevenlabs_options_for_live_sound(settings);
+                let app_for_packet = app.clone();
+                let on_packet: ElevenLabsLivePacketCallback = Arc::new(move |packet| {
+                    crate::managers::live_sound_transcription::apply_elevenlabs_packet_if_session_matches(
+                        &app_for_packet,
+                        session_id,
+                        packet,
+                    );
+                });
+                manager
+                    .start_session_with_packet_callback(
+                        crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
+                        None,
+                        &api_key,
+                        options,
+                        None,
+                        Some(on_packet),
+                    )
+                    .map_err(|e| format!("Failed to start ElevenLabs live session: {}", e))?;
+
+                Ok(ActiveRealtimeManager::ElevenLabs(manager))
             } else {
                 let manager =
                     Arc::new(OpenAiRealtimeWhisperManager::new(app).map_err(|e| {
@@ -337,7 +390,7 @@ fn start_live_session(
         }
 
         _ => Err(
-            "Live streaming requires Soniox, Deepgram, OpenAI Realtime Whisper, Gemini 3.5 Transcribe Live, or Reson8 Rumble-2"
+            "Live streaming requires Soniox, Deepgram, OpenAI Realtime Whisper, Gemini 3.5 Transcribe Live, Reson8 Rumble-2, or ElevenLabs Scribe v3 Live"
                 .to_string(),
         ),
     }
@@ -475,6 +528,25 @@ mod tests {
         assert_eq!(super::take_matching_session(&mut session, None, |id| *id), Some(9));
     }
 
+    #[test]
+    fn live_runtime_routes_elevenlabs_scribe_v3_live_and_rejects_non_live_scribe_v3() {
+        let mut stored = get_default_settings();
+        stored.live_sound_model_selection = Some(SttModelSelection {
+            provider: TranscriptionProvider::RemoteOpenAiCompatible,
+            model_id: "scribe_v3_live".to_string(),
+            provider_preset: "elevenlabs".to_string(),
+        });
+        let effective = effective_live_sound_settings(stored.clone()).unwrap();
+        assert_eq!(effective.remote_stt.provider_preset, "elevenlabs");
+        assert_eq!(effective.remote_stt.model_id, "scribe_v3_live");
+
+        stored.live_sound_model_selection = Some(SttModelSelection {
+            provider: TranscriptionProvider::RemoteOpenAiCompatible,
+            model_id: "scribe_v3".to_string(),
+            provider_preset: "elevenlabs".to_string(),
+        });
+        assert!(effective_live_sound_settings(stored).is_err());
+    }
 }
 
 /// Start the Live Sound independent audio pipeline.
@@ -531,7 +603,7 @@ pub fn start(app: &AppHandle, session_id: u64) -> Result<(), String> {
         .map_err(|e| format!("Failed to open audio stream: {}", e))?;
 
     let realtime = if use_live {
-        match start_live_session(app, &settings, &mut recorder) {
+        match start_live_session(app, session_id, &settings, &mut recorder) {
             Ok(rt) => Some(rt),
             Err(e) => {
                 let _ = recorder.close();
@@ -749,7 +821,8 @@ fn stop_with_expected_session(app: &AppHandle, expected_id: Option<u64>) {
                             "Live Sound Gemini 3.5 Transcribe Live finalization error: {}",
                             e
                         );
-                        if crate::managers::live_sound_transcription::is_session_current(session_id)
+                        if !manager.runtime_error_was_reported(None, Some(session_id), Some(&e.to_string()))
+                            && crate::managers::live_sound_transcription::is_session_current(session_id)
                         {
                             crate::managers::live_sound_transcription::set_error_if_session_matches(
                                 &app,
@@ -790,6 +863,51 @@ fn stop_with_expected_session(app: &AppHandle, expected_id: Option<u64>) {
                         let error_message = format!("Reson8 finalization failed: {}", e);
                         warn!("Live Sound Reson8 finalization error: {}", e);
                         if crate::managers::live_sound_transcription::is_session_current(session_id)
+                        {
+                            crate::managers::live_sound_transcription::set_error_if_session_matches(
+                                &app,
+                                session_id,
+                                Some(error_message.clone()),
+                            );
+                            let _ = app.emit("remote-stt-error", error_message);
+                        }
+                    }
+                }
+                crate::managers::live_sound_transcription::set_recording_if_session_matches(
+                    &app, session_id, false,
+                );
+            });
+        }
+
+        Some(ActiveRealtimeManager::ElevenLabs(manager)) => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                match manager
+                    .finish_session(ELEVENLABS_LIVE_FINALIZE_TIMEOUT_MS)
+                    .await
+                {
+                    Ok(text) => {
+                        manager.clear_reported_runtime_error();
+                        if !text.trim().is_empty() {
+                            let history_manager = app.state::<Arc<HistoryManager>>();
+                            if let Err(error) = history_manager
+                                .save_text_only_transcription(text.trim().to_string())
+                            {
+                                warn!(
+                                    "Live Sound ElevenLabs transcript was retained in the session, but History persistence failed: {}",
+                                    error
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let err_str = e.to_string();
+                        let error_message = format!("ElevenLabs finalization failed: {}", err_str);
+                        warn!("Live Sound ElevenLabs finalization error: {}", err_str);
+                        if !manager.take_reported_runtime_error(&err_str)
+                            && crate::managers::live_sound_transcription::is_session_current(
+                                session_id,
+                            )
                         {
                             crate::managers::live_sound_transcription::set_error_if_session_matches(
                                 &app,

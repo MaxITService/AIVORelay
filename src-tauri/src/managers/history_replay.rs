@@ -200,6 +200,8 @@ fn audio_bytes(message: &Message) -> usize {
             let Ok(payload) = serde_json::from_str::<serde_json::Value>(text) else { return 0; };
             let audio = if payload["type"] == "input_audio_buffer.append" {
                 payload["audio"].as_str()
+            } else if payload["message_type"] == "input_audio_chunk" {
+                payload["audio_base_64"].as_str()
             } else {
                 payload.pointer("/realtimeInput/audio/data").and_then(|value| value.as_str())
             };
@@ -328,6 +330,32 @@ mod tests {
             "audio": STANDARD.encode(vec![0; 1_440]),
         });
         sink.send(Message::Text(append.to_string().into())).await.unwrap();
+        assert!(Instant::now() - started >= Duration::from_millis(30));
+        assert!((replay.progress.lock().sent_seconds - 0.03).abs() < 0.0001);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn elevenlabs_audio_counts_16khz_samples_and_empty_commit_does_not_advance_progress() {
+        let replay = replay(0.03);
+        let recorded = RecordingSink::default();
+        let mut sink = ReplaySink::new(recorded, &replay, 16_000);
+        let started = Instant::now();
+        let tail_commit = serde_json::json!({
+            "message_type": "input_audio_chunk",
+            "audio_base_64": "",
+            "commit": true,
+            "sample_rate": 16_000,
+        });
+        sink.send(Message::Text(tail_commit.to_string().into())).await.unwrap();
+        assert_eq!(Instant::now(), started);
+        assert_eq!(replay.progress.lock().sent_seconds, 0.0);
+        let chunk = serde_json::json!({
+            "message_type": "input_audio_chunk",
+            "audio_base_64": STANDARD.encode(vec![0; 960]),
+            "commit": false,
+            "sample_rate": 16_000,
+        });
+        sink.send(Message::Text(chunk.to_string().into())).await.unwrap();
         assert!(Instant::now() - started >= Duration::from_millis(30));
         assert!((replay.progress.lock().sent_seconds - 0.03).abs() < 0.0001);
     }

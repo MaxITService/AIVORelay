@@ -39,6 +39,33 @@ Windows backend tests in this fork must be runnable through the checked-in harne
 - The harness uses a short `CARGO_TARGET_DIR` to reduce Windows path-length pain.
 - By policy, every new test batch must be documented in this file immediately after it is added.
 
+## ElevenLabs Scribe
+
+The isolated library tests in `managers::elevenlabs_realtime::tests` exercise
+canonical HTTPS/WSS endpoints, secret redaction, framing, ordered manual commits
+for more than 90 seconds of synthetic PCM, preservation of repeated phrases,
+stop during an in-flight commit, delayed diarization, cancellation, queue overflow,
+empty recordings, and bounded missing-acknowledgement/provider-error handling.
+The transport-replacement tests also cover Clear invalidating queued callbacks under
+the same recording ID, refusing restart after Stop or successor preparation, and
+rejecting stale preview/speaker events. A blocked output-worker test lets chunk
+callers time out before releasing the queue: both chunks must precede the final
+safety-buffer flush, while cancellation preserves the next Decapitalize trigger.
+Normal finish keeps the transport lease valid for committed final words.
+No test opens a real WebSocket, reads credentials, uses audio hardware, or pastes text.
+
+`elevenlabs_language::tests`, the Scribe cases in `managers::remote_stt::tests`,
+`actions::transcription_post_process_tests`, and the Live Monitor/History tests
+cover language aliases, prerecorded subtitle mapping, provider/profile routing,
+speaker merges, and replay accounting. Frontend coverage runs with
+`bun run test:frontend`; it includes frontend/backend language-catalog parity,
+model capabilities, profile selection, prompts and output-route behavior.
+
+Live API smoke checks are separate: verify a short utterance, a recording longer
+than 90 seconds, stopping mid-phrase, cancellation, and Live Monitor diarization
+using an ElevenLabs STT key. Unit tests do not establish server behavior for very
+short or silent manual commits, billing, or loopback-source idle disconnects.
+
 ## Streamed LLM Output
 
 The `actions::transcription_post_process_tests::streamed_history_` tests cover

@@ -112,6 +112,7 @@ use managers::audio::AudioRecordingManager;
 use managers::connector::ConnectorManager;
 use managers::deepgram_realtime::DeepgramRealtimeManager;
 use managers::deepgram_stt::DeepgramSttManager;
+use managers::elevenlabs_realtime::ElevenLabsRealtimeManager;
 use managers::gemini_realtime::GeminiRealtimeManager;
 use managers::history::HistoryManager;
 use managers::key_listener::KeyListenerState;
@@ -618,6 +619,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     let reson8_realtime_manager = Arc::new(
         Reson8RealtimeManager::new(app_handle).expect("Failed to initialize Reson8 realtime STT"),
     );
+    let elevenlabs_realtime_manager = Arc::new(ElevenLabsRealtimeManager::new(app_handle));
     let soniox_realtime_manager = Arc::new(
         SonioxRealtimeManager::new(app_handle).expect("Failed to initialize Soniox realtime STT"),
     );
@@ -647,6 +649,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(openai_realtime_whisper_manager.clone());
     app_handle.manage(gemini_realtime_manager.clone());
     app_handle.manage(reson8_realtime_manager.clone());
+    app_handle.manage(elevenlabs_realtime_manager.clone());
     app_handle.manage(soniox_realtime_manager.clone());
     app_handle.manage(soniox_stt_manager.clone());
     app_handle.manage(deepgram_realtime_manager.clone());
