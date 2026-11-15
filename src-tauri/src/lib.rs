@@ -18,6 +18,7 @@ mod cli_tts_history;
 mod clipboard;
 mod commands;
 mod early_open;
+mod elevenlabs_language;
 pub mod engine_supervisor;
 mod file_transcription_diarization;
 mod gemini_config;

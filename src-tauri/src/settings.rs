@@ -2795,6 +2795,13 @@ pub fn stt_model_selection_supports_file(selection: &SttModelSelection) -> bool 
         TranscriptionProvider::Local | TranscriptionProvider::RemoteDeepgram => true,
         TranscriptionProvider::RemoteSoniox => model_id.starts_with("stt-async"),
         TranscriptionProvider::RemoteOpenAiCompatible => {
+            if selection
+                .provider_preset
+                .trim()
+                .eq_ignore_ascii_case("elevenlabs")
+            {
+                return matches!(model_id.as_str(), "scribe_v3" | "scribe_v3_live");
+            }
             !model_id.contains("transcribe-live")
                 && !model_id.contains("live-transcribe")
                 && !model_id.contains("realtime")
@@ -9110,6 +9117,16 @@ mod tests {
                 "google",
                 "gemini-3.5-transcribe",
             ),
+            selection(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+                "elevenlabs",
+                "scribe_v3",
+            ),
+            selection(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+                "elevenlabs",
+                "scribe_v3_live",
+            ),
         ] {
             assert!(stt_model_selection_supports_file(&supported));
         }
@@ -9132,9 +9149,29 @@ mod tests {
                 "openai",
                 "gpt-realtime",
             ),
+            selection(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+                "elevenlabs",
+                "scribe_v2_live",
+            ),
         ] {
             assert!(!stt_model_selection_supports_file(&unsupported));
         }
+
+        let mut settings = get_default_settings();
+        apply_stt_model_selection(
+            &mut settings,
+            &selection(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+                "elevenlabs",
+                "scribe_v3_live",
+            ),
+        )
+        .unwrap();
+        assert_eq!(settings.remote_stt.provider_preset, "elevenlabs");
+        assert_eq!(settings.remote_stt.model_id, "scribe_v3_live");
+        assert_eq!(settings.remote_stt.base_url, "https://api.elevenlabs.io/v1");
+        assert!(!settings.remote_stt.allow_insecure_http);
     }
 
     #[test]

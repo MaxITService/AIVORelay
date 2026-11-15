@@ -2202,6 +2202,7 @@ fn transcription_provider_name(
             "vercel" => "Vercel AI Gateway (Gemini 3.5 Transcribe)",
             "google" => "Google Gemini API (Gemini 3.5 Transcribe)",
             "reson8" => "Reson8 (Rumble-2)",
+            "elevenlabs" => "ElevenLabs (Scribe v3)",
             _ => "OpenAI-compatible",
         },
         TranscriptionProvider::RemoteSoniox => "Soniox",
@@ -2908,5 +2909,16 @@ mod tests {
     fn text_preview_is_unicode_safe() {
         assert_eq!(text_preview("Привет 🌍", 8), "Привет 🌍");
         assert_eq!(text_preview("日本語テスト", 3), "日本語…");
+    }
+
+    #[test]
+    fn transcription_provider_name_describes_elevenlabs_preset() {
+        assert_eq!(
+            transcription_provider_name(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+                "elevenlabs"
+            ),
+            "ElevenLabs (Scribe v3)"
+        );
     }
 }
