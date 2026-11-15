@@ -455,7 +455,12 @@
   "models": {
     "missingSelection": "Ранее выбранная модель {{model}} больше недоступна.",
     "replacementSelected": "Вместо неё выбрана модель {{model}}.",
-    "chooseReplacement": "Выберите другую модель, чтобы продолжить."
+    "chooseReplacement": "Выберите другую модель, чтобы продолжить.",
+    "missingSelectionTitle": "Модель недоступна в этой версии",
+    "missingSelectionDialogBody": "Сохранённой модели {{model}} нет в этой версии. Выбрана доступная локальная модель: {{replacement}}.",
+    "alwaysSwitch": "Всегда переключаться автоматически",
+    "autoSwitched": "Модели {{model}} нет в этой версии. Выбрана {{replacement}}.",
+    "autoSwitchTurnOff": "Спрашивать в следующий раз"
   },
   "tray": {
     "language": "Язык",
@@ -4697,6 +4702,7 @@
     "permissionsRequired": "Требуются разрешения на доступ",
     "permissionsDescription": "AivoRelay необходимы разрешения на доступ для ввода расшифрованного текста.",
     "openSettings": "Открыть настройки системы",
+    "ok": "ОК",
     "dismiss": "Увольнять"
   },
   "errors": {

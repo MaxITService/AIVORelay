@@ -1750,6 +1750,7 @@ pub fn run(cli_args: CliArgs) {
         commands::model_storage::estimate_local_model_cleanup,
         commands::model_storage::cleanup_local_model,
         commands::models::take_missing_model_selection_notice,
+        commands::models::set_auto_switch_unavailable_model,
         commands::models::rescan_local_models,
         commands::models::download_model,
         commands::models::delete_model,

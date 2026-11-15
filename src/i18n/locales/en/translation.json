@@ -453,7 +453,12 @@
   "models": {
     "missingSelection": "Previously selected model {{model}} is no longer available.",
     "replacementSelected": "Selected {{model}} instead.",
-    "chooseReplacement": "Choose another model to continue."
+    "chooseReplacement": "Choose another model to continue.",
+    "missingSelectionTitle": "Model not available in this version",
+    "missingSelectionDialogBody": "The saved model {{model}} does not exist in this version. Switched to an available local model: {{replacement}}.",
+    "alwaysSwitch": "Always switch automatically",
+    "autoSwitched": "Model {{model}} is not available in this version. Switched to {{replacement}}.",
+    "autoSwitchTurnOff": "Ask me next time"
   },
   "tray": {
     "language": "Language",
@@ -5142,6 +5147,7 @@
     "yes": "Yes",
     "no": "No",
     "noOptionsFound": "No options found",
+    "ok": "OK",
     "copied": "Copied!",
     "copy": "Copy",
     "textFileActions": {

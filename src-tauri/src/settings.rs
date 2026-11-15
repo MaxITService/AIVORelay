@@ -3930,6 +3930,14 @@ pub struct AppSettings {
     pub update_checks_enabled: bool,
     #[serde(default = "default_model")]
     pub selected_model: String,
+    /// Local models this build could actually run, newest first. A build that no
+    /// longer knows `selected_model` (for example after switching between a dev and
+    /// a release build) falls back to the most recent entry it does have.
+    #[serde(default)]
+    pub recent_local_models: Vec<String>,
+    /// Skip the explanation dialog when an unavailable local model is replaced.
+    #[serde(default)]
+    pub auto_switch_unavailable_model: bool,
     #[serde(default = "default_transcription_provider")]
     pub transcription_provider: TranscriptionProvider,
     #[serde(default = "default_remote_stt_settings")]
@@ -6465,6 +6473,8 @@ pub fn get_default_settings() -> AppSettings {
         tray_icon_blink_frequency_hz: default_tray_icon_blink_frequency_hz(),
         update_checks_enabled: default_update_checks_enabled(),
         selected_model: "".to_string(),
+        recent_local_models: Vec::new(),
+        auto_switch_unavailable_model: false,
         transcription_provider: default_transcription_provider(),
         remote_stt: default_remote_stt_settings(),
         file_transcription_model_selection: None,
