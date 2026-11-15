@@ -181,6 +181,10 @@ Run with:
   preservation, errors without output, and overlapping detached/new sessions.
   Matching-session tests verify that an old finish cannot detach a newer
   recording or clear its buffered audio.
+- `text_replacement_decapitalize::tests` also covers repeated rearming through
+  the optional three-word correction buffer and final flush. Concurrent chunk
+  callers must atomically claim a single trigger exactly once; punctuation and
+  lowercase chunks leave it armed, and preview never consumes it.
 - `managers::gemini_output_window::tests` covers exact deadline boundaries,
   queued delivery checks, Unicode separators, and per-recording isolation.
 - `stream_chunk_processor::tests::gemini_cutoff_` covers buffered tail flushing,
