@@ -9,10 +9,9 @@ Files that are added by this fork rather than upstream files that were modified.
 
 ### Backend (Rust)
 
-| `src-tauri/src/distribution.rs` | Shared edition and installation policy. `src-tauri/app-edition` embeds `standard` or `store` at compile time; Store MSI/ZIP and Windows-packaged builds disable self-update and adjacent portable storage. Package-query failures are restricted. `build.rs` validates the marker and Store updater packaging; frontend updater controls and crash recovery use the same backend lock. |
-
 | File | Purpose |
 | --- | --- |
+| `src-tauri/src/distribution.rs` | Shared edition and installation policy. `src-tauri/app-edition` embeds `standard` or `store` at compile time; Store MSI/ZIP and Windows-packaged builds disable self-update and adjacent portable storage. Package-query failures are restricted. `build.rs` validates the marker and Store updater packaging; frontend updater controls and crash recovery use the same backend lock. |
 | `src-tauri/src/managers/connector.rs` | Main connector HTTP server. |
 | `src-tauri/src/commands/connector.rs` | Commands: status, queue, cancel, bundled extension export. |
 | `src-tauri/src/commands/asset_preview.rs` | Stages file-transcription previews using a hard link or copy. GUI startup removes abandoned regular files from `transcribe-file-preview` only when their filename timestamp predates this run; source mtimes are not used because hard links share them. |
