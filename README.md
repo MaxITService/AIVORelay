@@ -149,6 +149,17 @@ Use Deepgram for fast cloud transcription, including live speech-to-text.
 
 **Setup:** Models
 
+### 🎧 ElevenLabs Scribe v3 Live (speech-to-text)
+
+Use ElevenLabs for realtime dictation and Live Monitor.
+
+- **Live streaming** — Interim and finalized speech over WebSocket (`scribe_v3_live`)
+- **Live Monitor speaker diarization** — Separates speakers in real time
+- **Files and recordings** — Completed recordings and file transcription use `scribe_v3` with word-level timestamps for Text, SRT, and VTT
+- **Custom Words** — Sent as keyterms during live use; applied locally after file or recording transcription
+- **Separate STT key** — Stored independently of your ElevenLabs text-to-speech key
+
+**Setup:** Models
 
 ### 🤖 AI Replace Selection
 
@@ -212,7 +223,7 @@ Voice-to-AI bridge via the [AivoRelay Connector](https://github.com/MaxITService
 
 ### 📺 Live Monitor
 
-Capture live audio from your computer speakers (loopback), microphone, or both to stream a real-time transcript right inside AivoRelay without typing into other apps. Supports speaker diarization with compatible cloud providers (Gemini Live, Soniox, Deepgram).
+Capture live audio from your computer speakers (loopback), microphone, or both to stream a real-time transcript right inside AivoRelay without typing into other apps. Supports speaker diarization with compatible cloud providers (Gemini Live, Soniox, Deepgram, ElevenLabs Scribe v3 Live).
 
 ![Live Monitor](Promo/live-sound-transcription.png)
 
@@ -223,8 +234,8 @@ Capture live audio from your computer speakers (loopback), microphone, or both t
 Drag and drop audio files to get a transcript.
 
 - Supports WAV, MP3, OGG, M4A, FLAC, WebM
-- Outputs Text, SRT (Subtitles), or VTT
-- Uses your local or cloud models (including Gemini, Soniox, Deepgram)
+- Outputs Text, SRT (Subtitles), or VTT (Reson8 supports Text only)
+- Uses your local or cloud models (including Gemini, Soniox, Deepgram, ElevenLabs, Reson8)
 - Deepgram can label different speakers in multi-speaker recordings
 
 **Setup:** Transcribe File
@@ -276,9 +287,9 @@ AivoRelay passively monitors your "edit" key (default: **Backspace**). If you pr
 
 ### ☁️ Cloud STT Option
 
-Use Gemini 3.5 Transcribe, Gemini Live (via Google Direct or Vercel), Soniox, Deepgram, Groq, or other OpenAI-compatible APIs — or keep using local Whisper. Your choice!
+Use Gemini 3.5 Transcribe, Gemini Live (via Google Direct or Vercel), Soniox, Deepgram, ElevenLabs Scribe v3 Live, Reson8 (Rumble-2), Groq, or other OpenAI-compatible APIs — or keep using local Whisper. Your choice!
 
-- Fast cloud streaming with Gemini Live, Soniox, and Deepgram
+- Fast cloud streaming with Gemini Live, Soniox, Deepgram, ElevenLabs, and Reson8
 - No GPU? Use fast cloud APIs
 - Have a powerful GPU? Run locally for privacy
 - Switch between providers anytime
