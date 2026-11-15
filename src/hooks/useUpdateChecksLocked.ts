@@ -3,7 +3,7 @@ import { commands } from "@/bindings";
 
 /**
  * Whether packaging forces update checks off (AIVORELAY_DISABLE_UPDATER).
- * `null` while the answer is loading; a failed query counts as unlocked.
+ * Includes edition/package restrictions. Unknown or failed queries stay locked.
  */
 export const useUpdateChecksLocked = (): boolean | null => {
   const [locked, setLocked] = useState<boolean | null>(null);
@@ -16,7 +16,7 @@ export const useUpdateChecksLocked = (): boolean | null => {
         if (!cancelled) setLocked(value);
       })
       .catch(() => {
-        if (!cancelled) setLocked(false);
+        if (!cancelled) setLocked(true);
       });
     return () => {
       cancelled = true;

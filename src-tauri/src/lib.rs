@@ -38,6 +38,7 @@ mod notices;
 mod overlay;
 mod plus_overlay_state;
 mod portable;
+mod distribution;
 #[cfg(any(test, target_os = "linux"))]
 mod primary_selection;
 mod recording_auto_stop;
@@ -2166,6 +2167,7 @@ pub fn run(cli_args: CliArgs) {
             let file_log_level: log::Level = tauri_log_level.into();
             // Store the file log level in the atomic for the filter to use.
             FILE_LOG_LEVEL.store(file_log_level.to_level_filter() as u8, Ordering::Relaxed);
+            info!("App distribution: {:?}; installation: {:?}", distribution::edition(), distribution::installation());
             let app_handle = app.handle().clone();
 
             if webview_mode::webviews_disabled() {

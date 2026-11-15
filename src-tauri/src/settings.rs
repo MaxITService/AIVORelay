@@ -6104,7 +6104,7 @@ fn self_update_possible() -> bool {
 pub fn update_checks_forced_disabled() -> bool {
     static FORCED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *FORCED.get_or_init(|| {
-        std::env::var("AIVORELAY_DISABLE_UPDATER").is_ok_and(|value| {
+        !crate::distribution::allows_update_checks() || std::env::var("AIVORELAY_DISABLE_UPDATER").is_ok_and(|value| {
             !matches!(
                 value.trim().to_ascii_lowercase().as_str(),
                 "" | "0" | "false" | "no" | "off"
