@@ -67,7 +67,7 @@ export const getRemoteApiRows = (t: TFunction): RemoteApiRow[] => [
     ),
     description: t(
       "modelSelector.remoteApiRows.elevenlabs.description",
-      "Real-time WebSocket transcription via ElevenLabs Scribe v3 Live.",
+      "Live dictation and Live Monitor use Scribe v3 Live. Files use Scribe v3 with SRT/VTT subtitles. Speaker separation is available in Live Monitor.",
     ),
     preset: "elevenlabs",
     modelId: "scribe_v3_live",

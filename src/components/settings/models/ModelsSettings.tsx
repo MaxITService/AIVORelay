@@ -24,6 +24,7 @@ import { SettingsGroup } from "../../ui/SettingsGroup";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { RemoteSttSettings } from "../remote-stt/RemoteSttSettings";
 import { ModelMetadataPanel } from "./ModelMetadataPanel";
+import { ModelCapabilityBadges } from "./ModelCapabilityBadges";
 import { ModelSelectionProfileNotice } from "./ModelSelectionProfileNotice";
 import { ModelFilterBar } from "./ModelFilterBar";
 import { ModelReleaseDate } from "../../shared/ModelReleaseDate";
@@ -40,6 +41,7 @@ import { readModelLanguagePreference, saveModelLanguagePreference } from "@/comp
 import { modelLanguageGrades } from "@/components/onboarding/modelGrades";
 import {
   getRemoteApiRows,
+  resolveRemoteApiRow,
   resolveRemoteApiSelection,
   type RemoteApiRow,
   type RemoteApiRowId,
@@ -528,6 +530,7 @@ export const ModelsSettings: React.FC = () => {
   const renderRemoteApiRows = (rows: RemoteApiRow[]) =>
     rows.map((row) => {
       const isActive = activeRemoteApiId === row.id;
+      const cardModel = resolveRemoteApiRow(row, remotePreset);
       const selectionPlan = resolveRemoteApiSelection(row, {
         isCustomProfile: Boolean(activeProfile),
         currentEffectivePreset: remotePreset,
@@ -554,6 +557,11 @@ export const ModelsSettings: React.FC = () => {
                     </span>
                   )}
                 </div>
+                <ModelCapabilityBadges selection={{
+                  provider: "remote_openai_compatible",
+                  provider_preset: cardModel.preset,
+                  model_id: cardModel.modelId || "",
+                }} />
                 {(isActive ||
                   row.notRecommended ||
                   row.id === "reson8" ||
@@ -636,6 +644,9 @@ export const ModelsSettings: React.FC = () => {
                   </span>
                 )}
               </div>
+              <ModelCapabilityBadges selection={{
+                provider: "remote_soniox", provider_preset: "", model_id: "stt-rt-v6",
+              }} />
               {effectiveTranscriptionProvider === "remote_soniox" && (
                 <p className="text-xs text-[#a0a0a0] mt-1">
                   {t("modelSelector.remoteSonioxModeDescription")}
@@ -694,6 +705,9 @@ export const ModelsSettings: React.FC = () => {
                   </span>
                 )}
               </div>
+              <ModelCapabilityBadges selection={{
+                provider: "remote_deepgram", provider_preset: "", model_id: "nova-3",
+              }} />
               {effectiveTranscriptionProvider === "remote_deepgram" && (
                 <p className="text-xs text-[#a0a0a0] mt-1">
                   {t(

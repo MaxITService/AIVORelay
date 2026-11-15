@@ -1976,7 +1976,7 @@
       },
       "elevenlabs": {
         "title": "Remote via ElevenLabs (Scribe v3 Live)",
-        "description": "Realtime streaming (scribe_v3_live) with interim preview and live speaker diarization; file transcription and completed recordings use the scribe_v3 HTTP companion."
+        "description": "Live dictation and Live Monitor use Scribe v3 Live. Files use Scribe v3 with SRT/VTT subtitles. Speaker separation is available in Live Monitor."
       },
       "custom": {
         "title": "Remote via Custom API",
@@ -2081,9 +2081,18 @@
       "customDescription": "Model choices here apply to this profile.",
       "defaultDescription": "Changing the Default model also changes profiles without their own model selection."
     },
+    "cardCapabilities": {
+      "dictation": "Dictation",
+      "live": "Live dictation",
+      "files": "Files",
+      "subtitles": "Subtitles (SRT/VTT)",
+      "speakersFile": "Speakers in files",
+      "speakersLive": "Speakers in Live Monitor",
+      "custom": "Capabilities depend on your endpoint and model."
+    },
     "profileSettingsNotice": {
-      "title": "This model has additional settings in transcription profiles",
-      "description": "Check <profileLink>Speech / Mic</profileLink> → Manage Profiles. Profile settings override or extend the model settings shown here.",
+      "title": "This model has optional additional settings in transcription profiles",
+      "description": "Configure them if needed in <profileLink>Speech / Mic</profileLink> → Manage Profiles. Profile settings override or extend the model settings shown here.",
       "features": {
         "language": "Language",
         "translateToEnglish": "Translate to English",
