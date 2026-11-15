@@ -66,6 +66,51 @@ than 90 seconds, stopping mid-phrase, cancellation, and Live Monitor diarization
 using an ElevenLabs STT key. Unit tests do not establish server behavior for very
 short or silent manual commits, billing, or loopback-source idle disconnects.
 
+### Speech MP3 replay and decapitalization
+
+The `text_replacement_decapitalize::tests::shared_live_chunk_pipeline_`
+tests exercise the shared Gemini/ElevenLabs output processor: empty and non-letter
+chunks, repeated interim previews, one-shot Cyrillic decapitalization, rearming
+across several Latin/Cyrillic chunks in one recording, and a safety-buffered tail
+flushed exactly once. Repeated edit-key presses refresh one trigger; they do not
+queue changes for several future chunks. Pure state tests cover exact expiry
+boundaries. These tests use no service or desktop resources.
+
+`managers::stt_paid_tests::stt_paid_mp3_live_chunks` is a separate, ignored paid
+test. Decode an explicitly chosen 30–90 second speech MP3 into a local 16 kHz
+mono PCM16 WAV. Set `AIVORELAY_STT_REPLAY_WAV` to its absolute path and
+`AIVORELAY_STT_REPLAY_EXPECTED` to an independent UTF-8 transcript of the speech
+(at least 20 words). Run only that test with
+`-LibOnly -Exact -Filter @('managers::stt_paid_tests::stt_paid_mp3_live_chunks', '--ignored', '--nocapture')`.
+
+The test reads saved provider STT keys without changing settings.
+`AIVORELAY_STT_REPLAY_PROVIDERS` accepts comma-separated `elevenlabs`, `vercel`,
+and `google` routes; the default is `elevenlabs,vercel`. Audio is paced in real time; the default frame duration is
+30 ms, optionally overridden by `AIVORELAY_STT_REPLAY_FRAME_MS` (10–200 ms).
+`AIVORELAY_STT_REPLAY_MODE` selects `smart` or `verbatim` for Gemini without
+changing the saved mode. `AIVORELAY_STT_REPLAY_LANGUAGE` optionally supplies an
+exact Gemini locale such as `en-US` for live replay; otherwise automatic language
+detection is used. Optional `AIVORELAY_STT_REPLAY_TRACE=1` prints selected
+transcript fields, raw Google speech-boundary events and the successfully sent
+PCM byte/sample totals in test builds only.
+
+For a separate prerecorded control, run only the ignored
+`managers::stt_paid_tests::stt_paid_mp3_gemini_file` test with the same WAV and
+reference variables. It makes one Vercel Gemini file-transcription request and
+checks the same ordered speech coverage; it does not run live streaming or
+keyboard checks. Use this to distinguish poor recognition of the source audio
+from loss specific to a live transport.
+
+The test records actual chunk arrival times, requires incremental output,
+compares concatenated chunks with final text, and requires at least 85% ordered
+word recall against the independent reference. Repeated words count separately;
+chunk/final agreement alone cannot conceal missing speech. It also checks
+multiple independently rearmed decapitalization triggers during one real stream. This is an audio transport
+replay, not a physical microphone or end-to-end keyboard test: it does not
+capture microphone audio, write History, paste text, or register shortcuts.
+Source speech, references, and logs belong under `.AGENTS/.untracked/`; never
+commit credentials or private recordings.
+
 ## Streamed LLM Output
 
 The `actions::transcription_post_process_tests::streamed_history_` tests cover
