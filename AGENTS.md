@@ -5,6 +5,7 @@ This is the entry file for AI/code agents working with this fork.
 ## Always-On Rules
 
 - Do not push unless the user explicitly asks.
+- If `.AGENTS/.untracked/Untracked-agents.md` exists, read it at session start and obey it. It is local-only and may be absent (for example in other checkouts).
 - Do not run formatters in write mode or include formatting-only churn. Preserve existing formatting; only carry formatting changes when they are part of the exact upstream commit being adapted.
 - If you are not confident that a change will fix the issue, stop and confirm before making a risky fix.
 - Use proper commit messages.
