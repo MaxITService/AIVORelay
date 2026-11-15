@@ -69,3 +69,37 @@ it("keeps Soniox filtering and local-model capability filtering unchanged", () =
   expect(local).toContain("zh");
   expect(local).not.toContain("fr");
 });
+
+it("scopes ElevenLabs Scribe v3 Live and Scribe v3 options to canonical provider and models", () => {
+  for (const modelId of ["scribe_v3_live", "scribe_v3"]) {
+    const options = values(remote("elevenlabs", modelId));
+
+    expect(options).toContain("auto");
+    expect(options).toContain("os_input");
+    expect(options).toContain("en");
+    expect(options).toContain("no");
+    expect(options).toContain("nb");
+    expect(options).toContain("tl");
+    expect(options).toContain("fil");
+    expect(options).toContain("jw");
+    expect(options).toContain("he");
+    expect(options).toContain("zh");
+    expect(options).toContain("ceb");
+    expect(options).toContain("ast");
+    expect(options).toContain("ig");
+    expect(options).toContain("zu");
+
+    expect(options).not.toContain("la");
+    expect(options).not.toContain("haw");
+    expect(options).not.toContain("ba");
+    expect(options).not.toContain("bo");
+    expect(options).not.toContain("sa");
+    expect(options).not.toContain("yi");
+
+    expect(new Set(options).size).toBe(options.length);
+  }
+
+  expect(values(remote("custom", "scribe_v3_live"))).toContain("la");
+  expect(values(remote("openai", "scribe_v3_live"))).toContain("la");
+  expect(values(remote("elevenlabs", "scribe_v2"))).toContain("la");
+});

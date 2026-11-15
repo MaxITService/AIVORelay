@@ -1,5 +1,9 @@
 import type { ModelInfo } from "@/bindings";
 import {
+  ELEVENLABS_ADDITIONAL_LANGUAGE_OPTIONS,
+  filterLanguageOptionsForElevenLabs,
+} from "./constants/elevenlabsLanguages";
+import {
   LANGUAGES,
   supportsLanguageCode,
   type Language,
@@ -9,7 +13,11 @@ import {
   RESON8_ADDITIONAL_LANGUAGE_OPTIONS,
 } from "./constants/reson8Languages";
 import { isLanguageSupportedBySoniox } from "./constants/sonioxLanguages";
-import { isReson8Selection, type SttModelSelection } from "./sttModelSelection";
+import {
+  isElevenLabsSelection,
+  isReson8Selection,
+  type SttModelSelection,
+} from "./sttModelSelection";
 
 /** Provider/model-scoped language choices for a profile STT selection. */
 export const sttLanguageOptions = (
@@ -29,6 +37,16 @@ export const sttLanguageOptions = (
     return [
       ...options,
       ...RESON8_ADDITIONAL_LANGUAGE_OPTIONS.filter(
+        (extra) => !options.some((option) => option.value === extra.value),
+      ),
+    ];
+  }
+
+  if (isElevenLabsSelection(selection)) {
+    const options = filterLanguageOptionsForElevenLabs(LANGUAGES);
+    return [
+      ...options,
+      ...ELEVENLABS_ADDITIONAL_LANGUAGE_OPTIONS.filter(
         (extra) => !options.some((option) => option.value === extra.value),
       ),
     ];

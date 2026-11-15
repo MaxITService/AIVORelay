@@ -1851,7 +1851,8 @@
         "openai": "OpenAI API Compatible",
         "gemini": "Gemini",
         "soniox": "Soniox",
-        "deepgram": "Deepgram"
+        "deepgram": "Deepgram",
+        "elevenlabs": "ElevenLabs Scribe v3 Live"
       },
       "geminiInfo": "Gemini 3.5 Transcribe supports low-latency live dictation and transcription after recording. Choose a connection route and enter the matching API key.",
       "geminiRecommendation": "Vercel AI Gateway is recommended for initial setup. You can change the route and Gemini options later in Models.",
@@ -1881,6 +1882,9 @@
       "deepgramInfo": "Deepgram provides live WebSocket speech-to-text with Nova models, including KeepAlive / Finalize / CloseStream control messages.",
       "deepgramRecommendation": "Create a Deepgram API key in the console and paste it below. You can fine-tune Deepgram options later in Advanced settings.",
       "deepgramRealtimeWarning": "Deepgram live mode follows the standard live cycle and skips LLM post-processing.",
+      "elevenlabsInfo": "ElevenLabs Scribe v3 Live (scribe_v3_live) streams interim and finalized speech over WebSocket (plus speaker diarization in Live Monitor) and uses the scribe_v3 HTTP companion for completed recordings and file transcription.",
+      "elevenlabsDetails": "Uses https://api.elevenlabs.io/v1 with an isolated STT key (separate from TTS). Realtime sends Custom Words as keyterm_library; completed recordings and files apply Custom Words locally after transcription. Free-form STT prompts and English translation are not supported.",
+      "elevenlabsApiKeyPlaceholder": "Enter your ElevenLabs API key",
       "baseUrl": {
         "label": "Server URL",
         "hint": "Known providers stay on locked HTTPS URLs. Custom lets you enter your own endpoint."
@@ -1969,6 +1973,10 @@
       "reson8": {
         "title": "Remote via Reson8 (rumble-2)",
         "description": "Live output inserts finalized chunks only. Interim transcript preview is not supported. Also supports prerecorded file transcription."
+      },
+      "elevenlabs": {
+        "title": "Remote via ElevenLabs (Scribe v3 Live)",
+        "description": "Realtime streaming (scribe_v3_live) with interim preview and live speaker diarization; file transcription and completed recordings use the scribe_v3 HTTP companion."
       },
       "custom": {
         "title": "Remote via Custom API",
@@ -2790,6 +2798,7 @@
       "saveName": "Save profile name",
       "clickToRename": "Click to rename",
       "selectModelToEditGlobalPrompt": "Select an active transcription model to edit this prompt.",
+      "elevenlabsLanguageFallbackWarning": "This language is not supported by ElevenLabs Scribe. ElevenLabs requests will fall back to auto-detection.",
       "creatingProfile": "Creating profile…",
       "shortenSystemPrompt": "Shorten the voice model prompt.",
       "fixGeminiVocabulary": "Fix the Gemini vocabulary.",
@@ -2981,6 +2990,9 @@
       "whatIsThis": {
         "toggle": "What is Live Monitor?",
         "content": "Live Monitor streams audio from your speakers, microphone, or both into a real-time transcript on this page — with optional speaker identification so you can see who said what.\n\nUnlike dictation, Live Monitor never inserts text into other apps. Use it to follow meetings, calls, or any audio, then review, process with AI, or save the result to a file.\n\nTip: real-time streaming from microphone can behave differently than from speakers — if results feel slow or cut off, try adjusting the session settings below."
+      },
+      "elevenlabs": {
+        "liveNotice": "ElevenLabs Scribe v3 Live streams both interim previews and finalized speech segments over WebSocket, supports live Speaker Diarization with automatic speaker merge consolidation, and uses the active profile/global language hint and Custom Words (keyterm_library)."
       },
       "session": {
         "title": "Session",
@@ -3602,6 +3614,21 @@
             "empty": "No remote debug output yet.",
             "clear": "Clear"
           }
+        },
+        "elevenlabs": {
+          "interfaceLabel": "ElevenLabs Scribe v3 · Live (scribe_v3_live) & File (scribe_v3)",
+          "interfaceHint": "ElevenLabs Scribe v3 Live (scribe_v3_live) streams interim and finalized speech over WebSocket (plus Live Monitor diarization) and uses the scribe_v3 HTTP companion for completed recordings and files; scribe_v3 uses completed-recording and file HTTP transcription only.",
+          "apiKeyTitle": "ElevenLabs STT API Key",
+          "apiKeyDescription": "Stored separately for ElevenLabs STT, independently of ElevenLabs TTS keys.",
+          "apiKeyPlaceholder": "Enter your ElevenLabs API key",
+          "modelTitle": "ElevenLabs STT Model",
+          "modelDescription": "Select scribe_v3_live for realtime dictation and Live Monitor with automatic scribe_v3 file companion, or scribe_v3 for completed-recording and file HTTP transcription only.",
+          "modelLiveOption": "scribe_v3_live — Realtime WebSocket + scribe_v3 file companion (Recommended)",
+          "modelFileOption": "scribe_v3 — Completed recording & file HTTP only (no live streaming)",
+          "scribeV3FileOnlyNotice": "scribe_v3 supports completed dictation recordings and file transcription (Text, SRT, VTT with word timestamps) only — live streaming, interim preview, and Live Monitor are not supported on scribe_v3.",
+          "infoTitle": "ElevenLabs · Scribe v3 Live (scribe_v3_live) & Scribe v3 (scribe_v3)",
+          "infoDetails": "When scribe_v3_live is selected, live dictation and Live Monitor stream over ElevenLabs Realtime WebSocket (xi-api-key, 16 kHz PCM), while completed-recording fallback and Transcribe File explicitly use the scribe_v3 HTTP companion (POST /v1/speech-to-text) with word-level timestamps for Text, SRT, and VTT. Selecting scribe_v3 directly uses completed-recording and file HTTP transcription only (never live). Active profile/global language hints are supported. Realtime sends Custom Words as keyterm_library; completed recordings and files apply Custom Words locally after transcription. Free-form STT prompts and Translate to English are not supported.",
+          "apiKeysLink": "ElevenLabs API Keys"
         }
       },
       "soniox": {
@@ -5120,6 +5147,7 @@
     "vramTooltipSystemFree": "System free: {{free}} / {{total}} GB (total is physical VRAM)"
   },
   "common": {
+    "ok": "OK",
     "sessionNotices": "Session messages: {{count}}",
     "sessionNoticesDescription": "Open errors and warnings recorded during this session. These may include earlier problems that are already resolved.",
     "resetSetting": "Reset {{setting}} to default",
@@ -5147,7 +5175,6 @@
     "yes": "Yes",
     "no": "No",
     "noOptionsFound": "No options found",
-    "ok": "OK",
     "copied": "Copied!",
     "copy": "Copy",
     "textFileActions": {
@@ -5373,6 +5400,11 @@
     "liveModelUnsupported": "Gemini Live cannot transcribe files. In Models, select the regular Gemini 3.5 Transcribe model.",
     "reson8": {
       "subtitlesUnsupported": "Reson8 Rumble-2 does not support SRT/VTT subtitle timestamps in this integration. Select Text output."
+    },
+    "elevenlabs": {
+      "outputFormatHint": "ElevenLabs File Transcription uses the scribe_v3 HTTP companion and supports accurate word-level timestamps for SRT and VTT subtitles.",
+      "companionNoticeTitle": "ElevenLabs File Transcription · scribe_v3 HTTP Companion",
+      "companionNotice": "File transcription with ElevenLabs automatically uses the scribe_v3 prerecorded HTTP companion endpoint (POST /v1/speech-to-text) even when scribe_v3_live is selected. Supports Text, SRT, and VTT subtitles with word-level timestamps, resolves the active profile/global language hint, and applies Custom Words locally after transcription when Apply Custom Words is enabled."
     },
     "selectFileBeforeTranscribing": "Select a file before starting transcription. You can configure the model and options now.",
     "dropZone": {

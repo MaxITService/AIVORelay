@@ -226,4 +226,47 @@ describe("resolveRemoteApiSelection", () => {
       modelId: undefined,
     });
   });
+
+  it("exposes ElevenLabs Scribe v3 Live row and resolves global and profile targets", () => {
+    const elevenLabsRow = getRow("elevenlabs");
+
+    expect(elevenLabsRow.preset).toBe("elevenlabs");
+    expect(elevenLabsRow.modelId).toBe("scribe_v3_live");
+    expect(elevenLabsRow.notRecommended).toBeUndefined();
+
+    expect(resolveRemoteApiRow(elevenLabsRow, "groq")).toEqual({
+      preset: "elevenlabs",
+      modelId: "scribe_v3_live",
+    });
+
+    expect(
+      resolveRemoteApiSelection(elevenLabsRow, {
+        isCustomProfile: false,
+        currentEffectivePreset: "groq",
+      }),
+    ).toEqual({
+      target: "global",
+      preset: "elevenlabs",
+      modelId: "scribe_v3_live",
+    });
+
+    expect(
+      resolveRemoteApiSelection(elevenLabsRow, {
+        isCustomProfile: true,
+        currentEffectivePreset: "groq",
+        globalRemoteStt: {
+          provider_preset: "groq",
+          base_url: "https://api.groq.com/openai/v1",
+          model_id: "whisper-large-v3-turbo",
+        },
+      }),
+    ).toEqual({
+      target: "profile",
+      selection: {
+        provider: "remote_openai_compatible",
+        provider_preset: "elevenlabs",
+        model_id: "scribe_v3_live",
+      },
+    });
+  });
 });

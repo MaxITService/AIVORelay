@@ -251,6 +251,8 @@ export const ModelsSettings: React.FC = () => {
             : "gemini_transcribe")
         : remotePreset === "reson8"
           ? "reson8"
+        : remotePreset === "elevenlabs"
+          ? "elevenlabs"
         : remotePreset === "custom"
           ? "custom"
           : remoteModelId === "gpt-transcribe"
@@ -552,7 +554,10 @@ export const ModelsSettings: React.FC = () => {
                     </span>
                   )}
                 </div>
-                {(isActive || row.notRecommended || row.id === "reson8") && (
+                {(isActive ||
+                  row.notRecommended ||
+                  row.id === "reson8" ||
+                  row.id === "elevenlabs") && (
                   <p className="text-xs text-[#a0a0a0] mt-1">
                     {row.notRecommended && (
                       <>
@@ -586,6 +591,7 @@ export const ModelsSettings: React.FC = () => {
                   type="button"
                   variant="secondary"
                   size="sm"
+                  className="shrink-0 whitespace-nowrap"
                   onClick={openDefaultProfile}
                 >
                   {t("modelSelector.openDefaultProfile")}
@@ -617,8 +623,8 @@ export const ModelsSettings: React.FC = () => {
               : ""
           }`}
         >
-          <div className="flex items-center justify-between">
-            <div className="min-w-0">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <Radio className="w-4 h-4 text-teal-400" />
                 <p className="text-sm font-medium text-[#f5f5f5]">
@@ -640,6 +646,7 @@ export const ModelsSettings: React.FC = () => {
               <Button
                 variant="secondary"
                 size="sm"
+                className="shrink-0 whitespace-nowrap"
                 onClick={() =>
                   void handleRemoteProviderSelect(
                     "remote_soniox",
@@ -674,8 +681,8 @@ export const ModelsSettings: React.FC = () => {
               : ""
           }`}
         >
-          <div className="flex items-center justify-between">
-            <div className="min-w-0">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <Radio className="w-4 h-4 text-cyan-400" />
                 <p className="text-sm font-medium text-[#f5f5f5]">
@@ -700,6 +707,7 @@ export const ModelsSettings: React.FC = () => {
               <Button
                 variant="secondary"
                 size="sm"
+                className="shrink-0 whitespace-nowrap"
                 onClick={() =>
                   void handleRemoteProviderSelect(
                     "remote_deepgram",
@@ -911,7 +919,7 @@ export const ModelsSettings: React.FC = () => {
                   isActive ? "bg-green-500/5" : ""
                 }`}
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span
                       title={t("modelSelector.downloadedTooltip", "Downloaded")}
@@ -960,11 +968,12 @@ export const ModelsSettings: React.FC = () => {
                   />
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   {!isActive && (
                     <Button
                       variant="secondary"
                       size="sm"
+                      className="shrink-0 whitespace-nowrap"
                       onClick={() => handleSelectModel(model.id)}
                       disabled={isSwitching || isDeleting}
                     >
@@ -1015,7 +1024,7 @@ export const ModelsSettings: React.FC = () => {
               key={model.id}
               className="px-6 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
             >
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-[#f5f5f5]">
                   <ModelReleaseDate
                     modelId={model.id}
@@ -1057,11 +1066,12 @@ export const ModelsSettings: React.FC = () => {
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 {!isActive && (
                   <Button
                     variant="secondary"
                     size="sm"
+                    className="shrink-0 whitespace-nowrap"
                     onClick={() => handleSelectModel(model.id)}
                     disabled={isSwitching || isExtracting}
                   >
@@ -1074,6 +1084,7 @@ export const ModelsSettings: React.FC = () => {
                   <Button
                     variant="secondary"
                     size="sm"
+                    className="shrink-0 whitespace-nowrap"
                     onClick={() => cancelDownload(model.id)}
                   >
                     {t("common.cancel")}
@@ -1082,6 +1093,7 @@ export const ModelsSettings: React.FC = () => {
                   <Button
                     variant="primary"
                     size="sm"
+                    className="shrink-0 whitespace-nowrap"
                     onClick={() => handleDownloadModel(model.id)}
                     disabled={isExtracting}
                   >

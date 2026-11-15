@@ -17,6 +17,7 @@ import { SttModelSelector } from "../SttModelSelector";
 import {
   legacyLiveSttSelection,
   isGeminiLiveSelection,
+  isElevenLabsLiveSelection,
   isReson8Selection,
   sttModelCapabilities,
   sttSupports,
@@ -266,7 +267,11 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const remoteIsReson8Live = liveSelection
     ? isReson8Selection(liveSelection)
     : false;
-  const remoteLiveReady = remoteIsGeminiLive || remoteIsReson8Live;
+  const remoteIsElevenLabsLive = liveSelection
+    ? isElevenLabsLiveSelection(liveSelection)
+    : false;
+  const remoteLiveReady =
+    remoteIsGeminiLive || remoteIsReson8Live || remoteIsElevenLabsLive;
   const liveGeminiMode = String(
     settings?.live_sound_gemini_mode ??
       settings?.gemini_live_mode ??
@@ -1109,6 +1114,15 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               </div>
             )}
 
+            {remoteIsElevenLabsLive && (
+              <div className="rounded-lg border border-cyan-400/25 bg-cyan-400/5 px-4 py-3 text-sm text-cyan-100">
+                {t(
+                  "settings.liveSoundTranscription.elevenlabs.liveNotice",
+                  "ElevenLabs Scribe v3 Live streams both interim previews and finalized speech segments over WebSocket, supports live Speaker Diarization with automatic speaker merge consolidation, and uses the active profile/global language hint and Custom Words (keyterm_library).",
+                )}
+              </div>
+            )}
+
             {providerSupportsDiarization && (
               <div
                 id="live-monitor-diarization"
@@ -1337,7 +1351,8 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
         </SettingContainer>
       </SettingsGroup>
 
-      {providerSupportsDiarization && (
+      {providerSupportsDiarization &&
+        (provider === "remote_soniox" || provider === "remote_deepgram") && (
         <SettingsGroup
           id="settings-live-endpoint-settings"
           title={t("settings.liveSoundTranscription.sessionOverrides.title")}
