@@ -135,6 +135,31 @@ pub fn foreground_window_is_elevated() -> bool {
     }
 }
 
+/// Whether AivoRelay itself runs elevated ("Run as administrator" or the
+/// elevated autostart task). Queried once; elevation can't change at runtime.
+pub fn current_process_is_elevated() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use std::sync::OnceLock;
+        use windows::Win32::System::Threading::GetCurrentProcess;
+
+        // SECURITY_MANDATORY_HIGH_RID
+        const HIGH_INTEGRITY: u32 = 0x3000;
+        static ELEVATED: OnceLock<bool> = OnceLock::new();
+        // SAFETY: the pseudo-handle from GetCurrentProcess is always valid and
+        // needs no closing.
+        *ELEVATED.get_or_init(|| {
+            unsafe { process_integrity_level(GetCurrentProcess()) }
+                .is_ok_and(|level| level >= HIGH_INTEGRITY)
+        })
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn foreground_integrity() -> ForegroundIntegrity {
     use windows::Win32::Foundation::{CloseHandle, E_ACCESSDENIED};
