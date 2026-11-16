@@ -301,7 +301,11 @@ pub(crate) fn create_main_window(
 ) -> tauri::Result<tauri::WebviewWindow> {
     let mut window_builder =
         tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
-            .title("AivoRelay")
+            .title(if utils::current_process_is_elevated() {
+                "AivoRelay (Administrator)"
+            } else {
+                "AivoRelay"
+            })
             .inner_size(680.0, 570.0)
             .min_inner_size(680.0, 570.0)
             .resizable(true)

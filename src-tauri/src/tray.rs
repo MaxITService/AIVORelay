@@ -635,11 +635,14 @@ fn tray_tooltip_with_error(last_error: Option<&str>) -> String {
 }
 
 fn version_label() -> String {
+    let mut label = format!("AivoRelay v{}", env!("CARGO_PKG_VERSION"));
     if cfg!(debug_assertions) {
-        format!("AivoRelay v{} (Dev)", env!("CARGO_PKG_VERSION"))
-    } else {
-        format!("AivoRelay v{}", env!("CARGO_PKG_VERSION"))
+        label.push_str(" (Dev)");
     }
+    if crate::utils::current_process_is_elevated() {
+        label.push_str(" (Administrator)");
+    }
+    label
 }
 
 pub fn update_tray_menu(app: &AppHandle, state: &TrayIconState, locale: Option<&str>) {
