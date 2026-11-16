@@ -11,9 +11,10 @@ import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
 import { QuickHelp } from "./components/settings";
 import { HotkeySidebar } from "./components/hotkey-sidebar";
 import { RenderCrashBoundary } from "./components/RenderCrashBoundary";
+import { MissingModelDialog } from "./components/MissingModelDialog";
 import { useSettings } from "./hooks/useSettings";
 import { useSonioxV5RetirementNotice } from "./hooks/useSonioxV5RetirementNotice";
-import { commands } from "@/bindings";
+import { commands, type MissingModelSelectionNotice } from "@/bindings";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -84,6 +85,9 @@ function App() {
   const { t } = useTranslation();
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const [onboardingFromDebug, setOnboardingFromDebug] = useState(false);
+  const [missingModelDialog, setMissingModelDialog] = useState<
+    (MissingModelSelectionNotice & { replacement_model: string }) | null
+  >(null);
   const [onboardingStartsWithPermissions, setOnboardingStartsWithPermissions] =
     useState(false);
   const {
@@ -186,23 +190,37 @@ function App() {
   useEffect(() => {
     // Consume after onboarding; the backend retains startup notices until this point.
     if (showOnboarding !== false) return;
-    void invoke<[string, string | null] | null>("take_missing_model_selection_notice")
+    void commands.takeMissingModelSelectionNotice()
       .then((notice) => {
         if (!notice) return;
-        const [model, replacement] = notice;
+        const { missing_model: model, replacement_model: replacement } = notice;
+        if (replacement && !notice.auto_switched) {
+          setMissingModelDialog({ ...notice, replacement_model: replacement });
+          return;
+        }
+        if (replacement) {
+          // A warning is kept in Session Notices, so it stays readable if the app started hidden.
+          toast.warning(t("models.autoSwitched", {
+            defaultValue: "Model {{model}} is not available in this version. Switched to {{replacement}}.",
+            model,
+            replacement,
+          }), {
+            duration: 10000,
+            action: {
+              label: t("models.autoSwitchTurnOff", "Ask me next time"),
+              onClick: () => void commands.setAutoSwitchUnavailableModel(false),
+            },
+          });
+          return;
+        }
         toast.warning(t("models.missingSelection", {
           defaultValue: "Previously selected model {{model}} is no longer available.",
           model,
         }), {
           duration: 15000,
-          description: replacement
-            ? t("models.replacementSelected", {
-                defaultValue: "Selected {{model}} instead.",
-                model: replacement,
-              })
-            : t("models.chooseReplacement", {
-                defaultValue: "Choose another model to continue.",
-              }),
+          description: t("models.chooseReplacement", {
+            defaultValue: "Choose another model to continue.",
+          }),
           action: {
             label: t("sidebar.models", "Models"),
             onClick: () => setCurrentSection("models"),
@@ -389,10 +407,17 @@ function App() {
         toast.error(detail, { duration: ERROR_TOAST_DURATION_MS });
       },
     );
-    const unlistenPaste = listen("paste-error", () => {
+    const unlistenPaste = listen<string | null>("paste-error", ({ payload }) => {
+      if (payload === "elevatedClipboardCopy") {
+        toast.warning(t("errors.elevatedClipboardTitle"), {
+          duration: ERROR_TOAST_DURATION_MS,
+          description: t("errors.elevatedClipboardCopied"),
+        });
+        return;
+      }
       toast.error(t("errors.pasteFailedTitle"), {
         duration: ERROR_TOAST_DURATION_MS,
-        description: t("errors.pasteFailed"),
+        description: t(payload === "elevationBlocked" ? "errors.elevationBlocked" : "errors.pasteFailed"),
       });
     });
     const unlistenLiveWindow = listen<{ state: string; pendingChars: number }>("live-window-output-state", ({ payload }) => {
@@ -787,6 +812,16 @@ function App() {
           </div>
         </div>
       </div>
+      {missingModelDialog && (
+        <MissingModelDialog
+          missingModel={missingModelDialog.missing_model}
+          replacementModel={missingModelDialog.replacement_model}
+          onConfirm={(alwaysSwitch) => {
+            if (alwaysSwitch) void commands.setAutoSwitchUnavailableModel(true);
+            setMissingModelDialog(null);
+          }}
+        />
+      )}
       {/* Fixed footer at bottom */}
       <Footer />
       {/* Hotkey sidebar on the right edge */}

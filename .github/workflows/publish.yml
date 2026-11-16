@@ -106,7 +106,7 @@ jobs:
             fi
             cp -- "${matches[0]}" "$RUNNER_TEMP/release-assets/$destination"
           }
-          collect windows "AivoRelay_${VERSION}_x64_en-US.msi"
+          collect windows "AivoRelay_${VERSION}_x64_en-US.msi" "00_AivoRelay_${VERSION}_x64_en-US.msi"
           collect windows "aivorelay_${VERSION}_x64_portable.zip"
           collect windows install_Root_Cert-embedded-in-this-file.ps1
           collect windows max.root.cert.cer
@@ -119,7 +119,7 @@ jobs:
           collect macos AivoRelay.app.tar.gz "AivoRelay_${VERSION}_aarch64_EXPERIMENTAL.app.tar.gz"
           collect macos "AivoRelay_${VERSION}_aarch64.dmg" "AivoRelay_${VERSION}_aarch64_EXPERIMENTAL.dmg"
           printf '%s\t%s\n' \
-            "AivoRelay_${VERSION}_x64_en-US.msi" 'windows-x86_64-msi,windows-x86_64' \
+            "00_AivoRelay_${VERSION}_x64_en-US.msi" 'windows-x86_64-msi,windows-x86_64' \
             "AivoRelay_${VERSION}_amd64_EXPERIMENTAL.AppImage" 'linux-x86_64-appimage,linux-x86_64' \
             "AivoRelay_${VERSION}_amd64_EXPERIMENTAL.deb" 'linux-x86_64-deb' \
             "AivoRelay-${VERSION}-1.x86_64_EXPERIMENTAL.rpm" 'linux-x86_64-rpm' \

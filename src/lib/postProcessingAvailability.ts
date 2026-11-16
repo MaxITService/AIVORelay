@@ -111,10 +111,12 @@ const getOutputRouteContext = (
       sttSelection?.provider_preset ??
         settings?.remote_stt?.provider_preset ??
         "",
-    );
+    ).trim();
     const model = String(
       sttSelection?.model_id ?? settings?.remote_stt?.model_id ?? "",
-    ).toLowerCase();
+    )
+      .trim()
+      .toLowerCase();
     const isOpenAiRealtime =
       preset === "openai" &&
       REALTIME_OPENAI_MODELS.has(model) &&
@@ -122,7 +124,16 @@ const getOutputRouteContext = (
     const isGeminiRealtime =
       (preset === "vercel" && model === STT_MODEL_IDS.vercelGeminiLive) ||
       (preset === "google" && model === STT_MODEL_IDS.googleGeminiLive);
-    remoteLiveOutput = isOpenAiRealtime || isGeminiRealtime;
+    const isReson8Realtime =
+      preset === "reson8" && model === STT_MODEL_IDS.reson8Rumble2;
+    const isElevenLabsRealtime =
+      preset === "elevenlabs" &&
+      model === STT_MODEL_IDS.elevenlabsScribeV3Live;
+    remoteLiveOutput =
+      isOpenAiRealtime ||
+      isGeminiRealtime ||
+      isReson8Realtime ||
+      isElevenLabsRealtime;
   }
 
   return {

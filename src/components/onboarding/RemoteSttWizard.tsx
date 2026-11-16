@@ -22,7 +22,7 @@ interface RemoteSttWizardProps {
   skipDisabled?: boolean;
 }
 
-type EngineType = "openai" | "gemini" | "soniox" | "deepgram";
+type EngineType = "openai" | "gemini" | "soniox" | "deepgram" | "elevenlabs";
 type GeminiWorkflow = "live" | "recorded";
 
 const getGeminiModel = (
@@ -94,6 +94,13 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
         label: t("onboarding.remoteSttWizard.engineOptions.gemini", "Gemini"),
       },
       {
+        value: "elevenlabs",
+        label: t(
+          "onboarding.remoteSttWizard.engineOptions.elevenlabs",
+          "ElevenLabs Scribe v3 Live",
+        ),
+      },
+      {
         value: "soniox",
         label: t("onboarding.remoteSttWizard.engineOptions.soniox"),
       },
@@ -108,7 +115,9 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
   const isSoniox = engine === "soniox";
   const isDeepgram = engine === "deepgram";
   const isGemini = engine === "gemini";
-  const savesApiKeyWithoutTest = isSoniox || isDeepgram || isGemini;
+  const isElevenLabs = engine === "elevenlabs";
+  const savesApiKeyWithoutTest =
+    isSoniox || isDeepgram || isGemini || isElevenLabs;
   const isCustomRemotePreset = remotePreset === "custom";
   const hasRequiredRemoteUrl =
     isSoniox || isDeepgram || !isCustomRemotePreset || baseUrl.trim().length > 0;
@@ -133,6 +142,11 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
       configureRemotePreset(
         "vercel",
         getGeminiModel("vercel", geminiWorkflow),
+      );
+    } else if (value === "elevenlabs") {
+      configureRemotePreset(
+        "elevenlabs",
+        REMOTE_STT_PRESETS.elevenlabs.defaultModel,
       );
     } else if (value === "openai") {
       configureRemotePreset(
@@ -175,7 +189,7 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
         await invoke("change_remote_stt_provider_preset_setting", {
           preset: remotePreset,
         });
-        if (!isGemini) {
+        if (!isGemini && !isElevenLabs) {
           await invoke("change_remote_stt_allow_insecure_http_setting", {
             enabled: allowInsecureHttp,
           });
@@ -194,7 +208,7 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
           throw new Error(keyResult.error);
         }
 
-        if (isGemini) {
+        if (isGemini || isElevenLabs) {
           setConnectionStatus("success");
           setConnectionMessage(
             t("onboarding.remoteSttWizard.apiKeySaved", "API key saved."),
@@ -253,7 +267,7 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
           await invoke("change_remote_stt_provider_preset_setting", {
             preset: remotePreset,
           });
-          if (!isGemini) {
+          if (!isGemini && !isElevenLabs) {
             await invoke("change_remote_stt_allow_insecure_http_setting", {
               enabled: allowInsecureHttp,
             });
@@ -353,7 +367,7 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
               }}
               isClearable={false}
             />
-            {!isGemini && (
+            {!isGemini && !isElevenLabs && (
               <p className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
                 {t("onboarding.remoteSttWizard.whisperFamilyRecommendation")}
               </p>
@@ -388,6 +402,30 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
                 {remotePreset === "google"
                   ? "Google AI Studio"
                   : "Vercel AI Gateway"}
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          ) : isElevenLabs ? (
+            <div className="p-4 bg-cyan-500/10 border border-cyan-400/30 rounded-xl text-sm space-y-2">
+              <p className="text-text/90">
+                {t(
+                  "onboarding.remoteSttWizard.elevenlabsInfo",
+                  "ElevenLabs Scribe v3 Live (scribe_v3_live) streams interim and finalized speech over WebSocket (plus speaker diarization in Live Monitor) and uses the scribe_v3 HTTP companion for completed recordings and file transcription.",
+                )}
+              </p>
+              <p className="text-text/65 text-xs">
+                {t(
+                  "onboarding.remoteSttWizard.elevenlabsDetails",
+                  "Uses https://api.elevenlabs.io/v1 with an isolated STT key (separate from TTS). Realtime sends Custom Words as keyterm_library; completed recordings and files apply Custom Words locally after transcription. Free-form STT prompts and English translation are not supported.",
+                )}
+              </p>
+              <a
+                href="https://elevenlabs.io/app/settings/api-keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-cyan-300 hover:text-cyan-200 font-medium transition-colors"
+              >
+                {t("settings.advanced.remoteStt.elevenlabs.apiKeysLink", "ElevenLabs API Keys")}
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
             </div>
@@ -559,7 +597,7 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
           )}
 
           {/* OpenAI-specific fields */}
-          {!isSoniox && !isDeepgram && !isGemini && (
+          {!isSoniox && !isDeepgram && !isGemini && !isElevenLabs && (
             <>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-text/80">
@@ -726,14 +764,19 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
               placeholder={
                 isDeepgram
                   ? "dg-..."
-                  : isGemini && remotePreset === "google"
-                    ? "AIza..."
-                    : isGemini
-                      ? t(
-                          "onboarding.remoteSttWizard.geminiApiKeyPlaceholder",
-                          "Paste your Vercel AI Gateway API key",
-                        )
-                      : "sk-..."
+                  : isElevenLabs
+                    ? t(
+                        "onboarding.remoteSttWizard.elevenlabsApiKeyPlaceholder",
+                        "Enter your ElevenLabs API key",
+                      )
+                    : isGemini && remotePreset === "google"
+                      ? "AIza..."
+                      : isGemini
+                        ? t(
+                            "onboarding.remoteSttWizard.geminiApiKeyPlaceholder",
+                            "Paste your Vercel AI Gateway API key",
+                          )
+                        : "sk-..."
               }
               disabled={isLoading}
             />

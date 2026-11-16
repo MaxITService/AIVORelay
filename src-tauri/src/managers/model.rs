@@ -639,11 +639,42 @@ impl Progress for HfDownloadProgress {
     }
 }
 
+/// Startup notice that the saved local model is unknown to this build.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct MissingModelSelectionNotice {
+    pub missing_model: String,
+    /// Display name of the model that took its place, when one was available.
+    pub replacement_model: Option<String>,
+    /// The user chose to switch without being asked, so no dialog is needed.
+    pub auto_switched: bool,
+}
+
+const MAX_RECENT_LOCAL_MODELS: usize = 8;
+
+/// Moves `model_id` to the front of the most-recently-used list.
+pub(crate) fn push_recent_model(recent: &mut Vec<String>, model_id: &str) {
+    recent.retain(|id| id != model_id);
+    recent.insert(0, model_id.to_string());
+    recent.truncate(MAX_RECENT_LOCAL_MODELS);
+}
+
+/// The most recently used model other than `missing` that this build can run.
+fn pick_recent_fallback<'a>(
+    recent: &'a [String],
+    missing: Option<&str>,
+    is_runnable: impl Fn(&str) -> bool,
+) -> Option<&'a str> {
+    recent
+        .iter()
+        .map(String::as_str)
+        .find(|id| Some(*id) != missing && is_runnable(id))
+}
+
 pub struct ModelManager {
     app_handle: AppHandle,
     models_dir: PathBuf,
     available_models: Mutex<HashMap<String, ModelInfo>>,
-    missing_selection_notice: Mutex<Option<(String, Option<String>)>>,
+    missing_selection_notice: Mutex<Option<MissingModelSelectionNotice>>,
     /// Cancellation tokens for active downloads, keyed by model_id
     cancellation_tokens: Mutex<HashMap<String, CancellationToken>>,
     verified_detectors: Mutex<HashMap<PathBuf, (u64, std::time::SystemTime, String)>>,
@@ -1897,7 +1928,7 @@ impl ModelManager {
         Ok(())
     }
 
-    pub fn take_missing_selection_notice(&self) -> Option<(String, Option<String>)> {
+    pub fn take_missing_selection_notice(&self) -> Option<MissingModelSelectionNotice> {
         self.missing_selection_notice.lock().unwrap().take()
     }
 
@@ -1923,32 +1954,57 @@ impl ModelManager {
             }
         }
 
-        let models = self.available_models.lock().unwrap();
-        let selected_model_available = if settings.selected_model.is_empty() {
-            false
-        } else {
-            models
-                .get(&settings.selected_model)
-                .map(|model| model.is_downloaded)
-                .unwrap_or(false)
+        // Decide under the lock, then release it before any settings write (disk I/O).
+        let (selected_model_available, fallback_model) = {
+            let models = self.available_models.lock().unwrap();
+            let selected_model_available = if settings.selected_model.is_empty() {
+                false
+            } else {
+                models
+                    .get(&settings.selected_model)
+                    .map(|model| model.is_downloaded)
+                    .unwrap_or(false)
+            };
+            let fallback_model = if settings.selected_model.is_empty() || !selected_model_available {
+                pick_recent_fallback(
+                    &settings.recent_local_models,
+                    missing_selection.as_deref(),
+                    |id| models.get(id).is_some_and(|model| model.is_downloaded),
+                )
+                .and_then(|id| models.get(id))
+                .or_else(|| models.values().find(|model| model.is_downloaded))
+                .map(|model| (model.id.clone(), model.name.clone()))
+            } else {
+                None
+            };
+            (selected_model_available, fallback_model)
         };
 
-        // If no model is selected or selected model is unavailable, auto-select the first downloaded model.
+        if selected_model_available
+            && settings.recent_local_models.first() != Some(&settings.selected_model)
+        {
+            let mut updated_settings = settings.clone();
+            push_recent_model(
+                &mut updated_settings.recent_local_models,
+                &settings.selected_model,
+            );
+            write_settings(&self.app_handle, updated_settings);
+        }
+
+        // If no model is selected or selected model is unavailable, prefer the model the
+        // user used most recently, otherwise the first downloaded one.
         if settings.selected_model.is_empty() || !selected_model_available {
-            // Find the first available (downloaded) model
-            if let Some(available_model) = models.values().find(|model| model.is_downloaded) {
-                info!(
-                    "Auto-selecting model: {} ({})",
-                    available_model.id, available_model.name
-                );
+            if let Some((available_id, available_name)) = fallback_model {
+                info!("Auto-selecting model: {} ({})", available_id, available_name);
 
                 // Update settings with the selected model
-                let mut updated_settings = settings;
-                updated_settings.selected_model = available_model.id.clone();
-                replacement_name = Some(available_model.name.clone());
+                let mut updated_settings = settings.clone();
+                updated_settings.selected_model = available_id.clone();
+                push_recent_model(&mut updated_settings.recent_local_models, &available_id);
+                replacement_name = Some(available_name);
                 write_settings(&self.app_handle, updated_settings);
 
-                info!("Successfully auto-selected model: {}", available_model.id);
+                info!("Successfully auto-selected model: {}", available_id);
             } else if !settings.selected_model.is_empty() {
                 warn!(
                     "Selected model {} is unavailable and no downloaded models were found.",
@@ -1959,7 +2015,13 @@ impl ModelManager {
 
         // Startup precedes the WebView listener. Retain the notice until the UI reads it.
         if let Some(model_id) = missing_selection {
-            *self.missing_selection_notice.lock().unwrap() = Some((model_id, replacement_name));
+            let auto_switched =
+                replacement_name.is_some() && settings.auto_switch_unavailable_model;
+            *self.missing_selection_notice.lock().unwrap() = Some(MissingModelSelectionNotice {
+                missing_model: model_id,
+                replacement_model: replacement_name,
+                auto_switched,
+            });
         }
         Ok(())
     }
@@ -3262,6 +3324,33 @@ mod tests {
         effective_language, hf_source_url, model_hf_source, HfDownloadProgressState, ModelManager,
     };
     use std::collections::HashMap;
+
+    #[test]
+    fn recent_models_keep_newest_first_without_duplicates_and_stay_bounded() {
+        let mut recent = Vec::new();
+        for id in ["a", "b", "a", "c"] {
+            super::push_recent_model(&mut recent, id);
+        }
+        assert_eq!(recent, ["c", "a", "b"]);
+        for n in 0..20 {
+            super::push_recent_model(&mut recent, &format!("m{n}"));
+        }
+        assert_eq!(recent.len(), super::MAX_RECENT_LOCAL_MODELS);
+        assert_eq!(recent[0], "m19");
+    }
+
+    #[test]
+    fn fallback_prefers_the_newest_runnable_model_and_skips_the_missing_one() {
+        let recent = ["dev-only", "turbo", "small"].map(String::from);
+        let runnable = |id: &str| id != "dev-only" && id != "small";
+        assert_eq!(super::pick_recent_fallback(&recent, None, runnable), Some("turbo"));
+        assert_eq!(
+            super::pick_recent_fallback(&recent, Some("turbo"), |id| id != "dev-only"),
+            Some("small")
+        );
+        assert_eq!(super::pick_recent_fallback(&recent, None, |_| false), None);
+        assert_eq!(super::pick_recent_fallback(&[], None, |_| true), None);
+    }
 
     #[test]
     fn detector_sources_are_real_http_urls() {

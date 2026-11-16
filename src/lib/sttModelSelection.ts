@@ -15,6 +15,9 @@ export const STT_MODEL_IDS = {
   vercelGeminiLive: "google/gemini-3.5-transcribe-live",
   googleGeminiBatch: "gemini-3.5-transcribe",
   vercelGeminiBatch: "google/gemini-3.5-transcribe",
+  reson8Rumble2: "rumble-2",
+  elevenlabsScribeV3Live: "scribe_v3_live",
+  elevenlabsScribeV3: "scribe_v3",
   whisperLargeV3Turbo: "whisper-large-v3-turbo",
 } as const;
 
@@ -26,6 +29,30 @@ export const isGeminiLiveSelection = (
     selection.model_id === STT_MODEL_IDS.vercelGeminiLive) ||
     (selection.provider_preset === "google" &&
       selection.model_id === STT_MODEL_IDS.googleGeminiLive));
+
+export const isReson8Selection = (selection: SttModelSelection): boolean =>
+  selection.provider === "remote_openai_compatible" &&
+  selection.provider_preset === "reson8" &&
+  selection.model_id === STT_MODEL_IDS.reson8Rumble2;
+
+export const isElevenLabsLiveSelection = (
+  selection: SttModelSelection,
+): boolean =>
+  selection.provider === "remote_openai_compatible" &&
+  selection.provider_preset === "elevenlabs" &&
+  selection.model_id === STT_MODEL_IDS.elevenlabsScribeV3Live;
+
+export const isElevenLabsFileSelection = (
+  selection: SttModelSelection,
+): boolean =>
+  selection.provider === "remote_openai_compatible" &&
+  selection.provider_preset === "elevenlabs" &&
+  selection.model_id === STT_MODEL_IDS.elevenlabsScribeV3;
+
+export const isElevenLabsSelection = (
+  selection: SttModelSelection,
+): boolean =>
+  isElevenLabsLiveSelection(selection) || isElevenLabsFileSelection(selection);
 
 const isGeminiBatchSelection = (selection: SttModelSelection): boolean =>
   selection.provider === "remote_openai_compatible" &&
@@ -103,6 +130,23 @@ const GEMINI_LIVE_CAPABILITIES = capabilities(["dictation", "live"], {
   languageHints: ["dictation", "live"],
   vocabulary: ["dictation", "live"],
 });
+const RESON8_CAPABILITIES = capabilities(["dictation", "file", "live"], {
+  languageHints: ["dictation", "file", "live"],
+});
+const ELEVENLABS_LIVE_CAPABILITIES = capabilities(
+  ["dictation", "file", "live"],
+  {
+    diarization: ["live"],
+    languageHints: ["dictation", "file", "live"],
+    vocabulary: ["dictation", "file", "live"],
+    timestamps: ["file"],
+  },
+);
+const ELEVENLABS_FILE_CAPABILITIES = capabilities(["dictation", "file"], {
+  languageHints: ["dictation", "file"],
+  vocabulary: ["dictation", "file"],
+  timestamps: ["file"],
+});
 const GENERIC_REMOTE_CAPABILITIES = capabilities(["dictation", "file"], {
   languageHints: ["dictation", "file"],
 });
@@ -161,6 +205,15 @@ export const sttModelCapabilities = (
   if (isGeminiLiveSelection(selection)) {
     return GEMINI_LIVE_CAPABILITIES;
   }
+  if (isReson8Selection(selection)) {
+    return RESON8_CAPABILITIES;
+  }
+  if (isElevenLabsLiveSelection(selection)) {
+    return ELEVENLABS_LIVE_CAPABILITIES;
+  }
+  if (isElevenLabsFileSelection(selection)) {
+    return ELEVENLABS_FILE_CAPABILITIES;
+  }
   if (isGeminiBatchSelection(selection)) {
     return selection.provider_preset === "google"
       ? GEMINI_CAPABILITIES
@@ -194,11 +247,15 @@ export const globalSttSelection = (
     };
   }
   if (provider === "remote_openai_compatible") {
+    const preset = settings?.remote_stt?.provider_preset || "groq";
+    const defaultModelId =
+      preset === "elevenlabs"
+        ? STT_MODEL_IDS.elevenlabsScribeV3Live
+        : STT_MODEL_IDS.whisperLargeV3Turbo;
     return {
       provider,
-      model_id:
-        settings?.remote_stt?.model_id || STT_MODEL_IDS.whisperLargeV3Turbo,
-      provider_preset: settings?.remote_stt?.provider_preset || "groq",
+      model_id: settings?.remote_stt?.model_id || defaultModelId,
+      provider_preset: preset,
     };
   }
   return {
@@ -229,7 +286,11 @@ export const legacyLiveSttSelection = (
       model_id: modelId,
       provider_preset: preset,
     };
-    return isGeminiLiveSelection(selection) ? selection : null;
+    return isGeminiLiveSelection(selection) ||
+      isReson8Selection(selection) ||
+      isElevenLabsLiveSelection(selection)
+      ? selection
+      : null;
   }
   if (liveProvider === "remote_soniox" || liveProvider === "system") {
     return {
@@ -301,6 +362,20 @@ export const sttCatalog = (
         "Gemini 3.5 Transcribe Live",
         GEMINI_LIVE_CAPABILITIES,
       ),
+      remoteSelection(
+        "reson8",
+        "Reson8",
+        STT_MODEL_IDS.reson8Rumble2,
+        "Rumble 2 (Final chunks only)",
+        RESON8_CAPABILITIES,
+      ),
+      remoteSelection(
+        "elevenlabs",
+        "ElevenLabs",
+        STT_MODEL_IDS.elevenlabsScribeV3Live,
+        "Scribe v3 Live",
+        ELEVENLABS_LIVE_CAPABILITIES,
+      ),
     ];
 
   if (workflow === "live") {
@@ -345,6 +420,20 @@ export const sttCatalog = (
       STT_MODEL_IDS.googleGeminiBatch,
       "Gemini 3.5 Transcribe",
       GEMINI_CAPABILITIES,
+    ),
+    remoteSelection(
+      "reson8",
+      "Reson8",
+      STT_MODEL_IDS.reson8Rumble2,
+      "Rumble 2",
+      RESON8_CAPABILITIES,
+    ),
+    remoteSelection(
+      "elevenlabs",
+      "ElevenLabs",
+      STT_MODEL_IDS.elevenlabsScribeV3,
+      "Scribe v3",
+      ELEVENLABS_FILE_CAPABILITIES,
     ),
     remoteSelection("openai", "OpenAI", "gpt-transcribe", "GPT Transcribe"),
     remoteSelection(

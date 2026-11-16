@@ -176,12 +176,24 @@ const liveProviders: Partial<AppSettings>[] = [
     soniox_live_enabled: true },
   { transcription_provider: "remote_deepgram", deepgram_model: "nova-3",
     deepgram_live_enabled: true },
-  ...(["openai", "google", "vercel"] as const).map((preset) => ({
-    transcription_provider: "remote_openai_compatible" as const,
-    remote_stt: { provider_preset: preset, model_id: preset === "openai"
-      ? "gpt-live-transcribe" : preset === "google"
-        ? "gemini-3.5-transcribe-live" : "google/gemini-3.5-transcribe-live" } as any,
-  })),
+  ...(["openai", "google", "vercel", "reson8", "elevenlabs"] as const).map(
+    (preset) => ({
+      transcription_provider: "remote_openai_compatible" as const,
+      remote_stt: {
+        provider_preset: preset,
+        model_id:
+          preset === "openai"
+            ? "gpt-live-transcribe"
+            : preset === "google"
+              ? "gemini-3.5-transcribe-live"
+              : preset === "reson8"
+                ? "rumble-2"
+                : preset === "elevenlabs"
+                  ? "scribe_v3_live"
+                  : "google/gemini-3.5-transcribe-live",
+      } as any,
+    }),
+  ),
 ];
 
 for (const provider of liveProviders) {
@@ -332,3 +344,80 @@ assert.equal(getNativeDirectOutputModelId(ordinaryGlobal, localStreaming, modelI
 assert.equal(getNativeDirectOutputModelId(nativeLocal(), null, modelInfo), "streaming-model");
 assert.equal(getNativeDirectOutputModelId(nativeLocal(), sonioxRealtime, modelInfo), null);
 assert.equal(getNativeDirectOutputModelId(nativeLocal(), localWhisper, modelInfo), null);
+
+// ElevenLabs: scribe_v3_live streams direct realtime output; explicit scribe_v3 does not.
+const elevenLabsLive: SttModelSelection = {
+  provider: "remote_openai_compatible",
+  provider_preset: "elevenlabs",
+  model_id: "scribe_v3_live",
+};
+const elevenLabsBatch: SttModelSelection = {
+  provider: "remote_openai_compatible",
+  provider_preset: "elevenlabs",
+  model_id: "scribe_v3",
+};
+assert.deepEqual(
+  getProfileOutputSummary(
+    settings({
+      transcription_provider: "remote_openai_compatible",
+      remote_stt: { provider_preset: "elevenlabs", model_id: "scribe_v3_live" } as any,
+      paste_method: "ctrl_v",
+      auto_submit: false,
+      preview_output_only_enabled: false,
+      soniox_live_preview_enabled: false,
+    }),
+    {},
+    [],
+  ),
+  { route: "insertion", llmAvailable: false },
+);
+assert.deepEqual(
+  getProfileOutputSummary(
+    settings({
+      transcription_provider: "remote_openai_compatible",
+      remote_stt: { provider_preset: "elevenlabs", model_id: "scribe_v3" } as any,
+      paste_method: "ctrl_v",
+      auto_submit: false,
+      preview_output_only_enabled: false,
+      soniox_live_preview_enabled: false,
+    }),
+    {},
+    [],
+  ),
+  { route: "insertion", llmAvailable: true },
+);
+assert.equal(
+  getPostProcessingAvailability(
+    settings({
+      transcription_provider: "remote_openai_compatible",
+      remote_stt: { provider_preset: "custom", model_id: "scribe_v3_live" } as any,
+      paste_method: "ctrl_v",
+      auto_submit: false,
+    }),
+  ).available,
+  true,
+);
+assert.equal(
+  getPostProcessingAvailability(
+    settings({
+      transcription_provider: "local",
+      selected_model: "whisper-small",
+      paste_method: "ctrl_v",
+      auto_submit: false,
+      ...profileOverride(elevenLabsLive),
+    }),
+  ).available,
+  false,
+);
+assert.equal(
+  getPostProcessingAvailability(
+    settings({
+      transcription_provider: "remote_openai_compatible",
+      remote_stt: { provider_preset: "elevenlabs", model_id: "scribe_v3_live" } as any,
+      paste_method: "ctrl_v",
+      auto_submit: false,
+      ...profileOverride(elevenLabsBatch),
+    }),
+  ).available,
+  true,
+);

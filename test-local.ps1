@@ -71,8 +71,15 @@ try {
             if ($NoRun) {
                 Write-Host "  WARN - AivoRelay is running, but -NoRun only compiles test binaries." -ForegroundColor Yellow
                 Write-Host $details -ForegroundColor DarkYellow
+            } elseif ($List) {
+                Write-Host "  OK - AivoRelay is running; -List does not execute test bodies." -ForegroundColor Green
+            } elseif ($LibOnly) {
+                # Library unit tests use injected transports/state, temporary files,
+                # and ephemeral loopback ports, not the running app's resources.
+                # Hardware/model/service smoke tests remain #[ignore] by default.
+                Write-Host "  OK - AivoRelay is running; isolated library unit tests can run alongside it." -ForegroundColor Green
             } else {
-                throw "AivoRelay is already running. Runtime tests may conflict with microphone, config, logs, or local app resources. Close AivoRelay, use -NoRun for compile-only validation, or pass -SkipChecks to bypass this guard.`n$details"
+                throw "AivoRelay is already running. Unrestricted tests may conflict with microphone, config, logs, or local app resources. Use -LibOnly for isolated unit tests, -List to list tests, -NoRun for compile-only validation, or close AivoRelay before an unrestricted run.`n$details"
             }
         } else {
             Write-Host "  OK - No running AivoRelay app process detected" -ForegroundColor Green

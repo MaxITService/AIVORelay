@@ -2,7 +2,8 @@ param(
     [ValidateRange(1, 65535)]
     [int]$PlaywrightPort = 9333,
     [string]$CargoTargetDir = "Q:\t\d",
-    [switch]$SkipProcessCheck
+    [switch]$SkipProcessCheck,
+    [switch]$NoSwitch
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,6 +11,7 @@ Set-StrictMode -Version Latest
 
 . "$PSScriptRoot\setup-rust-build-env.ps1"
 . "$PSScriptRoot\confirm-aivorelay-dev-launch.ps1"
+. "$PSScriptRoot\aivorelay-dev-session.ps1"
 
 function Assert-TcpPortAvailable {
     param([Parameter(Mandatory = $true)][int]$Port)
@@ -68,8 +70,8 @@ if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
     throw "'bun' not found in PATH; ensure bun is installed and available."
 }
 
-if (-not $SkipProcessCheck) {
-    Confirm-AivoRelayLaunch -TargetRoot $repoRoot -CargoTargetDir $CargoTargetDir -Ports @(1420, $PlaywrightPort)
+if (-not $SkipProcessCheck -or $NoSwitch) {
+    Confirm-AivoRelayLaunch -TargetRoot $repoRoot -CargoTargetDir $CargoTargetDir -Ports @(1420, $PlaywrightPort) -NoSwitch:$NoSwitch
 }
 
 $context = $null
@@ -97,10 +99,7 @@ try {
 
     Push-Location -LiteralPath $repoRoot
     try {
-        & bun x tauri dev
-        if ($LASTEXITCODE -ne 0) {
-            throw "bun x tauri dev failed with exit code $LASTEXITCODE"
-        }
+        Invoke-AivoRelayDevSession -TargetRoot $repoRoot -CargoTargetDir $context.CargoTargetDir -NoSwitch:$NoSwitch
     }
     finally {
         Pop-Location

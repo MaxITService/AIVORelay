@@ -84,6 +84,10 @@ When preparing release text for user review:
    - `main` (also covers the Store edition files): `.github/release-notes/main.md`
    - `integration/cuda`: `.github/release-notes/cuda.md`
 5. GitHub Actions reads these Markdown files directly and prepends them ahead of `generate_release_notes: true`.
+   - For `main`, always make **Download for Windows** the first visible line of the release body, before What's New. Link directly to the main signed desktop MSI in that exact version's release: `https://github.com/MaxITService/AIVORelay/releases/download/vX.Y.Z/<actual-main-msi-asset-name>`.
+   - Update both the tag version and exact asset filename at every release. Verify the filename against the publish workflow's destination name or the uploaded assets; do not assume a previous release's filename, use a moving `/latest/` link, or link to the Store MSI or portable ZIP. For 1.0.53 the MSI is `00_AivoRelay_1.0.53_x64_en-US.msi`.
+   - Keep the filename under **Which Windows version to choose** consistent with this download link. When updating an existing draft, apply the same link and filename to the draft body as well as `.github/release-notes/main.md`.
+   - Preserve the requested `00_` prefix for the main Windows MSI so it sorts first. The publish workflow collects it under that name before generating its `.sig` and both Windows URLs in `latest.json`. Verify the final draft uses that exact asset name. Runs started before this workflow change still need the MSI/signature rename and Windows URL update after uploads. Do not rename Store assets or alter the signed MSI bytes. Changing workflow YAML still requires the explicit approval above.
 6. Present the final draft in chat and ask explicitly: use as-is or apply user-edited text from chat.
 7. Always mention upstream intakes included since the previous release tag. Keep this to one short, user-facing bullet, for example: "Included the latest upstream Handy improvements and fixes."
 

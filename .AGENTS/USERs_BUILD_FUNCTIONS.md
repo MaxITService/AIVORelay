@@ -61,13 +61,14 @@ function Assert-AivoRelayTcpPortAvailable {
   }
 }
 
-# Confirms closing a previous AivoRelay session before either dev launcher starts.
+# Checks for an existing session only with -NoSwitch; never prompts or stops it.
 function Confirm-AivoRelayDevLaunch {
   [CmdletBinding()]
   param(
     [Parameter(Mandatory)][string]$TargetRoot,
     [string]$CargoTargetDir = 'Q:\t\d',
-    [int[]]$Ports = @(1420)
+    [int[]]$Ports = @(1420),
+    [switch]$NoSwitch
   )
 
   $preflightScript = Join-Path $TargetRoot 'scripts\confirm-aivorelay-dev-launch.ps1'
@@ -75,7 +76,7 @@ function Confirm-AivoRelayDevLaunch {
     throw "AivoRelay launch preflight not found: $preflightScript"
   }
   . $preflightScript
-  Confirm-AivoRelayLaunch -TargetRoot $TargetRoot -CargoTargetDir $CargoTargetDir -Ports $Ports
+  Confirm-AivoRelayLaunch -TargetRoot $TargetRoot -CargoTargetDir $CargoTargetDir -Ports $Ports -NoSwitch:$NoSwitch
 }
 
 # Dev-AivoRelay
@@ -86,7 +87,8 @@ function Dev-AivoRelay {
   param(
     [switch]$EnablePlaywright,
     [ValidateRange(1, 65535)]
-    [int]$PlaywrightPort = 9333
+    [int]$PlaywrightPort = 9333,
+    [switch]$NoSwitch
   )
 
   # Run developer environment launcher if available
@@ -109,7 +111,7 @@ function Dev-AivoRelay {
 
   $launchPorts = @(1420)
   if ($EnablePlaywright) { $launchPorts += $PlaywrightPort }
-  Confirm-AivoRelayDevLaunch -TargetRoot $target -Ports $launchPorts
+  Confirm-AivoRelayDevLaunch -TargetRoot $target -Ports $launchPorts -NoSwitch:$NoSwitch
 
   Set-AivoRelayBindgenWindowsEnv
   Ensure-AivoRelayVulkanDll -TargetRoot $target
@@ -136,11 +138,9 @@ function Dev-AivoRelay {
     Write-Host "Using CARGO_TARGET_DIR=$cargoTargetDir for AIVORelay dev." -ForegroundColor DarkGray
     Write-Host "Starting 'bun x tauri dev' in $target" -ForegroundColor Green
 
-    # Run interactively so output shows in current shell
-    & bun x tauri dev
-    if ($LASTEXITCODE -ne 0) {
-      throw "bun x tauri dev failed with exit code $LASTEXITCODE"
-    }
+    $sessionScript = Join-Path $target 'scripts\aivorelay-dev-session.ps1'
+    . $sessionScript
+    Invoke-AivoRelayDevSession -TargetRoot $target -CargoTargetDir $cargoTargetDir -NoSwitch:$NoSwitch
   }
   finally {
     if ($locationPushed) {
@@ -230,7 +230,8 @@ function Fast-Dev-AivoRelay {
   param(
     [switch]$EnablePlaywright,
     [ValidateRange(1, 65535)]
-    [int]$PlaywrightPort = 9333
+    [int]$PlaywrightPort = 9333,
+    [switch]$NoSwitch
   )
 
   $target = 'Q:\AIVORelay'
@@ -240,12 +241,12 @@ function Fast-Dev-AivoRelay {
 
   $launchPorts = @(1420)
   if ($EnablePlaywright) { $launchPorts += $PlaywrightPort }
-  Confirm-AivoRelayDevLaunch -TargetRoot $target -Ports $launchPorts
+  Confirm-AivoRelayDevLaunch -TargetRoot $target -Ports $launchPorts -NoSwitch:$NoSwitch
 
   $lldLinkPath = "C:\Program Files\LLVM\bin\lld-link.exe"
   if (-not (Test-Path -LiteralPath $lldLinkPath)) {
     Write-Warning "lld-link.exe not found at $lldLinkPath. Falling back to Dev-AivoRelay."
-    Dev-AivoRelay -EnablePlaywright:$EnablePlaywright -PlaywrightPort $PlaywrightPort
+    Dev-AivoRelay -EnablePlaywright:$EnablePlaywright -PlaywrightPort $PlaywrightPort -NoSwitch:$NoSwitch
     return
   }
 
@@ -296,7 +297,7 @@ debug = false
     Write-Host "  profile.dev.debug = limited" -ForegroundColor DarkGray
     Write-Host "  profile.dev.package.\"*\".debug = false" -ForegroundColor DarkGray
 
-    Dev-AivoRelay -EnablePlaywright:$EnablePlaywright -PlaywrightPort $PlaywrightPort
+    Dev-AivoRelay -EnablePlaywright:$EnablePlaywright -PlaywrightPort $PlaywrightPort -NoSwitch:$NoSwitch
   }
   finally {
     if ($hadCargoConfig) {
@@ -330,16 +331,26 @@ Dev-AivoRelay -EnablePlaywright
 Fast-Dev-AivoRelay -EnablePlaywright
 Fast-Dev-AivoRelay -EnablePlaywright -PlaywrightPort 9334
 
+# Refuse an existing app/dev session; never switch production:
+Dev-AivoRelay -NoSwitch
+Fast-Dev-AivoRelay -NoSwitch
+
 # Run from a second PowerShell while the app is open:
 Test-AivoRelayPlaywright
-Test-AivoRelayPlaywright -PlaywrightPort 9334 -ScreenshotPath .\aivorelay.png
+Test-AivoRelayPlaywright -PlaywrightPort 9334 -ScreenshotPath .\.AGENTS\.untracked\playwright\aivorelay.png
 ```
 
 Behavior notes:
 
-- both launchers list a previous AivoRelay app/dev session and accept Enter to close it before continuing; any other input cancels the new launch
-- unrelated Bun/Node sessions and PowerShell consoles are left running; non-interactive launches require the existing AivoRelay session to be closed first
-- Fast mode asks before saving or changing `.cargo/config.toml`, allowing the previous Fast session to restore its original config first
+- without `-NoSwitch`, the old process preflight is bypassed: there is no list of Node/esbuild processes, close confirmation, or automatic termination of a previous dev session
+- an installed production instance stays running during compilation; a Cargo runner stops it only after the new dev executable is ready, immediately before launching that executable
+- Ctrl+C in the launcher console stops dev and restores the production executable stopped by this session; Escape stops dev without restoring production
+- if compilation fails before the handoff, production stays running; if no production instance was stopped, none is started on exit
+- colored console messages announce compilation, production-to-dev handoff, dev-to-production handoff, and Escape exit
+- `-NoSwitch` disables automatic switching and immediately rejects an existing AivoRelay app/dev session without prompting or stopping it; this check also applies with `-SkipProcessCheck` in the Playwright script
+- the console must be interactive and focused for Ctrl+C/Escape; unrelated Bun/Node sessions and PowerShell consoles are left running
+- the checked-in `scripts/aivorelay-dev-session.ps1` and `scripts/run-aivorelay-dev-app.ps1` supply the same switching behavior for regular, Fast, and Playwright dev launchers
+- with `-NoSwitch`, Fast mode rejects an existing session before changing `.cargo/config.toml`
 - the checked-in `scripts/confirm-aivorelay-dev-launch.ps1` supplies the same preflight for both profile functions and `start-playwright-tauri-dev.ps1`
 - when enabled, the same visible `bun x tauri dev` instance exposes WebView2 CDP on the selected port
 - the launcher rejects an already occupied CDP port before starting a long build

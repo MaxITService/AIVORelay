@@ -407,6 +407,19 @@ export const TranscribeFileSettings: React.FC = () => {
     transcriptionProvider === "remote_openai_compatible"
       ? (fileSelection.provider_preset ?? "")
       : "";
+  const isReson8File =
+    transcriptionProvider === "remote_openai_compatible" &&
+    remotePreset === "reson8";
+  const isElevenLabsFile =
+    transcriptionProvider === "remote_openai_compatible" &&
+    remotePreset === "elevenlabs";
+  const reson8SubtitleUnsupportedError =
+    isReson8File && (outputFormat === "srt" || outputFormat === "vtt")
+      ? t(
+          "transcribeFile.reson8.subtitlesUnsupported",
+          "Reson8 Rumble-2 does not support SRT/VTT subtitle timestamps in this integration. Select Text output.",
+        )
+      : null;
   const isGeminiLiveFileUnsupported =
     transcriptionProvider === "remote_openai_compatible" &&
     [
@@ -963,6 +976,7 @@ export const TranscribeFileSettings: React.FC = () => {
     !isCancellationCommandPending &&
     !recordingBlocksFileTranscription &&
     !isGeminiLiveFileUnsupported &&
+    !reson8SubtitleUnsupportedError &&
     !selectedFileExceedsGeminiLimit &&
     !selectedFileExceedsGoogleInlineLimit &&
     !geminiCompatibilityError;
@@ -1161,6 +1175,10 @@ export const TranscribeFileSettings: React.FC = () => {
   const handleTranscribe = async () => {
     if (!selectedFile || !canTranscribe) return;
     if (isGeminiLiveFileUnsupported) return;
+    if (reson8SubtitleUnsupportedError) {
+      setError(reson8SubtitleUnsupportedError);
+      return;
+    }
     if (selectedFileExceedsGoogleInlineLimit) {
       setError(googleInlineLimitExceededMessage);
       return;
@@ -1236,7 +1254,7 @@ export const TranscribeFileSettings: React.FC = () => {
 
   const batchDisabledReason = isGeminiLiveFileUnsupported
     ? t("transcribeFile.liveModelUnsupported")
-    : geminiCompatibilityError;
+    : reson8SubtitleUnsupportedError ?? geminiCompatibilityError;
   const addBatchFiles = useCallback((paths: string[]) => {
     if (batchDisabledReason) {
       setError(batchDisabledReason);
@@ -1679,23 +1697,43 @@ export const TranscribeFileSettings: React.FC = () => {
                 {t("transcribeFile.outputFormat.label")}
               </span>
               <div className="flex gap-2">
-                {(["text", "srt", "vtt"] as const).map((fmt) => (
-                  <button
-                    key={fmt}
-                    onClick={() => {
-                      setOutputFormat(fmt);
-                    }}
-                    className={`px-3 py-1 text-xs font-medium rounded transition-all ${
-                      outputFormat === fmt
-                        ? "bg-[#9b5de5] text-white"
-                        : "bg-[#1a1a1a] text-[#b8b8b8] hover:bg-[#222222] border border-[#333333]"
-                    }`}
-                  >
-                    {fmt.toUpperCase()}
-                  </button>
-                ))}
+                {(["text", "srt", "vtt"] as const).map((fmt) => {
+                  const unsupportedForReson8 =
+                    isReson8File && (fmt === "srt" || fmt === "vtt");
+                  return (
+                    <button
+                      key={fmt}
+                      onClick={() => {
+                        setOutputFormat(fmt);
+                      }}
+                      disabled={unsupportedForReson8}
+                      title={
+                        unsupportedForReson8
+                          ? t(
+                              "transcribeFile.reson8.subtitlesUnsupported",
+                              "Reson8 Rumble-2 does not support SRT/VTT subtitle timestamps in this integration. Select Text output.",
+                            )
+                          : undefined
+                      }
+                      className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+                        unsupportedForReson8
+                          ? "bg-[#141414] text-[#555555] border border-[#262626] cursor-not-allowed"
+                          : outputFormat === fmt
+                            ? "bg-[#9b5de5] text-white"
+                            : "bg-[#1a1a1a] text-[#b8b8b8] hover:bg-[#222222] border border-[#333333]"
+                      }`}
+                    >
+                      {fmt.toUpperCase()}
+                    </button>
+                  );
+                })}
               </div>
             </div>
+            {reson8SubtitleUnsupportedError && (
+              <p className="mt-2 text-xs text-amber-400">
+                {reson8SubtitleUnsupportedError}
+              </p>
+            )}
             <p className="mt-2 text-xs text-[#606060]">
               {showLocalChunkingOptions
                 ? t(
@@ -1706,6 +1744,16 @@ export const TranscribeFileSettings: React.FC = () => {
                   ? t(
                       "transcribeFile.gemini.outputFormatHint",
                       "Gemini Text output does not request timestamps. SRT/VTT automatically requests word timestamps and requires Verbatim mode.",
+                    )
+                : isReson8File
+                  ? t(
+                      "transcribeFile.reson8.subtitlesUnsupported",
+                      "Reson8 Rumble-2 does not support SRT/VTT subtitle timestamps in this integration. Select Text output.",
+                    )
+                : isElevenLabsFile
+                  ? t(
+                      "transcribeFile.elevenlabs.outputFormatHint",
+                      "ElevenLabs File Transcription uses the scribe_v3 HTTP companion and supports accurate word-level timestamps for SRT and VTT subtitles.",
                     )
                 : showRemoteProviderHint
                   ? t(
@@ -1941,6 +1989,22 @@ export const TranscribeFileSettings: React.FC = () => {
                   </p>
                 </div>
               )}
+            {isElevenLabsFile && !infoMessage && (
+              <div className="mt-3 rounded-lg border border-cyan-400/35 bg-cyan-400/10 p-3">
+                <p className="text-xs font-medium text-cyan-200">
+                  {t(
+                    "transcribeFile.elevenlabs.companionNoticeTitle",
+                    "ElevenLabs File Transcription · scribe_v3 HTTP Companion",
+                  )}
+                </p>
+                <p className="mt-1 text-xs text-cyan-100/90">
+                  {t(
+                    "transcribeFile.elevenlabs.companionNotice",
+                    "File transcription with ElevenLabs automatically uses the scribe_v3 prerecorded HTTP companion endpoint (POST /v1/speech-to-text) even when scribe_v3_live is selected. Supports Text, SRT, and VTT subtitles with word-level timestamps, resolves the active profile/global language hint, and applies Custom Words locally after transcription when Apply Custom Words is enabled.",
+                  )}
+                </p>
+              </div>
+            )}
 
             {/* Custom Words Toggle */}
             <div className="mt-4 space-y-2">

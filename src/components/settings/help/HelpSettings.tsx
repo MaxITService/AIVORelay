@@ -67,16 +67,12 @@ const SMART_HELP_ACTIONS = [
 
 // A settings search entry opens the exact setting the same way settings search does.
 const WHATS_NEW_ITEMS = [
-  { key: "help.whatsNew.items.languageDetection", destination: "general", searchEntryId: "profiles" },
-  { key: "help.whatsNew.items.onboarding", destination: "debug", searchEntryId: "first-start-wizard" },
-  { key: "help.whatsNew.items.dictationPractice", destination: "debug", searchEntryId: "first-start-wizard" },
-  { key: "help.whatsNew.items.fileHistory", destination: "transcribeFile", searchEntryId: "file-transcription-input" },
-  { key: "help.whatsNew.items.fileQueueRecovery", destination: "transcribeFile", searchEntryId: "file-transcription-input" },
-  { key: "help.whatsNew.items.modelDownloads", destination: "models", searchEntryId: "models" },
-  { key: "help.whatsNew.items.ttsPlayback", destination: "textToSpeech", searchEntryId: "tts-overlay" },
-  { key: "help.whatsNew.items.cloudVoices", destination: "textToSpeech", searchEntryId: "tts" },
-  { key: "help.whatsNew.items.regionalChinese", destination: "general", searchEntryId: "default-profile" },
-  { key: "help.whatsNew.items.sonioxV6", destination: "models", searchEntryId: "models" },
+  { key: "help.whatsNew.items.elevenLabsScribe", destination: "models", searchEntryId: "models" },
+  { key: "help.whatsNew.items.geminiLiveReliability", destination: "models", searchEntryId: "models" },
+  { key: "help.whatsNew.items.repeatedDecapitalization", destination: "textReplacement", searchEntryId: "decapitalize-after-edit" },
+  { key: "help.whatsNew.items.protectedLiveOutput", destination: "general", searchEntryId: "paste-method-delay" },
+  { key: "help.whatsNew.items.localModelRecovery", destination: "models", searchEntryId: "models" },
+  { key: "help.whatsNew.items.clearerModelCards", destination: "models", searchEntryId: "models" },
 ] as const;
 
 export const HelpSettings: React.FC = () => {

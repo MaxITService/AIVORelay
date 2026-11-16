@@ -2795,6 +2795,13 @@ pub fn stt_model_selection_supports_file(selection: &SttModelSelection) -> bool 
         TranscriptionProvider::Local | TranscriptionProvider::RemoteDeepgram => true,
         TranscriptionProvider::RemoteSoniox => model_id.starts_with("stt-async"),
         TranscriptionProvider::RemoteOpenAiCompatible => {
+            if selection
+                .provider_preset
+                .trim()
+                .eq_ignore_ascii_case("elevenlabs")
+            {
+                return matches!(model_id.as_str(), "scribe_v3" | "scribe_v3_live");
+            }
             !model_id.contains("transcribe-live")
                 && !model_id.contains("live-transcribe")
                 && !model_id.contains("realtime")
@@ -3415,6 +3422,7 @@ pub struct ProfileOutputSettings {
     pub paste_method: Option<PasteMethod>,
     pub clipboard_handling: Option<ClipboardHandling>,
     pub clipboard_history_allowed: Option<bool>,
+    pub copy_on_elevated_window: Option<bool>,
     pub convert_lf_to_crlf: Option<bool>,
     pub paste_delay_ms: Option<u64>,
     pub check_active_window: Option<bool>,
@@ -3463,6 +3471,7 @@ pub struct ResolvedOutputSettings {
     pub paste_method: PasteMethod,
     pub clipboard_handling: ClipboardHandling,
     pub clipboard_history_allowed: bool,
+    pub copy_on_elevated_window: bool,
     pub convert_lf_to_crlf: bool,
     pub paste_delay_ms: u64,
     pub check_active_window: bool,
@@ -3503,6 +3512,7 @@ impl ResolvedOutputSettings {
             paste_method: base.paste_method,
             clipboard_handling: base.clipboard_handling,
             clipboard_history_allowed: base.clipboard_history_allowed,
+            copy_on_elevated_window: defaults.copy_on_elevated_window.unwrap_or(false),
             convert_lf_to_crlf: base.convert_lf_to_crlf,
             paste_delay_ms: base.paste_delay_ms,
             check_active_window: defaults.check_active_window.unwrap_or(false),
@@ -3528,7 +3538,7 @@ impl ResolvedOutputSettings {
                     if let Some(value) = overrides.$field { output.$field = value; }
                 )+ };
             }
-            override_field!(paste_method, clipboard_handling, clipboard_history_allowed,
+            override_field!(paste_method, clipboard_handling, clipboard_history_allowed, copy_on_elevated_window,
                 convert_lf_to_crlf, paste_delay_ms, check_active_window, auto_submit, auto_submit_key,
                 before_insert_delay_ms, recording_start_delay_ms, auto_submit_delay_ms, live_window_resume_delay_ms,
                 live_window_stop_action, live_window_wait_limit_secs, live_window_wait_limit_action);
@@ -3563,6 +3573,7 @@ impl ResolvedOutputSettings {
         settings.paste_method = self.paste_method;
         settings.clipboard_handling = self.clipboard_handling;
         settings.clipboard_history_allowed = self.clipboard_history_allowed;
+        settings.transcription_output_defaults.copy_on_elevated_window = Some(self.copy_on_elevated_window);
         settings.convert_lf_to_crlf = self.convert_lf_to_crlf;
         settings.paste_delay_ms = self.paste_delay_ms;
         settings.auto_submit = self.auto_submit;
@@ -3926,6 +3937,14 @@ pub struct AppSettings {
     pub update_checks_enabled: bool,
     #[serde(default = "default_model")]
     pub selected_model: String,
+    /// Local models this build could actually run, newest first. A build that no
+    /// longer knows `selected_model` (for example after switching between a dev and
+    /// a release build) falls back to the most recent entry it does have.
+    #[serde(default)]
+    pub recent_local_models: Vec<String>,
+    /// Skip the explanation dialog when an unavailable local model is replaced.
+    #[serde(default)]
+    pub auto_switch_unavailable_model: bool,
     #[serde(default = "default_transcription_provider")]
     pub transcription_provider: TranscriptionProvider,
     #[serde(default = "default_remote_stt_settings")]
@@ -6020,18 +6039,77 @@ fn ensure_remote_stt_defaults(settings: &mut AppSettings) -> bool {
 
 pub const SETTINGS_STORE_PATH: &str = "settings_store.json";
 
+/// How this build was packaged, as far as the updater is concerned. Mirrors
+/// the Linux cases of `tauri::utils::platform::BundleType`; `Other` covers
+/// every other stamped type and `None` (at the call site) a binary the bundler
+/// did not stamp, such as a source, AUR or other distro build.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+enum BundleKind {
+    AppImage,
+    Deb,
+    Rpm,
+    Other,
+}
+
+/// Whether the updater plugin can install an update on Linux. It runs
+/// `dpkg -i` for a deb build, `rpm -U` for an rpm build, and otherwise swaps
+/// the running AppImage. A build with no bundle type, or one whose tool is
+/// missing (the deb repacked for Arch), would only fail after a password
+/// prompt. Pure so it can be tested on any OS.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn linux_self_update_possible(kind: Option<BundleKind>, has_tool: impl Fn(&str) -> bool) -> bool {
+    match kind {
+        Some(BundleKind::AppImage) => true,
+        Some(BundleKind::Deb) => has_tool("dpkg"),
+        Some(BundleKind::Rpm) => has_tool("rpm"),
+        Some(BundleKind::Other) | None => false,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn self_update_possible() -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    use tauri::utils::config::BundleType;
+    use tauri::utils::platform::bundle_type;
+
+    let kind = bundle_type().map(|b| match b {
+        BundleType::AppImage => BundleKind::AppImage,
+        BundleType::Deb => BundleKind::Deb,
+        BundleType::Rpm => BundleKind::Rpm,
+        _ => BundleKind::Other,
+    });
+    let has_tool = |name: &str| {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        std::env::split_paths(&path)
+            .chain(["/usr/bin", "/bin", "/usr/sbin", "/sbin"].map(std::path::PathBuf::from))
+            .any(|dir| {
+                std::fs::metadata(dir.join(name))
+                    .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+                    .unwrap_or(false)
+            })
+    };
+    linux_self_update_possible(kind, has_tool)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn self_update_possible() -> bool {
+    true
+}
+
 /// True when the packaging forces update checks off (AIVORELAY_DISABLE_UPDATER),
 /// as the Nix package does: its install path is immutable, so self-update cannot
-/// work. This is a runtime overlay and is never written to the stored settings.
+/// work. Linux packages without a supported bundle type or installer tool are
+/// also disabled. This overlay is never written to the stored settings.
 pub fn update_checks_forced_disabled() -> bool {
     static FORCED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *FORCED.get_or_init(|| {
-        std::env::var("AIVORELAY_DISABLE_UPDATER").is_ok_and(|value| {
+        !crate::distribution::allows_update_checks() || std::env::var("AIVORELAY_DISABLE_UPDATER").is_ok_and(|value| {
             !matches!(
                 value.trim().to_ascii_lowercase().as_str(),
                 "" | "0" | "false" | "no" | "off"
             )
-        })
+        }) || !self_update_possible()
     })
 }
 
@@ -6402,6 +6480,8 @@ pub fn get_default_settings() -> AppSettings {
         tray_icon_blink_frequency_hz: default_tray_icon_blink_frequency_hz(),
         update_checks_enabled: default_update_checks_enabled(),
         selected_model: "".to_string(),
+        recent_local_models: Vec::new(),
+        auto_switch_unavailable_model: false,
         transcription_provider: default_transcription_provider(),
         remote_stt: default_remote_stt_settings(),
         file_transcription_model_selection: None,
@@ -8370,6 +8450,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn elevated_clipboard_fallback_is_independent_per_profile_and_captured() {
+        let mut settings = get_default_settings();
+        assert!(!ResolvedOutputSettings::resolve(&settings, None).copy_on_elevated_window);
+        settings.transcription_output_defaults.copy_on_elevated_window = Some(true);
+        let profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
+            "id": "editor", "name": "Editor", "language": "auto", "translate_to_english": false
+        })).unwrap();
+        settings.transcription_profiles.push(profile);
+        assert!(ResolvedOutputSettings::resolve(&settings, None).copy_on_elevated_window);
+        assert!(!ResolvedOutputSettings::resolve(&settings, Some("editor")).copy_on_elevated_window);
+        settings.transcription_profiles[0].output_settings.copy_on_elevated_window = Some(true);
+        let output = ResolvedOutputSettings::resolve(&settings, Some("editor"));
+        let mut recording = get_default_settings();
+        output.apply_to_recording(&mut recording);
+        let restored: AppSettings = serde_json::from_value(serde_json::to_value(&recording).unwrap()).unwrap();
+        assert!(ResolvedOutputSettings::resolve(&restored, None).copy_on_elevated_window);
+    }
+
+    #[test]
     fn legacy_profiles_use_program_output_defaults_without_resetting_saved_defaults() {
         let profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
             "id": "legacy", "name": "Legacy", "language": "auto", "translate_to_english": false
@@ -9018,6 +9117,16 @@ mod tests {
                 "google",
                 "gemini-3.5-transcribe",
             ),
+            selection(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+                "elevenlabs",
+                "scribe_v3",
+            ),
+            selection(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+                "elevenlabs",
+                "scribe_v3_live",
+            ),
         ] {
             assert!(stt_model_selection_supports_file(&supported));
         }
@@ -9040,9 +9149,29 @@ mod tests {
                 "openai",
                 "gpt-realtime",
             ),
+            selection(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+                "elevenlabs",
+                "scribe_v2_live",
+            ),
         ] {
             assert!(!stt_model_selection_supports_file(&unsupported));
         }
+
+        let mut settings = get_default_settings();
+        apply_stt_model_selection(
+            &mut settings,
+            &selection(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+                "elevenlabs",
+                "scribe_v3_live",
+            ),
+        )
+        .unwrap();
+        assert_eq!(settings.remote_stt.provider_preset, "elevenlabs");
+        assert_eq!(settings.remote_stt.model_id, "scribe_v3_live");
+        assert_eq!(settings.remote_stt.base_url, "https://api.elevenlabs.io/v1");
+        assert!(!settings.remote_stt.allow_insecure_http);
     }
 
     #[test]

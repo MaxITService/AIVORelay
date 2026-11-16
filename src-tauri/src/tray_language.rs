@@ -1,8 +1,12 @@
 //! Profile-scoped tray language choices. Settings remain the source of truth.
+use crate::elevenlabs_language::is_supported_elevenlabs_language;
 use crate::language_detection::{engine_accepts_language, LanguageDetectionMode};
+use crate::language_resolver::is_soniox_supported_language;
 use crate::managers::model::{canonical_language_code, ModelManager};
+use crate::reson8_language::is_reson8_supported_language;
 use crate::settings::{self, AppSettings, TranscriptionProvider};
 use crate::tray_i18n::{get_tray_translations, TrayStrings};
+use crate::url_security::{REMOTE_STT_PRESET_RESON8, REMOTE_STT_RESON8_DEFAULT_MODEL};
 use std::sync::Arc;
 use tauri::menu::{CheckMenuItem, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager};
@@ -10,6 +14,7 @@ use tauri::{AppHandle, Emitter, Manager};
 const PREFIX: &str = "profile_language:";
 const SPOKEN_AUTO: &str = "auto_spoken";
 const CONFIGURE: &str = "configure";
+const ELEVENLABS_PRESET: &str = "elevenlabs";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LanguageMenu {
@@ -37,6 +42,40 @@ fn unique(codes: impl IntoIterator<Item = String>) -> Vec<String> {
         }
     }
     result
+}
+
+/// Restrict the tray choices to the codes the active remote provider accepts.
+fn apply_provider_language_scope(effective: &AppSettings, languages: &mut Vec<String>) {
+    if effective.transcription_provider == TranscriptionProvider::RemoteSoniox {
+        languages.retain(|code| is_soniox_supported_language(code));
+    } else if effective.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible
+        && effective.remote_stt.provider_preset == REMOTE_STT_PRESET_RESON8
+        && effective
+            .remote_stt
+            .model_id
+            .trim()
+            .eq_ignore_ascii_case(REMOTE_STT_RESON8_DEFAULT_MODEL)
+    {
+        languages.retain(|code| is_reson8_supported_language(code));
+        for code in ["ceb", "fy"] {
+            if !languages.iter().any(|existing| existing == code) {
+                languages.push(code.to_string());
+            }
+        }
+    } else if effective.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible
+        && effective.remote_stt.provider_preset == ELEVENLABS_PRESET
+        && matches!(
+            effective
+                .remote_stt
+                .model_id
+                .trim()
+                .to_ascii_lowercase()
+                .as_str(),
+            "scribe_v3" | "scribe_v3_live"
+        )
+    {
+        languages.retain(|code| is_supported_elevenlabs_language(code));
+    }
 }
 
 fn language_name(code: &str) -> String {
@@ -97,9 +136,7 @@ pub(crate) fn snapshot(app: &AppHandle, settings: &AppSettings) -> LanguageMenu 
         crate::gemini_config::GEMINI_SUPPORTED_LOCALES.iter().map(|code| code.to_string()).collect()
     } else if local && !model_languages.is_empty() { model_languages }
         else { unique(PICKER_LANGUAGES.iter().map(|code| code.to_string())) };
-    if effective.transcription_provider == TranscriptionProvider::RemoteSoniox {
-        languages.retain(|code| crate::language_resolver::is_soniox_supported_language(code));
-    }
+    apply_provider_language_scope(&effective, &mut languages);
     languages.sort_by_cached_key(|code| language_name(code));
     LanguageMenu {
         profile_id: profile.map(|profile| profile.id.clone()).unwrap_or_else(|| "default".to_string()),
@@ -356,6 +393,44 @@ mod tests {
         assert_eq!(settings.transcription_profiles[0].language, "en");
         assert_eq!(settings.transcription_profiles[1].gemini_language_code_override, None);
         assert!(apply_choice(&mut settings, &menu, "ru").is_err());
+    }
+
+    #[test]
+    fn provider_scope_matches_rumble_2_and_keeps_soniox_behavior() {
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::RemoteOpenAiCompatible;
+        settings.remote_stt.provider_preset = REMOTE_STT_PRESET_RESON8.to_string();
+        settings.remote_stt.model_id = REMOTE_STT_RESON8_DEFAULT_MODEL.to_string();
+
+        let mut reson8 =
+            unique(["en", "he", "no", "tl", "jw", "zh-Hans", "ceb", "la"].map(str::to_string));
+        apply_provider_language_scope(&settings, &mut reson8);
+        assert_eq!(reson8, ["en", "no", "tl", "jv", "zh", "ceb", "fy"]);
+
+        settings.transcription_provider = TranscriptionProvider::RemoteSoniox;
+        let mut soniox = unique(["en", "he", "la", "no"].map(str::to_string));
+        apply_provider_language_scope(&settings, &mut soniox);
+        assert!(soniox.contains(&"he".to_string()));
+        assert!(!soniox.contains(&"la".to_string()));
+        assert!(!soniox.contains(&"ceb".to_string()));
+        assert!(!soniox.contains(&"fy".to_string()));
+
+        settings.transcription_provider = TranscriptionProvider::RemoteOpenAiCompatible;
+        settings.remote_stt.provider_preset = "elevenlabs".to_string();
+        for model in ["scribe_v3", "scribe_v3_live"] {
+            settings.remote_stt.model_id = model.to_string();
+            let mut elevenlabs = unique(["en", "he", "tl", "yue", "zz"].map(str::to_string));
+            apply_provider_language_scope(&settings, &mut elevenlabs);
+            assert!(elevenlabs.contains(&"en".to_string()));
+            assert!(elevenlabs.contains(&"he".to_string()));
+            assert!(!elevenlabs.contains(&"zz".to_string()));
+        }
+
+        settings.transcription_provider = TranscriptionProvider::RemoteOpenAiCompatible;
+        settings.remote_stt.provider_preset = "custom".to_string();
+        let mut custom = unique(["en", "he"].map(str::to_string));
+        apply_provider_language_scope(&settings, &mut custom);
+        assert_eq!(custom, ["en", "he"]);
     }
 
     #[test]

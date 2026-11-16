@@ -30,6 +30,57 @@ pub struct SpeakerBlockNormalizationState {
     next_speaker_id: u32,
 }
 
+impl SpeakerBlockNormalizationState {
+    /// Retroactively merge `from_speaker_id` into `to_speaker_id`, reusing
+    /// `to_speaker_id`'s canonical `speaker_id` and `default_name` (or inheriting
+    /// `from_speaker_id`'s slot when `to_speaker_id` has not appeared yet).
+    pub fn merge_raw_speaker_id(&mut self, from_speaker_id: &str, to_speaker_id: &str) {
+        let from_key = from_speaker_id.trim();
+        let to_key = to_speaker_id.trim();
+        if from_key.is_empty() || to_key.is_empty() || from_key == to_key {
+            return;
+        }
+
+        let old_from_id = self.speaker_ids.get(from_key).copied();
+        let to_id = if let Some(&existing_id) = self.speaker_ids.get(to_key) {
+            existing_id
+        } else if let Some(inherited_id) = old_from_id {
+            self.speaker_ids.insert(to_key.to_string(), inherited_id);
+            inherited_id
+        } else {
+            let assigned = self.next_speaker_id;
+            self.next_speaker_id += 1;
+            self.speaker_ids.insert(to_key.to_string(), assigned);
+            assigned
+        };
+
+        let to_name = self
+            .default_names
+            .get(to_key)
+            .cloned()
+            .or_else(|| self.default_names.get(from_key).cloned())
+            .unwrap_or_else(|| fallback_default_name(to_id));
+        self.default_names.insert(to_key.to_string(), to_name.clone());
+
+        if let Some(previous_id) = old_from_id {
+            if previous_id != to_id {
+                let affected_keys: Vec<String> = self
+                    .speaker_ids
+                    .iter()
+                    .filter_map(|(key, id)| (*id == previous_id).then(|| key.clone()))
+                    .collect();
+                for key in affected_keys {
+                    self.speaker_ids.insert(key.clone(), to_id);
+                    self.default_names.insert(key, to_name.clone());
+                }
+            }
+        }
+
+        self.speaker_ids.insert(from_key.to_string(), to_id);
+        self.default_names.insert(from_key.to_string(), to_name);
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiarizedTranscriptBlock {
     pub speaker_id: u32,
@@ -697,5 +748,72 @@ mod tests {
 
         assert!(reapplied.starts_with("WEBVTT\n\n"));
         assert!(reapplied.contains("00:00:00.000 --> 00:00:00.600\n[Alice] Hello there"));
+    }
+
+    #[test]
+    fn merge_raw_speaker_id_reuses_canonical_target_and_supports_transitive_merges() {
+        let mut state = SpeakerBlockNormalizationState::default();
+        let initial = normalize_raw_speaker_blocks_with_state(
+            vec![
+                RawSpeakerBlock {
+                    speaker_key: "spk_0".to_string(),
+                    default_name: None,
+                    text: "First".to_string(),
+                },
+                RawSpeakerBlock {
+                    speaker_key: "spk_1".to_string(),
+                    default_name: None,
+                    text: "Second".to_string(),
+                },
+                RawSpeakerBlock {
+                    speaker_key: "spk_2".to_string(),
+                    default_name: None,
+                    text: "Third".to_string(),
+                },
+            ],
+            &mut state,
+        );
+        assert_eq!(initial[0].speaker_id, 0);
+        assert_eq!(initial[1].speaker_id, 1);
+        assert_eq!(initial[2].speaker_id, 2);
+
+        state.merge_raw_speaker_id("spk_2", "spk_1");
+        state.merge_raw_speaker_id("spk_1", "spk_0");
+
+        let after_merge = normalize_raw_speaker_blocks_with_state(
+            vec![RawSpeakerBlock {
+                speaker_key: "spk_2".to_string(),
+                default_name: None,
+                text: "Merged back".to_string(),
+            }],
+            &mut state,
+        );
+        assert_eq!(after_merge.len(), 1);
+        assert_eq!(after_merge[0].speaker_id, 0);
+        assert_eq!(after_merge[0].default_name, "Speaker 0");
+    }
+
+    #[test]
+    fn merge_raw_speaker_id_inherits_slot_when_target_not_yet_seen() {
+        let mut state = SpeakerBlockNormalizationState::default();
+        let _ = normalize_raw_speaker_blocks_with_state(
+            vec![RawSpeakerBlock {
+                speaker_key: "spk_temp".to_string(),
+                default_name: None,
+                text: "Hello".to_string(),
+            }],
+            &mut state,
+        );
+        state.merge_raw_speaker_id("spk_temp", "spk_canonical");
+        let resolved = normalize_raw_speaker_blocks_with_state(
+            vec![RawSpeakerBlock {
+                speaker_key: "spk_canonical".to_string(),
+                default_name: None,
+                text: "Again".to_string(),
+            }],
+            &mut state,
+        );
+        assert_eq!(resolved[0].speaker_id, 0);
+        assert_eq!(resolved[0].default_name, "Speaker 0");
     }
 }

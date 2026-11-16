@@ -1672,6 +1672,10 @@ impl AudioRecordingManager {
                 }
 
                 if is_microphone && input_silent {
+                    crate::notices::raise(&self.app_handle, "dictation", Some(active_operation_id), "warning",
+                        "Microphone is silent", Some("errors.microphoneSilentTitle"),
+                        Some("The microphone sent only digital silence. Check that it is not muted, or select another microphone in Settings.".to_string()),
+                        Some("general"));
                     let timestamp_ms = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default().as_millis() as u64;

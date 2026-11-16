@@ -18,6 +18,9 @@ const CHARS_PER_TOKEN = 4;
 const WHISPER_PATTERNS = ["whisper"];
 const DEEPGRAM_PATTERNS = ["deepgram", "nova"];
 const NO_PROMPT_PATTERNS = [
+  "scribe_v3_live",
+  "scribe_v3",
+  "scribe-v3",
   "parakeet",
   "nemo",
   "canary",
@@ -25,6 +28,7 @@ const NO_PROMPT_PATTERNS = [
   "sense-voice",
   "sense_voice",
   "gemini-3.5-transcribe",
+  "rumble-2",
 ];
 
 export interface ModelPromptInfo {

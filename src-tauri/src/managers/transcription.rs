@@ -3961,13 +3961,14 @@ fn post_process_transcription_text(
             raw
         };
 
-        clean_transcription_output(
+        let text = clean_transcription_output(
             &corrected,
             output_language,
             supported_languages,
             &settings.custom_filler_words,
             settings.filler_word_filter_enabled,
-        )
+        );
+        if text.chars().any(char::is_alphanumeric) { text } else { String::new() }
     })
 }
 

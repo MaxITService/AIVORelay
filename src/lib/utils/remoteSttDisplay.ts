@@ -69,6 +69,21 @@ export const getRemoteApiDisplayLabel = (
     return "Google: Gemini 3.5 Transcribe";
   }
 
+  if (preset === "reson8") {
+    return "Reson8: rumble-2";
+  }
+
+  if (preset === "elevenlabs") {
+    const normalizedModelId = modelId?.toLowerCase();
+    if (normalizedModelId === "scribe_v3") {
+      return "ElevenLabs: Scribe v3";
+    }
+    if (!normalizedModelId || normalizedModelId === "scribe_v3_live") {
+      return "ElevenLabs: Scribe v3 Live";
+    }
+    return `ElevenLabs: ${modelId}`;
+  }
+
   if (preset === "custom") {
     return getHostname(remoteStt?.base_url) || "Custom API";
   }

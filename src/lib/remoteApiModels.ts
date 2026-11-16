@@ -1,9 +1,13 @@
 import type { TFunction } from "i18next";
+import type { RemoteSttSettings, SttModelSelection } from "@/bindings";
+import type { RemoteSttPreset } from "@/lib/constants/remoteSttProviders";
 
 export type RemoteApiRowId =
   | "groq"
   | "gemini_transcribe"
   | "gemini_live"
+  | "reson8"
+  | "elevenlabs"
   | "openai_transcribe"
   | "openai_live_transcribe"
   | "openai_realtime_whisper"
@@ -17,7 +21,7 @@ export type RemoteApiRow = {
   title: string;
   description: string;
   notRecommended?: boolean;
-  preset: "groq" | "openai" | "vercel" | "google" | "custom";
+  preset: RemoteSttPreset;
   modelId?: string;
   iconClassName: string;
 };
@@ -46,6 +50,28 @@ export const getRemoteApiRows = (t: TFunction): RemoteApiRow[] => [
     preset: "vercel",
     modelId: "google/gemini-3.5-transcribe-live",
     iconClassName: "text-amber-400",
+  },
+  {
+    id: "reson8",
+    title: t("modelSelector.remoteApiRows.reson8.title"),
+    description: t("modelSelector.remoteApiRows.reson8.description"),
+    preset: "reson8",
+    modelId: "rumble-2",
+    iconClassName: "text-emerald-300",
+  },
+  {
+    id: "elevenlabs",
+    title: t(
+      "modelSelector.remoteApiRows.elevenlabs.title",
+      "Remote via ElevenLabs (Scribe v3 Live)",
+    ),
+    description: t(
+      "modelSelector.remoteApiRows.elevenlabs.description",
+      "Live dictation and Live Monitor use Scribe v3 Live. Files use Scribe v3 with SRT/VTT subtitles. Speaker separation is available in Live Monitor.",
+    ),
+    preset: "elevenlabs",
+    modelId: "scribe_v3_live",
+    iconClassName: "text-fuchsia-300",
   },
   {
     id: "custom",
@@ -128,4 +154,85 @@ export const resolveRemoteApiRow = (
         : "google/gemini-3.5-transcribe"
     : row.modelId;
   return { preset, modelId };
+};
+
+export type RemoteApiGlobalCustomSettings = Pick<
+  Partial<RemoteSttSettings>,
+  "provider_preset" | "base_url" | "model_id"
+>;
+
+export type RemoteApiSelectionPlan =
+  | {
+      target: "global";
+      preset: RemoteApiRow["preset"];
+      modelId?: string;
+    }
+  | {
+      target: "profile";
+      selection: SttModelSelection;
+    }
+  | {
+      target: "blocked";
+      reason: "custom_unconfigured";
+    };
+
+export const getConfiguredCustomRemoteSttModelId = (
+  globalRemoteStt?: RemoteApiGlobalCustomSettings | null,
+): string | null => {
+  if (globalRemoteStt?.provider_preset?.trim() !== "custom") {
+    return null;
+  }
+  const baseUrl = globalRemoteStt.base_url?.trim();
+  const modelId = globalRemoteStt.model_id?.trim();
+  if (!baseUrl || !modelId) {
+    return null;
+  }
+  return modelId;
+};
+
+export const resolveRemoteApiSelection = (
+  row: RemoteApiRow,
+  {
+    isCustomProfile,
+    currentEffectivePreset,
+    globalRemoteStt,
+  }: {
+    isCustomProfile: boolean;
+    currentEffectivePreset?: string | null;
+    globalRemoteStt?: RemoteApiGlobalCustomSettings | null;
+  },
+): RemoteApiSelectionPlan => {
+  const { preset, modelId } = resolveRemoteApiRow(row, currentEffectivePreset);
+  if (!isCustomProfile) {
+    return { target: "global", preset, modelId };
+  }
+
+  if (row.id === "custom") {
+    const customModelId = getConfiguredCustomRemoteSttModelId(globalRemoteStt);
+    if (!customModelId) {
+      return { target: "blocked", reason: "custom_unconfigured" };
+    }
+    return {
+      target: "profile",
+      selection: {
+        provider: "remote_openai_compatible",
+        provider_preset: "custom",
+        model_id: customModelId,
+      },
+    };
+  }
+
+  const profileModelId = modelId?.trim();
+  if (!profileModelId) {
+    return { target: "blocked", reason: "custom_unconfigured" };
+  }
+
+  return {
+    target: "profile",
+    selection: {
+      provider: "remote_openai_compatible",
+      provider_preset: preset,
+      model_id: profileModelId,
+    },
+  };
 };

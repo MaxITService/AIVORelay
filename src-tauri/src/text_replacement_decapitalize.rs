@@ -184,8 +184,11 @@ fn maybe_transform_next_chunk_impl(text: &str, mode: ApplyMode, consume: bool) -
         return text.to_string();
     }
 
-    if consume {
-        consume_trigger(mode);
+    // The first check is only a fast path. Another output or an edit key can
+    // run while finding the letter, so claiming the trigger must recheck it
+    // under the same lock that consumes it.
+    if !claim_trigger(mode, consume) {
+        return text.to_string();
     }
 
     let end = idx + ch.len_utf8();
@@ -205,10 +208,15 @@ fn is_trigger_pending(mode: ApplyMode) -> bool {
     state.is_trigger_pending(mode, now)
 }
 
-fn consume_trigger(mode: ApplyMode) {
-    if let Ok(mut state) = DECAPITALIZE_STATE.lock() {
-        state.consume(mode);
+fn claim_trigger(mode: ApplyMode, consume: bool) -> bool {
+    let Ok(mut state) = DECAPITALIZE_STATE.lock() else {
+        return false;
+    };
+    if !state.is_trigger_pending(mode, Instant::now()) {
+        return false;
     }
+    if consume { state.consume(mode); }
+    true
 }
 
 fn find_first_alphabetic_char(text: &str) -> Option<(usize, char)> {
@@ -401,6 +409,52 @@ mod tests {
     }
 
     #[test]
+    fn shared_live_chunk_pipeline_decapitalizes_once_after_preview_and_nonletter_chunks() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        reset_global_state();
+        let mut processor = crate::stream_chunk_processor::StreamChunkProcessor::default();
+        mark_edit_key_pressed(60_000, false);
+
+        assert_eq!(processor.push_chunk(""), "");
+        assert_eq!(processor.push_chunk(" …123 "), " …123 ");
+        assert!(is_any_trigger_armed_now());
+        assert_eq!(preview_decapitalize_next_chunk_realtime("Привет"), "привет");
+        assert_eq!(preview_decapitalize_next_chunk_realtime("Привет мир"), "привет мир");
+        assert!(is_any_trigger_armed_now());
+
+        assert_eq!(processor.push_chunk("Привет"), "привет");
+        assert!(!is_any_trigger_armed_now());
+        assert_eq!(processor.push_chunk(" Мир."), " Мир.");
+        assert_eq!(processor.flush(), "");
+
+        reset_global_state();
+    }
+
+    #[test]
+    fn shared_live_chunk_pipeline_preserves_trigger_until_buffered_tail_is_flushed() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        reset_global_state();
+        let mut settings = crate::settings::get_default_settings();
+        settings.custom_words_enabled = true;
+        settings.custom_words = vec!["AivoRelay".to_string()];
+        settings.soniox_realtime_fuzzy_correction_enabled = true;
+        settings.soniox_realtime_keep_safety_buffer_enabled = true;
+        let mut processor = crate::stream_chunk_processor::StreamChunkProcessor::from_settings(&settings);
+        mark_edit_key_pressed(60_000, false);
+
+        assert_eq!(processor.push_chunk("Привет "), "");
+        assert_eq!(processor.push_chunk("мир"), "");
+        assert!(is_any_trigger_armed_now());
+        assert_eq!(processor.flush_without_standalone_whitespace(), "привет мир");
+        assert!(!is_any_trigger_armed_now());
+        assert_eq!(processor.flush_without_standalone_whitespace(), "");
+        assert_eq!(processor.push_chunk(" Ещё."), "");
+        assert_eq!(processor.flush_without_standalone_whitespace(), " Ещё.");
+
+        reset_global_state();
+    }
+
+    #[test]
     fn standard_monitor_allows_edit_key_to_arm_standard_output() {
         let _guard = TEST_MUTEX.lock().unwrap();
         reset_global_state();
@@ -475,4 +529,193 @@ mod tests {
 
         reset_global_state();
     }
+
+    #[test]
+    fn shared_live_chunk_pipeline_rearms_across_cyrillic_and_latin_chunks_in_one_recording() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        reset_global_state();
+        let mut processor = crate::stream_chunk_processor::StreamChunkProcessor::default();
+
+        mark_edit_key_pressed(60_000, false);
+        assert!(is_any_trigger_armed_now());
+        assert_eq!(processor.push_chunk("Привет"), "привет");
+        assert!(!is_any_trigger_armed_now());
+        assert_eq!(processor.push_chunk(" Мир"), " Мир");
+
+        mark_edit_key_pressed(60_000, false);
+        assert!(is_any_trigger_armed_now());
+        assert_eq!(processor.push_chunk(" Hello"), " hello");
+        assert!(!is_any_trigger_armed_now());
+        assert_eq!(processor.push_chunk(" World"), " World");
+
+        mark_edit_key_pressed(60_000, false);
+        assert!(is_any_trigger_armed_now());
+        assert_eq!(processor.push_chunk(" Ёжик"), " ёжик");
+        assert!(!is_any_trigger_armed_now());
+        assert_eq!(processor.push_chunk(" Next"), " Next");
+
+        mark_edit_key_pressed(60_000, false);
+        assert!(is_any_trigger_armed_now());
+        assert_eq!(processor.push_chunk(" (Again)"), " (again)");
+        assert!(!is_any_trigger_armed_now());
+        assert_eq!(processor.push_chunk(" Конец."), " Конец.");
+        assert_eq!(processor.flush(), "");
+
+        reset_global_state();
+    }
+
+    #[test]
+    fn shared_live_chunk_pipeline_refreshes_single_trigger_and_skips_lowercase_nonletter_chunks() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        reset_global_state();
+        let mut processor = crate::stream_chunk_processor::StreamChunkProcessor::default();
+
+        mark_edit_key_pressed(60_000, false);
+        mark_edit_key_pressed(60_000, false);
+        mark_edit_key_pressed(60_000, false);
+        assert!(is_any_trigger_armed_now());
+
+        assert_eq!(processor.push_chunk(" 123... "), " 123... ");
+        assert!(is_any_trigger_armed_now());
+        assert_eq!(processor.push_chunk("lowercase "), "lowercase ");
+        assert!(is_any_trigger_armed_now());
+        assert_eq!(processor.push_chunk("слово "), "слово ");
+        assert!(is_any_trigger_armed_now());
+        assert_eq!(processor.push_chunk("— !? "), "— !? ");
+        assert!(is_any_trigger_armed_now());
+
+        assert_eq!(processor.push_chunk("Привет"), "привет");
+        assert!(!is_any_trigger_armed_now());
+        assert_eq!(processor.push_chunk(" Second"), " Second");
+        assert_eq!(processor.push_chunk(" Третье"), " Третье");
+        assert!(!is_any_trigger_armed_now());
+
+        mark_edit_key_pressed(60_000, false);
+        mark_edit_key_pressed(60_000, false);
+        assert!(is_any_trigger_armed_now());
+        assert_eq!(processor.push_chunk(" 45 и "), " 45 и ");
+        assert!(is_any_trigger_armed_now());
+
+        assert_eq!(processor.push_chunk("Final"), "final");
+        assert!(!is_any_trigger_armed_now());
+        assert_eq!(processor.push_chunk(" Tail"), " Tail");
+        assert_eq!(processor.push_chunk(" Хвост"), " Хвост");
+        assert_eq!(processor.flush(), "");
+
+        reset_global_state();
+    }
+
+    #[test]
+    fn arm_after_edit_clamps_zero_timeout_and_refreshes_single_deadline() {
+        let now = Instant::now();
+        let mut state = DecapitalizeState::default();
+
+        state.arm_after_edit(0, false, now);
+        let initial_deadline = now + Duration::from_millis(1);
+        assert_eq!(state.realtime_trigger_until, Some(initial_deadline));
+        assert!(state.is_trigger_pending(ApplyMode::RealtimeChunk, initial_deadline));
+
+        let refresh_time = initial_deadline;
+        state.arm_after_edit(50, false, refresh_time);
+        let refreshed_deadline = refresh_time + Duration::from_millis(50);
+        assert_eq!(state.realtime_trigger_until, Some(refreshed_deadline));
+        assert!(state.is_trigger_pending(ApplyMode::RealtimeChunk, refreshed_deadline));
+        assert!(!state.is_trigger_pending(
+            ApplyMode::RealtimeChunk,
+            refreshed_deadline + Duration::from_nanos(1)
+        ));
+        assert!(state.realtime_trigger_until.is_none());
+    }
+
+    #[test]
+    fn standard_monitor_expires_only_after_its_exact_deadline() {
+        let now = Instant::now();
+        let mut state = DecapitalizeState::default();
+        state.begin_standard_monitor(100, now);
+        let deadline = now + Duration::from_millis(100);
+
+        assert!(state.cleanup_expired_standard_monitor(deadline));
+        assert_eq!(state.standard_monitor_until, Some(deadline));
+        assert!(!state.cleanup_expired_standard_monitor(deadline + Duration::from_nanos(1)));
+        assert!(state.standard_monitor_until.is_none());
+    }
+
+    #[test]
+    fn concurrent_final_chunks_consume_one_shared_trigger_exactly_once() {
+        use std::sync::{Arc, Barrier};
+        let _guard = TEST_MUTEX.lock().unwrap();
+        reset_global_state();
+        // A long nonletter prefix keeps the original split check/consume path
+        // overlapping reliably; the helper accepts complete transcripts as well
+        // as short realtime chunks. No real keyboard or output is used.
+        let text = Arc::new(format!("{}Hello", " ".repeat(65_536)));
+        let barrier = Arc::new(Barrier::new(5));
+        let mut lowered_per_round = vec![0usize; 32];
+        std::thread::scope(|scope| {
+            let workers: Vec<_> = (0..4).map(|_| {
+                let text = Arc::clone(&text);
+                let barrier = Arc::clone(&barrier);
+                scope.spawn(move || {
+                    let mut lowered = Vec::new();
+                    for _ in 0..32 {
+                        barrier.wait();
+                        lowered.push(maybe_decapitalize_next_chunk_realtime(&text).ends_with("hello"));
+                        barrier.wait();
+                    }
+                    lowered
+                })
+            }).collect();
+            for _ in 0..32 {
+                mark_edit_key_pressed(60_000, false);
+                barrier.wait();
+                barrier.wait();
+            }
+            for worker in workers {
+                for (round, was_lowered) in worker.join().unwrap().into_iter().enumerate() {
+                    lowered_per_round[round] += usize::from(was_lowered);
+                }
+            }
+        });
+        reset_global_state();
+        assert_eq!(lowered_per_round, vec![1; 32], "each key press is a one-shot claim across output threads");
+    }
+
+
+    #[test]
+    fn buffered_live_pipeline_rearms_through_nonletter_lowercase_chunks_and_final_flush() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        reset_global_state();
+        let mut settings = crate::settings::get_default_settings();
+        settings.custom_words_enabled = true;
+        settings.custom_words = vec!["AivoRelay".into()];
+        settings.soniox_realtime_fuzzy_correction_enabled = true;
+        settings.soniox_realtime_keep_safety_buffer_enabled = true;
+        settings.output_whitespace_leading_mode = crate::settings::OutputWhitespaceMode::Preserve;
+        let mut processor = crate::stream_chunk_processor::StreamChunkProcessor::from_settings(&settings);
+        assert_eq!(processor.push_chunk("... 123 lower "), "");
+        let mut output = String::new();
+        mark_edit_key_pressed(60_000, false);
+        for (chunk, expected) in [("Hello ", "... "), ("again ", "123 "), ("world ", "lower ")] {
+            let delta = processor.push_chunk(chunk);
+            assert_eq!(delta, expected);
+            output.push_str(&delta);
+            assert!(is_any_trigger_armed_now());
+        }
+        output.push_str(&processor.push_chunk("Done "));
+        assert!(!is_any_trigger_armed_now());
+        mark_edit_key_pressed(60_000, false);
+        for chunk in ["Next ", "word "] {
+            output.push_str(&processor.push_chunk(chunk));
+            assert!(is_any_trigger_armed_now());
+        }
+        output.push_str(&processor.push_chunk("tail "));
+        assert!(!is_any_trigger_armed_now());
+        mark_edit_key_pressed(60_000, false);
+        output.push_str(&processor.flush());
+        assert_eq!(output, "... 123 lower hello again world done next word tail ");
+        assert!(!is_any_trigger_armed_now());
+        assert_eq!(processor.flush(), "");
+        reset_global_state();
+    }
+
 }

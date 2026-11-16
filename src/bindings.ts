@@ -2691,6 +2691,30 @@ async getAppDirPath() : Promise<Result<string, string>> {
 async isPortable() : Promise<boolean> {
     return await TAURI_INVOKE("is_portable");
 },
+async getPortableStorage() : Promise<Result<PortableStorageStatus | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_portable_storage") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setPortableStorage(mode: StorageMode) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_portable_storage", { mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async resetMacosPermission(permission: MacPermission) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reset_macos_permission", { permission }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getAppSettings() : Promise<Result<AppSettings, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_app_settings") };
@@ -3463,8 +3487,11 @@ async cleanupLocalModel(kind: string, modelId: string, selectedSttModelIds: stri
     else return { status: "error", error: e  as any };
 }
 },
-async takeMissingModelSelectionNotice() : Promise<[string, string | null] | null> {
+async takeMissingModelSelectionNotice() : Promise<MissingModelSelectionNotice | null> {
     return await TAURI_INVOKE("take_missing_model_selection_notice");
+},
+async setAutoSwitchUnavailableModel(enabled: boolean) : Promise<void> {
+    await TAURI_INVOKE("set_auto_switch_unavailable_model", { enabled });
 },
 async rescanLocalModels() : Promise<Result<null, string>> {
     try {
@@ -4515,7 +4542,17 @@ async isLaptop() : Promise<Result<boolean, string>> {
 
 export type ActiveTtsBatchSnapshot = { progress: TtsBatchProgress; scan: TtsBatchScanResult; files: TtsBatchFileResult[] }
 export type AddTranscriptionProfilePayload = { name: string; language: string; spokenLanguages?: string[]; languageDetection?: LanguageDetectionMode; languageDetectionWindowSecs?: number; translateToEnglish: boolean; automaticAppRules?: string[] | null; systemPrompt: string; sttPromptOverrideEnabled?: boolean; sttModelSelectionOverride?: SttModelSelection | null; pushToTalk: boolean; autoShortcutActivation?: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null; chineseScript?: ChineseScript | null; outputSettings?: ProfileOutputSettings }
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; auto_shortcut_activation?: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; first_start_wizard_skipped?: boolean; never_launch_webview?: boolean; show_speech_only_mode_in_tray?: boolean; autostart_enabled?: boolean; autostart_as_admin_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; tray_icon_blinking_enabled?: boolean; tray_icon_blink_on_recording?: boolean; tray_icon_blink_on_processing?: boolean; tray_icon_blink_frequency_hz?: number; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings;
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; auto_shortcut_activation?: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; first_start_wizard_skipped?: boolean; never_launch_webview?: boolean; show_speech_only_mode_in_tray?: boolean; autostart_enabled?: boolean; autostart_as_admin_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; tray_icon_blinking_enabled?: boolean; tray_icon_blink_on_recording?: boolean; tray_icon_blink_on_processing?: boolean; tray_icon_blink_frequency_hz?: number; update_checks_enabled?: boolean; selected_model?: string;
+/**
+ * Local models this build could actually run, newest first. A build that no
+ * longer knows `selected_model` (for example after switching between a dev and
+ * a release build) falls back to the most recent entry it does have.
+ */
+recent_local_models?: string[];
+/**
+ * Skip the explanation dialog when an unavailable local model is replaced.
+ */
+auto_switch_unavailable_model?: boolean; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings;
 /**
  * Independent model choice for Transcribe File. None inherits the current
  * Speech / Mic selection until the user chooses a file-specific model.
@@ -5233,6 +5270,19 @@ export type LocalModelStorageSnapshot = { entries: LocalModelStorageEntry[]; tot
 export type LocalTtsKind = "qwen" | "kokoro"
 export type LocalTtsStatus = { kind?: LocalTtsKind; installed: boolean; installing: boolean; phase: string; downloaded_bytes: number; total_bytes: number; percentage: number; runtime_profile: string; model_repository: string; model_revision: string; model_download_bytes: number; install_root?: string; installed_size_bytes?: number; estimated_install_bytes?: number; model_author?: string; model_source_url?: string; model_license_name?: string; model_license_url?: string; model_license_path?: string; model_license_declaration_path?: string; model_license_available?: boolean; error: string | null }
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
+export type MacPermission = "accessibility" | "microphone"
+/**
+ * Startup notice that the saved local model is unknown to this build.
+ */
+export type MissingModelSelectionNotice = { missing_model: string;
+/**
+ * Display name of the model that took its place, when one was available.
+ */
+replacement_model: string | null;
+/**
+ * The user chose to switch without being asked, so no dialog is needed.
+ */
+auto_switched: boolean }
 export type ModelDeletionCancellation = { outcome: string; snapshot: ModelDeletionSnapshot }
 export type ModelDeletionChange = { model_id: string; job_id: string; status: string; error: string | null }
 export type ModelDeletionJob = { model_id: string; job_id: string; status: string; deadline_unix_ms: number; remaining_ms: number }
@@ -5279,6 +5329,7 @@ export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_
  */
 "external_script"
 export type PermissionAccess = "allowed" | "denied" | "unknown"
+export type PortableStorageStatus = { active_mode: StorageMode; configured_mode: StorageMode; portable_path: string; desktop_path: string }
 export type PostProcessProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; allow_insecure_http?: boolean; models_endpoint?: string | null }
 export type PreviewOutputModeStatePayload = { active: boolean; recording: boolean; processing_llm: boolean; flush_visible: boolean; is_realtime: boolean; binding_id: string | null; profile_id: string | null; error_message: string | null }
 /**
@@ -5290,7 +5341,7 @@ export type ProfileLlmSettings = { enabled: boolean; promptOverride: string | nu
  * `None` keeps the stored value on update and inherits the global value on creation.
  */
 liveStreamInsert?: boolean | null }
-export type ProfileOutputSettings = { paste_method: PasteMethod | null; clipboard_handling: ClipboardHandling | null; clipboard_history_allowed: boolean | null; convert_lf_to_crlf: boolean | null; paste_delay_ms: number | null; check_active_window: boolean | null; live_window_resume_delay_ms: number | null; live_window_stop_action: LiveWindowStopAction | null;
+export type ProfileOutputSettings = { paste_method: PasteMethod | null; clipboard_handling: ClipboardHandling | null; clipboard_history_allowed: boolean | null; copy_on_elevated_window: boolean | null; convert_lf_to_crlf: boolean | null; paste_delay_ms: number | null; check_active_window: boolean | null; live_window_resume_delay_ms: number | null; live_window_stop_action: LiveWindowStopAction | null;
 /**
  * Seconds a finished remainder waits for its window before `live_window_wait_limit_action`
  * runs. None: the program default (no limit); 0 means no limit.
@@ -5440,6 +5491,7 @@ export type SonioxLivePreviewPosition = "top" | "bottom" | "near_cursor" | "cust
 export type SonioxLivePreviewSize = "small" | "medium" | "large" | "custom"
 export type SonioxLivePreviewTheme = "main_dark" | "ocean" | "light"
 export type SoundTheme = "marimba" | "pop" | "custom"
+export type StorageMode = "portable" | "desktop"
 /**
  * A workflow-specific STT provider/model choice. Provider credentials and
  * advanced controls remain in their existing global settings; this value only

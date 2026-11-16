@@ -19,18 +19,27 @@ import { InfoTooltip } from "../ui/InfoTooltip";
 import { SonioxContextEditor, isSonioxContextValid } from "./SonioxContextEditor";
 import type { ModelOption } from "./PostProcessingSettingsApi/types";
 import type { useSettings } from "../../hooks/useSettings";
-import { LANGUAGES, supportsLanguageCode } from "../../lib/constants/languages";
-import { isLanguageSupportedBySoniox } from "../../lib/constants/sonioxLanguages";
+import { LANGUAGES } from "../../lib/constants/languages";
+import {
+  ELEVENLABS_ADDITIONAL_LANGUAGE_OPTIONS,
+  isLanguageSupportedByElevenLabs,
+} from "../../lib/constants/elevenlabsLanguages";
+import { sttLanguageOptions } from "../../lib/sttLanguageOptions";
 import { getModelPromptInfo } from "./TranscriptionSystemPrompt";
 import { useNavigationStore } from "../../stores/navigationStore";
 import { getPostProcessingAvailability } from "../../lib/postProcessingAvailability";
+import { resolveRemoteSttProfileContext } from "../../lib/remoteSttProfileContext";
 import { GEMINI_LOCALES } from "../../lib/gemini/geminiConfig";
 import { GEMINI_VOCABULARY_FILE_EXTENSIONS, parseGeminiVocabulary, validateGeminiVocabularyFile } from "../../lib/gemini/vocabulary";
 import { ChineseScriptFields } from "./ChineseScript";
 import { SttModelSelector } from "./SttModelSelector";
 import { KeyActionsBadge, ProfileOutputSettingsFields, getGlobalProfileOutputDefaults, profileKeyActionsEnabled, profileOutputDefaults } from "./ProfileOutputSettings";
 import type { ProfileOutputSettings as OutputSettings } from "@/lib/profileOutputSettings";
-import type { SttModelSelection } from "../../lib/sttModelSelection";
+import {
+  isElevenLabsSelection,
+  isReson8Selection,
+  type SttModelSelection,
+} from "../../lib/sttModelSelection";
 import { navigateToSettingsAnchor } from "../../lib/anchorNavigation";
 import { getShortcutAnchorId, getShortcutSettingsSection } from "@/lib/shortcutAnchors";
 import { openLivePreviewSettings } from "../../lib/transcriptionProfileNavigation";
@@ -84,6 +93,29 @@ const ProfileMoreSettings: React.FC<{
   );
 };
 
+export const resolveEffectiveProfileSttSelection = (
+  settings: Parameters<typeof resolveRemoteSttProfileContext>[0],
+  profile: Pick<ExtendedTranscriptionProfile, "stt_model_selection_override">,
+  globalSttModelSelection: SttModelSelection,
+  isDefault = false,
+): SttModelSelection => {
+  const override = isDefault ? null : profile.stt_model_selection_override;
+  if (!override) {
+    return globalSttModelSelection;
+  }
+  if (override.provider === "remote_openai_compatible") {
+    const context = resolveRemoteSttProfileContext(settings, {
+      stt_model_selection_override: override,
+    });
+    return {
+      provider: context.provider,
+      provider_preset: context.remotePreset,
+      model_id: context.effectiveModelId,
+    };
+  }
+  return override;
+};
+
 export const profileSttPresentation = (
   selection: SttModelSelection,
   localModels: ModelInfo[],
@@ -91,6 +123,8 @@ export const profileSttPresentation = (
   const provider = selection.provider;
   const modelId = selection.model_id ?? "";
   const isSonioxProvider = provider === "remote_soniox";
+  const isReson8Provider = isReson8Selection(selection);
+  const isElevenLabsProvider = isElevenLabsSelection(selection);
   const isGeminiProvider =
     provider === "remote_openai_compatible" &&
     modelId.toLowerCase().includes("gemini-3.5-transcribe");
@@ -99,30 +133,20 @@ export const profileSttPresentation = (
       ? localModels.find((model) => model.id === modelId)
       : undefined;
   const promptInfo =
-    provider === "remote_soniox" || provider === "remote_deepgram"
+    provider === "remote_soniox" ||
+    provider === "remote_deepgram" ||
+    isElevenLabsProvider
       ? { supportsPrompt: false, charLimit: 0 }
       : provider === "remote_openai_compatible"
         ? getModelPromptInfo(modelId, undefined, false)
         : getModelPromptInfo(modelId, localModel?.engine_type);
-  const languageOptions = isSonioxProvider
-    ? LANGUAGES.filter((language) =>
-        isLanguageSupportedBySoniox(language.value),
-      )
-    : provider === "local" && localModel?.supported_languages?.length
-      ? LANGUAGES.filter(
-          (language) =>
-            language.value === "auto" ||
-            language.value === "os_input" ||
-            supportsLanguageCode(
-              localModel.supported_languages,
-              language.value,
-            ),
-        )
-      : LANGUAGES;
+  const languageOptions = sttLanguageOptions(selection, localModels);
 
   return {
+    isElevenLabsProvider,
     isGeminiProvider,
     isSonioxProvider,
+    isReson8Provider,
     languageOptions,
     promptLimit: promptInfo.supportsPrompt ? promptInfo.charLimit : 0,
     supportsSttPrompt: promptInfo.supportsPrompt,
@@ -130,12 +154,16 @@ export const profileSttPresentation = (
 };
 
 export const useProfileSttCapabilities = (selection: SttModelSelection, localModels: ModelInfo[]) => {
+  const isElevenLabsProvider = isElevenLabsSelection(selection);
   const [remoteSupportsTranslation, setRemoteSupportsTranslation] =
     useState(false);
   useEffect(() => {
     let cancelled = false;
     setRemoteSupportsTranslation(false);
-    if (selection.provider !== "remote_openai_compatible") {
+    if (
+      selection.provider !== "remote_openai_compatible" ||
+      isElevenLabsProvider
+    ) {
       return;
     }
 
@@ -151,13 +179,18 @@ export const useProfileSttCapabilities = (selection: SttModelSelection, localMod
     return () => {
       cancelled = true;
     };
-  }, [selection.model_id, selection.provider]);
+  }, [
+    isElevenLabsProvider,
+    selection.model_id,
+    selection.provider,
+    selection.provider_preset,
+  ]);
   const supportsTranslation =
     selection.provider === "local"
       ? (localModels.find(
           (model) => model.id === selection.model_id,
         )?.supports_translation ?? true)
-      : selection.provider === "remote_openai_compatible"
+      : selection.provider === "remote_openai_compatible" && !isElevenLabsProvider
         ? remoteSupportsTranslation
         : false;
   return { ...profileSttPresentation(selection, localModels), supportsTranslation };
@@ -272,9 +305,21 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
   const pttHelp = t(autoShortcutActivationEnabled
     ? "settings.general.pushToTalk.autoPttDisabledHelp"
     : "settings.general.pushToTalk.description");
-  const effectiveSttSelection = profile.stt_model_selection_override ?? globalSttModelSelection;
-  const { languageOptions, supportsSttPrompt, promptLimit, isSonioxProvider, isGeminiProvider } =
-    profileSttPresentation(effectiveSttSelection, localSttModels);
+  const effectiveSttSelection = resolveEffectiveProfileSttSelection(
+    settings,
+    profile,
+    globalSttModelSelection,
+    isDefault,
+  );
+  const {
+    languageOptions,
+    supportsSttPrompt,
+    promptLimit,
+    isElevenLabsProvider,
+    isSonioxProvider,
+    isReson8Provider,
+    isGeminiProvider,
+  } = profileSttPresentation(effectiveSttSelection, localSttModels);
   const [languageDetectionOpen, setLanguageDetectionOpen] = useWindowState(`profile-${profile.id}-language-detection`, false);
   const localLanguageModel = effectiveSttSelection.provider === "local"
     ? localSttModels.find(model => model.id === effectiveSttSelection.model_id) : undefined;
@@ -285,7 +330,14 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
     languages: spokenLanguageState.compatible.map(spokenLanguageLabel).join(", "),
     language: spokenLanguageState.summaryLanguage ? spokenLanguageLabel(spokenLanguageState.summaryLanguage) : "",
   });
-  const showSonioxLanguageFallbackWarning = !languageOptions.some(option => option.value === profile.language);
+  const storedLanguageInOptions = languageOptions.some(
+    (option) => option.value === profile.language,
+  );
+  const storedLanguageSupportedByEffectiveProvider =
+    storedLanguageInOptions ||
+    (isElevenLabsProvider && isLanguageSupportedByElevenLabs(profile.language));
+  const showSttLanguageFallbackWarning =
+    !storedLanguageSupportedByEffectiveProvider;
   const postProcessingAvailable = getPostProcessingAvailability(settings, {
     sttSelection: effectiveSttSelection,
     profilePreviewOutputOnlyEnabled: profile.preview_output_only_enabled,
@@ -447,21 +499,37 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
       const locale = GEMINI_LOCALES.find(([, value]) => value === selection);
       return locale ? `${locale[0]} (${selection})` : selection;
     }
-    const lang = LANGUAGES.find((l) => l.value === profile.language);
+    const lang =
+      LANGUAGES.find((l) => l.value === profile.language) ??
+      languageOptions.find((l) => l.value === profile.language) ??
+      ELEVENLABS_ADDITIONAL_LANGUAGE_OPTIONS.find(
+        (l) => l.value === profile.language,
+      );
     return (
       lang?.label || profile.language || t("settings.general.language.auto")
     );
   }, [
     globalGeminiLanguageCode,
     isGeminiProvider,
+    languageOptions,
     profile.gemini_language_code_override,
     profile.language,
     t,
   ]);
 
   const effectiveLanguageOptions = useMemo(() => {
-    if (languageOptions.some((option) => option.value === profile.language)) {
+    if (storedLanguageInOptions) {
       return languageOptions;
+    }
+
+    if (storedLanguageSupportedByEffectiveProvider) {
+      return [
+        {
+          value: profile.language,
+          label: languageLabel,
+        },
+        ...languageOptions,
+      ];
     }
 
     return [
@@ -469,12 +537,25 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
         value: profile.language,
         label: isSonioxProvider
           ? `${languageLabel} (fallback to auto in Soniox)`
-          : `${languageLabel} (fallback to auto for selected model)`,
+          : isReson8Provider
+            ? `${languageLabel} (fallback to auto in Reson8)`
+            : isElevenLabsProvider
+              ? `${languageLabel} (fallback to auto in ElevenLabs)`
+              : `${languageLabel} (fallback to auto for selected model)`,
         className: "text-amber-400",
       },
       ...languageOptions,
     ];
-  }, [languageLabel, languageOptions, profile.language, isSonioxProvider]);
+  }, [
+    languageLabel,
+    languageOptions,
+    profile.language,
+    storedLanguageInOptions,
+    storedLanguageSupportedByEffectiveProvider,
+    isElevenLabsProvider,
+    isSonioxProvider,
+    isReson8Provider,
+  ]);
 
   const promptLength = systemPromptDraft.length;
   const isOverLimit = promptLimit > 0 && promptLength > promptLimit;
@@ -906,7 +987,7 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
             {profile.stt_model_selection_override && (
               <SttModelSelector
                 workflow="dictation"
-                selection={profile.stt_model_selection_override}
+                selection={effectiveSttSelection}
                 localModels={localSttModels}
                 onChange={handleSttModelOverrideChange}
                 disabled={isUpdating}
@@ -1078,17 +1159,27 @@ const ProfileSettingsForm: React.FC<ProfileSettingsFormProps> = ({
                   <InfoTooltip content={t("settings.advanced.soniox.languageHintsStrict.description")} />
                 </div>
               )}
-              {showSonioxLanguageFallbackWarning && (
+              {showSttLanguageFallbackWarning && (
                 <p className="text-xs text-amber-400/90">
                   {isSonioxProvider
                     ? t(
                         "settings.transcriptionProfiles.sonioxLanguageFallbackWarning",
                         "This language is not supported by Soniox. Soniox requests will fallback to auto-detect.",
                       )
-                    : t(
-                        "settings.transcriptionProfiles.localModelLanguageFallbackWarning",
-                        "This language is not supported by the selected local model. Requests will fallback to auto-detect.",
-                      )}
+                    : isReson8Provider
+                      ? t(
+                          "settings.transcriptionProfiles.reson8LanguageFallbackWarning",
+                          "This language is not supported by Reson8 Rumble-2. Reson8 requests will fallback to auto-detect.",
+                        )
+                      : isElevenLabsProvider
+                        ? t(
+                            "settings.transcriptionProfiles.elevenlabsLanguageFallbackWarning",
+                            "This language is not supported by ElevenLabs Scribe. ElevenLabs requests will fallback to auto-detect.",
+                          )
+                        : t(
+                            "settings.transcriptionProfiles.localModelLanguageFallbackWarning",
+                            "This language is not supported by the selected local model. Requests will fallback to auto-detect.",
+                          )}
                 </p>
               )}
               </div>

@@ -43,7 +43,8 @@ on:
       rust-toolchain:
         required: false
         type: string
-        default: stable
+        # ort-sys rc.12 assumes the pre-1.100 Cargo build-directory layout.
+        default: "1.99.1"
     secrets:
       CODE_CERT_MAXITSERVICE_01_2026:
         required: false
@@ -946,6 +947,9 @@ jobs:
             exit 1
           }
           Copy-Item $exePath $stagingDir/
+
+          # portable::init() uses this marker to keep app data beside the EXE.
+          New-Item -ItemType File -Force -Path (Join-Path $stagingDir "portable") | Out-Null
 
           $runtimeDlls = Get-ChildItem "src-tauri/transcribe-libs" -Filter "*.dll" -ErrorAction SilentlyContinue
           if (-not $runtimeDlls) {

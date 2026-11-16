@@ -11,16 +11,21 @@ Files that are added by this fork rather than upstream files that were modified.
 
 | File | Purpose |
 | --- | --- |
+| `src-tauri/src/distribution.rs` | Shared edition and installation policy. `src-tauri/app-edition` embeds `standard` or `store` at compile time; Store MSI/ZIP and Windows-packaged builds disable self-update and adjacent portable storage. Package-query failures are restricted. `build.rs` validates the marker and Store updater packaging; frontend updater controls and crash recovery use the same backend lock. |
 | `src-tauri/src/managers/connector.rs` | Main connector HTTP server. |
 | `src-tauri/src/commands/connector.rs` | Commands: status, queue, cancel, bundled extension export. |
 | `src-tauri/src/commands/asset_preview.rs` | Stages file-transcription previews using a hard link or copy. GUI startup removes abandoned regular files from `transcribe-file-preview` only when their filename timestamp predates this run; source mtimes are not used because hard links share them. |
 | `src-tauri/src/managers/remote_stt.rs` | Remote STT manager (OpenAI/Soniox). |
+| `src-tauri/src/managers/reson8_realtime.rs` | Reson8 Rumble-2 finalized-chunk WebSocket transport, bounded audio queue, operation-scoped cancellation, and flush-confirmed finalization. Unit tests use in-memory peers. |
+| `src-tauri/src/managers/gemini_realtime.rs` | Google/Vercel live transport with bounded audio queues that fail explicitly on overflow, raw-boundary-aware finalized chunks, operation-scoped callbacks and restart parameters. Each transport has an invalidatable delivery window, and restart binds its callbacks to the replacement window before accepting chunks. Recording state is locked before transport state during restart/publication; desktop window operations run after those locks are released. In-memory transport tests share the decapitalize trigger's test mutex. |
+| `src-tauri/src/managers/elevenlabs_realtime.rs` | ElevenLabs Scribe v3 Live PCM/WebSocket transport. Manual commits are serialized, triggered by turn probability after 2.2 seconds or a 22-second audio cap; queued audio resumes after acknowledgement. Stop waits for committed text and matching diarization under a finite deadline. Each transport owns an invalidatable callback lease, including across same-recording Clear. Restart parameters belong to the active transport; restart/publication validate the recording owner under recording-state-before-coordinator lock order. Dictation chunks and their final processor flush run on the output worker after ownership/cancellation checks. Cancellation, endpoint isolation and protocol tests use in-memory peers. |
+| `src-tauri/src/elevenlabs_language.rs` | ElevenLabs language allowlist and UI/OS/ISO-code normalization, mirrored by `src/lib/constants/elevenlabsLanguages.ts`. Unsupported hints are omitted for auto-detection. |
 | `src-tauri/src/managers/provider_error.rs` | Shared bounded provider-error parser for concise TTS/STT UI and CLI messages while retaining technical response details in diagnostic logs. |
 | `src-tauri/src/commands/remote_stt.rs` | Commands for remote STT & keys. |
 | `src-tauri/src/managers/deepgram_stt.rs` | Deepgram non-live/live-finalize transcription manager. |
 | `src-tauri/src/secure_keys.rs` | API key storage: Credential Manager on Windows; on Linux/macOS a `provider_api_keys` entry in the owner-only settings store file (`save_store_privately`). |
 | `src-tauri/src/autostart.rs` | Launch at login: `SMAppService` login item on macOS 13+, `tauri-plugin-autostart` elsewhere. |
-| `src-tauri/src/plus_overlay_state.rs` | Extended overlay states. |
+| `src-tauri/src/plus_overlay_state.rs` | Extended overlay states. Delayed Gemini sending/finalizing transitions reserve their generation atomically, so a newer provider error keeps its presentation and auto-hide timer. |
 | `src-tauri/src/region_capture.rs` | Native region capture overlay. |
 | `src-tauri/src/webview_recovery.rs` | WebView2 `ProcessFailed` watcher for every webview window: logs the failure kind/reason/exit code plus the faulting module from WebView2's latest Crashpad record, reloads a window whose page process died, and after a browser-process death destroys every webview and rebuilds the main window, recording overlay and voice button on a later event-loop turn (never inside the WebView2 callback); the rebuilt main window comes back hidden, minimized or visible exactly as it was and is never activated unless the user asked for it. Automatic repairs are capped at 3 per 10 minutes; after that the dead windows are closed and the next tray "show" rebuilds on request. `lib.rs` prevents the all-windows-closed exit while a rebuild is in flight. |
 | `src-tauri/src/webview_runtime.rs` | Shared Windows WebView2 environment configuration. Every WebView window must use it so one app instance keeps a single browser-process group; CDP mode must apply the same debugging arguments and data directory to every window. |
@@ -41,12 +46,15 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/commands/key_listener.rs` | Commands for key listener. |
 | `src-tauri/src/shortcut_handy_keys.rs` | Ported upstream HandyKeys shortcut backend and backend-side shortcut recording. |
 | `src-tauri/src/language_resolver.rs` | Soniox language resolver. |
+| `src-tauri/src/reson8_language.rs` | Reson8 Rumble-2 supported-language catalog and request normalization: maps UI/OS identities (`no`, `tl`, `jw`, Chinese script variants) to provider codes (`nb`, `fil`, `jv`, `zh`), deduplicates comma lists, and omits unsupported or auto values so the API auto-detects. |
+| `src-tauri/src/primary_selection.rs` | Linux Shift+Insert PRIMARY selection transport and injected transaction helpers. Wayland uses bounded wl-clipboard helpers; X11 retains an arboard owner. Unknown backup/write state blocks the paste, and restoration only replaces unchanged transcription-owned text. Other paste methods never touch PRIMARY. |
 | `src-tauri/src/language_detection/` | CPU-only VoxLingua language selection for local completed-audio transcription, with preferred-language policy, bounded speech extraction, native-stream fallback and an empty-preferences compatibility default. The separate model is downloaded with SHA-256 verification through `ModelManager`. |
-| `src-tauri/src/text_replacement_decapitalize.rs` | Decapitalize trigger. |
+| `src-tauri/src/text_replacement_decapitalize.rs` | Shared decapitalize trigger. Accepted uppercase chunks atomically recheck and consume one trigger; concurrent outputs cannot both claim it. Preview is non-consuming. |
 | `src-tauri/src/llm_live_output.rs` | Live insertion of a streamed LLM post-processing answer (per profile, Default = `post_process_live_stream_insert`): replacements, decapitalize and held whitespace via the shared stream-chunk engine; `actions.rs` `LlmLiveInsert` pastes through `live_output_buffer` with the live-STT window/clipboard/cancel path. An error before the first text falls back to the plain transcription. |
 | `src-tauri/src/early_open.rs` | Per-recording state for "press the opening key as soon as recording starts" (default off): waits for hotkey modifiers to be released, gates live text on key plus delay, presses the optional cancel key after a cancelled or empty recording; shared by every clone of the recording's `ResolvedOutputSettings`. With the option on, `buffers_external_output()` is false and live text uses `live_output_buffer`. |
 | `src-tauri/src/managers/tts.rs` | Provider-independent Soniox/Deepgram/OpenAI/Murf/ElevenLabs/Cartesia/experimental-Edge/local-Qwen/local-Kokoro/Windows TTS, bounded live cloud voice catalogs, semantic chunking, retry, Markdown rendering, resumable PCM-backed WAV/MP3/Ogg Opus assembly, disk protection, cache, and lazy recursive/non-recursive folder watching. Interactive Listen Later workers wait cancellably for the shared foreground synthesis lane and claim their manager operation before its first event; successful watcher conversions are copied into opt-in TTS History without invalidating the external result when History capture fails. |
-| `src-tauri/src/managers/xiph_opus.rs` | Minimal safe FFI wrapper for the verified, vendored official Xiph libopus release used by provider-independent Ogg Opus export. |
+| `src-tauri/src/managers/xiph_opus.rs` | Minimal safe FFI wrapper for the verified, vendored official Xiph libopus release used by Ogg Opus export and mono/stereo Opus input. The in-memory codec test checks both channels through encode/decode; `build.rs` disables libopus intrinsics only for Windows ARM64 targets to avoid opus 1.5.2/clang-cl ARM detection failures. Other targets retain their existing optimizations. |
+| `src-tauri/src/audio_toolkit/audio/opus.rs` | Incremental Opus input from Ogg/Opus/WebM containers, using Symphonia demuxing and the existing vendored libopus. Both file conversion and History import downmix/resample this stream without retaining the full high-rate input. |
 | `src-tauri/src/managers/edge_tts.rs` | Experimental no-key native Rust client for Microsoft Edge Read Aloud via the MIT-licensed `kothok-edge-tts` protocol crate, with bounded voice/media handling, timeout/cancellation-safe WebSocket teardown, UTF-8/SSML-aware request splitting, MP3 decoding, and 24 kHz mono PCM normalization. |
 | `src-tauri/src/managers/local_tts.rs` | Explicit app-managed Qwen3-TTS model/runtime lifecycle, pinned resumable downloads, conservative complete-install preflight, isolated uv/Python/PyTorch installation, preserved upstream license declaration, measured managed footprint, persistent offline worker supervision, and validated 24 kHz mono PCM handoff. |
 | `src-tauri/src/managers/local_kokoro.rs` | Pinned app-managed Kokoro int8 archive and sherpa-onnx runtime, safe extraction, retained original model `LICENSE`, measured managed footprint, hidden persistent CPU worker, and validated 24 kHz mono PCM handoff. |
@@ -117,7 +125,12 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/model-selector/nativeStreamingModel.ts` | Shared frontend detection for Moonshine streaming models whose external output is final-only. |
 | `src/components/settings/debug/ShortcutEngineSelector.tsx` | Shortcut engine toggle UI. |
 | `src/lib/constants/sonioxLanguages.ts` | Soniox languages mapping. |
-| `src/lib/constants/remoteSttProviders.ts` | Remote STT preset metadata for Groq/OpenAI/custom URL handling. |
+| `src/lib/constants/reson8Languages.ts` | Reson8 Rumble-2 supported-language catalog plus recognition-identity normalization for provider-code matching. |
+| `src/lib/sttLanguageOptions.ts` | Provider/model-scoped language choices shared by profile settings and regression tests. |
+| `src/lib/remoteSttProfileContext.ts` | Effective profile/global Remote STT context and mutation plans. Profile model edits create overrides; OpenAI-compatible key writes/tests are guarded when their preset differs from the global credential command scope. |
+| `src/lib/remoteApiModels.ts` | Cloud model cards and profile/global selection plans. Profile Custom selection requires an already configured shared Custom endpoint and model; it never changes global provider settings. |
+| `src/lib/constants/remoteSttProviders.ts` | Remote STT preset metadata for Groq, OpenAI, Google, Vercel, Reson8 and custom URLs. |
+| `src/components/settings/PortableStorageSettings.tsx` | Portable storage choice, active/next-launch paths, explicit status-load retry and EN/RU help. Switching requires restart and does not migrate files; Windows credentials and external caches/paths have separate portability limits. Settings Search enables this entry only after portable mode is confirmed. |
 | `src/components/settings/text-to-speech/TextToSpeechSettings.tsx` | Interactive TTS providers, secure key source, a bundled playable voice gallery that can apply exact sample settings, searchable/grouped/creatable provider values, live voice refresh where provider APIs permit it, grouped help with human documentation links, two-step local download consent and source/path/size/license disclosure, voice prompt presets, preprocessing, chunk/retry controls, non-destructive playback pitch/effects, overlay keys, opt-in in-memory Listen Later queue, opt-in Interactive History replay fallback, and Interactive History. |
 | `src/components/settings/text-to-speech/TtsVoiceGallery.tsx` | Collapsed-by-default, provider-grouped gallery of bundled Ogg Opus voice samples shared by Interactive and File TTS; cards disclose and apply the exact sample synthesis settings. |
 | `src/components/settings/text-to-speech/TtsHelpDisclosure.tsx` | Accessible native progressive disclosure shared by logical TTS settings groups for concise parameter guidance and human-facing documentation links. |
@@ -161,6 +174,27 @@ Files that are added by this fork rather than upstream files that were modified.
 
 ### Backend Support
 
+Windows elevated-window clipboard fallback is controlled per profile by
+`ProfileOutputSettings.copy_on_elevated_window`, default off. When enabled,
+completed clipboard-backed output copies the full transcript for manual Ctrl+V
+instead of restoring the previous clipboard. The captured history policy still
+applies; manual copying reports undelivered text and never sends auto-submit.
+Streaming cleanup records successful clipboard writes even when the subsequent
+keystroke fails, so disabled fallback still restores the saved clipboard formats.
+Manual copying respects the opening-key gate and the protected live target before
+discarding a stream buffer. Delivery errors retain their first chunk failure
+reason; frontend feedback localizes the administrator-window/manual Ctrl+V notice
+without exposing raw errors. Repaste and CLI paste use the same notice classifier.
+Gemini and Reson8 chunk insertion failures stay on the output session's final
+delivery path instead of raising remote-transcription overlays while recording.
+
+Linux Shift+Insert writes both CLIPBOARD and PRIMARY. PRIMARY is backed up lazily
+for streaming, and restored even when KeepTranscription retains CLIPBOARD or its
+restoration fails. Restoration skips changed, cleared or unreadable selections;
+failed PRIMARY preparation prevents the shortcut from pasting stale user text.
+Existing clipboard delays, consumer grace, defaults and other platforms remain
+unchanged. Native Wayland support is required on Wayland; X11 is not a fallback.
+
 | File | Current State |
 | --- | --- |
 | `src-tauri/src/commands/mod.rs` | Exports custom commands. |
@@ -196,7 +230,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/settings/user-interface/UserInterfaceSettings.tsx` | Soniox live preview UI. |
 | `src/components/Sidebar.tsx` | Navigation for fork settings. |
 | `src/hooks/useSettings.ts` | Fork settings hooks. |
-| `src/components/settings/remote-stt/RemoteSttSettings.tsx` | Soniox + Deepgram provider settings. |
+| `src/components/settings/remote-stt/RemoteSttSettings.tsx` | Profile-aware cloud STT settings, provider-scoped key status, guarded credential editing and shared provider tuning. Context changes clear typed keys and reject stale key-status responses. |
 | `src/components/settings/TranscriptionProfiles.tsx` | Provider-aware languages, a standalone application-aware settings disclosure that starts collapsed while disabled, stays expanded while enabled unless manually closed, and exposes a collapsed enabled-status indicator; a lazy-loading master toggle; per-profile automatic executable/title/path rules; consistent Default/custom profile LLM post-processing controls; and route-aware availability guidance. Custom profile cards use shared name sorting, with Default pinned first and the saved profile order preserved. |
 | `src/components/settings/transcribe-file/TranscribeFileSettings.tsx` | File transcription UI, including diarization speaker-name set profiles, multi-file drops into the persistent batch queue, and shared add-time request snapshots. |
 | `src/components/settings/TranscriptionSystemPrompt.tsx` | Prompt limits handling. |

@@ -5,7 +5,7 @@ Windows backend tests in this fork must be runnable through the checked-in harne
 ## Requirements
 
 - Minimum free disk space for tests: `50 GB`.
-- No active `cargo`, `tauri`, `rustc`, or `bun` processes when starting a Rust test run.
+- No other build may use the same Cargo target directory. Unrelated processes and a dev build in a different target directory can keep running.
 - Visual Studio 2022 C++ build tools, LLVM/clang, and Rust must be installed.
 
 ## Primary Commands
@@ -32,10 +32,84 @@ Windows backend tests in this fork must be runnable through the checked-in harne
 
 ## Harness Notes
 
+- `-LibOnly` can run while AivoRelay is open. Non-ignored library tests use injected state/transports, unique temporary files, and ephemeral loopback ports; they must not use microphone capture, the real clipboard, global shortcuts, or the user's settings, history, credentials, or model cache. Real hardware/model/service smoke tests remain explicitly ignored and require separate resource checks.
+- `-List` and `-NoRun` also work while AivoRelay is open. Unrestricted runs retain the app-process guard. Keep build-process checks enabled; `-SkipChecks` is not needed for isolated unit tests.
 - `test-local.ps1` imports the same MSVC environment setup used for local builds.
 - The harness configures `BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc` and `LIBCLANG_PATH` for native Cargo dependencies under `cargo test`.
 - The harness uses a short `CARGO_TARGET_DIR` to reduce Windows path-length pain.
 - By policy, every new test batch must be documented in this file immediately after it is added.
+
+## ElevenLabs Scribe
+
+The isolated library tests in `managers::elevenlabs_realtime::tests` exercise
+canonical HTTPS/WSS endpoints, secret redaction, framing, ordered manual commits
+for more than 90 seconds of synthetic PCM, preservation of repeated phrases,
+stop during an in-flight commit, delayed diarization, cancellation, queue overflow,
+empty recordings, and bounded missing-acknowledgement/provider-error handling.
+The transport-replacement tests also cover Clear invalidating queued callbacks under
+the same recording ID, refusing restart after Stop or successor preparation, and
+rejecting stale preview/speaker events. A blocked output-worker test lets chunk
+callers time out before releasing the queue: both chunks must precede the final
+safety-buffer flush, while cancellation preserves the next Decapitalize trigger.
+Normal finish keeps the transport lease valid for committed final words.
+No test opens a real WebSocket, reads credentials, uses audio hardware, or pastes text.
+
+`elevenlabs_language::tests`, the Scribe cases in `managers::remote_stt::tests`,
+`actions::transcription_post_process_tests`, and the Live Monitor/History tests
+cover language aliases, prerecorded subtitle mapping, provider/profile routing,
+speaker merges, and replay accounting. Frontend coverage runs with
+`bun run test:frontend`; it includes frontend/backend language-catalog parity,
+model capabilities, profile selection, prompts and output-route behavior.
+
+Live API smoke checks are separate: verify a short utterance, a recording longer
+than 90 seconds, stopping mid-phrase, cancellation, and Live Monitor diarization
+using an ElevenLabs STT key. Unit tests do not establish server behavior for very
+short or silent manual commits, billing, or loopback-source idle disconnects.
+
+### Speech MP3 replay and decapitalization
+
+The `text_replacement_decapitalize::tests::shared_live_chunk_pipeline_`
+tests exercise the shared Gemini/ElevenLabs output processor: empty and non-letter
+chunks, repeated interim previews, one-shot Cyrillic decapitalization, rearming
+across several Latin/Cyrillic chunks in one recording, and a safety-buffered tail
+flushed exactly once. Repeated edit-key presses refresh one trigger; they do not
+queue changes for several future chunks. Pure state tests cover exact expiry
+boundaries. These tests use no service or desktop resources.
+
+`managers::stt_paid_tests::stt_paid_mp3_live_chunks` is a separate, ignored paid
+test. Decode an explicitly chosen 30–90 second speech MP3 into a local 16 kHz
+mono PCM16 WAV. Set `AIVORELAY_STT_REPLAY_WAV` to its absolute path and
+`AIVORELAY_STT_REPLAY_EXPECTED` to an independent UTF-8 transcript of the speech
+(at least 20 words). Run only that test with
+`-LibOnly -Exact -Filter @('managers::stt_paid_tests::stt_paid_mp3_live_chunks', '--ignored', '--nocapture')`.
+
+The test reads saved provider STT keys without changing settings.
+`AIVORELAY_STT_REPLAY_PROVIDERS` accepts comma-separated `elevenlabs`, `vercel`,
+and `google` routes; the default is `elevenlabs,vercel`. Audio is paced in real time; the default frame duration is
+30 ms, optionally overridden by `AIVORELAY_STT_REPLAY_FRAME_MS` (10–200 ms).
+`AIVORELAY_STT_REPLAY_MODE` selects `smart` or `verbatim` for Gemini without
+changing the saved mode. `AIVORELAY_STT_REPLAY_LANGUAGE` optionally supplies an
+exact Gemini locale such as `en-US` for live replay; otherwise automatic language
+detection is used. Optional `AIVORELAY_STT_REPLAY_TRACE=1` prints selected
+transcript fields, raw Google speech-boundary events and the successfully sent
+PCM byte/sample totals in test builds only.
+
+For a separate prerecorded control, run only the ignored
+`managers::stt_paid_tests::stt_paid_mp3_gemini_file` test with the same WAV and
+reference variables. It makes one Vercel Gemini file-transcription request and
+checks the same ordered speech coverage; it does not run live streaming or
+keyboard checks. Use this to distinguish poor recognition of the source audio
+from loss specific to a live transport.
+
+The test records actual chunk arrival times, requires incremental output,
+compares concatenated chunks with final text, and requires at least 85% ordered
+word recall against the independent reference. Repeated words count separately;
+chunk/final agreement alone cannot conceal missing speech. It also checks
+multiple independently rearmed decapitalization triggers during one real stream. This is an audio transport
+replay, not a physical microphone or end-to-end keyboard test: it does not
+capture microphone audio, write History, paste text, or register shortcuts.
+Source speech, references, and logs belong under `.AGENTS/.untracked/`; never
+commit credentials or private recordings.
 
 ## Streamed LLM Output
 
@@ -84,6 +158,27 @@ Run it with:
 ## Documented Backend Test Areas
 
 Update this section every time new tests are added.
+
+### Optional elevated-window clipboard fallback (2026-11-14)
+
+- `clipboard::tests::elevated_fallback_` uses injected window detection and clipboard writes. It checks the disabled path never queries the foreground window or overwrites saved formats, ordinary/non-clipboard output stays unchanged, complete-text copying follows the history policy for every restore mode, and failed copies never claim success.
+- `settings::tests::elevated_clipboard_fallback_is_independent_per_profile_and_captured` checks the opt-in default, independent profiles, and recording/serialization snapshots.
+- Run with `.\test-local.ps1 -LibOnly -Filter 'elevated_fallback_','elevated_clipboard_fallback_'`. These tests never access the real clipboard or an administrator window.
+
+### Reson8 Rumble-2 language adaptation (2026-11-14)
+
+- `reson8_language::tests` covers the authoritative 56-code Rumble-2 catalog, frontend/backend catalog parity, provider-code aliases (`no` → `nb`, `tl` → `fil`, `jw` → `jv`), case/region and Chinese script normalization, unsupported-language omission, duplicate hints, and comma-list joining.
+- `managers::remote_stt::tests::reson8_prerecorded_request_` verifies the prerecorded request wrapper applies those rules (including unsupported Hebrew) and never sends `auto`.
+- Frontend `src/lib/constants/reson8Languages.test.ts` and `src/lib/sttLanguageOptions.test.ts` cover catalog identity matching and provider/model-scoped profile choices, including unrelated presets retaining their normal list.
+- Run the backend batch while AivoRelay is open with `.\test-local.ps1 -LibOnly -Filter 'reson8_language::tests','managers::remote_stt::tests::reson8_prerecorded_request_','tray_language::tests::provider_scope_matches_rumble_2_and_keeps_soniox_behavior'`.
+- Run the frontend checks with `bun test ./src/lib/constants/reson8Languages.test.ts ./src/lib/sttLanguageOptions.test.ts`.
+
+### Reson8 finalized-chunk transport (2026-11-14)
+
+- `managers::reson8_realtime::tests` exercises request construction, finalized-only parsing, chunk boundaries, audio drain/flush confirmation, early peer closure, overflow abort, and credential redaction using in-memory transports.
+- The overflow test keeps the peer connected and bounds completion with a timeout, so an unrelated EOF cannot race the expected error. It also checks socket closure and that no audio was sent after abort.
+- The flush-handshake test releases the mock confirmation only after the client sends its request, avoiding impossible early acknowledgements and scheduler-dependent failures. A timeout catches stalled finalization.
+- Run while AivoRelay is open with `pwsh -NoProfile -File .\test-local.ps1 -LibOnly -Filter 'managers::reson8_realtime::tests'`.
 
 ### Profile output window guard and insertion feedback (2026-10-11)
 
@@ -157,14 +252,44 @@ Run with:
   tests cover configured insertion timing, abort-and-join cleanup, partial-text
   preservation, errors without output, and overlapping detached/new sessions.
   Matching-session tests verify that an old finish cannot detach a newer
-  recording or clear its buffered audio.
+  recording or clear its buffered audio. Event-wrapper and restart tests cover
+  obsolete preview/stop/completion callbacks and preservation of newer pending
+  audio. Same-recording Clear/restart tests invalidate the old transport's queued
+  delivery, bind replacement callbacks to the new deadline window, and keep normal
+  Finish detached sessions open for final words. A rejected old chunk must leave the successor's decapitalize trigger
+  armed; these tests share the global trigger's test mutex. A blocked output-worker
+  test verifies that normal Stop flushes buffered final words after a timed-out
+  chunk still queued for insertion, and that Cancel preserves a newly armed
+  trigger. Runtime-feedback
+  tests cover notification-before-stop ordering, stale callback rejection,
+  sticky feedback scoped to recording/Live Monitor IDs, prompt early errors,
+  and a completed provider error surviving the insertion cutoff.
+- `text_replacement_decapitalize::tests` also covers repeated rearming through
+  the optional three-word correction buffer and final flush. Concurrent chunk
+  callers must atomically claim a single trigger exactly once; punctuation and
+  lowercase chunks leave it armed, and preview never consumes it.
+- `plus_overlay_state::tests::stale_processing_transition_` uses a local atomic
+  generation to verify that a delayed processing transition cannot reserve a
+  generation already advanced by an error or invalidate that error's timer.
 - `managers::gemini_output_window::tests` covers exact deadline boundaries,
   queued delivery checks, Unicode separators, and per-recording isolation.
 - `stream_chunk_processor::tests::gemini_cutoff_` covers buffered tail flushing,
   optional final spaces, existing whitespace, empty output, and punctuation.
 - `actions::stt_workflow_tests::gemini_hotkey_cutoff_` covers eligibility and
   configured-delay bounds. The adjacent detached-delivery test covers the
-  explicit background-finalization exemption from foreground ownership checks.
+  background-finalization exemption from foreground ownership checks while
+  preserving cancellation. Adjacent tests cover preserving each recording
+  action's registered handler and the rule that returning to Idle after a
+  successor finishes does not authorize old final output. Session-manager tests
+  cover that monotonic generation, deferred completion while a Stop controller
+  holds admission, ordinary completion, and Cancel taking priority before a
+  deferred finish revalidates its owner. Live Monitor tests cover rejecting an
+  old session's stop request.
+- `output_dispatch::tests` distinguishes an actual wait timeout (work remains
+  queued) from a task panic (the result channel closed), and checks that the
+  worker still accepts later tasks after the panic.
+- These tests do not instantiate desktop windows or exercise native hotkey,
+  clipboard, or UI-thread lock interleavings. Those remain runtime checks.
 - Tests use fake credentials and no external network, microphone, real
   clipboard, or desktop windows.
 
@@ -177,6 +302,13 @@ Run the focused batch through the checked-in harness:
     'stream_chunk_processor::tests::gemini_cutoff_'
     'actions::stt_workflow_tests::gemini_hotkey_cutoff_'
     'actions::stt_workflow_tests::detached_gemini_delivery_'
+    'actions::stt_workflow_tests::recording_action_resolution_'
+    'actions::stt_workflow_tests::detached_finalization_'
+    'session_manager::tests::returning_to_idle_'
+    'session_manager::tests::fast_processing_completion_'
+    'session_manager::tests::cancellation_keeps_admission_'
+    'session_manager::tests::ordinary_processing_completion_'
+    'managers::live_sound_audio::tests::a_late_stop_'
 )
 ```
 

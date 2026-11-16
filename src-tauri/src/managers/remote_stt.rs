@@ -1,4 +1,7 @@
 use crate::audio_toolkit::encode_wav_bytes;
+use crate::elevenlabs_language::{
+    resolve_requested_language_for_elevenlabs, ElevenLabsLanguageResolutionStatus,
+};
 use crate::file_transcription_diarization::{
     RawSpeakerBlock, UNATTRIBUTED_SPEAKER_KEY, UNATTRIBUTED_SPEAKER_NAME,
 };
@@ -17,15 +20,19 @@ use crate::subtitle::{
 use crate::url_security::{
     infer_remote_stt_preset, validate_remote_stt_base_url, REMOTE_STT_OPENAI_BASE_URL,
     REMOTE_STT_GOOGLE_DEFAULT_MODEL, REMOTE_STT_PRESET_CUSTOM, REMOTE_STT_PRESET_GOOGLE,
-    REMOTE_STT_PRESET_GROQ, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_VERCEL,
+    REMOTE_STT_PRESET_GROQ, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_RESON8,
+    REMOTE_STT_PRESET_VERCEL, REMOTE_STT_RESON8_BASE_URL, REMOTE_STT_RESON8_DEFAULT_MODEL,
     REMOTE_STT_VERCEL_DEFAULT_MODEL,
+};
+pub use crate::url_security::{
+    REMOTE_STT_ELEVENLABS_BASE_URL, REMOTE_STT_ELEVENLABS_DEFAULT_MODEL,
+    REMOTE_STT_ELEVENLABS_FILE_MODEL, REMOTE_STT_PRESET_ELEVENLABS,
 };
 use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use futures_util::{SinkExt, Stream, StreamExt};
 use serde::Deserialize;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -43,6 +50,8 @@ const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 /// Gemini file transcription can accept up to one hour of audio. Leave an
 /// additional processing margin while retaining a finite request deadline.
 const GEMINI_FILE_REQUEST_TIMEOUT_GRACE_SECS: u64 = 5 * 60;
+const MAX_RESON8_PRERECORDED_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_ELEVENLABS_PRERECORDED_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 
 const REMOTE_STT_SERVICE: &str = "fi.maxits.aivorelay";
 const REMOTE_STT_USER_PREFIX: &str = "remote_stt_api_key";
@@ -68,22 +77,13 @@ const OPENAI_REALTIME_AGENT_DEFAULT_PROMPT: &str =
      The user may provide custom words that are rare in the language; try to recognize them properly. \
      Make sure to properly recognize names, product names, and vocabulary exactly when recognizable.";
 
+#[cfg(test)]
 fn remote_stt_api_key_redaction_marker(api_key: &str) -> String {
-    let digest = Sha256::digest(api_key.as_bytes());
-    let fingerprint = digest[..8]
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    format!("[redacted key, SHA-256: {fingerprint}]")
+    crate::managers::provider_error::api_key_redaction_marker(api_key)
 }
 
 pub(crate) fn redact_remote_stt_api_key(value: &str, api_key: &str) -> String {
-    let api_key = api_key.trim();
-    if api_key.is_empty() {
-        value.to_string()
-    } else {
-        value.replace(api_key, &remote_stt_api_key_redaction_marker(api_key))
-    }
+    crate::managers::provider_error::redact_secrets(value, Some(api_key))
 }
 
 fn redacted_remote_stt_snippet(value: &str, api_key: &str, max_chars: usize) -> String {
@@ -244,6 +244,36 @@ struct TranscriptionResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct Reson8PrerecordedResponse {
+    text: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ElevenLabsWord {
+    #[serde(default)]
+    text: String,
+    #[serde(default)]
+    start: Option<f32>,
+    #[serde(default)]
+    end: Option<f32>,
+    #[serde(rename = "type", default)]
+    word_type: Option<String>,
+    #[serde(default)]
+    speaker_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ElevenLabsPrerecordedResponse {
+    #[serde(default)]
+    text: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    language_code: Option<String>,
+    #[serde(default)]
+    words: Vec<ElevenLabsWord>,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct VercelTranscriptionSegment {
     text: String,
@@ -307,14 +337,26 @@ pub struct RemoteFileTranscription {
     pub speaker_blocks: Vec<RawSpeakerBlock>,
 }
 
+/// Returns `true` when `model_id` is an ElevenLabs Scribe v3 model (`scribe_v3_live` or `scribe_v3`).
+pub fn is_elevenlabs_scribe_model(model_id: &str) -> bool {
+    let model_id = model_id.trim();
+    model_id.eq_ignore_ascii_case(REMOTE_STT_ELEVENLABS_DEFAULT_MODEL)
+        || model_id.eq_ignore_ascii_case(REMOTE_STT_ELEVENLABS_FILE_MODEL)
+}
+
 /// Returns whether a remote STT model supports translation to English.
 /// Uses the OpenAI-compatible /audio/translations endpoint.
 ///
 /// Known model support:
 /// - Groq: whisper-large-v3 supports translation, whisper-large-v3-turbo does NOT
 /// - OpenAI: whisper-1, gpt-realtime-2.1, gpt-realtime-2, and gpt-realtime-translate support translation
+/// - ElevenLabs Scribe v3 / Scribe v3 Live do NOT translate speech
 /// - Unknown models default to false (safe fallback)
 pub fn supports_translation(model_id: &str) -> bool {
+    if is_elevenlabs_scribe_model(model_id) {
+        return false;
+    }
+
     let lower = model_id.to_lowercase();
 
     if lower == "gpt-transcribe"
@@ -406,6 +448,7 @@ pub fn supports_subtitle_timestamps(model_id: &str) -> bool {
     let model_id = model_id.trim().to_ascii_lowercase();
     model_id == REMOTE_STT_VERCEL_DEFAULT_MODEL
         || model_id == REMOTE_STT_GOOGLE_DEFAULT_MODEL
+        || is_elevenlabs_scribe_model(&model_id)
         || (model_id.contains("whisper")
             && !OpenAiRealtimeWhisperManager::is_realtime_model(&model_id)
             && !is_openai_realtime_model(&model_id)
@@ -534,6 +577,226 @@ fn build_google_gemini_request(
         .header("x-goog-api-key", api_key)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body(serialized_body)
+}
+
+pub(crate) fn resolve_reson8_language(language: Option<&str>) -> Option<String> {
+    crate::reson8_language::resolve_requested_language_for_reson8(language)
+}
+
+fn build_reson8_prerecorded_request(
+    client: &reqwest::Client,
+    base_url: &str,
+    api_key: &str,
+    language: Option<&str>,
+    wav_bytes: Vec<u8>,
+) -> Result<reqwest::RequestBuilder> {
+    let endpoint = format!(
+        "{}/speech-to-text/prerecorded",
+        base_url.trim_end_matches('/')
+    );
+    let mut url = reqwest::Url::parse(&endpoint)
+        .map_err(|error| anyhow!("Invalid Reson8 prerecorded URL: {error}"))?;
+    {
+        let mut query = url.query_pairs_mut();
+        query.append_pair("model", REMOTE_STT_RESON8_DEFAULT_MODEL);
+        if let Some(language) = language.map(str::trim).filter(|lang| !lang.is_empty()) {
+            query.append_pair("language", language);
+        }
+    }
+
+    Ok(client
+        .post(url)
+        .header(
+            reqwest::header::AUTHORIZATION,
+            format!("ApiKey {}", api_key.trim()),
+        )
+        .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+        .body(wav_bytes))
+}
+
+fn elevenlabs_prerecorded_endpoint_url(base_url: &str) -> Result<reqwest::Url> {
+    if base_url.trim_end_matches('/') != REMOTE_STT_ELEVENLABS_BASE_URL {
+        return Err(anyhow!("ElevenLabs transcription requires its canonical HTTPS endpoint"));
+    }
+    let endpoint = format!("{}/speech-to-text", base_url.trim_end_matches('/'));
+    reqwest::Url::parse(&endpoint)
+        .map_err(|error| anyhow!("Invalid ElevenLabs speech-to-text URL: {error}"))
+}
+
+fn build_elevenlabs_prerecorded_request(
+    client: &reqwest::Client,
+    base_url: &str,
+    api_key: &str,
+    language: Option<&str>,
+    wav_bytes: Vec<u8>,
+) -> Result<reqwest::RequestBuilder> {
+    let url = elevenlabs_prerecorded_endpoint_url(base_url)?;
+    let file_part = reqwest::multipart::Part::bytes(wav_bytes)
+        .file_name("audio.wav")
+        .mime_str("audio/wav")
+        .map_err(|error| anyhow!("Failed to build ElevenLabs multipart audio part: {error}"))?;
+    let mut form = reqwest::multipart::Form::new()
+        .text("model_id", REMOTE_STT_ELEVENLABS_FILE_MODEL.to_string())
+        .text("timestamps_granularity", "word".to_string())
+        .part("file", file_part);
+    if let Some(language_code) = language.map(str::trim).filter(|code| !code.is_empty()) {
+        form = form.text("language_code", language_code.to_string());
+    }
+
+    Ok(client
+        .post(url)
+        .header("xi-api-key", api_key.trim())
+        .multipart(form))
+}
+
+async fn read_bounded_reson8_response(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>> {
+    if let Some(content_length) = response.content_length() {
+        if content_length > max_bytes as u64 {
+            return Err(anyhow!(
+                "Reson8 prerecorded response exceeded the {} byte limit ({} bytes)",
+                max_bytes,
+                content_length
+            ));
+        }
+    }
+
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| anyhow!("Reson8 prerecorded response could not be read: {error}"))?
+    {
+        let next_len = body.len().checked_add(chunk.len()).ok_or_else(|| {
+            anyhow!(
+                "Reson8 prerecorded response exceeded the {} byte limit",
+                max_bytes
+            )
+        })?;
+        if next_len > max_bytes {
+            return Err(anyhow!(
+                "Reson8 prerecorded response exceeded the {} byte limit",
+                max_bytes
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    Ok(body)
+}
+
+async fn read_bounded_elevenlabs_response(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>> {
+    if let Some(content_length) = response.content_length() {
+        if content_length > max_bytes as u64 {
+            return Err(anyhow!(
+                "ElevenLabs speech-to-text response exceeded the {} byte limit ({} bytes)",
+                max_bytes,
+                content_length
+            ));
+        }
+    }
+
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| anyhow!("ElevenLabs speech-to-text response could not be read: {error}"))?
+    {
+        let next_len = body.len().checked_add(chunk.len()).ok_or_else(|| {
+            anyhow!(
+                "ElevenLabs speech-to-text response exceeded the {} byte limit",
+                max_bytes
+            )
+        })?;
+        if next_len > max_bytes {
+            return Err(anyhow!(
+                "ElevenLabs speech-to-text response exceeded the {} byte limit",
+                max_bytes
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    Ok(body)
+}
+
+fn parse_elevenlabs_prerecorded_response(
+    response: ElevenLabsPrerecordedResponse,
+) -> RemoteFileTranscription {
+    let mut annotated_words = Vec::new();
+    let mut timed_tokens = Vec::new();
+    let mut speaker_blocks = Vec::new();
+    let has_speaker_ids = response.words.iter().any(|word| {
+        word.word_type
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("word")
+            == "word"
+            && word
+                .speaker_id
+                .as_deref()
+                .is_some_and(|speaker| !speaker.trim().is_empty())
+    });
+
+    for word in response.words {
+        let word_type = word.word_type.as_deref().map(str::trim).unwrap_or("word");
+        if word_type != "word" {
+            continue;
+        }
+        let trimmed = word.text.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let speaker = word
+            .speaker_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if has_speaker_ids {
+            append_google_speaker_word(&mut speaker_blocks, speaker.as_deref(), trimmed);
+        }
+        if let (Some(start), Some(end)) = (word.start, word.end) {
+            if start.is_finite() && end.is_finite() && start >= 0.0 && end >= start {
+                annotated_words.push(AnnotatedTranscriptWord {
+                    text: trimmed.to_string(),
+                    start,
+                    end,
+                    speaker,
+                });
+                timed_tokens.push(TimedTranscriptToken {
+                    start,
+                    end,
+                    text: trimmed.to_string(),
+                    prepend_space: true,
+                });
+            }
+        }
+    }
+
+    let text = if !response.text.trim().is_empty() {
+        response.text
+    } else if !annotated_words.is_empty() {
+        annotated_words
+            .iter()
+            .map(|word| word.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        response.text
+    };
+
+    RemoteFileTranscription {
+        text,
+        segments: timed_tokens_to_subtitle_segments(&timed_tokens),
+        annotated_words,
+        speaker_blocks,
+    }
 }
 
 fn validate_google_gemini_inline_request_size(serialized_body: Vec<u8>) -> Result<Vec<u8>> {
@@ -1125,11 +1388,57 @@ impl RemoteSttManager {
             }
         }
 
+        if settings.provider_preset == REMOTE_STT_PRESET_RESON8
+            && settings.model_id.trim() != REMOTE_STT_RESON8_DEFAULT_MODEL
+        {
+            let message = format!(
+                "The Reson8 route only supports model '{}', but settings contain '{}'. Select Reson8 Rumble-2 again in Settings -> Models.",
+                REMOTE_STT_RESON8_DEFAULT_MODEL,
+                settings.model_id.trim()
+            );
+            self.record_error(settings, message.clone());
+            return Err(anyhow!(message));
+        }
+
+        if settings.provider_preset == REMOTE_STT_PRESET_ELEVENLABS
+            && !is_elevenlabs_scribe_model(&settings.model_id)
+        {
+            let message = format!(
+                "The ElevenLabs route only supports models '{}' and '{}', but settings contain '{}'. Select ElevenLabs Scribe v3 again in Settings -> Models.",
+                REMOTE_STT_ELEVENLABS_DEFAULT_MODEL,
+                REMOTE_STT_ELEVENLABS_FILE_MODEL,
+                settings.model_id.trim()
+            );
+            self.record_error(settings, message.clone());
+            return Err(anyhow!(message));
+        }
+
+        if is_elevenlabs_scribe_model(&settings.model_id)
+            && (settings.provider_preset != REMOTE_STT_PRESET_ELEVENLABS
+                || base_url != REMOTE_STT_ELEVENLABS_BASE_URL)
+        {
+            let message = format!(
+                "{} requires the ElevenLabs Remote STT preset at {}.",
+                settings.model_id.trim(),
+                REMOTE_STT_ELEVENLABS_BASE_URL
+            );
+            self.record_error(settings, message.clone());
+            return Err(anyhow!(message));
+        }
+
         if request_segments && !supports_subtitle_timestamps(&settings.model_id) {
-            return Err(anyhow!(
-                "Model '{}' does not expose segment timestamps through its OpenAI-compatible transcription endpoint. Select Text output or a timestamp-capable Whisper model.",
-                settings.model_id
-            ));
+            let message = if settings.provider_preset == REMOTE_STT_PRESET_RESON8 {
+                format!(
+                    "Model '{}' does not expose subtitle segment timestamps in this integration. Select Text output or a timestamp-capable model.",
+                    settings.model_id
+                )
+            } else {
+                format!(
+                    "Model '{}' does not expose segment timestamps through its OpenAI-compatible transcription endpoint. Select Text output or a timestamp-capable Whisper model.",
+                    settings.model_id
+                )
+            };
+            return Err(anyhow!(message));
         }
 
         let api_key = get_remote_stt_api_key_for_request(settings).map_err(|e| {
@@ -1137,6 +1446,27 @@ impl RemoteSttManager {
             self.record_error(settings, message.clone());
             anyhow!(message)
         })?;
+
+        if settings.provider_preset == REMOTE_STT_PRESET_RESON8 && translate_to_english {
+            let message = format!(
+                "{} does not support Translate to English. Disable translation or select another model.",
+                settings.model_id
+            );
+            self.record_error(settings, message.clone());
+            return Err(anyhow!(message));
+        }
+
+        if (settings.provider_preset == REMOTE_STT_PRESET_ELEVENLABS
+            || is_elevenlabs_scribe_model(&settings.model_id))
+            && translate_to_english
+        {
+            let message = format!(
+                "{} does not support Translate to English. Disable translation or select another model.",
+                settings.model_id
+            );
+            self.record_error(settings, message.clone());
+            return Err(anyhow!(message));
+        }
 
         if uses_plural_language_hints(&settings.model_id) && translate_to_english {
             let message = format!(
@@ -1259,6 +1589,55 @@ impl RemoteSttManager {
         })?;
 
         let file_size = wav_bytes.len();
+
+        if settings.provider_preset == REMOTE_STT_PRESET_RESON8 {
+            if prompt.as_deref().is_some_and(|value| !value.trim().is_empty()) {
+                self.record_info(
+                    settings,
+                    "Reson8 Rumble-2 does not accept a free-form STT prompt; AivoRelay omitted it from the request.".to_string(),
+                );
+            }
+            return self
+                .transcribe_reson8_prerecorded(
+                    settings,
+                    &base_url,
+                    &wav_bytes,
+                    resolve_reson8_language(language.as_deref()),
+                    &api_key.value,
+                )
+                .await;
+        }
+
+        if settings.provider_preset == REMOTE_STT_PRESET_ELEVENLABS
+            || is_elevenlabs_scribe_model(&settings.model_id)
+        {
+            if prompt.as_deref().is_some_and(|value| !value.trim().is_empty()) {
+                self.record_info(
+                    settings,
+                    "ElevenLabs Scribe v3 does not accept a free-form STT prompt; AivoRelay omitted it from the request.".to_string(),
+                );
+            }
+            let language_resolution = resolve_requested_language_for_elevenlabs(language.as_deref());
+            if matches!(
+                language_resolution.status,
+                ElevenLabsLanguageResolutionStatus::Unsupported
+                    | ElevenLabsLanguageResolutionStatus::OsInputUnavailable
+            ) {
+                self.record_info(
+                    settings,
+                    "The selected language is unavailable for ElevenLabs Scribe; using automatic language detection.".to_string(),
+                );
+            }
+            return self
+                .transcribe_elevenlabs_prerecorded(
+                    settings,
+                    &base_url,
+                    &wav_bytes,
+                    language_resolution.code,
+                    &api_key.value,
+                )
+                .await;
+        }
 
         if gemini_expected_model.is_some() {
             if prompt.as_deref().is_some_and(|value| !value.trim().is_empty()) {
@@ -1640,6 +2019,246 @@ impl RemoteSttManager {
                 ),
             );
         }
+        Ok(result)
+    }
+
+    async fn transcribe_reson8_prerecorded(
+        &self,
+        settings: &RemoteSttSettings,
+        base_url: &str,
+        wav_bytes: &[u8],
+        language: Option<String>,
+        api_key: &str,
+    ) -> Result<RemoteFileTranscription> {
+        let request = build_reson8_prerecorded_request(
+            &self.client,
+            base_url,
+            api_key,
+            language.as_deref(),
+            wav_bytes.to_vec(),
+        )
+        .map_err(|error| {
+            let message = redact_remote_stt_api_key(&error.to_string(), api_key);
+            self.record_error(
+                settings,
+                remote_stt_log_value(&error.to_string(), api_key, settings.unsafe_log_secrets),
+            );
+            anyhow!(message)
+        })?;
+
+        if settings.debug_mode == RemoteSttDebugMode::Verbose {
+            self.record_info(
+                settings,
+                format!(
+                    "Reson8 prerecorded request model={} wav_bytes={} language={}",
+                    REMOTE_STT_RESON8_DEFAULT_MODEL,
+                    wav_bytes.len(),
+                    language.as_deref().unwrap_or("auto")
+                ),
+            );
+        }
+
+        let start = Instant::now();
+        let response = request.send().await.map_err(|error| {
+            let raw_message = format!("Reson8 prerecorded request failed: {}", error);
+            self.record_error(
+                settings,
+                remote_stt_log_value(&raw_message, api_key, settings.unsafe_log_secrets),
+            );
+            anyhow!(redact_remote_stt_api_key(&raw_message, api_key))
+        })?;
+        let status = response.status();
+        let body = read_bounded_reson8_response(response, MAX_RESON8_PRERECORDED_RESPONSE_BYTES)
+            .await
+            .map_err(|error| {
+                let raw_message = error.to_string();
+                self.record_error(
+                    settings,
+                    remote_stt_log_value(&raw_message, api_key, settings.unsafe_log_secrets),
+                );
+                anyhow!(redact_remote_stt_api_key(&raw_message, api_key))
+            })?;
+        let elapsed_ms = start.elapsed().as_millis();
+
+        if settings.debug_mode == RemoteSttDebugMode::Verbose {
+            self.record_info(
+                settings,
+                format!(
+                    "Reson8 prerecorded response status={} elapsed_ms={}",
+                    status, elapsed_ms
+                ),
+            );
+        }
+
+        if !status.is_success() {
+            let snippet = remote_stt_log_snippet(
+                &String::from_utf8_lossy(&body),
+                api_key,
+                500,
+                settings.unsafe_log_secrets,
+            );
+            self.record_error(
+                settings,
+                format!(
+                    "Reson8 prerecorded failed: status={} elapsed_ms={} body_snippet={}",
+                    status, elapsed_ms, snippet
+                ),
+            );
+            return Err(anyhow!(redact_remote_stt_api_key(
+                &parse_provider_error(&body, status),
+                api_key,
+            )));
+        }
+
+        let parsed: Reson8PrerecordedResponse = serde_json::from_slice(&body).map_err(|error| {
+            let raw_message = format!("Reson8 prerecorded response could not be parsed: {}", error);
+            self.record_error(
+                settings,
+                remote_stt_log_value(&raw_message, api_key, settings.unsafe_log_secrets),
+            );
+            anyhow!(redact_remote_stt_api_key(&raw_message, api_key))
+        })?;
+
+        if settings.debug_mode == RemoteSttDebugMode::Verbose {
+            self.record_info(
+                settings,
+                format!(
+                    "Reson8 prerecorded success output_len={}",
+                    parsed.text.len()
+                ),
+            );
+        }
+
+        Ok(RemoteFileTranscription {
+            text: parsed.text,
+            segments: Vec::new(),
+            ..Default::default()
+        })
+    }
+
+    async fn transcribe_elevenlabs_prerecorded(
+        &self,
+        settings: &RemoteSttSettings,
+        base_url: &str,
+        wav_bytes: &[u8],
+        language: Option<String>,
+        api_key: &str,
+    ) -> Result<RemoteFileTranscription> {
+        // xi-api-key is a custom header; an HTTP redirect must never forward
+        // it to a different origin. Keep other providers' redirect policy unchanged.
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))
+            .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+        let request = build_elevenlabs_prerecorded_request(
+            &client,
+            base_url,
+            api_key,
+            language.as_deref(),
+            wav_bytes.to_vec(),
+        )
+        .map_err(|error| {
+            let message = redact_remote_stt_api_key(&error.to_string(), api_key);
+            self.record_error(
+                settings,
+                remote_stt_log_value(&error.to_string(), api_key, settings.unsafe_log_secrets),
+            );
+            anyhow!(message)
+        })?;
+
+        if settings.debug_mode == RemoteSttDebugMode::Verbose {
+            self.record_info(
+                settings,
+                format!(
+                    "ElevenLabs prerecorded request model={} wav_bytes={} language={}",
+                    REMOTE_STT_ELEVENLABS_FILE_MODEL,
+                    wav_bytes.len(),
+                    language.as_deref().unwrap_or("auto")
+                ),
+            );
+        }
+
+        let start = Instant::now();
+        let response = request.send().await.map_err(|error| {
+            let raw_message = format!("ElevenLabs prerecorded request failed: {}", error);
+            self.record_error(
+                settings,
+                remote_stt_log_value(&raw_message, api_key, settings.unsafe_log_secrets),
+            );
+            anyhow!(redact_remote_stt_api_key(&raw_message, api_key))
+        })?;
+        let status = response.status();
+        let body = read_bounded_elevenlabs_response(
+            response,
+            MAX_ELEVENLABS_PRERECORDED_RESPONSE_BYTES,
+        )
+        .await
+        .map_err(|error| {
+            let raw_message = error.to_string();
+            self.record_error(
+                settings,
+                remote_stt_log_value(&raw_message, api_key, settings.unsafe_log_secrets),
+            );
+            anyhow!(redact_remote_stt_api_key(&raw_message, api_key))
+        })?;
+        let elapsed_ms = start.elapsed().as_millis();
+
+        if settings.debug_mode == RemoteSttDebugMode::Verbose {
+            self.record_info(
+                settings,
+                format!(
+                    "ElevenLabs prerecorded response status={} elapsed_ms={}",
+                    status, elapsed_ms
+                ),
+            );
+        }
+
+        if !status.is_success() {
+            let snippet = remote_stt_log_snippet(
+                &String::from_utf8_lossy(&body),
+                api_key,
+                500,
+                settings.unsafe_log_secrets,
+            );
+            self.record_error(
+                settings,
+                format!(
+                    "ElevenLabs prerecorded failed: status={} elapsed_ms={} body_snippet={}",
+                    status, elapsed_ms, snippet
+                ),
+            );
+            return Err(anyhow!(redact_remote_stt_api_key(
+                &parse_provider_error(&body, status),
+                api_key,
+            )));
+        }
+
+        let parsed: ElevenLabsPrerecordedResponse = serde_json::from_slice(&body).map_err(|error| {
+            let raw_message = format!(
+                "ElevenLabs prerecorded response could not be parsed: {}",
+                error
+            );
+            self.record_error(
+                settings,
+                remote_stt_log_value(&raw_message, api_key, settings.unsafe_log_secrets),
+            );
+            anyhow!(redact_remote_stt_api_key(&raw_message, api_key))
+        })?;
+
+        let result = parse_elevenlabs_prerecorded_response(parsed);
+
+        if settings.debug_mode == RemoteSttDebugMode::Verbose {
+            self.record_info(
+                settings,
+                format!(
+                    "ElevenLabs prerecorded success output_len={} segments={}",
+                    result.text.len(),
+                    result.segments.len()
+                ),
+            );
+        }
+
         Ok(result)
     }
 
@@ -2149,6 +2768,23 @@ impl RemoteSttManager {
             anyhow!(message)
         })?;
 
+        if settings.provider_preset == REMOTE_STT_PRESET_RESON8
+            || base_url == REMOTE_STT_RESON8_BASE_URL
+        {
+            let message = "Reson8 does not provide a /models connection-test endpoint. Save your API key and verify it by recording or transcribing a file.".to_string();
+            self.record_info(settings, message.clone());
+            return Err(anyhow!(message));
+        }
+
+        if settings.provider_preset == REMOTE_STT_PRESET_ELEVENLABS
+            || base_url == REMOTE_STT_ELEVENLABS_BASE_URL
+            || is_elevenlabs_scribe_model(&settings.model_id)
+        {
+            let message = "ElevenLabs Speech-to-Text does not provide a /models connection-test endpoint. Save your API key and verify it by recording or transcribing a file.".to_string();
+            self.record_info(settings, message.clone());
+            return Err(anyhow!(message));
+        }
+
         let url = format!("{}/models", base_url);
 
         if settings.debug_mode == RemoteSttDebugMode::Verbose {
@@ -2214,6 +2850,8 @@ fn remote_stt_api_key_scope(settings: &RemoteSttSettings) -> &'static str {
         REMOTE_STT_PRESET_OPENAI => REMOTE_STT_PRESET_OPENAI,
         REMOTE_STT_PRESET_VERCEL => REMOTE_STT_PRESET_VERCEL,
         REMOTE_STT_PRESET_GOOGLE => REMOTE_STT_PRESET_GOOGLE,
+        REMOTE_STT_PRESET_RESON8 => REMOTE_STT_PRESET_RESON8,
+        REMOTE_STT_PRESET_ELEVENLABS => REMOTE_STT_PRESET_ELEVENLABS,
         REMOTE_STT_PRESET_CUSTOM => REMOTE_STT_PRESET_CUSTOM,
         _ => infer_remote_stt_preset(&settings.base_url),
     }
@@ -2222,7 +2860,10 @@ fn remote_stt_api_key_scope(settings: &RemoteSttSettings) -> &'static str {
 fn remote_stt_allows_legacy_api_key_fallback(settings: &RemoteSttSettings) -> bool {
     !matches!(
         remote_stt_api_key_scope(settings),
-        REMOTE_STT_PRESET_VERCEL | REMOTE_STT_PRESET_GOOGLE
+        REMOTE_STT_PRESET_VERCEL
+            | REMOTE_STT_PRESET_GOOGLE
+            | REMOTE_STT_PRESET_RESON8
+            | REMOTE_STT_PRESET_ELEVENLABS
     )
 }
 
@@ -2232,6 +2873,8 @@ fn remote_stt_api_key_provider_label(settings: &RemoteSttSettings) -> &'static s
         REMOTE_STT_PRESET_OPENAI => "GPT Realtime",
         REMOTE_STT_PRESET_VERCEL => "Vercel AI Gateway",
         REMOTE_STT_PRESET_GOOGLE => "Google Gemini API",
+        REMOTE_STT_PRESET_RESON8 => "Reson8",
+        REMOTE_STT_PRESET_ELEVENLABS => "ElevenLabs",
         REMOTE_STT_PRESET_CUSTOM => "Custom API",
         _ => "Remote API",
     }
@@ -2414,19 +3057,27 @@ pub fn has_remote_stt_api_key(settings: &RemoteSttSettings) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_google_gemini_request, build_google_gemini_request_body,
-        build_openai_realtime_agent_session_update, build_vercel_gemini_request,
-        build_vercel_gemini_request_body, gemini_file_request_timeout,
-        parse_google_gemini_response,
-        remote_stt_allows_legacy_api_key_fallback, remote_stt_api_key_clear_targets,
-        redact_remote_stt_api_key,
-        remote_stt_api_key_redaction_marker, remote_stt_log_value, select_remote_stt_api_key,
-        supports_subtitle_timestamps, supports_translation,
-        uses_plural_language_hints, validate_google_gemini_inline_request_size,
-        GoogleInteractionsTranscriptionResponse, RemoteSttApiKeySource, TranscriptionResponse,
-        GEMINI_FILE_REQUEST_TIMEOUT_GRACE_SECS, GOOGLE_GEMINI_INLINE_REQUEST_LIMIT_BYTES,
+        build_elevenlabs_prerecorded_request, build_google_gemini_request,
+        build_google_gemini_request_body, build_openai_realtime_agent_session_update,
+        build_reson8_prerecorded_request, build_vercel_gemini_request,
+        build_vercel_gemini_request_body, elevenlabs_prerecorded_endpoint_url,
+        gemini_file_request_timeout, is_elevenlabs_scribe_model,
+        parse_elevenlabs_prerecorded_response, parse_google_gemini_response,
+        redact_remote_stt_api_key, remote_stt_allows_legacy_api_key_fallback,
+        remote_stt_api_key_clear_targets, remote_stt_api_key_redaction_marker,
+        remote_stt_api_key_user, remote_stt_log_value,
+        resolve_reson8_language, select_remote_stt_api_key, supports_subtitle_timestamps,
+        supports_translation, uses_plural_language_hints,
+        validate_google_gemini_inline_request_size, ElevenLabsPrerecordedResponse,
+        GoogleInteractionsTranscriptionResponse, RemoteSttApiKeySource,
+        Reson8PrerecordedResponse, TranscriptionResponse, GEMINI_FILE_REQUEST_TIMEOUT_GRACE_SECS,
+        GOOGLE_GEMINI_INLINE_REQUEST_LIMIT_BYTES,
     };
-    use crate::url_security::{REMOTE_STT_GOOGLE_BASE_URL, REMOTE_STT_VERCEL_BASE_URL};
+    use crate::url_security::{
+        REMOTE_STT_ELEVENLABS_BASE_URL, REMOTE_STT_ELEVENLABS_DEFAULT_MODEL,
+        REMOTE_STT_ELEVENLABS_FILE_MODEL, REMOTE_STT_GOOGLE_BASE_URL, REMOTE_STT_RESON8_BASE_URL,
+        REMOTE_STT_VERCEL_BASE_URL,
+    };
     use crate::gemini_config::{EffectiveGeminiConfig, GeminiRoute};
     use crate::settings::GeminiTranscriptionMode;
 
@@ -2997,5 +3648,159 @@ mod tests {
 
         assert!(targets.scoped);
         assert!(targets.legacy);
+    }
+
+    #[test]
+    fn reson8_prerecorded_request_uses_apikey_auth_and_raw_octet_stream_body() {
+        let request = build_reson8_prerecorded_request(
+            &reqwest::Client::new(),
+            REMOTE_STT_RESON8_BASE_URL,
+            "  test-reson8-key  ",
+            Some("en"),
+            vec![1, 2, 3, 4],
+        )
+        .unwrap()
+        .build()
+        .unwrap();
+
+        assert_eq!(request.method(), reqwest::Method::POST);
+        assert_eq!(
+            request.url().as_str(),
+            "https://api.reson8.dev/v1/speech-to-text/prerecorded?model=rumble-2&language=en"
+        );
+        assert_eq!(request.headers()["authorization"], "ApiKey test-reson8-key");
+        assert_eq!(
+            request.headers()["content-type"],
+            "application/octet-stream"
+        );
+        assert_eq!(request.body().unwrap().as_bytes().unwrap(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn reson8_prerecorded_request_omits_language_when_absent_and_never_sends_auto() {
+        assert_eq!(resolve_reson8_language(None), None);
+        assert_eq!(resolve_reson8_language(Some("auto")), None);
+        assert_eq!(resolve_reson8_language(Some(" AUTO ")), None);
+        assert_eq!(resolve_reson8_language(Some("zh-Hans")), Some("zh".to_string()));
+        assert_eq!(resolve_reson8_language(Some("no")), Some("nb".to_string()));
+        assert_eq!(resolve_reson8_language(Some("tl")), Some("fil".to_string()));
+        assert_eq!(resolve_reson8_language(Some("jw")), Some("jv".to_string()));
+        assert_eq!(resolve_reson8_language(Some("he")), None);
+        assert_eq!(resolve_reson8_language(Some("en,he")), Some("en".to_string()));
+
+        let request = build_reson8_prerecorded_request(
+            &reqwest::Client::new(),
+            REMOTE_STT_RESON8_BASE_URL,
+            "test-reson8-key",
+            resolve_reson8_language(Some("auto")).as_deref(),
+            vec![9],
+        )
+        .unwrap()
+        .build()
+        .unwrap();
+
+        assert_eq!(
+            request.url().as_str(),
+            "https://api.reson8.dev/v1/speech-to-text/prerecorded?model=rumble-2"
+        );
+    }
+
+    #[test]
+    fn reson8_route_keeps_isolated_key_scope_and_conservative_capabilities() {
+        let settings = remote_settings("reson8");
+        assert_eq!(remote_stt_api_key_user(&settings), "remote_stt_api_key_reson8");
+        assert!(!remote_stt_allows_legacy_api_key_fallback(&settings));
+        assert!(!supports_translation("rumble-2"));
+        assert!(!supports_subtitle_timestamps("rumble-2"));
+        let parsed: Reson8PrerecordedResponse =
+            serde_json::from_value(serde_json::json!({ "text": "hello world" })).unwrap();
+        assert_eq!(parsed.text, "hello world");
+    }
+
+    #[test]
+    fn elevenlabs_route_isolates_key_scope_and_exposes_model_capabilities() {
+        let settings = remote_settings("elevenlabs");
+        assert_eq!(
+            remote_stt_api_key_user(&settings),
+            "remote_stt_api_key_elevenlabs"
+        );
+        assert!(!remote_stt_allows_legacy_api_key_fallback(&settings));
+        assert!(is_elevenlabs_scribe_model(REMOTE_STT_ELEVENLABS_DEFAULT_MODEL));
+        assert!(is_elevenlabs_scribe_model(REMOTE_STT_ELEVENLABS_FILE_MODEL));
+        assert!(!is_elevenlabs_scribe_model("whisper-1"));
+        assert!(!supports_translation(REMOTE_STT_ELEVENLABS_DEFAULT_MODEL));
+        assert!(!supports_translation(REMOTE_STT_ELEVENLABS_FILE_MODEL));
+        assert!(supports_subtitle_timestamps(REMOTE_STT_ELEVENLABS_DEFAULT_MODEL));
+        assert!(supports_subtitle_timestamps(REMOTE_STT_ELEVENLABS_FILE_MODEL));
+    }
+
+    #[test]
+    fn elevenlabs_prerecorded_request_uses_xi_api_key_header_and_multipart_body() {
+        let endpoint =
+            elevenlabs_prerecorded_endpoint_url(REMOTE_STT_ELEVENLABS_BASE_URL).unwrap();
+        assert_eq!(
+            endpoint.as_str(),
+            "https://api.elevenlabs.io/v1/speech-to-text"
+        );
+
+        let request = build_elevenlabs_prerecorded_request(
+            &reqwest::Client::new(),
+            REMOTE_STT_ELEVENLABS_BASE_URL,
+            "  xi-secret-test-key  ",
+            Some("en"),
+            vec![1, 2, 3, 4],
+        )
+        .unwrap()
+        .build()
+        .unwrap();
+
+        assert_eq!(request.method(), reqwest::Method::POST);
+        assert_eq!(
+            request.url().as_str(),
+            "https://api.elevenlabs.io/v1/speech-to-text"
+        );
+        assert_eq!(request.headers()["xi-api-key"], "xi-secret-test-key");
+        assert!(request.headers().get("authorization").is_none());
+        let content_type = request.headers()["content-type"].to_str().unwrap();
+        assert!(content_type.starts_with("multipart/form-data; boundary="));
+    }
+
+    #[test]
+    fn elevenlabs_prerecorded_response_maps_word_timestamps_into_subtitle_segments() {
+        let response: ElevenLabsPrerecordedResponse =
+            serde_json::from_value(serde_json::json!({
+                "language_code": "eng",
+                "language_probability": 0.99,
+                "text": "Hello world again.",
+                "words": [
+                    { "text": "Hello", "start": 0.10, "end": 0.45, "type": "word", "speaker_id": "speaker_0" },
+                    { "text": " ", "start": 0.45, "end": 0.50, "type": "spacing", "speaker_id": "speaker_0" },
+                    { "text": "world", "start": 0.50, "end": 0.90, "type": "word", "speaker_id": "speaker_0" },
+                    { "text": " ", "start": 0.90, "end": 0.95, "type": "spacing", "speaker_id": "speaker_0" },
+                    { "text": "again.", "start": 0.95, "end": 1.40, "type": "word", "speaker_id": "speaker_0" },
+                    { "text": "(laughter)", "start": 1.40, "end": 1.80, "type": "audio_event" }
+                ]
+            }))
+            .unwrap();
+
+        let parsed = parse_elevenlabs_prerecorded_response(response);
+        assert_eq!(parsed.text, "Hello world again.");
+        assert_eq!(parsed.annotated_words.len(), 3);
+        assert_eq!(parsed.segments.len(), 1);
+        assert_eq!(parsed.segments[0].text, "Hello world again.");
+        assert!((parsed.segments[0].start - 0.10).abs() < 1e-6);
+        assert!((parsed.segments[0].end - 1.40).abs() < 1e-6);
+    }
+
+    #[test]
+    fn elevenlabs_secret_redaction_strips_api_key_and_single_use_tokens() {
+        let key = "xi-super-secret-key";
+        let message = format!(
+            "Connect failed for wss://api.elevenlabs.io/v1/speech-to-text/realtime?token=sutkn_abc123xyz with xi-api-key: {key}"
+        );
+        let safe = redact_remote_stt_api_key(&message, key);
+        assert!(!safe.contains(key));
+        assert!(!safe.contains("sutkn_abc123xyz"));
+        assert!(safe.contains("sutkn_[REDACTED]"));
     }
 }

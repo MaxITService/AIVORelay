@@ -43,3 +43,38 @@ assert.equal(
   }),
   "Google: Gemini 3.5 Transcribe Live",
 );
+assert.equal(
+  getRemoteApiDisplayLabel({
+    provider_preset: "reson8",
+    model_id: "rumble-2",
+  }),
+  "Reson8: rumble-2",
+);
+assert.equal(
+  getRemoteApiDisplayLabel({
+    provider_preset: "elevenlabs",
+    model_id: "scribe_v3_live",
+  }),
+  "ElevenLabs: Scribe v3 Live",
+);
+assert.equal(
+  getRemoteApiDisplayLabel({
+    provider_preset: "elevenlabs",
+    model_id: "scribe_v3",
+  }),
+  "ElevenLabs: Scribe v3",
+);
+assert.equal(
+  getRemoteApiDisplayLabel({
+    provider_preset: "elevenlabs",
+    model_id: "",
+  }),
+  "ElevenLabs: Scribe v3 Live",
+);
+assert.equal(
+  getRemoteApiDisplayLabel({
+    provider_preset: "elevenlabs",
+    model_id: "scribe_v2",
+  }),
+  "ElevenLabs: scribe_v2",
+);

@@ -2173,13 +2173,24 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
         return;
     }
 
+    // On X11 the overlay must stay resizable. tao turns resizing off on the
+    // first map, and GTK then sizes a non-resizable window to its content's
+    // natural size, which WebKitWebView reports as 200px tall. The window
+    // grew past the 50px its position was computed for, and the card, anchored
+    // to the window's bottom edge, was drawn below the screen (#1950). The
+    // window has no decorations, so this offers the user nothing new.
+    #[cfg(target_os = "linux")]
+    let resizable = !crate::utils::is_wayland();
+    #[cfg(not(target_os = "linux"))]
+    let resizable = false;
+
     let mut builder = WebviewWindowBuilder::new(
         app_handle,
         "recording_overlay",
         tauri::WebviewUrl::App("src/overlay/index.html".into()),
     )
     .title("Recording")
-    .resizable(false)
+    .resizable(resizable)
     .inner_size(metrics.window_width, metrics.window_height)
     .shadow(false)
     .maximizable(false)
@@ -2228,6 +2239,11 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
                     debug!("GTK layer shell initialized for overlay window");
                 } else {
                     debug!("GTK layer shell not available, falling back to regular window");
+                    // X11 fallback: otherwise the WM activates the overlay on map and steals focus (#2316)
+                    if let Ok(gtk_window) = window.gtk_window() {
+                        use gtk::prelude::GtkWindowExt;
+                        gtk_window.set_focus_on_map(false);
+                    }
                 }
             }
             debug!("Recording overlay window created successfully (hidden)");
@@ -2607,6 +2623,28 @@ pub fn show_sending_overlay(app_handle: &AppHandle) {
             }
         },
     );
+}
+
+/// Reserve the transition before queuing it, so a provider failure between a
+/// worker's check and this call keeps its newer error presentation authoritative.
+pub(crate) fn show_processing_overlay_if_generation_matches(
+    app_handle: &AppHandle, expected_generation: u64, finalizing: bool,
+) {
+    let Some(generation) = plus_overlay_state::advance_overlay_generation_if_matches(expected_generation) else {
+        return;
+    };
+    let settings = settings::get_settings(app_handle);
+    if !settings.recording_overlay_enabled {
+        return;
+    }
+    let payload = build_overlay_state_payload(if finalizing { "finalizing" } else { "sending" }, &settings, None, false);
+    plus_overlay_state::run_recording_overlay_update(app_handle, generation, move |app_handle| {
+        set_recording_overlay_default_layout(app_handle);
+        if let Some(window) = app_handle.get_webview_window("recording_overlay") {
+            let _ = window.emit("show-overlay", payload);
+            show_positioned_recording_overlay_window(app_handle);
+        }
+    });
 }
 
 /// Shows the thinking overlay window (for LLM processing)

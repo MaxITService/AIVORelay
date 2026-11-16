@@ -40,7 +40,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 
 const TEXT_EXTENSIONS: &[&str] = &["txt", "md"];
-const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "flac", "webm"];
+const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "oga", "opus", "flac", "webm"];
 const TTS_LLM_INSTRUCTIONS_MAX_CHARS: usize = 32_768;
 const UTF8_BOM_BYTES: usize = 3;
 const UTF8_MAX_BYTES_PER_CHAR: usize = 4;
@@ -2201,6 +2201,8 @@ fn transcription_provider_name(
         TranscriptionProvider::RemoteOpenAiCompatible => match remote_provider_preset {
             "vercel" => "Vercel AI Gateway (Gemini 3.5 Transcribe)",
             "google" => "Google Gemini API (Gemini 3.5 Transcribe)",
+            "reson8" => "Reson8 (Rumble-2)",
+            "elevenlabs" => "ElevenLabs (Scribe v3)",
             _ => "OpenAI-compatible",
         },
         TranscriptionProvider::RemoteSoniox => "Soniox",
@@ -2907,5 +2909,16 @@ mod tests {
     fn text_preview_is_unicode_safe() {
         assert_eq!(text_preview("Привет 🌍", 8), "Привет 🌍");
         assert_eq!(text_preview("日本語テスト", 3), "日本語…");
+    }
+
+    #[test]
+    fn transcription_provider_name_describes_elevenlabs_preset() {
+        assert_eq!(
+            transcription_provider_name(
+                TranscriptionProvider::RemoteOpenAiCompatible,
+                "elevenlabs"
+            ),
+            "ElevenLabs (Scribe v3)"
+        );
     }
 }

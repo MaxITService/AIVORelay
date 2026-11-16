@@ -22,6 +22,7 @@ export interface ProfileOutputPlanInput {
   streamsLiveText: boolean;
   pasteMethod: PasteMethod;
   clipboardHandling: ClipboardHandling;
+  copyOnElevatedWindow: boolean;
   checkActiveWindow: boolean;
   resumeDelayMs: number;
   stopAction: "history" | "preview" | "wait_for_window";
@@ -76,6 +77,7 @@ export const describeProfileOutputPlan = (input: ProfileOutputPlanInput): Profil
   const liveHeld = !held && input.streamsLiveText && buffered;
   const protection = input.isWindows && input.checkActiveWindow;
   const usesClipboard = CLIPBOARD_METHODS.includes(input.pasteMethod);
+  const elevatedCopy = input.isWindows && usesClipboard && input.copyOnElevatedWindow;
 
   // At recording start.
   if (protection && (earlyOn || liveInserting)) steps.push({ key: "stepTargetWindow" });
@@ -108,12 +110,13 @@ export const describeProfileOutputPlan = (input: ProfileOutputPlanInput): Profil
   } else if (held || hasOpening || input.autoSubmit || !input.streamsLiveText) {
     steps.push({ key: "stepEndInsert", values: { method: labels.method } });
   }
-  if (usesClipboard) steps.push({ key: "stepEndClipboard", values: { handling: labels.clipboard } });
+  if (usesClipboard) steps.push({ key: elevatedCopy ? "stepEndClipboardNormally" : "stepEndClipboard", values: { handling: labels.clipboard } });
   if (input.autoSubmit) {
     steps.push({ key: "stepEndSubmit", values: { delay: input.submitDelayMs, key: labels.submitKey } });
   }
 
   // Edge cases.
+  if (elevatedCopy) ifs.push({ key: "ifElevatedCopy" });
   if (earlyOn && input.isWindows) ifs.push({ key: "ifEarlyHeld" });
   if (earlyOn) ifs.push({ key: "ifEarlyFails" });
   if (earlyOn && input.autoSubmit) {

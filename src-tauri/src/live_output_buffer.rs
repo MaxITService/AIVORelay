@@ -62,8 +62,12 @@ impl Buffer {
             paused: false, returned_at: None, frozen: false, check_window: true }
     }
 
+    fn owns_target(&self, current: Option<WindowTarget>) -> bool {
+        !self.check_window || (self.target.is_some() && current == self.target)
+    }
+
     fn ready(&mut self, current: Option<WindowTarget>, now: Instant) -> bool {
-        if self.check_window && (self.target.is_none() || current != self.target) {
+        if !self.owns_target(current) {
             self.paused = true;
             self.returned_at = None;
             return false;
@@ -96,6 +100,9 @@ struct Session {
     buffer: Buffer,
     worker_active: bool,
     poll_queued: bool,
+    // Pending text is temporarily empty while the output worker inserts it.
+    // A new recording must still wait for that delivery to finish.
+    delivery_in_flight: bool,
     finished: bool,
     /// When the finished remainder started waiting for its window; drives the optional time limit.
     /// It lives in the session, so a new recording, cancel or delivery ends it with the session.
@@ -104,6 +111,18 @@ struct Session {
     /// Set only when the opening key is pressed at recording start: text is released
     /// once that key and its delay are done, and dropped if it could not be pressed.
     gate: Option<crate::early_open::EarlyOpeningKey>,
+}
+
+impl Session {
+    fn take_ready(&mut self, current: Option<WindowTarget>, now: Instant) -> Option<String> {
+        let text = self.buffer.take_ready(current, now);
+        self.delivery_in_flight = text.is_some();
+        text
+    }
+
+    fn can_recover_waiting(&self) -> bool {
+        self.finished && !self.delivery_in_flight && !self.buffer.pending.is_empty()
+    }
 }
 
 static SESSION: LazyLock<Mutex<Option<Session>>> = LazyLock::new(|| Mutex::new(None));
@@ -148,7 +167,7 @@ pub(crate) fn begin(
     buffer.check_window = gate.is_none() || (settings.check_active_window && cfg!(target_os = "windows"));
     *guard = Some(Session { operation_id, binding_id: binding_id.to_string(), profile_id,
         buffer, settings,
-        worker_active: false, poll_queued: false, finished: false,
+        worker_active: false, poll_queued: false, delivery_in_flight: false, finished: false,
         waiting_since: None, failed: false, gate });
 }
 
@@ -164,12 +183,24 @@ pub(crate) fn allows_delivery(operation_id: u64) -> bool {
                 || (session.buffer.target.is_some() && foreground_target() == session.buffer.target))))
 }
 
+/// Clipboard fallback must respect the pinned window even after keystrokes failed.
+/// Failure/frozen flags block further typing, but do not change who owns the text.
+pub(crate) fn target_allows_clipboard_fallback(operation_id: u64) -> bool {
+    SESSION.lock().ok().is_some_and(|guard| guard.as_ref()
+        .filter(|session| session.operation_id == operation_id)
+        .is_none_or(|session| session.buffer.owns_target(foreground_target())))
+}
+
 /// Discards the session. A finished wait-for-window remainder is not inserted, so tell the user
 /// it can be recovered from History (replaces the "waiting" toast, which would otherwise go stale).
 pub(crate) fn cancel(app: &AppHandle) {
     let discarded = SESSION.lock().ok().and_then(|mut guard| guard.take());
     if let Some(count) = discarded.as_ref().and_then(discarded_remainder_chars) {
         notice(app, "history", count);
+        waiting_changed(app);
+    } else if discarded.as_ref().is_some_and(|session| session.finished && session.delivery_in_flight) {
+        // The remainder was mid-insertion, so no count is known; just dismiss the "waiting" state.
+        notice(app, "resumed", 0);
         waiting_changed(app);
     }
 }
@@ -213,7 +244,7 @@ fn present_preview(app: &AppHandle, session: Session) {
 /// Takes a finished session whose remainder still waits for its window.
 fn take_waiting() -> Option<Session> {
     SESSION.lock().ok().and_then(|mut guard| {
-        if guard.as_ref().is_some_and(|session| session.finished && !session.buffer.pending.is_empty()) {
+        if guard.as_ref().is_some_and(Session::can_recover_waiting) {
             guard.take()
         } else { None }
     })
@@ -236,13 +267,17 @@ pub(crate) fn discard_pending_live_output(app: AppHandle) {
     }
 }
 
+fn recording_must_wait(session: &Session) -> bool {
+    !session.finished || session.delivery_in_flight
+}
+
 /// A new recording never silently discards or interleaves an older waiting job.
 /// Show that remainder for manual insertion before accepting another recording.
 pub(crate) fn recover_waiting_before_recording(app: &AppHandle) -> bool {
     let (previous, still_finishing) = match take_waiting() {
         Some(previous) => (Some(previous), false),
         None => (None, SESSION.lock().ok()
-            .is_some_and(|guard| guard.as_ref().is_some_and(|session| !session.finished))),
+            .is_some_and(|guard| guard.as_ref().is_some_and(recording_must_wait))),
     };
     if let Some(previous) = previous {
         present_preview(app, previous);
@@ -277,11 +312,13 @@ fn start_worker(app: &AppHandle, operation_id: u64) {
         let should_poll = {
             let Ok(mut guard) = SESSION.lock() else { return; };
             let Some(session) = guard.as_mut().filter(|session| session.operation_id == operation_id) else { return; };
-            if session.buffer.pending.is_empty() || session.buffer.frozen {
+            // An in-flight delivery empties `pending` but may restore it when the window changes,
+            // so the worker must outlive it (without queuing a poll behind the delivery).
+            if (session.buffer.pending.is_empty() && !session.delivery_in_flight) || session.buffer.frozen {
                 session.worker_active = false;
                 return;
             }
-            if session.poll_queued { false } else { session.poll_queued = true; true }
+            if session.delivery_in_flight || session.poll_queued { false } else { session.poll_queued = true; true }
         };
         if should_poll {
             let app_for_poll = app.clone();
@@ -329,7 +366,7 @@ fn flush(app: &AppHandle, operation_id: u64) {
         } else {
             let was_paused = session.buffer.paused;
             let text = if gate == Some(crate::early_open::Gate::Wait) { None }
-                else { session.buffer.take_ready(current, Instant::now()) };
+                else { session.take_ready(current, Instant::now()) };
             let paused_notice = (!was_paused && session.buffer.paused)
                 .then(|| (session.buffer.pending.chars().count(), session.finished));
             let target_window = session.buffer.target.filter(|_| session.buffer.check_window)
@@ -374,6 +411,7 @@ fn flush(app: &AppHandle, operation_id: u64) {
     let mut early_submit = None;
     if let Ok(mut guard) = SESSION.lock() {
         if let Some(session) = guard.as_mut().filter(|session| session.operation_id == operation_id) {
+            session.delivery_in_flight = false;
             if let Err(error) = result {
                 session.buffer.restore_interrupted(text);
                 if error != crate::clipboard::TARGET_WINDOW_CHANGED_ERROR {
@@ -476,6 +514,33 @@ mod tests {
     }
 
     #[test]
+    fn a_finished_remainder_stays_busy_until_its_in_flight_insertion_finishes() {
+        let now = Instant::now();
+        let mut session = Session {
+            operation_id: 7, binding_id: "test".into(), profile_id: None,
+            settings: ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None),
+            buffer: Buffer::new(target(1), 0), worker_active: true, poll_queued: false,
+            delivery_in_flight: false, finished: true, waiting_since: Some(now),
+            failed: false, gate: None,
+        };
+        session.buffer.pending.push_str("finished remainder");
+        assert!(session.can_recover_waiting());
+        let text = session.take_ready(target(1), now).unwrap();
+        assert!(session.buffer.pending.is_empty());
+        assert!(recording_must_wait(&session), "empty pending text is still being inserted");
+        assert!(!session.can_recover_waiting(), "Preview cannot steal an in-flight delivery");
+        // A focus change interrupts the real delivery: preserve the full suffix
+        // for the existing Preview/History/WaitForWindow completion policy.
+        session.delivery_in_flight = false;
+        session.buffer.restore_interrupted(text);
+        assert!(session.can_recover_waiting());
+        assert_eq!(session.take_ready(target(1), now).as_deref(), Some("finished remainder"));
+        session.delivery_in_flight = false;
+        assert!(!recording_must_wait(&session));
+        assert!(!session.can_recover_waiting());
+    }
+
+    #[test]
     fn switching_windows_buffers_until_return_delay_and_never_repeats_delivered_text() {
         let now = Instant::now();
         let mut buffer = Buffer::new(target(1), 500);
@@ -516,6 +581,19 @@ mod tests {
         buffer.pending.push_str("remaining");
         buffer.frozen = true;
         assert_eq!(buffer.take_ready(target(1), now), None);
+    }
+
+    #[test]
+    fn clipboard_fallback_keeps_target_ownership_after_a_typing_failure() {
+        let mut buffer = Buffer::new(target(1), 0);
+        buffer.frozen = true;
+        assert!(buffer.owns_target(target(1)));
+        assert!(!buffer.owns_target(target(2)));
+        assert!(!buffer.owns_target(None));
+        buffer.target = None;
+        assert!(!buffer.owns_target(None));
+        buffer.check_window = false;
+        assert!(buffer.owns_target(target(2)));
     }
 
     #[test]

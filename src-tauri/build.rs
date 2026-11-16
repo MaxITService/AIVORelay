@@ -1,4 +1,5 @@
 fn main() {
+    validate_app_edition();
     build_xiph_opus();
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -24,6 +25,22 @@ fn main() {
     let build_attributes = configure_windows_manifest();
 
     tauri_build::try_build(build_attributes).expect("failed to run Tauri build script")
+}
+
+fn validate_app_edition() {
+    println!("cargo:rerun-if-changed=app-edition");
+    println!("cargo:rerun-if-changed=tauri.conf.json");
+    let edition = std::fs::read_to_string("app-edition").expect("Missing app-edition build input");
+    assert!(matches!(edition.trim(), "standard" | "store"), "Invalid app-edition build input");
+    if edition.trim() == "store" {
+        let config: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string("tauri.conf.json").expect("Missing Tauri config"),
+        ).expect("Invalid Tauri config");
+        assert_eq!(config["bundle"]["createUpdaterArtifacts"], false,
+            "Store edition must disable updater artifacts");
+        assert!(config["plugins"]["updater"]["endpoints"].as_array().is_some_and(|values| values.is_empty()),
+            "Store edition must have no updater endpoints");
+    }
 }
 
 /// Verify, unpack, and statically build the exact official Xiph libopus release.
@@ -101,6 +118,13 @@ fn build_xiph_opus() {
 
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         config.define("OPUS_STATIC_RUNTIME", "OFF");
+        if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("aarch64") {
+            // Windows ARM64 builds with clang-cl, which defines _MSC_VER without
+            // MSVC's __emit (breaking celt/arm/armcpu.c). Disabling only runtime
+            // detection while aarch64 presumes NEON leaves celt_inner_prod_neon
+            // undeclared in opus 1.5.2 CMake, so build plain C on Windows ARM64.
+            config.define("OPUS_DISABLE_INTRINSICS", "ON");
+        }
     }
 
     let install_dir = config.build();

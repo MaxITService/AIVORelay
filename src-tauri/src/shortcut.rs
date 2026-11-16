@@ -34,7 +34,8 @@ use crate::url_security::{
     canonical_llm_provider_base_url, remote_stt_base_url_for_preset,
     remote_stt_default_model_for_preset, validate_remote_stt_base_url,
     REMOTE_STT_CUSTOM_DEFAULT_BASE_URL, REMOTE_STT_CUSTOM_DEFAULT_MODEL, REMOTE_STT_PRESET_CUSTOM,
-    REMOTE_STT_PRESET_GOOGLE, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_VERCEL,
+    REMOTE_STT_PRESET_GOOGLE, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_RESON8,
+    REMOTE_STT_PRESET_VERCEL,
 };
 use crate::{ManagedToggleState, ShortcutPressState};
 
@@ -146,6 +147,14 @@ fn uses_live_streaming_for_settings(settings: &settings::AppSettings) -> bool {
                 || ((settings.remote_stt.provider_preset == REMOTE_STT_PRESET_VERCEL
                     || settings.remote_stt.provider_preset == REMOTE_STT_PRESET_GOOGLE)
                     && crate::managers::gemini_realtime::GeminiRealtimeManager::is_realtime_model(
+                        &settings.remote_stt.model_id,
+                    ))
+                || (settings.remote_stt.provider_preset == REMOTE_STT_PRESET_RESON8
+                    && crate::managers::reson8_realtime::Reson8RealtimeManager::is_realtime_model(
+                        &settings.remote_stt.model_id,
+                    ))
+                || (settings.remote_stt.provider_preset == "elevenlabs"
+                    && crate::managers::elevenlabs_realtime::ElevenLabsRealtimeManager::is_realtime_model(
                         &settings.remote_stt.model_id,
                     ))
         }
@@ -4072,6 +4081,7 @@ pub fn change_transcription_output_settings(
         // The fields above live on AppSettings; keep only Default-only values
         // here so no stale copy can diverge from the saved global settings.
         settings.transcription_output_defaults = settings::ProfileOutputSettings {
+            copy_on_elevated_window: output.copy_on_elevated_window,
             check_active_window: output.check_active_window,
             live_window_resume_delay_ms: output.live_window_resume_delay_ms,
             live_window_stop_action: output.live_window_stop_action,
@@ -6210,6 +6220,19 @@ mod stt_profile_model_tests {
             vec!["global-streaming".to_string()]);
         assert_eq!(preview_settings(TranscriptionProvider::RemoteSoniox, "stt-rt-v4"),
             vec!["global-streaming".to_string(), "profile-streaming".to_string()]);
+    }
+
+    #[test]
+    fn elevenlabs_live_streaming_distinguishes_scribe_v3_live_from_scribe_v3() {
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::RemoteOpenAiCompatible;
+        settings.remote_stt.provider_preset = "elevenlabs".to_string();
+
+        settings.remote_stt.model_id = "scribe_v3_live".to_string();
+        assert!(super::uses_live_streaming_for_settings(&settings));
+
+        settings.remote_stt.model_id = "scribe_v3".to_string();
+        assert!(!super::uses_live_streaming_for_settings(&settings));
     }
 }
 

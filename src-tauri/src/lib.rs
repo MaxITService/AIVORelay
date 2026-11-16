@@ -18,6 +18,7 @@ mod cli_tts_history;
 mod clipboard;
 mod commands;
 mod early_open;
+mod elevenlabs_language;
 pub mod engine_supervisor;
 mod file_transcription_diarization;
 mod gemini_config;
@@ -37,9 +38,13 @@ mod notices;
 mod overlay;
 mod plus_overlay_state;
 mod portable;
+mod distribution;
+#[cfg(any(test, target_os = "linux"))]
+mod primary_selection;
 mod recording_auto_stop;
 mod recording_model_loading;
 mod remote_control;
+mod reson8_language;
 #[cfg(target_os = "windows")]
 mod region_capture;
 mod secure_keys;
@@ -61,6 +66,8 @@ mod tray_language;
 mod url_security;
 mod tls;
 mod utils;
+#[cfg(target_os = "linux")]
+pub use utils::{apply_aivorelay_gdk_backend, disable_gamescope_wsi_layer};
 mod webview_hardening;
 mod webview_mode;
 pub mod webkit_renderer;
@@ -106,6 +113,7 @@ use managers::audio::AudioRecordingManager;
 use managers::connector::ConnectorManager;
 use managers::deepgram_realtime::DeepgramRealtimeManager;
 use managers::deepgram_stt::DeepgramSttManager;
+use managers::elevenlabs_realtime::ElevenLabsRealtimeManager;
 use managers::gemini_realtime::GeminiRealtimeManager;
 use managers::history::HistoryManager;
 use managers::key_listener::KeyListenerState;
@@ -113,6 +121,7 @@ use managers::llm_operation::LlmOperationTracker;
 use managers::model::ModelManager;
 use managers::openai_realtime_whisper::OpenAiRealtimeWhisperManager;
 use managers::remote_stt::RemoteSttManager;
+use managers::reson8_realtime::Reson8RealtimeManager;
 use managers::send_selected_text_history::SendSelectedTextHistoryManager;
 use managers::soniox_realtime::SonioxRealtimeManager;
 use managers::soniox_stt::SonioxSttManager;
@@ -608,6 +617,10 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         GeminiRealtimeManager::new(app_handle)
             .expect("Failed to initialize Gemini 3.5 Transcribe Live"),
     );
+    let reson8_realtime_manager = Arc::new(
+        Reson8RealtimeManager::new(app_handle).expect("Failed to initialize Reson8 realtime STT"),
+    );
+    let elevenlabs_realtime_manager = Arc::new(ElevenLabsRealtimeManager::new(app_handle));
     let soniox_realtime_manager = Arc::new(
         SonioxRealtimeManager::new(app_handle).expect("Failed to initialize Soniox realtime STT"),
     );
@@ -636,6 +649,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(remote_stt_manager.clone());
     app_handle.manage(openai_realtime_whisper_manager.clone());
     app_handle.manage(gemini_realtime_manager.clone());
+    app_handle.manage(reson8_realtime_manager.clone());
+    app_handle.manage(elevenlabs_realtime_manager.clone());
     app_handle.manage(soniox_realtime_manager.clone());
     app_handle.manage(soniox_stt_manager.clone());
     app_handle.manage(deepgram_realtime_manager.clone());
@@ -1277,7 +1292,7 @@ pub fn run(cli_args: CliArgs) {
     memory::init_allocator();
 
     tls::initialize();
-    portable::init();
+    portable::init().expect("Failed to initialize app data storage");
 
     if cli_args.cancel && cli_file_conversion::request_headless_conversion_cancel() {
         return;
@@ -1638,6 +1653,9 @@ pub fn run(cli_args: CliArgs) {
         commands::cancel_operation,
         commands::get_app_dir_path,
         commands::is_portable,
+        commands::get_portable_storage,
+        commands::set_portable_storage,
+        commands::reset_macos_permission,
         commands::get_app_settings,
         commands::take_settings_store_reset_notice,
         commands::consume_speech_only_recovery_notice,
@@ -1737,6 +1755,7 @@ pub fn run(cli_args: CliArgs) {
         commands::model_storage::estimate_local_model_cleanup,
         commands::model_storage::cleanup_local_model,
         commands::models::take_missing_model_selection_notice,
+        commands::models::set_auto_switch_unavailable_model,
         commands::models::rescan_local_models,
         commands::models::download_model,
         commands::models::delete_model,
@@ -2050,6 +2069,15 @@ pub fn run(cli_args: CliArgs) {
                 std::env::var_os("AIVORELAY_KEEP_VULKAN_IMPLICIT_LAYERS"),
             );
 
+            #[cfg(target_os = "linux")]
+            log::info!(
+                "Linux display/compute policy: GDK_BACKEND={:?}, AIVORELAY_GDK_BACKEND={:?}, DISABLE_GAMESCOPE_WSI={:?} (set by AivoRelay: {})",
+                std::env::var_os("GDK_BACKEND"),
+                std::env::var_os("AIVORELAY_GDK_BACKEND"),
+                std::env::var_os("DISABLE_GAMESCOPE_WSI"),
+                utils::gamescope_wsi_disabled_by_aivorelay(),
+            );
+
             if headless_mode {
                 let app_handle = app.handle().clone();
                 if cli_local_tts::is_local_tts_requested(&cli_args) {
@@ -2139,6 +2167,7 @@ pub fn run(cli_args: CliArgs) {
             let file_log_level: log::Level = tauri_log_level.into();
             // Store the file log level in the atomic for the filter to use.
             FILE_LOG_LEVEL.store(file_log_level.to_level_filter() as u8, Ordering::Relaxed);
+            log::info!("App distribution: {:?}; installation: {:?}", distribution::edition(), distribution::installation());
             let app_handle = app.handle().clone();
 
             if webview_mode::webviews_disabled() {

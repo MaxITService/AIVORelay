@@ -23,9 +23,11 @@ import { useSettings } from "../../hooks/useSettings";
 import { useSortedDisplayNames } from "../../hooks/useSortedDisplayNames";
 import { useModels } from "../../hooks/useModels";
 import { LANGUAGES } from "../../lib/constants/languages";
+import { ELEVENLABS_ADDITIONAL_LANGUAGE_OPTIONS } from "../../lib/constants/elevenlabsLanguages";
+import { RESON8_ADDITIONAL_LANGUAGE_OPTIONS } from "../../lib/constants/reson8Languages";
 import { useNavigationStore } from "../../stores/navigationStore";
 import { GEMINI_LOCALES } from "../../lib/gemini/geminiConfig";
-import ProfileSettingsForm, { useProfileSttCapabilities, type ProfileSettingsFormProps, type ProfileValidationReason, type ExtendedTranscriptionProfile, type LlmPromptSourceOption, strictModeToApi, DEFAULT_CLEAN_PROMPT } from "./ProfileSettingsForm";
+import ProfileSettingsForm, { resolveEffectiveProfileSttSelection, useProfileSttCapabilities, type ProfileSettingsFormProps, type ProfileValidationReason, type ExtendedTranscriptionProfile, type LlmPromptSourceOption, strictModeToApi, DEFAULT_CLEAN_PROMPT } from "./ProfileSettingsForm";
 import { copyDefaultProfileOutput, getGlobalProfileOutputDefaults } from "./ProfileOutputSettings";
 import type { ProfileOutputSettings as OutputSettings } from "@/lib/profileOutputSettings";
 import { globalSttSelection, sttCatalog, sttProviderId, sttSelectionKey, type SttModelSelection } from "../../lib/sttModelSelection";
@@ -127,7 +129,12 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   const renameInvalid = getProfileNameError(tempName, allProfileNames, profile.id) ?? renameBackendNameError;
   const renameNameError = profileNameErrorMessage(renameInvalid, t) ?? renameError;
   const renameErrorId = `profile-name-error-${profile.id}`;
-  const effectiveSttSelection = profile.stt_model_selection_override ?? globalSttModelSelection;
+  const effectiveSttSelection = resolveEffectiveProfileSttSelection(
+    settings,
+    profile,
+    globalSttModelSelection,
+    isDefault,
+  );
   const { isGeminiProvider, supportsTranslation } = useProfileSttCapabilities(effectiveSttSelection, localSttModels);
   const languageModel = effectiveSttSelection.provider === "local"
     ? localSttModels.find(model => model.id === effectiveSttSelection.model_id) : undefined;
@@ -140,7 +147,14 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   });
   const languageLabel = useMemo(() => {
     if (spokenAuto) return spokenAutoLabel;
-    if (!isGeminiProvider) return LANGUAGES.find(option => option.value === profile.language)?.label ?? profile.language;
+    if (!isGeminiProvider) {
+      return (
+        LANGUAGES.find(option => option.value === profile.language)?.label ??
+        RESON8_ADDITIONAL_LANGUAGE_OPTIONS.find(option => option.value === profile.language)?.label ??
+        ELEVENLABS_ADDITIONAL_LANGUAGE_OPTIONS.find(option => option.value === profile.language)?.label ??
+        profile.language
+      );
+    }
     const code = profile.gemini_language_code_override ?? globalGeminiLanguageCode;
     if (code === "auto") return t("settings.gemini.language.auto", "Auto Detect");
     if (code === "os_input") return t("settings.gemini.language.osInput", "Follow OS Input Language");

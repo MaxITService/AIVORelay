@@ -59,6 +59,9 @@
     "openDefault": "Open the Default profile's output settings",
     "before": "Press this key after recording ends, before insertion",
     "clipboard": "Clipboard after insertion",
+    "copyOnElevatedWindow": "Copy transcript when an administrator window blocks insertion",
+    "copyOnElevatedWindowWarning": "Experimental",
+    "copyOnElevatedWindowHelp": "Off by default. When off, AivoRelay uses its normal insertion error and clipboard handling.\n\nWhen enabled, if Windows blocks automatic input into an administrator window while AivoRelay has lower privileges, the full transcript is placed on the clipboard after recording stops instead of being inserted automatically. An in-app warning toast (“Transcript ready to paste manually”) appears inside the AivoRelay window instructing you to press Ctrl+V—there is no separate Windows system notification or dialog. Focus the intended window and press Ctrl+V manually.\n\nFor that operation, previous clipboard contents (including saved formats) are not restored, while your clipboard-history setting still applies.\n\nScope: this only applies when automatic insertion is blocked after recording stops. It does not grant administrator privileges or fix a recording-start hotkey that Windows or other mouse software never delivers to AivoRelay.",
     "beforeHelp": "Pressed only after recording finishes and the text is ready, immediately before insertion. This is independent of the key at recording start: you can choose different keys, enable both, or turn either off. With this key enabled, live text accumulates and is inserted once at the end. After the key is pressed, its own pause elapses before the text is inserted.",
     "after": "Press this key after insertion",
     "noKey": "Do not press a key",
@@ -146,6 +149,8 @@
       "stepEndInsert": "The text is inserted using {{method}}.",
       "stepEndRest": "At the end, any remaining text is inserted.",
       "stepEndClipboard": "Clipboard afterwards: {{handling}}.",
+      "stepEndClipboardNormally": "Clipboard normally afterwards: {{handling}}. The administrator-window exception is described below.",
+      "ifElevatedCopy": "If the target window has higher privileges than AivoRelay, automatic insertion stops and the completed transcript stays on the clipboard for manual Ctrl+V. In this case the previous clipboard contents and formats are not restored; Window Protection and opening-key checks still apply.",
       "stepEndSubmit": "After {{delay}} ms, “{{key}}” is pressed.",
       "ifEarlyHeld": "While you hold the shortcut's modifier keys, the recording-start key waits for you to release them (with push-to-talk, that is when you finish recording). Text waits for it.",
       "ifEarlyFails": "The recording-start key cannot be pressed: nothing is inserted, a notice is shown, and the text stays in History.",
@@ -166,7 +171,7 @@
       "ifKeysWindowChangeStops": "The active window changes during key actions or waits: the remaining actions stop. Text not yet inserted is not inserted, and the key after insertion is not pressed.",
       "ifKeysWindowChangeContinues": "The active window changes during key actions or waits: the remaining actions continue in the new window.",
       "ifEarlyWindowStops": "At the end, the window that received the recording-start key is not in front, or the active window changes during key actions or waits: the remaining actions stop. Text not yet inserted is not inserted, and no more keys are pressed.",
-      "ifPasteFails": "Text cannot be pasted: a “Failed to Paste Text” notice appears. The text was already saved to History (when History is enabled)."
+      "ifPasteFails": "If text cannot be inserted, a notice explains the problem. The text was already saved to History (when History is enabled)."
     },
     "enabled": "Enabled",
     "disabled": "Disabled",
@@ -448,7 +453,12 @@
   "models": {
     "missingSelection": "Previously selected model {{model}} is no longer available.",
     "replacementSelected": "Selected {{model}} instead.",
-    "chooseReplacement": "Choose another model to continue."
+    "chooseReplacement": "Choose another model to continue.",
+    "missingSelectionTitle": "Model not available in this version",
+    "missingSelectionDialogBody": "The saved model {{model}} does not exist in this version. Switched to an available local model: {{replacement}}.",
+    "alwaysSwitch": "Always switch automatically",
+    "autoSwitched": "Model {{model}} is not available in this version. Switched to {{replacement}}.",
+    "autoSwitchTurnOff": "Ask me next time"
   },
   "tray": {
     "language": "Language",
@@ -521,6 +531,7 @@
       "developmentOnly": "Available in development builds only.",
       "default": "This section is currently unavailable.",
       "windowsOnly": "Available on Windows only.",
+      "portableOnly": "Available in the portable version only.",
       "voiceCommands": "Enable Beta Voice Commands on Windows to open this section.",
       "diarization": "Select a model or provider that supports speaker diarization.",
       "ttsLocalModel": "Select Qwen or Kokoro as the TTS provider to configure its local model.",
@@ -728,20 +739,16 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.51",
+      "since": "Since version 1.0.53",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "languageDetection": "Switch between languages without selecting one before every recording. In Speech / Microphone, choose the languages you speak and use Auto for transcription. A separate downloadable language detector can select the language before supported local models transcribe completed audio. Live streaming still uses the recognition model's own language detection or the configured fallback.",
-        "onboarding": "Choosing a local speech model is easier: the first-start wizard compares support and recognition scores for your selected languages and recommends suitable models. It remembers those languages and can resume an interrupted setup.",
-        "dictationPractice": "Try dictation during setup to check your microphone and shortcut before using the app elsewhere. If no speech is heard, the wizard helps you choose another microphone; if recognition is slow, it flags that too. On macOS, it guides you through the required permissions.",
-        "fileHistory": "Drag an audio file into the app from another settings page to open file transcription. When the transcript is ready, save it and its audio to History and follow the link to the saved entry. For a batch, you can enable saving each completed file automatically.",
-        "fileQueueRecovery": "A file waiting for the local recognition engine is retried when the engine becomes available. If the app view reloads during conversion, the interrupted file is marked as failed instead of silently starting over, so you can decide whether to retry.",
-        "modelDownloads": "When downloading a speech model, you can now see roughly how much time remains, alongside its progress.",
-        "ttsPlayback": "When listening to generated speech, the seek bar stays usable while playback restarts after a jump. You can adjust the position again without waiting for the previous seek to finish.",
-        "cloudVoices": "New Cartesia configurations and built-in presets use Sonic 3.6. Murf configurations now explicitly select Falcon 2.1; the earlier Falcon 2 identifier already uses that model on Murf's service. Existing saved model selections and presets are not overwritten.",
-        "regionalChinese": "Traditional Chinese output now offers regional variants for Taiwan and Hong Kong. Select the variant you need in the Chinese output settings for your transcription profile.",
-        "sonioxV6": "Soniox cloud recognition now uses the new Soniox v6 models by default. If you still use v5, the app offers a one-click update: Soniox turns v5 off on December 15, 2026."
+        "elevenLabsScribe": "Use ElevenLabs Scribe v3 Live for live dictation and speaker-separated Live Monitor transcripts. Audio files use Scribe v3 and can be saved as text or SRT/VTT subtitles.",
+        "geminiLiveReliability": "Gemini live dictation handles Clear, Stop, cancellation, and the last words of a recording more reliably.",
+        "repeatedDecapitalization": "Decapitalize after manual edit can be triggered repeatedly during one live recording, including across separate transcript chunks.",
+        "protectedLiveOutput": "Live output preserves text waiting for the original window and avoids inserting queued text after cancellation. Clipboard restoration is more reliable.",
+        "localModelRecovery": "If automatic model fallback is enabled and the selected model is unavailable, AivoRelay can choose a recently used, downloaded local model and explain the switch.",
+        "clearerModelCards": "Model cards show live dictation, file, subtitle, and speaker-separation capabilities. Optional profile settings use a neutral hint instead of an error-colored warning."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"
@@ -1842,7 +1849,8 @@
         "openai": "OpenAI API Compatible",
         "gemini": "Gemini",
         "soniox": "Soniox",
-        "deepgram": "Deepgram"
+        "deepgram": "Deepgram",
+        "elevenlabs": "ElevenLabs Scribe v3 Live"
       },
       "geminiInfo": "Gemini 3.5 Transcribe supports low-latency live dictation and transcription after recording. Choose a connection route and enter the matching API key.",
       "geminiRecommendation": "Vercel AI Gateway is recommended for initial setup. You can change the route and Gemini options later in Models.",
@@ -1872,6 +1880,9 @@
       "deepgramInfo": "Deepgram provides live WebSocket speech-to-text with Nova models, including KeepAlive / Finalize / CloseStream control messages.",
       "deepgramRecommendation": "Create a Deepgram API key in the console and paste it below. You can fine-tune Deepgram options later in Advanced settings.",
       "deepgramRealtimeWarning": "Deepgram live mode follows the standard live cycle and skips LLM post-processing.",
+      "elevenlabsInfo": "ElevenLabs Scribe v3 Live (scribe_v3_live) streams interim and finalized speech over WebSocket (plus speaker diarization in Live Monitor) and uses the scribe_v3 HTTP companion for completed recordings and file transcription.",
+      "elevenlabsDetails": "Uses https://api.elevenlabs.io/v1 with an isolated STT key (separate from TTS). Realtime sends Custom Words as keyterm_library; completed recordings and files apply Custom Words locally after transcription. Free-form STT prompts and English translation are not supported.",
+      "elevenlabsApiKeyPlaceholder": "Enter your ElevenLabs API key",
       "baseUrl": {
         "label": "Server URL",
         "hint": "Known providers stay on locked HTTPS URLs. Custom lets you enter your own endpoint."
@@ -1957,6 +1968,14 @@
         "title": "Remote via Gemini 3.5 Transcribe Live",
         "description": "Low-latency streaming via Gemini 3.5 Transcribe Live over Vercel AI Gateway or Google"
       },
+      "reson8": {
+        "title": "Remote via Reson8 (rumble-2)",
+        "description": "Live output inserts finalized chunks only. Interim transcript preview is not supported. Also supports prerecorded file transcription."
+      },
+      "elevenlabs": {
+        "title": "Remote via ElevenLabs (Scribe v3 Live)",
+        "description": "Live dictation and Live Monitor use Scribe v3 Live. Files use Scribe v3 with SRT/VTT subtitles. Speaker separation is available in Live Monitor."
+      },
       "custom": {
         "title": "Remote via Custom API",
         "description": "Custom OpenAI-compatible transcription endpoint"
@@ -2015,6 +2034,9 @@
     "chooseModel": "Choose a Model",
     "active": "Active",
     "profileModelChanged": "Profile \"{{profile}}\" now uses {{model}}.",
+    "profileRemoteCredentialsGuard": "This profile uses {{provider}}. To change or test its API key, switch to Default and select that provider there. This profile’s model choice will stay unchanged.",
+    "profileRemoteCustomGuard": "Configure the Custom endpoint and model in the Default profile before selecting it here. The shared endpoint is not changed by this profile.",
+    "openDefaultProfile": "Open Default profile",
     "download": "Download",
     "downloadSize": "Download size",
     "noModelsAvailable": "No models available",
@@ -2057,9 +2079,18 @@
       "customDescription": "Model choices here apply to this profile.",
       "defaultDescription": "Changing the Default model also changes profiles without their own model selection."
     },
+    "cardCapabilities": {
+      "dictation": "Dictation",
+      "live": "Live dictation",
+      "files": "Files",
+      "subtitles": "Subtitles (SRT/VTT)",
+      "speakersFile": "Speakers in files",
+      "speakersLive": "Speakers in Live Monitor",
+      "custom": "Capabilities depend on your endpoint and model."
+    },
     "profileSettingsNotice": {
-      "title": "This model has additional settings in transcription profiles",
-      "description": "Check <profileLink>Speech / Mic</profileLink> → Manage Profiles. Profile settings override or extend the model settings shown here.",
+      "title": "This model has optional additional settings in transcription profiles",
+      "description": "Configure them if needed in <profileLink>Speech / Mic</profileLink> → Manage Profiles. Profile settings override or extend the model settings shown here.",
       "features": {
         "language": "Language",
         "translateToEnglish": "Translate to English",
@@ -2774,6 +2805,7 @@
       "saveName": "Save profile name",
       "clickToRename": "Click to rename",
       "selectModelToEditGlobalPrompt": "Select an active transcription model to edit this prompt.",
+      "elevenlabsLanguageFallbackWarning": "This language is not supported by ElevenLabs Scribe. ElevenLabs requests will fall back to auto-detection.",
       "creatingProfile": "Creating profile…",
       "shortenSystemPrompt": "Shorten the voice model prompt.",
       "fixGeminiVocabulary": "Fix the Gemini vocabulary.",
@@ -2966,6 +2998,9 @@
         "toggle": "What is Live Monitor?",
         "content": "Live Monitor streams audio from your speakers, microphone, or both into a real-time transcript on this page — with optional speaker identification so you can see who said what.\n\nUnlike dictation, Live Monitor never inserts text into other apps. Use it to follow meetings, calls, or any audio, then review, process with AI, or save the result to a file.\n\nTip: real-time streaming from microphone can behave differently than from speakers — if results feel slow or cut off, try adjusting the session settings below."
       },
+      "elevenlabs": {
+        "liveNotice": "ElevenLabs Scribe v3 Live streams both interim previews and finalized speech segments over WebSocket, supports live Speaker Diarization with automatic speaker merge consolidation, and uses the active profile/global language hint and Custom Words (keyterm_library)."
+      },
       "session": {
         "title": "Session",
         "description": "Start a live transcript. Text stays in AivoRelay and is not pasted into other apps.",
@@ -3126,6 +3161,35 @@
       }
     },
     "advanced": {
+      "portableStorage": {
+        "title": "Portable Data Storage",
+        "description": "Choose where this portable copy stores settings, models, history and other app data. The choice takes effect after restarting AivoRelay.",
+        "portable": "Beside the app (Data folder)",
+        "desktop": "Desktop app data folder",
+        "active": "Active in this session: {{location}}",
+        "afterRestart": "After restart (selected): {{location}}",
+        "keepData": "Data stays in each folder without copying, moving, merging, or deleting files. Switching reuses what is already in the selected folder, or starts fresh with defaults if it is empty.",
+        "restartRequired": "Restart AivoRelay to switch to the selected folder. You can restart now or later — until then, this session keeps using the active folder above.",
+        "restart": "Restart AivoRelay",
+        "help": {
+          "summary": "Tell me more about portable data storage",
+          "modesTitle": "Storage modes & folder paths",
+          "portableMode": "Stores settings, downloaded models, history, recordings, logs, cache, custom sounds, and browser-view data in the Data folder beside the app:",
+          "desktopMode": "Uses this computer's standard per-user locations for your OS account. The path below is the main app data folder; logs, cache, and browser-view data can use other standard per-user folders on this computer:",
+          "sessionTitle": "Selection vs. active session",
+          "sessionBody": "Changing the dropdown saves your choice for future launches, while the running session keeps using its current active folder. Any changes you make before restarting still save to the current session's active folder. You can restart right away or later.",
+          "dataTitle": "Existing data & switching back",
+          "dataBody": "Switching never copies, moves, merges, or deletes files in either folder. Switching to a folder that already has AivoRelay data reuses those settings, models, and history on the next launch, and switching back later returns to your previous data. If a selected folder is empty, the first launch there starts with default settings and a new history; models are not copied from the other folder (to move data yourself, close AivoRelay first and copy files manually).",
+          "writableTitle": "Folder write access",
+          "writableBody": "The folder containing the AivoRelay executable must be writable whenever you change this storage preference — even when switching to Desktop app data folder, because the choice itself is saved beside the app. Normal use in Desktop app data folder mode does not need write access to the executable folder on launch. In Data folder mode, the Data folder beside the app must also be writable and have enough free space for settings, models, logs, and history.",
+          "movingTitle": "Moving the portable folder vs. Desktop storage",
+          "movingBody": "In Data folder mode, moving or copying the portable app folder carries the Data folder and your storage choice with it. Some Hugging Face models may also be read from an existing cache on this computer; those external cache files do not travel with the portable folder. In Desktop app data folder mode, data remains on this computer in your per-user folder and does not travel with the portable app; opening the portable app on another computer or user account uses that machine's own desktop folder.",
+          "updatesTitle": "Portable updates",
+          "updatesBody": "Switching to Desktop app data folder does not turn a portable copy into an installed app. This copy remains a portable distribution, so automatic in-app self-updates stay unavailable and update checks will prompt you to download the installer manually. The offered MSI installs or updates the desktop version. Your portable folder stays in place, and its Data folder is not imported into the desktop version automatically.",
+          "caveatsTitle": "Portability limits (keys & external paths)",
+          "caveatsBody": "Not everything lives inside the Data folder. On Windows, saved API keys are stored in Windows Credential Manager for this Windows user account independently of the storage mode: switching between Data folder and Desktop storage on the same Windows account still uses those same saved keys (they do not become separate per folder), while moving the portable folder to another PC or Windows account does not carry saved API keys. In this version, API keys still remain in Windows secure credential storage regardless of Portable or Desktop data mode; choosing another API-key storage location will be available in the next version. (On Linux and macOS, API keys are stored in the settings file inside the active data folder.) External folders you choose yourself (such as TTS watched folders, screenshot folder, extension export folder, or custom script/command paths) stay where they point and may not exist on another machine; launch-at-login registrations are also tied to this computer and executable path."
+        }
+      },
       "airpodsMode": {
         "label": "AirPods mode (experimental)",
         "description": "If recordings are silent while your Bluetooth headset plays audio from an iPhone, play silent audio on that same headset during recording to bring it back to this Mac. It may interrupt phone playback. Off by default."
@@ -3557,6 +3621,21 @@
             "empty": "No remote debug output yet.",
             "clear": "Clear"
           }
+        },
+        "elevenlabs": {
+          "interfaceLabel": "ElevenLabs Scribe v3 · Live (scribe_v3_live) & File (scribe_v3)",
+          "interfaceHint": "ElevenLabs Scribe v3 Live (scribe_v3_live) streams interim and finalized speech over WebSocket (plus Live Monitor diarization) and uses the scribe_v3 HTTP companion for completed recordings and files; scribe_v3 uses completed-recording and file HTTP transcription only.",
+          "apiKeyTitle": "ElevenLabs STT API Key",
+          "apiKeyDescription": "Stored separately for ElevenLabs STT, independently of ElevenLabs TTS keys.",
+          "apiKeyPlaceholder": "Enter your ElevenLabs API key",
+          "modelTitle": "ElevenLabs STT Model",
+          "modelDescription": "Select scribe_v3_live for realtime dictation and Live Monitor with automatic scribe_v3 file companion, or scribe_v3 for completed-recording and file HTTP transcription only.",
+          "modelLiveOption": "scribe_v3_live — Realtime WebSocket + scribe_v3 file companion (Recommended)",
+          "modelFileOption": "scribe_v3 — Completed recording & file HTTP only (no live streaming)",
+          "scribeV3FileOnlyNotice": "scribe_v3 supports completed dictation recordings and file transcription (Text, SRT, VTT with word timestamps) only — live streaming, interim preview, and Live Monitor are not supported on scribe_v3.",
+          "infoTitle": "ElevenLabs · Scribe v3 Live (scribe_v3_live) & Scribe v3 (scribe_v3)",
+          "infoDetails": "When scribe_v3_live is selected, live dictation and Live Monitor stream over ElevenLabs Realtime WebSocket (xi-api-key, 16 kHz PCM), while completed-recording fallback and Transcribe File explicitly use the scribe_v3 HTTP companion (POST /v1/speech-to-text) with word-level timestamps for Text, SRT, and VTT. Selecting scribe_v3 directly uses completed-recording and file HTTP transcription only (never live). Active profile/global language hints are supported. Realtime sends Custom Words as keyterm_library; completed recordings and files apply Custom Words locally after transcription. Free-form STT prompts and Translate to English are not supported.",
+          "apiKeysLink": "ElevenLabs API Keys"
         }
       },
       "soniox": {
@@ -4493,7 +4572,7 @@
       "updateChecks": {
         "label": "Check for Updates",
         "description": "Automatically check for new versions of AivoRelay",
-        "lockedDescription": "Disabled by system configuration (AIVORELAY_DISABLE_UPDATER)"
+        "lockedDescription": "Self-updates are disabled for this edition or by system configuration."
       },
       "soundTheme": {
         "label": "Sound Theme",
@@ -5058,7 +5137,7 @@
     "preparing": "Preparing...",
     "checkForUpdates": "Check for updates",
     "portableUpdateTitle": "Manual update required",
-    "portableUpdateMessage": "The portable version cannot update itself. Download and run the signed MSI installer to finish updating. Your existing portable Data folder will not be deleted.",
+    "portableUpdateMessage": "The portable version cannot update itself. The signed MSI installer installs or updates the desktop version. Your portable folder is not updated automatically; its existing Data folder stays in place and is not imported into the desktop version automatically.",
     "portableUpdateButton": "Download installer",
     "vramLabel": "VRAM",
     "vramUnavailable": "VRAM N/A",
@@ -5075,6 +5154,7 @@
     "vramTooltipSystemFree": "System free: {{free}} / {{total}} GB (total is physical VRAM)"
   },
   "common": {
+    "ok": "OK",
     "sessionNotices": "Session messages: {{count}}",
     "sessionNoticesDescription": "Open errors and warnings recorded during this session. These may include earlier problems that are already resolved.",
     "resetSetting": "Reset {{setting}} to default",
@@ -5147,9 +5227,14 @@
     },
     "pasteFailedTitle": "Failed to Paste Text",
     "pasteFailed": "Text could not be pasted into the active application.",
+    "elevatedClipboardTitle": "Transcript ready to paste manually",
+    "elevatedClipboardCopied": "Windows blocked automatic input into this administrator window. The complete transcript is on the clipboard; press Ctrl+V to paste it.",
+    "elevationBlocked": "Windows blocked input into a window with higher privileges. Run AivoRelay with matching privileges to allow automatic input.",
     "modelDownloadFailed": "Failed to download model: {{model}}",
     "modelDownloadFailedUnknown": "Unknown model",
     "noInputDeviceTitle": "No Microphone Found",
+    "noModelSelectedTitle": "No Model Selected",
+    "microphoneSilentTitle": "Microphone Is Silent",
     "noInputDevice": "No audio input device was detected. Please connect a microphone or headset and try again.",
     "microphonePermissionDeniedTitle": "Microphone Access Blocked",
     "microphonePermissionDenied": "Windows privacy settings do not allow AivoRelay to use the microphone. Allow microphone access for desktop apps and try again."
@@ -5320,11 +5405,19 @@
     "cancelling": "Cancelling...",
     "cancelled": "File transcription cancelled.",
     "liveModelUnsupported": "Gemini Live cannot transcribe files. In Models, select the regular Gemini 3.5 Transcribe model.",
+    "reson8": {
+      "subtitlesUnsupported": "Reson8 Rumble-2 does not support SRT/VTT subtitle timestamps in this integration. Select Text output."
+    },
+    "elevenlabs": {
+      "outputFormatHint": "ElevenLabs File Transcription uses the scribe_v3 HTTP companion and supports accurate word-level timestamps for SRT and VTT subtitles.",
+      "companionNoticeTitle": "ElevenLabs File Transcription · scribe_v3 HTTP Companion",
+      "companionNotice": "File transcription with ElevenLabs automatically uses the scribe_v3 prerecorded HTTP companion endpoint (POST /v1/speech-to-text) even when scribe_v3_live is selected. Supports Text, SRT, and VTT subtitles with word-level timestamps, resolves the active profile/global language hint, and applies Custom Words locally after transcription when Apply Custom Words is enabled."
+    },
     "selectFileBeforeTranscribing": "Select a file before starting transcription. You can configure the model and options now.",
     "dropZone": {
       "title": "Drop audio file here or click to browse",
       "subtitle": "Select an audio file to transcribe",
-      "formats": "WAV, MP3, M4A, OGG, FLAC, WebM"
+      "formats": "WAV, MP3, M4A, OGG, OGA, Opus, FLAC, WebM"
     },
     "profileLabel": "Transcription profile",
     "usingProfile": "Using profile",
