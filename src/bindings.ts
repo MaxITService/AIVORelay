@@ -125,6 +125,14 @@ async changeAutostartAsAdminSetting(enabled: boolean) : Promise<Result<null, str
     else return { status: "error", error: e  as any };
 }
 },
+async changeHideAdminInWindowTitleSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_hide_admin_in_window_title_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeShowTrayShortcutGuideSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_show_tray_shortcut_guide_setting", { enabled }) };
@@ -1340,6 +1348,38 @@ async changeDeepgramEndpointingMsSetting(valueMs: number) : Promise<Result<null,
 async resetDeepgramSettingsToDefaults() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("reset_deepgram_settings_to_defaults") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeElevenlabsSttNoVerbatimSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_elevenlabs_stt_no_verbatim_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeElevenlabsSttNumbersAsDigitsSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_elevenlabs_stt_numbers_as_digits_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeElevenlabsSttTagAudioEventsSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_elevenlabs_stt_tag_audio_events_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeElevenlabsSttZeroRetentionSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_elevenlabs_stt_zero_retention_setting", { enabled }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -4542,7 +4582,12 @@ async isLaptop() : Promise<Result<boolean, string>> {
 
 export type ActiveTtsBatchSnapshot = { progress: TtsBatchProgress; scan: TtsBatchScanResult; files: TtsBatchFileResult[] }
 export type AddTranscriptionProfilePayload = { name: string; language: string; spokenLanguages?: string[]; languageDetection?: LanguageDetectionMode; languageDetectionWindowSecs?: number; translateToEnglish: boolean; automaticAppRules?: string[] | null; systemPrompt: string; sttPromptOverrideEnabled?: boolean; sttModelSelectionOverride?: SttModelSelection | null; pushToTalk: boolean; autoShortcutActivation?: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; geminiLanguageCodeOverride?: string | null; geminiCustomVocabularyOverride?: string[] | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null; chineseScript?: ChineseScript | null; outputSettings?: ProfileOutputSettings }
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; auto_shortcut_activation?: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; first_start_wizard_skipped?: boolean; never_launch_webview?: boolean; show_speech_only_mode_in_tray?: boolean; autostart_enabled?: boolean; autostart_as_admin_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; tray_icon_blinking_enabled?: boolean; tray_icon_blink_on_recording?: boolean; tray_icon_blink_on_processing?: boolean; tray_icon_blink_frequency_hz?: number; update_checks_enabled?: boolean; selected_model?: string;
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; auto_shortcut_activation?: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; first_start_wizard_skipped?: boolean; never_launch_webview?: boolean; show_speech_only_mode_in_tray?: boolean; autostart_enabled?: boolean; autostart_as_admin_enabled?: boolean;
+/**
+ * Hide "(Administrator)" from the main window title while administrator
+ * autostart is on. The tray always shows it.
+ */
+hide_admin_in_window_title?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; tray_icon_blinking_enabled?: boolean; tray_icon_blink_on_recording?: boolean; tray_icon_blink_on_processing?: boolean; tray_icon_blink_frequency_hz?: number; update_checks_enabled?: boolean; selected_model?: string;
 /**
  * Local models this build could actually run, newest first. A build that no
  * longer knows `selected_model` (for example after switching between a dev and
@@ -4590,7 +4635,25 @@ gemini_live_early_finalization_append_space?: boolean;
 /**
  * Batch Gemini mode used by ordinary dictation. None migrates the former shared file value.
  */
-gemini_dictation_mode?: GeminiTranscriptionMode | null; gemini_file_mode?: GeminiTranscriptionMode; gemini_file_diarization?: boolean; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_endpoint_sensitivity?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_optimize_delivery_preconnect_enabled?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; live_sound_enable_speaker_diarization?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null;
+gemini_dictation_mode?: GeminiTranscriptionMode | null; gemini_file_mode?: GeminiTranscriptionMode; gemini_file_diarization?: boolean; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_endpoint_sensitivity?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_optimize_delivery_preconnect_enabled?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; live_sound_enable_speaker_diarization?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number;
+/**
+ * ElevenLabs Scribe: drop filler words, false starts and non-speech sounds (`no_verbatim`).
+ */
+elevenlabs_stt_no_verbatim?: boolean;
+/**
+ * ElevenLabs Scribe completed-recording/file requests: write numbers as digits
+ * (`numbers_format=digits`). The realtime API has no equivalent.
+ */
+elevenlabs_stt_numbers_as_digits?: boolean;
+/**
+ * ElevenLabs Scribe completed-recording/file requests: keep sound tags such as "(laughter)".
+ */
+elevenlabs_stt_tag_audio_events?: boolean;
+/**
+ * ElevenLabs Scribe: ask ElevenLabs not to keep audio or transcripts
+ * (`enable_logging=false`). ElevenLabs accepts it for Enterprise plans only.
+ */
+elevenlabs_stt_zero_retention?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null;
 /**
  * Which microphone input channel to use. None averages all channels.
  */

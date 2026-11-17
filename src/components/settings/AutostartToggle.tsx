@@ -26,6 +26,8 @@ export const AutostartToggle: React.FC<AutostartToggleProps> = React.memo(
     const autostartEnabled = getSetting("autostart_enabled") ?? false;
     const autostartAsAdmin =
       getSetting("autostart_as_admin_enabled") ?? false;
+    const hideAdminInWindowTitle =
+      getSetting("hide_admin_in_window_title") ?? false;
     const isWindows = getOsType() === "windows";
     const [administratorAccountState, setAdministratorAccountState] =
       React.useState<AdministratorAccountState>(
@@ -150,6 +152,25 @@ export const AutostartToggle: React.FC<AutostartToggleProps> = React.memo(
                 "Not recommended, for IT professionals only: any bug in the application will have a huge blast radius.",
               )}
             </p>
+            {autostartAsAdmin && (
+              <ToggleSwitch
+                checked={hideAdminInWindowTitle}
+                onChange={(enabled) =>
+                  void updateSetting("hide_admin_in_window_title", enabled)
+                }
+                isUpdating={isUpdating("hide_admin_in_window_title")}
+                label={t(
+                  "settings.advanced.autostartAsAdmin.hideInWindowTitle.label",
+                  "Hide Administrator from Window Title",
+                )}
+                description={t(
+                  "settings.advanced.autostartAsAdmin.hideInWindowTitle.description",
+                  "Do not show \"(Administrator)\" in the main window title. The tray menu always shows it.",
+                )}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              />
+            )}
             {autostartAsAdmin && (
               <div className="mx-4 mb-2 p-2.5 bg-amber-500/10 border border-amber-500/25 rounded-lg text-xs text-amber-200/90 leading-relaxed">
                 <span className="font-semibold text-amber-300">
