@@ -3343,6 +3343,25 @@ pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> 
 }
 
 pub fn capture_selection_text_copy(app_handle: &AppHandle) -> Result<String, String> {
+    capture_selection_copy_after_release(input::wait_for_modifiers_released, || {
+        capture_selection_text_copy_ready(app_handle)
+    })
+}
+
+fn capture_selection_copy_after_release(
+    wait_for_release: impl FnOnce(Duration) -> bool,
+    capture: impl FnOnce() -> Result<String, String>,
+) -> Result<String, String> {
+    // A modifier-only hotkey releases when its first key is lifted. Copying
+    // while Win is still held turns Ctrl+C into Ctrl+Win and can trigger a
+    // different application's shortcut before the selection is captured.
+    if !wait_for_release(Duration::from_secs(3)) {
+        return Err("Release the shortcut keys before copying selected text.".to_string());
+    }
+    capture()
+}
+
+fn capture_selection_text_copy_ready(app_handle: &AppHandle) -> Result<String, String> {
     let _capture_guard = lock_clipboard_transaction("copying selected text")?;
     let clipboard = app_handle.clipboard();
     let clipboard_backup = clipboard.read_text().unwrap_or_default();
@@ -3408,6 +3427,41 @@ pub fn capture_selection_text_copy(app_handle: &AppHandle) -> Result<String, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selection_copy_waits_for_hotkey_release_before_touching_the_clipboard() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let result = capture_selection_copy_after_release(
+            |timeout| {
+                assert_eq!(timeout, Duration::from_secs(3));
+                calls.borrow_mut().push("release");
+                true
+            },
+            || {
+                calls.borrow_mut().push("copy");
+                Ok("selected text".to_string())
+            },
+        );
+        assert_eq!(result.unwrap(), "selected text");
+        assert_eq!(*calls.borrow(), vec!["release", "copy"]);
+    }
+
+    #[test]
+    fn selection_copy_keeps_the_clipboard_untouched_when_modifiers_stay_held() {
+        let result = capture_selection_copy_after_release(
+            |_| false,
+            || panic!("Held hotkey modifiers must not trigger clipboard changes or Ctrl+C"),
+        );
+        assert_eq!(result.unwrap_err(), "Release the shortcut keys before copying selected text.");
+    }
+
+    #[test]
+    fn selection_copy_preserves_capture_errors_after_release() {
+        assert_eq!(capture_selection_copy_after_release(
+            |_| true,
+            || Err("clipboard unavailable".to_string()),
+        ), Err("clipboard unavailable".to_string()));
+    }
 
     #[test]
     fn elevated_fallback_is_opt_in_and_preserves_clipboard_policy() {
