@@ -289,6 +289,22 @@ fn restart_in_speech_only_mode(app: &AppHandle) {
     }
 }
 
+fn main_window_title(settings: &settings::AppSettings) -> &'static str {
+    let hidden = settings.autostart_as_admin_enabled && settings.hide_admin_in_window_title;
+    if utils::current_process_is_elevated() && !hidden {
+        "AivoRelay (Administrator)"
+    } else {
+        "AivoRelay"
+    }
+}
+
+/// Re-applies the main window title after a setting it depends on changed.
+pub(crate) fn refresh_main_window_title(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_title(main_window_title(&settings::get_settings(app)));
+    }
+}
+
 /// Builds the hidden main window and restores its saved geometry. Used at
 /// startup and again by `webview_recovery` after the WebView2 browser process
 /// dies and every webview has to be rebuilt. With `focus_on_show` false the
@@ -301,11 +317,7 @@ pub(crate) fn create_main_window(
 ) -> tauri::Result<tauri::WebviewWindow> {
     let mut window_builder =
         tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
-            .title(if utils::current_process_is_elevated() {
-                "AivoRelay (Administrator)"
-            } else {
-                "AivoRelay"
-            })
+            .title(main_window_title(settings))
             .inner_size(680.0, 570.0)
             .min_inner_size(680.0, 570.0)
             .resizable(true)
@@ -1338,6 +1350,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_autostart_setting,
         shortcut::is_current_user_administrator_account,
         shortcut::change_autostart_as_admin_setting,
+        shortcut::change_hide_admin_in_window_title_setting,
         shortcut::change_show_tray_shortcut_guide_setting,
         shortcut::change_translate_to_english_setting,
         shortcut::change_selected_language_setting,

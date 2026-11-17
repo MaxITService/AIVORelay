@@ -3919,6 +3919,10 @@ pub struct AppSettings {
     pub autostart_enabled: bool,
     #[serde(default)]
     pub autostart_as_admin_enabled: bool,
+    /// Hide "(Administrator)" from the main window title while administrator
+    /// autostart is on. The tray always shows it.
+    #[serde(default)]
+    pub hide_admin_in_window_title: bool,
     #[serde(default = "default_show_tray_icon")]
     pub show_tray_icon: bool,
     #[serde(default = "default_true")]
@@ -6485,6 +6489,7 @@ pub fn get_default_settings() -> AppSettings {
         show_speech_only_mode_in_tray: false,
         autostart_enabled: default_autostart_enabled(),
         autostart_as_admin_enabled: false,
+        hide_admin_in_window_title: false,
         show_tray_icon: default_show_tray_icon(),
         show_tray_shortcut_guide: default_true(),
         show_tray_shortcut_guide_in_main_menu: false,

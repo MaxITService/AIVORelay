@@ -3616,6 +3616,7 @@ pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), Str
                 "value": false
             }),
         );
+        crate::refresh_main_window_title(&app);
     }
 
     Ok(())
@@ -3757,9 +3758,32 @@ pub fn change_autostart_as_admin_setting(app: AppHandle, enabled: bool) -> Resul
                 }),
             );
         }
+        crate::refresh_main_window_title(&app);
 
         return Ok(());
     }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_hide_admin_in_window_title_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.hide_admin_in_window_title = enabled;
+    settings::write_settings_checked(&app, settings)?;
+    crate::refresh_main_window_title(&app);
+
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "setting": "hide_admin_in_window_title",
+            "value": enabled
+        }),
+    );
+
+    Ok(())
 }
 
 #[tauri::command]

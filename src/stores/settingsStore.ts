@@ -207,6 +207,8 @@ const settingUpdaters: {
     commands.changeAutostartSetting(value as boolean),
   autostart_as_admin_enabled: (value) =>
     commands.changeAutostartAsAdminSetting(value as boolean),
+  hide_admin_in_window_title: (value) =>
+    commands.changeHideAdminInWindowTitleSetting(value as boolean),
   show_tray_icon: (value) =>
     commands.changeShowTrayIconSetting(value as boolean),
   tray_icon_blinking_enabled: (value) =>
