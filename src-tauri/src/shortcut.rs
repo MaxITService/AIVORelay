@@ -4860,6 +4860,42 @@ pub fn reset_deepgram_settings_to_defaults(app: AppHandle) -> Result<(), String>
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_elevenlabs_stt_no_verbatim_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.elevenlabs_stt_no_verbatim = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_elevenlabs_stt_numbers_as_digits_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.elevenlabs_stt_numbers_as_digits = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_elevenlabs_stt_tag_audio_events_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.elevenlabs_stt_tag_audio_events = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_elevenlabs_stt_zero_retention_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.elevenlabs_stt_zero_retention = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_transcription_prompt_setting(
     app: AppHandle,
     model_id: String,

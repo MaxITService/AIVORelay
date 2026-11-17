@@ -94,6 +94,10 @@ pub struct ElevenLabsRealtimeOptions {
     pub diarize: bool,
     pub keyterm_library: Vec<String>,
     pub show_preview: bool,
+    /// Sends `no_verbatim=true`: drops filler words, false starts and non-speech sounds.
+    pub no_verbatim: bool,
+    /// Sends `enable_logging=false` (zero retention). ElevenLabs accepts it for Enterprise plans only.
+    pub zero_retention: bool,
 }
 
 impl Default for ElevenLabsRealtimeOptions {
@@ -105,6 +109,8 @@ impl Default for ElevenLabsRealtimeOptions {
             diarize: false,
             keyterm_library: Vec::new(),
             show_preview: false,
+            no_verbatim: false,
+            zero_retention: false,
         }
     }
 }
@@ -1916,6 +1922,14 @@ fn build_elevenlabs_realtime_ws_url(options: &ElevenLabsRealtimeOptions) -> Resu
             // ElevenLabs rejects `diarize=true` combined with `filter_background_audio=true`.
             query.append_pair("diarize", "true");
         }
+
+        if options.no_verbatim {
+            query.append_pair("no_verbatim", "true");
+        }
+
+        if options.zero_retention {
+            query.append_pair("enable_logging", "false");
+        }
     }
 
     Ok(url.to_string())
@@ -2470,6 +2484,8 @@ mod tests {
                 diarize: true,
                 keyterm_library: vec!["AIVORelay".to_string()],
                 show_preview: true,
+                no_verbatim: true,
+                zero_retention: true,
             },
         )
         .unwrap();
@@ -2485,6 +2501,8 @@ mod tests {
         assert!(uri.contains("diarize=true"));
         assert!(!uri.contains("filter_background_audio"));
         assert!(!uri.contains("include_language_detection"));
+        assert!(uri.contains("no_verbatim=true"));
+        assert!(uri.contains("enable_logging=false"));
         assert!(!uri.contains("secret-xi-api-key"));
         assert_eq!(request.headers()["xi-api-key"], "secret-xi-api-key");
 
@@ -2510,6 +2528,8 @@ mod tests {
             assert!(auto_url.contains("include_language_detection=true"));
             assert!(!auto_url.contains("language_code="));
             assert!(!auto_url.contains("diarize=true"));
+            assert!(!auto_url.contains("no_verbatim"));
+            assert!(!auto_url.contains("enable_logging"));
         }
     }
 

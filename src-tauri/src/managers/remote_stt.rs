@@ -623,25 +623,117 @@ fn elevenlabs_prerecorded_endpoint_url(base_url: &str) -> Result<reqwest::Url> {
         .map_err(|error| anyhow!("Invalid ElevenLabs speech-to-text URL: {error}"))
 }
 
+/// Batch keyterms above this count raise ElevenLabs' billed minimum per request.
+const MAX_ELEVENLABS_PRERECORDED_KEYTERMS: usize = 100;
+const MAX_ELEVENLABS_PRERECORDED_KEYTERM_CHARS: usize = 50;
+const MAX_ELEVENLABS_PRERECORDED_KEYTERM_WORDS: usize = 5;
+
+const ELEVENLABS_ZERO_RETENTION_HINT: &str = "Your ElevenLabs plan may not allow zero data retention. Turn off \"Don't let ElevenLabs keep data\" in Remote STT settings.";
+
+/// Appends a pointer to the zero-retention setting when ElevenLabs rejects
+/// `enable_logging=false`, which it allows only for Enterprise plans.
+fn with_elevenlabs_zero_retention_hint(message: String, body: &[u8], zero_retention: bool) -> String {
+    let lower = String::from_utf8_lossy(body).to_lowercase();
+    if zero_retention
+        && ["retention", "enable_logging", "enterprise"]
+            .iter()
+            .any(|needle| lower.contains(needle))
+    {
+        format!("{message} {ELEVENLABS_ZERO_RETENTION_HINT}")
+    } else {
+        message
+    }
+}
+
+/// Optional ElevenLabs Scribe request fields for completed recordings and files.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ElevenLabsPrerecordedOptions {
+    pub keyterms: Vec<String>,
+    pub no_verbatim: bool,
+    pub numbers_as_digits: bool,
+    pub tag_audio_events: bool,
+    pub zero_retention: bool,
+}
+
+impl ElevenLabsPrerecordedOptions {
+    pub(crate) fn from_settings(settings: &AppSettings) -> Self {
+        Self {
+            keyterms: if settings.custom_words_enabled {
+                sanitize_elevenlabs_prerecorded_keyterms(&settings.custom_words)
+            } else {
+                Vec::new()
+            },
+            no_verbatim: settings.elevenlabs_stt_no_verbatim,
+            numbers_as_digits: settings.elevenlabs_stt_numbers_as_digits,
+            tag_audio_events: settings.elevenlabs_stt_tag_audio_events,
+            zero_retention: settings.elevenlabs_stt_zero_retention,
+        }
+    }
+}
+
+/// Keeps keyterms ElevenLabs accepts: at most 50 characters and 5 words, without
+/// `<>{}[]\`, deduplicated case-insensitively and capped at 100 terms.
+fn sanitize_elevenlabs_prerecorded_keyterms(terms: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    terms
+        .iter()
+        .map(|term| term.trim())
+        .filter(|term| {
+            !term.is_empty()
+                && term.chars().count() <= MAX_ELEVENLABS_PRERECORDED_KEYTERM_CHARS
+                && term.split_whitespace().count() <= MAX_ELEVENLABS_PRERECORDED_KEYTERM_WORDS
+                && !term.contains(['<', '>', '{', '}', '[', ']', '\\'])
+        })
+        .filter(|term| seen.insert(term.to_lowercase()))
+        .take(MAX_ELEVENLABS_PRERECORDED_KEYTERMS)
+        .map(str::to_string)
+        .collect()
+}
+
+/// Text fields of the multipart request; `keyterms` repeats once per term.
+fn elevenlabs_prerecorded_text_fields(
+    language: Option<&str>,
+    options: &ElevenLabsPrerecordedOptions,
+) -> Vec<(&'static str, String)> {
+    let mut fields = vec![
+        ("model_id", REMOTE_STT_ELEVENLABS_FILE_MODEL.to_string()),
+        ("timestamps_granularity", "word".to_string()),
+        ("tag_audio_events", options.tag_audio_events.to_string()),
+    ];
+    if let Some(language_code) = language.map(str::trim).filter(|code| !code.is_empty()) {
+        fields.push(("language_code", language_code.to_string()));
+    }
+    if options.no_verbatim {
+        fields.push(("no_verbatim", "true".to_string()));
+    }
+    if options.numbers_as_digits {
+        fields.push(("numbers_format", "digits".to_string()));
+    }
+    fields.extend(options.keyterms.iter().map(|term| ("keyterms", term.clone())));
+    fields
+}
+
 fn build_elevenlabs_prerecorded_request(
     client: &reqwest::Client,
     base_url: &str,
     api_key: &str,
     language: Option<&str>,
+    options: &ElevenLabsPrerecordedOptions,
     wav_bytes: Vec<u8>,
 ) -> Result<reqwest::RequestBuilder> {
-    let url = elevenlabs_prerecorded_endpoint_url(base_url)?;
+    let mut url = elevenlabs_prerecorded_endpoint_url(base_url)?;
+    if options.zero_retention {
+        url.query_pairs_mut().append_pair("enable_logging", "false");
+    }
     let file_part = reqwest::multipart::Part::bytes(wav_bytes)
         .file_name("audio.wav")
         .mime_str("audio/wav")
         .map_err(|error| anyhow!("Failed to build ElevenLabs multipart audio part: {error}"))?;
-    let mut form = reqwest::multipart::Form::new()
-        .text("model_id", REMOTE_STT_ELEVENLABS_FILE_MODEL.to_string())
-        .text("timestamps_granularity", "word".to_string())
-        .part("file", file_part);
-    if let Some(language_code) = language.map(str::trim).filter(|code| !code.is_empty()) {
-        form = form.text("language_code", language_code.to_string());
+    let mut form = reqwest::multipart::Form::new();
+    for (name, value) in elevenlabs_prerecorded_text_fields(language, options) {
+        form = form.text(name, value);
     }
+    let form = form.part("file", file_part);
 
     Ok(client
         .post(url)
@@ -2151,11 +2243,15 @@ impl RemoteSttManager {
             .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
+        let options = ElevenLabsPrerecordedOptions::from_settings(&crate::settings::get_settings(
+            &self.app_handle,
+        ));
         let request = build_elevenlabs_prerecorded_request(
             &client,
             base_url,
             api_key,
             language.as_deref(),
+            &options,
             wav_bytes.to_vec(),
         )
         .map_err(|error| {
@@ -2171,10 +2267,15 @@ impl RemoteSttManager {
             self.record_info(
                 settings,
                 format!(
-                    "ElevenLabs prerecorded request model={} wav_bytes={} language={}",
+                    "ElevenLabs prerecorded request model={} wav_bytes={} language={} keyterms={} no_verbatim={} numbers_as_digits={} tag_audio_events={} zero_retention={}",
                     REMOTE_STT_ELEVENLABS_FILE_MODEL,
                     wav_bytes.len(),
-                    language.as_deref().unwrap_or("auto")
+                    language.as_deref().unwrap_or("auto"),
+                    options.keyterms.len(),
+                    options.no_verbatim,
+                    options.numbers_as_digits,
+                    options.tag_audio_events,
+                    options.zero_retention
                 ),
             );
         }
@@ -2228,10 +2329,12 @@ impl RemoteSttManager {
                     status, elapsed_ms, snippet
                 ),
             );
-            return Err(anyhow!(redact_remote_stt_api_key(
-                &parse_provider_error(&body, status),
-                api_key,
-            )));
+            let message = with_elevenlabs_zero_retention_hint(
+                parse_provider_error(&body, status),
+                &body,
+                options.zero_retention,
+            );
+            return Err(anyhow!(redact_remote_stt_api_key(&message, api_key)));
         }
 
         let parsed: ElevenLabsPrerecordedResponse = serde_json::from_slice(&body).map_err(|error| {
@@ -3058,6 +3161,9 @@ pub fn has_remote_stt_api_key(settings: &RemoteSttSettings) -> bool {
 mod tests {
     use super::{
         build_elevenlabs_prerecorded_request, build_google_gemini_request,
+        elevenlabs_prerecorded_text_fields, sanitize_elevenlabs_prerecorded_keyterms,
+        with_elevenlabs_zero_retention_hint,
+        ElevenLabsPrerecordedOptions,
         build_google_gemini_request_body, build_openai_realtime_agent_session_update,
         build_reson8_prerecorded_request, build_vercel_gemini_request,
         build_vercel_gemini_request_body, elevenlabs_prerecorded_endpoint_url,
@@ -3748,6 +3854,7 @@ mod tests {
             REMOTE_STT_ELEVENLABS_BASE_URL,
             "  xi-secret-test-key  ",
             Some("en"),
+            &ElevenLabsPrerecordedOptions::default(),
             vec![1, 2, 3, 4],
         )
         .unwrap()
@@ -3763,6 +3870,89 @@ mod tests {
         assert!(request.headers().get("authorization").is_none());
         let content_type = request.headers()["content-type"].to_str().unwrap();
         assert!(content_type.starts_with("multipart/form-data; boundary="));
+    }
+
+    #[test]
+    fn elevenlabs_prerecorded_request_sends_optional_fields_and_zero_retention() {
+        let options = ElevenLabsPrerecordedOptions {
+            keyterms: vec!["AIVORelay".to_string(), "Kubernetes".to_string()],
+            no_verbatim: true,
+            numbers_as_digits: true,
+            tag_audio_events: false,
+            zero_retention: true,
+        };
+        let fields = elevenlabs_prerecorded_text_fields(Some("en"), &options);
+        let value = |name: &str| -> Vec<&str> {
+            fields
+                .iter()
+                .filter(|(field, _)| *field == name)
+                .map(|(_, value)| value.as_str())
+                .collect()
+        };
+        assert_eq!(value("model_id"), vec![REMOTE_STT_ELEVENLABS_FILE_MODEL]);
+        assert_eq!(value("tag_audio_events"), vec!["false"]);
+        assert_eq!(value("language_code"), vec!["en"]);
+        assert_eq!(value("no_verbatim"), vec!["true"]);
+        assert_eq!(value("numbers_format"), vec!["digits"]);
+        assert_eq!(value("keyterms"), vec!["AIVORelay", "Kubernetes"]);
+
+        let defaults =
+            elevenlabs_prerecorded_text_fields(None, &ElevenLabsPrerecordedOptions::default());
+        assert!(defaults.iter().all(|(field, _)| !matches!(
+            *field,
+            "language_code" | "no_verbatim" | "numbers_format" | "keyterms"
+        )));
+
+        let request = build_elevenlabs_prerecorded_request(
+            &reqwest::Client::new(),
+            REMOTE_STT_ELEVENLABS_BASE_URL,
+            "key",
+            None,
+            &options,
+            vec![0; 4],
+        )
+        .unwrap()
+        .build()
+        .unwrap();
+        assert_eq!(
+            request.url().as_str(),
+            "https://api.elevenlabs.io/v1/speech-to-text?enable_logging=false"
+        );
+    }
+
+    #[test]
+    fn elevenlabs_zero_retention_hint_only_for_retention_errors() {
+        let body = br#"{"detail":{"message":"Zero retention mode (enable_logging=false) is only available to enterprise customers"}}"#;
+        let hinted = with_elevenlabs_zero_retention_hint("refused".into(), body, true);
+        assert!(hinted.contains("Don't let ElevenLabs keep data"));
+        assert_eq!(
+            with_elevenlabs_zero_retention_hint("refused".into(), body, false),
+            "refused"
+        );
+        assert_eq!(
+            with_elevenlabs_zero_retention_hint("bad key".into(), br#"{"detail":"invalid_api_key"}"#, true),
+            "bad key"
+        );
+    }
+
+    #[test]
+    fn elevenlabs_prerecorded_keyterms_follow_documented_limits() {
+        let mut terms = vec![
+            " AIVORelay ".to_string(),
+            "aivorelay".to_string(),
+            "".to_string(),
+            "one two three four five six".to_string(),
+            "x".repeat(51),
+            "bad[term]".to_string(),
+            r"back\slash".to_string(),
+            "one two three four five".to_string(),
+        ];
+        terms.extend((0..200).map(|index| format!("term{index}")));
+        let sanitized = sanitize_elevenlabs_prerecorded_keyterms(&terms);
+        assert_eq!(sanitized.len(), 100);
+        assert_eq!(sanitized[0], "AIVORelay");
+        assert_eq!(sanitized[1], "one two three four five");
+        assert_eq!(sanitized[2], "term0");
     }
 
     #[test]

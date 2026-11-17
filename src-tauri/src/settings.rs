@@ -4066,6 +4066,20 @@ pub struct AppSettings {
     pub deepgram_endpointing_enabled: bool,
     #[serde(default = "default_deepgram_endpointing_ms")]
     pub deepgram_endpointing_ms: u32,
+    /// ElevenLabs Scribe: drop filler words, false starts and non-speech sounds (`no_verbatim`).
+    #[serde(default = "default_false")]
+    pub elevenlabs_stt_no_verbatim: bool,
+    /// ElevenLabs Scribe completed-recording/file requests: write numbers as digits
+    /// (`numbers_format=digits`). The realtime API has no equivalent.
+    #[serde(default = "default_false")]
+    pub elevenlabs_stt_numbers_as_digits: bool,
+    /// ElevenLabs Scribe completed-recording/file requests: keep sound tags such as "(laughter)".
+    #[serde(default = "default_false")]
+    pub elevenlabs_stt_tag_audio_events: bool,
+    /// ElevenLabs Scribe: ask ElevenLabs not to keep audio or transcripts
+    /// (`enable_logging=false`). ElevenLabs accepts it for Enterprise plans only.
+    #[serde(default = "default_true")]
+    pub elevenlabs_stt_zero_retention: bool,
     #[serde(default = "default_always_on_microphone")]
     pub always_on_microphone: bool,
     #[serde(default)]
@@ -6537,6 +6551,10 @@ pub fn get_default_settings() -> AppSettings {
         deepgram_diarize: default_false(),
         deepgram_endpointing_enabled: default_true(),
         deepgram_endpointing_ms: default_deepgram_endpointing_ms(),
+        elevenlabs_stt_no_verbatim: false,
+        elevenlabs_stt_numbers_as_digits: false,
+        elevenlabs_stt_tag_audio_events: false,
+        elevenlabs_stt_zero_retention: true,
         always_on_microphone: false,
         selected_microphone: None,
         selected_channel: None,
