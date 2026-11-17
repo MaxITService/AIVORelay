@@ -1881,7 +1881,7 @@
       "deepgramRecommendation": "Create a Deepgram API key in the console and paste it below. You can fine-tune Deepgram options later in Advanced settings.",
       "deepgramRealtimeWarning": "Deepgram live mode follows the standard live cycle and skips LLM post-processing.",
       "elevenlabsInfo": "ElevenLabs Scribe v3 Live (scribe_v3_live) streams interim and finalized speech over WebSocket (plus speaker diarization in Live Monitor) and uses the scribe_v3 HTTP companion for completed recordings and file transcription.",
-      "elevenlabsDetails": "Uses https://api.elevenlabs.io/v1 with an isolated STT key (separate from TTS). Realtime sends Custom Words as keyterm_library; completed recordings and files apply Custom Words locally after transcription. Free-form STT prompts and English translation are not supported.",
+      "elevenlabsDetails": "Uses https://api.elevenlabs.io/v1 with an isolated STT key (separate from TTS). Realtime sends Custom Words as keyterm_library; completed recordings and files send them as keyterms (up to 100 terms within ElevenLabs limits) and also apply them locally after transcription. Free-form STT prompts and English translation are not supported.",
       "elevenlabsApiKeyPlaceholder": "Enter your ElevenLabs API key",
       "baseUrl": {
         "label": "Server URL",
@@ -3634,8 +3634,24 @@
           "modelFileOption": "scribe_v3 — Completed recording & file HTTP only (no live streaming)",
           "scribeV3FileOnlyNotice": "scribe_v3 supports completed dictation recordings and file transcription (Text, SRT, VTT with word timestamps) only — live streaming, interim preview, and Live Monitor are not supported on scribe_v3.",
           "infoTitle": "ElevenLabs · Scribe v3 Live (scribe_v3_live) & Scribe v3 (scribe_v3)",
-          "infoDetails": "When scribe_v3_live is selected, live dictation and Live Monitor stream over ElevenLabs Realtime WebSocket (xi-api-key, 16 kHz PCM), while completed-recording fallback and Transcribe File explicitly use the scribe_v3 HTTP companion (POST /v1/speech-to-text) with word-level timestamps for Text, SRT, and VTT. Selecting scribe_v3 directly uses completed-recording and file HTTP transcription only (never live). Active profile/global language hints are supported. Realtime sends Custom Words as keyterm_library; completed recordings and files apply Custom Words locally after transcription. Free-form STT prompts and Translate to English are not supported.",
-          "apiKeysLink": "ElevenLabs API Keys"
+          "infoDetails": "When scribe_v3_live is selected, live dictation and Live Monitor stream over ElevenLabs Realtime WebSocket (xi-api-key, 16 kHz PCM), while completed-recording fallback and Transcribe File explicitly use the scribe_v3 HTTP companion (POST /v1/speech-to-text) with word-level timestamps for Text, SRT, and VTT. Selecting scribe_v3 directly uses completed-recording and file HTTP transcription only (never live). Active profile/global language hints are supported. Realtime sends Custom Words as keyterm_library; completed recordings and files send them as keyterms (up to 100 terms within ElevenLabs limits) and also apply them locally after transcription. Free-form STT prompts and Translate to English are not supported.",
+          "apiKeysLink": "ElevenLabs API Keys",
+          "noVerbatim": {
+            "title": "No filler words",
+            "description": "Removes filler words, false starts and non-speech sounds (no_verbatim). Applies to live dictation, completed recordings and files."
+          },
+          "numbersAsDigits": {
+            "title": "Numbers as digits",
+            "description": "Writes numbers as digits (numbers_format=digits). The realtime API has no such option, so it applies to completed recordings and files only."
+          },
+          "tagAudioEvents": {
+            "title": "Tag sounds like (laughter)",
+            "description": "Adds tags for non-speech sounds such as (laughter) to the text (tag_audio_events). Applies to completed recordings and files only."
+          },
+          "zeroRetention": {
+            "title": "Don't let ElevenLabs keep data",
+            "description": "Sends enable_logging=false (zero retention) so ElevenLabs does not store audio or transcripts. ElevenLabs allows it only for Enterprise plans; on other plans requests fail until you turn this off."
+          }
         }
       },
       "soniox": {

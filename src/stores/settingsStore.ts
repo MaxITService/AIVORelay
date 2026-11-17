@@ -522,6 +522,14 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_deepgram_endpointing_enabled_setting", { enabled: value });
 (settingUpdaters as any).deepgram_endpointing_ms = (value: any) =>
   invoke("change_deepgram_endpointing_ms_setting", { valueMs: value });
+(settingUpdaters as any).elevenlabs_stt_no_verbatim = (value: any) =>
+  invoke("change_elevenlabs_stt_no_verbatim_setting", { enabled: value });
+(settingUpdaters as any).elevenlabs_stt_numbers_as_digits = (value: any) =>
+  invoke("change_elevenlabs_stt_numbers_as_digits_setting", { enabled: value });
+(settingUpdaters as any).elevenlabs_stt_tag_audio_events = (value: any) =>
+  invoke("change_elevenlabs_stt_tag_audio_events_setting", { enabled: value });
+(settingUpdaters as any).elevenlabs_stt_zero_retention = (value: any) =>
+  invoke("change_elevenlabs_stt_zero_retention_setting", { enabled: value });
 (settingUpdaters as any).openai_realtime_whisper_delay = (value: any) =>
   invoke("change_openai_realtime_whisper_delay_setting", { delay: value });
 (settingUpdaters as any).openai_realtime_whisper_keywords = (value: any) =>

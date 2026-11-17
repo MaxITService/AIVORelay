@@ -416,7 +416,7 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
               <p className="text-text/65 text-xs">
                 {t(
                   "onboarding.remoteSttWizard.elevenlabsDetails",
-                  "Uses https://api.elevenlabs.io/v1 with an isolated STT key (separate from TTS). Realtime sends Custom Words as keyterm_library; completed recordings and files apply Custom Words locally after transcription. Free-form STT prompts and English translation are not supported.",
+                  "Uses https://api.elevenlabs.io/v1 with an isolated STT key (separate from TTS). Realtime sends Custom Words as keyterm_library; completed recordings and files send them as keyterms (up to 100 terms within ElevenLabs limits) and also apply them locally after transcription. Free-form STT prompts and English translation are not supported.",
                 )}
               </p>
               <a

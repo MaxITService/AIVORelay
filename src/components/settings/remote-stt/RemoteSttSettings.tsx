@@ -253,6 +253,18 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const deepgramSmartFormat = Boolean(
     (settings as any)?.deepgram_smart_format ?? true,
   );
+  const elevenLabsNoVerbatim = Boolean(
+    (settings as any)?.elevenlabs_stt_no_verbatim ?? false,
+  );
+  const elevenLabsNumbersAsDigits = Boolean(
+    (settings as any)?.elevenlabs_stt_numbers_as_digits ?? false,
+  );
+  const elevenLabsTagAudioEvents = Boolean(
+    (settings as any)?.elevenlabs_stt_tag_audio_events ?? false,
+  );
+  const elevenLabsZeroRetention = Boolean(
+    (settings as any)?.elevenlabs_stt_zero_retention ?? true,
+  );
   const deepgramEndpointingEnabled = Boolean(
     (settings as any)?.deepgram_endpointing_enabled ?? true,
   );
@@ -2170,6 +2182,74 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                       )}
                     </div>
                   )}
+                  <ToggleSwitch
+                    label={t(
+                      "settings.advanced.remoteStt.elevenlabs.noVerbatim.title",
+                      "No filler words",
+                    )}
+                    description={t(
+                      "settings.advanced.remoteStt.elevenlabs.noVerbatim.description",
+                      "Removes filler words, false starts and non-speech sounds (no_verbatim). Applies to live dictation, completed recordings and files.",
+                    )}
+                    checked={elevenLabsNoVerbatim}
+                    onChange={(enabled) =>
+                      void updateSetting("elevenlabs_stt_no_verbatim" as any, enabled as any)
+                    }
+                    isUpdating={isUpdating("elevenlabs_stt_no_verbatim")}
+                    descriptionMode={descriptionMode}
+                    grouped={grouped}
+                  />
+                  <ToggleSwitch
+                    label={t(
+                      "settings.advanced.remoteStt.elevenlabs.numbersAsDigits.title",
+                      "Numbers as digits",
+                    )}
+                    description={t(
+                      "settings.advanced.remoteStt.elevenlabs.numbersAsDigits.description",
+                      "Writes numbers as digits (numbers_format=digits). The realtime API has no such option, so it applies to completed recordings and files only.",
+                    )}
+                    checked={elevenLabsNumbersAsDigits}
+                    onChange={(enabled) =>
+                      void updateSetting("elevenlabs_stt_numbers_as_digits" as any, enabled as any)
+                    }
+                    isUpdating={isUpdating("elevenlabs_stt_numbers_as_digits")}
+                    descriptionMode={descriptionMode}
+                    grouped={grouped}
+                  />
+                  <ToggleSwitch
+                    label={t(
+                      "settings.advanced.remoteStt.elevenlabs.tagAudioEvents.title",
+                      "Tag sounds like (laughter)",
+                    )}
+                    description={t(
+                      "settings.advanced.remoteStt.elevenlabs.tagAudioEvents.description",
+                      "Adds tags for non-speech sounds such as (laughter) to the text (tag_audio_events). Applies to completed recordings and files only.",
+                    )}
+                    checked={elevenLabsTagAudioEvents}
+                    onChange={(enabled) =>
+                      void updateSetting("elevenlabs_stt_tag_audio_events" as any, enabled as any)
+                    }
+                    isUpdating={isUpdating("elevenlabs_stt_tag_audio_events")}
+                    descriptionMode={descriptionMode}
+                    grouped={grouped}
+                  />
+                  <ToggleSwitch
+                    label={t(
+                      "settings.advanced.remoteStt.elevenlabs.zeroRetention.title",
+                      "Don't let ElevenLabs keep data",
+                    )}
+                    description={t(
+                      "settings.advanced.remoteStt.elevenlabs.zeroRetention.description",
+                      "Sends enable_logging=false (zero retention) so ElevenLabs does not store audio or transcripts. ElevenLabs allows it only for Enterprise plans; on other plans requests fail until you turn this off.",
+                    )}
+                    checked={elevenLabsZeroRetention}
+                    onChange={(enabled) =>
+                      void updateSetting("elevenlabs_stt_zero_retention" as any, enabled as any)
+                    }
+                    isUpdating={isUpdating("elevenlabs_stt_zero_retention")}
+                    descriptionMode={descriptionMode}
+                    grouped={grouped}
+                  />
                   <div className="mx-4 rounded-lg border border-cyan-400/25 bg-cyan-400/5 p-3 text-xs text-text/80">
                     <p className="font-medium text-cyan-200">
                       {t(
@@ -2186,7 +2266,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     <p className="mt-1 text-text/65">
                       {t(
                         "settings.advanced.remoteStt.elevenlabs.infoDetails",
-                        "When scribe_v3_live is selected, live dictation and Live Monitor stream over ElevenLabs Realtime WebSocket (xi-api-key, 16 kHz PCM), while completed-recording fallback and Transcribe File explicitly use the scribe_v3 HTTP companion (POST /v1/speech-to-text) with word-level timestamps for Text, SRT, and VTT. Selecting scribe_v3 directly uses completed-recording and file HTTP transcription only (never live). Active profile/global language hints are supported. Realtime sends Custom Words as keyterm_library; completed recordings and files apply Custom Words locally after transcription. Free-form STT prompts and Translate to English are not supported.",
+                        "When scribe_v3_live is selected, live dictation and Live Monitor stream over ElevenLabs Realtime WebSocket (xi-api-key, 16 kHz PCM), while completed-recording fallback and Transcribe File explicitly use the scribe_v3 HTTP companion (POST /v1/speech-to-text) with word-level timestamps for Text, SRT, and VTT. Selecting scribe_v3 directly uses completed-recording and file HTTP transcription only (never live). Active profile/global language hints are supported. Realtime sends Custom Words as keyterm_library; completed recordings and files send them as keyterms (up to 100 terms within ElevenLabs limits) and also apply them locally after transcription. Free-form STT prompts and Translate to English are not supported.",
                       )}
                     </p>
                     <p className="mt-2">
