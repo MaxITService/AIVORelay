@@ -7703,6 +7703,8 @@ fn build_elevenlabs_realtime_options(
         },
         show_preview: binding_id != crate::managers::history_replay::HISTORY_REPLAY_BINDING
             && binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
+        no_verbatim: settings.elevenlabs_stt_no_verbatim,
+        zero_retention: settings.elevenlabs_stt_zero_retention,
     }
 }
 
