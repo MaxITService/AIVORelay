@@ -67,12 +67,10 @@ const SMART_HELP_ACTIONS = [
 
 // A settings search entry opens the exact setting the same way settings search does.
 const WHATS_NEW_ITEMS = [
-  { key: "help.whatsNew.items.elevenLabsScribe", destination: "models", searchEntryId: "models" },
-  { key: "help.whatsNew.items.geminiLiveReliability", destination: "models", searchEntryId: "models" },
-  { key: "help.whatsNew.items.repeatedDecapitalization", destination: "textReplacement", searchEntryId: "decapitalize-after-edit" },
-  { key: "help.whatsNew.items.protectedLiveOutput", destination: "general", searchEntryId: "paste-method-delay" },
-  { key: "help.whatsNew.items.localModelRecovery", destination: "models", searchEntryId: "models" },
-  { key: "help.whatsNew.items.clearerModelCards", destination: "models", searchEntryId: "models" },
+  { key: "help.whatsNew.items.elevenLabsOptions", destination: "models", searchEntryId: "api-keys" },
+  { key: "help.whatsNew.items.elevenLabsCustomWords", destination: "textReplacement", searchEntryId: "custom-words" },
+  { key: "help.whatsNew.items.selectionHotkey", destination: "textToSpeech", searchEntryId: "tts-read-selection" },
+  { key: "help.whatsNew.items.administratorIndicator", destination: "advanced", searchEntryId: "admin-autostart" },
 ] as const;
 
 export const HelpSettings: React.FC = () => {
