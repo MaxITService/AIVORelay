@@ -739,16 +739,14 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.53",
+      "since": "Since version 1.0.54",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "elevenLabsScribe": "Use ElevenLabs Scribe v3 Live for live dictation and speaker-separated Live Monitor transcripts. Audio files use Scribe v3 and can be saved as text or SRT/VTT subtitles.",
-        "geminiLiveReliability": "Gemini live dictation handles Clear, Stop, cancellation, and the last words of a recording more reliably.",
-        "repeatedDecapitalization": "Decapitalize after manual edit can be triggered repeatedly during one live recording, including across separate transcript chunks.",
-        "protectedLiveOutput": "Live output preserves text waiting for the original window and avoids inserting queued text after cancellation. Clipboard restoration is more reliable.",
-        "localModelRecovery": "If automatic model fallback is enabled and the selected model is unavailable, AivoRelay can choose a recently used, downloaded local model and explain the switch.",
-        "clearerModelCards": "Model cards show live dictation, file, subtitle, and speaker-separation capabilities. Optional profile settings use a neutral hint instead of an error-colored warning."
+        "elevenLabsOptions": "ElevenLabs Scribe settings let you remove filler words and request that ElevenLabs not keep your data. Completed recordings and files also support numbers as digits and sound tags such as laughter.",
+        "elevenLabsCustomWords": "Custom Words now help ElevenLabs recognize names and specialist terms in completed recordings and audio files, as well as live dictation.",
+        "selectionHotkey": "Reading selected text aloud waits for you to release the shortcut keys before copying, avoiding accidental shortcuts in other apps.",
+        "administratorIndicator": "On Windows, the window title and tray menu show when AivoRelay is running as Administrator. With administrator autostart enabled, you can hide the label from the window title."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"
@@ -3345,7 +3343,11 @@
         "administratorCheckFailed": "Windows administrator account membership could not be verified, so this option is unavailable.",
         "notRecommended": "Not recommended, for IT professionals only: any bug in the application will have a huge blast radius.",
         "securityTitle": "Security Notice:",
-        "securityNotice": "Running AivoRelay permanently with administrator privileges grants all application components, plugins, and network integrations elevated system access. Enable this only if you need to dictate into elevated/admin programs."
+        "securityNotice": "Running AivoRelay permanently with administrator privileges grants all application components, plugins, and network integrations elevated system access. Enable this only if you need to dictate into elevated/admin programs.",
+        "hideInWindowTitle": {
+          "label": "Hide Administrator from Window Title",
+          "description": "Do not show \"(Administrator)\" in the main window title. The tray menu always shows it."
+        }
       },
       "overlay": {
         "title": "Overlay Position",
