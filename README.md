@@ -156,7 +156,8 @@ Use ElevenLabs for realtime dictation and Live Monitor.
 - **Live streaming** — Interim and finalized speech over WebSocket (`scribe_v3_live`)
 - **Live Monitor speaker diarization** — Separates speakers in real time
 - **Files and recordings** — Completed recordings and file transcription use `scribe_v3` with word-level timestamps for Text, SRT, and VTT
-- **Custom Words** — Sent as keyterms during live use; applied locally after file or recording transcription
+- **Custom Words** — Sent as keyterms for live use, recordings, and files (up to 100 terms); also applied locally after recording or file transcription
+- **Transcript options** — Optional toggles for removing filler words, writing numbers as digits, tagging sounds like (laughter), and asking ElevenLabs not to keep your data (zero retention, Enterprise plans only)
 - **Separate STT key** — Stored independently of your ElevenLabs text-to-speech key
 
 **Setup:** Models
