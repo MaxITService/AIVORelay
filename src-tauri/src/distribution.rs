@@ -107,6 +107,13 @@ pub fn allows_update_checks() -> bool {
     allows_unmanaged_features(edition(), host_identity())
 }
 
+/// Packaged (MSIX/Store) apps cannot run elevated, and their versioned
+/// WindowsApps exe path changes with every update, so a scheduled task
+/// pointing at it would break. Unknown hosts are treated as packaged.
+pub fn allows_admin_autostart() -> bool {
+    host_identity() == WindowsPackageIdentity::Unpackaged
+}
+
 fn classify_installation(identity: WindowsPackageIdentity, marker: Result<bool, String>) -> InstallationKind {
     match identity {
         WindowsPackageIdentity::Packaged => InstallationKind::WindowsPackage,

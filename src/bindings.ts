@@ -109,6 +109,12 @@ async changeAutostartSetting(enabled: boolean) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * False for Microsoft Store (MSIX) installs; see `distribution::allows_admin_autostart`.
+ */
+async isAdminAutostartAvailable() : Promise<boolean> {
+    return await TAURI_INVOKE("is_admin_autostart_available");
+},
 async isCurrentUserAdministratorAccount() : Promise<Result<boolean, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("is_current_user_administrator_account") };
@@ -120,6 +126,29 @@ async isCurrentUserAdministratorAccount() : Promise<Result<boolean, string>> {
 async changeAutostartAsAdminSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_autostart_as_admin_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Settings UI check for a broken or outdated administrator autostart task.
+ */
+async getAdminAutostartTaskHealth() : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_admin_autostart_task_health") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Re-register the administrator autostart task; runs only on the user's
+ * explicit click because it may show a UAC prompt.
+ */
+async repairAdminAutostartTask() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("repair_admin_autostart_task") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

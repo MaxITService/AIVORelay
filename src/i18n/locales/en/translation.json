@@ -3336,11 +3336,17 @@
         "label": "Launch on Startup",
         "description": "Automatically start AivoRelay when you log in to your computer."
       },
+      "developerSettings": {
+        "title": "Settings for developers (Administrative launch)",
+        "collapse": "Collapse",
+        "expand": "Expand"
+      },
       "autostartAsAdmin": {
         "label": "Autostart with Administrator Privileges",
         "description": "Start AivoRelay with administrator permissions when you sign in to Windows so it can insert text into apps that also run as administrator.",
         "requiresAdministratorAccount": "This option is available only when the current Windows account belongs to the Administrators group.",
         "administratorCheckFailed": "Windows administrator account membership could not be verified, so this option is unavailable.",
+        "unavailableInPackage": "Not available in the Microsoft Store version: Windows does not allow Store apps to start with administrator privileges.",
         "uacDeclined": "Windows did not grant administrator permission (the UAC prompt was declined or closed), so the setting was not changed.",
         "taskFailed": "Windows could not register the administrator autostart task, so the setting was not changed.",
         "repair": {
