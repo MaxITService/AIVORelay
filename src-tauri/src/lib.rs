@@ -1350,6 +1350,8 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_autostart_setting,
         shortcut::is_current_user_administrator_account,
         shortcut::change_autostart_as_admin_setting,
+        shortcut::get_admin_autostart_task_health,
+        shortcut::repair_admin_autostart_task,
         shortcut::change_hide_admin_in_window_title_setting,
         shortcut::change_show_tray_shortcut_guide_setting,
         shortcut::change_translate_to_english_setting,

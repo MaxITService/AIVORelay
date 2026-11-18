@@ -3294,6 +3294,12 @@ pub fn change_show_speech_only_mode_in_tray_setting(
 #[cfg(target_os = "windows")]
 const ADMIN_AUTOSTART_TASK_NAME: &str = "AIVORelayAutostartAdmin";
 
+// Error codes the settings UI maps to localized messages (AutostartToggle.tsx).
+#[cfg(target_os = "windows")]
+const ADMIN_AUTOSTART_UAC_DECLINED: &str = "ADMIN_AUTOSTART_UAC_DECLINED";
+#[cfg(target_os = "windows")]
+const ADMIN_AUTOSTART_TASK_FAILED: &str = "ADMIN_AUTOSTART_TASK_FAILED";
+
 #[cfg(target_os = "windows")]
 fn current_user_is_administrator_account() -> Result<bool, String> {
     use std::mem::size_of;
@@ -3397,10 +3403,56 @@ pub fn is_current_user_administrator_account() -> Result<bool, String> {
     }
 }
 
+/// Console helper (schtasks/powershell) without a flashing console window.
+#[cfg(target_os = "windows")]
+fn hidden_command(program: &str) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let mut command = std::process::Command::new(program);
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+/// Win32 ERROR_CANCELLED: the UAC prompt was declined or closed.
+#[cfg(target_os = "windows")]
+const ERROR_CANCELLED: i32 = 1223;
+
+/// Runs schtasks through the UAC prompt and returns schtasks' exit code, or
+/// ERROR_CANCELLED when Windows did not start it elevated.
+#[cfg(target_os = "windows")]
+fn run_schtasks_elevated(args: &[&str]) -> Result<i32, String> {
+    // Start-Process joins ArgumentList without quoting, so quote spaced args.
+    let argument_list = args
+        .iter()
+        .map(|arg| {
+            let arg = if arg.contains(' ') {
+                format!("\"{arg}\"")
+            } else {
+                (*arg).to_string()
+            };
+            format!("'{}'", arg.replace('\'', "''"))
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ps_command = format!(
+        "try {{ $p = Start-Process -FilePath 'schtasks' -ArgumentList @({argument_list}) -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; exit $p.ExitCode }} catch {{ exit {ERROR_CANCELLED} }}"
+    );
+    hidden_command("powershell")
+        .args([
+            "-NoProfile",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            &ps_command,
+        ])
+        .status()
+        .map(|status| status.code().unwrap_or(ERROR_CANCELLED))
+        .map_err(|error| format!("Failed to request administrator permission: {error}"))
+}
+
 #[cfg(target_os = "windows")]
 fn admin_autostart_task_exists() -> Result<bool, String> {
-    use std::process::Command;
-    Command::new("schtasks")
+    hidden_command("schtasks")
         .args(["/query", "/tn", ADMIN_AUTOSTART_TASK_NAME])
         .output()
         .map(|output| output.status.success())
@@ -3408,52 +3460,79 @@ fn admin_autostart_task_exists() -> Result<bool, String> {
 }
 
 #[cfg(target_os = "windows")]
+fn admin_autostart_task_xml(exe_str: &str) -> String {
+    let exe = exe_str
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    // XML instead of /tr switches: schtasks has no switches for the power or
+    // time-limit settings, whose defaults block start on battery and kill the
+    // app after 3 days, and the exe path needs no command-line quoting here.
+    // Priority 4 = normal (interactive); the default 7 runs the app below normal.
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>
+  <Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
+  <Settings>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>4</Priority>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+  </Settings>
+  <Actions Context="Author"><Exec><Command>{exe}</Command></Exec></Actions>
+</Task>
+"#
+    )
+}
+
+#[cfg(target_os = "windows")]
 fn create_admin_autostart_task(exe_str: &str) -> Result<(), String> {
-    use std::process::Command;
+    let xml_path = std::env::temp_dir().join("aivorelay-autostart-task.xml");
+    // schtasks expects UTF-16 for an XML declaring that encoding.
+    let mut xml_bytes = vec![0xFF, 0xFE];
+    for unit in admin_autostart_task_xml(exe_str).encode_utf16() {
+        xml_bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    std::fs::write(&xml_path, xml_bytes)
+        .map_err(|error| format!("Failed to write scheduled task definition: {error}"))?;
+    let xml_str = xml_path.to_string_lossy().to_string();
 
     // First attempt direct execution (succeeds if already running elevated).
-    let direct_status = Command::new("schtasks")
+    let direct_status = hidden_command("schtasks")
         .args([
             "/create",
             "/tn",
             ADMIN_AUTOSTART_TASK_NAME,
-            "/tr",
-            &format!("\"{}\"", exe_str),
-            "/sc",
-            "onlogon",
-            "/rl",
-            "highest",
-            "/it",
+            "/xml",
+            &xml_str,
             "/f",
         ])
         .status();
 
     let success = match direct_status {
-        Ok(status) if status.success() => true,
-        _ => {
-            // Non-elevated: request the standard one-time Windows UAC prompt.
-            let safe_task = ADMIN_AUTOSTART_TASK_NAME.replace('\'', "''");
-            let safe_exe = exe_str.replace('\'', "''");
-            let ps_command = format!(
-                "Start-Process -FilePath 'schtasks' -ArgumentList @('/create', '/tn', '{safe_task}', '/tr', '\"{safe_exe}\"', '/sc', 'onlogon', '/rl', 'highest', '/it', '/f') -Verb RunAs -Wait"
-            );
-            let ps_status = Command::new("powershell")
-                .args([
-                    "-NoProfile",
-                    "-WindowStyle",
-                    "Hidden",
-                    "-Command",
-                    &ps_command,
-                ])
-                .status();
-            matches!(ps_status, Ok(status) if status.success())
-        }
+        Ok(status) if status.success() => Ok(()),
+        // Non-elevated: request the standard one-time Windows UAC prompt.
+        _ => match run_schtasks_elevated(&[
+            "/create",
+            "/tn",
+            ADMIN_AUTOSTART_TASK_NAME,
+            "/xml",
+            &xml_str,
+            "/f",
+        ]) {
+            Ok(0) => Ok(()),
+            Ok(ERROR_CANCELLED) => Err(ADMIN_AUTOSTART_UAC_DECLINED.to_string()),
+            Ok(_) => Err(ADMIN_AUTOSTART_TASK_FAILED.to_string()),
+            Err(error) => Err(error),
+        },
     };
+    let _ = std::fs::remove_file(&xml_path);
 
-    if !success || !admin_autostart_task_exists()? {
-        return Err(
-            "Failed to register Windows scheduled task with administrator privileges.".to_string(),
-        );
+    success?;
+    if !admin_autostart_task_exists()? {
+        return Err(ADMIN_AUTOSTART_TASK_FAILED.to_string());
     }
 
     Ok(())
@@ -3461,14 +3540,12 @@ fn create_admin_autostart_task(exe_str: &str) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn delete_admin_autostart_task() -> Result<(), String> {
-    use std::process::Command;
-
     if !admin_autostart_task_exists()? {
         return Ok(());
     }
 
     // First attempt direct deletion (works if elevated)
-    let direct_status = Command::new("schtasks")
+    let direct_status = hidden_command("schtasks")
         .args(["/delete", "/tn", ADMIN_AUTOSTART_TASK_NAME, "/f"])
         .status();
 
@@ -3482,30 +3559,116 @@ fn delete_admin_autostart_task() -> Result<(), String> {
         }
     }
 
-    // Fall back to elevated PowerShell to request UAC once
-    let safe_task = ADMIN_AUTOSTART_TASK_NAME.replace('\'', "''");
-    let ps_command = format!(
-        "Start-Process -FilePath 'schtasks' -ArgumentList @('/delete', '/tn', '{safe_task}', '/f') -Verb RunAs -Wait"
-    );
-    let ps_status = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-            &ps_command,
-        ])
-        .status();
-
-    match ps_status {
-        Ok(status) if status.success() => {
-            if admin_autostart_task_exists()? {
-                Err("Administrator scheduled task was not removed by Windows.".to_string())
-            } else {
-                Ok(())
-            }
+    // Fall back to elevated schtasks to request UAC once
+    match run_schtasks_elevated(&["/delete", "/tn", ADMIN_AUTOSTART_TASK_NAME, "/f"])? {
+        ERROR_CANCELLED => Err(ADMIN_AUTOSTART_UAC_DECLINED.to_string()),
+        _ if admin_autostart_task_exists()? => {
+            Err("Administrator scheduled task was not removed by Windows.".to_string())
         }
-        _ => Err("Failed to delete scheduled task with administrator privileges.".to_string()),
+        _ => Ok(()),
+    }
+}
+
+/// Compare the registered task with what `admin_autostart_task_xml` would
+/// produce. Older versions registered a broken unquoted path and Windows
+/// defaults (no start on battery, 3-day kill, below-normal priority); the exe
+/// path also goes stale when the app is reinstalled elsewhere.
+/// Returns "ok", "missing", "needsRepair" or "unknown". Read-only, no UAC.
+#[cfg(target_os = "windows")]
+#[cfg_attr(debug_assertions, allow(dead_code))]
+fn admin_autostart_task_health(exe_str: &str) -> &'static str {
+    match admin_autostart_task_exists() {
+        Ok(true) => {}
+        Ok(false) => return "missing",
+        Err(_) => return "unknown",
+    }
+
+    // PowerShell instead of schtasks /xml: schtasks prints in the OEM code
+    // page, which mangles non-ASCII install paths.
+    let script = format!(
+        "[Console]::OutputEncoding=[Text.Encoding]::UTF8; $t=Get-ScheduledTask -TaskName '{}' -ErrorAction Stop; $a=@($t.Actions)[0]; [pscustomobject]@{{exe=$a.Execute; args=$a.Arguments; battery=$t.Settings.DisallowStartIfOnBatteries; limit=$t.Settings.ExecutionTimeLimit; priority=$t.Settings.Priority}} | ConvertTo-Json -Compress",
+        ADMIN_AUTOSTART_TASK_NAME.replace('\'', "''")
+    );
+    let Ok(output) = hidden_command("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+    else {
+        return "unknown";
+    };
+    if !output.status.success() {
+        return "unknown";
+    }
+    let Ok(task) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
+        return "unknown";
+    };
+
+    let exe_matches = task["exe"]
+        .as_str()
+        .map(|exe| exe.trim().trim_matches('"').eq_ignore_ascii_case(exe_str))
+        .unwrap_or(false);
+    let no_args = task["args"].as_str().map_or(true, |args| args.trim().is_empty());
+    let battery_ok = task["battery"].as_bool() == Some(false);
+    let limit_ok = task["limit"].as_str() == Some("PT0S");
+    let priority_ok = task["priority"].as_i64() == Some(4);
+
+    if exe_matches && no_args && battery_ok && limit_ok && priority_ok {
+        "ok"
+    } else {
+        "needsRepair"
+    }
+}
+
+/// Settings UI check for a broken or outdated administrator autostart task.
+#[tauri::command]
+#[specta::specta]
+pub fn get_admin_autostart_task_health(app: AppHandle) -> Result<String, String> {
+    if !settings::get_settings(&app).autostart_as_admin_enabled {
+        return Ok("ok".to_string());
+    }
+
+    // A dev build's exe path never matches the installed one.
+    #[cfg(any(debug_assertions, not(target_os = "windows")))]
+    {
+        Ok("ok".to_string())
+    }
+
+    #[cfg(all(not(debug_assertions), target_os = "windows"))]
+    {
+        let exe_path = std::env::current_exe()
+            .map_err(|e| format!("Failed to resolve current executable path: {e}"))?;
+        Ok(admin_autostart_task_health(&exe_path.to_string_lossy()).to_string())
+    }
+}
+
+/// Re-register the administrator autostart task; runs only on the user's
+/// explicit click because it may show a UAC prompt.
+#[tauri::command]
+#[specta::specta]
+pub fn repair_admin_autostart_task(app: AppHandle) -> Result<(), String> {
+    if !settings::get_settings(&app).autostart_as_admin_enabled {
+        return Err("Autostart with administrator privileges is not enabled.".to_string());
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        return Err(
+            "Autostart as administrator cannot be repaired from a development build. Use an installed release build."
+                .to_string(),
+        );
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        return Err(
+            "Autostart with administrator privileges is only supported on Windows.".to_string(),
+        );
+    }
+
+    #[cfg(all(not(debug_assertions), target_os = "windows"))]
+    {
+        let exe_path = std::env::current_exe()
+            .map_err(|e| format!("Failed to resolve current executable path: {e}"))?;
+        create_admin_autostart_task(&exe_path.to_string_lossy())
     }
 }
 

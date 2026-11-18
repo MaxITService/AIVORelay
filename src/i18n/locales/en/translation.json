@@ -3341,6 +3341,13 @@
         "description": "Start AivoRelay with administrator permissions when you sign in to Windows so it can insert text into apps that also run as administrator.",
         "requiresAdministratorAccount": "This option is available only when the current Windows account belongs to the Administrators group.",
         "administratorCheckFailed": "Windows administrator account membership could not be verified, so this option is unavailable.",
+        "uacDeclined": "Windows did not grant administrator permission (the UAC prompt was declined or closed), so the setting was not changed.",
+        "taskFailed": "Windows could not register the administrator autostart task, so the setting was not changed.",
+        "repair": {
+          "missing": "The Windows task that starts AivoRelay as administrator is missing, so the app will not start when you sign in.",
+          "needsRepair": "The Windows task that starts AivoRelay as administrator is outdated or broken, so the app may not start when you sign in.",
+          "button": "Repair"
+        },
         "notRecommended": "Not recommended, for IT professionals only: any bug in the application will have a huge blast radius.",
         "securityTitle": "Security Notice:",
         "securityNotice": "Running AivoRelay permanently with administrator privileges grants all application components, plugins, and network integrations elevated system access. Enable this only if you need to dictate into elevated/admin programs.",
