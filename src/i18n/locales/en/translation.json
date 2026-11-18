@@ -1737,7 +1737,8 @@
         "description": "Uses a remote API for transcription. Your provider may charge you for usage. You are responsible for key management and usage. Tip: set limits in the cloud.",
         "windowsOnly": "Windows-only for now."
       },
-      "changeProviderLater": "You can always change your transcription provider later in the Models section."
+      "changeProviderLater": "You can always change your transcription provider later in the Models section.",
+      "back": "Back to Local / Remote choice"
     },
     "permissions": {
       "subtitle": "Windows microphone access is needed before recording can work.",
@@ -1848,10 +1849,10 @@
         "gemini": "Gemini",
         "soniox": "Soniox",
         "deepgram": "Deepgram",
-        "elevenlabs": "ElevenLabs Scribe v3 Live"
+        "elevenlabs": "ElevenLabs Scribe v3 Live",
+        "moreProviders": "More providers available in the app interface"
       },
       "geminiInfo": "Gemini 3.5 Transcribe supports low-latency live dictation and transcription after recording. Choose a connection route and enter the matching API key.",
-      "geminiRecommendation": "Vercel AI Gateway is recommended for initial setup. You can change the route and Gemini options later in Models.",
       "geminiApiKeyPlaceholder": "Paste your Vercel AI Gateway API key",
       "geminiWorkflow": {
         "label": "Transcription workflow",
@@ -1869,11 +1870,19 @@
         "vercelHint": "Use a dedicated Vercel AI Gateway key and configure a Spend Quota before sending speech.",
         "googleWarning": "The direct Google route is experimental and requires a Google Gemini API key with billing configured outside AivoRelay."
       },
-      "whisperFamilyRecommendation": "Regardless of which provider you prefer, I recommend using the Whisper family of models.",
-      "recommendation": "Any OpenAI-compatible speech-to-text API will work. I tested the app with Groq and it worked well, so the fields below are pre-filled with Groq defaults. The Groq website is linked below because it's easy to register a free account there, but you are free to use any provider you prefer.",
-      "sonioxRecommendation": "For the best transcription quality, I recommend Soniox (no free tier). You can switch providers anytime in the Models section.",
+      "benchmarkHint": "Not sure which provider to choose? Compare speech-to-text providers in an independent benchmark and decide for yourself. You can switch providers anytime in the Models section.",
+      "benchmarkLink": "Speech-to-text benchmarks",
+      "moreProvidersHint": "More cloud options are supported but not set up by this wizard, such as Reson8 (Rumble-2) and OpenAI Realtime transcription and translation. Configure them in the Models section of the main app.",
+      "moreProvidersLink": "Close wizard and open Models",
+      "moreProvidersSteps": {
+        "intro": "To set up another cloud provider:",
+        "close": "Close this wizard with the link below. The Models section opens.",
+        "find": "Scroll to the “Remote STT” block.",
+        "choose": "Pick a provider there (for example Reson8 or OpenAI Realtime), click “Choose a Model”, and enter its API key."
+      },
+      "recommendation": "Any OpenAI-compatible speech-to-text API will work. The fields below are pre-filled with Groq defaults, and the Groq website is linked below because it is easy to register a free account there, but you can use any provider you prefer.",
       "freeTier": "Create an API key on your provider's website and enter it below.",
-      "sonioxInfo": "Soniox provides real-time speech-to-text with streaming support. I recommend it as the best provider from my experience, but there is no free tier. Create an API key on their website and enter it below.",
+      "sonioxInfo": "Soniox provides real-time speech-to-text with streaming support. There is no free tier. Create an API key on their website and enter it below.",
       "sonioxRealtimeWarning": "The LLM post processing does not work with realtime API. LLM post processing settings will be ignored in this mode.",
       "deepgramInfo": "Deepgram provides live WebSocket speech-to-text with Nova models, including KeepAlive / Finalize / CloseStream control messages.",
       "deepgramRecommendation": "Create a Deepgram API key in the console and paste it below. You can fine-tune Deepgram options later in Advanced settings.",

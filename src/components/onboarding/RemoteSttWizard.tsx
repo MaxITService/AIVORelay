@@ -19,10 +19,14 @@ interface RemoteSttWizardProps {
   onComplete: () => void;
   /** Leaves the whole first-start wizard without closing this dialog first. */
   onSkipWizard?: () => void;
+  /** Leaves the whole first-start wizard and opens the Models section. */
+  onOpenModels?: () => void;
   skipDisabled?: boolean;
 }
 
 type EngineType = "openai" | "gemini" | "soniox" | "deepgram" | "elevenlabs";
+const MORE_PROVIDERS_OPTION = "more-providers";
+
 type GeminiWorkflow = "live" | "recorded";
 
 const getGeminiModel = (
@@ -52,6 +56,7 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
   onClose,
   onComplete,
   onSkipWizard,
+  onOpenModels,
   skipDisabled = false,
 }) => {
   const { t } = useTranslation();
@@ -62,6 +67,8 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
   } = useSettings();
 
   const [engine, setEngine] = useState<EngineType>("openai");
+  // "More providers" dropdown item: shows where to set them up instead of a form.
+  const [showMoreProviders, setShowMoreProviders] = useState(false);
   const [geminiWorkflow, setGeminiWorkflow] =
     useState<GeminiWorkflow>("live");
   const [remotePreset, setRemotePreset] = useState<RemoteSttPreset>("groq");
@@ -108,8 +115,19 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
         value: "deepgram",
         label: t("onboarding.remoteSttWizard.engineOptions.deepgram"),
       },
+      ...(onOpenModels
+        ? [
+            {
+              value: MORE_PROVIDERS_OPTION,
+              label: t(
+                "onboarding.remoteSttWizard.engineOptions.moreProviders",
+                "More providers available in the app interface",
+              ),
+            },
+          ]
+        : []),
     ],
-    [t],
+    [t, onOpenModels],
   );
 
   const isSoniox = engine === "soniox";
@@ -308,8 +326,9 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
   };
 
   const canTest =
-    apiKey.trim().length > 0 && hasRequiredRemoteUrl;
-  const canFinish = apiKey.trim().length > 0 && hasRequiredRemoteUrl;
+    !showMoreProviders && apiKey.trim().length > 0 && hasRequiredRemoteUrl;
+  const canFinish =
+    !showMoreProviders && apiKey.trim().length > 0 && hasRequiredRemoteUrl;
 
   return (
     <div
@@ -357,23 +376,77 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
               {t("onboarding.remoteSttWizard.engineLabel")}
             </label>
             <Select
-              value={engine}
+              value={showMoreProviders ? MORE_PROVIDERS_OPTION : engine}
               disabled={isLoading}
               options={engineOptions}
               onChange={(value) => {
-                if (value) {
+                if (!value) return;
+                setShowMoreProviders(value === MORE_PROVIDERS_OPTION);
+                if (value !== MORE_PROVIDERS_OPTION) {
                   handleEngineChange(value as EngineType);
                 }
               }}
               isClearable={false}
             />
-            {!isGemini && !isElevenLabs && (
-              <p className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
-                {t("onboarding.remoteSttWizard.whisperFamilyRecommendation")}
+            <p className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
+              {t("onboarding.remoteSttWizard.benchmarkHint")}{" "}
+              <a
+                href="https://benchmarks.cekura.ai/stt"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-cyan-300 hover:text-cyan-200 transition-colors"
+              >
+                {t("onboarding.remoteSttWizard.benchmarkLink")}
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </p>
+            {onOpenModels && (
+              <p className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-400">
+                {t("onboarding.remoteSttWizard.moreProvidersHint")}{" "}
+                <button
+                  type="button"
+                  onClick={onOpenModels}
+                  disabled={skipDisabled}
+                  className="inline-flex items-center gap-1 font-medium text-cyan-300 hover:text-cyan-200 hover:underline underline-offset-4 transition-colors disabled:cursor-wait disabled:opacity-60"
+                >
+                  {t("onboarding.remoteSttWizard.moreProvidersLink")}
+                  <ArrowRight className="w-3 h-3" aria-hidden="true" />
+                </button>
               </p>
             )}
           </div>
 
+          {showMoreProviders ? (
+            <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl text-sm space-y-2">
+              <p className="text-text/90">
+                {t(
+                  "onboarding.remoteSttWizard.moreProvidersSteps.intro",
+                  "To set up another cloud provider:",
+                )}
+              </p>
+              <ol className="list-decimal pl-5 space-y-1 text-text/80">
+                <li>
+                  {t(
+                    "onboarding.remoteSttWizard.moreProvidersSteps.close",
+                    "Close this wizard with the link below. The Models section opens.",
+                  )}
+                </li>
+                <li>
+                  {t(
+                    "onboarding.remoteSttWizard.moreProvidersSteps.find",
+                    "Scroll to the “Remote STT” block.",
+                  )}
+                </li>
+                <li>
+                  {t(
+                    "onboarding.remoteSttWizard.moreProvidersSteps.choose",
+                    "Pick a provider there (for example Reson8 or OpenAI Realtime), click “Choose a Model”, and enter its API key.",
+                  )}
+                </li>
+              </ol>
+            </div>
+          ) : (
+          <>
           {/* Info box */}
           {isGemini ? (
             <div className="p-4 bg-fuchsia-500/10 border border-fuchsia-400/30 rounded-xl text-sm space-y-2">
@@ -381,12 +454,6 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
                 {t(
                   "onboarding.remoteSttWizard.geminiInfo",
                   "Gemini 3.5 Transcribe supports low-latency live dictation and transcription after recording. Choose a connection route and enter the matching API key.",
-                )}
-              </p>
-              <p className="text-text/60 text-xs">
-                {t(
-                  "onboarding.remoteSttWizard.geminiRecommendation",
-                  "Vercel AI Gateway is recommended for initial setup. You can change the route and Gemini options later in Models.",
                 )}
               </p>
               <a
@@ -490,9 +557,6 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
                 <p className="text-text/60 text-xs">
                   {t("onboarding.remoteSttWizard.freeTier")}
                 </p>
-              </div>
-              <div className="p-3 bg-[#ff4d8d]/10 border border-[#ff4d8d]/30 rounded-lg text-sm text-[#ffd1e6]">
-                {t("onboarding.remoteSttWizard.sonioxRecommendation")}
               </div>
             </>
           )}
@@ -796,6 +860,8 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
             >
               {connectionMessage}
             </div>
+          )}
+          </>
           )}
         </div>
 
