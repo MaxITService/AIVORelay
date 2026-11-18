@@ -5,7 +5,14 @@
 function Get-AivoRelayProductionSnapshot {
     param([string]$TargetRoot, [string]$CargoTargetDir)
 
-    $apps = @(Get-CimInstance Win32_Process -Filter "Name = 'AivoRelay.exe'" -ErrorAction Stop |
+    $all = @(Get-CimInstance Win32_Process -Filter "Name = 'AivoRelay.exe'" -ErrorAction Stop)
+    # A non-elevated console cannot read an elevated process's path or stop it;
+    # the dev app would then just hand off to it and exit.
+    $elevated = @($all | Where-Object { -not $_.ExecutablePath })
+    if ($elevated.Count -gt 0) {
+        throw "AivoRelay (PID $($elevated.ProcessId -join ', ')) is running as administrator, and this console is not, so it cannot be stopped and replaced by the dev app. Exit AivoRelay from its tray menu, or run the dev launcher from an administrator console."
+    }
+    $apps = @($all |
         Where-Object {
             Test-AivoRelayProductionPath -Path $_.ExecutablePath -TargetRoot $TargetRoot -CargoTargetDir $CargoTargetDir
         })
