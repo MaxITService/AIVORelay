@@ -742,7 +742,9 @@ function App() {
     refreshSettings();
   };
 
-  const handleSkipFirstStartWizard = async () => {
+  const handleSkipFirstStartWizard = async (
+    section: SidebarSection = "general",
+  ) => {
     try {
       await invoke("change_first_start_wizard_skipped_setting", {
         skipped: true,
@@ -750,7 +752,7 @@ function App() {
       if (!onboardingFromDebug) clearOnboardingProgress();
       setOnboardingFromDebug(false);
       setOnboardingStartsWithPermissions(false);
-      setCurrentSection("general");
+      setCurrentSection(section);
       setShowOnboarding(false);
       await refreshSettings();
     } catch (error) {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { type } from "@tauri-apps/plugin-os";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
 import { commands, type ModelInfo } from "@/bindings";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -35,7 +35,8 @@ type OnboardingMode = "permissions" | "select" | "local" | "welcome";
 interface OnboardingProps {
   onModelSelected: () => void;
   onRemoteSelected: () => void;
-  onSkipWizard: () => Promise<void>;
+  /** Leaves the wizard; opens the given main-app section (General by default). */
+  onSkipWizard: (section?: "models") => Promise<void>;
   showFullCatalog?: boolean;
   startWithPermissionStep?: boolean;
   onPermissionResolved?: () => void;
@@ -331,6 +332,19 @@ const Onboarding: React.FC<OnboardingProps> = ({
 
   const handleRemoteWizardClose = () => {
     setShowRemoteWizard(false);
+    // Selecting Remote switched the provider before any key was entered. On first
+    // run, closing the dialog must not leave a remote provider without a key.
+    // The debug re-run keeps the user's existing configuration.
+    if (!showFullCatalog) {
+      void commands.changeTranscriptionProviderSetting("local").catch((err) => {
+        console.error("Failed to restore local provider:", err);
+      });
+    }
+  };
+
+  const handleBackToModeSelect = () => {
+    setError(null);
+    setMode("select");
   };
 
   const handlePermissionsComplete = () => {
@@ -349,11 +363,11 @@ const Onboarding: React.FC<OnboardingProps> = ({
     }
   };
 
-  const handleSkipWizard = async () => {
+  const handleSkipWizard = async (section?: "models") => {
     if (isSkipping) return;
     setIsSkipping(true);
     try {
-      await onSkipWizard();
+      await onSkipWizard(section);
     } finally {
       setIsSkipping(false);
     }
@@ -587,6 +601,15 @@ const Onboarding: React.FC<OnboardingProps> = ({
               </div>
             ) : (
               <>
+                <button
+                  type="button"
+                  onClick={handleBackToModeSelect}
+                  disabled={downloading}
+                  className="self-start inline-flex items-center gap-1 text-sm text-[#a0a0a0] hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                  {t("onboarding.mode.back", "Back to Local / Remote choice")}
+                </button>
                 {savedProgress?.step === "local" && (
                   <p className="text-sm text-[#b8b8b8]">{t("onboarding.resumeLocal", "Choose a model to continue. An interrupted download can be resumed.")}</p>
                 )}
@@ -662,6 +685,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
         onClose={handleRemoteWizardClose}
         onComplete={handleRemoteWizardComplete}
         onSkipWizard={() => void handleSkipWizard()}
+        onOpenModels={() => void handleSkipWizard("models")}
         skipDisabled={isSkipping}
       />
     </div>
