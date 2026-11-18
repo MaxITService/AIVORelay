@@ -3299,6 +3299,7 @@ const ADMIN_AUTOSTART_TASK_NAME: &str = "AIVORelayAutostartAdmin";
 const ADMIN_AUTOSTART_UAC_DECLINED: &str = "ADMIN_AUTOSTART_UAC_DECLINED";
 #[cfg(target_os = "windows")]
 const ADMIN_AUTOSTART_TASK_FAILED: &str = "ADMIN_AUTOSTART_TASK_FAILED";
+const ADMIN_AUTOSTART_UNAVAILABLE_IN_PACKAGE: &str = "ADMIN_AUTOSTART_UNAVAILABLE_IN_PACKAGE";
 
 #[cfg(target_os = "windows")]
 fn current_user_is_administrator_account() -> Result<bool, String> {
@@ -3387,6 +3388,13 @@ fn current_user_is_administrator_account() -> Result<bool, String> {
 
     let _ = unsafe { CloseHandle(token) };
     result
+}
+
+/// False for Microsoft Store (MSIX) installs; see `distribution::allows_admin_autostart`.
+#[tauri::command]
+#[specta::specta]
+pub fn is_admin_autostart_available() -> bool {
+    cfg!(target_os = "windows") && crate::distribution::allows_admin_autostart()
 }
 
 #[tauri::command]
@@ -3622,7 +3630,9 @@ fn admin_autostart_task_health(exe_str: &str) -> &'static str {
 #[tauri::command]
 #[specta::specta]
 pub fn get_admin_autostart_task_health(app: AppHandle) -> Result<String, String> {
-    if !settings::get_settings(&app).autostart_as_admin_enabled {
+    if !settings::get_settings(&app).autostart_as_admin_enabled
+        || !crate::distribution::allows_admin_autostart()
+    {
         return Ok("ok".to_string());
     }
 
@@ -3647,6 +3657,9 @@ pub fn get_admin_autostart_task_health(app: AppHandle) -> Result<String, String>
 pub fn repair_admin_autostart_task(app: AppHandle) -> Result<(), String> {
     if !settings::get_settings(&app).autostart_as_admin_enabled {
         return Err("Autostart with administrator privileges is not enabled.".to_string());
+    }
+    if !crate::distribution::allows_admin_autostart() {
+        return Err(ADMIN_AUTOSTART_UNAVAILABLE_IN_PACKAGE.to_string());
     }
 
     #[cfg(debug_assertions)]
@@ -3806,6 +3819,10 @@ pub fn change_autostart_as_admin_setting(app: AppHandle, enabled: bool) -> Resul
 
     #[cfg(target_os = "windows")]
     {
+        if enabled && !crate::distribution::allows_admin_autostart() {
+            return Err(ADMIN_AUTOSTART_UNAVAILABLE_IN_PACKAGE.to_string());
+        }
+
         if enabled && !current_user_is_administrator_account()? {
             return Err(
                 "Autostart with administrator privileges is only available when the current Windows account belongs to the Administrators group."

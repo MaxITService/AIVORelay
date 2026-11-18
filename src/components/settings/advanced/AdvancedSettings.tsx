@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ModelUnloadTimeoutSetting } from "../ModelUnloadTimeout";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { StartHidden } from "../StartHidden";
-import { AutostartToggle } from "../AutostartToggle";
+import { AdminAutostartSettings, AutostartToggle } from "../AutostartToggle";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { RecordingAutoStop } from "../RecordingAutoStop";
 import { AccelerationSelector } from "../AccelerationSelector";
@@ -130,6 +130,8 @@ export const AdvancedSettings: React.FC = () => {
       >
         {t("profileOutput.advancedLink")}
       </button>
+
+      <AdminAutostartSettings />
     </div>
   );
 };

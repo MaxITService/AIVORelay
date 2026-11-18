@@ -1039,7 +1039,9 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 
         // Re-applied on every launch, so a transient failure heals itself and
         // must not block startup.
-        let enabled = settings.autostart_enabled && !settings.autostart_as_admin_enabled;
+        // A Store (MSIX) install ignores a carried-over administrator option.
+        let admin_task = settings.autostart_as_admin_enabled && distribution::allows_admin_autostart();
+        let enabled = settings.autostart_enabled && !admin_task;
         // Enable normal autostart only if not running elevated via Task Scheduler;
         // disable it if the user opted out or elevated autostart handles it.
         if let Err(error) = autostart::set_enabled(&app_handle, enabled) {
@@ -1348,6 +1350,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_never_launch_webview_setting,
         shortcut::change_show_speech_only_mode_in_tray_setting,
         shortcut::change_autostart_setting,
+        shortcut::is_admin_autostart_available,
         shortcut::is_current_user_administrator_account,
         shortcut::change_autostart_as_admin_setting,
         shortcut::get_admin_autostart_task_health,
