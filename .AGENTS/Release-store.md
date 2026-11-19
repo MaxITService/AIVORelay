@@ -26,6 +26,8 @@ Keep the GitHub release as a draft unless the user explicitly asks to publish, a
 
 ## Version Bump
 
+Bump this branch every time `main` is bumped, without asking: `release.yml` fails unless both versions match.
+
 When asked to bump the app version:
 
 1. Update `"version": "x.y.z"` in `package.json`.
