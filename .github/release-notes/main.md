@@ -10,6 +10,8 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 - **Administrator autostart** is more reliable: it now also starts on battery power, is no longer stopped after a few days, and a new **Repair** button fixes a broken setup in one click. These options moved to a separate developer block at the bottom of Advanced settings, and are not available in Microsoft Store installs.
 - The **first-run setup** is friendlier: you can go back from the remote speech recognition choice, and it points you to more cloud services you can set up later in Models.
 
+Thanks again to @waLLxAck for contributing ElevenLabs v4 Turbo support.
+
 ---
 
 **Notice:**
