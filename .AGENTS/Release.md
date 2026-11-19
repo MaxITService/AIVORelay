@@ -62,7 +62,7 @@ For `main`:
 1. Tag `vx.y.z` only when the user explicitly asks.
 2. Push `main` and the tag only when the user explicitly asks to push.
 
-For `release/microsoft-store`: if asked, prepare this branch too. If not asked, skip it entirely.
+For `release/microsoft-store`: always bump it together with `main` in every version bump (no question needed), because `release.yml` fails unless both versions match.
 1. Keep the app version numeric, for example `0.9.1`. Same number is released in both branches, but only by user's apporval.
 2. It has no own release or tag: `release.yml` on `main` builds its pushed head (unsigned, no updater) into the `main` draft and fails unless both versions match.
 3. Push `release/microsoft-store` before running `Release`, and only when the user explicitly asks.
