@@ -739,14 +739,12 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.54",
+      "since": "Since version 1.0.55",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "elevenLabsOptions": "ElevenLabs Scribe settings let you remove filler words and request that ElevenLabs not keep your data. Completed recordings and files also support numbers as digits and sound tags such as laughter.",
-        "elevenLabsCustomWords": "Custom Words now help ElevenLabs recognize names and specialist terms in completed recordings and audio files, as well as live dictation.",
-        "selectionHotkey": "Reading selected text aloud waits for you to release the shortcut keys before copying, avoiding accidental shortcuts in other apps.",
-        "administratorIndicator": "On Windows, the window title and tray menu show when AivoRelay is running as Administrator. With administrator autostart enabled, you can hide the label from the window title."
+        "administratorAutostart": "Starting AivoRelay automatically as Administrator is now more reliable: it also starts on battery power and is no longer stopped after a few days, and a Repair button fixes a broken setup in one click. These options now live in a separate developer block at the bottom of Advanced settings.",
+        "firstRunSetup": "The first-run setup is friendlier: you can go back from the remote speech recognition choice, and it points you to more cloud services you can set up later in Models."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"
