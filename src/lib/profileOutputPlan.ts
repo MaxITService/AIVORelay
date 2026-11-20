@@ -20,6 +20,8 @@ export interface ProfileOutputPlanInput {
   heldInPreview: boolean;
   /** The speech provider inserts text into the target window while recording. */
   streamsLiveText: boolean;
+  /** Experimental: cloud live model processes speech live, but text is buffered until stop. */
+  bufferLiveUntilStop?: boolean;
   pasteMethod: PasteMethod;
   clipboardHandling: ClipboardHandling;
   copyOnElevatedWindow: boolean;
@@ -72,7 +74,8 @@ export const describeProfileOutputPlan = (input: ProfileOutputPlanInput): Profil
   if (held && input.startKey !== "") steps.push({ key: "stepPreviewNoStartKey" });
 
   const earlyOn = !held && input.startKey !== "";
-  const buffered = buffersOutputForKeyActions(input.pasteMethod, input.openingKey, input.startKey, input.autoSubmit);
+  const cloudBuffered = input.pasteMethod !== "none" && Boolean(input.bufferLiveUntilStop);
+  const buffered = buffersOutputForKeyActions(input.pasteMethod, input.openingKey, input.startKey, input.autoSubmit) || cloudBuffered;
   const liveInserting = !held && input.streamsLiveText && !buffered;
   const liveHeld = !held && input.streamsLiveText && buffered;
   const protection = input.isWindows && input.checkActiveWindow;
@@ -89,7 +92,7 @@ export const describeProfileOutputPlan = (input: ProfileOutputPlanInput): Profil
   }
 
   // During recording.
-  if (liveHeld) steps.push({ key: "stepDuringHeld" });
+  if (liveHeld) steps.push({ key: cloudBuffered ? "stepDuringCloudBuffered" : "stepDuringHeld" });
   if (liveInserting) {
     steps.push(earlyOn
       ? { key: "stepDuringLiveEarly", values: { delay: startDelay, key: labels.startKey } }
@@ -107,7 +110,7 @@ export const describeProfileOutputPlan = (input: ProfileOutputPlanInput): Profil
     steps.push({ key: "stepEndRest" });
   } else if (earlyOn) {
     steps.push({ key: "stepEndInsert", values: { method: labels.method } });
-  } else if (held || hasOpening || input.autoSubmit || !input.streamsLiveText) {
+  } else if (held || buffered || !input.streamsLiveText) {
     steps.push({ key: "stepEndInsert", values: { method: labels.method } });
   }
   if (usesClipboard) steps.push({ key: elevatedCopy ? "stepEndClipboardNormally" : "stepEndClipboard", values: { handling: labels.clipboard } });

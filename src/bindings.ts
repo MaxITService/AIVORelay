@@ -5433,7 +5433,13 @@ export type ProfileLlmSettings = { enabled: boolean; promptOverride: string | nu
  * `None` keeps the stored value on update and inherits the global value on creation.
  */
 liveStreamInsert?: boolean | null }
-export type ProfileOutputSettings = { paste_method: PasteMethod | null; clipboard_handling: ClipboardHandling | null; clipboard_history_allowed: boolean | null; copy_on_elevated_window: boolean | null; convert_lf_to_crlf: boolean | null; paste_delay_ms: number | null; check_active_window: boolean | null; live_window_resume_delay_ms: number | null; live_window_stop_action: LiveWindowStopAction | null;
+export type ProfileOutputSettings = { paste_method: PasteMethod | null; clipboard_handling: ClipboardHandling | null; clipboard_history_allowed: boolean | null; copy_on_elevated_window: boolean | null;
+/**
+ * Experimental: keep streaming audio to cloud live models while recording,
+ * but hold recognized text in a buffer and insert it once after stopping.
+ * Ignored when Preview is active or for non-live/local models.
+ */
+buffer_live_output_until_stop: boolean | null; convert_lf_to_crlf: boolean | null; paste_delay_ms: number | null; check_active_window: boolean | null; live_window_resume_delay_ms: number | null; live_window_stop_action: LiveWindowStopAction | null;
 /**
  * Seconds a finished remainder waits for its window before `live_window_wait_limit_action`
  * runs. None: the program default (no limit); 0 means no limit.
