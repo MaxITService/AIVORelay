@@ -421,3 +421,36 @@ assert.equal(
   ).available,
   true,
 );
+
+// Experimental cloud live buffering: unlocks LLM post-processing for cloud live models only,
+// respects PasteMethod::None, never applies to local native streaming, and hides under Preview.
+assert.equal(
+  getPostProcessingAvailability(sonioxLive(), {
+    profileOutputSettings: { buffer_live_output_until_stop: true },
+  }).available,
+  true,
+);
+assert.equal(
+  getPostProcessingAvailability(sonioxLive(), {
+    profileOutputSettings: { buffer_live_output_until_stop: true, paste_method: "none" },
+  }).available,
+  false,
+);
+assert.equal(
+  getPostProcessingAvailability(nativeLocal(), {
+    profileOutputSettings: { buffer_live_output_until_stop: true },
+  }).available,
+  false,
+);
+assert.equal(
+  getOutputProviderInfo(sonioxLive(), { profilePreviewOutputOnlyEnabled: false }, []).streamsCloudLiveText,
+  true,
+);
+assert.equal(
+  getOutputProviderInfo(sonioxLive(), { profilePreviewOutputOnlyEnabled: true }, []).streamsCloudLiveText,
+  false,
+);
+assert.equal(
+  getOutputProviderInfo(nativeLocal(), { profilePreviewOutputOnlyEnabled: false }, [streamingModel]).streamsCloudLiveText,
+  false,
+);

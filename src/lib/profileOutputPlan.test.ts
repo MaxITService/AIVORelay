@@ -91,6 +91,26 @@ describe("describeProfileOutputPlan", () => {
     ]);
   });
 
+  test("cloud live text buffered until stop processes live and inserts once at the end", () => {
+    const plan = describeProfileOutputPlan(base({
+      streamsLiveText: true, bufferLiveUntilStop: true, checkActiveWindow: true,
+    }));
+    expect(keys(plan.steps)).toEqual([
+      "stepInsertInto", "stepDuringCloudBuffered", "stepEndInsert", "stepEndClipboard",
+    ]);
+    expect(keys(plan.ifs)).toEqual(["ifPasteFails"]);
+  });
+
+  test("external script with a live provider buffers text and inserts once at the end", () => {
+    const plan = describeProfileOutputPlan(base({
+      streamsLiveText: true, pasteMethod: "external_script",
+    }));
+    expect(keys(plan.steps)).toEqual([
+      "stepInsertInto", "stepDuringHeld", "stepEndInsert",
+    ]);
+    expect(keys(plan.ifs)).toEqual(["ifPasteFails"]);
+  });
+
   test("live text without key actions is inserted live and follows the window unless protected", () => {
     const follow = describeProfileOutputPlan(base({ streamsLiveText: true, pasteMethod: "direct" }));
     expect(keys(follow.steps)).toEqual(["stepInsertInto", "stepDuringLive", "stepEndRest"]);

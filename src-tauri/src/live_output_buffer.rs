@@ -27,6 +27,10 @@ pub(crate) fn foreground_target() -> Option<WindowTarget> {
     { None }
 }
 
+pub(crate) fn target_belongs_to_current_process(target: Option<WindowTarget>) -> bool {
+    target.is_some_and(|window| window.process_id == std::process::id())
+}
+
 fn target_exists(target: WindowTarget) -> bool {
     #[cfg(target_os = "windows")]
     unsafe {
@@ -152,6 +156,24 @@ fn waiting_changed(app: &AppHandle) {
     std::thread::spawn(move || crate::tray::refresh_tray_menu(&app, None));
 }
 
+fn make_session(
+    operation_id: u64,
+    binding_id: &str,
+    profile_id: Option<String>,
+    settings: ResolvedOutputSettings,
+    target: Option<WindowTarget>,
+) -> Session {
+    let gate = settings.opens_at_start()
+        .then(|| settings.early_opening_key.clone())
+        .filter(|key| key.state() != crate::early_open::EarlyKeyState::Idle);
+    let mut buffer = Buffer::new(target, settings.live_window_resume_delay_ms);
+    buffer.check_window = gate.is_none() || (settings.check_active_window && cfg!(target_os = "windows"));
+    Session { operation_id, binding_id: binding_id.to_string(), profile_id,
+        buffer, settings,
+        worker_active: false, poll_queued: false, delivery_in_flight: false, finished: false,
+        waiting_since: None, failed: false, gate }
+}
+
 pub(crate) fn begin(
     operation_id: u64,
     binding_id: &str,
@@ -160,15 +182,24 @@ pub(crate) fn begin(
     target: Option<WindowTarget>,
 ) {
     let mut guard = SESSION.lock().unwrap_or_else(|error| error.into_inner());
-    let gate = settings.opens_at_start()
-        .then(|| settings.early_opening_key.clone())
-        .filter(|key| key.state() != crate::early_open::EarlyKeyState::Idle);
-    let mut buffer = Buffer::new(target, settings.live_window_resume_delay_ms);
-    buffer.check_window = gate.is_none() || (settings.check_active_window && cfg!(target_os = "windows"));
-    *guard = Some(Session { operation_id, binding_id: binding_id.to_string(), profile_id,
-        buffer, settings,
-        worker_active: false, poll_queued: false, delivery_in_flight: false, finished: false,
-        waiting_since: None, failed: false, gate });
+    *guard = Some(make_session(operation_id, binding_id, profile_id, settings, target));
+}
+
+/// Begins a protected live-output session only when no session is currently active,
+/// preventing a late post-stop caller from overwriting a newer recording's session.
+pub(crate) fn begin_if_vacant(
+    operation_id: u64,
+    binding_id: &str,
+    profile_id: Option<String>,
+    settings: ResolvedOutputSettings,
+    target: Option<WindowTarget>,
+) -> bool {
+    let mut guard = SESSION.lock().unwrap_or_else(|error| error.into_inner());
+    if guard.is_some() {
+        return false;
+    }
+    *guard = Some(make_session(operation_id, binding_id, profile_id, settings, target));
+    true
 }
 
 pub(crate) fn enabled(operation_id: u64) -> bool {

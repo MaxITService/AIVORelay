@@ -181,6 +181,13 @@ impl DictationOutputSessions {
             session.held_whitespace = HeldTrailingWhitespace::default();
         }
     }
+
+    fn release_cloud_live_buffering_for_llm_stream(&mut self, operation_id: u64, live_buffer_required: bool) {
+        if let Some(session) = self.get_mut(operation_id) {
+            session.settings.active_cloud_live_buffering = false;
+            session.live_buffer_required |= live_buffer_required;
+        }
+    }
 }
 
 static DICTATION_OUTPUT_SESSIONS: Lazy<Mutex<DictationOutputSessions>> =
@@ -225,7 +232,15 @@ pub(crate) fn drop_held_trailing_whitespace(operation_id: u64) {
 }
 
 pub(crate) fn dictation_output_is_buffered(operation_id: u64) -> bool {
-    dictation_output_settings(operation_id).is_some_and(|settings| settings.buffers_external_output())
+    dictation_output_settings(operation_id).is_some_and(|settings| settings.buffers_live_session_output())
+}
+
+/// Switches a buffered cloud-live recording into live-stream insertion mode once
+/// streamed LLM post-processing emits its first piece. Never clears `buffers_external_output()`.
+pub(crate) fn release_cloud_live_buffering_for_llm_stream(operation_id: u64) {
+    let live_buffer_required = crate::live_output_buffer::enabled(operation_id);
+    lock_dictation_output_sessions()
+        .release_cloud_live_buffering_for_llm_stream(operation_id, live_buffer_required);
 }
 // Clipboard-backed paste and selection capture must be one transaction. Always
 // acquire this before STREAMING_PASTE_SESSION and Enigo locks.
@@ -1331,7 +1346,7 @@ pub fn begin_streaming_paste_session(
     operation_id: u64,
 ) -> Result<(), String> {
     let dictation_output = dictation_output_settings(operation_id);
-    if dictation_output.as_ref().is_some_and(|settings| settings.buffers_external_output()) {
+    if dictation_output.as_ref().is_some_and(|settings| settings.buffers_live_session_output()) {
         return Ok(());
     }
     let settings = dictation_output
@@ -2739,7 +2754,8 @@ pub(crate) fn complete_dictation_output(
         end_streaming_paste_session_if_matches(app, operation_id)?;
         return Ok(false);
     }
-    if settings.buffers_external_output() {
+    if settings.buffers_live_session_output() {
+        crate::live_output_buffer::cancel_unfinished(operation_id);
         return paste_with_output_settings(final_text.to_string(), app.clone(), &settings, can_continue);
     }
     // Opening key pressed at recording start: live text went into the opened chat. Only
@@ -3037,7 +3053,7 @@ fn paste_stream_chunk_for_output(
     output: Option<(u64, ResolvedOutputSettings, bool)>,
     operation_id: Option<u64>,
 ) -> Result<(), String> {
-    if output.as_ref().is_some_and(|(_, settings, _)| settings.buffers_external_output()) {
+    if output.as_ref().is_some_and(|(_, settings, _)| settings.buffers_live_session_output()) {
         return Ok(());
     }
     // Opening key pressed at start: chunks wait in the live buffer for the key and its
@@ -3727,6 +3743,27 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
         assert_eq!(sessions.sessions.len(), MAX_DICTATION_OUTPUT_SESSIONS);
         assert_eq!(sessions.current().unwrap().operation_id, 19);
         assert!(sessions.get(10).is_none());
+    }
+
+    #[test]
+    fn releasing_cloud_live_buffering_for_llm_stream_preserves_key_action_buffering() {
+        let mut sessions = DictationOutputSessions::default();
+        let mut cloud_buffered = ResolvedOutputSettings::resolve(&crate::settings::get_default_settings(), None);
+        cloud_buffered.paste_method = PasteMethod::CtrlV;
+        cloud_buffered.buffer_live_output_until_stop = true;
+        cloud_buffered.active_cloud_live_buffering = true;
+
+        sessions.begin(9001, Some(cloud_buffered.clone()), false);
+        assert!(sessions.get(9001).unwrap().settings.buffers_live_session_output());
+        sessions.release_cloud_live_buffering_for_llm_stream(9001, true);
+        assert!(!sessions.get(9001).unwrap().settings.buffers_live_session_output());
+        assert!(sessions.get(9001).unwrap().live_buffer_required);
+
+        cloud_buffered.before_insert_key = "enter".into();
+        sessions.begin(9002, Some(cloud_buffered), false);
+        assert!(sessions.get(9002).unwrap().settings.buffers_live_session_output());
+        sessions.release_cloud_live_buffering_for_llm_stream(9002, false);
+        assert!(sessions.get(9002).unwrap().settings.buffers_live_session_output());
     }
 
     #[test]

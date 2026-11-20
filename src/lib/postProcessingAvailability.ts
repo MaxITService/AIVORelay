@@ -68,16 +68,21 @@ const getOutputRouteContext = (
     Boolean(settings?.preview_output_only_enabled);
   const livePreviewEnabled = Boolean(settings?.soniox_live_preview_enabled);
   const outputIsHeldInPreview = profilePreviewEnabled || livePreviewEnabled;
-  const output = options.profileOutputSettings === undefined
-    ? activeProfile?.output_settings : options.profileOutputSettings;
+  const output = (options.profileOutputSettings === undefined
+    ? activeProfile?.output_settings : options.profileOutputSettings) as ProfileOutputSettings | null | undefined;
   // A profile never follows the Default profile: its unset fields use the program defaults
   // (a paste method other than "none", no keys). Only "none" matters for the paste method here.
   const isDefaultProfile = output == null;
   const pasteMethod = output?.paste_method ?? (isDefaultProfile ? settings?.paste_method ?? "ctrl_v" : "ctrl_v");
   const autoSubmit = output?.auto_submit ?? (isDefaultProfile && (settings?.auto_submit ?? false));
-  const keys = output ?? settings?.transcription_output_defaults;
+  const defaultOutput = settings?.transcription_output_defaults as ProfileOutputSettings | null | undefined;
+  const keys = output ?? defaultOutput;
   const openingKey = keys?.before_insert_key ?? "";
   const startKey = keys?.recording_start_key ?? "";
+  const bufferLiveUntilStop = Boolean(
+    output?.buffer_live_output_until_stop ??
+      (isDefaultProfile ? defaultOutput?.buffer_live_output_until_stop : false),
+  );
 
   let nativeLiveOutput = false;
   let remoteLiveOutput = false;
@@ -138,7 +143,7 @@ const getOutputRouteContext = (
 
   return {
     profilePreviewEnabled, livePreviewEnabled, outputIsHeldInPreview,
-    pasteMethod, autoSubmit, openingKey, startKey, nativeLiveOutput, remoteLiveOutput, localModelId,
+    pasteMethod, autoSubmit, openingKey, startKey, bufferLiveUntilStop, nativeLiveOutput, remoteLiveOutput, localModelId,
   };
 };
 
@@ -201,11 +206,13 @@ export const getOutputProviderInfo = (
   settings: AppSettings | null | undefined,
   options: AvailabilityOptions = {},
   localModels: readonly ModelInfo[] = [],
-): { heldInPreview: boolean; streamsLiveText: boolean } => {
+): { heldInPreview: boolean; streamsLiveText: boolean; streamsCloudLiveText: boolean } => {
   const route = getOutputRouteContext(settings, options);
+  const heldInPreview = isHeldInPreview(route, localModels);
   return {
-    heldInPreview: isHeldInPreview(route, localModels),
+    heldInPreview,
     streamsLiveText: route.nativeLiveOutput || (route.remoteLiveOutput && !route.outputIsHeldInPreview),
+    streamsCloudLiveText: route.remoteLiveOutput && !heldInPreview,
   };
 };
 
@@ -227,8 +234,9 @@ export const getPostProcessingAvailability = (
   if (buffersOutputForKeyActions(route.pasteMethod, route.openingKey, route.startKey, route.autoSubmit)) {
     return { available: true, reason: null };
   }
+  const buffersCloudLive = route.pasteMethod !== "none" && route.bufferLiveUntilStop;
   const insertsRealtimeTextDirectly = route.nativeLiveOutput ||
-    (route.remoteLiveOutput && !route.outputIsHeldInPreview);
+    (route.remoteLiveOutput && !route.outputIsHeldInPreview && !buffersCloudLive);
   return insertsRealtimeTextDirectly
     ? { available: false, reason: "direct_realtime_output" }
     : { available: true, reason: null };

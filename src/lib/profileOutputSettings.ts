@@ -34,6 +34,7 @@ export interface ProfileOutputSettings {
   clipboard_handling?: ClipboardHandling | null;
   clipboard_history_allowed?: boolean | null;
   copy_on_elevated_window?: boolean | null;
+  buffer_live_output_until_stop?: boolean | null;
   convert_lf_to_crlf?: boolean | null;
   paste_delay_ms?: number | null;
   check_active_window?: boolean | null;

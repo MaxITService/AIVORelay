@@ -819,6 +819,68 @@ fn take_stream_chunk_processor(binding_id: &str) -> Option<SharedStreamChunkProc
         .and_then(|mut processors| processors.remove(binding_id))
 }
 
+/// Universal output adapter for all cloud live models (`should_use_live_streaming`).
+/// Keeps provider transports agnostic of whether finalized chunks are routed to
+/// Preview, held in memory until stop, or pasted incrementally while recording.
+enum CloudLiveOutputRoute {
+    /// Preview window owns output (`on_final_chunk = None`); providers update preview state.
+    Preview,
+    /// Providers stream and recognize speech in real time while a no-op sink accepts
+    /// finalized chunks without touching clipboard, `StreamChunkProcessor`, or realtime
+    /// Decapitalize. `complete_dictation_output` inserts the complete transcript once on stop.
+    BufferedUntilStop,
+    /// Chunks are processed incrementally and pasted live while recording.
+    DirectLive(SharedStreamChunkProcessor),
+}
+
+impl CloudLiveOutputRoute {
+    fn resolve(
+        preview_output_only_enabled: bool,
+        buffered_live_output: bool,
+        binding_id: &str,
+        settings: &AppSettings,
+    ) -> Self {
+        if preview_output_only_enabled {
+            Self::Preview
+        } else if buffered_live_output {
+            Self::BufferedUntilStop
+        } else {
+            Self::DirectLive(register_stream_chunk_processor(binding_id, settings))
+        }
+    }
+
+    fn chunk_callback<F>(&self, build_direct: F) -> Option<Arc<dyn Fn(String) + Send + Sync>>
+    where
+        F: FnOnce(SharedStreamChunkProcessor) -> Arc<dyn Fn(String) + Send + Sync>,
+    {
+        match self {
+            Self::Preview => None,
+            Self::BufferedUntilStop => Some(Arc::new(|_chunk: String| {})),
+            Self::DirectLive(processor) => Some(build_direct(Arc::clone(processor))),
+        }
+    }
+
+    fn chunk_callback_factory<T, F>(
+        &self,
+        build_direct: F,
+    ) -> Option<Arc<dyn Fn(Arc<T>) -> Arc<dyn Fn(String) + Send + Sync> + Send + Sync>>
+    where
+        T: Send + Sync + 'static,
+        F: FnOnce(
+            SharedStreamChunkProcessor,
+        ) -> Arc<dyn Fn(Arc<T>) -> Arc<dyn Fn(String) + Send + Sync> + Send + Sync>,
+    {
+        match self {
+            Self::Preview => None,
+            Self::BufferedUntilStop => {
+                let sink: Arc<dyn Fn(String) + Send + Sync> = Arc::new(|_chunk: String| {});
+                Some(Arc::new(move |_scope: Arc<T>| Arc::clone(&sink)))
+            }
+            Self::DirectLive(processor) => Some(build_direct(Arc::clone(processor))),
+        }
+    }
+}
+
 fn set_soniox_stream_emitted(binding_id: &str, emitted: bool) {
     if let Ok(mut map) = SONIOX_STREAM_EMITTED.lock() {
         map.insert(binding_id.to_string(), emitted);
@@ -1350,6 +1412,7 @@ impl LlmLiveInsert {
         let operation_id = self.stamp.operation_id;
         if !self.clipboard_session {
             self.clipboard_session = true;
+            crate::clipboard::release_cloud_live_buffering_for_llm_stream(operation_id);
             queue_streaming_paste_session_begin(&self.app, operation_id);
         }
         if !lock_pending_llm_output(&self.pending).append(&text) {
@@ -2128,6 +2191,22 @@ fn buffers_profile_output(settings: &AppSettings, profile: Option<&Transcription
         .buffers_external_output()
 }
 
+/// Whether a cloud live model buffers recognized text until recording stops
+/// instead of inserting chunks live. Preview takes precedence when enabled,
+/// and local models are deliberately excluded.
+fn buffers_cloud_live_output_for_route(
+    settings: &AppSettings,
+    profile: Option<&TranscriptionProfile>,
+) -> bool {
+    should_use_live_streaming(settings)
+        && !should_route_output_to_preview(settings, profile)
+        && crate::settings::ResolvedOutputSettings::resolve(
+            settings,
+            profile.map(|p| p.id.as_str()),
+        )
+        .buffers_cloud_live_output()
+}
+
 /// LLM post-processing is safe only while the complete transcription is still
 /// reversible. Direct realtime output has already been inserted into the target
 /// application chunk by chunk, so changing only the final/history text would
@@ -2141,7 +2220,9 @@ fn post_process_allowed_for_output_route(
     settings: &AppSettings,
     profile: Option<&TranscriptionProfile>,
 ) -> bool {
-    if buffers_profile_output(settings, profile) {
+    if buffers_profile_output(settings, profile)
+        || buffers_cloud_live_output_for_route(settings, profile)
+    {
         return true;
     }
     let output_is_held_in_preview = should_route_output_to_preview(settings, profile);
@@ -2568,13 +2649,14 @@ fn start_recording_with_feedback_with_settings(
         captured_profile_id, binding_id
     );
 
-    let should_latch_decapitalize_for_standard_output = is_transcribe_binding_id(binding_id)
-        && settings.text_replacement_decapitalize_after_edit_key_enabled
-        && !should_use_live_streaming(&settings)
-        && !native_streaming_live_output_enabled(&settings);
     let captured_profile = captured_profile_id
         .as_ref()
         .and_then(|profile_id| settings.transcription_profile(profile_id));
+    let cloud_live_buffered = buffers_cloud_live_output_for_route(&settings, captured_profile);
+    let should_latch_decapitalize_for_standard_output = is_transcribe_binding_id(binding_id)
+        && settings.text_replacement_decapitalize_after_edit_key_enabled
+        && (!should_use_live_streaming(&settings) || cloud_live_buffered)
+        && !native_streaming_live_output_enabled(&settings);
     let use_native_local_streaming =
         should_use_native_local_streaming(app, &settings, captured_profile, binding_id);
     let native_stream_direct_output =
@@ -2608,6 +2690,13 @@ fn start_recording_with_feedback_with_settings(
         ));
         // A preview snapshot may predate this recording's whitespace setting.
         output.trailing_whitespace_mode = settings.output_whitespace_trailing_mode;
+        output.active_cloud_live_buffering = should_use_live_streaming(&settings)
+            && !should_route_output_to_preview_for_captured_profile(
+                &settings,
+                captured_profile_id.as_ref(),
+            )
+            && output.buffer_live_output_until_stop
+            && output.paste_method != crate::settings::PasteMethod::None;
         Some(output)
     } else {
         None
@@ -2638,7 +2727,7 @@ fn start_recording_with_feedback_with_settings(
     let protected_live_output = output_settings.as_ref().filter(|output|
         ((cfg!(target_os = "windows") && output.check_active_window) || early_open_armed)
             && output.paste_method != crate::settings::PasteMethod::None
-            && !output.buffers_external_output()
+            && !output.buffers_live_session_output()
             && (should_use_live_streaming(&settings) || native_stream_direct_output || llm_live_insert_planned)
             && (!should_route_output_to_preview_for_captured_profile(&settings, captured_profile_id.as_ref())
                 || (early_open_armed && native_stream_direct_output))
@@ -8355,19 +8444,22 @@ fn should_run_transcription_post_process(post_process_requested: bool, text: &st
 #[cfg(test)]
 mod transcription_post_process_tests {
     use super::{
-        build_elevenlabs_options_for_live_sound, build_elevenlabs_realtime_options,
-        empty_transcription_error_category, finish_transcription_output, is_blank_transcription,
-        live_sound_use_live_streaming,
+        buffers_cloud_live_output_for_route, build_elevenlabs_options_for_live_sound,
+        build_elevenlabs_realtime_options, empty_transcription_error_category,
+        finish_transcription_output, is_blank_transcription, live_sound_use_live_streaming,
         parse_openai_realtime_keywords, post_process_allowed_for_output_route,
         resolve_profile_for_binding, settings_with_model_override_for_binding,
         should_cancel_live_quick_stop_without_finalize, should_run_transcription_post_process,
         should_use_elevenlabs_realtime_live, should_use_live_streaming,
-        skips_automatic_post_process_for_output_route,
+        skips_automatic_post_process_for_output_route, take_stream_chunk_processor,
+        CloudLiveOutputRoute,
     };
     use crate::plus_overlay_state::OverlayErrorCategory;
     use crate::settings::{
         get_default_settings, PasteMethod, TextReplacement, TranscriptionProfile, TranscriptionProvider,
     };
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
 
     #[test]
@@ -8693,6 +8785,89 @@ mod transcription_post_process_tests {
         profile.output_settings.auto_submit = Some(true);
         settings.transcription_profiles[0] = profile.clone();
         assert!(post_process_allowed_for_output_route(&settings, Some(&profile)));
+    }
+
+    #[test]
+    fn cloud_live_buffer_until_stop_applies_to_all_cloud_live_models_only() {
+        for (provider, preset, model, is_cloud_live) in [
+            (TranscriptionProvider::Local, "", "", false),
+            (TranscriptionProvider::RemoteSoniox, "", "", true),
+            (TranscriptionProvider::RemoteDeepgram, "", "", true),
+            (TranscriptionProvider::RemoteOpenAiCompatible, "openai", "gpt-live-transcribe", true),
+            (TranscriptionProvider::RemoteOpenAiCompatible, "google", "gemini-3.5-transcribe-live", true),
+            (TranscriptionProvider::RemoteOpenAiCompatible, "reson8", "rumble-2", true),
+            (TranscriptionProvider::RemoteOpenAiCompatible, "elevenlabs", "scribe_v3_live", true),
+        ] {
+            let mut settings = get_default_settings();
+            settings.transcription_provider = provider;
+            settings.selected_model = "streaming-model".into();
+            settings.native_streaming_live_output_models = vec![settings.selected_model.clone()];
+            settings.soniox_model = "stt-rt-v6".into();
+            settings.soniox_live_enabled = true;
+            settings.deepgram_model = "nova-3".into();
+            settings.deepgram_live_enabled = true;
+            settings.remote_stt.provider_preset = preset.into();
+            settings.remote_stt.model_id = model.into();
+            settings.openai_realtime_whisper_flatten_enabled = false;
+            settings.preview_output_only_enabled = false;
+            settings.soniox_live_preview_enabled = false;
+            settings.paste_method = PasteMethod::CtrlV;
+            settings.auto_submit = false;
+            settings.transcription_output_defaults.before_insert_key = None;
+            settings.transcription_output_defaults.buffer_live_output_until_stop = Some(true);
+
+            assert_eq!(buffers_cloud_live_output_for_route(&settings, None), is_cloud_live);
+            assert_eq!(post_process_allowed_for_output_route(&settings, None), is_cloud_live);
+
+            // Preview always takes precedence over buffered cloud-live insertion.
+            settings.preview_output_only_enabled = true;
+            assert!(!buffers_cloud_live_output_for_route(&settings, None));
+
+            // PasteMethod::None inserts nothing, so buffering does not activate.
+            settings.preview_output_only_enabled = false;
+            settings.paste_method = PasteMethod::None;
+            assert!(!buffers_cloud_live_output_for_route(&settings, None));
+            assert!(!post_process_allowed_for_output_route(&settings, None));
+        }
+    }
+
+    #[test]
+    fn cloud_live_output_route_adapter_isolates_preview_buffered_and_direct_modes() {
+        let settings = get_default_settings();
+        let binding = "test_cloud_live_output_route";
+        let _ = take_stream_chunk_processor(binding);
+
+        let preview = CloudLiveOutputRoute::resolve(true, true, binding, &settings);
+        assert!(preview.chunk_callback(|_| Arc::new(|_| {})).is_none());
+        assert!(preview.chunk_callback_factory::<(), _>(|_| Arc::new(|_| Arc::new(|_| {}))).is_none());
+        assert!(take_stream_chunk_processor(binding).is_none());
+
+        let buffered = CloudLiveOutputRoute::resolve(false, true, binding, &settings);
+        let direct_called = Arc::new(AtomicBool::new(false));
+        let direct_called_clone = Arc::clone(&direct_called);
+        let sink = buffered.chunk_callback(move |_| {
+            direct_called_clone.store(true, Ordering::Release);
+            Arc::new(|_| {})
+        });
+        assert!(sink.is_some());
+        sink.unwrap()("chunk".into());
+        let factory = buffered.chunk_callback_factory::<(), _>(move |_| {
+            Arc::new(|_| Arc::new(|_| {}))
+        });
+        assert!(factory.is_some());
+        factory.unwrap()(Arc::new(()))("chunk".into());
+        assert!(!direct_called.load(Ordering::Acquire));
+        assert!(take_stream_chunk_processor(binding).is_none());
+
+        let direct = CloudLiveOutputRoute::resolve(false, false, binding, &settings);
+        let direct_called_clone = Arc::clone(&direct_called);
+        let cb = direct.chunk_callback(move |_| {
+            direct_called_clone.store(true, Ordering::Release);
+            Arc::new(|_| {})
+        });
+        assert!(cb.is_some());
+        assert!(direct_called.load(Ordering::Acquire));
+        assert!(take_stream_chunk_processor(binding).is_some());
     }
 
     #[test]
@@ -9479,12 +9654,17 @@ impl ShortcutAction for TranscribeAction {
             let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
             let _ = take_reson8_stream_emitted(&binding_id);
             let _ = take_elevenlabs_stream_emitted(&binding_id);
-            let stream_processor = if preview_output_only_enabled {
-                None
-            } else {
+            let buffered_live_output =
+                crate::clipboard::dictation_output_is_buffered(recording_operation_id);
+            let live_output_route = CloudLiveOutputRoute::resolve(
+                preview_output_only_enabled,
+                buffered_live_output,
+                &binding_id,
+                &settings,
+            );
+            if matches!(live_output_route, CloudLiveOutputRoute::DirectLive(_)) {
                 set_soniox_stream_emitted(&binding_id, false);
-                Some(register_stream_chunk_processor(&binding_id, &settings))
-            };
+            }
 
             match settings.transcription_provider {
                 TranscriptionProvider::RemoteSoniox => {
@@ -9492,7 +9672,7 @@ impl ShortcutAction for TranscribeAction {
                         Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
                     let api_key = crate::secure_keys::get_soniox_api_key();
 
-                    let chunk_callback = stream_processor.clone().map(|stream_processor| {
+                    let chunk_callback = live_output_route.chunk_callback(|stream_processor| {
                         let binding_id_for_cb = binding_id.clone();
                         Arc::new({
                             let ah_for_cb = app_handle.clone();
@@ -9572,7 +9752,7 @@ impl ShortcutAction for TranscribeAction {
                     let api_key = crate::secure_keys::get_deepgram_api_key();
 
                     set_deepgram_stream_emitted(&binding_id, false);
-                    let chunk_callback = stream_processor.map(|stream_processor| {
+                    let chunk_callback = live_output_route.chunk_callback(|stream_processor| {
                         Arc::new({
                             let ah_for_cb = app_handle.clone();
                             let binding_id_for_cb = binding_id.clone();
@@ -9684,7 +9864,7 @@ impl ShortcutAction for TranscribeAction {
                     };
 
                     set_openai_realtime_whisper_stream_emitted(&binding_id, false);
-                    let chunk_callback = stream_processor.map(|stream_processor| {
+                    let chunk_callback = live_output_route.chunk_callback(|stream_processor| {
                         Arc::new({
                             let ah_for_cb = app_handle.clone();
                             let binding_id_for_cb = binding_id.clone();
@@ -9805,7 +9985,7 @@ impl ShortcutAction for TranscribeAction {
                     set_openai_realtime_whisper_stream_emitted(&binding_id, false);
                     let gemini_stream_insert_timeout_ms =
                         settings.paste_delay_ms.saturating_add(1500);
-                    let chunk_callback = stream_processor.map(|stream_processor| {
+                    let chunk_callback = live_output_route.chunk_callback_factory(|stream_processor| {
                         let ah_for_factory = app_handle.clone();
                         let binding_id_for_factory = binding_id.clone();
                         Arc::new(move |window: Arc<crate::managers::gemini_output_window::GeminiOutputWindow>| {
@@ -9984,7 +10164,7 @@ impl ShortcutAction for TranscribeAction {
                     set_reson8_stream_emitted(&binding_id, false);
                     let reson8_stream_insert_timeout_ms =
                         settings.paste_delay_ms.saturating_add(1500);
-                    let chunk_callback = stream_processor.map(|stream_processor| {
+                    let chunk_callback = live_output_route.chunk_callback(|stream_processor| {
                         Arc::new({
                             let ah_for_cb = app_handle.clone();
                             let binding_id_for_cb = binding_id.clone();
@@ -10140,7 +10320,7 @@ impl ShortcutAction for TranscribeAction {
                     set_elevenlabs_stream_emitted(&binding_id, false);
                     let elevenlabs_stream_insert_timeout_ms =
                         settings.paste_delay_ms.saturating_add(1500);
-                    let chunk_callback = stream_processor.map(|stream_processor| {
+                    let chunk_callback = live_output_route.chunk_callback_factory(|stream_processor| {
                         let ah_for_cb = app_handle.clone();
                         let binding_id_for_cb = binding_id.clone();
                         Arc::new(move |lease: Arc<crate::managers::elevenlabs_realtime::SessionLease>| {
@@ -10271,6 +10451,7 @@ impl ShortcutAction for TranscribeAction {
                 None => return,
             };
             crate::live_output_buffer::stop(stop_context.operation_id);
+            let stop_foreground_target = crate::live_output_buffer::foreground_target();
             let recording_settings = stop_context.recording_settings.clone();
             let buffered_output = crate::clipboard::dictation_output_is_buffered(stop_context.operation_id);
             let protected_live_output = crate::live_output_buffer::enabled(stop_context.operation_id);
@@ -10634,6 +10815,16 @@ impl ShortcutAction for TranscribeAction {
                     }
                     finish_guard.finish();
                     return;
+                }
+
+                if buffered_output
+                    && !preview_output_only_enabled
+                    && is_transcribe_binding_id(&binding_id)
+                    && recording_settings.text_replacement_decapitalize_after_edit_key_enabled
+                {
+                    crate::text_replacement_decapitalize::begin_standard_post_recording_monitor(
+                        recording_settings.text_replacement_decapitalize_standard_post_recording_monitor_ms,
+                    );
                 }
 
                 // Vercel has already delivered the user-visible transcript. Detach
@@ -11142,7 +11333,9 @@ impl ShortcutAction for TranscribeAction {
                     had_elevenlabs_stream_output |= take_elevenlabs_stream_emitted(&binding_id);
                 }
                 let live_tail_dispatch_error: Option<Arc<Mutex<Option<String>>>> =
-                    ((is_gemini_live_provider || is_elevenlabs_live_provider) && !preview_output_only_enabled)
+                    ((is_gemini_live_provider || is_elevenlabs_live_provider)
+                        && !preview_output_only_enabled
+                        && !buffered_output)
                         .then(|| Arc::new(Mutex::new(None)));
 
                 if let Some(processor) = stream_processor.as_ref() {
@@ -11376,6 +11569,64 @@ impl ShortcutAction for TranscribeAction {
                     profile_id_for_postprocess.as_deref(),
                     invoked_from_preview_llm,
                 );
+                // When cloud live speech was buffered until stop (without key/script
+                // buffering), LLM post-processing can stream its answer after stop just
+                // like a non-live recording. Window protection captures the window active
+                // at stop, since the user was free to switch apps during recording.
+                let profile_for_llm = profile_id_for_postprocess
+                    .as_deref()
+                    .filter(|id| *id != "default")
+                    .and_then(|id| post_process_settings.transcription_profile(id));
+                let llm_post_process_will_run = if force_post_process && !invoked_from_preview_llm {
+                    resolve_forced_post_process_requested(&post_process_settings, profile_for_llm)
+                } else {
+                    resolve_history_post_process_requested(&post_process_settings, profile_for_llm)
+                };
+                let mut llm_live_insert = crate::clipboard::dictation_output_settings(recording_operation_id)
+                    .filter(|output| {
+                        output.active_cloud_live_buffering
+                            && !output.buffers_external_output()
+                            && !preview_output_only_enabled
+                            && !invoked_from_preview_action
+                            && !preview_processing_before_insert
+                            && output.paste_method != crate::settings::PasteMethod::None
+                            && llm_post_process_will_run
+                            && crate::llm_live_output::live_stream_insert_enabled(
+                                &post_process_settings,
+                                profile_for_llm,
+                            )
+                    })
+                    .and_then(|output| {
+                        if !finish_guard.is_current() || operation_stamp.was_cancelled(&ah) {
+                            return None;
+                        }
+                        if cfg!(target_os = "windows")
+                            && output.check_active_window
+                            && output.early_opening_key.state() == crate::early_open::EarlyKeyState::Idle
+                        {
+                            if crate::live_output_buffer::target_belongs_to_current_process(stop_foreground_target) {
+                                return None;
+                            }
+                            if !crate::live_output_buffer::begin_if_vacant(
+                                recording_operation_id,
+                                &binding_id,
+                                profile_id_for_postprocess.clone(),
+                                output.clone(),
+                                stop_foreground_target,
+                            ) {
+                                return None;
+                            }
+                            if !finish_guard.is_current() || operation_stamp.was_cancelled(&ah) {
+                                crate::live_output_buffer::cancel_unfinished(recording_operation_id);
+                                return None;
+                            }
+                        }
+                        llm_live_insert_is_protected(
+                            &output,
+                            crate::live_output_buffer::enabled(recording_operation_id),
+                        )
+                        .then(|| LlmLiveInsert::new(&ah, operation_stamp, &post_process_settings))
+                    });
                 let final_text = match apply_post_processing_and_history(
                     &ah,
                     &post_process_settings,
@@ -11387,7 +11638,7 @@ impl ShortcutAction for TranscribeAction {
                     None,
                     force_post_process && !invoked_from_preview_llm,
                     Some(operation_stamp),
-                    None,
+                    llm_live_insert.as_mut(),
                     None,
                 )
                 .await
@@ -11425,6 +11676,10 @@ impl ShortcutAction for TranscribeAction {
                     return;
                 }
 
+                let llm_live_final_text = llm_live_insert
+                    .as_ref()
+                    .filter(|live| live.completed)
+                    .map(|live| live.processor.final_text(&post_process_settings));
                 let ah_clone = ah.clone();
                 let final_text_for_ui = final_text.clone();
                 let final_text_for_insert =
@@ -11437,10 +11692,13 @@ impl ShortcutAction for TranscribeAction {
                         None
                     };
                 if !preview_output_only_enabled {
-                    before_dictation_final_output(&ah, &final_text);
+                    before_dictation_final_output(
+                        &ah,
+                        llm_live_final_text.as_deref().unwrap_or(&final_text),
+                    );
                 }
                 let output_timeout_ms = recording_settings.paste_delay_ms.saturating_add(1500);
-                let overlay_generation = if is_gemini_live_provider {
+                let overlay_generation = if is_gemini_live_provider && !llm_post_process_will_run {
                     stop_overlay_generation
                 } else {
                     crate::plus_overlay_state::current_recording_overlay_generation()
@@ -11460,7 +11718,7 @@ impl ShortcutAction for TranscribeAction {
                         );
                         return;
                     }
-                    if !preview_output_only_enabled {
+                    if !preview_output_only_enabled && !buffered_output {
                         if is_deepgram_live_provider
                             || is_openai_realtime_whisper_live_provider
                             || is_gemini_live_provider
@@ -11624,7 +11882,7 @@ impl ShortcutAction for TranscribeAction {
                             recording_operation_id,
                             operation_stamp,
                             streaming_clipboard_timeout_ms,
-                            final_text.clone(),
+                            llm_live_final_text.unwrap_or_else(|| final_text.clone()),
                             live_tail_dispatch_error,
                         );
                     if output_finalized {

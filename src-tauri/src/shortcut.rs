@@ -167,21 +167,31 @@ fn uses_live_streaming_for_settings(settings: &settings::AppSettings) -> bool {
 
 fn should_arm_standard_output_for_decapitalize(app: &AppHandle) -> bool {
     let state = app.state::<crate::session_manager::ManagedSessionState>();
-    let Ok(state_guard) = state.lock() else {
+    let recording_info = {
+        let Ok(state_guard) = state.lock() else {
+            return false;
+        };
+
+        match &*state_guard {
+            crate::session_manager::SessionState::Recording {
+                binding_id,
+                operation_id,
+                captured_settings,
+                ..
+            } => Some((
+                is_transcribe_binding_id_for_decapitalize(binding_id),
+                uses_live_streaming_for_settings(captured_settings),
+                *operation_id,
+            )),
+            _ => None,
+        }
+    };
+
+    let Some((is_transcribe, uses_live, operation_id)) = recording_info else {
         return false;
     };
 
-    match &*state_guard {
-        crate::session_manager::SessionState::Recording {
-            binding_id,
-            captured_settings,
-            ..
-        } => {
-            is_transcribe_binding_id_for_decapitalize(binding_id)
-                && !uses_live_streaming_for_settings(captured_settings)
-        }
-        _ => false,
-    }
+    is_transcribe && (!uses_live || crate::clipboard::dictation_output_is_buffered(operation_id))
 }
 
 fn clamp_soniox_live_preview_opacity_percent(value: u8) -> u8 {
@@ -4286,6 +4296,7 @@ pub fn change_transcription_output_settings(
         // here so no stale copy can diverge from the saved global settings.
         settings.transcription_output_defaults = settings::ProfileOutputSettings {
             copy_on_elevated_window: output.copy_on_elevated_window,
+            buffer_live_output_until_stop: output.buffer_live_output_until_stop,
             check_active_window: output.check_active_window,
             live_window_resume_delay_ms: output.live_window_resume_delay_ms,
             live_window_stop_action: output.live_window_stop_action,

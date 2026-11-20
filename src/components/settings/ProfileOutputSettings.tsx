@@ -8,6 +8,7 @@ import { HotkeyCapture } from "../ui/HotkeyCapture";
 import { Input } from "../ui/Input";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { SettingContainer } from "../ui/SettingContainer";
+import { InfoTooltip } from "../ui/InfoTooltip";
 import { TellMeMore } from "../ui/TellMeMore";
 import { useSettings } from "../../hooks/useSettings";
 import { useWindowState } from "../../hooks/useWindowState";
@@ -31,6 +32,7 @@ export const getGlobalProfileOutputDefaults = (settings: Settings | null | undef
     clipboard_handling: settings?.clipboard_handling ?? "restore_plain_text",
     clipboard_history_allowed: settings?.clipboard_history_allowed ?? true,
     copy_on_elevated_window: settings?.transcription_output_defaults?.copy_on_elevated_window ?? false,
+    buffer_live_output_until_stop: settings?.transcription_output_defaults?.buffer_live_output_until_stop ?? false,
     convert_lf_to_crlf: settings?.convert_lf_to_crlf ?? true,
     paste_delay_ms: settings?.paste_delay_ms ?? 60,
     check_active_window: settings?.transcription_output_defaults?.check_active_window ?? false,
@@ -151,11 +153,14 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
   const startKey = effective("recording_start_key") ?? "";
   const cancelKey = effective("cancel_key_after_early_open") ?? "";
   const earlyOn = method !== "none" && startKey !== "";
+  const bufferLiveUntilStop = Boolean(effective("buffer_live_output_until_stop"));
   const keyActionsBuffer = buffersOutputForKeyActions(method ?? "ctrl_v", openingKey, startKey, submitEnabled);
   const provider = getOutputProviderInfo(settings, {
     sttSelection, profilePreviewOutputOnlyEnabled: previewOutputOnly,
   }, localModels);
-  const showLiveWarning = method !== "external_script" && keyActionsBuffer && provider.streamsLiveText;
+  const showBufferLiveUntilStop = method !== "none" && provider.streamsCloudLiveText;
+  const showLiveWarning = method !== "external_script" && keyActionsBuffer && provider.streamsLiveText
+    && !(showBufferLiveUntilStop && bufferLiveUntilStop);
   const delayApplicable = (key: DelayKey): boolean => key === "paste_delay_ms" ? usesClipboard
     : key === "live_window_resume_delay_ms" ? method !== "none" && Boolean(effective("check_active_window"))
     : key === "recording_start_delay_ms" ? method !== "none" && startKey !== ""
@@ -334,6 +339,7 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
     isWindows: osType === "windows",
     heldInPreview: provider.heldInPreview,
     streamsLiveText: provider.streamsLiveText,
+    bufferLiveUntilStop: showBufferLiveUntilStop && bufferLiveUntilStop,
     pasteMethod: method ?? "ctrl_v",
     clipboardHandling: effective("clipboard_handling") ?? "restore_plain_text",
     copyOnElevatedWindow: Boolean(effective("copy_on_elevated_window")),
@@ -401,6 +407,44 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
 
   return (
     <>
+    {showBufferLiveUntilStop && (
+      <div
+        id={`profile-output-${scopeKey}-buffer_live_output_until_stop`}
+        tabIndex={-1}
+        className="min-w-0 flex items-center justify-between gap-3 rounded-lg border border-mid-gray/20 bg-mid-gray/5 p-3"
+      >
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <label
+              htmlFor={`profile-buffer-live-${scopeKey}`}
+              className="text-xs font-semibold text-text/80"
+            >
+              {t("profileOutput.bufferLiveUntilStop")}{" "}
+              <span className="text-red-400">
+                {t("profileOutput.bufferLiveUntilStopWarning")}
+              </span>
+            </label>
+            <InfoTooltip
+              wide
+              content={
+                <span className="block text-left whitespace-pre-line">
+                  {t("profileOutput.bufferLiveUntilStopHelp")}
+                </span>
+              }
+            />
+          </div>
+          <p className="text-xs text-mid-gray leading-snug">
+            {t("profileOutput.bufferLiveUntilStopSummary")}
+          </p>
+        </div>
+        <ToggleSwitch
+          inputId={`profile-buffer-live-${scopeKey}`}
+          checked={bufferLiveUntilStop}
+          onChange={value => void save({ buffer_live_output_until_stop: value })}
+          disabled={busy}
+        />
+      </div>
+    )}
     <WindowDetails stateKey={`profile-${scopeKey}-output`} id={`profile-output-${scopeKey}`} tabIndex={-1} className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
       <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
         <div className="flex items-center gap-2 min-w-0">
@@ -611,7 +655,7 @@ const ProfileOutputSettingsFieldsContent: React.FC<ProfileOutputSettingsFieldsPr
                       }} />
                 </p>
               </div>
-            : <p className="px-6 pb-3 text-xs text-mid-gray">{t(earlyOn ? "profileOutput.earlyOpenHelp" : "profileOutput.bufferedHelp")}</p>)}
+            : <p className="px-6 pb-3 text-xs text-mid-gray">{t(earlyOn && !(showBufferLiveUntilStop && bufferLiveUntilStop) ? "profileOutput.earlyOpenHelp" : "profileOutput.bufferedHelp")}</p>)}
       </div>
     </WindowDetails>}
     <ProfileOutputPlanPanel scopeKey={scopeKey} input={planInput} />

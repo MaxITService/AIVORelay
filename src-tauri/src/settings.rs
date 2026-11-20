@@ -3423,6 +3423,10 @@ pub struct ProfileOutputSettings {
     pub clipboard_handling: Option<ClipboardHandling>,
     pub clipboard_history_allowed: Option<bool>,
     pub copy_on_elevated_window: Option<bool>,
+    /// Experimental: keep streaming audio to cloud live models while recording,
+    /// but hold recognized text in a buffer and insert it once after stopping.
+    /// Ignored when Preview is active or for non-live/local models.
+    pub buffer_live_output_until_stop: Option<bool>,
     pub convert_lf_to_crlf: Option<bool>,
     pub paste_delay_ms: Option<u64>,
     pub check_active_window: Option<bool>,
@@ -3472,6 +3476,7 @@ pub struct ResolvedOutputSettings {
     pub clipboard_handling: ClipboardHandling,
     pub clipboard_history_allowed: bool,
     pub copy_on_elevated_window: bool,
+    pub buffer_live_output_until_stop: bool,
     pub convert_lf_to_crlf: bool,
     pub paste_delay_ms: u64,
     pub check_active_window: bool,
@@ -3493,6 +3498,10 @@ pub struct ResolvedOutputSettings {
     /// Runtime state of the early opening key, shared by every clone of this recording's
     /// settings. Never a setting; a fresh value is idle (key pressed at completion).
     pub early_opening_key: crate::early_open::EarlyOpeningKey,
+    /// Runtime-only flag set at recording start when this recording uses a cloud live
+    /// model with buffered-until-stop output (and not Preview). Keeps local native
+    /// streaming unaffected even if `buffer_live_output_until_stop` is enabled on a profile.
+    pub(crate) active_cloud_live_buffering: bool,
 }
 
 impl ResolvedOutputSettings {
@@ -3513,6 +3522,7 @@ impl ResolvedOutputSettings {
             clipboard_handling: base.clipboard_handling,
             clipboard_history_allowed: base.clipboard_history_allowed,
             copy_on_elevated_window: defaults.copy_on_elevated_window.unwrap_or(false),
+            buffer_live_output_until_stop: defaults.buffer_live_output_until_stop.unwrap_or(false),
             convert_lf_to_crlf: base.convert_lf_to_crlf,
             paste_delay_ms: base.paste_delay_ms,
             check_active_window: defaults.check_active_window.unwrap_or(false),
@@ -3530,6 +3540,7 @@ impl ResolvedOutputSettings {
             cancel_key_after_early_open: defaults.cancel_key_after_early_open.clone().unwrap_or_default(),
             trailing_whitespace_mode: settings.output_whitespace_trailing_mode,
             early_opening_key: Default::default(),
+            active_cloud_live_buffering: false,
         };
         if let Some(profile) = profile {
             let overrides = &profile.output_settings;
@@ -3539,7 +3550,7 @@ impl ResolvedOutputSettings {
                 )+ };
             }
             override_field!(paste_method, clipboard_handling, clipboard_history_allowed, copy_on_elevated_window,
-                convert_lf_to_crlf, paste_delay_ms, check_active_window, auto_submit, auto_submit_key,
+                buffer_live_output_until_stop, convert_lf_to_crlf, paste_delay_ms, check_active_window, auto_submit, auto_submit_key,
                 before_insert_delay_ms, recording_start_delay_ms, auto_submit_delay_ms, live_window_resume_delay_ms,
                 live_window_stop_action, live_window_wait_limit_secs, live_window_wait_limit_action);
             if let Some(key) = &overrides.before_insert_key {
@@ -3569,11 +3580,26 @@ impl ResolvedOutputSettings {
                 || !self.before_insert_key.is_empty() || (self.auto_submit && !self.opens_at_start()))
     }
 
+    /// Cloud live models can also buffer recognized text until recording stops,
+    /// independently of key actions or external scripts.
+    pub fn buffers_cloud_live_output(&self) -> bool {
+        self.paste_method != PasteMethod::None
+            && (self.buffers_external_output() || self.buffer_live_output_until_stop)
+    }
+
+    /// Whether the active recording session holds streaming chunks in memory and
+    /// inserts the completed transcript once at finalization.
+    pub(crate) fn buffers_live_session_output(&self) -> bool {
+        self.buffers_external_output()
+            || (self.paste_method != PasteMethod::None && self.active_cloud_live_buffering)
+    }
+
     pub fn apply_to_recording(&self, settings: &mut AppSettings) {
         settings.paste_method = self.paste_method;
         settings.clipboard_handling = self.clipboard_handling;
         settings.clipboard_history_allowed = self.clipboard_history_allowed;
         settings.transcription_output_defaults.copy_on_elevated_window = Some(self.copy_on_elevated_window);
+        settings.transcription_output_defaults.buffer_live_output_until_stop = Some(self.buffer_live_output_until_stop);
         settings.convert_lf_to_crlf = self.convert_lf_to_crlf;
         settings.paste_delay_ms = self.paste_delay_ms;
         settings.auto_submit = self.auto_submit;
@@ -8489,6 +8515,51 @@ mod tests {
         output.apply_to_recording(&mut recording);
         let restored: AppSettings = serde_json::from_value(serde_json::to_value(&recording).unwrap()).unwrap();
         assert!(ResolvedOutputSettings::resolve(&restored, None).copy_on_elevated_window);
+    }
+
+    #[test]
+    fn cloud_live_buffering_is_independent_per_profile_and_respects_paste_method_none() {
+        let mut settings = get_default_settings();
+        let default_resolved = ResolvedOutputSettings::resolve(&settings, None);
+        assert!(!default_resolved.buffer_live_output_until_stop);
+        assert!(!default_resolved.buffers_cloud_live_output());
+        assert!(!default_resolved.buffers_external_output());
+
+        settings.transcription_output_defaults.buffer_live_output_until_stop = Some(true);
+        let profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
+            "id": "live-buffered", "name": "Live Buffered", "language": "auto", "translate_to_english": false
+        })).unwrap();
+        settings.transcription_profiles.push(profile);
+
+        let default_enabled = ResolvedOutputSettings::resolve(&settings, None);
+        assert!(default_enabled.buffer_live_output_until_stop);
+        assert!(default_enabled.buffers_cloud_live_output());
+        assert!(!default_enabled.buffers_external_output());
+
+        // Custom profiles do not inherit Default profile output overrides.
+        let custom_default = ResolvedOutputSettings::resolve(&settings, Some("live-buffered"));
+        assert!(!custom_default.buffer_live_output_until_stop);
+        assert!(!custom_default.buffers_cloud_live_output());
+
+        settings.transcription_profiles[0].output_settings.buffer_live_output_until_stop = Some(true);
+        let custom_enabled = ResolvedOutputSettings::resolve(&settings, Some("live-buffered"));
+        assert!(custom_enabled.buffer_live_output_until_stop);
+        assert!(custom_enabled.buffers_cloud_live_output());
+
+        // PasteMethod::None inserts nothing, so buffering is inactive.
+        settings.transcription_profiles[0].output_settings.paste_method = Some(PasteMethod::None);
+        let custom_none = ResolvedOutputSettings::resolve(&settings, Some("live-buffered"));
+        assert!(custom_none.buffer_live_output_until_stop);
+        assert!(!custom_none.buffers_cloud_live_output());
+
+        // Recording snapshots preserve the setting across serialization.
+        settings.transcription_profiles[0].output_settings.paste_method = Some(PasteMethod::CtrlV);
+        let output = ResolvedOutputSettings::resolve(&settings, Some("live-buffered"));
+        let mut recording = get_default_settings();
+        output.apply_to_recording(&mut recording);
+        let restored: AppSettings = serde_json::from_value(serde_json::to_value(&recording).unwrap()).unwrap();
+        assert!(ResolvedOutputSettings::resolve(&restored, None).buffer_live_output_until_stop);
+        assert!(ResolvedOutputSettings::resolve(&restored, None).buffers_cloud_live_output());
     }
 
     #[test]
