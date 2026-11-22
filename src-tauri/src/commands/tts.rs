@@ -7,9 +7,10 @@ use crate::managers::local_tts::{
 };
 use crate::managers::provider_error::safe_text;
 use crate::managers::tts::{
-    is_tts_output_collision, normalize_deepgram_tts_speed, FileConversionResult,
-    TextFileInspection, TtsBatchFilePlan, TtsBatchScanRequest, TtsBatchScanResult, TtsChunkReady,
-    TtsManager, TtsOperationKind, TtsPhase, TtsState, TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES,
+    is_tts_output_collision, normalize_deepgram_tts_speed, openai_model_is_legacy_tts1,
+    FileConversionResult, TextFileInspection, TtsBatchFilePlan, TtsBatchScanRequest,
+    TtsBatchScanResult, TtsChunkReady, TtsManager, TtsOperationKind, TtsPhase, TtsState,
+    TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES, OPENAI_TTS1_DEFAULT_VOICE,
     SONIOX_TTS_API_KEY_MAX_CHARS, SUPPORTED_MP3_BITRATES, SUPPORTED_OPUS_BITRATES,
     TTS_EVENT_BATCH_PROGRESS, TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
 };
@@ -82,6 +83,10 @@ pub async fn get_tts_voice_catalog(
             return Err(format!("Unsupported Murf TTS model: {model}"));
         }
         settings.murf_model = model.to_string();
+    } else if provider == TtsProvider::OpenAi {
+        if let Some(model) = model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+            settings.openai_model = model.to_string();
+        }
     }
     app.state::<Arc<TtsManager>>()
         .voice_catalog(&settings)
@@ -1658,7 +1663,14 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.soniox_voice = nonempty_setting(settings.soniox_voice, DEFAULT_TTS_SONIOX_VOICE);
     settings.deepgram_model = nonempty_setting(settings.deepgram_model, DEFAULT_TTS_DEEPGRAM_MODEL);
     settings.openai_model = nonempty_setting(settings.openai_model, "gpt-4o-mini-tts");
-    settings.openai_voice = nonempty_setting(settings.openai_voice, DEFAULT_TTS_OPENAI_VOICE);
+    settings.openai_voice = nonempty_setting(
+        settings.openai_voice,
+        if openai_model_is_legacy_tts1(&settings.openai_model) {
+            OPENAI_TTS1_DEFAULT_VOICE
+        } else {
+            DEFAULT_TTS_OPENAI_VOICE
+        },
+    );
     settings.murf_key_source = crate::settings::TtsKeySource::Separate;
     settings.elevenlabs_key_source = crate::settings::TtsKeySource::Separate;
     settings.cartesia_key_source = crate::settings::TtsKeySource::Separate;
@@ -1761,8 +1773,8 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
         TtsProvider::Deepgram => {
             normalize_deepgram_tts_speed(&settings.deepgram_model, settings.speed)
         }
-        TtsProvider::OpenAi => settings.speed.clamp(0.25, 4.0),
-        TtsProvider::OpenAiCompatible => settings.speed.clamp(0.25, 4.0),
+        TtsProvider::OpenAi => finite_clamped(settings.speed, 1.0, 0.25, 4.0),
+        TtsProvider::OpenAiCompatible => finite_clamped(settings.speed, 1.0, 0.25, 4.0),
         TtsProvider::Murf => 1.0,
         TtsProvider::ElevenLabs if !elevenlabs_supports_speed(&settings.elevenlabs_model) => 1.0,
         TtsProvider::ElevenLabs => settings.speed.clamp(0.7, 1.2),
@@ -1833,8 +1845,14 @@ fn normalize_synthesis_config(
         }
         TtsProvider::OpenAi => {
             config.model = nonempty_setting(std::mem::take(&mut config.model), "gpt-4o-mini-tts");
-            config.voice =
-                nonempty_setting(std::mem::take(&mut config.voice), DEFAULT_TTS_OPENAI_VOICE);
+            config.voice = nonempty_setting(
+                std::mem::take(&mut config.voice),
+                if openai_model_is_legacy_tts1(&config.model) {
+                    OPENAI_TTS1_DEFAULT_VOICE
+                } else {
+                    DEFAULT_TTS_OPENAI_VOICE
+                },
+            );
             config.language.clear();
         }
         TtsProvider::OpenAiCompatible => {
@@ -1894,7 +1912,9 @@ fn normalize_synthesis_config(
     config.speed = match config.provider {
         TtsProvider::Soniox => config.speed.clamp(0.7, 1.3),
         TtsProvider::Deepgram => normalize_deepgram_tts_speed(&config.model, config.speed),
-        TtsProvider::OpenAi | TtsProvider::OpenAiCompatible => config.speed.clamp(0.25, 4.0),
+        TtsProvider::OpenAi | TtsProvider::OpenAiCompatible => {
+            finite_clamped(config.speed, 1.0, 0.25, 4.0)
+        }
         TtsProvider::Murf => 1.0,
         TtsProvider::ElevenLabs if !elevenlabs_supports_speed(&config.model) => 1.0,
         TtsProvider::ElevenLabs => config.speed.clamp(0.7, 1.2),

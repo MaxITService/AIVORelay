@@ -8,13 +8,19 @@ import {
   LOCAL_TTS_INSTALL_METADATA,
   MURF_MODEL_OPTIONS,
   OPENAI_MODEL_OPTIONS,
+  OPENAI_TTS1_DEFAULT_VOICE,
+  OPENAI_TTS1_VOICES,
+  OPENAI_TTS_ALL_VOICES,
   SONIOX_LANGUAGE_OPTIONS,
   SONIOX_MODEL_OPTIONS,
   TTS_PROVIDER_DEFAULTS,
   TTS_PROVIDER_DOCUMENTATION,
   TTS_PROVIDER_OPTIONS,
   TTS_PROVIDER_SPEED_RANGES,
+  getOpenAiVoicesForModel,
   isDeepgramFluxModel,
+  isOpenAiTts1Model,
+  isOpenAiVoiceCompatibleWithModel,
 } from "./ttsProviderMetadata";
 
 const providerIds = TTS_PROVIDER_OPTIONS.map((provider) => provider.value);
@@ -38,6 +44,17 @@ for (const provider of providerIds) {
 
 assert.ok(SONIOX_MODEL_OPTIONS.includes(TTS_PROVIDER_DEFAULTS.soniox.model));
 assert.ok(OPENAI_MODEL_OPTIONS.includes(TTS_PROVIDER_DEFAULTS.openai.model));
+assert.equal(OPENAI_TTS1_VOICES.length, 9);
+assert.equal(OPENAI_TTS_ALL_VOICES.length, 13);
+assert.ok(isOpenAiTts1Model("tts-1"));
+assert.ok(isOpenAiTts1Model("tts-1-hd"));
+assert.ok(!isOpenAiTts1Model("gpt-4o-mini-tts"));
+assert.deepEqual(getOpenAiVoicesForModel("tts-1"), OPENAI_TTS1_VOICES);
+assert.deepEqual(getOpenAiVoicesForModel("gpt-4o-mini-tts"), OPENAI_TTS_ALL_VOICES);
+assert.ok(!isOpenAiVoiceCompatibleWithModel("tts-1", "marin"));
+assert.ok(!isOpenAiVoiceCompatibleWithModel("tts-1-hd", "cedar"));
+assert.ok(isOpenAiVoiceCompatibleWithModel("tts-1", OPENAI_TTS1_DEFAULT_VOICE));
+assert.ok(isOpenAiVoiceCompatibleWithModel("gpt-4o-mini-tts", "marin"));
 assert.ok(MURF_MODEL_OPTIONS.includes(TTS_PROVIDER_DEFAULTS.murf.model));
 assert.ok(
   ELEVENLABS_MODEL_OPTIONS.includes(TTS_PROVIDER_DEFAULTS.elevenlabs.model),
