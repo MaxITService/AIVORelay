@@ -995,7 +995,7 @@ impl TtsManager {
                 let voices = murf_voice_catalog(
                     &self.client,
                     &api_key,
-                    nonempty_or(&settings.murf_model, "falcon-2.1"),
+                    murf_voices_query_model(&settings.murf_model),
                 )
                 .await?;
                 Ok(TtsVoiceCatalog {
@@ -1215,7 +1215,7 @@ impl TtsManager {
                 result = murf_voice_catalog(
                     &self.client,
                     &api_key,
-                    nonempty_or(&resolved.murf_model, "falcon-2.1"),
+                    murf_voices_query_model(&resolved.murf_model),
                 ) => result?,
                 _ = self.wait_for_cancellation(operation_id) => {
                     return Err(anyhow!("Text-to-speech operation cancelled"));
@@ -3949,12 +3949,23 @@ async fn bounded_catalog_json_with_budget(
     serde_json::from_slice(&bytes).context("The provider returned an invalid voice catalog")
 }
 
+fn murf_voices_query_model(model: &str) -> &str {
+    let model = nonempty_or(model, "falcon-2.1");
+    if model.eq_ignore_ascii_case("falcon-2") || model.eq_ignore_ascii_case("falcon-2.1") {
+        "falcon-2.1"
+    } else if model.eq_ignore_ascii_case("gen2") {
+        "gen2"
+    } else {
+        model
+    }
+}
+
 async fn murf_voice_catalog(
     client: &reqwest::Client,
     api_key: &str,
     model: &str,
 ) -> Result<Vec<TtsVoiceCatalogEntry>> {
-    let model = nonempty_or(model, "falcon-2.1");
+    let model = murf_voices_query_model(model);
     let response = client
         .get(MURF_VOICES_URL)
         .query(&[("model", model)])
@@ -7218,6 +7229,19 @@ mod tests {
             StatusCode::TOO_MANY_REQUESTS,
             "Rate limit reached; retry later"
         ));
+    }
+
+    #[test]
+    fn murf_voices_query_model_normalizes_falcon_2_to_falcon_2_1() {
+        assert_eq!(murf_voices_query_model("falcon-2"), "falcon-2.1");
+        assert_eq!(murf_voices_query_model("FALCON-2"), "falcon-2.1");
+        assert_eq!(murf_voices_query_model("  falcon-2  "), "falcon-2.1");
+        assert_eq!(murf_voices_query_model("falcon-2.1"), "falcon-2.1");
+        assert_eq!(murf_voices_query_model("Falcon-2.1"), "falcon-2.1");
+        assert_eq!(murf_voices_query_model("gen2"), "gen2");
+        assert_eq!(murf_voices_query_model("GEN2"), "gen2");
+        assert_eq!(murf_voices_query_model(""), "falcon-2.1");
+        assert_eq!(murf_voices_query_model("   "), "falcon-2.1");
     }
 
     #[test]
