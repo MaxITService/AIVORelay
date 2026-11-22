@@ -148,6 +148,14 @@ pub struct SonioxAsyncTranscript {
     pub timed_tokens: Vec<TimedTranscriptToken>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TranscriptionDeleteStatusOutcome {
+    Deleted,
+    AlreadyGone,
+    RetryableFailure,
+    NonRetryableFailure,
+}
+
 pub struct SonioxSttManager {
     http_client: reqwest::Client,
     /// Monotonically increasing operation ID; when cancel() is called, all
@@ -1128,12 +1136,28 @@ impl SonioxSttManager {
         Ok(payload.id)
     }
 
+    fn is_terminal_transcription_status(status: &str) -> bool {
+        matches!(status, "completed" | "error")
+    }
+
+    fn transcription_id_for_cleanup(
+        created_transcription_id: Option<String>,
+        reached_terminal_state: bool,
+    ) -> Option<String> {
+        if reached_terminal_state {
+            created_transcription_id
+        } else {
+            None
+        }
+    }
+
     async fn wait_for_completion(
         &self,
         api_key: &str,
         transcription_id: &str,
         timeout_seconds: u32,
         operation_id: Option<u64>,
+        reached_terminal_state: &mut bool,
     ) -> Result<()> {
         let start = Instant::now();
         let timeout = Duration::from_secs(timeout_seconds.max(MIN_TIMEOUT_SECONDS) as u64);
@@ -1167,6 +1191,9 @@ impl SonioxSttManager {
             let payload: TranscriptionStatusResponse = self
                 .await_with_cancellation(operation_id, response.json())
                 .await??;
+            if Self::is_terminal_transcription_status(&payload.status) {
+                *reached_terminal_state = true;
+            }
             match payload.status.as_str() {
                 "completed" => {
                     debug!(
@@ -1232,11 +1259,28 @@ impl SonioxSttManager {
         })
     }
 
+    fn classify_transcription_delete_status(
+        status: reqwest::StatusCode,
+    ) -> TranscriptionDeleteStatusOutcome {
+        if status.is_success() {
+            TranscriptionDeleteStatusOutcome::Deleted
+        } else if status == reqwest::StatusCode::NOT_FOUND {
+            TranscriptionDeleteStatusOutcome::AlreadyGone
+        } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS
+            || status == reqwest::StatusCode::REQUEST_TIMEOUT
+            || status.is_server_error()
+        {
+            TranscriptionDeleteStatusOutcome::RetryableFailure
+        } else {
+            TranscriptionDeleteStatusOutcome::NonRetryableFailure
+        }
+    }
+
     async fn delete_transcription(
         http_client: &reqwest::Client,
         api_key: &str,
         transcription_id: &str,
-    ) -> Result<()> {
+    ) -> std::result::Result<reqwest::StatusCode, reqwest::Error> {
         let response = http_client
             .delete(format!(
                 "{}/transcriptions/{}",
@@ -1246,15 +1290,7 @@ impl SonioxSttManager {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(anyhow!(
-                "Failed to delete transcription {}: {}",
-                transcription_id,
-                response.status()
-            ));
-        }
-
-        Ok(())
+        Ok(response.status())
     }
 
     async fn delete_transcription_with_retry(
@@ -1262,18 +1298,57 @@ impl SonioxSttManager {
         api_key: &str,
         transcription_id: &str,
     ) {
+        Self::delete_transcription_with_retry_using(transcription_id, move || {
+            Self::delete_transcription(http_client, api_key, transcription_id)
+        })
+        .await;
+    }
+
+    async fn delete_transcription_with_retry_using<F, Fut, E>(
+        transcription_id: &str,
+        mut delete_once: F,
+    ) where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = std::result::Result<reqwest::StatusCode, E>>,
+        E: std::fmt::Display,
+    {
         const CLEANUP_RETRIES: u32 = 3;
         const CLEANUP_DELAY: Duration = Duration::from_secs(1);
 
         for attempt in 0..CLEANUP_RETRIES {
-            match Self::delete_transcription(http_client, api_key, transcription_id).await {
-                Ok(()) => {
-                    debug!(
-                        "Soniox cleanup: deleted transcription {}",
-                        transcription_id
-                    );
-                    return;
-                }
+            match delete_once().await {
+                Ok(status) => match Self::classify_transcription_delete_status(status) {
+                    TranscriptionDeleteStatusOutcome::Deleted => {
+                        debug!(
+                            "Soniox cleanup: deleted transcription {}",
+                            transcription_id
+                        );
+                        return;
+                    }
+                    TranscriptionDeleteStatusOutcome::AlreadyGone => {
+                        debug!(
+                            "Soniox cleanup: transcription {} already absent ({})",
+                            transcription_id, status
+                        );
+                        return;
+                    }
+                    TranscriptionDeleteStatusOutcome::NonRetryableFailure => {
+                        warn!(
+                            "Soniox cleanup skipping retries for transcription {} after non-retryable status {}",
+                            transcription_id, status
+                        );
+                        return;
+                    }
+                    TranscriptionDeleteStatusOutcome::RetryableFailure => {
+                        warn!(
+                            "Soniox cleanup failed for transcription {} (attempt {}/{}): {}",
+                            transcription_id,
+                            attempt + 1,
+                            CLEANUP_RETRIES,
+                            status
+                        );
+                    }
+                },
                 Err(err) => {
                     warn!(
                         "Soniox cleanup failed for transcription {} (attempt {}/{}): {}",
@@ -1282,10 +1357,11 @@ impl SonioxSttManager {
                         CLEANUP_RETRIES,
                         err
                     );
-                    if attempt < CLEANUP_RETRIES - 1 {
-                        tokio::time::sleep(CLEANUP_DELAY).await;
-                    }
                 }
+            }
+
+            if attempt < CLEANUP_RETRIES - 1 {
+                tokio::time::sleep(CLEANUP_DELAY).await;
             }
         }
     }
@@ -1550,6 +1626,7 @@ impl SonioxSttManager {
             .await?;
 
         let mut created_transcription_id: Option<String> = None;
+        let mut transcription_reached_terminal_state = false;
         let result: Result<SonioxAsyncTranscript> = async {
             let transcription_id = self
                 .with_retry("Soniox create transcription", operation_id, || async {
@@ -1568,8 +1645,14 @@ impl SonioxSttManager {
                 .await?;
             created_transcription_id = Some(transcription_id.clone());
 
-            self.wait_for_completion(api_key, &transcription_id, timeout_seconds, operation_id)
-                .await?;
+            self.wait_for_completion(
+                api_key,
+                &transcription_id,
+                timeout_seconds,
+                operation_id,
+                &mut transcription_reached_terminal_state,
+            )
+            .await?;
 
             self.with_retry("Soniox get transcript", operation_id, || async {
                 self.get_transcript_impl(api_key, &transcription_id).await
@@ -1578,33 +1661,32 @@ impl SonioxSttManager {
         }
         .await;
 
-        if operation_id.is_some_and(|operation_id| self.is_cancelled(operation_id)) {
-            let http_client = self.http_client.clone();
-            let api_key = api_key.to_string();
-            let cleanup_file_id = file_id.clone();
-            let cleanup_transcription_id = created_transcription_id.clone();
-            tokio::spawn(async move {
-                if let Some(transcription_id) = cleanup_transcription_id {
-                    Self::delete_transcription_with_retry(
-                        &http_client,
-                        &api_key,
-                        &transcription_id,
-                    )
-                    .await;
-                }
-                Self::delete_file_with_retry(&http_client, &api_key, &cleanup_file_id).await;
-            });
-        } else {
+        if !transcription_reached_terminal_state {
             if let Some(transcription_id) = created_transcription_id.as_deref() {
+                debug!(
+                    "Soniox cleanup: skipping delete for non-terminal transcription {}",
+                    transcription_id
+                );
+            }
+        }
+        let cleanup_transcription_id = Self::transcription_id_for_cleanup(
+            created_transcription_id,
+            transcription_reached_terminal_state,
+        );
+        let http_client = self.http_client.clone();
+        let api_key = api_key.to_string();
+        let cleanup_file_id = file_id;
+        tokio::spawn(async move {
+            if let Some(transcription_id) = cleanup_transcription_id {
                 Self::delete_transcription_with_retry(
-                    &self.http_client,
-                    api_key,
-                    transcription_id,
+                    &http_client,
+                    &api_key,
+                    &transcription_id,
                 )
                 .await;
             }
-            Self::delete_file_with_retry(&self.http_client, api_key, &file_id).await;
-        }
+            Self::delete_file_with_retry(&http_client, &api_key, &cleanup_file_id).await;
+        });
 
         if let Ok(ref text) = result {
             info!(
@@ -1879,5 +1961,127 @@ mod tests {
         let payload = serde_json::to_value(strict_with_empty_hints).unwrap();
         assert!(payload.get("language_hints").is_none());
         assert!(payload.get("language_hints_strict").is_none());
+    }
+
+    #[test]
+    fn transcription_delete_status_classification_separates_non_retryable_from_retryable() {
+        assert_eq!(
+            SonioxSttManager::classify_transcription_delete_status(reqwest::StatusCode::OK),
+            TranscriptionDeleteStatusOutcome::Deleted
+        );
+        assert_eq!(
+            SonioxSttManager::classify_transcription_delete_status(reqwest::StatusCode::NO_CONTENT),
+            TranscriptionDeleteStatusOutcome::Deleted
+        );
+        assert_eq!(
+            SonioxSttManager::classify_transcription_delete_status(reqwest::StatusCode::NOT_FOUND),
+            TranscriptionDeleteStatusOutcome::AlreadyGone
+        );
+        for status in [
+            reqwest::StatusCode::CONFLICT,
+            reqwest::StatusCode::BAD_REQUEST,
+            reqwest::StatusCode::UNAUTHORIZED,
+            reqwest::StatusCode::FORBIDDEN,
+        ] {
+            assert_eq!(
+                SonioxSttManager::classify_transcription_delete_status(status),
+                TranscriptionDeleteStatusOutcome::NonRetryableFailure,
+                "{status}"
+            );
+        }
+        for status in [
+            reqwest::StatusCode::REQUEST_TIMEOUT,
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            reqwest::StatusCode::BAD_GATEWAY,
+            reqwest::StatusCode::SERVICE_UNAVAILABLE,
+        ] {
+            assert_eq!(
+                SonioxSttManager::classify_transcription_delete_status(status),
+                TranscriptionDeleteStatusOutcome::RetryableFailure,
+                "{status}"
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn delete_transcription_with_retry_skips_404_and_409_and_retries_429_and_5xx() {
+        for status in [
+            reqwest::StatusCode::NOT_FOUND,
+            reqwest::StatusCode::CONFLICT,
+        ] {
+            let mut attempts = 0u32;
+            let started = tokio::time::Instant::now();
+            SonioxSttManager::delete_transcription_with_retry_using("tx_non_retryable", || {
+                attempts += 1;
+                async move { Ok::<_, &str>(status) }
+            })
+            .await;
+            assert_eq!(attempts, 1, "{status}");
+            assert_eq!(started.elapsed(), Duration::ZERO, "{status}");
+        }
+
+        for status in [
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            reqwest::StatusCode::SERVICE_UNAVAILABLE,
+        ] {
+            let mut attempts = 0u32;
+            let started = tokio::time::Instant::now();
+            SonioxSttManager::delete_transcription_with_retry_using("tx_retryable", || {
+                attempts += 1;
+                async move { Ok::<_, &str>(status) }
+            })
+            .await;
+            assert_eq!(attempts, 3, "{status}");
+            assert_eq!(started.elapsed(), Duration::from_secs(2), "{status}");
+        }
+
+        let mut attempts = 0u32;
+        let started = tokio::time::Instant::now();
+        SonioxSttManager::delete_transcription_with_retry_using("tx_recover", || {
+            attempts += 1;
+            let status = if attempts == 1 {
+                reqwest::StatusCode::INTERNAL_SERVER_ERROR
+            } else {
+                reqwest::StatusCode::OK
+            };
+            async move { Ok::<_, &str>(status) }
+        })
+        .await;
+        assert_eq!(attempts, 2);
+        assert_eq!(started.elapsed(), Duration::from_secs(1));
+
+        let mut attempts = 0u32;
+        let started = tokio::time::Instant::now();
+        SonioxSttManager::delete_transcription_with_retry_using("tx_transport_err", || {
+            attempts += 1;
+            async { Err::<reqwest::StatusCode, _>("connection reset") }
+        })
+        .await;
+        assert_eq!(attempts, 3);
+        assert_eq!(started.elapsed(), Duration::from_secs(2));
+    }
+
+    #[test]
+    fn async_transcription_cleanup_gates_deletion_on_terminal_state() {
+        assert!(SonioxSttManager::is_terminal_transcription_status("completed"));
+        assert!(SonioxSttManager::is_terminal_transcription_status("error"));
+        for status in ["queued", "processing", ""] {
+            assert!(
+                !SonioxSttManager::is_terminal_transcription_status(status),
+                "{status}"
+            );
+        }
+
+        assert_eq!(
+            SonioxSttManager::transcription_id_for_cleanup(Some("tx_1".into()), true),
+            Some("tx_1".into())
+        );
+        assert_eq!(
+            SonioxSttManager::transcription_id_for_cleanup(Some("tx_1".into()), false),
+            None
+        );
+        assert_eq!(SonioxSttManager::transcription_id_for_cleanup(None, true), None);
+        assert_eq!(SonioxSttManager::transcription_id_for_cleanup(None, false), None);
     }
 }
