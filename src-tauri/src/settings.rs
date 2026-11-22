@@ -1487,6 +1487,13 @@ impl TtsSynthesisConfig {
         settings.inter_chunk_pause_ms = self.inter_chunk_pause_ms;
         settings.paragraph_pause_ms = self.paragraph_pause_ms;
     }
+
+    fn normalize_legacy_openai_tts1_voice(&mut self) {
+        if self.provider == TtsProvider::OpenAi {
+            self.voice =
+                crate::managers::tts::normalize_openai_tts_voice(&self.model, &self.voice);
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
@@ -2499,17 +2506,19 @@ impl TtsSettings {
     }
 
     pub fn select_scope_model(&mut self, scope: TtsOperationScope, requested: &TtsSettings) {
-        let requested_config = TtsSynthesisConfig::from_settings(requested, scope);
+        let mut requested_config = TtsSynthesisConfig::from_settings(requested, scope);
         let requested_key = requested_config.model_key();
         let scope_settings = self.scope_synthesis_mut(scope);
         scope_settings.normalize_provider_memories();
-        if scope_settings
+        if let Some(existing) = scope_settings
             .models
-            .iter()
-            .any(|entry| entry.model_key == requested_key)
+            .iter_mut()
+            .find(|entry| entry.model_key == requested_key)
         {
+            existing.config.normalize_legacy_openai_tts1_voice();
             scope_settings.active_model_key = requested_key;
         } else {
+            requested_config.normalize_legacy_openai_tts1_voice();
             scope_settings.upsert(requested_config);
         }
         scope_settings.selected_preset_id.clear();
@@ -2587,6 +2596,7 @@ impl TtsSettings {
         if scope == TtsOperationScope::File {
             config.target_chars = self.file_target_chars;
         }
+        config.normalize_legacy_openai_tts1_voice();
         let applied = config.clone();
         let scope_settings = self.scope_synthesis_mut(scope);
         scope_settings.upsert(config);
@@ -2607,6 +2617,7 @@ impl TtsSettings {
             .cloned()
             .ok_or_else(|| "The selected TTS synthesis preset no longer exists".to_string())?;
         let mut config = preset.config;
+        config.normalize_legacy_openai_tts1_voice();
         if scope == TtsOperationScope::File && preset.id.starts_with("builtin_tts_") {
             config.target_chars = self.file_target_chars;
         }
@@ -10073,6 +10084,69 @@ mod tests {
                 .target_chars,
             default_tts_file_target_chars()
         );
+    }
+
+    #[test]
+    fn select_scope_model_coerces_incompatible_legacy_openai_tts1_voice() {
+        let mut settings = TtsSettings {
+            provider: TtsProvider::OpenAi,
+            openai_model: "gpt-4o-mini-tts".to_string(),
+            openai_voice: "marin".to_string(),
+            ..TtsSettings::default()
+        };
+        let mini_config =
+            TtsSynthesisConfig::from_settings(&settings, TtsOperationScope::Interactive);
+        let mut tts1_config = mini_config.clone();
+        tts1_config.model = "tts-1".to_string();
+        tts1_config.voice = "marin".to_string();
+        let mut tts1_hd_config = mini_config.clone();
+        tts1_hd_config.model = "tts-1-hd".to_string();
+        tts1_hd_config.voice = "cedar".to_string();
+
+        settings.interactive_synthesis.active_model_key = mini_config.model_key();
+        settings.interactive_synthesis.models = vec![
+            TtsModelSynthesisSettings {
+                model_key: mini_config.model_key(),
+                config: mini_config,
+            },
+            TtsModelSynthesisSettings {
+                model_key: tts1_config.model_key(),
+                config: tts1_config,
+            },
+        ];
+        settings.synthesis_presets.push(TtsSynthesisPreset {
+            id: "legacy-tts1-hd".to_string(),
+            name: "Legacy HD".to_string(),
+            config: tts1_hd_config,
+        });
+
+        let tts1_request = TtsSettings {
+            provider: TtsProvider::OpenAi,
+            openai_model: "tts-1".to_string(),
+            openai_voice: "alloy".to_string(),
+            ..settings.clone()
+        };
+        settings.select_scope_model(TtsOperationScope::Interactive, &tts1_request);
+        let interactive_tts1 = settings.effective_for_scope(TtsOperationScope::Interactive);
+        assert_eq!(interactive_tts1.openai_model, "tts-1");
+        assert_eq!(interactive_tts1.openai_voice, "alloy");
+
+        let mini_request = TtsSettings {
+            provider: TtsProvider::OpenAi,
+            openai_model: "gpt-4o-mini-tts".to_string(),
+            ..interactive_tts1
+        };
+        settings.select_scope_model(TtsOperationScope::Interactive, &mini_request);
+        let interactive_mini = settings.effective_for_scope(TtsOperationScope::Interactive);
+        assert_eq!(interactive_mini.openai_model, "gpt-4o-mini-tts");
+        assert_eq!(interactive_mini.openai_voice, "marin");
+
+        settings
+            .load_synthesis_preset(TtsOperationScope::File, "legacy-tts1-hd")
+            .expect("legacy tts-1-hd preset should load");
+        let file_tts1_hd = settings.effective_for_scope(TtsOperationScope::File);
+        assert_eq!(file_tts1_hd.openai_model, "tts-1-hd");
+        assert_eq!(file_tts1_hd.openai_voice, "alloy");
     }
 
     #[test]

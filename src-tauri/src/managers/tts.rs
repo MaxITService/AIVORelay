@@ -164,6 +164,21 @@ pub(crate) fn openai_tts1_supports_voice(voice: &str) -> bool {
         .any(|supported| supported.eq_ignore_ascii_case(voice))
 }
 
+pub(crate) fn normalize_openai_tts_voice(model: &str, voice: &str) -> String {
+    let voice = voice.trim();
+    if openai_model_is_legacy_tts1(model) {
+        if voice.is_empty() || !openai_tts1_supports_voice(voice) {
+            OPENAI_TTS1_DEFAULT_VOICE.to_string()
+        } else {
+            voice.to_string()
+        }
+    } else if voice.is_empty() {
+        DEFAULT_TTS_OPENAI_VOICE.to_string()
+    } else {
+        voice.to_string()
+    }
+}
+
 fn normalize_openai_tts_speed(speed: f32) -> f32 {
     if speed.is_finite() {
         speed.clamp(0.25, 4.0)
