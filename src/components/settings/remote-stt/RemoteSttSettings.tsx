@@ -1645,6 +1645,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           setApiKeyInput("");
           setHasApiKey(true);
           setIsEditingKey(false);
+          setConnectionStatus("idle");
+          setConnectionMessage(null);
         } else {
           toast.error(result.error);
         }
@@ -1704,16 +1706,21 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     setIsEditingKey(false);
   };
 
+  const testConnectionBaseUrl = (
+    canEditCustomEndpoint ? baseUrlInput : effectiveRemoteBaseUrl
+  ).trim();
+
   const handleTestConnection = async () => {
     if (!canEditCredentials) return;
-    const baseUrl = baseUrlInput.trim();
-    if (!baseUrl || !hasApiKey) return;
+    if (!testConnectionBaseUrl || !hasApiKey) return;
     const isCurrentContext = credentialRequestGateRef.current.capture();
 
     setConnectionStatus("checking");
     setConnectionMessage(null);
     try {
-      const result = await commands.remoteSttTestConnection(baseUrl);
+      const result = await commands.remoteSttTestConnection(
+        testConnectionBaseUrl,
+      );
       if (!isCurrentContext()) return;
       if (result.status === "ok") {
         setConnectionStatus("success");
@@ -1809,12 +1816,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   ]);
   const canTestConnection =
     isRemoteOpenAiProvider &&
-    currentRemoteInterface !== "gemini_transcribe" &&
-    currentRemoteInterface !== "gemini_live" &&
     currentRemoteInterface !== "reson8" &&
     currentRemoteInterface !== "elevenlabs" &&
     canEditCredentials &&
-    baseUrlInput.trim().length > 0 &&
+    testConnectionBaseUrl.length > 0 &&
     hasKeyStatusLoaded &&
     hasApiKey &&
     !apiKeyLoading;
@@ -3850,8 +3855,6 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
               <div className="flex flex-col gap-2">
                 {showOpenAiFields &&
-                  currentRemoteInterface !== "gemini_transcribe" &&
-                  currentRemoteInterface !== "gemini_live" &&
                   currentRemoteInterface !== "reson8" &&
                   currentRemoteInterface !== "elevenlabs" && (
                   <>
