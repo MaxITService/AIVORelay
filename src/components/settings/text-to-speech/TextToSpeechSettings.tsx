@@ -2099,18 +2099,25 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     ) {
       return [];
     }
-    const languageCode = (value: string) => {
+    const elevenLabsLanguageCode = (value: string) => {
       const candidate = value.split(/[-_]/, 1)[0] ?? "";
-      return /^[a-z]{2}$/i.test(candidate) ? candidate.toLowerCase() : "";
+      return /^[a-z]{2,3}$/i.test(candidate) ? candidate.toLowerCase() : "";
     };
     const catalogLocales = selectedCatalogVoice?.locales ?? [];
     const catalogValues =
       tts.provider === "murf"
         ? catalogLocales.map((locale) => locale.locale)
-        : [
-            selectedCatalogVoice?.language ?? "",
-            ...catalogLocales.map((locale) => languageCode(locale.locale)),
-          ];
+        : tts.provider === "cartesia"
+          ? [
+              selectedCatalogVoice?.language ?? "",
+              ...catalogLocales.map((locale) => locale.locale),
+            ]
+          : [
+              elevenLabsLanguageCode(selectedCatalogVoice?.language ?? ""),
+              ...catalogLocales.map((locale) =>
+                elevenLabsLanguageCode(locale.locale),
+              ),
+            ];
     const values = [
       providerLanguageValue,
       TTS_PROVIDER_DEFAULTS[tts.provider].language,
@@ -2118,15 +2125,16 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     ].filter(Boolean);
     return [...new Set(values)].map((value) => {
       const locale = catalogLocales.find((candidate) =>
-        tts.provider === "murf"
-          ? candidate.locale === value
-          : languageCode(candidate.locale) === value,
+        tts.provider === "murf" || tts.provider === "cartesia"
+          ? candidate.locale.toLowerCase() === value.toLowerCase()
+          : elevenLabsLanguageCode(candidate.locale) === value.toLowerCase(),
       );
       return {
         value,
-        label: locale?.label
-          ? [locale.label, " (", value, ")"].join("")
-          : value,
+        label:
+          locale?.label && locale.label !== value
+            ? [locale.label, " (", value, ")"].join("")
+            : value,
       };
     });
   }, [providerLanguageValue, selectedCatalogVoice, tts.provider]);

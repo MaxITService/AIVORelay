@@ -7,10 +7,10 @@ use crate::managers::local_tts::{
 };
 use crate::managers::provider_error::safe_text;
 use crate::managers::tts::{
-    is_tts_output_collision, normalize_deepgram_tts_speed, openai_model_is_legacy_tts1,
-    FileConversionResult, TextFileInspection, TtsBatchFilePlan, TtsBatchScanRequest,
-    TtsBatchScanResult, TtsChunkReady, TtsManager, TtsOperationKind, TtsPhase, TtsState,
-    TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES, OPENAI_TTS1_DEFAULT_VOICE,
+    is_tts_output_collision, normalize_cartesia_language_code, normalize_deepgram_tts_speed,
+    openai_model_is_legacy_tts1, FileConversionResult, TextFileInspection, TtsBatchFilePlan,
+    TtsBatchScanRequest, TtsBatchScanResult, TtsChunkReady, TtsManager, TtsOperationKind,
+    TtsPhase, TtsState, TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES, OPENAI_TTS1_DEFAULT_VOICE,
     SONIOX_TTS_API_KEY_MAX_CHARS, SUPPORTED_MP3_BITRATES, SUPPORTED_OPUS_BITRATES,
     TTS_EVENT_BATCH_PROGRESS, TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
 };
@@ -1699,8 +1699,10 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.cartesia_model = nonempty_setting(settings.cartesia_model, "sonic-3.6");
     settings.cartesia_voice =
         nonempty_setting(settings.cartesia_voice, DEFAULT_TTS_CARTESIA_VOICE);
+    let cartesia_language = nonempty_setting(settings.cartesia_language, "en");
     settings.cartesia_language =
-        nonempty_setting(settings.cartesia_language, "en").to_ascii_lowercase();
+        normalize_cartesia_language_code("Cartesia language", &cartesia_language)
+            .unwrap_or(cartesia_language);
     settings.cartesia_emotion = normalize_optional_setting(settings.cartesia_emotion);
     settings.cartesia_volume =
         finite_clamped(settings.cartesia_volume, 1.0, 0.5, 2.0);
@@ -1883,7 +1885,10 @@ fn normalize_synthesis_config(
                 std::mem::take(&mut config.voice),
                 DEFAULT_TTS_CARTESIA_VOICE,
             );
-            config.language = nonempty_setting(std::mem::take(&mut config.language), "en");
+            let cartesia_language = nonempty_setting(std::mem::take(&mut config.language), "en");
+            config.language =
+                normalize_cartesia_language_code("Cartesia language", &cartesia_language)
+                    .unwrap_or(cartesia_language);
         }
         TtsProvider::Edge => {
             config.model = EDGE_TTS_MODEL.to_string();

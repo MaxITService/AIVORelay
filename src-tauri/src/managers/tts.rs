@@ -742,7 +742,10 @@ impl TtsManager {
                 &settings.elevenlabs_language,
                 32,
             )?;
-            validate_iso_639_1_code("ElevenLabs language", &settings.elevenlabs_language)?;
+            validate_elevenlabs_language_code(
+                "ElevenLabs language",
+                &settings.elevenlabs_language,
+            )?;
             if !elevenlabs_supports_speed(&settings.elevenlabs_model) {
                 if settings.speed != 1.0 {
                     return Err(anyhow!(
@@ -786,7 +789,7 @@ impl TtsManager {
             }
             validate_required_max_chars("Cartesia voice ID", &settings.cartesia_voice, 256)?;
             validate_required_max_chars("Cartesia language", &settings.cartesia_language, 32)?;
-            validate_iso_639_1_code("Cartesia language", &settings.cartesia_language)?;
+            normalize_cartesia_language_code("Cartesia language", &settings.cartesia_language)?;
             validate_finite_range("Cartesia speed", settings.speed, 0.6, 1.5)?;
             validate_finite_range("Cartesia volume", settings.cartesia_volume, 0.5, 2.0)?;
             if let Some(emotion) = settings.cartesia_emotion.as_deref() {
@@ -3726,6 +3729,10 @@ impl TtsManager {
                     .json(&body)
             }
             TtsProvider::Cartesia => {
+                let cartesia_language = nonempty_or(&settings.cartesia_language, "en");
+                let cartesia_language =
+                    normalize_cartesia_language_code("Cartesia language", cartesia_language)
+                        .unwrap_or_else(|_| cartesia_language.to_string());
                 let mut body = json!({
                     "model_id": nonempty_or(&settings.cartesia_model, "sonic-3.6"),
                     "transcript": text,
@@ -3733,7 +3740,7 @@ impl TtsManager {
                         "mode": "id",
                         "id": nonempty_or(&settings.cartesia_voice, DEFAULT_TTS_CARTESIA_VOICE),
                     },
-                    "language": nonempty_or(&settings.cartesia_language, "en").to_ascii_lowercase(),
+                    "language": cartesia_language,
                     "output_format": {
                         "container": "raw",
                         "encoding": "pcm_s16le",
@@ -4209,7 +4216,9 @@ fn elevenlabs_catalog_entry(value: &Value) -> Option<TtsVoiceCatalogEntry> {
     let language = advertised_language
         .split(['-', '_'])
         .next()
-        .filter(|value| value.len() == 2 && value.bytes().all(|byte| byte.is_ascii_alphabetic()))
+        .filter(|value| {
+            matches!(value.len(), 2 | 3) && value.bytes().all(|byte| byte.is_ascii_alphabetic())
+        })
         .unwrap_or_default();
     let gender = labels
         .and_then(|labels| labels.get("gender"))
@@ -4780,12 +4789,58 @@ fn validate_required_max_chars(label: &str, value: &str, maximum: usize) -> Resu
     validate_max_chars(label, value, maximum)
 }
 
-fn validate_iso_639_1_code(label: &str, value: &str) -> Result<()> {
+pub(crate) fn validate_elevenlabs_language_code(label: &str, value: &str) -> Result<String> {
     let value = value.trim();
-    if value.len() == 2 && value.bytes().all(|byte| byte.is_ascii_alphabetic()) {
-        Ok(())
+    if matches!(value.len(), 2 | 3) && value.bytes().all(|byte| byte.is_ascii_alphabetic()) {
+        Ok(value.to_ascii_lowercase())
     } else {
-        Err(anyhow!("{label} must be a two-letter ISO 639-1 code"))
+        Err(anyhow!(
+            "{label} must be a 2-letter ISO 639-1 or 3-letter ISO 639-3 code"
+        ))
+    }
+}
+
+pub(crate) fn normalize_cartesia_language_code(label: &str, value: &str) -> Result<String> {
+    let value = value.trim();
+    let parts: Vec<&str> = value.split('-').collect();
+    let is_lang = |s: &str| s.len() == 2 && s.bytes().all(|byte| byte.is_ascii_alphabetic());
+    let is_script = |s: &str| s.len() == 4 && s.bytes().all(|byte| byte.is_ascii_alphabetic());
+    let is_region = |s: &str| {
+        (s.len() == 2 && s.bytes().all(|byte| byte.is_ascii_alphabetic()))
+            || (s.len() == 3 && s.bytes().all(|byte| byte.is_ascii_digit()))
+    };
+    let title_case = |s: &str| {
+        let mut chars = s.chars();
+        match chars.next() {
+            Some(first) => format!(
+                "{}{}",
+                first.to_ascii_uppercase(),
+                chars.as_str().to_ascii_lowercase()
+            ),
+            None => String::new(),
+        }
+    };
+    match parts.as_slice() {
+        [lang] if is_lang(lang) => Ok(lang.to_ascii_lowercase()),
+        [lang, script] if is_lang(lang) && is_script(script) => {
+            Ok(format!("{}-{}", lang.to_ascii_lowercase(), title_case(script)))
+        }
+        [lang, region] if is_lang(lang) && is_region(region) => Ok(format!(
+            "{}-{}",
+            lang.to_ascii_lowercase(),
+            region.to_ascii_uppercase()
+        )),
+        [lang, script, region] if is_lang(lang) && is_script(script) && is_region(region) => {
+            Ok(format!(
+                "{}-{}-{}",
+                lang.to_ascii_lowercase(),
+                title_case(script),
+                region.to_ascii_uppercase()
+            ))
+        }
+        _ => Err(anyhow!(
+            "{label} must be a 2-letter language code (e.g. en) or BCP-47 regional locale (e.g. en-GB, es-419, zh-Hans)"
+        )),
     }
 }
 
@@ -6565,26 +6620,95 @@ mod tests {
     }
 
     #[test]
-    fn elevenlabs_and_cartesia_reject_locale_ids_as_language_codes() {
-        let mut elevenlabs = TtsSettings {
-            provider: TtsProvider::ElevenLabs,
-            ..TtsSettings::default()
-        };
-        elevenlabs.elevenlabs_language = "en-US".to_string();
-        assert!(TtsManager::validate_settings(&elevenlabs)
-            .unwrap_err()
-            .to_string()
-            .contains("two-letter ISO 639-1"));
+    fn elevenlabs_validates_iso_639_1_and_639_3_language_codes() {
+        for valid in ["en", "ru", "fil", "yue", "ast", "ceb", "FIL"] {
+            let settings = TtsSettings {
+                provider: TtsProvider::ElevenLabs,
+                elevenlabs_language: valid.to_string(),
+                ..TtsSettings::default()
+            };
+            assert!(
+                TtsManager::validate_settings(&settings).is_ok(),
+                "ElevenLabs should accept {valid}"
+            );
+        }
+        assert_eq!(
+            validate_elevenlabs_language_code("ElevenLabs language", "  FIL ").unwrap(),
+            "fil"
+        );
 
-        let mut cartesia = TtsSettings {
-            provider: TtsProvider::Cartesia,
-            ..TtsSettings::default()
-        };
-        cartesia.cartesia_language = "en-US".to_string();
-        assert!(TtsManager::validate_settings(&cartesia)
-            .unwrap_err()
-            .to_string()
-            .contains("two-letter ISO 639-1"));
+        for invalid in ["en-US", "123", "english", "e", ""] {
+            let settings = TtsSettings {
+                provider: TtsProvider::ElevenLabs,
+                elevenlabs_language: invalid.to_string(),
+                ..TtsSettings::default()
+            };
+            assert!(
+                TtsManager::validate_settings(&settings).is_err(),
+                "ElevenLabs should reject {invalid}"
+            );
+        }
+
+        let catalog_entry = elevenlabs_catalog_entry(&json!({
+            "voice_id": "voice-fil",
+            "name": "Tagalog Voice",
+            "language": "fil",
+        }))
+        .expect("3-letter ISO 639-3 voice entry should parse");
+        assert_eq!(catalog_entry.language, "fil");
+    }
+
+    #[test]
+    fn cartesia_validates_base_languages_and_bcp47_regional_locales() {
+        for (input, expected) in [
+            ("en", "en"),
+            ("EN", "en"),
+            ("es", "es"),
+            ("en-GB", "en-GB"),
+            ("en-gb", "en-GB"),
+            ("pt-BR", "pt-BR"),
+            ("es-419", "es-419"),
+            ("zh-Hans", "zh-Hans"),
+            ("zh-hant", "zh-Hant"),
+            ("zh-Hans-CN", "zh-Hans-CN"),
+        ] {
+            assert_eq!(
+                normalize_cartesia_language_code("Cartesia language", input).unwrap(),
+                expected
+            );
+            let settings = TtsSettings {
+                provider: TtsProvider::Cartesia,
+                cartesia_language: input.to_string(),
+                ..TtsSettings::default()
+            };
+            assert!(
+                TtsManager::validate_settings(&settings).is_ok(),
+                "Cartesia should accept {input}"
+            );
+        }
+
+        for invalid in [
+            "",
+            "123",
+            "english",
+            "en-",
+            "-GB",
+            "en_GB",
+            "en-12",
+            "en-GBR",
+            "en-GB-US",
+            "e",
+        ] {
+            let settings = TtsSettings {
+                provider: TtsProvider::Cartesia,
+                cartesia_language: invalid.to_string(),
+                ..TtsSettings::default()
+            };
+            assert!(
+                TtsManager::validate_settings(&settings).is_err(),
+                "Cartesia should reject {invalid}"
+            );
+        }
     }
 
     #[test]
