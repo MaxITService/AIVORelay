@@ -7,7 +7,7 @@ import React, {
   useEffect,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { Cog, FlaskConical, Globe, History, Info, Sparkles, Wand2, Terminal, FileAudio, FileVolume2, Replace, Mic, Palette, Cpu, Radio, TextSelect, CircleHelp, Send } from "lucide-react";
+import { Cog, FlaskConical, Gauge, Globe, History, Info, Sparkles, Wand2, Terminal, FileAudio, FileVolume2, Replace, Mic, Palette, Cpu, Radio, TextSelect, CircleHelp, Send } from "lucide-react";
 import { type } from "@tauri-apps/plugin-os";
 import HandyTextLogo from "./icons/HandyTextLogo";
 import SpeechProcessingIcon from "./icons/SpeechProcessingIcon";
@@ -36,6 +36,7 @@ import {
   TextToSpeechSettings,
   TtsFileOperationsSettings,
   HelpSettings,
+  BenchmarkSettings,
 } from "./settings";
 import "./SidebarIconMotion.css";
 import "./SidebarDrag.css";
@@ -125,6 +126,12 @@ export const SECTIONS_CONFIG = {
     icon: History,
     component: HistorySettings,
     enabled: (_) => true,
+  },
+  benchmark: {
+    labelKey: "sidebar.benchmark",
+    icon: Gauge,
+    component: BenchmarkSettings,
+    enabled: () => true,
   },
   audioProcessing: {
     labelKey: "sidebar.audioProcessing",
