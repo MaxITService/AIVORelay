@@ -502,6 +502,7 @@
     "audioProcessing": "Speech Processing",
     "userInterface": "User Interface",
     "history": "History",
+    "benchmark": "Benchmark",
     "debug": "Debug",
     "help": "Help",
     "about": "About"
@@ -5775,5 +5776,75 @@
     "sonioxRealtimeChunkSafetyBufferLabel": "Keep Safety Buffer for Cross-chunk Matching",
     "sonioxRealtimeChunkSafetyBufferDescription": "Hold back about three recent words so a correction can match a phrase split across live chunks. Requires live fuzzy correction and delays insertion by roughly those words.",
     "sonioxRealtimeChunkBehaviorGuide": "For fastest live appearance, keep both OFF. Enable both only when you need better cross-chunk fuzzy correction."
+  },
+  "benchmark": {
+    "recording": {
+      "title": "1. Test Recordings",
+      "description": "Record raw microphone clips (without boost, noise cancellation, or silence filtering). Clips are saved on disk until you delete them.",
+      "start": "Record New Clip",
+      "stop": "Stop Recording",
+      "microphoneLabel": "Microphone:",
+      "defaultMic": "Default",
+      "savedClips": "Saved clips ({{count}}):",
+      "runsBadge": "{{count}} runs",
+      "deleteClip": "Delete clip (results remain in list)",
+      "selectedClipSummary": "Selected: {{name}} · {{seconds}} s from {{device}}"
+    },
+    "target": {
+      "title": "Profile / Provider",
+      "description": "Choose the current active profile, another saved profile, or any configured provider and model.",
+      "defaultProfile": "Default",
+      "currentProfile": "Current profile ({{name}})",
+      "profileOption": "Profile: {{name}}",
+      "customProvider": "Other provider / model…"
+    },
+    "run": {
+      "title": "2. Run Benchmark",
+      "description": "Run the selected clip through the standard transcription pipeline (including profile LLM post-processing if enabled), or sweep all boost and noise-removal levels.",
+      "currentAudioSummary": "Current settings:",
+      "boostOffChip": "Boost Off",
+      "boostOnChip": "Boost +{{db}} dB",
+      "rnnoiseOnChip": "RNNoise On",
+      "rnnoiseOffChip": "RNNoise Off",
+      "vadOnChip": "VAD {{threshold}}",
+      "vadOffChip": "Filter Silence Off",
+      "llmOnChip": "LLM Post-Processing On",
+      "llmOffChip": "LLM Post-Processing Off",
+      "runCurrent": "Benchmark Current Settings",
+      "boostSweep": "Auto: All Boost Levels (0–17 dB)",
+      "boostSweepTooltip": "Run all {{count}} microphone boost levels (0 to +17 dB, step 1 dB)",
+      "noiseSweep": "Auto: All Noise Removal Levels",
+      "noiseSweepTooltip": "Run RNNoise Off/On and all voice detection sensitivity levels ({{min}}–{{max}})",
+      "progress": "Running {{current}} / {{total}} — {{step}}",
+      "cancelling": "Cancelling…"
+    },
+    "runLabels": {
+      "currentProfile": "Current profile ({{name}})",
+      "profile": "Profile: {{name}}",
+      "custom": "Custom provider",
+      "boostOff": "Boost: Off (0 dB)",
+      "boostDb": "Boost: +{{db}} dB",
+      "rnnoiseOff": "Noise: RNNoise Off · Filter Silence Off",
+      "rnnoiseOn": "Noise: RNNoise On · Filter Silence Off",
+      "vadLevel": "Noise: VAD {{threshold}}"
+    },
+    "results": {
+      "title": "Results",
+      "description": "Compare recognized text across runs. Click Show settings on any entry to view the exact parameters used.",
+      "filterSelected": "{{name}} ({{count}})",
+      "filterAll": "All ({{count}})",
+      "clearSelected": "Clear Clip Results",
+      "clearAll": "Clear All Results",
+      "noResults": "No benchmark results yet. Record a clip above and run a benchmark.",
+      "noResultsForClip": "No benchmark results for this clip yet.",
+      "showSettings": "Show settings",
+      "hideSettings": "Hide settings",
+      "empty": "(No speech detected)",
+      "unknownClip": "Clip",
+      "selectClipTooltip": "Select this test clip",
+      "deletedClipTooltip": "The source audio clip was deleted",
+      "deletedClipBadge": "{{name}} (deleted)",
+      "llmBadgeTooltip": "Processed with the profile's LLM post-processing pipeline"
+    }
   }
 }

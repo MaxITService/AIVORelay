@@ -2,6 +2,7 @@ import { aboutSearchEntries } from "./about/searchEntries";
 import { advancedSearchEntries } from "./advanced/searchEntries";
 import { aiReplaceSearchEntries } from "./ai-replace/searchEntries";
 import { audioProcessingSearchEntries } from "./audio-processing/searchEntries";
+import { benchmarkSearchEntries } from "./benchmark/searchEntries";
 import { browserConnectorSearchEntries } from "./browser-connector/searchEntries";
 import { debugSearchEntries } from "./debug/searchEntries";
 import { generalSearchEntries } from "./general/searchEntries";
@@ -30,6 +31,7 @@ export const SETTINGS_SEARCH_ENTRIES = [
   ...textReplacementSearchEntries,
   ...userInterfaceSearchEntries,
   ...historySearchEntries,
+  ...benchmarkSearchEntries,
   ...audioProcessingSearchEntries,
   ...debugSearchEntries,
   ...liveSoundSearchEntries,

@@ -189,6 +189,12 @@
     animation: sim-history-hands calc(560ms * var(--sim-time-scale)) linear;
   }
 
+  /* Benchmark: the gauge needle revs up and settles back */
+  .sidebar-icon-motion[data-motion="play"] .lucide-gauge path:nth-child(1) {
+    transform-origin: 12px 14px;
+    animation: sim-gauge-needle calc(480ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
   .sidebar-icon-motion[data-motion="play"] .lucide-history path:nth-child(-n + 2) {
     transform-origin: 12px 12px;
     animation: sim-history-arc calc(560ms * var(--sim-time-scale)) cubic-bezier(0.45, 0, 0.55, 1);
@@ -761,5 +767,20 @@
   }
   100% {
     transform: translateY(0);
+  }
+}
+
+@keyframes sim-gauge-needle {
+  0% {
+    transform: rotate(0deg);
+  }
+  42% {
+    transform: rotate(52deg);
+  }
+  72% {
+    transform: rotate(-10deg);
+  }
+  100% {
+    transform: rotate(0deg);
   }
 }

@@ -1,5 +1,6 @@
 pub mod asset_preview;
 pub mod audio;
+pub mod benchmark;
 pub mod connector;
 pub mod file_transcription;
 pub mod history;

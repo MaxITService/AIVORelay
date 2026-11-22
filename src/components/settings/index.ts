@@ -18,6 +18,7 @@ export { LiveSoundTranscriptionSettings } from "./live-sound-transcription/LiveS
 export { TextToSpeechSettings } from "./text-to-speech/TextToSpeechSettings";
 export { TtsFileOperationsSettings } from "./text-to-speech/TtsFileOperationsSettings";
 export { HelpSettings } from "./help/HelpSettings";
+export { BenchmarkSettings } from "./benchmark/BenchmarkSettings";
 export { QuickHelp } from "./QuickHelp";
 
 // Individual setting components
