@@ -31,7 +31,7 @@ export const GEMINI_LOCALES = [
   ["Portuguese (Portugal)", "pt-PT"], ["Punjabi", "pa-IN"], ["Punjabi (Gurmukhi script)", "pa-Guru-IN"],
   ["Romanian", "ro-RO"], ["Russian", "ru-RU"], ["Serbian", "sr-RS"],
   ["Sindhi (Arabic script)", "sd-Arab-IN"], ["Slovak", "sk-SK"], ["Slovenian", "sl-SI"],
-  ["Spanish (Latin America)", "es-419"], ["Spanish (United States)", "es-US"], ["Swahili (Kenya)", "sw-KE"],
+  ["Spanish (Latin America)", "es-419"], ["Spanish (Spain)", "es-ES"], ["Spanish (United States)", "es-US"], ["Swahili (Kenya)", "sw-KE"],
   ["Swedish", "sv-SE"], ["Tajik", "tg-TJ"], ["Telugu", "te-IN"],
   ["Thai", "th-TH"], ["Turkish", "tr-TR"], ["Ukrainian", "uk-UA"],
   ["Uzbek", "uz-UZ"], ["Vietnamese", "vi-VN"],
@@ -48,6 +48,7 @@ export function validateGeminiCompatibility(input: {
   wordTimestamps: boolean;
   diarization: boolean;
   route: string;
+  hasCustomVocabulary?: boolean;
 }): string | null {
   if (input.mode === "smart" && input.wordTimestamps) {
     return "SRT and VTT require Gemini Verbatim mode because word timestamps are enabled.";
@@ -57,6 +58,15 @@ export function validateGeminiCompatibility(input: {
   }
   if (input.diarization && input.route !== "google") {
     return "Gemini speaker diarization is currently available only through Google Direct.";
+  }
+  if (input.hasCustomVocabulary && input.wordTimestamps && input.diarization) {
+    return "Gemini Custom Vocabulary cannot be combined with word timestamps or speaker diarization. Clear Custom Vocabulary, or switch to Text output and disable speaker diarization.";
+  }
+  if (input.hasCustomVocabulary && input.wordTimestamps) {
+    return "Gemini Custom Vocabulary cannot be combined with word timestamps. Clear Custom Vocabulary or select Text output instead of SRT/VTT.";
+  }
+  if (input.hasCustomVocabulary && input.diarization) {
+    return "Gemini Custom Vocabulary cannot be combined with speaker diarization. Clear Custom Vocabulary or disable speaker diarization.";
   }
   return null;
 }

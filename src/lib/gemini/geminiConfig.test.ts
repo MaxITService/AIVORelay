@@ -12,6 +12,8 @@ describe("Gemini configuration", () => {
     expect(values).toContain("en-US");
     expect(values).toContain("en-GB");
     expect(values).toContain("es-419");
+    expect(values).toContain("es-ES");
+    expect(values).toContain("es-US");
     expect(values).toContain("cmn-Hans-CN");
     expect(values).toContain("pa-Guru-IN");
     expect(values).not.toContain("en" as never);
@@ -52,5 +54,50 @@ describe("Gemini configuration", () => {
       diarization: true,
       route: "vercel",
     })).toContain("Google Direct");
+  });
+
+  it("rejects custom vocabulary combined with diarization or word timestamps", () => {
+    expect(validateGeminiCompatibility({
+      mode: "verbatim",
+      wordTimestamps: false,
+      diarization: true,
+      route: "google",
+      hasCustomVocabulary: true,
+    })).toContain("Custom Vocabulary");
+    expect(validateGeminiCompatibility({
+      mode: "verbatim",
+      wordTimestamps: true,
+      diarization: false,
+      route: "google",
+      hasCustomVocabulary: true,
+    })).toContain("Custom Vocabulary");
+    expect(validateGeminiCompatibility({
+      mode: "verbatim",
+      wordTimestamps: true,
+      diarization: false,
+      route: "vercel",
+      hasCustomVocabulary: true,
+    })).toContain("Custom Vocabulary");
+    expect(validateGeminiCompatibility({
+      mode: "verbatim",
+      wordTimestamps: true,
+      diarization: true,
+      route: "google",
+      hasCustomVocabulary: true,
+    })).toContain("Custom Vocabulary");
+    expect(validateGeminiCompatibility({
+      mode: "verbatim",
+      wordTimestamps: false,
+      diarization: false,
+      route: "google",
+      hasCustomVocabulary: true,
+    })).toBeNull();
+    expect(validateGeminiCompatibility({
+      mode: "smart",
+      wordTimestamps: false,
+      diarization: false,
+      route: "vercel",
+      hasCustomVocabulary: true,
+    })).toBeNull();
   });
 });
