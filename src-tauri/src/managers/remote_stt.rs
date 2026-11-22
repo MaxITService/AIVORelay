@@ -445,6 +445,57 @@ fn uses_plural_language_hints(model_id: &str) -> bool {
         .eq_ignore_ascii_case(OPENAI_TRANSCRIBE_MODEL)
 }
 
+/// Resolves multipart text fields for OpenAI-compatible `/audio/transcriptions`
+/// and `/audio/translations` requests.
+///
+/// OpenAI `/v1/audio/translations` does not accept a `language` field and Groq
+/// `/openai/v1/audio/translations` only allows `"en"`, so source language hints
+/// are omitted whenever `use_translation` is true.
+fn build_openai_audio_multipart_text_fields(
+    model_id: &str,
+    response_format: &str,
+    use_translation: bool,
+    resolved_language: Option<&str>,
+    prompt: Option<&str>,
+) -> Vec<(&'static str, String)> {
+    let mut fields = vec![
+        ("model", model_id.to_string()),
+        ("response_format", response_format.to_string()),
+    ];
+
+    if !use_translation {
+        if let Some(lang) = resolved_language {
+            if lang != "auto" {
+                // Normalize language code for OpenAI/Whisper
+                // Convert zh-Hans and zh-Hant to zh since Whisper uses ISO 639-1 codes
+                let normalized = if lang == "zh-Hans" || lang == "zh-Hant" {
+                    "zh"
+                } else {
+                    lang
+                };
+                let field = if uses_plural_language_hints(model_id) {
+                    "languages[]"
+                } else {
+                    "language"
+                };
+                fields.push((field, normalized.to_string()));
+            }
+        }
+    }
+
+    // Remote prompt limits may be token-based and vary by provider/model.
+    // Pass the prompt through so the provider can apply its authoritative
+    // tokenizer and return its normal API error when the limit is exceeded.
+    if let Some(p) = prompt {
+        let trimmed = p.trim();
+        if !trimmed.is_empty() {
+            fields.push(("prompt", trimmed.to_string()));
+        }
+    }
+
+    fields
+}
+
 pub fn supports_subtitle_timestamps(model_id: &str) -> bool {
     let model_id = model_id.trim().to_ascii_lowercase();
     model_id == REMOTE_STT_VERCEL_DEFAULT_MODEL
@@ -1796,19 +1847,10 @@ impl RemoteSttManager {
         } else {
             "json"
         };
-        let mut form = reqwest::multipart::Form::new()
-            .text("model", settings.model_id.clone())
-            .text("response_format", response_format.to_string())
-            .part(
-                "file",
-                reqwest::multipart::Part::bytes(wav_bytes)
-                    .file_name("audio.wav")
-                    .mime_str("audio/wav")
-                    .map_err(|e| anyhow!("Failed to build multipart file: {}", e))?,
-            );
-
-        if let Some(mut lang) = language {
-            if lang != "auto" {
+        let resolved_language = if use_translation {
+            None
+        } else {
+            language.map(|mut lang| {
                 // Handle "os_input" - resolve to current keyboard layout language
                 if lang == "os_input" {
                     if let Some(resolved) = crate::input_source::get_language_from_input_source() {
@@ -1828,33 +1870,27 @@ impl RemoteSttManager {
                         lang = "auto".to_string();
                     }
                 }
+                lang
+            })
+        };
 
-                // Skip "auto" - let API auto-detect
-                if lang != "auto" {
-                    // Normalize language code for OpenAI/Whisper
-                    // Convert zh-Hans and zh-Hant to zh since Whisper uses ISO 639-1 codes
-                    if lang == "zh-Hans" || lang == "zh-Hant" {
-                        lang = "zh".to_string();
-                    }
-                    let field = if uses_plural_language_hints(&settings.model_id) {
-                        "languages[]"
-                    } else {
-                        "language"
-                    };
-                    form = form.text(field, lang);
-                }
-            }
+        let mut form = reqwest::multipart::Form::new();
+        for (name, value) in build_openai_audio_multipart_text_fields(
+            &settings.model_id,
+            response_format,
+            use_translation,
+            resolved_language.as_deref(),
+            prompt.as_deref(),
+        ) {
+            form = form.text(name, value);
         }
-
-        // Remote prompt limits may be token-based and vary by provider/model.
-        // Pass the prompt through so the provider can apply its authoritative
-        // tokenizer and return its normal API error when the limit is exceeded.
-        if let Some(p) = prompt {
-            let trimmed = p.trim();
-            if !trimmed.is_empty() {
-                form = form.text("prompt", trimmed.to_string());
-            }
-        }
+        form = form.part(
+            "file",
+            reqwest::multipart::Part::bytes(wav_bytes)
+                .file_name("audio.wav")
+                .mime_str("audio/wav")
+                .map_err(|e| anyhow!("Failed to build multipart file: {}", e))?,
+        );
 
         let start = Instant::now();
         let response = self
@@ -3290,7 +3326,8 @@ mod tests {
         elevenlabs_prerecorded_text_fields, sanitize_elevenlabs_prerecorded_keyterms,
         with_elevenlabs_zero_retention_hint,
         ElevenLabsPrerecordedOptions,
-        build_google_gemini_request_body, build_openai_realtime_agent_session_update,
+        build_google_gemini_request_body, build_openai_audio_multipart_text_fields,
+        build_openai_realtime_agent_session_update,
         build_reson8_prerecorded_request, build_vercel_gemini_request,
         build_vercel_gemini_request_body, elevenlabs_prerecorded_endpoint_url,
         gemini_file_request_timeout, is_elevenlabs_scribe_model,
@@ -3377,6 +3414,104 @@ mod tests {
         assert!(!supports_translation("gpt-transcribe"));
         assert!(!supports_translation("gpt-live-transcribe"));
         assert!(!supports_translation("gpt-realtime-whisper"));
+    }
+
+    #[test]
+    fn openai_and_groq_translations_omit_language_field_while_transcriptions_keep_it() {
+        let openai_translation = build_openai_audio_multipart_text_fields(
+            "whisper-1",
+            "json",
+            true,
+            Some("ru"),
+            Some("  Technical terms  "),
+        );
+        assert_eq!(
+            openai_translation,
+            vec![
+                ("model", "whisper-1".to_string()),
+                ("response_format", "json".to_string()),
+                ("prompt", "Technical terms".to_string()),
+            ]
+        );
+
+        let groq_translation = build_openai_audio_multipart_text_fields(
+            "whisper-large-v3",
+            "verbose_json",
+            true,
+            Some("ru"),
+            None,
+        );
+        assert_eq!(
+            groq_translation,
+            vec![
+                ("model", "whisper-large-v3".to_string()),
+                ("response_format", "verbose_json".to_string()),
+            ]
+        );
+
+        let transcription = build_openai_audio_multipart_text_fields(
+            "whisper-1",
+            "json",
+            false,
+            Some("ru"),
+            Some("  Technical terms  "),
+        );
+        assert_eq!(
+            transcription,
+            vec![
+                ("model", "whisper-1".to_string()),
+                ("response_format", "json".to_string()),
+                ("language", "ru".to_string()),
+                ("prompt", "Technical terms".to_string()),
+            ]
+        );
+
+        let zh_transcription = build_openai_audio_multipart_text_fields(
+            "whisper-large-v3",
+            "json",
+            false,
+            Some("zh-Hans"),
+            Some("   "),
+        );
+        assert_eq!(
+            zh_transcription,
+            vec![
+                ("model", "whisper-large-v3".to_string()),
+                ("response_format", "json".to_string()),
+                ("language", "zh".to_string()),
+            ]
+        );
+
+        let auto_transcription = build_openai_audio_multipart_text_fields(
+            "whisper-1",
+            "json",
+            false,
+            Some("auto"),
+            None,
+        );
+        assert_eq!(
+            auto_transcription,
+            vec![
+                ("model", "whisper-1".to_string()),
+                ("response_format", "json".to_string()),
+            ]
+        );
+
+        let plural_transcription = build_openai_audio_multipart_text_fields(
+            "gpt-transcribe",
+            "json",
+            false,
+            Some("ru"),
+            None,
+        );
+        assert_eq!(
+            plural_transcription,
+            vec![
+                ("model", "gpt-transcribe".to_string()),
+                ("response_format", "json".to_string()),
+                ("languages[]", "ru".to_string()),
+            ]
+        );
     }
 
     #[test]
