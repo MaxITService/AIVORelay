@@ -190,12 +190,8 @@ impl DeepgramRealtimeManager {
         trimmed.to_string()
     }
 
-    fn default_language_for_model(model: &str) -> &'static str {
-        if model.trim().eq_ignore_ascii_case("nova-3-medical") {
-            "en"
-        } else {
-            "multi"
-        }
+    fn default_language_for_model(_model: &str) -> &'static str {
+        "multi"
     }
 
     fn normalize_language(language: Option<String>, model: &str) -> Option<String> {
@@ -212,11 +208,66 @@ impl DeepgramRealtimeManager {
             }
         }
 
-        if lang == "zh-Hans" || lang == "zh-Hant" {
+        if lang == "zh-Hans" {
             return Some("zh".to_string());
         }
 
         Some(lang)
+    }
+
+    fn format_ws_error(payload: &Value, api_key: Option<&str>) -> String {
+        let code = payload
+            .get("err_code")
+            .or_else(|| payload.get("code"))
+            .and_then(|v| match v {
+                Value::String(s) => {
+                    let trimmed = s.trim();
+                    (!trimmed.is_empty()).then(|| trimmed.to_string())
+                }
+                Value::Number(n) => Some(n.to_string()),
+                _ => None,
+            });
+
+        let mut details: Vec<&str> = Vec::new();
+        for key in ["err_msg", "message", "description"] {
+            if let Some(text) = payload
+                .get(key)
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+            {
+                if !details
+                    .iter()
+                    .any(|existing| existing.eq_ignore_ascii_case(text))
+                {
+                    details.push(text);
+                }
+            }
+        }
+
+        let raw_message = match (code, details.is_empty()) {
+            (Some(code), false) => {
+                format!("Deepgram WebSocket error ({}): {}", code, details.join(": "))
+            }
+            (Some(code), true) => format!("Deepgram WebSocket error ({})", code),
+            (None, false) => format!("Deepgram WebSocket error: {}", details.join(": ")),
+            (None, true) => "Deepgram WebSocket returned an error".to_string(),
+        };
+
+        crate::managers::provider_error::safe_text(
+            &crate::managers::provider_error::redact_secrets(&raw_message, api_key),
+        )
+    }
+
+    fn check_ws_error_payload(payload: &Value, api_key: Option<&str>) -> Result<()> {
+        let msg_type = payload
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        if msg_type.eq_ignore_ascii_case("error") {
+            return Err(anyhow!("{}", Self::format_ws_error(payload, api_key)));
+        }
+        Ok(())
     }
 
     fn build_ws_url(model: &str, options: &DeepgramRealtimeOptions) -> Result<String> {
@@ -299,7 +350,7 @@ impl DeepgramRealtimeManager {
             &mut write, &mut read, audio_rx, control_rx, Arc::clone(&final_text),
             options.keepalive_interval_seconds.clamp(MIN_KEEPALIVE_INTERVAL_SECONDS, MAX_KEEPALIVE_INTERVAL_SECONDS),
             self.app_handle.clone(), super::history_replay::HISTORY_REPLAY_BINDING.to_string(),
-            None, options.diarize, Some(Arc::new(|_| {})),
+            None, options.diarize, api_key, Some(Arc::new(|_| {})),
         );
         replay.run_audio(
             samples, audio_tx, frame_16khz_mono_to_pcm_s16le_bytes,
@@ -392,6 +443,7 @@ impl DeepgramRealtimeManager {
                     binding_id_for_task.clone(),
                     live_sound_session_id,
                     options.diarize,
+                    &api_key_for_task,
                     on_final_chunk,
                 )
                 .await
@@ -496,6 +548,7 @@ impl DeepgramRealtimeManager {
         binding_id: String,
         live_sound_session_id: Option<u64>,
         diarize: bool,
+        api_key: &str,
         on_final_chunk: Option<FinalChunkCallback>,
     ) -> Result<()>
     where
@@ -591,6 +644,8 @@ impl DeepgramRealtimeManager {
                             if msg_type == "Metadata" {
                                 break;
                             }
+
+                            Self::check_ws_error_payload(&payload, Some(api_key))?;
 
                             if msg_type != "Results" {
                                 continue;
@@ -886,4 +941,92 @@ fn frame_16khz_mono_to_pcm_s16le_bytes(frame: &[f32]) -> Vec<u8> {
         out.extend_from_slice(&value.to_le_bytes());
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DeepgramRealtimeManager, DeepgramRealtimeOptions};
+
+    #[test]
+    fn nova_3_medical_auto_language_maps_to_multi() {
+        assert_eq!(
+            DeepgramRealtimeManager::normalize_language(Some("auto".to_string()), "nova-3-medical")
+                .as_deref(),
+            Some("multi")
+        );
+        assert_eq!(
+            DeepgramRealtimeManager::normalize_language(None, "nova-3-medical").as_deref(),
+            Some("multi")
+        );
+        assert_eq!(
+            DeepgramRealtimeManager::normalize_language(Some("".to_string()), "nova-3-medical")
+                .as_deref(),
+            Some("multi")
+        );
+
+        let options = DeepgramRealtimeOptions {
+            language: Some("auto".to_string()),
+            ..DeepgramRealtimeOptions::default()
+        };
+        let ws_url =
+            DeepgramRealtimeManager::build_ws_url("nova-3-medical", &options).expect("valid ws url");
+        assert!(ws_url.contains("language=multi"));
+    }
+
+    #[test]
+    fn traditional_chinese_languages_are_preserved() {
+        assert_eq!(
+            DeepgramRealtimeManager::normalize_language(Some("zh-Hant".to_string()), "nova-3")
+                .as_deref(),
+            Some("zh-Hant")
+        );
+        assert_eq!(
+            DeepgramRealtimeManager::normalize_language(Some("zh-TW".to_string()), "nova-3")
+                .as_deref(),
+            Some("zh-TW")
+        );
+        assert_eq!(
+            DeepgramRealtimeManager::normalize_language(Some("zh-HK".to_string()), "nova-3")
+                .as_deref(),
+            Some("zh-HK")
+        );
+        assert_eq!(
+            DeepgramRealtimeManager::normalize_language(Some("zh-Hans".to_string()), "nova-3")
+                .as_deref(),
+            Some("zh")
+        );
+    }
+
+    #[test]
+    fn ws_error_frame_returns_clear_redacted_error() {
+        let key = "dg-live-secret-54321";
+        let payload = serde_json::json!({
+            "type": "Error",
+            "err_code": "INVALID_AUTH",
+            "err_msg": format!("Unauthorized token {}", key),
+            "description": "Invalid credentials"
+        });
+        let err = DeepgramRealtimeManager::check_ws_error_payload(&payload, Some(key))
+            .expect_err("Error frame should fail");
+        let msg = err.to_string();
+        assert!(msg.contains("INVALID_AUTH"));
+        assert!(msg.contains("Invalid credentials"));
+        assert!(!msg.contains(key));
+        assert!(msg.contains("[redacted key, SHA-256:"));
+
+        let desc_only = serde_json::json!({
+            "type": "Error",
+            "message": "Bad Request",
+            "description": "Invalid model"
+        });
+        let err = DeepgramRealtimeManager::check_ws_error_payload(&desc_only, None)
+            .expect_err("Error frame with description should fail");
+        assert_eq!(
+            err.to_string(),
+            "Deepgram WebSocket error: Bad Request: Invalid model"
+        );
+
+        let results = serde_json::json!({ "type": "Results" });
+        assert!(DeepgramRealtimeManager::check_ws_error_payload(&results, Some(key)).is_ok());
+    }
 }
