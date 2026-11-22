@@ -52,6 +52,7 @@ const CANCELLED_OPERATIONS_CAPACITY: usize = 64;
 const MAX_KEYTERM_LIBRARY_TERMS: usize = 10_000;
 const MAX_KEYTERM_CHARS: usize = 50;
 const MAX_KEYTERM_LIBRARY_JSON_BYTES: usize = 1_900_000;
+const ELEVENLABS_ZERO_RETENTION_HINT: &str = "Your ElevenLabs plan may not allow zero data retention. Turn off \"Don't let ElevenLabs keep data\" in Remote STT settings.";
 
 static XI_API_KEY_HEADER_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)(xi-api-key\s*[:=]\s*)([^\s,;]+)").expect("valid regex"));
@@ -431,6 +432,7 @@ impl ElevenLabsRealtimeManager {
         let api_key_for_task = api_key.trim().to_string();
         let show_preview = options.show_preview;
         let diarize = options.diarize;
+        let zero_retention = options.zero_retention;
         let sanitized_keyterms = sanitize_keyterm_library(&options.keyterm_library);
         let session_audio_tx = audio_tx.clone();
         let session_control_tx = control_tx.clone();
@@ -476,6 +478,7 @@ impl ElevenLabsRealtimeManager {
                     on_final_chunk,
                     api_key_for_task.clone(),
                     diarize,
+                    zero_retention,
                     sanitized_keyterms,
                     events,
                 )
@@ -742,6 +745,7 @@ impl ElevenLabsRealtimeManager {
             None,
             api_key_for_loop,
             options.diarize,
+            options.zero_retention,
             sanitized_keyterms,
             SessionEvents {
                 on_partial: Box::new(|_, _| {}),
@@ -778,6 +782,7 @@ impl ElevenLabsRealtimeManager {
         on_final_chunk: Option<FinalChunkCallback>,
         api_key: String,
         diarize: bool,
+        zero_retention: bool,
         keyterm_library: Vec<String>,
         events: SessionEvents,
     ) -> Result<()>
@@ -794,6 +799,7 @@ impl ElevenLabsRealtimeManager {
             on_final_chunk,
             api_key,
             diarize,
+            zero_retention,
             keyterm_library,
             events,
             Duration::from_millis(STREAMING_COMMIT_ACK_TIMEOUT_MS),
@@ -812,6 +818,7 @@ impl ElevenLabsRealtimeManager {
         on_final_chunk: Option<FinalChunkCallback>,
         api_key: String,
         diarize: bool,
+        zero_retention: bool,
         keyterm_library: Vec<String>,
         events: SessionEvents,
         streaming_ack_timeout: Duration,
@@ -824,7 +831,7 @@ impl ElevenLabsRealtimeManager {
         let mut audio_input_closed = false;
         let mut control_closed = false;
         let mut sent_first_chunk = false;
-        let mut state = ManualSessionState::new(diarize);
+        let mut state = ManualSessionState::new(diarize, zero_retention);
         let mut finalize_sleep: Option<Pin<Box<tokio::time::Sleep>>> = None;
         let mut streaming_ack_sleep: Option<Pin<Box<tokio::time::Sleep>>> = None;
 
@@ -1257,9 +1264,15 @@ impl ElevenLabsRealtimeManager {
                         (events.on_speakers_merged)(&from_speaker_id, &to_speaker_id);
                     }
                     ServerEvent::Warning(warning_message) => {
+                        let redacted = redact_elevenlabs_secrets(&warning_message, api_key);
+                        if state.zero_retention && is_elevenlabs_zero_retention_warning(&redacted) {
+                            return Err(anyhow!(
+                                "{redacted} {ELEVENLABS_ZERO_RETENTION_HINT}"
+                            ));
+                        }
                         warn!(
                             "ElevenLabs live session non-fatal warning: {}",
-                            redact_elevenlabs_secrets(&warning_message, api_key)
+                            redacted
                         );
                     }
                     ServerEvent::Ignore => {}
@@ -1289,6 +1302,7 @@ impl ElevenLabsRealtimeManager {
 
 struct ManualSessionState {
     diarize: bool,
+    zero_retention: bool,
     active_segment_pcm_bytes: usize,
     pending_audio_remainder: Option<Vec<u8>>,
     pending_commits: usize,
@@ -1304,9 +1318,10 @@ struct ManualSessionState {
 }
 
 impl ManualSessionState {
-    fn new(diarize: bool) -> Self {
+    fn new(diarize: bool, zero_retention: bool) -> Self {
         Self {
             diarize,
+            zero_retention,
             active_segment_pcm_bytes: 0,
             pending_audio_remainder: None,
             pending_commits: 0,
@@ -1742,6 +1757,13 @@ fn parse_server_event(payload: &Value, api_key: &str) -> Result<ServerEvent> {
             Ok(ServerEvent::Ignore)
         }
     }
+}
+
+fn is_elevenlabs_zero_retention_warning(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    ["zero retention", "zero-retention", "zrm", "enable_logging"]
+        .iter()
+        .any(|needle| lower.contains(needle))
 }
 
 fn parse_optional_u64(value: Option<&Value>) -> Option<u64> {
@@ -2784,6 +2806,7 @@ mod tests {
             None,
             "k".to_string(),
             false,
+            false,
             Vec::new(),
             SessionEvents {
                 on_partial: Box::new(|_, _| {}),
@@ -2796,6 +2819,138 @@ mod tests {
         .unwrap();
 
         assert_eq!(*final_text.lock(), "Recovered.");
+    }
+
+    #[tokio::test]
+    async fn session_loop_aborts_on_zero_retention_warning_with_actionable_hint() {
+        assert!(is_elevenlabs_zero_retention_warning(
+            "Zero retention mode was requested (enable_logging=false) but was not applied. Only users from the enterprise or trial tier can use ZRM mode. This session is still being logged."
+        ));
+        assert!(is_elevenlabs_zero_retention_warning(
+            "Zero-retention is not enabled for this workspace"
+        ));
+        assert!(is_elevenlabs_zero_retention_warning(
+            "ZRM is only available on Enterprise plans"
+        ));
+        assert!(is_elevenlabs_zero_retention_warning(
+            "Parameter enable_logging=false was ignored"
+        ));
+        assert!(!is_elevenlabs_zero_retention_warning(
+            "Non-fatal retention notice"
+        ));
+        assert!(!is_elevenlabs_zero_retention_warning(
+            "Approaching session time limit"
+        ));
+
+        let (_audio_tx, audio_rx) = mpsc::channel(4);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let final_text = Arc::new(Mutex::new(String::new()));
+        let mut sink = VecSink::new();
+        let warning_text = "Zero retention mode was requested (enable_logging=false) but was not applied. Only users from the enterprise or trial tier can use ZRM mode. This session is still being logged.";
+        let mut stream = futures_util::stream::iter(vec![server_frame(json!({
+            "message_type": "warning",
+            "warning": warning_text,
+        }))])
+        .chain(futures_util::stream::pending())
+        .boxed();
+
+        let err = tokio::time::timeout(
+            Duration::from_secs(1),
+            ElevenLabsRealtimeManager::drive_session_loop(
+                &mut sink,
+                &mut stream,
+                audio_rx,
+                control_rx,
+                Arc::clone(&final_text),
+                None,
+                "secret-key".to_string(),
+                false,
+                true,
+                Vec::new(),
+                noop_session_events(),
+            ),
+        )
+        .await
+        .expect("zero-retention warning must abort promptly")
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("Zero retention mode was requested"), "{err}");
+        assert!(err.contains(ELEVENLABS_ZERO_RETENTION_HINT), "{err}");
+        assert!(
+            err.contains("Turn off \"Don't let ElevenLabs keep data\" in Remote STT settings."),
+            "{err}"
+        );
+        assert!(!err.contains("secret-key"));
+        assert!(sink.closed);
+        assert!(final_text.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn session_loop_keeps_non_zrm_warnings_nonfatal_when_zero_retention_enabled() {
+        let (audio_tx, audio_rx) = mpsc::channel(4);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let final_text = Arc::new(Mutex::new(String::new()));
+
+        audio_tx.send(vec![1, 2]).await.unwrap();
+        drop(audio_tx);
+        control_tx.send(ControlMessage::Finish).unwrap();
+
+        let mut sink = VecSink::new();
+        let (tail_sent_tx, tail_sent_rx) = tokio::sync::oneshot::channel();
+        sink.tail_commit_sent = Some(tail_sent_tx);
+
+        let mut stream = futures_util::stream::iter(vec![server_frame(json!({
+            "message_type": "warning",
+            "warning": "Approaching session time limit",
+        }))])
+        .chain(futures_util::stream::once(async move {
+            tail_sent_rx.await.unwrap();
+            server_frame(json!({
+                "message_type": "committed_transcript",
+                "text": "Still works.",
+            }))
+        }))
+        .boxed();
+
+        ElevenLabsRealtimeManager::drive_session_loop(
+            &mut sink,
+            &mut stream,
+            audio_rx,
+            control_rx,
+            Arc::clone(&final_text),
+            None,
+            "secret-key".to_string(),
+            false,
+            true,
+            Vec::new(),
+            noop_session_events(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(*final_text.lock(), "Still works.");
+
+        // ZRM warnings also stay non-fatal when zero_retention is disabled.
+        let mut warning_sink = VecSink::new();
+        let mut state = ManualSessionState::new(false, false);
+        let text = Arc::new(Mutex::new(String::new()));
+        let keep_running = ElevenLabsRealtimeManager::handle_incoming_frame(
+            Some(server_frame(json!({
+                "message_type": "warning",
+                "warning": "Zero retention mode was requested (enable_logging=false) but was not applied.",
+            }))),
+            &mut warning_sink,
+            "secret-key",
+            &mut state,
+            &text,
+            &None,
+            &noop_session_events(),
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(keep_running);
     }
 
     #[tokio::test]
@@ -2821,6 +2976,7 @@ mod tests {
             Arc::clone(&final_text),
             Some(cb),
             "k".to_string(),
+            false,
             false,
             Vec::new(),
             SessionEvents {
@@ -2902,6 +3058,7 @@ mod tests {
                 final_text,
                 None,
                 "key".to_string(),
+                false,
                 false,
                 Vec::new(),
                 SessionEvents {
@@ -3036,7 +3193,7 @@ mod tests {
             ElevenLabsRealtimeManager::drive_session_loop(
                 &mut sink, &mut stream, audio_rx, control_rx, text.clone(),
                 Some(Arc::new(move |chunk| chunks_cb.lock().push(chunk))),
-                "secret".into(), false, vec!["AivoRelay".into()], noop_session_events(),
+                "secret".into(), false, false, vec!["AivoRelay".into()], noop_session_events(),
             )).await.unwrap().unwrap();
         let mut output = Vec::new();
         let mut segment_bytes = 0;
@@ -3113,7 +3270,7 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(2),
             ElevenLabsRealtimeManager::drive_session_loop(
                 &mut sink, &mut stream, audio_rx, control_rx, text.clone(), None,
-                "secret".into(), false, Vec::new(), noop_session_events(),
+                "secret".into(), false, false, Vec::new(), noop_session_events(),
             )).await.unwrap().unwrap();
         assert_eq!(*text.lock(), "Part1. Part2.");
         peer.abort();
@@ -3151,7 +3308,7 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1),
             ElevenLabsRealtimeManager::drive_session_loop(
                 &mut sink, &mut stream, audio_rx, control_rx, text.clone(), None,
-                "secret".into(), true, Vec::new(), events,
+                "secret".into(), true, false, Vec::new(), events,
             )).await.unwrap().unwrap();
         assert_eq!(*text.lock(), "Hello.");
         assert_eq!(*seen.lock(), vec![Some(3), Some(4)]);
@@ -3168,7 +3325,7 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1),
             ElevenLabsRealtimeManager::drive_session_loop(
                 &mut sink, &mut stream, audio_rx, control_rx, Arc::new(Mutex::new(String::new())),
-                None, "secret".into(), false, Vec::new(), noop_session_events(),
+                None, "secret".into(), false, false, Vec::new(), noop_session_events(),
             )).await.unwrap().unwrap();
         assert!(sink.sent.is_empty());
         assert!(sink.closed);
@@ -3201,7 +3358,7 @@ mod tests {
             let error = tokio::time::timeout(Duration::from_secs(1),
                 ElevenLabsRealtimeManager::drive_session_loop_with_timeouts(
                     &mut sink, &mut stream, audio_rx, control_rx, text.clone(), None,
-                    "secret".into(), diarize, Vec::new(), noop_session_events(),
+                    "secret".into(), diarize, false, Vec::new(), noop_session_events(),
                     Duration::from_millis(100), Duration::from_millis(100),
                 )).await.unwrap().unwrap_err().to_string();
             assert!(error.contains(expected), "{error}");
@@ -3235,7 +3392,7 @@ mod tests {
             let result = tokio::time::timeout(Duration::from_secs(1),
                 ElevenLabsRealtimeManager::drive_session_loop(
                     &mut sink, &mut stream, audio_rx, control_rx, text.clone(), None,
-                    "secret".into(), false, Vec::new(), noop_session_events(),
+                    "secret".into(), false, false, Vec::new(), noop_session_events(),
                 )).await.unwrap();
             assert_eq!(result.is_err(), overflow);
             assert!(text.lock().is_empty());
@@ -3251,7 +3408,7 @@ mod tests {
 
     #[test]
     fn turn_commit_requires_enough_real_audio_and_a_completed_turn() {
-        let mut state = ManualSessionState::new(false);
+        let mut state = ManualSessionState::new(false, false);
         state.active_segment_pcm_bytes = SOFT_COMMIT_MIN_PCM_BYTES - 2;
         state.has_nonempty_speech_partial = true;
         state.latest_turn_probability = Some(0.99);
@@ -3274,7 +3431,7 @@ mod tests {
             Ok(Message::Close(None)),
         ] {
             let mut sink = VecSink::new();
-            let mut state = ManualSessionState::new(false);
+            let mut state = ManualSessionState::new(false, false);
             let text = Arc::new(Mutex::new(String::new()));
             assert!(ElevenLabsRealtimeManager::handle_incoming_frame(
                 Some(frame), &mut sink, "secret", &mut state, &text,
