@@ -54,6 +54,15 @@ struct ReasoningParams {
     exclude: Option<bool>,
 }
 
+/// Thinking object for Anthropic OpenAI-compatibility and Z.AI APIs
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+struct ThinkingParams {
+    #[serde(rename = "type")]
+    thinking_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    budget_tokens: Option<u32>,
+}
+
 #[derive(Debug, Serialize)]
 struct ChatCompletionRequest {
     model: String,
@@ -66,7 +75,43 @@ struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning_effort: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     reasoning: Option<ReasoningParams>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<ThinkingParams>,
+}
+
+impl ChatCompletionRequest {
+    fn new(
+        model: &str,
+        messages: Vec<ChatMessage>,
+        stream: bool,
+        reasoning_options: ReasoningRequestOptions,
+    ) -> Self {
+        Self {
+            model: model.to_string(),
+            messages,
+            stream,
+            max_tokens: reasoning_options.max_tokens,
+            max_completion_tokens: reasoning_options.max_completion_tokens,
+            reasoning_effort: reasoning_options.reasoning_effort,
+            reasoning_format: reasoning_options.reasoning_format,
+            reasoning: reasoning_options.reasoning,
+            thinking: reasoning_options.thinking,
+        }
+    }
+
+    fn without_reasoning_controls(model: &str, messages: Vec<ChatMessage>, stream: bool) -> Self {
+        Self::new(model, messages, stream, ReasoningRequestOptions::default())
+    }
+
+    fn has_reasoning_controls(&self) -> bool {
+        self.reasoning.is_some()
+            || self.reasoning_effort.is_some()
+            || self.reasoning_format.is_some()
+            || self.thinking.is_some()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -74,7 +119,18 @@ struct ReasoningRequestOptions {
     max_tokens: Option<u32>,
     max_completion_tokens: Option<u32>,
     reasoning_effort: Option<String>,
+    reasoning_format: Option<String>,
     reasoning: Option<ReasoningParams>,
+    thinking: Option<ThinkingParams>,
+}
+
+/// Map a token budget (min 1024, default 2048) to standard OpenAI-style reasoning effort levels.
+fn reasoning_effort_for_budget(budget: u32) -> &'static str {
+    match budget {
+        ..=1536 => "low",
+        1537..=4096 => "medium",
+        _ => "high",
+    }
 }
 
 fn groq_reasoning_effort(model: &str, enabled: bool) -> Option<&'static str> {
@@ -95,46 +151,104 @@ fn groq_reasoning_effort(model: &str, enabled: bool) -> Option<&'static str> {
 }
 
 fn reasoning_request_options(
-    provider_id: &str,
+    provider: &PostProcessProvider,
     model: &str,
     reasoning: &ReasoningConfig,
 ) -> ReasoningRequestOptions {
+    let provider_id = provider.id.as_str();
+
     if reasoning.enabled {
-        let budget = reasoning.budget.max(1024);
+        let budget = reasoning.budget.clamp(1024, u32::MAX - 2000);
         let total = (budget + 2000).max(4000);
 
-        if provider_id == "groq" {
-            return if let Some(effort) = groq_reasoning_effort(model, true) {
+        if is_openrouter_provider(provider) {
+            debug!(
+                "Extended Thinking enabled for OpenRouter: reasoning_budget={}, max_tokens={}",
+                budget, total
+            );
+            return ReasoningRequestOptions {
+                max_tokens: Some(total),
+                reasoning: Some(ReasoningParams {
+                    max_tokens: Some(budget),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+        }
+
+        return match provider_id {
+            "groq" => {
+                if let Some(effort) = groq_reasoning_effort(model, true) {
+                    debug!(
+                        "Extended Thinking enabled for Groq with effort='{}', max_completion_tokens={}",
+                        effort, total
+                    );
+                    ReasoningRequestOptions {
+                        max_completion_tokens: Some(total),
+                        reasoning_effort: Some(effort.to_string()),
+                        ..Default::default()
+                    }
+                } else {
+                    ReasoningRequestOptions::default()
+                }
+            }
+            "anthropic" => {
                 debug!(
-                    "Extended Thinking enabled for Groq with effort='{}', max_completion_tokens={}",
-                    effort, total
+                    "Extended Thinking enabled for Anthropic: budget_tokens={}, max_tokens={}",
+                    budget, total
+                );
+                ReasoningRequestOptions {
+                    max_tokens: Some(total),
+                    thinking: Some(ThinkingParams {
+                        thinking_type: "enabled".to_string(),
+                        budget_tokens: Some(budget),
+                    }),
+                    ..Default::default()
+                }
+            }
+            "zai" => {
+                debug!("Extended Thinking enabled for Z.AI");
+                ReasoningRequestOptions {
+                    thinking: Some(ThinkingParams {
+                        thinking_type: "enabled".to_string(),
+                        budget_tokens: None,
+                    }),
+                    ..Default::default()
+                }
+            }
+            // OpenAI, Cerebras, AWS Bedrock (Mantle), Custom, and other OpenAI-compatible providers
+            _ => {
+                let effort = reasoning_effort_for_budget(budget);
+                debug!(
+                    "Extended Thinking enabled for '{}' with reasoning_effort='{}', max_completion_tokens={}",
+                    provider_id, effort, total
                 );
                 ReasoningRequestOptions {
                     max_completion_tokens: Some(total),
                     reasoning_effort: Some(effort.to_string()),
                     ..Default::default()
                 }
-            } else {
-                ReasoningRequestOptions::default()
-            };
-        }
-
-        debug!(
-            "Extended Thinking enabled: reasoning_budget={}, max_tokens={}",
-            budget, total
-        );
-        return ReasoningRequestOptions {
-            max_tokens: Some(total),
-            reasoning: Some(ReasoningParams {
-                max_tokens: Some(budget),
-                ..Default::default()
-            }),
-            ..Default::default()
+            }
         };
     }
 
     if !reasoning.disable_by_default_on_compatible_providers {
         return ReasoningRequestOptions::default();
+    }
+
+    if is_openrouter_provider(provider) {
+        debug!(
+            "Disabling default provider reasoning for post-processing on '{}'",
+            provider_id
+        );
+        return ReasoningRequestOptions {
+            reasoning: Some(ReasoningParams {
+                effort: Some("none".to_string()),
+                exclude: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
     }
 
     match provider_id {
@@ -162,16 +276,15 @@ fn reasoning_request_options(
                 ReasoningRequestOptions::default()
             }
         }
-        "openrouter" => {
+        "zai" => {
             debug!(
                 "Disabling default provider reasoning for post-processing on '{}'",
                 provider_id
             );
             ReasoningRequestOptions {
-                reasoning: Some(ReasoningParams {
-                    effort: Some("none".to_string()),
-                    exclude: Some(true),
-                    ..Default::default()
+                thinking: Some(ThinkingParams {
+                    thinking_type: "disabled".to_string(),
+                    budget_tokens: None,
                 }),
                 ..Default::default()
             }
@@ -498,8 +611,7 @@ fn may_retry_without_reasoning(
     let must_preserve_groq_qwen_off = provider.id == "groq"
         && !reasoning.enabled
         && request.reasoning_effort.as_deref() == Some("none");
-    (request.reasoning.is_some() || request.reasoning_effort.is_some())
-        && !must_preserve_groq_qwen_off
+    request.has_reasoning_controls() && !must_preserve_groq_qwen_off
 }
 
 fn extract_completion_content(completion: &ChatCompletionResponse) -> Option<String> {
@@ -561,17 +673,10 @@ async fn send_chat_completion_with_messages_at_base_url(
 
     let client = create_client(provider, &api_key)?;
 
-    let reasoning_options = reasoning_request_options(&provider.id, model, &reasoning);
+    let reasoning_options = reasoning_request_options(provider, model, &reasoning);
 
-    let request_body = ChatCompletionRequest {
-        model: model.to_string(),
-        messages: messages.clone(),
-        stream: false,
-        max_tokens: reasoning_options.max_tokens,
-        max_completion_tokens: reasoning_options.max_completion_tokens,
-        reasoning_effort: reasoning_options.reasoning_effort,
-        reasoning: reasoning_options.reasoning,
-    };
+    let request_body =
+        ChatCompletionRequest::new(model, messages.clone(), false, reasoning_options);
 
     let response = client
         .post(&url)
@@ -600,15 +705,8 @@ async fn send_chat_completion_with_messages_at_base_url(
         );
 
         // Retry without reasoning
-        let fallback_request = ChatCompletionRequest {
-            model: model.to_string(),
-            messages,
-            stream: false,
-            max_tokens: None,
-            max_completion_tokens: None,
-            reasoning_effort: None,
-            reasoning: None,
-        };
+        let fallback_request =
+            ChatCompletionRequest::without_reasoning_controls(model, messages, false);
 
         let fallback_response = client
             .post(&url)
@@ -778,16 +876,9 @@ async fn stream_chat_completion_with_messages_at_base_url(
     );
 
     let client = create_client(provider, &api_key)?;
-    let reasoning_options = reasoning_request_options(&provider.id, model, &reasoning);
-    let request_body = ChatCompletionRequest {
-        model: model.to_string(),
-        messages: messages.clone(),
-        stream: true,
-        max_tokens: reasoning_options.max_tokens,
-        max_completion_tokens: reasoning_options.max_completion_tokens,
-        reasoning_effort: reasoning_options.reasoning_effort,
-        reasoning: reasoning_options.reasoning,
-    };
+    let reasoning_options = reasoning_request_options(provider, model, &reasoning);
+    let request_body =
+        ChatCompletionRequest::new(model, messages.clone(), true, reasoning_options);
 
     let mut response = client
         .post(&url)
@@ -815,15 +906,8 @@ async fn stream_chat_completion_with_messages_at_base_url(
             status, error_text
         );
 
-        let fallback_request = ChatCompletionRequest {
-            model: model.to_string(),
-            messages: messages.clone(),
-            stream: true,
-            max_tokens: None,
-            max_completion_tokens: None,
-            reasoning_effort: None,
-            reasoning: None,
-        };
+        let fallback_request =
+            ChatCompletionRequest::without_reasoning_controls(model, messages.clone(), true);
         response = client
             .post(&url)
             .json(&fallback_request)
@@ -1347,18 +1431,15 @@ mod tests {
     fn request_json_with_reasoning_options(
         reasoning_options: ReasoningRequestOptions,
     ) -> serde_json::Value {
-        let request = ChatCompletionRequest {
-            model: "test-model".to_string(),
-            messages: vec![ChatMessage {
+        let request = ChatCompletionRequest::new(
+            "test-model",
+            vec![ChatMessage {
                 role: "user".to_string(),
                 content: "hi".to_string(),
             }],
-            stream: false,
-            max_tokens: reasoning_options.max_tokens,
-            max_completion_tokens: reasoning_options.max_completion_tokens,
-            reasoning_effort: reasoning_options.reasoning_effort,
-            reasoning: reasoning_options.reasoning,
-        };
+            false,
+            reasoning_options,
+        );
         serde_json::to_value(&request).unwrap()
     }
 
@@ -2033,7 +2114,7 @@ mod tests {
     #[test]
     fn groq_qwen_disables_reasoning_with_documented_effort() {
         let reasoning = ReasoningConfig::from_user_toggle(false, 2048);
-        let options = reasoning_request_options("groq", "qwen/qwen3.6-27b", &reasoning);
+        let options = reasoning_request_options(&test_provider("groq"), "qwen/qwen3.6-27b", &reasoning);
         let json = request_json_with_reasoning_options(options);
 
         assert_eq!(json["reasoning_effort"], "none");
@@ -2045,7 +2126,8 @@ mod tests {
     #[test]
     fn groq_non_qwen_omits_unsupported_none_effort() {
         let reasoning = ReasoningConfig::from_user_toggle(false, 2048);
-        let options = reasoning_request_options("groq", "openai/gpt-oss-120b", &reasoning);
+        let options =
+            reasoning_request_options(&test_provider("groq"), "openai/gpt-oss-120b", &reasoning);
         let json = request_json_with_reasoning_options(options);
 
         assert!(json.get("reasoning_effort").is_none());
@@ -2055,7 +2137,7 @@ mod tests {
     #[test]
     fn groq_qwen_enables_reasoning_with_documented_effort() {
         let reasoning = ReasoningConfig::new(true, 1024);
-        let options = reasoning_request_options("groq", "qwen/qwen3.6-27b", &reasoning);
+        let options = reasoning_request_options(&test_provider("groq"), "qwen/qwen3.6-27b", &reasoning);
         let json = request_json_with_reasoning_options(options);
 
         assert_eq!(json["reasoning_effort"], "default");
@@ -2067,7 +2149,8 @@ mod tests {
     #[test]
     fn groq_gpt_oss_uses_documented_reasoning_effort() {
         let reasoning = ReasoningConfig::new(true, 1024);
-        let options = reasoning_request_options("groq", "openai/gpt-oss-120b", &reasoning);
+        let options =
+            reasoning_request_options(&test_provider("groq"), "openai/gpt-oss-120b", &reasoning);
         let json = request_json_with_reasoning_options(options);
 
         assert_eq!(json["reasoning_effort"], "medium");
@@ -2079,7 +2162,7 @@ mod tests {
     #[test]
     fn undocumented_groq_qwen_variant_omits_reasoning_controls() {
         let reasoning = ReasoningConfig::from_user_toggle(false, 2048);
-        let options = reasoning_request_options("groq", "qwen/qwen3-future", &reasoning);
+        let options = reasoning_request_options(&test_provider("groq"), "qwen/qwen3-future", &reasoning);
         let json = request_json_with_reasoning_options(options);
 
         assert!(json.get("reasoning_effort").is_none());
@@ -2326,6 +2409,242 @@ mod tests {
             requests.recv().await.unwrap(),
             "GET /v2/catalog HTTP/1.1"
         );
+    }
+
+    #[test]
+    fn openrouter_reasoning_schema_for_on_and_off() {
+        let mut custom_openrouter = test_provider("custom");
+        custom_openrouter.base_url = "https://openrouter.ai/api/v1".to_string();
+
+        for provider in [test_provider("openrouter"), custom_openrouter] {
+            let on = request_json_with_reasoning_options(reasoning_request_options(
+                &provider,
+                "anthropic/claude-sonnet-4",
+                &ReasoningConfig::from_user_toggle(true, 2048),
+            ));
+            assert_eq!(on["reasoning"]["max_tokens"], 2048);
+            assert_eq!(on["max_tokens"], 4048);
+            assert!(on.get("max_completion_tokens").is_none());
+            assert!(on.get("reasoning_effort").is_none());
+            assert!(on.get("thinking").is_none());
+
+            let off = request_json_with_reasoning_options(reasoning_request_options(
+                &provider,
+                "anthropic/claude-sonnet-4",
+                &ReasoningConfig::from_user_toggle(false, 2048),
+            ));
+            assert_eq!(off["reasoning"]["effort"], "none");
+            assert_eq!(off["reasoning"]["exclude"], true);
+            assert!(off.get("max_tokens").is_none());
+            assert!(off.get("max_completion_tokens").is_none());
+            assert!(off.get("reasoning_effort").is_none());
+            assert!(off.get("thinking").is_none());
+        }
+    }
+
+    #[test]
+    fn openai_reasoning_schema_for_on_and_off() {
+        let provider = test_provider("openai");
+
+        let on_low = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "o4-mini",
+            &ReasoningConfig::from_user_toggle(true, 1024),
+        ));
+        assert_eq!(on_low["reasoning_effort"], "low");
+        assert_eq!(on_low["max_completion_tokens"], 4000);
+        assert!(on_low.get("max_tokens").is_none());
+        assert!(on_low.get("reasoning").is_none());
+        assert!(on_low.get("thinking").is_none());
+
+        let on_medium = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "o4-mini",
+            &ReasoningConfig::from_user_toggle(true, 2048),
+        ));
+        assert_eq!(on_medium["reasoning_effort"], "medium");
+        assert_eq!(on_medium["max_completion_tokens"], 4048);
+
+        let on_high = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "o4-mini",
+            &ReasoningConfig::from_user_toggle(true, 8192),
+        ));
+        assert_eq!(on_high["reasoning_effort"], "high");
+        assert_eq!(on_high["max_completion_tokens"], 10192);
+
+        let off = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "gpt-4o",
+            &ReasoningConfig::from_user_toggle(false, 2048),
+        ));
+        assert!(off.get("reasoning_effort").is_none());
+        assert!(off.get("reasoning").is_none());
+        assert!(off.get("thinking").is_none());
+        assert!(off.get("max_tokens").is_none());
+        assert!(off.get("max_completion_tokens").is_none());
+    }
+
+    #[test]
+    fn anthropic_reasoning_schema_for_on_and_off() {
+        let provider = test_provider("anthropic");
+
+        let on_clamped = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "claude-sonnet-4-5",
+            &ReasoningConfig {
+                enabled: true,
+                budget: 512,
+                disable_by_default_on_compatible_providers: true,
+            },
+        ));
+        assert_eq!(on_clamped["thinking"]["type"], "enabled");
+        assert_eq!(on_clamped["thinking"]["budget_tokens"], 1024);
+        assert_eq!(on_clamped["max_tokens"], 4000);
+        assert!(
+            on_clamped["max_tokens"].as_u64().unwrap()
+                > on_clamped["thinking"]["budget_tokens"].as_u64().unwrap()
+        );
+        assert!(on_clamped.get("reasoning").is_none());
+        assert!(on_clamped.get("reasoning_effort").is_none());
+        assert!(on_clamped.get("max_completion_tokens").is_none());
+
+        let on_large = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "claude-sonnet-4-5",
+            &ReasoningConfig::from_user_toggle(true, 4096),
+        ));
+        assert_eq!(on_large["thinking"]["type"], "enabled");
+        assert_eq!(on_large["thinking"]["budget_tokens"], 4096);
+        assert_eq!(on_large["max_tokens"], 6096);
+
+        let off = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "claude-sonnet-4-5",
+            &ReasoningConfig::from_user_toggle(false, 2048),
+        ));
+        assert!(off.get("thinking").is_none());
+        assert!(off.get("reasoning").is_none());
+        assert!(off.get("reasoning_effort").is_none());
+        assert!(off.get("max_tokens").is_none());
+    }
+
+    #[test]
+    fn zai_reasoning_schema_for_on_and_off() {
+        let provider = test_provider("zai");
+
+        let on = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "glm-4.5",
+            &ReasoningConfig::from_user_toggle(true, 2048),
+        ));
+        assert_eq!(on["thinking"]["type"], "enabled");
+        assert!(on["thinking"].get("budget_tokens").is_none());
+        assert!(on.get("reasoning").is_none());
+        assert!(on.get("reasoning_effort").is_none());
+        assert!(on.get("max_tokens").is_none());
+        assert!(on.get("max_completion_tokens").is_none());
+
+        let off = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "glm-4.5",
+            &ReasoningConfig::from_user_toggle(false, 2048),
+        ));
+        assert_eq!(off["thinking"]["type"], "disabled");
+        assert!(off["thinking"].get("budget_tokens").is_none());
+        assert!(off.get("reasoning").is_none());
+        assert!(off.get("reasoning_effort").is_none());
+    }
+
+    #[tokio::test]
+    async fn zai_off_400_retries_without_thinking_for_forced_thinking_models() {
+        let (base_url, mut requests) = serve_captured_responses(vec![
+            mock_response(
+                "400 Bad Request",
+                "application/json",
+                r#"{"error":"thinking cannot be disabled for this model"}"#,
+            ),
+            mock_response(
+                "200 OK",
+                "application/json",
+                r#"{"choices":[{"message":{"content":"forced thinking answer","reasoning_content":"internal"}}]}"#,
+            ),
+        ])
+        .await;
+
+        let result = send_chat_completion_with_messages_at_base_url(
+            &test_provider("zai"),
+            "not-a-real-key".to_string(),
+            "glm-5.3",
+            hello_messages(),
+            ReasoningConfig::from_user_toggle(false, 2048),
+            &base_url,
+        )
+        .await
+        .unwrap();
+
+        let first = requests.recv().await.unwrap();
+        let retry = requests.recv().await.unwrap();
+
+        assert_eq!(result.as_deref(), Some("forced thinking answer"));
+        assert_eq!(first.body["thinking"]["type"], "disabled");
+        assert!(retry.body.get("thinking").is_none());
+        assert!(retry.body.get("reasoning").is_none());
+        assert!(retry.body.get("reasoning_effort").is_none());
+        assert!(retry.body.get("reasoning_format").is_none());
+    }
+
+    #[test]
+    fn bedrock_mantle_and_cerebras_reasoning_schema_for_on_and_off() {
+        for provider_id in ["bedrock_mantle", "cerebras"] {
+            let provider = test_provider(provider_id);
+            let on = request_json_with_reasoning_options(reasoning_request_options(
+                &provider,
+                "reasoning-model",
+                &ReasoningConfig::from_user_toggle(true, 2048),
+            ));
+            assert_eq!(on["reasoning_effort"], "medium");
+            assert_eq!(on["max_completion_tokens"], 4048);
+            assert!(on.get("max_tokens").is_none());
+            assert!(on.get("reasoning").is_none());
+            assert!(on.get("thinking").is_none());
+        }
+
+        let bedrock_off = request_json_with_reasoning_options(reasoning_request_options(
+            &test_provider("bedrock_mantle"),
+            "reasoning-model",
+            &ReasoningConfig::from_user_toggle(false, 2048),
+        ));
+        assert!(bedrock_off.get("reasoning_effort").is_none());
+        assert!(bedrock_off.get("reasoning").is_none());
+        assert!(bedrock_off.get("thinking").is_none());
+    }
+
+    #[test]
+    fn custom_provider_reasoning_schema_is_symmetric_for_on_and_off() {
+        let provider = test_provider("custom");
+
+        let on = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "my-model",
+            &ReasoningConfig::from_user_toggle(true, 2048),
+        ));
+        assert_eq!(on["reasoning_effort"], "medium");
+        assert_eq!(on["max_completion_tokens"], 4048);
+        assert!(on.get("max_tokens").is_none());
+        assert!(on.get("reasoning").is_none());
+        assert!(on.get("thinking").is_none());
+
+        let off = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "my-model",
+            &ReasoningConfig::from_user_toggle(false, 2048),
+        ));
+        assert_eq!(off["reasoning_effort"], "none");
+        assert!(off.get("max_tokens").is_none());
+        assert!(off.get("max_completion_tokens").is_none());
+        assert!(off.get("reasoning").is_none());
+        assert!(off.get("thinking").is_none());
     }
 }
 
