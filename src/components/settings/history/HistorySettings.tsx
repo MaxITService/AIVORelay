@@ -16,7 +16,18 @@ import {
   RotateCcw,
   Search,
   X,
+  Copy,
+  Download,
+  Lightbulb,
 } from "lucide-react";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
+import {
+  buildHistoryExport,
+  fetchEntireHistory,
+  historyExportFileName,
+  serializeHistoryExport,
+} from "./historyExport";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { platform } from "@tauri-apps/plugin-os";
@@ -241,19 +252,47 @@ type HistoryUpdatePayload =
 
 interface HistoryActionsProps {
   deleteAllDisabled: boolean;
+  exportDisabled: boolean;
   onDeleteAll: () => void;
   onOpenRecordings: () => void;
+  onCopyJson: () => void;
+  onExportFile: () => void;
 }
 
 const HistoryActions: React.FC<HistoryActionsProps> = ({
   deleteAllDisabled,
+  exportDisabled,
   onDeleteAll,
   onOpenRecordings,
+  onCopyJson,
+  onExportFile,
 }) => {
   const { t } = useTranslation();
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
+      <Button
+        onClick={onCopyJson}
+        variant="secondary"
+        size="sm"
+        className="flex items-center gap-2"
+        title={t("settings.history.export.copyJsonTitle")}
+        disabled={exportDisabled}
+      >
+        <Copy className="w-4 h-4" />
+        <span>{t("settings.history.export.copyJson")}</span>
+      </Button>
+      <Button
+        onClick={onExportFile}
+        variant="secondary"
+        size="sm"
+        className="flex items-center gap-2"
+        title={t("settings.history.export.toFileTitle")}
+        disabled={exportDisabled}
+      >
+        <Download className="w-4 h-4" />
+        <span>{t("settings.history.export.toFile")}</span>
+      </Button>
       <Button
         onClick={onDeleteAll}
         variant="danger"
@@ -1279,6 +1318,56 @@ export const HistorySettings: React.FC = () => {
     }
   };
 
+  const [isExporting, setIsExporting] = useState(false);
+
+  /** Reads every page so the export is never limited to what is scrolled into view. */
+  const buildFullHistoryJson = async () => {
+    const entries = await fetchEntireHistory((cursor) =>
+      invoke<PaginatedHistory>("get_history_entries", {
+        cursor,
+        limit: 100,
+        search: null,
+      }),
+    );
+    const data = buildHistoryExport(entries);
+    return { json: serializeHistoryExport(data), count: data.count };
+  };
+
+  const copyHistoryJson = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const { json, count } = await buildFullHistoryJson();
+      await navigator.clipboard.writeText(json);
+      toast.success(t("settings.history.export.copied", { count }));
+    } catch (error) {
+      console.error("Failed to copy history as JSON:", error);
+      toast.error(t("settings.history.export.error"));
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const exportHistoryToFile = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const destination = await save({
+        defaultPath: historyExportFileName(),
+        filters: [{ name: t("settings.history.export.jsonFiles"), extensions: ["json"] }],
+      });
+      if (!destination) return;
+      const { json, count } = await buildFullHistoryJson();
+      await writeTextFile(destination, json);
+      toast.success(t("settings.history.export.saved", { count }));
+    } catch (error) {
+      console.error("Failed to export history to file:", error);
+      toast.error(t("settings.history.export.error"));
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const openRecordingsFolder = async () => {
     try {
       await commands.openRecordingsFolder();
@@ -1313,9 +1402,31 @@ export const HistorySettings: React.FC = () => {
             </div>
             <HistoryActions
               deleteAllDisabled={loading || isDeletingAll || historyEntries.length === 0}
+              exportDisabled={isExporting || isDeletingAll || (!searchQuery && !loading && historyEntries.length === 0)}
               onDeleteAll={() => setShowDeleteAllConfirm(true)}
               onOpenRecordings={openRecordingsFolder}
+              onCopyJson={() => void copyHistoryJson()}
+              onExportFile={() => void exportHistoryToFile()}
             />
+          </div>
+          <div className="mx-4 flex items-start gap-2 rounded-md border border-logo-primary/30 bg-logo-primary/5 px-3 py-2 text-xs text-text/80">
+            <Lightbulb className="w-4 h-4 shrink-0 text-logo-primary" aria-hidden="true" />
+            <p>
+              <span className="font-semibold">{t("settings.history.export.proTipLabel")}</span>{" "}
+              {t("settings.history.export.proTip")}{" "}
+              <button
+                type="button"
+                className="text-logo-primary underline hover:no-underline cursor-pointer"
+                onClick={() =>
+                  navigateToSettingsAnchor({
+                    activateSection: () => useNavigationStore.getState().setSection("textReplacement"),
+                    targetId: "custom-words-settings",
+                  })
+                }
+              >
+                {t("settings.history.export.proTipLink")}
+              </button>
+            </p>
           </div>
           <div className="px-4">
             <Button variant="secondary" size="sm" onClick={() => useNavigationStore.getState().setSection("transcribeFile")}>

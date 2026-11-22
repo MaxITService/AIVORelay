@@ -4303,6 +4303,19 @@
     "history": {
       "title": "History",
       "openFolder": "Open Recordings Folder",
+      "export": {
+        "copyJson": "Copy as JSON",
+        "copyJsonTitle": "Copy the final text of your entire history to the clipboard as JSON",
+        "toFile": "Export to file",
+        "toFileTitle": "Save the final text of your entire history to a JSON file",
+        "jsonFiles": "JSON files",
+        "copied": "Copied {{count}} history entries as JSON.",
+        "saved": "Exported {{count}} history entries.",
+        "error": "Could not export history.",
+        "proTipLabel": "Pro tip:",
+        "proTip": "Export your history, give it to your AI, and ask it to generate a special word list for your voice model: names, terms, and words it often gets wrong. Then add them to",
+        "proTipLink": "Custom Words"
+      },
       "loading": "Loading history...",
       "emptyTitle": "Your transcription history is empty",
       "empty": "Use the Transcribe shortcut to dictate something. Successful transcriptions will appear here.",
