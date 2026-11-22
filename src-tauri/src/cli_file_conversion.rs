@@ -15,7 +15,8 @@ use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_stt::SonioxSttManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::managers::tts::{
-    TtsManager, TtsPhase, OPENAI_TTS_INSTRUCTIONS_MAX_CHARS, SUPPORTED_MP3_BITRATES,
+    openai_model_is_legacy_tts1, openai_tts1_supports_voice, TtsManager, TtsPhase,
+    OPENAI_TTS1_DEFAULT_VOICE, OPENAI_TTS_INSTRUCTIONS_MAX_CHARS, SUPPORTED_MP3_BITRATES,
     SUPPORTED_OPUS_BITRATES,
 };
 use crate::managers::tts_history::{
@@ -889,7 +890,15 @@ fn apply_tts_provider_override(
         match settings.provider {
             TtsProvider::Soniox => settings.soniox_model = model.to_string(),
             TtsProvider::Deepgram => settings.deepgram_model = model.to_string(),
-            TtsProvider::OpenAi => settings.openai_model = model.to_string(),
+            TtsProvider::OpenAi => {
+                if openai_model_is_legacy_tts1(model)
+                    && args.tts_voice.is_none()
+                    && !openai_tts1_supports_voice(&settings.openai_voice)
+                {
+                    settings.openai_voice = OPENAI_TTS1_DEFAULT_VOICE.to_string();
+                }
+                settings.openai_model = model.to_string();
+            }
             TtsProvider::OpenAiCompatible => settings.openai_compatible_model = model.to_string(),
             TtsProvider::Murf => {
                 if !matches!(model, "falcon-2.1" | "falcon-2" | "gen2") {

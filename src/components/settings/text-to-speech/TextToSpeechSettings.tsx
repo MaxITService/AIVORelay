@@ -71,6 +71,9 @@ import {
   ELEVENLABS_MODEL_OPTIONS,
   LOCAL_TTS_INSTALL_METADATA,
   OPENAI_MODEL_OPTIONS,
+  OPENAI_TTS1_DEFAULT_VOICE,
+  OPENAI_TTS1_VOICES,
+  OPENAI_TTS_ALL_VOICES,
   MURF_MODEL_OPTIONS,
   SONIOX_LANGUAGE_OPTIONS,
   SONIOX_MODEL_OPTIONS,
@@ -79,6 +82,8 @@ import {
   TTS_PROVIDER_OPTIONS,
   TTS_PROVIDER_SPEED_RANGES,
   isDeepgramFluxModel,
+  isOpenAiTts1Model,
+  isOpenAiVoiceCompatibleWithModel,
   type TtsProvider,
 } from "@/lib/tts/ttsProviderMetadata";
 
@@ -774,21 +779,19 @@ const DEEPGRAM_AURA_2_VOICES: SelectOption[] = [
               : "Aura 2 (v1) - English",
 }));
 
-const OPENAI_VOICES: SelectOption[] = [
-  "alloy",
-  "ash",
-  "ballad",
-  "cedar",
-  "coral",
-  "echo",
-  "fable",
-  "marin",
-  "nova",
-  "onyx",
-  "sage",
-  "shimmer",
-  "verse",
-].map((value) => ({ value, label: value, group: "Built-in voices" }));
+const OPENAI_VOICES: SelectOption[] = OPENAI_TTS_ALL_VOICES.map((value) => ({
+  value,
+  label: value,
+  group: "Built-in voices",
+}));
+
+const OPENAI_TTS1_VOICE_OPTIONS: SelectOption[] = OPENAI_TTS1_VOICES.map(
+  (value) => ({
+    value,
+    label: value,
+    group: "Built-in voices",
+  }),
+);
 
 const EDGE_FALLBACK_VOICES: SelectOption[] = [
   "en-US-AriaNeural",
@@ -2014,7 +2017,9 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       case "deepgram":
         return [...DEEPGRAM_FLUX_VOICES, ...DEEPGRAM_AURA_2_VOICES];
       case "openai":
-        return OPENAI_VOICES;
+        return isOpenAiTts1Model(tts.openai_model)
+          ? OPENAI_TTS1_VOICE_OPTIONS
+          : OPENAI_VOICES;
       case "murf": {
         const voice =
           tts.murf_model === "gen2"
@@ -2042,7 +2047,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       default:
         return [];
     }
-  }, [tts.murf_model, tts.provider]);
+  }, [tts.murf_model, tts.openai_model, tts.provider]);
   const cloudVoiceOptions = useMemo<SelectOption[]>(() => {
     if (!voiceCatalog || voiceCatalog.provider !== tts.provider) {
       return builtinVoiceOptions;
@@ -2202,6 +2207,8 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const refreshVoiceCatalog = useCallback(async () => {
     const provider = ttsRef.current.provider;
     const murfModel = provider === "murf" ? ttsRef.current.murf_model : null;
+    const openaiModel =
+      provider === "openai" ? ttsRef.current.openai_model : null;
     if (
       !(
         [
@@ -2221,14 +2228,15 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     const requestIsCurrent = () =>
       requestGeneration === voiceCatalogGenerationRef.current &&
       ttsRef.current.provider === provider &&
-      (provider !== "murf" || ttsRef.current.murf_model === murfModel);
+      (provider !== "murf" || ttsRef.current.murf_model === murfModel) &&
+      (provider !== "openai" || ttsRef.current.openai_model === openaiModel);
     setVoiceCatalogBusy(true);
     setVoiceCatalogError(null);
     try {
       const catalog = await invoke<TtsVoiceCatalog>("get_tts_voice_catalog", {
         provider,
         scope: operationScope(mode),
-        model: murfModel,
+        model: provider === "murf" ? murfModel : openaiModel,
       });
       if (requestIsCurrent()) setVoiceCatalog(catalog);
       return true;
@@ -2273,6 +2281,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     keyStatusLoaded,
     refreshVoiceCatalog,
     tts.murf_model,
+    tts.openai_model,
     tts.provider,
   ]);
 
@@ -5061,14 +5070,25 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                                 : 256,
                             );
                           if (!value) return;
-                          void updateTts(
-                            tts.provider === "soniox"
-                              ? { soniox_model: value }
-                              : { openai_model: value },
-                            tts.provider === "soniox"
-                              ? "soniox_model"
-                              : "openai_model",
-                          );
+                          if (tts.provider === "soniox") {
+                            void updateTts(
+                              { soniox_model: value },
+                              "soniox_model",
+                            );
+                          } else {
+                            const patch: Partial<TtsSettings> = {
+                              openai_model: value,
+                            };
+                            if (
+                              !isOpenAiVoiceCompatibleWithModel(
+                                value,
+                                tts.openai_voice,
+                              )
+                            ) {
+                              patch.openai_voice = OPENAI_TTS1_DEFAULT_VOICE;
+                            }
+                            void updateTts(patch, "openai_model");
+                          }
                         },
                       }
                     : { isCreatable: false as const })}
@@ -5077,7 +5097,18 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     if (tts.provider === "soniox") {
                       void updateTts({ soniox_model: value }, "soniox_model");
                     } else if (tts.provider === "openai") {
-                      void updateTts({ openai_model: value }, "openai_model");
+                      const patch: Partial<TtsSettings> = {
+                        openai_model: value,
+                      };
+                      if (
+                        !isOpenAiVoiceCompatibleWithModel(
+                          value,
+                          tts.openai_voice,
+                        )
+                      ) {
+                        patch.openai_voice = OPENAI_TTS1_DEFAULT_VOICE;
+                      }
+                      void updateTts(patch, "openai_model");
                     } else if (tts.provider === "murf") {
                       void updateTts({ murf_model: value }, "murf_model");
                     } else if (tts.provider === "elevenlabs") {

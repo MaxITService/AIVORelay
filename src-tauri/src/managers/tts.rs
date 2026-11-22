@@ -141,6 +141,37 @@ fn deepgram_tts_url(model: &str) -> &'static str {
     }
 }
 
+pub(crate) const OPENAI_TTS_ALL_VOICES: &[&str] = &[
+    "alloy", "ash", "ballad", "cedar", "coral", "echo", "fable", "marin", "nova", "onyx", "sage",
+    "shimmer", "verse",
+];
+pub(crate) const OPENAI_TTS1_VOICES: &[&str] = &[
+    "alloy", "ash", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer",
+];
+pub(crate) const OPENAI_TTS1_DEFAULT_VOICE: &str = "alloy";
+
+pub(crate) fn openai_model_is_legacy_tts1(model: &str) -> bool {
+    matches!(
+        model.trim().to_ascii_lowercase().as_str(),
+        "tts-1" | "tts-1-hd"
+    )
+}
+
+pub(crate) fn openai_tts1_supports_voice(voice: &str) -> bool {
+    let voice = voice.trim();
+    OPENAI_TTS1_VOICES
+        .iter()
+        .any(|supported| supported.eq_ignore_ascii_case(voice))
+}
+
+fn normalize_openai_tts_speed(speed: f32) -> f32 {
+    if speed.is_finite() {
+        speed.clamp(0.25, 4.0)
+    } else {
+        1.0
+    }
+}
+
 pub(crate) fn normalize_deepgram_tts_speed(model: &str, speed: f32) -> f32 {
     let speed = if speed.is_finite() { speed } else { 1.0 };
     if !is_deepgram_flux_tts_model(model) {
@@ -634,6 +665,21 @@ impl TtsManager {
                 SONIOX_TTS_VOICE_MAX_CHARS,
             )?;
         }
+        if settings.provider == TtsProvider::OpenAi {
+            let model = nonempty_or(&settings.openai_model, "gpt-4o-mini-tts");
+            let voice = nonempty_or(&settings.openai_voice, DEFAULT_TTS_OPENAI_VOICE);
+            if openai_model_is_legacy_tts1(model) && !openai_tts1_supports_voice(voice) {
+                return Err(anyhow!(
+                    "OpenAI model '{}' does not support voice '{}'. Supported voices for tts-1 and tts-1-hd are: {}",
+                    model,
+                    voice,
+                    OPENAI_TTS1_VOICES.join(", ")
+                ));
+            }
+            if !settings.speed.is_finite() {
+                return Err(anyhow!("OpenAI speed must be a finite number"));
+            }
+        }
         if settings.provider == TtsProvider::OpenAiCompatible {
             validate_required_max_chars(
                 "OpenAI-compatible Base URL",
@@ -650,6 +696,9 @@ impl TtsManager {
                 &settings.openai_compatible_voice,
                 256,
             )?;
+            if !settings.speed.is_finite() {
+                return Err(anyhow!("OpenAI-compatible speed must be a finite number"));
+            }
         }
         if settings.provider == TtsProvider::Murf {
             if !matches!(settings.murf_model.as_str(), "falcon-2.1" | "falcon-2" | "gen2") {
@@ -1031,7 +1080,7 @@ impl TtsManager {
                     warning: None,
                 })
             }
-            TtsProvider::OpenAi => Ok(openai_voice_catalog()),
+            TtsProvider::OpenAi => Ok(openai_voice_catalog(&settings.openai_model)),
             TtsProvider::OpenAiCompatible => Err(anyhow!(
                 "Live voice catalog refresh is unavailable for custom OpenAI-compatible servers"
             )),
@@ -3578,7 +3627,7 @@ impl TtsManager {
                     "voice": nonempty_or(&settings.openai_voice, DEFAULT_TTS_OPENAI_VOICE),
                     "input": text,
                     "response_format": "pcm",
-                    "speed": settings.speed.clamp(0.25, 4.0),
+                    "speed": normalize_openai_tts_speed(settings.speed),
                 });
                 if !settings.openai_instructions.trim().is_empty()
                     && Self::openai_model_supports_instructions(&settings.openai_model)
@@ -3617,7 +3666,7 @@ impl TtsManager {
                     "voice": nonempty_or(&settings.openai_compatible_voice, DEFAULT_TTS_OPENAI_COMPATIBLE_VOICE),
                     "input": text,
                     "response_format": "pcm",
-                    "speed": settings.speed.clamp(0.25, 4.0),
+                    "speed": normalize_openai_tts_speed(settings.speed),
                 });
                 let mut req = self.client.post(&speech_url);
                 if !api_key.trim().is_empty() {
@@ -4480,22 +4529,24 @@ fn soniox_catalog_entry(value: &Value) -> Option<TtsVoiceCatalogEntry> {
     })
 }
 
-fn openai_voice_catalog() -> TtsVoiceCatalog {
-    let voices = [
-        "alloy", "ash", "ballad", "cedar", "coral", "echo", "fable", "marin", "nova", "onyx",
-        "sage", "shimmer", "verse",
-    ]
-    .into_iter()
-    .map(|voice| TtsVoiceCatalogEntry {
-        id: voice.to_string(),
-        label: voice.to_string(),
-        group: "Built-in voices".to_string(),
-        language: String::new(),
-        gender: String::new(),
-        description: String::new(),
-        locales: Vec::new(),
-    })
-    .collect();
+fn openai_voice_catalog(model: &str) -> TtsVoiceCatalog {
+    let voice_ids = if openai_model_is_legacy_tts1(model) {
+        OPENAI_TTS1_VOICES
+    } else {
+        OPENAI_TTS_ALL_VOICES
+    };
+    let voices = voice_ids
+        .iter()
+        .map(|voice| TtsVoiceCatalogEntry {
+            id: (*voice).to_string(),
+            label: (*voice).to_string(),
+            group: "Built-in voices".to_string(),
+            language: String::new(),
+            gender: String::new(),
+            description: String::new(),
+            locales: Vec::new(),
+        })
+        .collect();
     TtsVoiceCatalog {
         provider: TtsProvider::OpenAi,
         voices,
@@ -7229,6 +7280,88 @@ mod tests {
             StatusCode::TOO_MANY_REQUESTS,
             "Rate limit reached; retry later"
         ));
+    }
+
+    #[test]
+    fn openai_tts1_validates_nine_supported_voices_and_filters_catalog() {
+        for model in ["tts-1", "tts-1-hd", "TTS-1"] {
+            for voice in ["marin", "cedar", "ballad", "verse"] {
+                let settings = TtsSettings {
+                    provider: TtsProvider::OpenAi,
+                    openai_model: model.to_string(),
+                    openai_voice: voice.to_string(),
+                    ..TtsSettings::default()
+                };
+                let error = TtsManager::validate_synthesis_settings(&settings)
+                    .expect_err("tts-1/tts-1-hd must reject gpt-4o-mini-tts-only voices");
+                assert!(error.to_string().contains("alloy"));
+                assert!(error.to_string().contains("shimmer"));
+            }
+            for voice in OPENAI_TTS1_VOICES {
+                let settings = TtsSettings {
+                    provider: TtsProvider::OpenAi,
+                    openai_model: model.to_string(),
+                    openai_voice: (*voice).to_string(),
+                    ..TtsSettings::default()
+                };
+                assert!(TtsManager::validate_synthesis_settings(&settings).is_ok());
+            }
+        }
+
+        for voice in ["marin", "cedar", "ballad", "verse", "alloy"] {
+            let settings = TtsSettings {
+                provider: TtsProvider::OpenAi,
+                openai_model: "gpt-4o-mini-tts".to_string(),
+                openai_voice: voice.to_string(),
+                ..TtsSettings::default()
+            };
+            assert!(TtsManager::validate_synthesis_settings(&settings).is_ok());
+        }
+
+        let compatible = TtsSettings {
+            provider: TtsProvider::OpenAiCompatible,
+            openai_compatible_base_url: "https://api.example.com/v1".to_string(),
+            openai_compatible_model: "tts-1".to_string(),
+            openai_compatible_voice: "marin".to_string(),
+            ..TtsSettings::default()
+        };
+        assert!(TtsManager::validate_synthesis_settings(&compatible).is_ok());
+
+        let tts1_catalog = openai_voice_catalog("tts-1");
+        assert_eq!(tts1_catalog.voices.len(), 9);
+        assert!(tts1_catalog.voices.iter().all(|v| v.id != "marin" && v.id != "cedar"));
+        let tts1_hd_catalog = openai_voice_catalog("tts-1-hd");
+        assert_eq!(tts1_hd_catalog.voices.len(), 9);
+        let mini_catalog = openai_voice_catalog("gpt-4o-mini-tts");
+        assert_eq!(mini_catalog.voices.len(), 13);
+        assert!(mini_catalog.voices.iter().any(|v| v.id == "marin"));
+    }
+
+    #[test]
+    fn openai_and_compatible_reject_non_finite_speed_and_guard_normalization() {
+        for bad_speed in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let openai = TtsSettings {
+                provider: TtsProvider::OpenAi,
+                speed: bad_speed,
+                ..TtsSettings::default()
+            };
+            assert!(TtsManager::validate_synthesis_settings(&openai).is_err());
+
+            let compatible = TtsSettings {
+                provider: TtsProvider::OpenAiCompatible,
+                openai_compatible_base_url: "https://api.example.com/v1".to_string(),
+                openai_compatible_model: "tts-1".to_string(),
+                openai_compatible_voice: "alloy".to_string(),
+                speed: bad_speed,
+                ..TtsSettings::default()
+            };
+            assert!(TtsManager::validate_synthesis_settings(&compatible).is_err());
+
+            assert_eq!(normalize_openai_tts_speed(bad_speed), 1.0);
+        }
+        assert_eq!(normalize_openai_tts_speed(0.1), 0.25);
+        assert_eq!(normalize_openai_tts_speed(5.0), 4.0);
+        assert_eq!(normalize_openai_tts_speed(1.25), 1.25);
     }
 
     #[test]

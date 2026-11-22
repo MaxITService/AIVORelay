@@ -242,6 +242,55 @@ export const OPENAI_MODEL_OPTIONS = [
   "tts-1-hd",
 ];
 
+export const OPENAI_TTS_ALL_VOICES = [
+  "alloy",
+  "ash",
+  "ballad",
+  "cedar",
+  "coral",
+  "echo",
+  "fable",
+  "marin",
+  "nova",
+  "onyx",
+  "sage",
+  "shimmer",
+  "verse",
+] as const;
+
+export const OPENAI_TTS1_VOICES = [
+  "alloy",
+  "ash",
+  "coral",
+  "echo",
+  "fable",
+  "nova",
+  "onyx",
+  "sage",
+  "shimmer",
+] as const;
+
+export const OPENAI_TTS1_DEFAULT_VOICE = "alloy";
+
+export const isOpenAiTts1Model = (model: string): boolean => {
+  const normalized = model.trim().toLowerCase();
+  return normalized === "tts-1" || normalized === "tts-1-hd";
+};
+
+export const getOpenAiVoicesForModel = (model: string): readonly string[] =>
+  isOpenAiTts1Model(model) ? OPENAI_TTS1_VOICES : OPENAI_TTS_ALL_VOICES;
+
+export const isOpenAiVoiceCompatibleWithModel = (
+  model: string,
+  voice: string,
+): boolean => {
+  if (!isOpenAiTts1Model(model)) {
+    return true;
+  }
+  const normalizedVoice = voice.trim().toLowerCase();
+  return (OPENAI_TTS1_VOICES as readonly string[]).includes(normalizedVoice);
+};
+
 export const MURF_MODEL_OPTIONS = ["falcon-2.1", "falcon-2", "gen2"];
 
 export const ELEVENLABS_MODEL_OPTIONS = [
