@@ -2,7 +2,7 @@ use crate::settings::PostProcessProvider;
 use crate::url_security::canonical_llm_provider_base_url;
 use futures_util::StreamExt;
 use log::{debug, error, info, warn};
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE, REFERER, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -190,12 +190,49 @@ struct ChatChoice {
     message: ChatMessageResponse,
 }
 
+fn deserialize_message_content<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.as_ref().and_then(content_text))
+}
+
 #[derive(Debug, Deserialize)]
 struct ChatMessageResponse {
+    #[serde(default, deserialize_with = "deserialize_message_content")]
     content: Option<String>,
-    /// Reasoning/thinking tokens returned by OpenRouter (logged but not included in response)
+    /// Reasoning/thinking tokens returned by OpenRouter, Groq, etc. (logged but not included in response)
     #[serde(default)]
     reasoning: Option<String>,
+    /// Reasoning/thinking tokens returned by OpenAI-compatible providers (logged but not included in response)
+    #[serde(default)]
+    reasoning_content: Option<String>,
+}
+
+impl ChatMessageResponse {
+    fn reasoning_text(&self) -> Option<&str> {
+        self.reasoning
+            .as_deref()
+            .filter(|text| !text.is_empty())
+            .or_else(|| {
+                self.reasoning_content
+                    .as_deref()
+                    .filter(|text| !text.is_empty())
+            })
+    }
+}
+
+fn is_openrouter_base_url(base_url: &str) -> bool {
+    reqwest::Url::parse(base_url.trim())
+        .ok()
+        .and_then(|url| url.host_str().map(|host| host.to_ascii_lowercase()))
+        .is_some_and(|host| host == "openrouter.ai" || host.ends_with(".openrouter.ai"))
+}
+
+fn is_openrouter_provider(provider: &PostProcessProvider) -> bool {
+    provider.id == "openrouter"
+        || (provider.id == "custom" && is_openrouter_base_url(&provider.base_url))
 }
 
 /// Build headers for API requests based on provider type
@@ -205,14 +242,18 @@ fn build_headers(provider: &PostProcessProvider, api_key: &str) -> Result<Header
     // Common headers
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     headers.insert(
-        REFERER,
-        HeaderValue::from_static("https://github.com/MaxITService/AIVORelay"),
-    );
-    headers.insert(
         USER_AGENT,
         HeaderValue::from_static("AivoRelay/1.0 (+https://github.com/MaxITService/AIVORelay)"),
     );
-    headers.insert("X-Title", HeaderValue::from_static("AivoRelay"));
+
+    // OpenRouter app attribution headers (scoped strictly to OpenRouter)
+    if is_openrouter_provider(provider) {
+        headers.insert(
+            "http-referer",
+            HeaderValue::from_static("https://github.com/MaxITService/AIVORelay"),
+        );
+        headers.insert("x-openrouter-title", HeaderValue::from_static("AivoRelay"));
+    }
 
     // Provider-specific auth headers
     if !api_key.is_empty() {
@@ -439,7 +480,15 @@ fn system_and_user_messages(system_prompt: String, user_prompt: String) -> Vec<C
     messages
 }
 
-/// Whether a 400 answer may be retried without the optional reasoning controls.
+/// Statuses that indicate a provider rejected optional reasoning controls.
+fn may_reject_reasoning(status: reqwest::StatusCode) -> bool {
+    matches!(
+        status,
+        reqwest::StatusCode::BAD_REQUEST | reqwest::StatusCode::UNPROCESSABLE_ENTITY
+    )
+}
+
+/// Whether a 400/422 answer may be retried without the optional reasoning controls.
 /// Never remove Groq's explicit Qwen OFF control; omitting it enables reasoning again.
 fn may_retry_without_reasoning(
     provider: &PostProcessProvider,
@@ -451,6 +500,14 @@ fn may_retry_without_reasoning(
         && request.reasoning_effort.as_deref() == Some("none");
     (request.reasoning.is_some() || request.reasoning_effort.is_some())
         && !must_preserve_groq_qwen_off
+}
+
+fn extract_completion_content(completion: &ChatCompletionResponse) -> Option<String> {
+    let choice = completion.choices.first()?;
+    if let Some(reasoning_text) = choice.message.reasoning_text() {
+        log_reasoning_preview(reasoning_text);
+    }
+    choice.message.content.clone()
 }
 
 fn log_reasoning_preview(reasoning_text: &str) {
@@ -530,8 +587,10 @@ async fn send_chat_completion_with_messages_at_base_url(
         sanitized_url(response.url())
     );
 
-    // Fail-soft retry: on 400, retry without optional reasoning controls.
-    if status.as_u16() == 400 && may_retry_without_reasoning(provider, &reasoning, &request_body) {
+    // Fail-soft retry: on 400/422, retry without optional reasoning controls.
+    if may_reject_reasoning(status)
+        && may_retry_without_reasoning(provider, &reasoning, &request_body)
+    {
         let error_text = response.text().await.unwrap_or_else(|e| {
             report_reqwest_error("Failed to read reasoning rejection response", &e)
         });
@@ -581,10 +640,7 @@ async fn send_chat_completion_with_messages_at_base_url(
             .await
             .map_err(|e| report_reqwest_error("Failed to parse retry response", &e))?;
 
-        return Ok(completion
-            .choices
-            .first()
-            .and_then(|choice| choice.message.content.clone()));
+        return Ok(extract_completion_content(&completion));
     }
 
     if !status.is_success() {
@@ -603,17 +659,7 @@ async fn send_chat_completion_with_messages_at_base_url(
         .await
         .map_err(|e| report_reqwest_error("Failed to parse API response", &e))?;
 
-    // Log reasoning tokens if present (but don't include in response)
-    if let Some(choice) = completion.choices.first() {
-        if let Some(ref reasoning_text) = choice.message.reasoning {
-            log_reasoning_preview(reasoning_text);
-        }
-    }
-
-    Ok(completion
-        .choices
-        .first()
-        .and_then(|choice| choice.message.content.clone()))
+    Ok(extract_completion_content(&completion))
 }
 
 /// Answer text from a streamed chat completion.
@@ -757,8 +803,10 @@ async fn stream_chat_completion_with_messages_at_base_url(
         sanitized_url(response.url())
     );
 
-    // Fail-soft retry, as for regular requests: on 400, retry without reasoning controls.
-    if status.as_u16() == 400 && may_retry_without_reasoning(provider, &reasoning, &request_body) {
+    // Fail-soft retry, as for regular requests: on 400/422, retry without reasoning controls.
+    if may_reject_reasoning(status)
+        && may_retry_without_reasoning(provider, &reasoning, &request_body)
+    {
         let error_text = response.text().await.unwrap_or_else(|e| {
             report_reqwest_error("Failed to read reasoning rejection response", &e)
         });
@@ -1180,6 +1228,21 @@ fn api_error_message(error: &Value) -> String {
     }
 }
 
+fn resolve_models_url(base_url: &str, models_endpoint: Option<&str>) -> String {
+    let base = base_url.trim_end_matches('/');
+    let Some(endpoint) = models_endpoint
+        .map(str::trim)
+        .filter(|endpoint| !endpoint.is_empty())
+    else {
+        return format!("{base}/models");
+    };
+    let lower = endpoint.to_ascii_lowercase();
+    if lower.starts_with("https://") || lower.starts_with("http://") {
+        return endpoint.to_string();
+    }
+    format!("{base}/{}", endpoint.trim_start_matches('/'))
+}
+
 /// Fetch available models from an OpenAI-compatible API
 /// Returns a list of model IDs
 pub async fn fetch_models(
@@ -1187,7 +1250,15 @@ pub async fn fetch_models(
     api_key: String,
 ) -> Result<Vec<String>, String> {
     let base_url = canonical_llm_provider_base_url(provider)?;
-    let url = format!("{}/models", base_url);
+    fetch_models_at_base_url(provider, api_key, &base_url).await
+}
+
+async fn fetch_models_at_base_url(
+    provider: &PostProcessProvider,
+    api_key: String,
+    base_url: &str,
+) -> Result<Vec<String>, String> {
+    let url = resolve_models_url(base_url, provider.models_endpoint.as_deref());
 
     debug!("Fetching models from: {}", sanitized_url_for_log(&url));
 
@@ -2013,6 +2084,248 @@ mod tests {
 
         assert!(json.get("reasoning_effort").is_none());
         assert!(json.get("reasoning").is_none());
+    }
+
+    async fn read_captured_get_request_line(stream: &mut tokio::net::TcpStream) -> String {
+        let mut request = Vec::new();
+        let mut chunk = [0_u8; 2048];
+        let header_end = loop {
+            let bytes_read = stream.read(&mut chunk).await.unwrap();
+            assert!(
+                bytes_read > 0,
+                "mock client disconnected before sending headers"
+            );
+            request.extend_from_slice(&chunk[..bytes_read]);
+            if let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                break position + 4;
+            }
+        };
+        let headers = std::str::from_utf8(&request[..header_end]).unwrap();
+        headers.lines().next().unwrap().to_string()
+    }
+
+    async fn serve_get_responses(
+        responses: Vec<(&'static str, String)>,
+    ) -> (String, mpsc::UnboundedReceiver<String>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (request_sender, request_receiver) = mpsc::unbounded_channel();
+
+        tokio::spawn(async move {
+            for (status, body) in responses {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                request_sender
+                    .send(read_captured_get_request_line(&mut stream).await)
+                    .unwrap();
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+                let _ = stream.shutdown().await;
+            }
+        });
+
+        (format!("http://{address}"), request_receiver)
+    }
+
+    #[tokio::test]
+    async fn non_streaming_retries_without_reasoning_after_422() {
+        let (base_url, mut requests) = serve_captured_responses(vec![
+            mock_response(
+                "422 Unprocessable Entity",
+                "application/json",
+                r#"{"error":"unsupported reasoning param"}"#,
+            ),
+            mock_response(
+                "200 OK",
+                "application/json",
+                r#"{"choices":[{"message":{"content":"ok after 422"}}]}"#,
+            ),
+        ])
+        .await;
+
+        let result = send_chat_completion_with_messages_at_base_url(
+            &test_provider("openrouter"),
+            "not-a-real-key".to_string(),
+            "some/model",
+            hello_messages(),
+            ReasoningConfig::from_user_toggle(false, 2048),
+            &base_url,
+        )
+        .await
+        .unwrap();
+
+        let first = requests.recv().await.unwrap();
+        let retry = requests.recv().await.unwrap();
+
+        assert_eq!(result.as_deref(), Some("ok after 422"));
+        assert!(first.body.get("reasoning").is_some());
+        assert!(retry.body.get("reasoning").is_none());
+        assert!(retry.body.get("reasoning_effort").is_none());
+        assert!(retry.body.get("max_tokens").is_none());
+        assert!(retry.body.get("max_completion_tokens").is_none());
+    }
+
+    #[tokio::test]
+    async fn streaming_retries_without_reasoning_after_422() {
+        let (base_url, mut requests) = serve_captured_responses(vec![
+            mock_response(
+                "422 Unprocessable Entity",
+                "application/json",
+                r#"{"error":"unsupported reasoning param"}"#,
+            ),
+            mock_event_stream(&[r#"{"choices":[{"delta":{"content":"stream ok"}}]}"#, "[DONE]"]),
+        ])
+        .await;
+
+        let (result, pieces) = stream_at(
+            &test_provider("openrouter"),
+            "some/model",
+            ReasoningConfig::from_user_toggle(false, 2048),
+            &base_url,
+        )
+        .await;
+        let first = requests.recv().await.unwrap();
+        let retry = requests.recv().await.unwrap();
+
+        assert_eq!(result.unwrap().content.as_deref(), Some("stream ok"));
+        assert_eq!(pieces, vec!["stream ok"]);
+        assert!(first.body.get("reasoning").is_some());
+        assert_eq!(retry.body["stream"], true);
+        assert!(retry.body.get("reasoning").is_none());
+    }
+
+    #[test]
+    fn non_streaming_response_supports_array_content_and_ignores_reasoning_content() {
+        let with_reasoning_content: ChatCompletionResponse = serde_json::from_str(
+            r#"{"choices":[{"message":{"content":"Final answer","reasoning_content":"private chain of thought"}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            extract_completion_content(&with_reasoning_content).as_deref(),
+            Some("Final answer")
+        );
+        assert_eq!(
+            with_reasoning_content.choices[0].message.reasoning_text(),
+            Some("private chain of thought")
+        );
+
+        let with_array_content: ChatCompletionResponse = serde_json::from_str(
+            r#"{"choices":[{"message":{"content":[{"type":"thinking","text":"secret"},{"type":"text","text":"Hello"},{"type":"text","text":", world"}],"reasoning":"hidden"}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            extract_completion_content(&with_array_content).as_deref(),
+            Some("Hello, world")
+        );
+        assert_eq!(
+            with_array_content.choices[0].message.reasoning_text(),
+            Some("hidden")
+        );
+
+        let thinking_only: ChatCompletionResponse = serde_json::from_str(
+            r#"{"choices":[{"message":{"content":[{"type":"thinking","text":"secret only"}]}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(extract_completion_content(&thinking_only), None);
+    }
+
+    #[test]
+    fn openrouter_attribution_headers_are_scoped_to_openrouter() {
+        let openrouter_headers = build_headers(&test_provider("openrouter"), "key").unwrap();
+        assert_eq!(
+            openrouter_headers.get("http-referer").unwrap(),
+            "https://github.com/MaxITService/AIVORelay"
+        );
+        assert_eq!(
+            openrouter_headers.get("x-openrouter-title").unwrap(),
+            "AivoRelay"
+        );
+        assert!(openrouter_headers.get("referer").is_none());
+
+        let mut custom_openrouter = test_provider("custom");
+        custom_openrouter.base_url = "https://openrouter.ai/api/v1".to_string();
+        let custom_openrouter_headers = build_headers(&custom_openrouter, "key").unwrap();
+        assert!(custom_openrouter_headers.get("http-referer").is_some());
+        assert!(custom_openrouter_headers.get("x-openrouter-title").is_some());
+        assert!(custom_openrouter_headers.get("referer").is_none());
+
+        for provider_id in [
+            "openai",
+            "anthropic",
+            "groq",
+            "cerebras",
+            "zai",
+            "bedrock_mantle",
+            "custom",
+        ] {
+            let headers = build_headers(&test_provider(provider_id), "key").unwrap();
+            assert!(
+                headers.get("http-referer").is_none(),
+                "unexpected HTTP-Referer for {provider_id}"
+            );
+            assert!(
+                headers.get("referer").is_none(),
+                "unexpected Referer for {provider_id}"
+            );
+            assert!(
+                headers.get("x-openrouter-title").is_none(),
+                "unexpected X-OpenRouter-Title for {provider_id}"
+            );
+            assert!(
+                headers.get("x-title").is_none(),
+                "unexpected X-Title for {provider_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_models_url_respects_custom_and_fallback_endpoints() {
+        assert_eq!(
+            resolve_models_url("https://api.example.com/v1", None),
+            "https://api.example.com/v1/models"
+        );
+        assert_eq!(
+            resolve_models_url("https://api.example.com/v1/", Some("   ")),
+            "https://api.example.com/v1/models"
+        );
+        assert_eq!(
+            resolve_models_url("https://api.example.com/v1/", Some("/models")),
+            "https://api.example.com/v1/models"
+        );
+        assert_eq!(
+            resolve_models_url("https://api.example.com/v1", Some("custom/models")),
+            "https://api.example.com/v1/custom/models"
+        );
+        assert_eq!(
+            resolve_models_url(
+                "https://api.example.com/v1",
+                Some("https://models.example.com/catalog")
+            ),
+            "https://models.example.com/catalog"
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_models_uses_provider_models_endpoint() {
+        let (base_url, mut requests) = serve_get_responses(vec![(
+            "200 OK",
+            r#"{"data":[{"id":"model-a"},{"id":"model-b"}]}"#.to_string(),
+        )])
+        .await;
+        let mut provider = test_provider("custom");
+        provider.models_endpoint = Some("/v2/catalog".to_string());
+
+        let models = fetch_models_at_base_url(&provider, "not-a-real-key".to_string(), &base_url)
+            .await
+            .unwrap();
+
+        assert_eq!(models, vec!["model-a", "model-b"]);
+        assert_eq!(
+            requests.recv().await.unwrap(),
+            "GET /v2/catalog HTTP/1.1"
+        );
     }
 }
 
