@@ -150,6 +150,8 @@ interface BenchmarkStoreState {
   selectClip: (clipId: string) => void;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
+  /** Copies a History recording into Benchmark and selects it. Throws on failure. */
+  importFromHistory: (historyId: number) => Promise<BenchmarkClipInfo>;
   deleteClip: (clipId: string) => Promise<void>;
   setTargetMode: (mode: BenchmarkTargetMode) => void;
   setSelectedProfileId: (profileId: string | null) => void;
@@ -293,6 +295,19 @@ export const useBenchmarkStore = create<BenchmarkStoreState>((set, get) => ({
         lastError: error instanceof Error ? error.message : String(error),
       });
     }
+  },
+
+  importFromHistory: async (historyId) => {
+    const clip = await invoke<BenchmarkClipInfo>(
+      "benchmark_import_history_entry",
+      { historyId },
+    );
+    set((prev) => ({
+      clips: [clip, ...prev.clips.filter((existing) => existing.id !== clip.id)],
+      selectedClipId: clip.id,
+      lastError: null,
+    }));
+    return clip;
   },
 
   deleteClip: async (clipId) => {

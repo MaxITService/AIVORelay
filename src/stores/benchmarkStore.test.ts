@@ -174,6 +174,29 @@ describe("benchmarkStore state sync and clip management", () => {
     expect(useBenchmarkStore.getState().resultsFilter).toBe("all");
   });
 
+  test("importFromHistory prepends and selects the imported clip, and propagates errors without touching clips", async () => {
+    const existing = makeClip("clip-1", "Clip #1");
+    const imported = makeClip("clip-2", "Clip #2 · History");
+    useBenchmarkStore.setState({ clips: [existing], selectedClipId: "clip-1", lastError: "old" });
+
+    backend = async (command) => {
+      if (command === "benchmark_import_history_entry") return imported;
+    };
+    const clip = await useBenchmarkStore.getState().importFromHistory(42);
+    expect(clip).toEqual(imported);
+    expect(calls).toEqual([{ command: "benchmark_import_history_entry", args: { historyId: 42 } }]);
+    expect(useBenchmarkStore.getState().clips).toEqual([imported, existing]);
+    expect(useBenchmarkStore.getState().selectedClipId).toBe("clip-2");
+    expect(useBenchmarkStore.getState().lastError).toBeNull();
+
+    backend = async () => {
+      throw new Error("History entry not found.");
+    };
+    await expect(useBenchmarkStore.getState().importFromHistory(7)).rejects.toThrow("History entry not found.");
+    expect(useBenchmarkStore.getState().clips).toEqual([imported, existing]);
+    expect(useBenchmarkStore.getState().selectedClipId).toBe("clip-2");
+  });
+
   test("deleteClip removes the clip, updates selectedClipId, preserves results, and switches filter to all when last clip is deleted", async () => {
     const clip2 = makeClip("clip-2", "Clip #2");
     const clip1 = makeClip("clip-1", "Clip #1");

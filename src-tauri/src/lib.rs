@@ -1851,6 +1851,7 @@ pub fn run(cli_args: CliArgs) {
         commands::history::update_recording_retention_period,
         commands::benchmark::benchmark_start_recording,
         commands::benchmark::benchmark_stop_recording,
+        commands::benchmark::benchmark_import_history_entry,
         commands::benchmark::benchmark_get_state,
         commands::benchmark::benchmark_get_clip_wav,
         commands::benchmark::benchmark_delete_clip,

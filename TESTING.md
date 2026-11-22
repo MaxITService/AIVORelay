@@ -159,6 +159,13 @@ Run it with:
 
 Update this section every time new tests are added.
 
+### STT Benchmark section and History import (2026-11-23)
+
+- `commands::benchmark::tests` (9 tests) covers input boost and RNNoise sample handling, settings snapshot text without secrets, clip ID path-traversal rejection, `state.json` roundtrip/corruption recovery, and importing a History WAV as an independent clip that survives deletion of the source recording, plus rejection of missing or too-short audio without mutating state.
+- `src/stores/benchmarkStore.test.ts` (9 tests) covers state sync, clip deletion, sweeps, and `importFromHistory` selecting the imported clip and propagating backend errors.
+- `src/components/settings/history/historyExport.test.ts` covers the History JSON export (final text only, failed entries skipped, cursor pagination across all pages).
+- Run with `pwsh -NoProfile -File .\test-local.ps1 -LibOnly -Filter 'commands::benchmark::tests'`, `bun test ./src/stores/benchmarkStore.test.ts ./src/components/settings/history/`, and `bun run typecheck`.
+
 ### Optional elevated-window clipboard fallback (2026-11-14)
 
 - `clipboard::tests::elevated_fallback_` uses injected window detection and clipboard writes. It checks the disabled path never queries the foreground window or overwrites saved formats, ordinary/non-clipboard output stays unchanged, complete-text copying follows the history policy for every restore mode, and failed copies never claim success.
