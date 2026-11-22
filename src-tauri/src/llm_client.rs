@@ -133,18 +133,50 @@ fn reasoning_effort_for_budget(budget: u32) -> &'static str {
     }
 }
 
-fn groq_reasoning_effort(model: &str, enabled: bool) -> Option<&'static str> {
+fn is_groq_always_on_reasoning_model(model: &str) -> bool {
+    model.eq_ignore_ascii_case("openai/gpt-oss-20b")
+        || model.eq_ignore_ascii_case("openai/gpt-oss-120b")
+        || model.eq_ignore_ascii_case("openai/gpt-oss-safeguard-20b")
+        || model.eq_ignore_ascii_case("minimaxai/minimax-m2.7")
+        || model.eq_ignore_ascii_case("meta-models/muse-spark-open")
+}
+
+fn groq_reasoning_effort(model: &str, enabled: bool, budget: u32) -> Option<&'static str> {
     let model = model.trim();
+
+    if model.eq_ignore_ascii_case("qwen/qwen3.8-27b") {
+        return Some(if enabled {
+            reasoning_effort_for_budget(budget)
+        } else {
+            "none"
+        });
+    }
 
     if model.eq_ignore_ascii_case("qwen/qwen3.6-27b") {
         return Some(if enabled { "default" } else { "none" });
     }
 
-    if enabled
-        && (model.eq_ignore_ascii_case("openai/gpt-oss-20b")
-            || model.eq_ignore_ascii_case("openai/gpt-oss-120b"))
-    {
-        return Some("medium");
+    if enabled && is_groq_always_on_reasoning_model(model) {
+        return Some(reasoning_effort_for_budget(budget));
+    }
+
+    None
+}
+
+fn groq_reasoning_format(model: &str, enabled: bool) -> Option<&'static str> {
+    let model = model.trim();
+    if enabled {
+        if model.eq_ignore_ascii_case("qwen/qwen3.8-27b")
+            || model.eq_ignore_ascii_case("qwen/qwen3.6-27b")
+            || is_groq_always_on_reasoning_model(model)
+        {
+            return Some("parsed");
+        }
+        return None;
+    }
+
+    if is_groq_always_on_reasoning_model(model) {
+        return Some("parsed");
     }
 
     None
@@ -178,18 +210,33 @@ fn reasoning_request_options(
 
         return match provider_id {
             "groq" => {
-                if let Some(effort) = groq_reasoning_effort(model, true) {
+                if let Some(effort) = groq_reasoning_effort(model, true, budget) {
+                    let format = groq_reasoning_format(model, true);
                     debug!(
-                        "Extended Thinking enabled for Groq with effort='{}', max_completion_tokens={}",
-                        effort, total
+                        "Extended Thinking enabled for Groq with effort='{}', format={:?}, max_completion_tokens={}",
+                        effort, format, total
                     );
                     ReasoningRequestOptions {
                         max_completion_tokens: Some(total),
                         reasoning_effort: Some(effort.to_string()),
+                        reasoning_format: format.map(str::to_string),
                         ..Default::default()
                     }
                 } else {
                     ReasoningRequestOptions::default()
+                }
+            }
+            "cerebras" => {
+                let effort = reasoning_effort_for_budget(budget);
+                debug!(
+                    "Extended Thinking enabled for Cerebras with reasoning_effort='{}', reasoning_format='parsed', max_completion_tokens={}",
+                    effort, total
+                );
+                ReasoningRequestOptions {
+                    max_completion_tokens: Some(total),
+                    reasoning_effort: Some(effort.to_string()),
+                    reasoning_format: Some("parsed".to_string()),
+                    ..Default::default()
                 }
             }
             "anthropic" => {
@@ -216,7 +263,7 @@ fn reasoning_request_options(
                     ..Default::default()
                 }
             }
-            // OpenAI, Cerebras, AWS Bedrock (Mantle), Custom, and other OpenAI-compatible providers
+            // OpenAI, AWS Bedrock (Mantle), Custom, and other OpenAI-compatible providers
             _ => {
                 let effort = reasoning_effort_for_budget(budget);
                 debug!(
@@ -252,7 +299,7 @@ fn reasoning_request_options(
     }
 
     match provider_id {
-        "custom" => {
+        "custom" | "cerebras" => {
             debug!(
                 "Disabling default provider reasoning for post-processing on '{}'",
                 provider_id
@@ -263,13 +310,16 @@ fn reasoning_request_options(
             }
         }
         "groq" => {
-            if let Some(effort) = groq_reasoning_effort(model, false) {
+            let effort = groq_reasoning_effort(model, false, 0);
+            let format = groq_reasoning_format(model, false);
+            if effort.is_some() || format.is_some() {
                 debug!(
-                    "Disabling default provider reasoning for post-processing on '{}'",
-                    provider_id
+                    "Configuring default provider reasoning for post-processing on '{}': effort={:?}, format={:?}",
+                    provider_id, effort, format
                 );
                 ReasoningRequestOptions {
-                    reasoning_effort: Some(effort.to_string()),
+                    reasoning_effort: effort.map(str::to_string),
+                    reasoning_format: format.map(str::to_string),
                     ..Default::default()
                 }
             } else {
@@ -1337,19 +1387,78 @@ pub async fn fetch_models(
     fetch_models_at_base_url(provider, api_key, &base_url).await
 }
 
-async fn fetch_models_at_base_url(
-    provider: &PostProcessProvider,
-    api_key: String,
-    base_url: &str,
-) -> Result<Vec<String>, String> {
-    let url = resolve_models_url(base_url, provider.models_endpoint.as_deref());
+const ANTHROPIC_MODELS_PAGE_LIMIT: usize = 1000;
+const ANTHROPIC_MODELS_MAX_PAGES: usize = 20;
 
-    debug!("Fetching models from: {}", sanitized_url_for_log(&url));
+fn anthropic_models_page_url(
+    base_models_url: &str,
+    after_id: Option<&str>,
+) -> Result<String, String> {
+    let mut url =
+        reqwest::Url::parse(base_models_url).map_err(|e| format!("Invalid models URL: {}", e))?;
+    {
+        let mut pairs = url.query_pairs_mut();
+        pairs.append_pair("limit", &ANTHROPIC_MODELS_PAGE_LIMIT.to_string());
+        if let Some(cursor) = after_id {
+            pairs.append_pair("after_id", cursor);
+        }
+    }
+    Ok(url.to_string())
+}
 
-    let client = create_client(provider, &api_key)?;
+struct ModelsPage {
+    models: Vec<String>,
+    next_after_id: Option<String>,
+}
+
+fn parse_models_page(parsed: &Value) -> ModelsPage {
+    let mut models = Vec::new();
+
+    // Handle OpenAI / Anthropic format: { data: [ { id: "..." }, ... ] }
+    if let Some(data) = parsed.get("data").and_then(|d| d.as_array()) {
+        for entry in data {
+            if let Some(id) = entry.get("id").and_then(|i| i.as_str()) {
+                models.push(id.to_string());
+            } else if let Some(name) = entry.get("name").and_then(|n| n.as_str()) {
+                models.push(name.to_string());
+            }
+        }
+    }
+    // Handle array format: [ "model1", "model2", ... ]
+    else if let Some(array) = parsed.as_array() {
+        for entry in array {
+            if let Some(model) = entry.as_str() {
+                models.push(model.to_string());
+            }
+        }
+    }
+
+    let has_more = parsed
+        .get("has_more")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let next_after_id = if has_more {
+        parsed
+            .get("last_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+    } else {
+        None
+    };
+
+    ModelsPage {
+        models,
+        next_after_id,
+    }
+}
+
+async fn fetch_models_page_json(client: &ProviderClient, url: &str) -> Result<Value, String> {
+    debug!("Fetching models from: {}", sanitized_url_for_log(url));
 
     let response = client
-        .get(&url)
+        .get(url)
         .timeout(Duration::from_secs(60))
         .send()
         .await
@@ -1373,30 +1482,56 @@ async fn fetch_models_at_base_url(
         ));
     }
 
-    let parsed: serde_json::Value = response
+    response
         .json()
         .await
-        .map_err(|e| report_reqwest_error("Failed to parse model list response", &e))?;
+        .map_err(|e| report_reqwest_error("Failed to parse model list response", &e))
+}
+
+async fn fetch_models_at_base_url(
+    provider: &PostProcessProvider,
+    api_key: String,
+    base_url: &str,
+) -> Result<Vec<String>, String> {
+    let base_models_url = resolve_models_url(base_url, provider.models_endpoint.as_deref());
+    let client = create_client(provider, &api_key)?;
+
+    if provider.id != "anthropic" {
+        let parsed = fetch_models_page_json(&client, &base_models_url).await?;
+        return Ok(parse_models_page(&parsed).models);
+    }
 
     let mut models = Vec::new();
+    let mut seen = HashSet::new();
+    let mut seen_cursors = HashSet::new();
+    let mut after_id: Option<String> = None;
 
-    // Handle OpenAI format: { data: [ { id: "..." }, ... ] }
-    if let Some(data) = parsed.get("data").and_then(|d| d.as_array()) {
-        for entry in data {
-            if let Some(id) = entry.get("id").and_then(|i| i.as_str()) {
-                models.push(id.to_string());
-            } else if let Some(name) = entry.get("name").and_then(|n| n.as_str()) {
-                models.push(name.to_string());
+    for page_index in 0..ANTHROPIC_MODELS_MAX_PAGES {
+        let url = anthropic_models_page_url(&base_models_url, after_id.as_deref())?;
+        let parsed = fetch_models_page_json(&client, &url).await?;
+        let page = parse_models_page(&parsed);
+
+        for model in page.models {
+            if seen.insert(model.clone()) {
+                models.push(model);
             }
         }
-    }
-    // Handle array format: [ "model1", "model2", ... ]
-    else if let Some(array) = parsed.as_array() {
-        for entry in array {
-            if let Some(model) = entry.as_str() {
-                models.push(model.to_string());
-            }
+
+        let Some(next_cursor) = page.next_after_id else {
+            break;
+        };
+        if !seen_cursors.insert(next_cursor.clone()) {
+            warn!("Anthropic models pagination repeated cursor; stopping");
+            break;
         }
+        if page_index + 1 == ANTHROPIC_MODELS_MAX_PAGES {
+            warn!(
+                "Reached Anthropic models pagination cap ({} pages); stopping",
+                ANTHROPIC_MODELS_MAX_PAGES
+            );
+            break;
+        }
+        after_id = Some(next_cursor);
     }
 
     Ok(models)
@@ -2132,6 +2267,7 @@ mod tests {
 
         assert!(json.get("reasoning_effort").is_none());
         assert!(json.get("reasoning").is_none());
+        assert_eq!(json["reasoning_format"], "parsed");
     }
 
     #[test]
@@ -2141,6 +2277,7 @@ mod tests {
         let json = request_json_with_reasoning_options(options);
 
         assert_eq!(json["reasoning_effort"], "default");
+        assert_eq!(json["reasoning_format"], "parsed");
         assert_eq!(json["max_completion_tokens"], 4000);
         assert!(json.get("max_tokens").is_none());
         assert!(json.get("reasoning").is_none());
@@ -2148,15 +2285,36 @@ mod tests {
 
     #[test]
     fn groq_gpt_oss_uses_documented_reasoning_effort() {
-        let reasoning = ReasoningConfig::new(true, 1024);
-        let options =
-            reasoning_request_options(&test_provider("groq"), "openai/gpt-oss-120b", &reasoning);
-        let json = request_json_with_reasoning_options(options);
+        let provider = test_provider("groq");
 
-        assert_eq!(json["reasoning_effort"], "medium");
-        assert_eq!(json["max_completion_tokens"], 4000);
-        assert!(json.get("max_tokens").is_none());
-        assert!(json.get("reasoning").is_none());
+        let low = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "openai/gpt-oss-120b",
+            &ReasoningConfig::new(true, 1024),
+        ));
+        assert_eq!(low["reasoning_effort"], "low");
+        assert_eq!(low["reasoning_format"], "parsed");
+        assert_eq!(low["max_completion_tokens"], 4000);
+        assert!(low.get("max_tokens").is_none());
+        assert!(low.get("reasoning").is_none());
+
+        let medium = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "openai/gpt-oss-safeguard-20b",
+            &ReasoningConfig::new(true, 2048),
+        ));
+        assert_eq!(medium["reasoning_effort"], "medium");
+        assert_eq!(medium["reasoning_format"], "parsed");
+        assert_eq!(medium["max_completion_tokens"], 4048);
+
+        let high = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "openai/gpt-oss-20b",
+            &ReasoningConfig::new(true, 8192),
+        ));
+        assert_eq!(high["reasoning_effort"], "high");
+        assert_eq!(high["reasoning_format"], "parsed");
+        assert_eq!(high["max_completion_tokens"], 10192);
     }
 
     #[test]
@@ -2166,6 +2324,7 @@ mod tests {
         let json = request_json_with_reasoning_options(options);
 
         assert!(json.get("reasoning_effort").is_none());
+        assert!(json.get("reasoning_format").is_none());
         assert!(json.get("reasoning").is_none());
     }
 
@@ -2645,6 +2804,199 @@ mod tests {
         assert!(off.get("max_completion_tokens").is_none());
         assert!(off.get("reasoning").is_none());
         assert!(off.get("thinking").is_none());
+    }
+
+    #[test]
+    fn groq_qwen38_and_new_reasoning_models_schema_for_on_and_off() {
+        let provider = test_provider("groq");
+
+        let qwen38_low = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "qwen/qwen3.8-27b",
+            &ReasoningConfig::from_user_toggle(true, 1024),
+        ));
+        assert_eq!(qwen38_low["reasoning_effort"], "low");
+        assert_eq!(qwen38_low["reasoning_format"], "parsed");
+        assert_eq!(qwen38_low["max_completion_tokens"], 4000);
+        assert!(qwen38_low.get("max_tokens").is_none());
+
+        let qwen38_high = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "qwen/qwen3.8-27b",
+            &ReasoningConfig::from_user_toggle(true, 8192),
+        ));
+        assert_eq!(qwen38_high["reasoning_effort"], "high");
+        assert_eq!(qwen38_high["reasoning_format"], "parsed");
+        assert_eq!(qwen38_high["max_completion_tokens"], 10192);
+
+        let qwen38_off = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "qwen/qwen3.8-27b",
+            &ReasoningConfig::from_user_toggle(false, 2048),
+        ));
+        assert_eq!(qwen38_off["reasoning_effort"], "none");
+        assert!(qwen38_off.get("reasoning_format").is_none());
+        assert!(qwen38_off.get("max_completion_tokens").is_none());
+
+        for model in [
+            "openai/gpt-oss-safeguard-20b",
+            "minimaxai/minimax-m2.7",
+            "meta-models/muse-spark-open",
+        ] {
+            let on = request_json_with_reasoning_options(reasoning_request_options(
+                &provider,
+                model,
+                &ReasoningConfig::from_user_toggle(true, 2048),
+            ));
+            assert_eq!(on["reasoning_effort"], "medium", "model={model}");
+            assert_eq!(on["reasoning_format"], "parsed", "model={model}");
+            assert_eq!(on["max_completion_tokens"], 4048, "model={model}");
+
+            let off = request_json_with_reasoning_options(reasoning_request_options(
+                &provider,
+                model,
+                &ReasoningConfig::from_user_toggle(false, 2048),
+            ));
+            assert!(off.get("reasoning_effort").is_none(), "model={model}");
+            assert_eq!(off["reasoning_format"], "parsed", "model={model}");
+        }
+    }
+
+    #[test]
+    fn cerebras_reasoning_schema_for_on_and_off() {
+        let provider = test_provider("cerebras");
+
+        let on = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "qwen-3.8-27b",
+            &ReasoningConfig::from_user_toggle(true, 2048),
+        ));
+        assert_eq!(on["reasoning_effort"], "medium");
+        assert_eq!(on["reasoning_format"], "parsed");
+        assert_eq!(on["max_completion_tokens"], 4048);
+        assert!(on.get("max_tokens").is_none());
+        assert!(on.get("reasoning").is_none());
+        assert!(on.get("thinking").is_none());
+
+        let off = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "qwen-3.8-27b",
+            &ReasoningConfig::from_user_toggle(false, 2048),
+        ));
+        assert_eq!(off["reasoning_effort"], "none");
+        assert!(off.get("reasoning_format").is_none());
+        assert!(off.get("max_tokens").is_none());
+        assert!(off.get("max_completion_tokens").is_none());
+        assert!(off.get("reasoning").is_none());
+        assert!(off.get("thinking").is_none());
+    }
+
+    #[test]
+    fn anthropic_models_pagination_url_and_page_parsing() {
+        assert_eq!(
+            anthropic_models_page_url("https://api.anthropic.com/v1/models", None).unwrap(),
+            "https://api.anthropic.com/v1/models?limit=1000"
+        );
+        assert_eq!(
+            anthropic_models_page_url(
+                "https://api.anthropic.com/v1/models",
+                Some("claude-sonnet-4-5")
+            )
+            .unwrap(),
+            "https://api.anthropic.com/v1/models?limit=1000&after_id=claude-sonnet-4-5"
+        );
+
+        let page_with_more = parse_models_page(&serde_json::json!({
+            "data": [{"id": "claude-1"}, {"id": "claude-2"}],
+            "has_more": true,
+            "last_id": "claude-2"
+        }));
+        assert_eq!(page_with_more.models, vec!["claude-1", "claude-2"]);
+        assert_eq!(page_with_more.next_after_id.as_deref(), Some("claude-2"));
+
+        let final_page = parse_models_page(&serde_json::json!({
+            "data": [{"id": "claude-3"}],
+            "has_more": false,
+            "last_id": "claude-3"
+        }));
+        assert_eq!(final_page.models, vec!["claude-3"]);
+        assert_eq!(final_page.next_after_id, None);
+    }
+
+    #[tokio::test]
+    async fn anthropic_fetch_models_follows_cursor_pagination_and_deduplicates() {
+        let (base_url, mut requests) = serve_get_responses(vec![
+            (
+                "200 OK",
+                r#"{"data":[{"id":"claude-1"},{"id":"claude-2"}],"has_more":true,"last_id":"claude-2"}"#
+                    .to_string(),
+            ),
+            (
+                "200 OK",
+                r#"{"data":[{"id":"claude-2"},{"id":"claude-3"}],"has_more":true,"last_id":"claude-3"}"#
+                    .to_string(),
+            ),
+            (
+                "200 OK",
+                r#"{"data":[{"id":"claude-4"}],"has_more":false,"last_id":"claude-4"}"#
+                    .to_string(),
+            ),
+        ])
+        .await;
+
+        let models = fetch_models_at_base_url(
+            &test_provider("anthropic"),
+            "not-a-real-key".to_string(),
+            &base_url,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(models, vec!["claude-1", "claude-2", "claude-3", "claude-4"]);
+        assert_eq!(
+            requests.recv().await.unwrap(),
+            "GET /models?limit=1000 HTTP/1.1"
+        );
+        assert_eq!(
+            requests.recv().await.unwrap(),
+            "GET /models?limit=1000&after_id=claude-2 HTTP/1.1"
+        );
+        assert_eq!(
+            requests.recv().await.unwrap(),
+            "GET /models?limit=1000&after_id=claude-3 HTTP/1.1"
+        );
+        assert!(requests.try_recv().is_err());
+
+        // Repeated cursor guard stops immediately without looping forever.
+        let (repeat_url, mut repeat_requests) = serve_get_responses(vec![
+            (
+                "200 OK",
+                r#"{"data":[{"id":"claude-a"}],"has_more":true,"last_id":"claude-a"}"#.to_string(),
+            ),
+            (
+                "200 OK",
+                r#"{"data":[{"id":"claude-b"}],"has_more":true,"last_id":"claude-a"}"#.to_string(),
+            ),
+        ])
+        .await;
+
+        let repeated = fetch_models_at_base_url(
+            &test_provider("anthropic"),
+            "not-a-real-key".to_string(),
+            &repeat_url,
+        )
+        .await
+        .unwrap();
+        assert_eq!(repeated, vec!["claude-a", "claude-b"]);
+        assert_eq!(
+            repeat_requests.recv().await.unwrap(),
+            "GET /models?limit=1000 HTTP/1.1"
+        );
+        assert_eq!(
+            repeat_requests.recv().await.unwrap(),
+            "GET /models?limit=1000&after_id=claude-a HTTP/1.1"
+        );
+        assert!(repeat_requests.try_recv().is_err());
     }
 }
 
