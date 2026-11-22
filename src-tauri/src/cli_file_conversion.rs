@@ -15,9 +15,9 @@ use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_stt::SonioxSttManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::managers::tts::{
-    openai_model_is_legacy_tts1, openai_tts1_supports_voice, TtsManager, TtsPhase,
-    OPENAI_TTS1_DEFAULT_VOICE, OPENAI_TTS_INSTRUCTIONS_MAX_CHARS, SUPPORTED_MP3_BITRATES,
-    SUPPORTED_OPUS_BITRATES,
+    normalize_cartesia_language_code, openai_model_is_legacy_tts1, openai_tts1_supports_voice,
+    validate_elevenlabs_language_code, TtsManager, TtsPhase, OPENAI_TTS1_DEFAULT_VOICE,
+    OPENAI_TTS_INSTRUCTIONS_MAX_CHARS, SUPPORTED_MP3_BITRATES, SUPPORTED_OPUS_BITRATES,
 };
 use crate::managers::tts_history::{
     metadata_from_settings, TtsHistoryManager, TtsHistoryScope, TtsHistorySourceKind,
@@ -1004,10 +1004,14 @@ fn apply_tts_provider_override(
                         "--tts-language is not supported by ElevenLabs Multilingual v2; the model infers language from the text",
                     ));
                 }
-                settings.elevenlabs_language = iso_639_1_cli_value("--tts-language", language)?;
+                settings.elevenlabs_language =
+                    validate_elevenlabs_language_code("--tts-language", language)
+                        .map_err(|error| CliFailure::usage(error.to_string()))?;
             }
             TtsProvider::Cartesia => {
-                settings.cartesia_language = iso_639_1_cli_value("--tts-language", language)?;
+                settings.cartesia_language =
+                    normalize_cartesia_language_code("--tts-language", language)
+                        .map_err(|error| CliFailure::usage(error.to_string()))?;
             }
             TtsProvider::Deepgram => {
                 return Err(CliFailure::usage(
@@ -1382,16 +1386,6 @@ fn nonempty_cli_value<'a>(flag: &str, value: &'a str) -> Result<&'a str, CliFail
         Err(CliFailure::usage(format!("{flag} must not be empty")))
     } else {
         Ok(value)
-    }
-}
-
-fn iso_639_1_cli_value(flag: &str, value: &str) -> Result<String, CliFailure> {
-    if value.len() == 2 && value.bytes().all(|byte| byte.is_ascii_alphabetic()) {
-        Ok(value.to_ascii_lowercase())
-    } else {
-        Err(CliFailure::usage(format!(
-            "{flag} must be a two-letter ISO 639-1 code for this provider"
-        )))
     }
 }
 
