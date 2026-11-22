@@ -775,6 +775,108 @@ pub async fn benchmark_stop_recording(app: AppHandle) -> Result<BenchmarkClipInf
     })
 }
 
+/// Label shown as the clip's "device" for audio copied from History. History
+/// recordings already went through the dictation-time boost/RNNoise/VAD.
+const HISTORY_CLIP_DEVICE_LABEL: &str = "History recording (already processed at capture)";
+
+/// Copies a 16 kHz mono WAV into the benchmark dir as an independent clip and
+/// persists `state.json`. The source file is never referenced afterwards, so
+/// History retention or deletion cannot break the clip.
+fn import_wav_into_benchmark_dir(
+    src_wav: &Path,
+    dir: &Path,
+    state: &mut PersistedBenchmarkState,
+    device_label: String,
+    name_suffix: Option<&str>,
+) -> Result<BenchmarkClipInfo, String> {
+    let spec = hound::WavReader::open(src_wav)
+        .map_err(|err| format!("Failed to open recording: {err}"))?
+        .spec();
+    if spec.channels != 1 || spec.sample_rate != WHISPER_SAMPLE_RATE {
+        return Err(format!(
+            "Unsupported recording format ({} Hz, {} channels); expected 16 kHz mono.",
+            spec.sample_rate, spec.channels
+        ));
+    }
+    let samples =
+        read_wav_samples(src_wav).map_err(|err| format!("Failed to read recording: {err}"))?;
+    if samples.len() < MIN_CLIP_SAMPLES {
+        return Err("Recording is too short or empty to benchmark.".to_string());
+    }
+
+    let now_ms = now_unix_ms();
+    let seq = NEXT_SEQ_ID.fetch_add(1, Ordering::Relaxed);
+    let clip_id = format!("clip-{now_ms}-{seq}");
+    let wav_path = clip_wav_path(dir, &clip_id)?;
+    save_wav_file(&wav_path, &samples)
+        .map_err(|err| format!("Failed to write benchmark clip WAV: {err}"))?;
+
+    let number = state.next_clip_number.max(1);
+    let clip = BenchmarkClipInfo {
+        id: clip_id,
+        name: match name_suffix {
+            Some(suffix) => format!("Clip #{number} · {suffix}"),
+            None => format!("Clip #{number}"),
+        },
+        duration_seconds: samples.len() as f64 / WHISPER_SAMPLE_RATE as f64,
+        sample_count: samples.len().min(u32::MAX as usize) as u32,
+        device_name: device_label,
+        recorded_at_ms: now_ms,
+    };
+    let previous_next = state.next_clip_number;
+    state.next_clip_number = number.saturating_add(1);
+    state.clips.insert(0, clip.clone());
+    if let Err(err) = save_state_to_disk(dir, state) {
+        state.clips.remove(0);
+        state.next_clip_number = previous_next;
+        let _ = fs::remove_file(&wav_path);
+        return Err(err);
+    }
+    Ok(clip)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn benchmark_import_history_entry(
+    app: AppHandle,
+    history_manager: tauri::State<'_, std::sync::Arc<crate::managers::history::HistoryManager>>,
+    history_id: i64,
+) -> Result<BenchmarkClipInfo, String> {
+    if ACTIVE_RECORDING
+        .lock()
+        .map_err(|_| "Benchmark recorder lock poisoned".to_string())?
+        .is_some()
+    {
+        return Err("Stop the active benchmark recording first.".to_string());
+    }
+
+    let entry = history_manager
+        .get_entry_by_id(history_id)
+        .await
+        .map_err(|err| err.to_string())?
+        .ok_or_else(|| "History entry not found.".to_string())?;
+    if entry.action_type != "transcribe" || entry.file_name.trim().is_empty() {
+        return Err("This history entry has no recording to benchmark.".to_string());
+    }
+    let src_path = history_manager
+        .get_audio_file_path(&entry.file_name)
+        .map_err(|err| err.to_string())?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        with_state_mut(&app, false, |dir, state| {
+            import_wav_into_benchmark_dir(
+                &src_path,
+                dir,
+                state,
+                HISTORY_CLIP_DEVICE_LABEL.to_string(),
+                Some("History"),
+            )
+        })
+    })
+    .await
+    .map_err(|err| format!("Benchmark import task failed: {err}"))?
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn benchmark_get_state(app: AppHandle) -> Result<BenchmarkStateSnapshot, String> {
@@ -1315,6 +1417,70 @@ mod tests {
         assert!(reloaded.clips.is_empty());
         assert!(reloaded.results.is_empty());
         assert_eq!(reloaded.next_clip_number, 1);
+    }
+
+    #[test]
+    fn import_wav_creates_independent_clip_and_survives_source_removal() {
+        let source_dir = TempTestDir::new("bench-import-src");
+        let bench_dir = TempTestDir::new("bench-import-dst");
+        let src_wav = source_dir.path().join("aivorelay-1.wav");
+        save_wav_file(&src_wav, &vec![0.25f32; 8_000]).expect("write source wav");
+
+        let mut state = PersistedBenchmarkState {
+            next_clip_number: 3,
+            clips: vec![sample_clip("clip-old", "Clip #2")],
+            results: Vec::new(),
+        };
+        let clip = import_wav_into_benchmark_dir(
+            &src_wav,
+            bench_dir.path(),
+            &mut state,
+            "History".to_string(),
+            Some("History"),
+        )
+        .expect("import history wav");
+
+        assert_eq!(clip.name, "Clip #3 · History");
+        assert_eq!(clip.sample_count, 8_000);
+        assert!((clip.duration_seconds - 0.5).abs() < 1e-9);
+        assert_eq!(state.next_clip_number, 4);
+        assert_eq!(state.clips[0].id, clip.id);
+
+        fs::remove_file(&src_wav).expect("remove source wav");
+        let copy = clip_wav_path(bench_dir.path(), &clip.id).expect("valid clip id");
+        assert_eq!(read_wav_samples(&copy).expect("read copy").len(), 8_000);
+        let reloaded = load_state_from_disk(bench_dir.path());
+        assert_eq!(reloaded.next_clip_number, 4);
+        assert_eq!(reloaded.clips.len(), 1, "only clips with a WAV on disk survive reload");
+        assert_eq!(reloaded.clips[0].id, clip.id);
+    }
+
+    #[test]
+    fn import_wav_rejects_missing_or_too_short_audio() {
+        let source_dir = TempTestDir::new("bench-import-bad-src");
+        let bench_dir = TempTestDir::new("bench-import-bad-dst");
+        let short_wav = source_dir.path().join("short.wav");
+        save_wav_file(&short_wav, &[0.1f32; 100]).expect("write short wav");
+
+        let mut state = PersistedBenchmarkState {
+            next_clip_number: 5,
+            clips: vec![sample_clip("clip-old", "Clip #4")],
+            results: Vec::new(),
+        };
+        let missing_wav = source_dir.path().join("missing.wav");
+        for src in [short_wav.as_path(), missing_wav.as_path()] {
+            let result = import_wav_into_benchmark_dir(
+                src,
+                bench_dir.path(),
+                &mut state,
+                "History".to_string(),
+                None,
+            );
+            assert!(result.is_err());
+        }
+        assert_eq!(state.next_clip_number, 5);
+        assert_eq!(state.clips.len(), 1);
+        assert!(!bench_dir.path().join(BENCHMARK_STATE_FILE).exists());
     }
 
     #[test]

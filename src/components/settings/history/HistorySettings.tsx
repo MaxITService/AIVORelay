@@ -19,7 +19,9 @@ import {
   Copy,
   Download,
   Lightbulb,
+  Gauge,
 } from "lucide-react";
+import { useBenchmarkStore } from "@/stores/benchmarkStore";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import {
@@ -1549,6 +1551,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   const [showCopied, setShowCopied] = useState(false);
   const [copyBurst, setCopyBurst] = useState(0);
   const [showRaw, setShowRaw] = useState(false);
+  const [sendingToBenchmark, setSendingToBenchmark] = useState(false);
   const copyFeedbackTimeoutRef = useRef<number | null>(null);
   const retrying = retryState !== undefined;
   const replayProgress = retryState?.progress ?? null;
@@ -1717,6 +1720,26 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
     }
   };
 
+  const handleSendToBenchmark = async () => {
+    if (retrying || sendingToBenchmark || !hasAudioReference) return;
+    setSendingToBenchmark(true);
+    try {
+      await useBenchmarkStore.getState().importFromHistory(entry.id);
+      if (!retryMountedRef.current) return;
+      navigateToSettingsAnchor({
+        activateSection: () => useNavigationStore.getState().setSection("benchmark"),
+        targetId: "settings-benchmark-recording",
+      });
+    } catch (error) {
+      console.error("Failed to copy history recording to benchmark:", error);
+      toast.error(t("settings.history.sendToBenchmarkError"), {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      if (retryMountedRef.current) setSendingToBenchmark(false);
+    }
+  };
+
   const handleDeleteEntry = async () => {
     try {
       await deleteAudio(entry.id);
@@ -1771,6 +1794,20 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
                 <path d="M7 3h6M8 3v7l-4 7.5A2 2 0 0 0 5.8 20h8.4a2 2 0 0 0 1.8-2.5L12 10V3M6 15h8" />
                 <path d="M17 3h4v4m0-4-4 4" />
               </svg>
+            </IconButton>
+          )}
+          {!isAiReplace && hasAudioReference && (
+            <IconButton
+              onClick={handleSendToBenchmark}
+              disabled={retrying || sendingToBenchmark || !hasPlayableAudio}
+              title={t("settings.history.sendToBenchmark")}
+              tooltip={<>
+                <span className="font-medium">{t("settings.history.sendToBenchmark")}</span>
+                <br />
+                {t("settings.history.sendToBenchmarkDescription")}
+              </>}
+            >
+              <Gauge width={16} height={16} />
             </IconButton>
           )}
           {rawToggle !== "none" && (
