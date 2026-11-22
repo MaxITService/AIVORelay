@@ -81,6 +81,8 @@ struct CreateTranscriptionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     language_hints: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    language_hints_strict: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     context: Option<SonioxContext>,
     #[serde(skip_serializing_if = "Option::is_none")]
     enable_speaker_diarization: Option<bool>,
@@ -1063,24 +1065,50 @@ impl SonioxSttManager {
         Ok(payload.id)
     }
 
+    fn build_create_transcription_request(
+        file_id: &str,
+        model: &str,
+        language_hints: Option<Vec<String>>,
+        language_hints_strict: bool,
+        context: Option<SonioxContext>,
+        enable_speaker_diarization: Option<bool>,
+        enable_language_identification: Option<bool>,
+    ) -> CreateTranscriptionRequest {
+        let language_hints = language_hints.filter(|hints| !hints.is_empty());
+        let language_hints_strict =
+            (language_hints_strict && language_hints.is_some()).then_some(true);
+        CreateTranscriptionRequest {
+            file_id: file_id.to_string(),
+            model: model.to_string(),
+            language_hints,
+            language_hints_strict,
+            context,
+            enable_speaker_diarization,
+            enable_language_identification,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
     async fn create_transcription_impl(
         &self,
         api_key: &str,
         file_id: &str,
         model: &str,
         language_hints: Option<Vec<String>>,
+        language_hints_strict: bool,
         context: Option<SonioxContext>,
         enable_speaker_diarization: Option<bool>,
         enable_language_identification: Option<bool>,
     ) -> Result<String> {
-        let request = CreateTranscriptionRequest {
-            file_id: file_id.to_string(),
-            model: model.to_string(),
+        let request = Self::build_create_transcription_request(
+            file_id,
+            model,
             language_hints,
+            language_hints_strict,
             context,
             enable_speaker_diarization,
             enable_language_identification,
-        };
+        );
 
         let response = self
             .http_client
@@ -1202,6 +1230,64 @@ impl SonioxSttManager {
             speaker_blocks: Self::build_async_speaker_blocks(&payload.tokens),
             timed_tokens: Self::build_async_timed_tokens(&payload.tokens),
         })
+    }
+
+    async fn delete_transcription(
+        http_client: &reqwest::Client,
+        api_key: &str,
+        transcription_id: &str,
+    ) -> Result<()> {
+        let response = http_client
+            .delete(format!(
+                "{}/transcriptions/{}",
+                SONIOX_API_URL, transcription_id
+            ))
+            .header("Authorization", format!("Bearer {}", api_key))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(anyhow!(
+                "Failed to delete transcription {}: {}",
+                transcription_id,
+                response.status()
+            ));
+        }
+
+        Ok(())
+    }
+
+    async fn delete_transcription_with_retry(
+        http_client: &reqwest::Client,
+        api_key: &str,
+        transcription_id: &str,
+    ) {
+        const CLEANUP_RETRIES: u32 = 3;
+        const CLEANUP_DELAY: Duration = Duration::from_secs(1);
+
+        for attempt in 0..CLEANUP_RETRIES {
+            match Self::delete_transcription(http_client, api_key, transcription_id).await {
+                Ok(()) => {
+                    debug!(
+                        "Soniox cleanup: deleted transcription {}",
+                        transcription_id
+                    );
+                    return;
+                }
+                Err(err) => {
+                    warn!(
+                        "Soniox cleanup failed for transcription {} (attempt {}/{}): {}",
+                        transcription_id,
+                        attempt + 1,
+                        CLEANUP_RETRIES,
+                        err
+                    );
+                    if attempt < CLEANUP_RETRIES - 1 {
+                        tokio::time::sleep(CLEANUP_DELAY).await;
+                    }
+                }
+            }
+        }
     }
 
     async fn delete_file(
@@ -1395,6 +1481,31 @@ impl SonioxSttManager {
         language: Option<&str>,
         options: SonioxAsyncTranscriptionOptions,
     ) -> Result<SonioxAsyncTranscript> {
+        self.transcribe_file_async_with_strict(
+            operation_id,
+            api_key,
+            model,
+            timeout_seconds,
+            audio_samples,
+            language,
+            options,
+            false,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn transcribe_file_async_with_strict(
+        &self,
+        operation_id: Option<u64>,
+        api_key: &str,
+        model: &str,
+        timeout_seconds: u32,
+        audio_samples: &[f32],
+        language: Option<&str>,
+        options: SonioxAsyncTranscriptionOptions,
+        language_hints_strict: bool,
+    ) -> Result<SonioxAsyncTranscript> {
         if audio_samples.is_empty() {
             return Ok(SonioxAsyncTranscript::default());
         }
@@ -1438,6 +1549,7 @@ impl SonioxSttManager {
             })
             .await?;
 
+        let mut created_transcription_id: Option<String> = None;
         let result: Result<SonioxAsyncTranscript> = async {
             let transcription_id = self
                 .with_retry("Soniox create transcription", operation_id, || async {
@@ -1446,6 +1558,7 @@ impl SonioxSttManager {
                         &file_id,
                         &model,
                         language_hints.clone(),
+                        language_hints_strict,
                         context.clone(),
                         enable_speaker_diarization,
                         enable_language_identification,
@@ -1453,6 +1566,7 @@ impl SonioxSttManager {
                     .await
                 })
                 .await?;
+            created_transcription_id = Some(transcription_id.clone());
 
             self.wait_for_completion(api_key, &transcription_id, timeout_seconds, operation_id)
                 .await?;
@@ -1468,10 +1582,27 @@ impl SonioxSttManager {
             let http_client = self.http_client.clone();
             let api_key = api_key.to_string();
             let cleanup_file_id = file_id.clone();
+            let cleanup_transcription_id = created_transcription_id.clone();
             tokio::spawn(async move {
+                if let Some(transcription_id) = cleanup_transcription_id {
+                    Self::delete_transcription_with_retry(
+                        &http_client,
+                        &api_key,
+                        &transcription_id,
+                    )
+                    .await;
+                }
                 Self::delete_file_with_retry(&http_client, &api_key, &cleanup_file_id).await;
             });
         } else {
+            if let Some(transcription_id) = created_transcription_id.as_deref() {
+                Self::delete_transcription_with_retry(
+                    &self.http_client,
+                    api_key,
+                    transcription_id,
+                )
+                .await;
+            }
             Self::delete_file_with_retry(&self.http_client, api_key, &file_id).await;
         }
 
@@ -1684,5 +1815,69 @@ mod tests {
             SonioxSttManager::async_transcription_failure_message(&payload),
             "Soniox transcription failed (invalid_audio_file): Audio could not be decoded"
         );
+    }
+
+    #[test]
+    fn create_transcription_request_serializes_language_hints_strict_only_with_hints() {
+        let strict_with_hints = SonioxSttManager::build_create_transcription_request(
+            "file_1",
+            "stt-async-v6",
+            Some(vec!["en".into(), "ru".into()]),
+            true,
+            None,
+            Some(true),
+            Some(false),
+        );
+        let payload = serde_json::to_value(strict_with_hints).unwrap();
+        assert_eq!(
+            payload,
+            serde_json::json!({
+                "file_id": "file_1",
+                "model": "stt-async-v6",
+                "language_hints": ["en", "ru"],
+                "language_hints_strict": true,
+                "enable_speaker_diarization": true,
+                "enable_language_identification": false
+            })
+        );
+
+        let non_strict = SonioxSttManager::build_create_transcription_request(
+            "file_1",
+            "stt-async-v6",
+            Some(vec!["en".into()]),
+            false,
+            None,
+            None,
+            None,
+        );
+        let payload = serde_json::to_value(non_strict).unwrap();
+        assert!(payload.get("language_hints_strict").is_none());
+        assert_eq!(payload["language_hints"], serde_json::json!(["en"]));
+
+        let strict_without_hints = SonioxSttManager::build_create_transcription_request(
+            "file_1",
+            "stt-async-v6",
+            None,
+            true,
+            None,
+            None,
+            None,
+        );
+        let payload = serde_json::to_value(strict_without_hints).unwrap();
+        assert!(payload.get("language_hints").is_none());
+        assert!(payload.get("language_hints_strict").is_none());
+
+        let strict_with_empty_hints = SonioxSttManager::build_create_transcription_request(
+            "file_1",
+            "stt-async-v6",
+            Some(Vec::new()),
+            true,
+            None,
+            None,
+            None,
+        );
+        let payload = serde_json::to_value(strict_with_empty_hints).unwrap();
+        assert!(payload.get("language_hints").is_none());
+        assert!(payload.get("language_hints_strict").is_none());
     }
 }

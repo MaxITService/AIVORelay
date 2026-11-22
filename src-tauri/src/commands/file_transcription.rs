@@ -421,8 +421,14 @@ pub fn change_file_soniox_language_hints_setting(
     app: AppHandle,
     language_hints: Vec<String>,
 ) -> Result<(), String> {
-    let language_hints = crate::settings::normalize_soniox_terms(&language_hints);
-    if language_hints.len()
+    let normalized_hints = crate::language_resolver::normalize_soniox_hint_list(language_hints);
+    if !normalized_hints.rejected.is_empty() {
+        log::warn!(
+            "Ignoring unsupported Soniox file language hints from settings update: {}",
+            normalized_hints.rejected.join(", ")
+        );
+    }
+    if normalized_hints.normalized.len()
         > crate::managers::soniox_stt::SONIOX_LANGUAGE_HINTS_MAX_COUNT
     {
         return Err(format!(
@@ -431,7 +437,7 @@ pub fn change_file_soniox_language_hints_setting(
         ));
     }
     let mut settings = get_settings(&app);
-    settings.file_soniox_language_hints = Some(language_hints);
+    settings.file_soniox_language_hints = Some(normalized_hints.normalized);
     sync_active_file_model_config(&mut settings);
     write_settings_checked(&app, settings)
 }
@@ -1192,6 +1198,9 @@ async fn transcribe_audio_file_inner(
                     .file_soniox_enable_language_identification
                     .unwrap_or(settings.soniox_enable_language_identification)
             });
+        let language_hints_strict = profile
+            .and_then(|p| p.soniox_language_hints_strict)
+            .unwrap_or(settings.soniox_language_hints_strict);
         let soniox_options = SonioxAsyncTranscriptionOptions {
             language_hints,
             context: crate::settings::resolve_soniox_context(profile, &settings),
@@ -1202,7 +1211,7 @@ async fn transcribe_audio_file_inner(
         let api_key = crate::secure_keys::get_soniox_api_key();
 
         let transcript = soniox_manager
-            .transcribe_file_async(
+            .transcribe_file_async_with_strict(
                 Some(operation_id),
                 &api_key,
                 SONIOX_LATEST_ASYNC_MODEL,
@@ -1210,6 +1219,7 @@ async fn transcribe_audio_file_inner(
                 &samples,
                 Some(language.as_str()),
                 soniox_options,
+                language_hints_strict,
             )
             .await
             .map_err(|e| format!("Soniox transcription failed: {}", e))?;
@@ -1926,36 +1936,19 @@ fn post_process_remote_segments(
 }
 
 fn normalize_soniox_language_hints(hints: Option<Vec<String>>) -> Option<Vec<String>> {
-    let Some(hints) = hints else {
-        return None;
-    };
-
-    let mut deduped = Vec::new();
-    for hint in hints {
-        let normalized = hint.trim().to_lowercase().replace('_', "-");
-        if normalized.is_empty() || normalized == "auto" || normalized == "os_input" {
-            continue;
-        }
-        let normalized = if normalized == "zh-hans" || normalized == "zh-hant" {
-            "zh".to_string()
-        } else {
-            normalized
-                .split('-')
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .to_string()
-        };
-        if normalized.is_empty() || deduped.iter().any(|value| value == &normalized) {
-            continue;
-        }
-        deduped.push(normalized);
+    let hints = hints?;
+    let normalized_hints = crate::language_resolver::normalize_soniox_hint_list(hints);
+    if !normalized_hints.rejected.is_empty() {
+        log::warn!(
+            "Ignoring unsupported Soniox file language hints: {}",
+            normalized_hints.rejected.join(", ")
+        );
     }
 
-    if deduped.is_empty() {
+    if normalized_hints.normalized.is_empty() {
         None
     } else {
-        Some(deduped)
+        Some(normalized_hints.normalized)
     }
 }
 
@@ -2905,5 +2898,25 @@ mod tests {
             err,
             "ElevenLabs returned transcript text without timestamps. Select Text output instead of SRT/VTT."
         );
+    }
+
+    #[test]
+    fn normalize_soniox_language_hints_filters_unsupported_and_deduplicates() {
+        let normalized = normalize_soniox_language_hints(Some(vec![
+            " En_US ".to_string(),
+            "zh-Hant".to_string(),
+            "auto".to_string(),
+            "os_input".to_string(),
+            "xx".to_string(),
+            "eng".to_string(),
+            "en".to_string(),
+            "   ".to_string(),
+        ]));
+        assert_eq!(normalized, Some(vec!["en".to_string(), "zh".to_string()]));
+        assert_eq!(
+            normalize_soniox_language_hints(Some(vec!["auto".to_string(), "invalid".to_string()])),
+            None
+        );
+        assert_eq!(normalize_soniox_language_hints(None), None);
     }
 }
