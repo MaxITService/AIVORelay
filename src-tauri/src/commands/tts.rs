@@ -8,9 +8,9 @@ use crate::managers::local_tts::{
 use crate::managers::provider_error::safe_text;
 use crate::managers::tts::{
     is_tts_output_collision, normalize_cartesia_language_code, normalize_deepgram_tts_speed,
-    openai_model_is_legacy_tts1, FileConversionResult, TextFileInspection, TtsBatchFilePlan,
+    normalize_openai_tts_voice, FileConversionResult, TextFileInspection, TtsBatchFilePlan,
     TtsBatchScanRequest, TtsBatchScanResult, TtsChunkReady, TtsManager, TtsOperationKind,
-    TtsPhase, TtsState, TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES, OPENAI_TTS1_DEFAULT_VOICE,
+    TtsPhase, TtsState, TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES,
     SONIOX_TTS_API_KEY_MAX_CHARS, SUPPORTED_MP3_BITRATES, SUPPORTED_OPUS_BITRATES,
     TTS_EVENT_BATCH_PROGRESS, TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
 };
@@ -27,8 +27,7 @@ use crate::settings::{
     TtsOutputFormat, TtsPlaybackEffect, TtsProvider, TtsScopeSynthesisSettings, TtsSettings,
     TtsSynthesisConfig, APPLE_INTELLIGENCE_PROVIDER_ID, DEFAULT_TTS_CARTESIA_VOICE,
     DEFAULT_TTS_DEEPGRAM_MODEL, DEFAULT_TTS_ELEVENLABS_MODEL, DEFAULT_TTS_ELEVENLABS_VOICE,
-    DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE, DEFAULT_TTS_OPENAI_VOICE,
-    DEFAULT_TTS_SONIOX_VOICE,
+    DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE, DEFAULT_TTS_SONIOX_VOICE,
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -1663,14 +1662,8 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.soniox_voice = nonempty_setting(settings.soniox_voice, DEFAULT_TTS_SONIOX_VOICE);
     settings.deepgram_model = nonempty_setting(settings.deepgram_model, DEFAULT_TTS_DEEPGRAM_MODEL);
     settings.openai_model = nonempty_setting(settings.openai_model, "gpt-4o-mini-tts");
-    settings.openai_voice = nonempty_setting(
-        settings.openai_voice,
-        if openai_model_is_legacy_tts1(&settings.openai_model) {
-            OPENAI_TTS1_DEFAULT_VOICE
-        } else {
-            DEFAULT_TTS_OPENAI_VOICE
-        },
-    );
+    settings.openai_voice =
+        normalize_openai_tts_voice(&settings.openai_model, &settings.openai_voice);
     settings.murf_key_source = crate::settings::TtsKeySource::Separate;
     settings.elevenlabs_key_source = crate::settings::TtsKeySource::Separate;
     settings.cartesia_key_source = crate::settings::TtsKeySource::Separate;
@@ -1847,14 +1840,7 @@ fn normalize_synthesis_config(
         }
         TtsProvider::OpenAi => {
             config.model = nonempty_setting(std::mem::take(&mut config.model), "gpt-4o-mini-tts");
-            config.voice = nonempty_setting(
-                std::mem::take(&mut config.voice),
-                if openai_model_is_legacy_tts1(&config.model) {
-                    OPENAI_TTS1_DEFAULT_VOICE
-                } else {
-                    DEFAULT_TTS_OPENAI_VOICE
-                },
-            );
+            config.voice = normalize_openai_tts_voice(&config.model, &config.voice);
             config.language.clear();
         }
         TtsProvider::OpenAiCompatible => {
@@ -4165,5 +4151,193 @@ mod tests {
             })
             .sum::<usize>();
         assert!(serialized_bytes <= TTS_LLM_BENCHMARK_LOG_MAX_BYTES);
+    }
+
+    #[test]
+    fn legacy_openai_tts1_saved_profiles_and_presets_coerce_incompatible_voices() {
+        let mut settings = TtsSettings {
+            provider: TtsProvider::OpenAi,
+            openai_model: "tts-1".to_string(),
+            openai_voice: "marin".to_string(),
+            ..TtsSettings::default()
+        };
+
+        let mut mini_config =
+            TtsSynthesisConfig::from_settings(&settings, TtsOperationScope::Interactive);
+        mini_config.model = "gpt-4o-mini-tts".to_string();
+        mini_config.voice = "marin".to_string();
+
+        let mut tts1_config = mini_config.clone();
+        tts1_config.model = "tts-1".to_string();
+        tts1_config.voice = "marin".to_string();
+
+        let mut tts1_hd_config =
+            TtsSynthesisConfig::from_settings(&settings, TtsOperationScope::File);
+        tts1_hd_config.model = "tts-1-hd".to_string();
+        tts1_hd_config.voice = "cedar".to_string();
+
+        let mut preset_tts1_config = tts1_config.clone();
+        preset_tts1_config.voice = "ballad".to_string();
+
+        let mini_key = mini_config.model_key();
+        let tts1_key = tts1_config.model_key();
+        let tts1_hd_key = tts1_hd_config.model_key();
+
+        settings.interactive_synthesis.active_model_key = mini_key.clone();
+        settings.interactive_synthesis.models = vec![
+            crate::settings::TtsModelSynthesisSettings {
+                model_key: mini_key.clone(),
+                config: mini_config.clone(),
+            },
+            crate::settings::TtsModelSynthesisSettings {
+                model_key: tts1_key.clone(),
+                config: tts1_config,
+            },
+        ];
+        settings.file_synthesis.active_model_key = tts1_hd_key.clone();
+        settings.file_synthesis.models = vec![crate::settings::TtsModelSynthesisSettings {
+            model_key: tts1_hd_key.clone(),
+            config: tts1_hd_config,
+        }];
+        settings.synthesis_presets = vec![
+            crate::settings::TtsSynthesisPreset {
+                id: "legacy-tts1".to_string(),
+                name: "Legacy TTS-1".to_string(),
+                config: preset_tts1_config,
+            },
+            crate::settings::TtsSynthesisPreset {
+                id: "mini-marin".to_string(),
+                name: "Mini Marin".to_string(),
+                config: mini_config,
+            },
+        ];
+
+        let normalized = normalize_settings(settings);
+        assert_eq!(normalized.openai_voice, "alloy");
+        assert!(
+            validate_all_synthesis_configs(&normalized).is_ok(),
+            "normalized saved tts-1/tts-1-hd profiles and presets must pass validation"
+        );
+
+        let interactive_mini = normalized
+            .interactive_synthesis
+            .models
+            .iter()
+            .find(|entry| entry.model_key == mini_key)
+            .expect("gpt-4o-mini-tts profile");
+        assert_eq!(interactive_mini.config.voice, "marin");
+
+        let interactive_tts1 = normalized
+            .interactive_synthesis
+            .models
+            .iter()
+            .find(|entry| entry.model_key == tts1_key)
+            .expect("tts-1 profile");
+        assert_eq!(interactive_tts1.config.voice, "alloy");
+
+        let file_tts1_hd = normalized
+            .file_synthesis
+            .models
+            .iter()
+            .find(|entry| entry.model_key == tts1_hd_key)
+            .expect("tts-1-hd profile");
+        assert_eq!(file_tts1_hd.config.voice, "alloy");
+
+        let legacy_preset = normalized
+            .synthesis_presets
+            .iter()
+            .find(|preset| preset.id == "legacy-tts1")
+            .expect("legacy tts-1 preset");
+        assert_eq!(legacy_preset.config.voice, "alloy");
+
+        let mini_preset = normalized
+            .synthesis_presets
+            .iter()
+            .find(|preset| preset.id == "mini-marin")
+            .expect("gpt-4o-mini-tts preset");
+        assert_eq!(mini_preset.config.voice, "marin");
+
+        let direct_invalid = TtsSettings {
+            provider: TtsProvider::OpenAi,
+            openai_model: "tts-1".to_string(),
+            openai_voice: "marin".to_string(),
+            ..TtsSettings::default()
+        };
+        assert!(
+            TtsManager::validate_synthesis_settings(&direct_invalid).is_err(),
+            "direct synthesis validation must still reject tts-1 with marin"
+        );
+    }
+
+    #[test]
+    fn switching_to_saved_legacy_openai_tts1_profile_yields_alloy_and_preserves_valid_voices() {
+        let mut settings = TtsSettings {
+            provider: TtsProvider::OpenAi,
+            openai_model: "gpt-4o-mini-tts".to_string(),
+            openai_voice: "marin".to_string(),
+            ..TtsSettings::default()
+        };
+        let mini_config =
+            TtsSynthesisConfig::from_settings(&settings, TtsOperationScope::Interactive);
+        let mut saved_tts1 = mini_config.clone();
+        saved_tts1.model = "tts-1".to_string();
+        saved_tts1.voice = "marin".to_string();
+        let mut saved_tts1_hd = mini_config.clone();
+        saved_tts1_hd.model = "tts-1-hd".to_string();
+        saved_tts1_hd.voice = "nova".to_string();
+
+        settings.interactive_synthesis.active_model_key = mini_config.model_key();
+        settings.interactive_synthesis.models = vec![
+            crate::settings::TtsModelSynthesisSettings {
+                model_key: mini_config.model_key(),
+                config: mini_config,
+            },
+            crate::settings::TtsModelSynthesisSettings {
+                model_key: saved_tts1.model_key(),
+                config: saved_tts1,
+            },
+            crate::settings::TtsModelSynthesisSettings {
+                model_key: saved_tts1_hd.model_key(),
+                config: saved_tts1_hd,
+            },
+        ];
+
+        let mut settings = normalize_settings(settings);
+        let tts1_request = TtsSettings {
+            provider: TtsProvider::OpenAi,
+            openai_model: "tts-1".to_string(),
+            openai_voice: "alloy".to_string(),
+            ..settings.effective_for_scope(TtsOperationScope::Interactive)
+        };
+        settings.select_scope_model(TtsOperationScope::Interactive, &tts1_request);
+        settings = normalize_settings(settings);
+        assert!(validate_all_synthesis_configs(&settings).is_ok());
+
+        let selected_tts1 = settings.effective_for_scope(TtsOperationScope::Interactive);
+        assert_eq!(selected_tts1.openai_model, "tts-1");
+        assert_eq!(selected_tts1.openai_voice, "alloy");
+
+        let tts1_hd_request = TtsSettings {
+            provider: TtsProvider::OpenAi,
+            openai_model: "tts-1-hd".to_string(),
+            openai_voice: "alloy".to_string(),
+            ..selected_tts1
+        };
+        settings.select_scope_model(TtsOperationScope::Interactive, &tts1_hd_request);
+        settings = normalize_settings(settings);
+        let selected_tts1_hd = settings.effective_for_scope(TtsOperationScope::Interactive);
+        assert_eq!(selected_tts1_hd.openai_model, "tts-1-hd");
+        assert_eq!(selected_tts1_hd.openai_voice, "nova");
+
+        let mini_request = TtsSettings {
+            provider: TtsProvider::OpenAi,
+            openai_model: "gpt-4o-mini-tts".to_string(),
+            ..selected_tts1_hd
+        };
+        settings.select_scope_model(TtsOperationScope::Interactive, &mini_request);
+        settings = normalize_settings(settings);
+        let selected_mini = settings.effective_for_scope(TtsOperationScope::Interactive);
+        assert_eq!(selected_mini.openai_model, "gpt-4o-mini-tts");
+        assert_eq!(selected_mini.openai_voice, "marin");
     }
 }
