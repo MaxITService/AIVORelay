@@ -457,6 +457,10 @@ export const TranscribeFileSettings: React.FC = () => {
         wordTimestamps: geminiNeedsWordTimestamps,
         diarization: geminiFileDiarization,
         route: remotePreset,
+        hasCustomVocabulary:
+          parsedGeminiVocabulary.normalizedTerms.length > 0 ||
+          (!parsedGeminiVocabulary.safeToPersist &&
+            fileGeminiVocabulary.length > 0),
       })
     : null;
   const geminiDurationLimitSeconds = geminiFileLimitSeconds(

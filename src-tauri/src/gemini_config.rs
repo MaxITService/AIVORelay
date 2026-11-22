@@ -16,7 +16,7 @@ pub const GEMINI_SUPPORTED_LOCALES: &[&str] = &[
     "lv-LV", "ln-CD", "lt-LT", "mk-MK", "ms-MY", "ml-IN", "mt-MT", "cmn-Hans-CN",
     "mr-IN", "mn-MN", "ne-NP", "nb-NO", "or-IN", "pl-PL", "pt-BR", "pt-PT",
     "pa-IN", "pa-Guru-IN", "ro-RO", "ru-RU", "sr-RS", "sd-Arab-IN", "sk-SK",
-    "sl-SI", "es-419", "es-US", "sw-KE", "sv-SE", "tg-TJ", "te-IN", "th-TH",
+    "sl-SI", "es-419", "es-ES", "es-US", "sw-KE", "sv-SE", "tg-TJ", "te-IN", "th-TH",
     "tr-TR", "uk-UA", "uz-UZ", "vi-VN",
 ];
 
@@ -149,6 +149,7 @@ pub fn validate_compatibility(
     route: GeminiRoute,
     mode: GeminiTranscriptionMode,
     diarization: bool,
+    has_custom_vocabulary: bool,
 ) -> Result<(), String> {
     let timestamps = matches!(workflow, GeminiWorkflow::File { word_timestamps: true });
     if matches!(workflow, GeminiWorkflow::Live) && diarization {
@@ -165,6 +166,15 @@ pub fn validate_compatibility(
     }
     if mode == GeminiTranscriptionMode::Smart && diarization {
         return Err("Gemini Smart mode cannot use speaker diarization. Select Verbatim or disable diarization.".to_string());
+    }
+    if has_custom_vocabulary && timestamps && diarization {
+        return Err("Gemini Custom Vocabulary cannot be combined with word timestamps or speaker diarization. Clear Custom Vocabulary, or switch to Text output and disable speaker diarization.".to_string());
+    }
+    if has_custom_vocabulary && timestamps {
+        return Err("Gemini Custom Vocabulary cannot be combined with word timestamps. Clear Custom Vocabulary or select Text output instead of SRT/VTT.".to_string());
+    }
+    if has_custom_vocabulary && diarization {
+        return Err("Gemini Custom Vocabulary cannot be combined with speaker diarization. Clear Custom Vocabulary or disable speaker diarization.".to_string());
     }
     Ok(())
 }
@@ -197,7 +207,13 @@ pub fn resolve_effective_config(
     let mode = workflow_mode(settings, workflow);
     let word_timestamps = matches!(workflow, GeminiWorkflow::File { word_timestamps: true });
     let diarization = matches!(workflow, GeminiWorkflow::File { .. }) && settings.gemini_file_diarization;
-    validate_compatibility(workflow, route, mode, diarization)?;
+    validate_compatibility(
+        workflow,
+        route,
+        mode,
+        diarization,
+        !custom_vocabulary.is_empty(),
+    )?;
     let max_duration_seconds = if word_timestamps || diarization {
         GEMINI_FILE_ANNOTATED_MAX_SECONDS as u64
     } else {
@@ -287,6 +303,11 @@ mod tests {
         assert_eq!(map_os_locale("ru"), Some("ru-RU"));
         assert_eq!(map_os_locale("en"), None);
         assert_eq!(map_os_locale("en-GB"), Some("en-GB"));
+        assert_eq!(map_os_locale("es"), None);
+        assert_eq!(map_os_locale("es-ES"), Some("es-ES"));
+        assert_eq!(map_os_locale("es_ES"), Some("es-ES"));
+        assert_eq!(map_os_locale("es-419"), Some("es-419"));
+        assert_eq!(map_os_locale("es-US"), Some("es-US"));
     }
 
     #[test]
@@ -294,6 +315,8 @@ mod tests {
         assert_eq!(validate_language_selection(" auto ").unwrap(), "auto");
         assert_eq!(validate_language_selection("os_input").unwrap(), "os_input");
         assert_eq!(validate_language_selection("ru-RU").unwrap(), "ru-RU");
+        assert_eq!(validate_language_selection("es-ES").unwrap(), "es-ES");
+        assert!(is_supported_exact_locale("es-ES"));
         assert!(validate_language_selection("ru").is_err());
         assert!(validate_language_selection("not-a-locale").is_err());
     }
@@ -353,19 +376,129 @@ mod tests {
             GeminiRoute::GoogleDirect,
             GeminiTranscriptionMode::Smart,
             false,
+            false,
         ).is_err());
         assert!(validate_compatibility(
             GeminiWorkflow::File { word_timestamps: false },
             GeminiRoute::GoogleDirect,
             GeminiTranscriptionMode::Smart,
             true,
+            false,
         ).is_err());
         assert!(validate_compatibility(
             GeminiWorkflow::File { word_timestamps: false },
             GeminiRoute::VercelGateway,
             GeminiTranscriptionMode::Verbatim,
             true,
+            false,
         ).is_err());
+    }
+
+    #[test]
+    fn custom_vocabulary_conflicts_with_diarization_and_word_timestamps() {
+        assert!(validate_compatibility(
+            GeminiWorkflow::File { word_timestamps: false },
+            GeminiRoute::GoogleDirect,
+            GeminiTranscriptionMode::Verbatim,
+            true,
+            true,
+        ).is_err());
+        assert!(validate_compatibility(
+            GeminiWorkflow::File { word_timestamps: true },
+            GeminiRoute::GoogleDirect,
+            GeminiTranscriptionMode::Verbatim,
+            false,
+            true,
+        ).is_err());
+        assert!(validate_compatibility(
+            GeminiWorkflow::File { word_timestamps: true },
+            GeminiRoute::VercelGateway,
+            GeminiTranscriptionMode::Verbatim,
+            false,
+            true,
+        ).is_err());
+        assert!(validate_compatibility(
+            GeminiWorkflow::File { word_timestamps: true },
+            GeminiRoute::GoogleDirect,
+            GeminiTranscriptionMode::Verbatim,
+            true,
+            true,
+        ).is_err());
+        assert!(validate_compatibility(
+            GeminiWorkflow::File { word_timestamps: false },
+            GeminiRoute::GoogleDirect,
+            GeminiTranscriptionMode::Verbatim,
+            false,
+            true,
+        ).is_ok());
+        assert!(validate_compatibility(
+            GeminiWorkflow::File { word_timestamps: false },
+            GeminiRoute::VercelGateway,
+            GeminiTranscriptionMode::Smart,
+            false,
+            true,
+        ).is_ok());
+        assert!(validate_compatibility(
+            GeminiWorkflow::Dictation,
+            GeminiRoute::GoogleDirect,
+            GeminiTranscriptionMode::Smart,
+            false,
+            true,
+        ).is_ok());
+        assert!(validate_compatibility(
+            GeminiWorkflow::Live,
+            GeminiRoute::VercelGateway,
+            GeminiTranscriptionMode::Verbatim,
+            false,
+            true,
+        ).is_ok());
+
+        let mut settings = crate::settings::get_default_settings();
+        settings.remote_stt.provider_preset = "google".to_string();
+        settings.gemini_file_mode = GeminiTranscriptionMode::Verbatim;
+        settings.gemini_custom_vocabulary = vec!["Kubernetes".to_string()];
+        settings.gemini_file_diarization = true;
+
+        assert!(resolve_effective_config(
+            &settings,
+            None,
+            GeminiWorkflow::File { word_timestamps: false },
+            None,
+        ).is_err());
+        assert!(resolve_effective_config(
+            &settings,
+            None,
+            GeminiWorkflow::Dictation,
+            None,
+        ).is_ok());
+
+        settings.gemini_file_diarization = false;
+        assert!(resolve_effective_config(
+            &settings,
+            None,
+            GeminiWorkflow::File { word_timestamps: true },
+            None,
+        ).is_err());
+        assert!(resolve_effective_config(
+            &settings,
+            None,
+            GeminiWorkflow::File { word_timestamps: false },
+            None,
+        ).is_ok());
+
+        settings.remote_stt.provider_preset = "vercel".to_string();
+        assert!(resolve_effective_config(
+            &settings,
+            None,
+            GeminiWorkflow::File { word_timestamps: true },
+            None,
+        ).is_err());
+        assert!(resolve_effective_config(
+            &settings,
+            None,
+            GeminiWorkflow::File { word_timestamps: false },
+            None,
+        ).is_ok());
     }
 
     #[test]
