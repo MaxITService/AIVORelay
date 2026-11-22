@@ -67,6 +67,7 @@ import type { OSType } from "@/lib/utils/keyboard";
 import {
   AIVORELAY_TTS_GUIDE_URL,
   CARTESIA_MODEL_OPTIONS,
+  DEEPGRAM_FLUX_DEFAULT_MODEL,
   DEEPGRAM_FLUX_SPEED_RANGE,
   ELEVENLABS_MODEL_OPTIONS,
   LOCAL_TTS_INSTALL_METADATA,
@@ -81,6 +82,7 @@ import {
   TTS_PROVIDER_DOCUMENTATION,
   TTS_PROVIDER_OPTIONS,
   TTS_PROVIDER_SPEED_RANGES,
+  deepgramModelSupportsSpeed,
   isDeepgramFluxModel,
   isOpenAiTts1Model,
   isOpenAiVoiceCompatibleWithModel,
@@ -1951,10 +1953,15 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     : tts.provider === "local_kokoro"
                       ? "kokoro-int8-multi-lang-v1_1"
                       : "Qwen3-TTS-12Hz-0.6B-CustomVoice";
+  const effectiveDeepgramModel =
+    tts.deepgram_model.trim() || DEEPGRAM_FLUX_DEFAULT_MODEL;
   const [speedMinimum, speedMaximum] =
-    tts.provider === "deepgram" && isDeepgramFluxModel(tts.deepgram_model)
+    tts.provider === "deepgram" && isDeepgramFluxModel(effectiveDeepgramModel)
       ? DEEPGRAM_FLUX_SPEED_RANGE
       : providerCapabilities.speed;
+  const deepgramSpeedUnsupported =
+    tts.provider === "deepgram" &&
+    !deepgramModelSupportsSpeed(effectiveDeepgramModel);
   const elevenV3Selected =
     tts.provider === "elevenlabs" && tts.elevenlabs_model === "eleven_v3";
   const elevenV4TurboSelected =
@@ -5140,17 +5147,25 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               <SettingContainer
                 grouped
                 title={t("textToSpeech.voice.speedTitle")}
-                description={t("textToSpeech.voice.speedDescription", {
-                  minimum: speedMinimum,
-                  maximum: speedMaximum,
-                })}
+                description={
+                  deepgramSpeedUnsupported
+                    ? t(
+                        "textToSpeech.voice.deepgramSpeedUnsupportedDescription",
+                        "Speed control is only available for English voices on Deepgram Flux and English or Spanish voices on Aura-2. This voice uses normal (1.0×) speed.",
+                      )
+                    : t("textToSpeech.voice.speedDescription", {
+                        minimum: speedMinimum,
+                        maximum: speedMaximum,
+                      })
+                }
               >
                 <CommittedNumberInput
                   className="w-28"
                   min={speedMinimum}
                   max={speedMaximum}
                   step={0.05}
-                  value={tts.speed}
+                  value={deepgramSpeedUnsupported ? 1 : tts.speed}
+                  disabled={deepgramSpeedUnsupported || savingField !== null}
                   onCommit={(speed) =>
                     void updateTts({ speed }, "speed")
                   }

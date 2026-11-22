@@ -26,10 +26,18 @@ export type TtsProviderDocumentation = {
 };
 
 export const DEEPGRAM_FLUX_DEFAULT_MODEL = "flux-kit-en";
-export const DEEPGRAM_FLUX_SPEED_RANGE: [number, number] = [0.85, 1.15];
+export const DEEPGRAM_FLUX_SPEED_RANGE: [number, number] = [0.5, 1.5];
 
 export const isDeepgramFluxModel = (model: string): boolean =>
   model.trim().toLowerCase().startsWith("flux-");
+
+export const deepgramModelSupportsSpeed = (model: string): boolean => {
+  const normalized = model.trim().toLowerCase();
+  if (isDeepgramFluxModel(normalized)) {
+    return normalized.endsWith("-en");
+  }
+  return normalized.endsWith("-en") || normalized.endsWith("-es");
+};
 
 export const TTS_PROVIDER_OPTIONS: TtsProviderOption[] = [
   { value: "soniox", label: "Soniox", group: "Cloud" },
