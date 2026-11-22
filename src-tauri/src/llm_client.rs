@@ -77,6 +77,8 @@ struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning_format: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    include_reasoning: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     reasoning: Option<ReasoningParams>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thinking: Option<ThinkingParams>,
@@ -97,6 +99,7 @@ impl ChatCompletionRequest {
             max_completion_tokens: reasoning_options.max_completion_tokens,
             reasoning_effort: reasoning_options.reasoning_effort,
             reasoning_format: reasoning_options.reasoning_format,
+            include_reasoning: reasoning_options.include_reasoning,
             reasoning: reasoning_options.reasoning,
             thinking: reasoning_options.thinking,
         }
@@ -110,6 +113,7 @@ impl ChatCompletionRequest {
         self.reasoning.is_some()
             || self.reasoning_effort.is_some()
             || self.reasoning_format.is_some()
+            || self.include_reasoning.is_some()
             || self.thinking.is_some()
     }
 }
@@ -120,6 +124,7 @@ struct ReasoningRequestOptions {
     max_completion_tokens: Option<u32>,
     reasoning_effort: Option<String>,
     reasoning_format: Option<String>,
+    include_reasoning: Option<bool>,
     reasoning: Option<ReasoningParams>,
     thinking: Option<ThinkingParams>,
 }
@@ -133,11 +138,14 @@ fn reasoning_effort_for_budget(budget: u32) -> &'static str {
     }
 }
 
-fn is_groq_always_on_reasoning_model(model: &str) -> bool {
+fn is_groq_gpt_oss_model(model: &str) -> bool {
     model.eq_ignore_ascii_case("openai/gpt-oss-20b")
         || model.eq_ignore_ascii_case("openai/gpt-oss-120b")
         || model.eq_ignore_ascii_case("openai/gpt-oss-safeguard-20b")
-        || model.eq_ignore_ascii_case("minimaxai/minimax-m2.7")
+}
+
+fn is_groq_parsed_always_on_reasoning_model(model: &str) -> bool {
+    model.eq_ignore_ascii_case("minimaxai/minimax-m2.7")
         || model.eq_ignore_ascii_case("meta-models/muse-spark-open")
 }
 
@@ -156,7 +164,10 @@ fn groq_reasoning_effort(model: &str, enabled: bool, budget: u32) -> Option<&'st
         return Some(if enabled { "default" } else { "none" });
     }
 
-    if enabled && is_groq_always_on_reasoning_model(model) {
+    if enabled
+        && (is_groq_gpt_oss_model(model)
+            || model.eq_ignore_ascii_case("meta-models/muse-spark-open"))
+    {
         return Some(reasoning_effort_for_budget(budget));
     }
 
@@ -168,15 +179,24 @@ fn groq_reasoning_format(model: &str, enabled: bool) -> Option<&'static str> {
     if enabled {
         if model.eq_ignore_ascii_case("qwen/qwen3.8-27b")
             || model.eq_ignore_ascii_case("qwen/qwen3.6-27b")
-            || is_groq_always_on_reasoning_model(model)
+            || is_groq_parsed_always_on_reasoning_model(model)
         {
             return Some("parsed");
         }
         return None;
     }
 
-    if is_groq_always_on_reasoning_model(model) {
+    if is_groq_parsed_always_on_reasoning_model(model) {
         return Some("parsed");
+    }
+
+    None
+}
+
+fn groq_include_reasoning(model: &str) -> Option<bool> {
+    let model = model.trim();
+    if is_groq_gpt_oss_model(model) {
+        return Some(false);
     }
 
     None
@@ -210,16 +230,19 @@ fn reasoning_request_options(
 
         return match provider_id {
             "groq" => {
-                if let Some(effort) = groq_reasoning_effort(model, true, budget) {
-                    let format = groq_reasoning_format(model, true);
+                let effort = groq_reasoning_effort(model, true, budget);
+                let format = groq_reasoning_format(model, true);
+                let include_reasoning = groq_include_reasoning(model);
+                if effort.is_some() || format.is_some() || include_reasoning.is_some() {
                     debug!(
-                        "Extended Thinking enabled for Groq with effort='{}', format={:?}, max_completion_tokens={}",
-                        effort, format, total
+                        "Extended Thinking enabled for Groq with effort={:?}, format={:?}, include_reasoning={:?}, max_completion_tokens={}",
+                        effort, format, include_reasoning, total
                     );
                     ReasoningRequestOptions {
                         max_completion_tokens: Some(total),
-                        reasoning_effort: Some(effort.to_string()),
+                        reasoning_effort: effort.map(str::to_string),
                         reasoning_format: format.map(str::to_string),
+                        include_reasoning,
                         ..Default::default()
                     }
                 } else {
@@ -312,14 +335,16 @@ fn reasoning_request_options(
         "groq" => {
             let effort = groq_reasoning_effort(model, false, 0);
             let format = groq_reasoning_format(model, false);
-            if effort.is_some() || format.is_some() {
+            let include_reasoning = groq_include_reasoning(model);
+            if effort.is_some() || format.is_some() || include_reasoning.is_some() {
                 debug!(
-                    "Configuring default provider reasoning for post-processing on '{}': effort={:?}, format={:?}",
-                    provider_id, effort, format
+                    "Configuring default provider reasoning for post-processing on '{}': effort={:?}, format={:?}, include_reasoning={:?}",
+                    provider_id, effort, format, include_reasoning
                 );
                 ReasoningRequestOptions {
                     reasoning_effort: effort.map(str::to_string),
                     reasoning_format: format.map(str::to_string),
+                    include_reasoning,
                     ..Default::default()
                 }
             } else {
@@ -2253,6 +2278,8 @@ mod tests {
         let json = request_json_with_reasoning_options(options);
 
         assert_eq!(json["reasoning_effort"], "none");
+        assert!(json.get("reasoning_format").is_none());
+        assert!(json.get("include_reasoning").is_none());
         assert!(json.get("reasoning").is_none());
         assert!(json.get("max_tokens").is_none());
         assert!(json.get("max_completion_tokens").is_none());
@@ -2261,13 +2288,21 @@ mod tests {
     #[test]
     fn groq_non_qwen_omits_unsupported_none_effort() {
         let reasoning = ReasoningConfig::from_user_toggle(false, 2048);
-        let options =
-            reasoning_request_options(&test_provider("groq"), "openai/gpt-oss-120b", &reasoning);
-        let json = request_json_with_reasoning_options(options);
+        for model in [
+            "openai/gpt-oss-20b",
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-safeguard-20b",
+        ] {
+            let options = reasoning_request_options(&test_provider("groq"), model, &reasoning);
+            let json = request_json_with_reasoning_options(options);
 
-        assert!(json.get("reasoning_effort").is_none());
-        assert!(json.get("reasoning").is_none());
-        assert_eq!(json["reasoning_format"], "parsed");
+            assert!(json.get("reasoning_effort").is_none(), "model={model}");
+            assert!(json.get("reasoning_format").is_none(), "model={model}");
+            assert_eq!(json["include_reasoning"], false, "model={model}");
+            assert!(json.get("reasoning").is_none(), "model={model}");
+            assert!(json.get("max_tokens").is_none(), "model={model}");
+            assert!(json.get("max_completion_tokens").is_none(), "model={model}");
+        }
     }
 
     #[test]
@@ -2278,6 +2313,7 @@ mod tests {
 
         assert_eq!(json["reasoning_effort"], "default");
         assert_eq!(json["reasoning_format"], "parsed");
+        assert!(json.get("include_reasoning").is_none());
         assert_eq!(json["max_completion_tokens"], 4000);
         assert!(json.get("max_tokens").is_none());
         assert!(json.get("reasoning").is_none());
@@ -2293,7 +2329,8 @@ mod tests {
             &ReasoningConfig::new(true, 1024),
         ));
         assert_eq!(low["reasoning_effort"], "low");
-        assert_eq!(low["reasoning_format"], "parsed");
+        assert!(low.get("reasoning_format").is_none());
+        assert_eq!(low["include_reasoning"], false);
         assert_eq!(low["max_completion_tokens"], 4000);
         assert!(low.get("max_tokens").is_none());
         assert!(low.get("reasoning").is_none());
@@ -2304,7 +2341,8 @@ mod tests {
             &ReasoningConfig::new(true, 2048),
         ));
         assert_eq!(medium["reasoning_effort"], "medium");
-        assert_eq!(medium["reasoning_format"], "parsed");
+        assert!(medium.get("reasoning_format").is_none());
+        assert_eq!(medium["include_reasoning"], false);
         assert_eq!(medium["max_completion_tokens"], 4048);
 
         let high = request_json_with_reasoning_options(reasoning_request_options(
@@ -2313,7 +2351,8 @@ mod tests {
             &ReasoningConfig::new(true, 8192),
         ));
         assert_eq!(high["reasoning_effort"], "high");
-        assert_eq!(high["reasoning_format"], "parsed");
+        assert!(high.get("reasoning_format").is_none());
+        assert_eq!(high["include_reasoning"], false);
         assert_eq!(high["max_completion_tokens"], 10192);
     }
 
@@ -2325,6 +2364,7 @@ mod tests {
 
         assert!(json.get("reasoning_effort").is_none());
         assert!(json.get("reasoning_format").is_none());
+        assert!(json.get("include_reasoning").is_none());
         assert!(json.get("reasoning").is_none());
     }
 
@@ -2751,6 +2791,7 @@ mod tests {
         assert!(retry.body.get("reasoning").is_none());
         assert!(retry.body.get("reasoning_effort").is_none());
         assert!(retry.body.get("reasoning_format").is_none());
+        assert!(retry.body.get("include_reasoning").is_none());
     }
 
     #[test]
@@ -2817,6 +2858,7 @@ mod tests {
         ));
         assert_eq!(qwen38_low["reasoning_effort"], "low");
         assert_eq!(qwen38_low["reasoning_format"], "parsed");
+        assert!(qwen38_low.get("include_reasoning").is_none());
         assert_eq!(qwen38_low["max_completion_tokens"], 4000);
         assert!(qwen38_low.get("max_tokens").is_none());
 
@@ -2827,6 +2869,7 @@ mod tests {
         ));
         assert_eq!(qwen38_high["reasoning_effort"], "high");
         assert_eq!(qwen38_high["reasoning_format"], "parsed");
+        assert!(qwen38_high.get("include_reasoning").is_none());
         assert_eq!(qwen38_high["max_completion_tokens"], 10192);
 
         let qwen38_off = request_json_with_reasoning_options(reasoning_request_options(
@@ -2836,12 +2879,14 @@ mod tests {
         ));
         assert_eq!(qwen38_off["reasoning_effort"], "none");
         assert!(qwen38_off.get("reasoning_format").is_none());
+        assert!(qwen38_off.get("include_reasoning").is_none());
         assert!(qwen38_off.get("max_completion_tokens").is_none());
 
+        // GPT-OSS models reject reasoning_format and use include_reasoning instead.
         for model in [
+            "openai/gpt-oss-20b",
+            "openai/gpt-oss-120b",
             "openai/gpt-oss-safeguard-20b",
-            "minimaxai/minimax-m2.7",
-            "meta-models/muse-spark-open",
         ] {
             let on = request_json_with_reasoning_options(reasoning_request_options(
                 &provider,
@@ -2849,7 +2894,8 @@ mod tests {
                 &ReasoningConfig::from_user_toggle(true, 2048),
             ));
             assert_eq!(on["reasoning_effort"], "medium", "model={model}");
-            assert_eq!(on["reasoning_format"], "parsed", "model={model}");
+            assert!(on.get("reasoning_format").is_none(), "model={model}");
+            assert_eq!(on["include_reasoning"], false, "model={model}");
             assert_eq!(on["max_completion_tokens"], 4048, "model={model}");
 
             let off = request_json_with_reasoning_options(reasoning_request_options(
@@ -2858,8 +2904,92 @@ mod tests {
                 &ReasoningConfig::from_user_toggle(false, 2048),
             ));
             assert!(off.get("reasoning_effort").is_none(), "model={model}");
-            assert_eq!(off["reasoning_format"], "parsed", "model={model}");
+            assert!(off.get("reasoning_format").is_none(), "model={model}");
+            assert_eq!(off["include_reasoning"], false, "model={model}");
+            assert!(off.get("max_completion_tokens").is_none(), "model={model}");
         }
+
+        // Muse Spark Open supports reasoning_effort (low/medium/high/xhigh) and reasoning_format.
+        let muse_on = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "meta-models/muse-spark-open",
+            &ReasoningConfig::from_user_toggle(true, 2048),
+        ));
+        assert_eq!(muse_on["reasoning_effort"], "medium");
+        assert_eq!(muse_on["reasoning_format"], "parsed");
+        assert!(muse_on.get("include_reasoning").is_none());
+        assert_eq!(muse_on["max_completion_tokens"], 4048);
+
+        let muse_off = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "meta-models/muse-spark-open",
+            &ReasoningConfig::from_user_toggle(false, 2048),
+        ));
+        assert!(muse_off.get("reasoning_effort").is_none());
+        assert_eq!(muse_off["reasoning_format"], "parsed");
+        assert!(muse_off.get("include_reasoning").is_none());
+        assert!(muse_off.get("max_completion_tokens").is_none());
+
+        // MiniMax M2.7 uses interleaved thinking with reasoning_format, without reasoning_effort.
+        let minimax_on = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "minimaxai/minimax-m2.7",
+            &ReasoningConfig::from_user_toggle(true, 2048),
+        ));
+        assert!(minimax_on.get("reasoning_effort").is_none());
+        assert_eq!(minimax_on["reasoning_format"], "parsed");
+        assert!(minimax_on.get("include_reasoning").is_none());
+        assert_eq!(minimax_on["max_completion_tokens"], 4048);
+
+        let minimax_off = request_json_with_reasoning_options(reasoning_request_options(
+            &provider,
+            "minimaxai/minimax-m2.7",
+            &ReasoningConfig::from_user_toggle(false, 2048),
+        ));
+        assert!(minimax_off.get("reasoning_effort").is_none());
+        assert_eq!(minimax_off["reasoning_format"], "parsed");
+        assert!(minimax_off.get("include_reasoning").is_none());
+        assert!(minimax_off.get("max_completion_tokens").is_none());
+    }
+
+    #[tokio::test]
+    async fn groq_gpt_oss_400_retries_without_include_reasoning() {
+        let (base_url, mut requests) = serve_captured_responses(vec![
+            mock_response(
+                "400 Bad Request",
+                "application/json",
+                r#"{"error":"unsupported include_reasoning"}"#,
+            ),
+            mock_response(
+                "200 OK",
+                "application/json",
+                r#"{"choices":[{"message":{"content":"gpt-oss retry ok"}}]}"#,
+            ),
+        ])
+        .await;
+
+        let result = send_chat_completion_with_messages_at_base_url(
+            &test_provider("groq"),
+            "not-a-real-key".to_string(),
+            "openai/gpt-oss-20b",
+            hello_messages(),
+            ReasoningConfig::from_user_toggle(false, 2048),
+            &base_url,
+        )
+        .await
+        .unwrap();
+
+        let first = requests.recv().await.unwrap();
+        let retry = requests.recv().await.unwrap();
+
+        assert_eq!(result.as_deref(), Some("gpt-oss retry ok"));
+        assert_eq!(first.body["include_reasoning"], false);
+        assert!(first.body.get("reasoning_format").is_none());
+        assert!(first.body.get("reasoning_effort").is_none());
+        assert!(retry.body.get("include_reasoning").is_none());
+        assert!(retry.body.get("reasoning_format").is_none());
+        assert!(retry.body.get("reasoning_effort").is_none());
+        assert!(retry.body.get("max_completion_tokens").is_none());
     }
 
     #[test]
