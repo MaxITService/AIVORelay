@@ -7,10 +7,10 @@ use crate::managers::local_tts::{
 };
 use crate::managers::provider_error::safe_text;
 use crate::managers::tts::{
-    is_tts_output_collision, normalize_cartesia_language_code, normalize_deepgram_tts_speed,
-    normalize_openai_tts_voice, FileConversionResult, TextFileInspection, TtsBatchFilePlan,
-    TtsBatchScanRequest, TtsBatchScanResult, TtsChunkReady, TtsManager, TtsOperationKind,
-    TtsPhase, TtsState, TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES,
+    deepgram_tts_supports_speed, is_tts_output_collision, normalize_cartesia_language_code,
+    normalize_deepgram_tts_speed, normalize_openai_tts_voice, FileConversionResult,
+    TextFileInspection, TtsBatchFilePlan, TtsBatchScanRequest, TtsBatchScanResult, TtsChunkReady,
+    TtsManager, TtsOperationKind, TtsPhase, TtsState, TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES,
     SONIOX_TTS_API_KEY_MAX_CHARS, SUPPORTED_MP3_BITRATES, SUPPORTED_OPUS_BITRATES,
     TTS_EVENT_BATCH_PROGRESS, TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
 };
@@ -1765,6 +1765,7 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.file_history_max_storage_mb = settings.file_history_max_storage_mb.clamp(1, 1_048_576);
     settings.speed = match settings.provider {
         TtsProvider::Soniox => settings.speed.clamp(0.7, 1.3),
+        TtsProvider::Deepgram if !deepgram_tts_supports_speed(&settings.deepgram_model) => 1.0,
         TtsProvider::Deepgram => {
             normalize_deepgram_tts_speed(&settings.deepgram_model, settings.speed)
         }
@@ -1902,6 +1903,7 @@ fn normalize_synthesis_config(
     }
     config.speed = match config.provider {
         TtsProvider::Soniox => config.speed.clamp(0.7, 1.3),
+        TtsProvider::Deepgram if !deepgram_tts_supports_speed(&config.model) => 1.0,
         TtsProvider::Deepgram => normalize_deepgram_tts_speed(&config.model, config.speed),
         TtsProvider::OpenAi | TtsProvider::OpenAiCompatible => {
             finite_clamped(config.speed, 1.0, 0.25, 4.0)

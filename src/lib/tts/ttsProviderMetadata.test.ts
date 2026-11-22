@@ -17,6 +17,7 @@ import {
   TTS_PROVIDER_DOCUMENTATION,
   TTS_PROVIDER_OPTIONS,
   TTS_PROVIDER_SPEED_RANGES,
+  deepgramModelSupportsSpeed,
   getOpenAiVoicesForModel,
   isDeepgramFluxModel,
   isOpenAiTts1Model,
@@ -65,9 +66,19 @@ assert.ok(
 assert.deepEqual(TTS_PROVIDER_SPEED_RANGES.cartesia, [0.6, 1.5]);
 assert.equal(TTS_PROVIDER_DEFAULTS.openai_compatible.model, "tts-1");
 assert.equal(TTS_PROVIDER_DEFAULTS.deepgram.model, DEEPGRAM_FLUX_DEFAULT_MODEL);
-assert.deepEqual(DEEPGRAM_FLUX_SPEED_RANGE, [0.85, 1.15]);
+assert.deepEqual(DEEPGRAM_FLUX_SPEED_RANGE, [0.5, 1.5]);
+assert.deepEqual(TTS_PROVIDER_SPEED_RANGES.deepgram, [0.7, 1.5]);
 assert.ok(isDeepgramFluxModel(TTS_PROVIDER_DEFAULTS.deepgram.model));
 assert.ok(!isDeepgramFluxModel("aura-2-thalia-en"));
+assert.ok(deepgramModelSupportsSpeed("flux-kit-en"));
+assert.ok(deepgramModelSupportsSpeed("FLUX-KIT-EN"));
+assert.ok(!deepgramModelSupportsSpeed("flux-desislava-bg"));
+assert.ok(deepgramModelSupportsSpeed("aura-2-thalia-en"));
+assert.ok(deepgramModelSupportsSpeed("aura-2-celeste-es"));
+assert.ok(!deepgramModelSupportsSpeed("aura-2-viktoria-de"));
+assert.ok(!deepgramModelSupportsSpeed("aura-2-agathe-fr"));
+assert.ok(!deepgramModelSupportsSpeed("aura-2-izanami-ja"));
+assert.ok(!deepgramModelSupportsSpeed(""));
 assert.equal(TTS_PROVIDER_DEFAULTS.edge.voice, "en-US-AriaNeural");
 assert.equal(TTS_PROVIDER_DEFAULTS.local_qwen.voice, "Ryan");
 assert.equal(TTS_PROVIDER_DEFAULTS.local_kokoro.voice, "af_maple");

@@ -15,7 +15,8 @@ use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_stt::SonioxSttManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::managers::tts::{
-    normalize_cartesia_language_code, openai_model_is_legacy_tts1, openai_tts1_supports_voice,
+    deepgram_tts_speed_range, deepgram_tts_supports_speed, normalize_cartesia_language_code,
+    normalize_deepgram_tts_speed, openai_model_is_legacy_tts1, openai_tts1_supports_voice,
     validate_elevenlabs_language_code, TtsManager, TtsPhase, OPENAI_TTS1_DEFAULT_VOICE,
     OPENAI_TTS_INSTRUCTIONS_MAX_CHARS, SUPPORTED_MP3_BITRATES, SUPPORTED_OPUS_BITRATES,
 };
@@ -26,7 +27,7 @@ use crate::settings::{
     elevenlabs_supports_speaker_boost, elevenlabs_supports_speed, elevenlabs_supports_style,
     get_settings, ElevenLabsTextNormalization, LLMPrompt, TextReplacement,
     TranscriptionProvider, TtsKeySource, TtsOutputFormat, TtsProvider, TtsSettings,
-    DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE,
+    DEFAULT_TTS_DEEPGRAM_MODEL, DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE,
 };
 use crate::subtitle::OutputFormat;
 use serde_json::{json, Value};
@@ -889,7 +890,12 @@ fn apply_tts_provider_override(
         let model = nonempty_cli_value("--tts-model", model)?;
         match settings.provider {
             TtsProvider::Soniox => settings.soniox_model = model.to_string(),
-            TtsProvider::Deepgram => settings.deepgram_model = model.to_string(),
+            TtsProvider::Deepgram => {
+                settings.deepgram_model = model.to_string();
+                if !deepgram_tts_supports_speed(&settings.deepgram_model) {
+                    settings.speed = 1.0;
+                }
+            }
             TtsProvider::OpenAi => {
                 if openai_model_is_legacy_tts1(model)
                     && args.tts_voice.is_none()
@@ -1118,12 +1124,32 @@ fn apply_tts_conversion_overrides(
                 ),
             ));
         }
+        if settings.provider == TtsProvider::Deepgram {
+            let model = if settings.deepgram_model.trim().is_empty() {
+                DEFAULT_TTS_DEEPGRAM_MODEL
+            } else {
+                settings.deepgram_model.as_str()
+            };
+            if !deepgram_tts_supports_speed(model) {
+                return Err(CliFailure::usage(format!(
+                    "--tts-speed is not supported by {}; Deepgram speed is only available for English on Flux and English/Spanish on Aura-2",
+                    model
+                )));
+            }
+        }
         if !speed.is_finite() {
             return Err(CliFailure::usage("--tts-speed must be a finite number"));
         }
         let (minimum, maximum) = match settings.provider {
             TtsProvider::Soniox => (0.7, 1.3),
-            TtsProvider::Deepgram => (0.7, 1.5),
+            TtsProvider::Deepgram => {
+                let model = if settings.deepgram_model.trim().is_empty() {
+                    DEFAULT_TTS_DEEPGRAM_MODEL
+                } else {
+                    settings.deepgram_model.as_str()
+                };
+                deepgram_tts_speed_range(model)
+            }
             TtsProvider::OpenAi | TtsProvider::OpenAiCompatible => (0.25, 4.0),
             TtsProvider::Murf => unreachable!("handled above"),
             TtsProvider::ElevenLabs => (0.7, 1.2),
@@ -1139,7 +1165,16 @@ fn apply_tts_conversion_overrides(
                 settings.provider.as_str()
             )));
         }
-        settings.speed = speed;
+        settings.speed = if settings.provider == TtsProvider::Deepgram {
+            let model = if settings.deepgram_model.trim().is_empty() {
+                DEFAULT_TTS_DEEPGRAM_MODEL
+            } else {
+                settings.deepgram_model.as_str()
+            };
+            normalize_deepgram_tts_speed(model, speed)
+        } else {
+            speed
+        };
     }
     if let Some(rate) = args.tts_murf_rate {
         require_tts_provider(settings, TtsProvider::Murf, "--tts-murf-rate")?;
@@ -1784,6 +1819,18 @@ fn effective_provider_controls(settings: &TtsSettings) -> Value {
 
 fn effective_tts_speed(settings: &TtsSettings) -> f32 {
     match settings.provider {
+        TtsProvider::Deepgram => {
+            let model = if settings.deepgram_model.trim().is_empty() {
+                DEFAULT_TTS_DEEPGRAM_MODEL
+            } else {
+                settings.deepgram_model.as_str()
+            };
+            if deepgram_tts_supports_speed(model) {
+                normalize_deepgram_tts_speed(model, settings.speed)
+            } else {
+                1.0
+            }
+        }
         TtsProvider::Murf => 1.0,
         TtsProvider::ElevenLabs if !elevenlabs_supports_speed(&settings.elevenlabs_model) => 1.0,
         _ => settings.speed,
@@ -2507,6 +2554,68 @@ mod tests {
             let error = apply_tts_conversion_overrides(&overrides, &mut settings).unwrap_err();
             assert!(error.message.contains(flag), "{}", error.message);
         }
+    }
+
+    #[test]
+    fn deepgram_cli_speed_respects_model_range_snapping_and_language_support() {
+        let flux_args = CliArgs {
+            tts_provider: Some(CliTtsProvider::Deepgram),
+            tts_model: Some("flux-kit-en".to_string()),
+            tts_speed: Some(0.5),
+            ..CliArgs::default()
+        };
+        let mut flux_settings = TtsSettings::default();
+        apply_tts_provider_override(&flux_args, &mut flux_settings).unwrap();
+        apply_tts_conversion_overrides(&flux_args, &mut flux_settings).unwrap();
+        assert_eq!(flux_settings.speed, 0.5);
+        assert_eq!(effective_tts_speed(&flux_settings), 0.5);
+
+        let aura_args = CliArgs {
+            tts_provider: Some(CliTtsProvider::Deepgram),
+            tts_model: Some("aura-2-thalia-en".to_string()),
+            tts_speed: Some(1.12),
+            ..CliArgs::default()
+        };
+        let mut aura_settings = TtsSettings::default();
+        apply_tts_provider_override(&aura_args, &mut aura_settings).unwrap();
+        apply_tts_conversion_overrides(&aura_args, &mut aura_settings).unwrap();
+        assert_eq!(aura_settings.speed, 1.1);
+
+        let aura_low = CliArgs {
+            tts_provider: Some(CliTtsProvider::Deepgram),
+            tts_model: Some("aura-2-celeste-es".to_string()),
+            tts_speed: Some(0.5),
+            ..CliArgs::default()
+        };
+        let mut aura_low_settings = TtsSettings::default();
+        apply_tts_provider_override(&aura_low, &mut aura_low_settings).unwrap();
+        let aura_low_error =
+            apply_tts_conversion_overrides(&aura_low, &mut aura_low_settings).unwrap_err();
+        assert_eq!(aura_low_error.exit_code, 2);
+        assert!(aura_low_error.message.contains("0.7 and 1.5"));
+
+        let unsupported_args = CliArgs {
+            tts_provider: Some(CliTtsProvider::Deepgram),
+            tts_model: Some("aura-2-viktoria-de".to_string()),
+            ..CliArgs::default()
+        };
+        let mut unsupported_settings = TtsSettings {
+            speed: 1.25,
+            ..TtsSettings::default()
+        };
+        apply_tts_provider_override(&unsupported_args, &mut unsupported_settings).unwrap();
+        assert_eq!(unsupported_settings.speed, 1.0);
+        assert_eq!(effective_tts_speed(&unsupported_settings), 1.0);
+
+        let unsupported_speed = CliArgs {
+            tts_speed: Some(1.2),
+            ..CliArgs::default()
+        };
+        let unsupported_error =
+            apply_tts_conversion_overrides(&unsupported_speed, &mut unsupported_settings)
+                .unwrap_err();
+        assert_eq!(unsupported_error.exit_code, 2);
+        assert!(unsupported_error.message.contains("--tts-speed"));
     }
 
     #[test]

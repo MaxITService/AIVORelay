@@ -471,14 +471,27 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
             settings.speed.clamp(0.7, 1.3),
             ProviderSynthesisSignature::None,
         ),
-        TtsProvider::Deepgram => (
-            settings.deepgram_model.trim(),
-            "",
-            "",
-            "",
-            settings.speed.clamp(0.7, 1.5),
-            ProviderSynthesisSignature::None,
-        ),
+        TtsProvider::Deepgram => {
+            let model = settings.deepgram_model.trim();
+            let effective_model = if model.is_empty() {
+                crate::settings::DEFAULT_TTS_DEEPGRAM_MODEL
+            } else {
+                model
+            };
+            let speed = if super::tts::deepgram_tts_supports_speed(effective_model) {
+                super::tts::normalize_deepgram_tts_speed(effective_model, settings.speed)
+            } else {
+                1.0
+            };
+            (
+                model,
+                "",
+                "",
+                "",
+                speed,
+                ProviderSynthesisSignature::None,
+            )
+        }
         TtsProvider::OpenAi => (
             settings.openai_model.trim(),
             "",

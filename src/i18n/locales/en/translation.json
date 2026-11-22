@@ -1052,6 +1052,7 @@
       "modelDescription": "Provider model ID.",
       "speedTitle": "Speed",
       "speedDescription": "Speech speed multiplier, from {{minimum}}× to {{maximum}}× for this provider.",
+      "deepgramSpeedUnsupportedDescription": "Speed control is only available for English voices on Deepgram Flux and English or Spanish voices on Aura-2. This voice uses normal (1.0×) speed.",
       "murfRateTitle": "Murf speaking rate",
       "murfRateDescription": "Murf rate adjustment from −50 to 50. Zero keeps the voice's normal rate.",
       "murfPitchTitle": "Murf pitch",

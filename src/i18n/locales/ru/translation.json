@@ -1056,6 +1056,7 @@
       "modelDescription": "ID модели провайдера.",
       "speedTitle": "Скорость",
       "speedDescription": "Множитель скорости речи от {{minimum}}× до {{maximum}}× для этого провайдера.",
+      "deepgramSpeedUnsupportedDescription": "Регулировка скорости доступна только для английских голосов в Deepgram Flux и для английских или испанских голосов в Aura-2. Этот голос использует обычную скорость (1.0×).",
       "murfRateTitle": "Темп Murf",
       "murfRateDescription": "Коррекция темпа Murf от −50 до 50. Ноль сохраняет обычный темп голоса.",
       "murfPitchTitle": "Высота Murf",

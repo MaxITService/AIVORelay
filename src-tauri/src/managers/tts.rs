@@ -92,7 +92,13 @@ pub const SUPPORTED_OPUS_BITRATES: [u16; 8] = [32, 48, 64, 80, 96, 128, 160, 192
 const SONIOX_TTS_URL: &str = "https://tts-rt.soniox.com/tts";
 const DEEPGRAM_AURA_TTS_URL: &str = "https://api.deepgram.com/v1/speak";
 const DEEPGRAM_FLUX_TTS_URL: &str = "https://api.deepgram.com/v2/speak";
-const DEEPGRAM_FLUX_SPEEDS: [f32; 7] = [0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15];
+const DEEPGRAM_FLUX_SPEEDS: [f32; 21] = [
+    0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3,
+    1.35, 1.4, 1.45, 1.5,
+];
+const DEEPGRAM_AURA_SPEEDS: [f32; 17] = [
+    0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.35, 1.4, 1.45, 1.5,
+];
 const OPENAI_TTS_URL: &str = "https://api.openai.com/v1/audio/speech";
 const MURF_FALCON_TTS_URL: &str = "https://global.api.murf.ai/v1/speech/stream";
 const MURF_GEN2_TTS_URL: &str = "https://api.murf.ai/v1/speech/generate";
@@ -187,13 +193,39 @@ fn normalize_openai_tts_speed(speed: f32) -> f32 {
     }
 }
 
+pub(crate) fn deepgram_tts_supports_speed(model: &str) -> bool {
+    let trimmed = model.trim();
+    let has_suffix = |suffix: &str| {
+        trimmed
+            .len()
+            .checked_sub(suffix.len())
+            .and_then(|start| trimmed.get(start..))
+            .is_some_and(|tail| tail.eq_ignore_ascii_case(suffix))
+    };
+    if is_deepgram_flux_tts_model(trimmed) {
+        has_suffix("-en")
+    } else {
+        has_suffix("-en") || has_suffix("-es")
+    }
+}
+
+pub(crate) fn deepgram_tts_speed_range(model: &str) -> (f32, f32) {
+    if is_deepgram_flux_tts_model(model) {
+        (0.5, 1.5)
+    } else {
+        (0.7, 1.5)
+    }
+}
+
 pub(crate) fn normalize_deepgram_tts_speed(model: &str, speed: f32) -> f32 {
     let speed = if speed.is_finite() { speed } else { 1.0 };
-    if !is_deepgram_flux_tts_model(model) {
-        return speed.clamp(0.7, 1.5);
-    }
+    let allowed: &[f32] = if is_deepgram_flux_tts_model(model) {
+        &DEEPGRAM_FLUX_SPEEDS
+    } else {
+        &DEEPGRAM_AURA_SPEEDS
+    };
 
-    DEEPGRAM_FLUX_SPEEDS
+    allowed
         .iter()
         .copied()
         .min_by(|left, right| {
@@ -202,6 +234,22 @@ pub(crate) fn normalize_deepgram_tts_speed(model: &str, speed: f32) -> f32 {
                 .total_cmp(&(speed - right).abs())
         })
         .unwrap_or(1.0)
+}
+
+fn deepgram_tts_query(model: &str, speed: f32) -> Vec<(&'static str, String)> {
+    let mut query = vec![
+        ("model", model.to_string()),
+        ("encoding", "linear16".to_string()),
+        ("container", "none".to_string()),
+        ("sample_rate", "24000".to_string()),
+    ];
+    if deepgram_tts_supports_speed(model) {
+        let normalized_speed = normalize_deepgram_tts_speed(model, speed);
+        if normalized_speed != 1.0 {
+            query.push(("speed", normalized_speed.to_string()));
+        }
+    }
+    query
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
@@ -3623,16 +3671,7 @@ impl TtsManager {
             }
             TtsProvider::Deepgram => {
                 let model = nonempty_or(&settings.deepgram_model, DEFAULT_TTS_DEEPGRAM_MODEL);
-                let query = vec![
-                    ("model".to_string(), model.to_string()),
-                    ("encoding".to_string(), "linear16".to_string()),
-                    ("container".to_string(), "none".to_string()),
-                    ("sample_rate".to_string(), "24000".to_string()),
-                    (
-                        "speed".to_string(),
-                        normalize_deepgram_tts_speed(model, settings.speed).to_string(),
-                    ),
-                ];
+                let query = deepgram_tts_query(model, settings.speed);
                 self.client
                     .post(deepgram_tts_url(model))
                     .query(&query)
@@ -6487,9 +6526,84 @@ mod tests {
 
     #[test]
     fn deepgram_flux_speed_uses_supported_steps() {
-        assert_eq!(normalize_deepgram_tts_speed("flux-kit-en", 0.7), 0.85);
+        assert_eq!(normalize_deepgram_tts_speed("flux-kit-en", 0.3), 0.5);
+        assert_eq!(normalize_deepgram_tts_speed("flux-kit-en", 0.5), 0.5);
         assert_eq!(normalize_deepgram_tts_speed("flux-kit-en", 1.08), 1.1);
+        assert_eq!(normalize_deepgram_tts_speed("flux-kit-en", 1.47), 1.45);
+        assert_eq!(normalize_deepgram_tts_speed("flux-kit-en", 1.5), 1.5);
+        assert_eq!(normalize_deepgram_tts_speed("flux-kit-en", 2.0), 1.5);
+        assert_eq!(normalize_deepgram_tts_speed("flux-kit-en", f32::NAN), 1.0);
+        assert_eq!(
+            normalize_deepgram_tts_speed("flux-kit-en", f32::INFINITY),
+            1.0
+        );
+        assert_eq!(
+            normalize_deepgram_tts_speed("flux-kit-en", f32::NEG_INFINITY),
+            1.0
+        );
+    }
+
+    #[test]
+    fn deepgram_aura_speed_uses_supported_steps() {
+        assert_eq!(normalize_deepgram_tts_speed("aura-2-thalia-en", 0.5), 0.7);
+        assert_eq!(normalize_deepgram_tts_speed("aura-2-thalia-en", 0.7), 0.7);
+        assert_eq!(normalize_deepgram_tts_speed("aura-2-thalia-en", 1.12), 1.1);
         assert_eq!(normalize_deepgram_tts_speed("aura-2-thalia-en", 1.4), 1.4);
+        assert_eq!(normalize_deepgram_tts_speed("aura-2-thalia-en", 1.5), 1.5);
+        assert_eq!(normalize_deepgram_tts_speed("aura-2-thalia-en", 1.8), 1.5);
+        assert_eq!(
+            normalize_deepgram_tts_speed("aura-2-celeste-es", f32::NAN),
+            1.0
+        );
+        assert_eq!(
+            normalize_deepgram_tts_speed("aura-2-celeste-es", f32::INFINITY),
+            1.0
+        );
+    }
+
+    #[test]
+    fn deepgram_tts_query_gates_speed_by_voice_language() {
+        fn speed_param<'a>(query: &'a [(&'static str, String)]) -> Option<&'a str> {
+            query
+                .iter()
+                .find(|(key, _)| *key == "speed")
+                .map(|(_, value)| value.as_str())
+        }
+
+        for unsupported in [
+            "aura-2-viktoria-de",
+            "aura-2-izanami-ja",
+            "aura-2-agathe-fr",
+            "flux-desislava-bg",
+        ] {
+            assert!(!deepgram_tts_supports_speed(unsupported));
+            let query = deepgram_tts_query(unsupported, 1.25);
+            assert_eq!(
+                speed_param(&query),
+                None,
+                "unsupported voice {unsupported} must omit speed query parameter"
+            );
+        }
+
+        assert!(deepgram_tts_supports_speed("aura-2-thalia-en"));
+        assert!(deepgram_tts_supports_speed("aura-2-celeste-es"));
+        assert!(deepgram_tts_supports_speed("flux-kit-en"));
+        assert!(deepgram_tts_supports_speed("FLUX-KIT-EN"));
+
+        let aura_en = deepgram_tts_query("aura-2-thalia-en", 1.12);
+        assert_eq!(speed_param(&aura_en), Some("1.1"));
+
+        let aura_es = deepgram_tts_query("aura-2-celeste-es", 0.5);
+        assert_eq!(speed_param(&aura_es), Some("0.7"));
+
+        let flux_en = deepgram_tts_query("flux-kit-en", 0.5);
+        assert_eq!(speed_param(&flux_en), Some("0.5"));
+
+        let flux_snapped = deepgram_tts_query("flux-kit-en", 1.47);
+        assert_eq!(speed_param(&flux_snapped), Some("1.45"));
+
+        let default_speed = deepgram_tts_query("flux-kit-en", 1.0);
+        assert_eq!(speed_param(&default_speed), None);
     }
 
     #[test]
