@@ -18,11 +18,11 @@ use crate::subtitle::{
     timed_tokens_to_subtitle_segments, SubtitleSegment, TimedTranscriptToken,
 };
 use crate::url_security::{
-    infer_remote_stt_preset, validate_remote_stt_base_url, REMOTE_STT_OPENAI_BASE_URL,
-    REMOTE_STT_GOOGLE_DEFAULT_MODEL, REMOTE_STT_PRESET_CUSTOM, REMOTE_STT_PRESET_GOOGLE,
-    REMOTE_STT_PRESET_GROQ, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_RESON8,
-    REMOTE_STT_PRESET_VERCEL, REMOTE_STT_RESON8_BASE_URL, REMOTE_STT_RESON8_DEFAULT_MODEL,
-    REMOTE_STT_VERCEL_DEFAULT_MODEL,
+    infer_remote_stt_preset, validate_remote_stt_base_url, REMOTE_STT_GOOGLE_BASE_URL,
+    REMOTE_STT_GOOGLE_DEFAULT_MODEL, REMOTE_STT_OPENAI_BASE_URL, REMOTE_STT_PRESET_CUSTOM,
+    REMOTE_STT_PRESET_GOOGLE, REMOTE_STT_PRESET_GROQ, REMOTE_STT_PRESET_OPENAI,
+    REMOTE_STT_PRESET_RESON8, REMOTE_STT_PRESET_VERCEL, REMOTE_STT_RESON8_BASE_URL,
+    REMOTE_STT_RESON8_DEFAULT_MODEL, REMOTE_STT_VERCEL_BASE_URL, REMOTE_STT_VERCEL_DEFAULT_MODEL,
 };
 pub use crate::url_security::{
     REMOTE_STT_ELEVENLABS_BASE_URL, REMOTE_STT_ELEVENLABS_DEFAULT_MODEL,
@@ -64,6 +64,7 @@ const OPENAI_REALTIME_TRANSLATE_WS_URL: &str =
     "wss://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate";
 const VERCEL_GATEWAY_PROTOCOL_VERSION: &str = "0.0.1";
 const VERCEL_TRANSCRIPTION_SPECIFICATION_VERSION: &str = "4";
+const VERCEL_AI_GATEWAY_CREDITS_URL: &str = "https://ai-gateway.vercel.sh/v1/credits";
 // Google documents inline audio as requiring a total request size under 20 MB.
 // Keep the check on the serialized JSON body so base64 and request options count.
 const GOOGLE_GEMINI_INLINE_REQUEST_LIMIT_BYTES: usize = 20_000_000;
@@ -2888,20 +2889,21 @@ impl RemoteSttManager {
             return Err(anyhow!(message));
         }
 
-        let url = format!("{}/models", base_url);
+        let (target, request) =
+            build_test_connection_request(&self.client, settings, &base_url, &api_key.value);
 
         if settings.debug_mode == RemoteSttDebugMode::Verbose {
             self.record_info(
                 settings,
-                format!("Remote STT test request base_url={}", base_url),
+                format!(
+                    "Remote STT test request base_url={} url={}",
+                    base_url, target.url
+                ),
             );
         }
 
         let start = Instant::now();
-        let response = self
-            .client
-            .get(url)
-            .bearer_auth(&api_key.value)
+        let response = request
             .send()
             .await
             .map_err(|e| {
@@ -2945,6 +2947,129 @@ impl RemoteSttManager {
         self.migrate_legacy_api_key_after_success(settings, &api_key, Ok(()))?;
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RemoteSttTestAuth {
+    Bearer,
+    GoogleApiKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RemoteSttTestConnectionTarget {
+    url: String,
+    auth: RemoteSttTestAuth,
+}
+
+fn is_google_gemini_direct_model(model_id: &str) -> bool {
+    let model_id = model_id.trim();
+    model_id.eq_ignore_ascii_case(REMOTE_STT_GOOGLE_DEFAULT_MODEL)
+        || model_id.eq_ignore_ascii_case(
+            crate::managers::gemini_realtime::GEMINI_LIVE_GOOGLE_DEFAULT_MODEL,
+        )
+}
+
+fn is_google_gemini_base_url(base_url: &str) -> bool {
+    let normalized = base_url.trim().trim_end_matches('/');
+    normalized.eq_ignore_ascii_case(REMOTE_STT_GOOGLE_BASE_URL)
+        || reqwest::Url::parse(normalized)
+            .ok()
+            .and_then(|url| {
+                url.host_str()
+                    .map(|host| host.eq_ignore_ascii_case("generativelanguage.googleapis.com"))
+            })
+            .unwrap_or(false)
+}
+
+fn is_vercel_ai_gateway_base_url(base_url: &str) -> bool {
+    let normalized = base_url.trim().trim_end_matches('/');
+    normalized.eq_ignore_ascii_case(REMOTE_STT_VERCEL_BASE_URL)
+        || reqwest::Url::parse(normalized)
+            .ok()
+            .and_then(|url| {
+                url.host_str()
+                    .map(|host| host.eq_ignore_ascii_case("ai-gateway.vercel.sh"))
+            })
+            .unwrap_or(false)
+}
+
+fn vercel_test_connection_url(base_url: &str) -> String {
+    let normalized = base_url.trim().trim_end_matches('/');
+    if let Ok(url) = reqwest::Url::parse(normalized) {
+        if url
+            .host_str()
+            .is_some_and(|host| host.eq_ignore_ascii_case("ai-gateway.vercel.sh"))
+        {
+            return VERCEL_AI_GATEWAY_CREDITS_URL.to_string();
+        }
+        if let Some(prefix) = normalized.strip_suffix("/v4/ai") {
+            return format!("{}/v1/credits", prefix.trim_end_matches('/'));
+        }
+        let origin = url.origin().ascii_serialization();
+        if origin != "null" {
+            return format!("{}/v1/credits", origin);
+        }
+    }
+    VERCEL_AI_GATEWAY_CREDITS_URL.to_string()
+}
+
+fn build_test_connection_target(
+    settings: &RemoteSttSettings,
+    base_url: &str,
+) -> RemoteSttTestConnectionTarget {
+    let normalized_base_url = base_url.trim().trim_end_matches('/');
+
+    if settings.provider_preset == REMOTE_STT_PRESET_VERCEL {
+        return RemoteSttTestConnectionTarget {
+            url: vercel_test_connection_url(normalized_base_url),
+            auth: RemoteSttTestAuth::Bearer,
+        };
+    }
+
+    if settings.provider_preset == REMOTE_STT_PRESET_GOOGLE {
+        return RemoteSttTestConnectionTarget {
+            url: format!("{}/models", normalized_base_url),
+            auth: RemoteSttTestAuth::GoogleApiKey,
+        };
+    }
+
+    if is_vercel_ai_gateway_base_url(normalized_base_url) {
+        return RemoteSttTestConnectionTarget {
+            url: vercel_test_connection_url(normalized_base_url),
+            auth: RemoteSttTestAuth::Bearer,
+        };
+    }
+
+    if is_google_gemini_base_url(normalized_base_url)
+        || is_google_gemini_direct_model(&settings.model_id)
+    {
+        return RemoteSttTestConnectionTarget {
+            url: format!("{}/models", normalized_base_url),
+            auth: RemoteSttTestAuth::GoogleApiKey,
+        };
+    }
+
+    RemoteSttTestConnectionTarget {
+        url: format!("{}/models", normalized_base_url),
+        auth: RemoteSttTestAuth::Bearer,
+    }
+}
+
+fn build_test_connection_request(
+    client: &reqwest::Client,
+    settings: &RemoteSttSettings,
+    base_url: &str,
+    api_key: &str,
+) -> (RemoteSttTestConnectionTarget, reqwest::RequestBuilder) {
+    let target = build_test_connection_target(settings, base_url);
+    let api_key = api_key.trim();
+    let request = match target.auth {
+        RemoteSttTestAuth::Bearer => client.get(&target.url).bearer_auth(api_key),
+        RemoteSttTestAuth::GoogleApiKey => {
+            client.get(&target.url).header("x-goog-api-key", api_key)
+        }
+    };
+    (target, request)
 }
 
 fn remote_stt_api_key_scope(settings: &RemoteSttSettings) -> &'static str {
@@ -3161,6 +3286,7 @@ pub fn has_remote_stt_api_key(settings: &RemoteSttSettings) -> bool {
 mod tests {
     use super::{
         build_elevenlabs_prerecorded_request, build_google_gemini_request,
+        build_test_connection_request, build_test_connection_target,
         elevenlabs_prerecorded_text_fields, sanitize_elevenlabs_prerecorded_keyterms,
         with_elevenlabs_zero_retention_hint,
         ElevenLabsPrerecordedOptions,
@@ -3176,13 +3302,16 @@ mod tests {
         supports_translation, uses_plural_language_hints,
         validate_google_gemini_inline_request_size, ElevenLabsPrerecordedResponse,
         GoogleInteractionsTranscriptionResponse, RemoteSttApiKeySource,
+        RemoteSttTestAuth, RemoteSttTestConnectionTarget,
         Reson8PrerecordedResponse, TranscriptionResponse, GEMINI_FILE_REQUEST_TIMEOUT_GRACE_SECS,
         GOOGLE_GEMINI_INLINE_REQUEST_LIMIT_BYTES,
     };
     use crate::url_security::{
         REMOTE_STT_ELEVENLABS_BASE_URL, REMOTE_STT_ELEVENLABS_DEFAULT_MODEL,
-        REMOTE_STT_ELEVENLABS_FILE_MODEL, REMOTE_STT_GOOGLE_BASE_URL, REMOTE_STT_RESON8_BASE_URL,
-        REMOTE_STT_VERCEL_BASE_URL,
+        REMOTE_STT_ELEVENLABS_FILE_MODEL, REMOTE_STT_GOOGLE_BASE_URL, REMOTE_STT_GROQ_BASE_URL,
+        REMOTE_STT_OPENAI_BASE_URL, REMOTE_STT_PRESET_CUSTOM, REMOTE_STT_PRESET_GOOGLE,
+        REMOTE_STT_PRESET_GROQ, REMOTE_STT_PRESET_OPENAI, REMOTE_STT_PRESET_VERCEL,
+        REMOTE_STT_RESON8_BASE_URL, REMOTE_STT_VERCEL_BASE_URL,
     };
     use crate::gemini_config::{EffectiveGeminiConfig, GeminiRoute};
     use crate::settings::GeminiTranscriptionMode;
@@ -3992,5 +4121,141 @@ mod tests {
         assert!(!safe.contains(key));
         assert!(!safe.contains("sutkn_abc123xyz"));
         assert!(safe.contains("sutkn_[REDACTED]"));
+    }
+
+    #[test]
+    fn test_connection_request_uses_google_api_key_header_for_gemini() {
+        let client = reqwest::Client::new();
+        let mut settings = remote_settings(REMOTE_STT_PRESET_GOOGLE);
+        settings.base_url = REMOTE_STT_GOOGLE_BASE_URL.to_string();
+        settings.model_id = "gemini-3.5-transcribe".to_string();
+
+        let (target, builder) = build_test_connection_request(
+            &client,
+            &settings,
+            "https://generativelanguage.googleapis.com/v1beta/",
+            "AIza-test-key",
+        );
+        let request = builder.build().unwrap();
+        assert_eq!(
+            target,
+            RemoteSttTestConnectionTarget {
+                url: "https://generativelanguage.googleapis.com/v1beta/models".to_string(),
+                auth: RemoteSttTestAuth::GoogleApiKey,
+            }
+        );
+        assert_eq!(
+            request.url().as_str(),
+            "https://generativelanguage.googleapis.com/v1beta/models"
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get("x-goog-api-key")
+                .and_then(|v| v.to_str().ok()),
+            Some("AIza-test-key")
+        );
+        assert!(request.headers().get("authorization").is_none());
+
+        // Custom preset targeting Google URL or direct Gemini model also uses x-goog-api-key.
+        settings.provider_preset = REMOTE_STT_PRESET_CUSTOM.to_string();
+        settings.model_id = "gemini-3.5-transcribe-live".to_string();
+        let custom_target =
+            build_test_connection_target(&settings, "https://proxy.example.com/v1beta");
+        assert_eq!(
+            custom_target,
+            RemoteSttTestConnectionTarget {
+                url: "https://proxy.example.com/v1beta/models".to_string(),
+                auth: RemoteSttTestAuth::GoogleApiKey,
+            }
+        );
+    }
+
+    #[test]
+    fn test_connection_request_uses_credits_endpoint_and_bearer_for_vercel() {
+        let client = reqwest::Client::new();
+        let mut settings = remote_settings(REMOTE_STT_PRESET_VERCEL);
+        settings.base_url = REMOTE_STT_VERCEL_BASE_URL.to_string();
+        settings.model_id = "google/gemini-3.5-transcribe".to_string();
+
+        let (target, builder) = build_test_connection_request(
+            &client,
+            &settings,
+            "https://ai-gateway.vercel.sh/v4/ai/",
+            "vck_test_secret",
+        );
+        let request = builder.build().unwrap();
+        assert_eq!(
+            target,
+            RemoteSttTestConnectionTarget {
+                url: "https://ai-gateway.vercel.sh/v1/credits".to_string(),
+                auth: RemoteSttTestAuth::Bearer,
+            }
+        );
+        assert_eq!(
+            request.url().as_str(),
+            "https://ai-gateway.vercel.sh/v1/credits"
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get("authorization")
+                .and_then(|v| v.to_str().ok()),
+            Some("Bearer vck_test_secret")
+        );
+        assert!(request.headers().get("x-goog-api-key").is_none());
+
+        // Custom proxy with /v4/ai suffix derives /v1/credits cleanly.
+        let proxy_target = build_test_connection_target(&settings, "http://127.0.0.1:8787/v4/ai/");
+        assert_eq!(
+            proxy_target,
+            RemoteSttTestConnectionTarget {
+                url: "http://127.0.0.1:8787/v1/credits".to_string(),
+                auth: RemoteSttTestAuth::Bearer,
+            }
+        );
+    }
+
+    #[test]
+    fn test_connection_request_keeps_models_and_bearer_for_openai_and_groq() {
+        let client = reqwest::Client::new();
+        let mut settings = remote_settings(REMOTE_STT_PRESET_OPENAI);
+        settings.base_url = REMOTE_STT_OPENAI_BASE_URL.to_string();
+        settings.model_id = "gpt-transcribe".to_string();
+
+        let (openai_target, openai_builder) = build_test_connection_request(
+            &client,
+            &settings,
+            REMOTE_STT_OPENAI_BASE_URL,
+            "sk-openai-test",
+        );
+        let openai_req = openai_builder.build().unwrap();
+        assert_eq!(
+            openai_target,
+            RemoteSttTestConnectionTarget {
+                url: "https://api.openai.com/v1/models".to_string(),
+                auth: RemoteSttTestAuth::Bearer,
+            }
+        );
+        assert_eq!(
+            openai_req
+                .headers()
+                .get("authorization")
+                .and_then(|v| v.to_str().ok()),
+            Some("Bearer sk-openai-test")
+        );
+        assert!(openai_req.headers().get("x-goog-api-key").is_none());
+
+        settings.provider_preset = REMOTE_STT_PRESET_GROQ.to_string();
+        settings.base_url = REMOTE_STT_GROQ_BASE_URL.to_string();
+        settings.model_id = "whisper-large-v3-turbo".to_string();
+        let groq_target = build_test_connection_target(&settings, REMOTE_STT_GROQ_BASE_URL);
+        assert_eq!(
+            groq_target,
+            RemoteSttTestConnectionTarget {
+                url: "https://api.groq.com/openai/v1/models".to_string(),
+                auth: RemoteSttTestAuth::Bearer,
+            }
+        );
     }
 }

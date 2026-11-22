@@ -134,8 +134,7 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
   const isDeepgram = engine === "deepgram";
   const isGemini = engine === "gemini";
   const isElevenLabs = engine === "elevenlabs";
-  const savesApiKeyWithoutTest =
-    isSoniox || isDeepgram || isGemini || isElevenLabs;
+  const savesApiKeyWithoutTest = isSoniox || isDeepgram || isElevenLabs;
   const isCustomRemotePreset = remotePreset === "custom";
   const hasRequiredRemoteUrl =
     isSoniox || isDeepgram || !isCustomRemotePreset || baseUrl.trim().length > 0;
@@ -226,14 +225,14 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
           throw new Error(keyResult.error);
         }
 
-        if (isGemini || isElevenLabs) {
+        if (isElevenLabs) {
           setConnectionStatus("success");
           setConnectionMessage(
             t("onboarding.remoteSttWizard.apiKeySaved", "API key saved."),
           );
         } else {
-          // Test OpenAI-compatible connections. Gemini routes do not expose
-          // the same lightweight /models check, so their key is saved only.
+          // Test OpenAI-compatible and Gemini connections. ElevenLabs does not
+          // expose a lightweight connection test in the wizard, so its key is saved only.
           const testResult = await commands.remoteSttTestConnection(
             baseUrl.trim(),
           );
