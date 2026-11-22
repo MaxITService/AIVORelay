@@ -122,12 +122,8 @@ impl DeepgramSttManager {
         trimmed.to_string()
     }
 
-    fn default_language_for_model(model: &str) -> &'static str {
-        if model.trim().eq_ignore_ascii_case("nova-3-medical") {
-            "en"
-        } else {
-            "multi"
-        }
+    fn default_language_for_model(_model: &str) -> &'static str {
+        "multi"
     }
 
     fn normalize_language(language: Option<&str>, model: &str) -> Option<String> {
@@ -144,11 +140,66 @@ impl DeepgramSttManager {
             }
         }
 
-        if lang == "zh-Hans" || lang == "zh-Hant" {
+        if lang == "zh-Hans" {
             return Some("zh".to_string());
         }
 
         Some(lang)
+    }
+
+    fn format_ws_error(payload: &Value, api_key: Option<&str>) -> String {
+        let code = payload
+            .get("err_code")
+            .or_else(|| payload.get("code"))
+            .and_then(|v| match v {
+                Value::String(s) => {
+                    let trimmed = s.trim();
+                    (!trimmed.is_empty()).then(|| trimmed.to_string())
+                }
+                Value::Number(n) => Some(n.to_string()),
+                _ => None,
+            });
+
+        let mut details: Vec<&str> = Vec::new();
+        for key in ["err_msg", "message", "description"] {
+            if let Some(text) = payload
+                .get(key)
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+            {
+                if !details
+                    .iter()
+                    .any(|existing| existing.eq_ignore_ascii_case(text))
+                {
+                    details.push(text);
+                }
+            }
+        }
+
+        let raw_message = match (code, details.is_empty()) {
+            (Some(code), false) => {
+                format!("Deepgram WebSocket error ({}): {}", code, details.join(": "))
+            }
+            (Some(code), true) => format!("Deepgram WebSocket error ({})", code),
+            (None, false) => format!("Deepgram WebSocket error: {}", details.join(": ")),
+            (None, true) => "Deepgram WebSocket returned an error".to_string(),
+        };
+
+        crate::managers::provider_error::safe_text(
+            &crate::managers::provider_error::redact_secrets(&raw_message, api_key),
+        )
+    }
+
+    fn check_ws_error_payload(payload: &Value, api_key: Option<&str>) -> Result<()> {
+        let msg_type = payload
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        if msg_type.eq_ignore_ascii_case("error") {
+            return Err(anyhow!("{}", Self::format_ws_error(payload, api_key)));
+        }
+        Ok(())
     }
 
     fn remaining_timeout(start: Instant, timeout_seconds: u32) -> Result<Duration> {
@@ -912,6 +963,7 @@ impl DeepgramSttManager {
                         finished = true;
                         break;
                     }
+                    Self::check_ws_error_payload(&payload, Some(api_key))?;
                     if msg_type != "Results" {
                         continue;
                     }
@@ -1060,5 +1112,83 @@ mod tests {
         assert_eq!(timed[1].end, 0.9);
         assert!(timed[0].prepend_space);
         assert_eq!(timed[1].text, "world.");
+    }
+
+    #[test]
+    fn nova_3_medical_auto_language_maps_to_multi() {
+        assert_eq!(
+            DeepgramSttManager::normalize_language(Some("auto"), "nova-3-medical").as_deref(),
+            Some("multi")
+        );
+        assert_eq!(
+            DeepgramSttManager::normalize_language(None, "nova-3-medical").as_deref(),
+            Some("multi")
+        );
+        assert_eq!(
+            DeepgramSttManager::normalize_language(Some("   "), "nova-3-medical").as_deref(),
+            Some("multi")
+        );
+
+        let options = super::DeepgramTranscriptionOptions::default();
+        let ws_url = DeepgramSttManager::build_ws_url("nova-3-medical", Some("auto"), &options)
+            .expect("valid ws url");
+        assert!(ws_url.contains("language=multi"));
+        let prerecorded_url =
+            DeepgramSttManager::build_prerecorded_url("nova-3-medical", Some("auto"), &options)
+                .expect("valid prerecorded url");
+        assert!(prerecorded_url.contains("language=multi"));
+    }
+
+    #[test]
+    fn traditional_chinese_languages_are_preserved() {
+        assert_eq!(
+            DeepgramSttManager::normalize_language(Some("zh-Hant"), "nova-3").as_deref(),
+            Some("zh-Hant")
+        );
+        assert_eq!(
+            DeepgramSttManager::normalize_language(Some("zh-TW"), "nova-3").as_deref(),
+            Some("zh-TW")
+        );
+        assert_eq!(
+            DeepgramSttManager::normalize_language(Some("zh-HK"), "nova-3").as_deref(),
+            Some("zh-HK")
+        );
+        assert_eq!(
+            DeepgramSttManager::normalize_language(Some("zh-Hans"), "nova-3").as_deref(),
+            Some("zh")
+        );
+    }
+
+    #[test]
+    fn ws_error_frame_returns_clear_redacted_error() {
+        let key = "dg-secret-key-98765";
+        let payload = serde_json::json!({
+            "type": "Error",
+            "err_code": "BAD_REQUEST",
+            "err_msg": format!("Rejected request using {}", key),
+            "description": "Invalid parameter"
+        });
+        let err = DeepgramSttManager::check_ws_error_payload(&payload, Some(key))
+            .expect_err("Error frame should fail");
+        let msg = err.to_string();
+        assert!(msg.contains("BAD_REQUEST"));
+        assert!(msg.contains("Invalid parameter"));
+        assert!(!msg.contains(key));
+        assert!(msg.contains("[redacted key, SHA-256:"));
+
+        let desc_only = serde_json::json!({
+            "type": "Error",
+            "message": "Invalid language",
+            "description": "Unsupported locale"
+        });
+        let err = DeepgramSttManager::check_ws_error_payload(&desc_only, None)
+            .expect_err("Error frame with message/description should fail");
+        assert_eq!(
+            err.to_string(),
+            "Deepgram WebSocket error: Invalid language: Unsupported locale"
+        );
+
+        let results = serde_json::json!({ "type": "Results" });
+        assert!(DeepgramSttManager::check_ws_error_payload(&results, Some(key)).is_ok());
     }
 }
