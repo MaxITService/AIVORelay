@@ -1388,6 +1388,57 @@ impl SonioxSttManager {
         Ok(())
     }
 
+    /// Polls a transcription after the caller stopped waiting for it. Returns
+    /// true once it is terminal or already gone, false if it never finished
+    /// within the cleanup window.
+    async fn wait_for_terminal_status_for_cleanup(
+        http_client: &reqwest::Client,
+        api_key: &str,
+        transcription_id: &str,
+    ) -> bool {
+        const CLEANUP_WAIT_LIMIT: Duration = Duration::from_secs(30 * 60);
+        const CLEANUP_POLL_INTERVAL: Duration = Duration::from_secs(5);
+
+        let start = Instant::now();
+        while start.elapsed() < CLEANUP_WAIT_LIMIT {
+            let response = http_client
+                .get(format!(
+                    "{}/transcriptions/{}",
+                    SONIOX_API_URL, transcription_id
+                ))
+                .header("Authorization", format!("Bearer {}", api_key))
+                .send()
+                .await;
+            match response {
+                Ok(response) if response.status() == reqwest::StatusCode::NOT_FOUND => {
+                    return true;
+                }
+                Ok(response) if response.status().is_success() => {
+                    if let Ok(payload) = response.json::<TranscriptionStatusResponse>().await {
+                        if Self::is_terminal_transcription_status(&payload.status) {
+                            return true;
+                        }
+                    }
+                }
+                Ok(response) => {
+                    debug!(
+                        "Soniox cleanup: status check for {} returned {}",
+                        transcription_id,
+                        response.status()
+                    );
+                }
+                Err(err) => {
+                    debug!(
+                        "Soniox cleanup: status check for {} failed: {}",
+                        transcription_id, err
+                    );
+                }
+            }
+            tokio::time::sleep(CLEANUP_POLL_INTERVAL).await;
+        }
+        false
+    }
+
     async fn delete_file_with_retry(http_client: &reqwest::Client, api_key: &str, file_id: &str) {
         const CLEANUP_RETRIES: u32 = 3;
         const CLEANUP_DELAY: Duration = Duration::from_secs(1);
@@ -1661,15 +1712,15 @@ impl SonioxSttManager {
         }
         .await;
 
-        if !transcription_reached_terminal_state {
-            if let Some(transcription_id) = created_transcription_id.as_deref() {
-                debug!(
-                    "Soniox cleanup: skipping delete for non-terminal transcription {}",
-                    transcription_id
-                );
-            }
-        }
-        let cleanup_transcription_id = Self::transcription_id_for_cleanup(
+        // A job that was cancelled or timed out may still be queued or running on
+        // Soniox and still needs its uploaded file. Its cleanup waits in the
+        // background for a terminal status and only then deletes both resources.
+        let pending_transcription_id = if transcription_reached_terminal_state {
+            None
+        } else {
+            created_transcription_id.clone()
+        };
+        let mut cleanup_transcription_id = Self::transcription_id_for_cleanup(
             created_transcription_id,
             transcription_reached_terminal_state,
         );
@@ -1677,6 +1728,26 @@ impl SonioxSttManager {
         let api_key = api_key.to_string();
         let cleanup_file_id = file_id;
         tokio::spawn(async move {
+            if let Some(transcription_id) = pending_transcription_id {
+                debug!(
+                    "Soniox cleanup: waiting for non-terminal transcription {} before deleting it and its file",
+                    transcription_id
+                );
+                if !Self::wait_for_terminal_status_for_cleanup(
+                    &http_client,
+                    &api_key,
+                    &transcription_id,
+                )
+                .await
+                {
+                    warn!(
+                        "Soniox cleanup: transcription {} did not finish in time; leaving it and file {} to Soniox retention",
+                        transcription_id, cleanup_file_id
+                    );
+                    return;
+                }
+                cleanup_transcription_id = Some(transcription_id);
+            }
             if let Some(transcription_id) = cleanup_transcription_id {
                 Self::delete_transcription_with_retry(
                     &http_client,
