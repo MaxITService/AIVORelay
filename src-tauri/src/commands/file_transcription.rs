@@ -2458,7 +2458,7 @@ mod tests {
         apply_file_model_config, compatible_initial_file_selection, load_file_model_config,
         apply_transcription_post_processing, apply_transcription_post_processing_to_diarized_segments,
         initial_file_profile_snapshot, initialize_file_transcription_model_state, legacy_file_model_config_key,
-        require_remote_segments, resample_audio, save_transcription_without_overwrite,
+        normalize_soniox_language_hints, require_remote_segments, resample_audio, save_transcription_without_overwrite,
         seed_file_model_config, session_blocks_local_file_transcription,
         sync_active_file_model_config, validate_audio_sample_rate,
     };
