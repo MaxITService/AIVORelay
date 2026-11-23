@@ -1679,8 +1679,13 @@ impl SonioxSttManager {
         let mut created_transcription_id: Option<String> = None;
         let mut transcription_reached_terminal_state = false;
         let result: Result<SonioxAsyncTranscript> = async {
+            self.ensure_not_cancelled(operation_id)?;
+            // Not cancellable once sent: if Cancel dropped an accepted create
+            // request, the job ID would be lost and cleanup would delete the
+            // upload while Soniox still needs it. Cancellation is observed again
+            // in `wait_for_completion`, where the ID is known.
             let transcription_id = self
-                .with_retry("Soniox create transcription", operation_id, || async {
+                .with_retry("Soniox create transcription", None, || async {
                     self.create_transcription_impl(
                         api_key,
                         &file_id,
