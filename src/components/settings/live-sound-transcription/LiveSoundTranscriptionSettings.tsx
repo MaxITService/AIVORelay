@@ -1109,7 +1109,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               <div className="rounded-lg border border-emerald-400/25 bg-emerald-400/5 px-4 py-3 text-sm text-emerald-100">
                 {t(
                   "modelSelector.remoteApiRows.reson8.description",
-                  "Live output inserts finalized chunks only. Interim transcript preview is not supported. Also supports prerecorded file transcription.",
+                  "Live dictation and Live Monitor stream interim previews and finalized speech chunks over WebSocket. Also supports prerecorded file transcription.",
                 )}
               </div>
             )}

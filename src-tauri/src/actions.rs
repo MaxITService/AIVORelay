@@ -7743,21 +7743,30 @@ pub(crate) fn build_reson8_options_for_live_sound(
     settings: &AppSettings,
 ) -> Reson8RealtimeOptions {
     let profile = resolve_profile_for_binding(settings, LIVE_SOUND_TRANSCRIPTION_BINDING_ID);
-    build_reson8_realtime_options(settings, profile)
+    build_reson8_realtime_options(settings, profile, LIVE_SOUND_TRANSCRIPTION_BINDING_ID)
 }
 
 fn build_reson8_realtime_options(
     settings: &AppSettings,
     profile: Option<&crate::settings::TranscriptionProfile>,
+    binding_id: &str,
 ) -> Reson8RealtimeOptions {
     let language = profile
         .as_ref()
         .map(|p| p.language.clone())
         .unwrap_or_else(|| settings.selected_language.clone());
+    let show_preview = binding_id != crate::managers::history_replay::HISTORY_REPLAY_BINDING
+        && binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID;
+    let include_interim = binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+        || (show_preview
+            && (settings.soniox_live_preview_enabled
+                || should_route_output_to_preview(settings, profile)));
     Reson8RealtimeOptions {
         model: settings.remote_stt.model_id.clone(),
         language: Some(language),
         preset: settings.remote_stt.provider_preset.clone(),
+        include_interim,
+        show_preview,
     }
 }
 
@@ -7960,7 +7969,11 @@ pub(crate) async fn perform_history_live_transcription(
                     samples, &api_key, options, replay,
                 ).await
             } else if should_use_reson8_realtime_live(settings) {
-                let options = build_reson8_realtime_options(settings, profile);
+                let options = build_reson8_realtime_options(
+                    settings,
+                    profile,
+                    crate::managers::history_replay::HISTORY_REPLAY_BINDING,
+                );
                 app.state::<Arc<Reson8RealtimeManager>>().transcribe_history_replay(
                     samples, &api_key, options, replay,
                 ).await
@@ -8138,7 +8151,7 @@ fn setup_and_start_live(
         TranscriptionProvider::RemoteOpenAiCompatible
             if should_use_reson8_realtime_live(settings) =>
         {
-            let options = build_reson8_realtime_options(settings, profile);
+            let options = build_reson8_realtime_options(settings, profile, binding_id);
             let reson8_realtime_manager =
                 Arc::clone(&app.state::<Arc<Reson8RealtimeManager>>());
             let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
@@ -8445,7 +8458,8 @@ fn should_run_transcription_post_process(post_process_requested: bool, text: &st
 mod transcription_post_process_tests {
     use super::{
         buffers_cloud_live_output_for_route, build_elevenlabs_options_for_live_sound,
-        build_elevenlabs_realtime_options, empty_transcription_error_category,
+        build_elevenlabs_realtime_options, build_reson8_options_for_live_sound,
+        build_reson8_realtime_options, empty_transcription_error_category,
         finish_transcription_output, is_blank_transcription, live_sound_use_live_streaming,
         parse_openai_realtime_keywords, post_process_allowed_for_output_route,
         resolve_profile_for_binding, settings_with_model_override_for_binding,
@@ -9005,6 +9019,54 @@ mod transcription_post_process_tests {
         let live_monitor = build_elevenlabs_options_for_live_sound(&settings);
         assert!(live_monitor.diarize);
         assert!(!live_monitor.show_preview);
+    }
+
+    #[test]
+    fn build_reson8_options_scopes_interim_and_preview() {
+        let mut settings = get_default_settings();
+        settings.transcription_provider = TranscriptionProvider::RemoteOpenAiCompatible;
+        settings.remote_stt.provider_preset =
+            crate::url_security::REMOTE_STT_PRESET_RESON8.to_string();
+        settings.remote_stt.model_id =
+            crate::url_security::REMOTE_STT_RESON8_DEFAULT_MODEL.to_string();
+        settings.selected_language = "en".to_string();
+        settings.soniox_live_preview_enabled = false;
+        settings.preview_output_only_enabled = false;
+
+        let direct = build_reson8_realtime_options(&settings, None, "transcribe");
+        assert!(direct.show_preview);
+        assert!(!direct.include_interim);
+
+        let mut live_preview_settings = settings.clone();
+        live_preview_settings.soniox_live_preview_enabled = true;
+        let live_preview = build_reson8_realtime_options(&live_preview_settings, None, "transcribe");
+        assert!(live_preview.show_preview);
+        assert!(live_preview.include_interim);
+
+        let preview_profile: TranscriptionProfile = serde_json::from_value(serde_json::json!({
+            "id": "profile_reson8_preview",
+            "name": "Reson8 Preview",
+            "language": "en",
+            "translate_to_english": false,
+            "preview_output_only_enabled": true
+        }))
+        .unwrap();
+        let profile_preview =
+            build_reson8_realtime_options(&settings, Some(&preview_profile), "transcribe");
+        assert!(profile_preview.show_preview);
+        assert!(profile_preview.include_interim);
+
+        let replay = build_reson8_realtime_options(
+            &live_preview_settings,
+            Some(&preview_profile),
+            crate::managers::history_replay::HISTORY_REPLAY_BINDING,
+        );
+        assert!(!replay.show_preview);
+        assert!(!replay.include_interim);
+
+        let live_monitor = build_reson8_options_for_live_sound(&settings);
+        assert!(!live_monitor.show_preview);
+        assert!(live_monitor.include_interim);
     }
 
     #[test]
@@ -10235,7 +10297,7 @@ impl ShortcutAction for TranscribeAction {
                         &binding_id,
                         Some(recording_operation_id),
                         &api_key,
-                        build_reson8_realtime_options(&settings, profile),
+                        build_reson8_realtime_options(&settings, profile, &binding_id),
                         chunk_callback,
                     );
 
@@ -14652,13 +14714,20 @@ pub fn preview_clear_action(app: AppHandle) -> Result<(), String> {
     };
     let elevenlabs = app.state::<Arc<ElevenLabsRealtimeManager>>();
     let elevenlabs_active = elevenlabs.has_active_session();
+    let reson8 = app.state::<Arc<Reson8RealtimeManager>>();
+    let reson8_active = reson8.has_active_session();
     if let Err(e) = elevenlabs.restart_session(|| {
         if elevenlabs_active { reset_preview(); }
     }) {
         warn!("Failed to restart ElevenLabs Scribe v3 Live session: {}", e);
     }
+    if let Err(e) = reson8.restart_session(|| {
+        if !elevenlabs_active && reson8_active { reset_preview(); }
+    }) {
+        warn!("Failed to restart Reson8 Rumble-2 session: {}", e);
+    }
     if let Err(e) = app.state::<Arc<GeminiRealtimeManager>>().restart_session(|| {
-        if !elevenlabs_active { reset_preview(); }
+        if !elevenlabs_active && !reson8_active { reset_preview(); }
     }) {
         warn!("Failed to restart Gemini 3.5 Transcribe Live session: {}", e);
     }
@@ -14676,12 +14745,6 @@ pub fn preview_clear_action(app: AppHandle) -> Result<(), String> {
         .restart_session()
     {
         warn!("Failed to restart OpenAI Realtime Whisper Session: {}", e);
-    }
-    if let Err(e) = app
-        .state::<Arc<Reson8RealtimeManager>>()
-        .restart_session()
-    {
-        warn!("Failed to restart Reson8 Rumble-2 session: {}", e);
     }
     Ok(())
 }

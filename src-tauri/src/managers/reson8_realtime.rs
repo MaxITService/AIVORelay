@@ -3,11 +3,11 @@ use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use log::{info, warn};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::async_runtime::JoinHandle;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -31,11 +31,26 @@ static FLUSH_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 pub type FinalChunkCallback = Arc<dyn Fn(String) + Send + Sync + 'static>;
 
+#[derive(Default)]
+struct SessionLease(AtomicBool);
+
+impl SessionLease {
+    fn cancel(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    fn allows_delivery(&self) -> bool {
+        !self.0.load(Ordering::Acquire)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Reson8RealtimeOptions {
     pub model: String,
     pub language: Option<String>,
     pub preset: String,
+    pub include_interim: bool,
+    pub show_preview: bool,
 }
 
 impl Default for Reson8RealtimeOptions {
@@ -44,6 +59,8 @@ impl Default for Reson8RealtimeOptions {
             model: RESON8_LIVE_MODEL.to_string(),
             language: None,
             preset: REMOTE_STT_PRESET_RESON8.to_string(),
+            include_interim: false,
+            show_preview: false,
         }
     }
 }
@@ -56,16 +73,39 @@ enum ControlMessage {
 }
 
 struct SessionEvents {
-    live_final_chunk: Box<dyn Fn(&str, &str) + Send + Sync>,
+    on_interim: Box<dyn Fn(&str) + Send + Sync>,
+    on_final: Box<dyn Fn(&str, &str, &str) + Send + Sync>,
+}
+
+impl SessionEvents {
+    fn only_current(self, is_current: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+        let current = Arc::new(is_current);
+        let interim = Arc::clone(&current);
+        Self {
+            on_interim: Box::new(move |text| {
+                if interim() {
+                    (self.on_interim)(text);
+                }
+            }),
+            on_final: Box::new(move |delta, raw, accumulated| {
+                if current() {
+                    (self.on_final)(delta, raw, accumulated);
+                }
+            }),
+        }
+    }
 }
 
 struct ActiveSession {
     binding_id: String,
     operation_id: Option<u64>,
+    show_preview: bool,
     audio_tx: mpsc::Sender<Vec<u8>>,
     control_tx: mpsc::UnboundedSender<ControlMessage>,
     final_text: Arc<Mutex<String>>,
     join_handle: JoinHandle<Result<()>>,
+    lease: Arc<SessionLease>,
+    restart_params: Option<SessionParams>,
 }
 
 struct PendingAudio {
@@ -75,6 +115,7 @@ struct PendingAudio {
 }
 
 pub(crate) struct Reson8FinalizingSession {
+    app_handle: AppHandle,
     session: Option<ActiveSession>,
 }
 
@@ -90,7 +131,6 @@ struct SessionParams {
 pub struct Reson8RealtimeManager {
     app_handle: AppHandle,
     active_session: Arc<Mutex<Option<ActiveSession>>>,
-    session_params: Mutex<Option<SessionParams>>,
     // Always lock active_session before pending_audio so cancellation/startup
     // cannot mix two operations' buffered frames.
     pending_audio: Mutex<Option<PendingAudio>>,
@@ -102,7 +142,6 @@ impl Reson8RealtimeManager {
         Ok(Self {
             app_handle: app_handle.clone(),
             active_session: Arc::new(Mutex::new(None)),
-            session_params: Mutex::new(None),
             pending_audio: Mutex::new(Some(PendingAudio {
                 operation_id: None,
                 frames: Vec::new(),
@@ -127,26 +166,52 @@ impl Reson8RealtimeManager {
     }
 
     pub fn prepare_session(&self, operation_id: Option<u64>) {
-        let mut active = self.active_session.lock();
-        if let Some(session) = active.take() {
+        let old_session = {
+            let mut active = self.active_session.lock();
+            let mut pending = self.pending_audio.lock();
+            *pending = Some(PendingAudio {
+                operation_id,
+                frames: Vec::new(),
+                overflow_error: None,
+            });
+            active.take()
+        };
+        if let Some(session) = old_session {
+            session.lease.cancel();
             let _ = session.control_tx.send(ControlMessage::Cancel);
             session.join_handle.abort();
+            hide_preview_if_needed(
+                &self.app_handle,
+                session.show_preview,
+                Some(&session.binding_id),
+            );
         }
-        *self.pending_audio.lock() = Some(PendingAudio {
-            operation_id,
-            frames: Vec::new(),
-            overflow_error: None,
-        });
     }
 
-    pub fn restart_session(&self) -> Result<()> {
-        if !self.has_active_session() {
-            return Ok(());
-        }
-
-        let params = self.session_params.lock().clone();
+    pub fn restart_session(&self, reset_preview: impl FnOnce()) -> Result<()> {
+        let params = {
+            let state = self
+                .app_handle
+                .state::<crate::session_manager::ManagedSessionState>();
+            let owner =
+                crate::session_manager::lock_session_state(&state, "restart Reson8 session");
+            let mut active = self.active_session.lock();
+            let mut pending = self.pending_audio.lock();
+            prepare_session_restart(&mut active, &mut pending, |id, binding| {
+                id.is_some_and(|id| {
+                    matches!(
+                        &*owner,
+                        crate::session_manager::SessionState::Recording {
+                            operation_id,
+                            binding_id,
+                            ..
+                        } if *operation_id == id && binding_id == binding
+                    )
+                })
+            })
+        };
+        reset_preview();
         if let Some(p) = params {
-            self.prepare_session(p.operation_id);
             self.start_session(
                 &p.binding_id,
                 p.operation_id,
@@ -162,9 +227,11 @@ impl Reson8RealtimeManager {
         &self,
         samples: &[f32],
         api_key: &str,
-        options: Reson8RealtimeOptions,
+        mut options: Reson8RealtimeOptions,
         replay: &Arc<super::history_replay::HistoryReplay>,
     ) -> Result<String> {
+        options.include_interim = false;
+        options.show_preview = false;
         validate_options(api_key, &options)?;
         let ws_request = build_realtime_ws_request(api_key, &options)?;
         let stream = timeout(
@@ -194,7 +261,8 @@ impl Reson8RealtimeManager {
             api_key_for_loop,
             flush_id,
             SessionEvents {
-                live_final_chunk: Box::new(|_, _| {}),
+                on_interim: Box::new(|_| {}),
+                on_final: Box::new(|_, _, _| {}),
             },
         );
 
@@ -228,6 +296,27 @@ impl Reson8RealtimeManager {
         let ws_request = build_realtime_ws_request(api_key, &options)
             .map_err(|err| self.start_error(redact_remote_stt_api_key(&err.to_string(), api_key)))?;
 
+        let state = self
+            .app_handle
+            .state::<crate::session_manager::ManagedSessionState>();
+        let owner = operation_id.map(|_| {
+            crate::session_manager::lock_session_state(&state, "publish Reson8 session")
+        });
+        if let Some(id) = operation_id {
+            if !owner.as_ref().is_some_and(|owner| {
+                matches!(
+                    &**owner,
+                    crate::session_manager::SessionState::Recording {
+                        operation_id,
+                        binding_id: binding,
+                        ..
+                    } if *operation_id == id && binding == binding_id
+                )
+            }) {
+                return Err(self.start_error("Reson8 recording operation is no longer active"));
+            }
+        }
+
         let mut active_session_guard = self.active_session.lock();
         let mut pending_audio = self.pending_audio.lock();
         if let Some(pending) = pending_audio.as_ref() {
@@ -247,29 +336,29 @@ impl Reson8RealtimeManager {
             ));
         }
 
+        let show_preview = options.show_preview;
         crate::managers::remote_stt::record_external_remote_stt_debug(
             &self.app_handle,
             format!(
-                "Reson8 live session start model={} language={} binding={}",
+                "Reson8 live session start model={} language={} include_interim={} binding={}",
                 RESON8_LIVE_MODEL,
                 resolve_reson8_language(options.language.as_deref())
                     .as_deref()
                     .unwrap_or("auto"),
+                options.include_interim,
                 binding_id,
             ),
             false,
         );
 
-        {
-            let mut params_guard = self.session_params.lock();
-            *params_guard = Some(SessionParams {
-                binding_id: binding_id.to_string(),
-                operation_id,
-                api_key: api_key.to_string(),
-                options: options.clone(),
-                on_final_chunk: on_final_chunk.clone(),
-            });
-        }
+        let lease = Arc::new(SessionLease::default());
+        let restart_params = Some(SessionParams {
+            binding_id: binding_id.to_string(),
+            operation_id,
+            api_key: api_key.to_string(),
+            options: options.clone(),
+            on_final_chunk: on_final_chunk.clone(),
+        });
 
         let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_QUEUE_CAPACITY);
         let (control_tx, control_rx) = mpsc::unbounded_channel::<ControlMessage>();
@@ -297,6 +386,7 @@ impl Reson8RealtimeManager {
             ));
         }
 
+        let lease_for_task = Arc::clone(&lease);
         let join_handle = tauri::async_runtime::spawn(async move {
             let session_started = Instant::now();
             let session_result: Result<()> = async {
@@ -315,8 +405,20 @@ impl Reson8RealtimeManager {
                 );
 
                 let (mut write, mut read) = stream.split();
-                let app_for_emit = app_handle_for_task.clone();
-                let binding_for_emit = binding_id_for_task.clone();
+                let events = build_runtime_session_events(
+                    app_handle_for_task.clone(),
+                    binding_id_for_task.clone(),
+                    live_sound_session_id,
+                    show_preview,
+                )
+                .only_current({
+                    let app = app_handle_for_task.clone();
+                    let lease = Arc::clone(&lease_for_task);
+                    move || {
+                        lease.allows_delivery()
+                            && session_callback_is_current(&app, operation_id, live_sound_session_id)
+                    }
+                });
                 Self::drive_session_loop(
                     &mut write,
                     &mut read,
@@ -326,17 +428,7 @@ impl Reson8RealtimeManager {
                     on_final_chunk,
                     api_key_for_task.clone(),
                     flush_id,
-                    SessionEvents {
-                        live_final_chunk: Box::new(move |chunk_delta, accumulated| {
-                            emit_final_only_live_update(
-                                &app_for_emit,
-                                &binding_for_emit,
-                                live_sound_session_id,
-                                chunk_delta,
-                                accumulated,
-                            );
-                        }),
-                    },
+                    events,
                 )
                 .await
             }
@@ -358,14 +450,12 @@ impl Reson8RealtimeManager {
                     "Reson8 live session runtime error (binding='{}'): {}",
                     binding_id_for_task, err_str
                 );
-                let callback_is_current = live_sound_session_id
-                    .map(crate::managers::live_sound_transcription::is_session_current)
-                    .or_else(|| {
-                        operation_id.map(|id| {
-                            crate::session_manager::is_operation_current(&app_handle_for_task, id)
-                        })
-                    })
-                    .unwrap_or(true);
+                let callback_is_current = lease_for_task.allows_delivery()
+                    && session_callback_is_current(
+                        &app_handle_for_task,
+                        operation_id,
+                        live_sound_session_id,
+                    );
                 if callback_is_current {
                     *reported_runtime_error.lock() = Some(err_str.clone());
                 }
@@ -428,10 +518,13 @@ impl Reson8RealtimeManager {
         let active = ActiveSession {
             binding_id: binding_id.to_string(),
             operation_id,
+            show_preview,
             audio_tx,
             control_tx,
             final_text,
             join_handle,
+            lease,
+            restart_params,
         };
         *active_session_guard = Some(active);
 
@@ -448,6 +541,21 @@ impl Reson8RealtimeManager {
         }
         drop(pending_audio);
         drop(active_session_guard);
+        drop(owner);
+
+        if show_preview
+            && binding_id != crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+            && binding_id != super::history_replay::HISTORY_REPLAY_BINDING
+            && session_callback_is_current(&self.app_handle, operation_id, live_sound_session_id)
+        {
+            let preserve_existing_preview =
+                crate::managers::preview_output_mode::is_active_for_binding(binding_id);
+            crate::overlay::begin_soniox_live_preview_session();
+            if !preserve_existing_preview {
+                crate::overlay::reset_soniox_live_preview(&self.app_handle);
+            }
+            crate::overlay::show_soniox_live_preview_window(&self.app_handle);
+        }
 
         info!("Started Reson8 live session for binding '{}'", binding_id);
         Ok(())
@@ -491,6 +599,7 @@ impl Reson8RealtimeManager {
         let mut audio_input_closed = false;
         let mut flush_sent = false;
         let mut accumulated_text = String::new();
+        let mut latest_interim = String::new();
 
         loop {
             if audio_input_closed && !flush_sent {
@@ -572,7 +681,16 @@ impl Reson8RealtimeManager {
                             })?;
 
                             match parse_server_event(&payload, &flush_id, &api_key)? {
+                                ServerEvent::InterimTranscript(raw_text) => {
+                                    let trimmed = raw_text.trim();
+                                    if !trimmed.is_empty() || !latest_interim.is_empty() {
+                                        latest_interim = trimmed.to_string();
+                                        (events.on_interim)(&raw_text);
+                                    }
+                                }
                                 ServerEvent::FinalTranscript(raw_text) => {
+                                    let had_interim = !latest_interim.is_empty();
+                                    latest_interim.clear();
                                     if let Some(delta) =
                                         normalize_reson8_chunk(&accumulated_text, &raw_text)
                                     {
@@ -581,11 +699,17 @@ impl Reson8RealtimeManager {
                                         if let Some(callback) = &on_final_chunk {
                                             callback(delta.clone());
                                         }
-                                        (events.live_final_chunk)(&delta, &accumulated_text);
+                                        (events.on_final)(&delta, &raw_text, &accumulated_text);
+                                    } else if had_interim {
+                                        (events.on_final)("", "", &accumulated_text);
                                     }
                                 }
                                 ServerEvent::FlushConfirmed => {
                                     if flush_sent {
+                                        if !latest_interim.is_empty() {
+                                            latest_interim.clear();
+                                            (events.on_interim)("");
+                                        }
                                         break;
                                     }
                                 }
@@ -675,7 +799,10 @@ impl Reson8RealtimeManager {
         let mut active = self.active_session.lock();
         let mut pending = self.pending_audio.lock();
         let session = detach_session_if_matches(&mut active, &mut pending, operation_id);
-        Reson8FinalizingSession { session }
+        Reson8FinalizingSession {
+            app_handle: self.app_handle.clone(),
+            session,
+        }
     }
 
     pub async fn finish_session(&self, timeout_ms: u32) -> Result<String> {
@@ -695,19 +822,34 @@ impl Reson8RealtimeManager {
     pub fn cancel_if_matches(&self, operation_id: Option<u64>) {
         let finalization = self.begin_finish_session_if_matches(operation_id);
         if let Some(session) = finalization.session {
+            session.lease.cancel();
             let _ = session.control_tx.send(ControlMessage::Cancel);
             session.join_handle.abort();
+            hide_preview_if_needed(
+                &self.app_handle,
+                session.show_preview,
+                Some(&session.binding_id),
+            );
         }
     }
 
     pub fn cancel(&self) {
-        let mut active = self.active_session.lock();
-        let session = active.take();
+        let session = {
+            let mut active = self.active_session.lock();
+            let session = active.take();
+            *self.pending_audio.lock() = None;
+            session
+        };
         if let Some(session) = session {
+            session.lease.cancel();
             let _ = session.control_tx.send(ControlMessage::Cancel);
             session.join_handle.abort();
+            hide_preview_if_needed(
+                &self.app_handle,
+                session.show_preview,
+                Some(&session.binding_id),
+            );
         }
-        *self.pending_audio.lock() = None;
     }
 }
 
@@ -719,12 +861,22 @@ impl Reson8FinalizingSession {
 
         let ActiveSession {
             binding_id,
+            operation_id,
+            show_preview,
             audio_tx,
             control_tx,
             final_text,
             mut join_handle,
+            lease,
             ..
         } = session;
+        let hide_preview = || {
+            if lease.allows_delivery()
+                && session_callback_is_current(&self.app_handle, operation_id, None)
+            {
+                hide_preview_if_needed(&self.app_handle, show_preview, Some(&binding_id));
+            }
+        };
         let read_final_text = || -> String { final_text.lock().trim().to_string() };
 
         let _ = control_tx.send(ControlMessage::Finish);
@@ -739,13 +891,16 @@ impl Reson8FinalizingSession {
                     "Reson8 live session ended with error before flush confirmation (binding='{}'): {}",
                     binding_id, error
                 );
+                hide_preview();
                 return Err(error);
             }
             Ok(Err(error)) => {
+                hide_preview();
                 return Err(anyhow!("Reson8 live session task failed: {error}"));
             }
             Err(_) => {
                 join_handle.abort();
+                hide_preview();
                 return Err(anyhow!(
                     "Timed out while waiting for Reson8 flush confirmation"
                 ));
@@ -753,6 +908,7 @@ impl Reson8FinalizingSession {
         }
 
         let text = read_final_text();
+        hide_preview();
         info!(
             "Completed Reson8 live session for binding '{}', output_len={}",
             binding_id,
@@ -763,6 +919,7 @@ impl Reson8FinalizingSession {
 }
 
 enum ServerEvent {
+    InterimTranscript(String),
     FinalTranscript(String),
     FlushConfirmed,
     Ignore,
@@ -788,14 +945,15 @@ fn parse_server_event(payload: &Value, expected_flush_id: &str, api_key: &str) -
 
     match msg_type {
         "transcript" => {
-            if payload.get("is_final").and_then(Value::as_bool) == Some(false) {
-                return Ok(ServerEvent::Ignore);
-            }
             let text = payload
                 .get("text")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            Ok(ServerEvent::FinalTranscript(text.to_string()))
+            if payload.get("is_final").and_then(Value::as_bool) == Some(false) {
+                Ok(ServerEvent::InterimTranscript(text.to_string()))
+            } else {
+                Ok(ServerEvent::FinalTranscript(text.to_string()))
+            }
         }
         "flush_confirmation" => {
             let confirmed_id = payload
@@ -849,7 +1007,10 @@ fn build_realtime_ws_url(options: &Reson8RealtimeOptions) -> Result<String> {
         query.append_pair("encoding", "pcm_s16le");
         query.append_pair("sample_rate", &RESON8_SAMPLE_RATE_HZ.to_string());
         query.append_pair("channels", "1");
-        query.append_pair("include_interim", "false");
+        query.append_pair(
+            "include_interim",
+            if options.include_interim { "true" } else { "false" },
+        );
         if let Some(language) = resolve_reson8_language(options.language.as_deref()) {
             query.append_pair("language", &language);
         }
@@ -961,30 +1122,134 @@ fn normalize_reson8_chunk(accumulated: &str, raw_chunk: &str) -> Option<String> 
     }
 }
 
-fn emit_final_only_live_update(
-    app_handle: &AppHandle,
-    binding_id: &str,
-    live_sound_session_id: Option<u64>,
-    chunk_delta: &str,
-    accumulated: &str,
-) {
-    if binding_id == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
-        if let Some(session_id) = live_sound_session_id {
-            crate::managers::live_sound_transcription::append_final_result_if_session_matches(
-                app_handle,
-                session_id,
-                chunk_delta.trim(),
-                Vec::new(),
-                true,
-            );
-        }
+fn session_callback_is_current(
+    app: &AppHandle,
+    operation_id: Option<u64>,
+    live_session_id: Option<u64>,
+) -> bool {
+    live_session_id
+        .map(crate::managers::live_sound_transcription::is_session_current)
+        .or_else(|| operation_id.map(|id| crate::session_manager::is_operation_current(app, id)))
+        .unwrap_or(true)
+}
+
+fn prepare_session_restart(
+    active: &mut Option<ActiveSession>,
+    pending: &mut Option<PendingAudio>,
+    is_current: impl FnOnce(Option<u64>, &str) -> bool,
+) -> Option<SessionParams> {
+    let session = active.as_ref()?;
+    let params = session.restart_params.clone()?;
+    if params.operation_id != session.operation_id
+        || pending
+            .as_ref()
+            .is_some_and(|pending| pending.operation_id != session.operation_id)
+        || !is_current(session.operation_id, &session.binding_id)
+    {
+        return None;
+    }
+    let session = active.take()?;
+    session.lease.cancel();
+    let _ = session.control_tx.send(ControlMessage::Cancel);
+    session.join_handle.abort();
+    *pending = Some(PendingAudio {
+        operation_id: params.operation_id,
+        frames: Vec::new(),
+        overflow_error: None,
+    });
+    Some(params)
+}
+
+fn hide_preview_if_needed(app_handle: &AppHandle, show_preview: bool, binding_id: Option<&str>) {
+    if !show_preview {
         return;
     }
-
-    if binding_id != super::history_replay::HISTORY_REPLAY_BINDING
-        && crate::managers::preview_output_mode::is_active_for_binding(binding_id)
+    if binding_id == Some(crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID)
+        || binding_id == Some(super::history_replay::HISTORY_REPLAY_BINDING)
     {
-        crate::overlay::emit_soniox_live_preview_update(app_handle, accumulated.trim(), "");
+        return;
+    }
+    if crate::managers::preview_output_mode::is_active() {
+        return;
+    }
+    crate::overlay::end_soniox_live_preview_session();
+    crate::overlay::hide_soniox_live_preview_window(app_handle);
+}
+
+fn build_runtime_session_events(
+    app_handle: AppHandle,
+    binding_id: String,
+    live_sound_session_id: Option<u64>,
+    show_preview: bool,
+) -> SessionEvents {
+    let preview_eligible = show_preview
+        && binding_id != crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+        && binding_id != super::history_replay::HISTORY_REPLAY_BINDING;
+    let is_live_sound = binding_id == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID;
+
+    let app_interim = app_handle.clone();
+    let app_final = app_handle;
+
+    SessionEvents {
+        on_interim: Box::new(move |raw_text| {
+            if is_live_sound {
+                if let Some(session_id) = live_sound_session_id {
+                    crate::managers::live_sound_transcription::set_interim_result_if_session_matches(
+                        &app_interim,
+                        session_id,
+                        raw_text.trim().to_string(),
+                        Vec::new(),
+                    );
+                }
+                return;
+            }
+            if preview_eligible {
+                let preview_final_text = crate::overlay::get_soniox_live_preview_state().final_text;
+                let preview_interim =
+                    normalize_reson8_chunk(&preview_final_text, raw_text).unwrap_or_default();
+                crate::overlay::emit_soniox_live_preview_update(
+                    &app_interim,
+                    &preview_final_text,
+                    &preview_interim,
+                );
+            }
+        }),
+        on_final: Box::new(move |delta, raw_text, _accumulated| {
+            if is_live_sound {
+                if let Some(session_id) = live_sound_session_id {
+                    let trimmed = delta.trim();
+                    if !trimmed.is_empty() {
+                        crate::managers::live_sound_transcription::append_final_result_if_session_matches(
+                            &app_final,
+                            session_id,
+                            trimmed,
+                            Vec::new(),
+                            true,
+                        );
+                    }
+                    crate::managers::live_sound_transcription::set_interim_result_if_session_matches(
+                        &app_final,
+                        session_id,
+                        String::new(),
+                        Vec::new(),
+                    );
+                }
+                return;
+            }
+            if preview_eligible {
+                let preview_final_text = crate::overlay::get_soniox_live_preview_state().final_text;
+                let next_preview_final = match normalize_reson8_chunk(&preview_final_text, raw_text)
+                {
+                    Some(piece) => format!("{preview_final_text}{piece}"),
+                    None => preview_final_text,
+                };
+                crate::overlay::emit_soniox_live_preview_update(
+                    &app_final,
+                    &next_preview_final,
+                    "",
+                );
+            }
+        }),
     }
 }
 
@@ -1068,6 +1333,8 @@ mod tests {
                 model: "rumble-2".to_string(),
                 language: Some("en".to_string()),
                 preset: REMOTE_STT_PRESET_RESON8.to_string(),
+                include_interim: false,
+                show_preview: false,
             },
         )
         .unwrap();
@@ -1081,6 +1348,22 @@ mod tests {
             request.headers()["authorization"],
             "ApiKey secret-reson8-key"
         );
+
+        let interim_request = build_realtime_ws_request(
+            " secret-reson8-key ",
+            &Reson8RealtimeOptions {
+                model: "rumble-2".to_string(),
+                language: Some("en".to_string()),
+                preset: REMOTE_STT_PRESET_RESON8.to_string(),
+                include_interim: true,
+                show_preview: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            interim_request.uri().to_string(),
+            "wss://api.reson8.dev/v1/speech-to-text/realtime?model=rumble-2&encoding=pcm_s16le&sample_rate=16000&channels=1&include_interim=true&language=en"
+        );
     }
 
     #[test]
@@ -1089,6 +1372,8 @@ mod tests {
             model: "rumble-2".to_string(),
             language: Some("auto".to_string()),
             preset: REMOTE_STT_PRESET_RESON8.to_string(),
+            include_interim: false,
+            show_preview: false,
         })
         .unwrap();
         assert_eq!(
@@ -1098,7 +1383,7 @@ mod tests {
     }
 
     #[test]
-    fn parser_accepts_default_and_true_final_transcripts_and_ignores_false_interim() {
+    fn parser_distinguishes_final_and_interim_transcripts_and_flush_confirmations() {
         assert!(matches!(
             parse_server_event(
                 &json!({"type": "transcript", "text": "Hello world"}),
@@ -1124,7 +1409,7 @@ mod tests {
                 "k"
             )
             .unwrap(),
-            ServerEvent::Ignore
+            ServerEvent::InterimTranscript(text) if text == "Interim draft"
         ));
         assert!(matches!(
             parse_server_event(
@@ -1161,7 +1446,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn drive_session_loop_drains_audio_sends_flush_and_requires_matching_confirmation() {
+    async fn drive_session_loop_drains_audio_sends_flush_and_separates_interim_from_final() {
         let (audio_tx, audio_rx) = mpsc::channel(8);
         let (control_tx, control_rx) = mpsc::unbounded_channel();
         let final_text = Arc::new(Mutex::new(String::new()));
@@ -1170,6 +1455,10 @@ mod tests {
         let cb: FinalChunkCallback = Arc::new(move |chunk| {
             emitted_chunks_cb.lock().push(chunk);
         });
+        let interim_events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let interim_events_cb = Arc::clone(&interim_events);
+        let final_events = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+        let final_events_cb = Arc::clone(&final_events);
 
         audio_tx.send(vec![1, 2, 3, 4]).await.unwrap();
         drop(audio_tx);
@@ -1186,7 +1475,13 @@ mod tests {
                 r#"{"type":"transcript","text":"Hello"}"#.into(),
             )),
             Ok(Message::Text(
+                r#"{"type":"transcript","text":"wor","is_final":false}"#.into(),
+            )),
+            Ok(Message::Text(
                 r#"{"type":"transcript","text":"world.","is_final":true}"#.into(),
+            )),
+            Ok(Message::Text(
+                r#"{"type":"transcript","text":"trailing draft","is_final":false}"#.into(),
             )),
         ])
         .chain(futures_util::stream::once(async move {
@@ -1210,7 +1505,14 @@ mod tests {
                 "key".to_string(),
                 "flush-test-1".to_string(),
                 SessionEvents {
-                    live_final_chunk: Box::new(|_, _| {}),
+                    on_interim: Box::new(move |text| {
+                        interim_events_cb.lock().push(text.to_string());
+                    }),
+                    on_final: Box::new(move |delta, _raw, accumulated| {
+                        final_events_cb
+                            .lock()
+                            .push((delta.to_string(), accumulated.to_string()));
+                    }),
                 },
             ),
         )
@@ -1226,6 +1528,22 @@ mod tests {
         ));
         assert_eq!(*final_text.lock(), "Hello world.");
         assert_eq!(emitted_chunks.lock().concat(), "Hello world.");
+        assert_eq!(
+            *interim_events.lock(),
+            vec![
+                "draft".to_string(),
+                "wor".to_string(),
+                "trailing draft".to_string(),
+                String::new(),
+            ]
+        );
+        assert_eq!(
+            *final_events.lock(),
+            vec![
+                ("Hello".to_string(), "Hello".to_string()),
+                (" world.".to_string(), "Hello world.".to_string()),
+            ]
+        );
     }
 
     #[tokio::test]
@@ -1251,7 +1569,8 @@ mod tests {
             "key".to_string(),
             "flush-test-2".to_string(),
             SessionEvents {
-                live_final_chunk: Box::new(|_, _| {}),
+                on_interim: Box::new(|_| {}),
+                on_final: Box::new(|_, _, _| {}),
             },
         )
         .await
@@ -1287,7 +1606,8 @@ mod tests {
                 "key".to_string(),
                 "flush-test-3".to_string(),
                 SessionEvents {
-                    live_final_chunk: Box::new(|_, _| {}),
+                    on_interim: Box::new(|_| {}),
+                    on_final: Box::new(|_, _, _| {}),
                 },
             ),
         )
@@ -1323,16 +1643,74 @@ mod tests {
         ActiveSession {
             binding_id: "test-binding".to_string(),
             operation_id,
+            show_preview: false,
             audio_tx,
             control_tx,
             final_text: Arc::new(Mutex::new(initial_text.to_string())),
             join_handle,
+            lease: Arc::new(SessionLease::default()),
+            restart_params: Some(SessionParams {
+                binding_id: "test-binding".to_string(),
+                operation_id,
+                api_key: "test-key".to_string(),
+                options: Reson8RealtimeOptions {
+                    include_interim: true,
+                    show_preview: true,
+                    ..Reson8RealtimeOptions::default()
+                },
+                on_final_chunk: None,
+            }),
         }
     }
 
     async fn abort_and_join(session: ActiveSession) {
         session.join_handle.abort();
         let _ = session.join_handle.await;
+    }
+
+    #[test]
+    fn session_events_only_current_stops_emissions_after_lease_cancellation() {
+        let lease = Arc::new(SessionLease::default());
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen_interim = Arc::clone(&seen);
+        let seen_final = Arc::clone(&seen);
+        let lease_check = Arc::clone(&lease);
+        let events = SessionEvents {
+            on_interim: Box::new(move |text| {
+                seen_interim.lock().push(format!("interim:{text}"));
+            }),
+            on_final: Box::new(move |delta, _, _| {
+                seen_final.lock().push(format!("final:{delta}"));
+            }),
+        }
+        .only_current(move || lease_check.allows_delivery());
+
+        (events.on_interim)("draft");
+        (events.on_final)("Hello", "Hello", "Hello");
+        lease.cancel();
+        (events.on_interim)("stale draft");
+        (events.on_final)("stale", "stale", "Hello stale");
+
+        assert_eq!(*seen.lock(), vec!["interim:draft", "final:Hello"]);
+    }
+
+    #[tokio::test]
+    async fn prepare_session_restart_invalidates_lease_and_rearms_pending_audio() {
+        let mut active = Some(synthetic_active_session(Some(7), "old text"));
+        let lease = Arc::clone(&active.as_ref().unwrap().lease);
+        let mut pending = None;
+
+        let params = prepare_session_restart(&mut active, &mut pending, |id, binding| {
+            id == Some(7) && binding == "test-binding"
+        })
+        .expect("active recording session should prepare restart");
+
+        assert!(active.is_none());
+        assert!(!lease.allows_delivery());
+        assert_eq!(params.operation_id, Some(7));
+        assert!(params.options.include_interim);
+        assert!(params.options.show_preview);
+        assert_eq!(pending.as_ref().unwrap().operation_id, Some(7));
     }
 
     #[tokio::test]
@@ -1366,7 +1744,8 @@ mod tests {
                 "key".to_string(),
                 "flush-test-cancel".to_string(),
                 SessionEvents {
-                    live_final_chunk: Box::new(move |delta, accumulated| {
+                    on_interim: Box::new(|_| {}),
+                    on_final: Box::new(move |delta, _raw, accumulated| {
                         live_events_cb
                             .lock()
                             .push((delta.to_string(), accumulated.to_string()));

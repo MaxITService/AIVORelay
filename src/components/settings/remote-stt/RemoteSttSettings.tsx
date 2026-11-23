@@ -906,7 +906,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       gemini_live:
         "Low-latency streaming via Gemini 3.5 Transcribe Live. Vercel AI Gateway is the default route.",
       reson8:
-        "Reson8 Rumble-2 streams finalized live chunks and also transcribes completed files. Interim transcript preview is not supported.",
+        "Reson8 Rumble-2 streams interim previews and finalized live chunks over WebSocket and also transcribes completed files.",
       elevenlabs: t(
         "settings.advanced.remoteStt.elevenlabs.interfaceHint",
         "ElevenLabs Scribe v3 Live (scribe_v3_live) streams interim and finalized speech over WebSocket (plus Live Monitor diarization) and uses the scribe_v3 HTTP companion for completed recordings and files; scribe_v3 uses completed-recording and file HTTP transcription only.",
@@ -2139,7 +2139,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   <p className="mt-1">
                     {t(
                       "modelSelector.remoteApiRows.reson8.description",
-                      "Live output inserts finalized chunks only. Interim transcript preview is not supported. Also supports prerecorded file transcription.",
+                      "Live dictation and Live Monitor stream interim previews and finalized speech chunks over WebSocket. Also supports prerecorded file transcription.",
                     )}
                   </p>
                   <p className="mt-1 text-text/65">

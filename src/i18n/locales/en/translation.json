@@ -1984,7 +1984,7 @@
       },
       "reson8": {
         "title": "Remote via Reson8 (rumble-2)",
-        "description": "Live output inserts finalized chunks only. Interim transcript preview is not supported. Also supports prerecorded file transcription."
+        "description": "Live dictation and Live Monitor stream interim previews and finalized speech chunks over WebSocket. Also supports prerecorded file transcription."
       },
       "elevenlabs": {
         "title": "Remote via ElevenLabs (Scribe v3 Live)",
