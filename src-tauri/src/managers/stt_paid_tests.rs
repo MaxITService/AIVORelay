@@ -9,6 +9,9 @@ use super::gemini_realtime::{
 };
 use super::history_replay::HistoryReplayGuard;
 use super::remote_stt::{get_remote_stt_api_key, RemoteSttManager};
+use super::reson8_realtime::{
+    Reson8RealtimeManager, Reson8RealtimeOptions, RESON8_LIVE_FINALIZE_TIMEOUT_MS,
+};
 use super::soniox_realtime::{SonioxRealtimeManager, SonioxRealtimeOptions};
 use super::soniox_stt::{SonioxAsyncTranscriptionOptions, SonioxSttManager};
 use crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID;
@@ -18,7 +21,8 @@ use crate::settings::{get_default_settings, AppSettings, TextReplacement};
 use crate::stream_chunk_processor::StreamChunkProcessor;
 use crate::url_security::{
     remote_stt_base_url_for_preset, REMOTE_STT_GOOGLE_DEFAULT_MODEL, REMOTE_STT_PRESET_GOOGLE,
-    REMOTE_STT_PRESET_VERCEL, REMOTE_STT_VERCEL_DEFAULT_MODEL,
+    REMOTE_STT_PRESET_RESON8, REMOTE_STT_PRESET_VERCEL, REMOTE_STT_RESON8_DEFAULT_MODEL,
+    REMOTE_STT_VERCEL_DEFAULT_MODEL,
 };
 use parking_lot::Mutex;
 use std::future::Future;
@@ -595,6 +599,91 @@ async fn stt_paid_deepgram() {
                 )
                 .await
                 .map(|transcript| transcript.text)
+        })
+        .await,
+    );
+    report.assert_ok();
+}
+
+fn reson8_settings() -> AppSettings {
+    gemini_settings(REMOTE_STT_PRESET_RESON8, REMOTE_STT_RESON8_DEFAULT_MODEL)
+}
+
+/// `interim` requests partial text as Live Preview and Live Monitor do; only finals may be inserted.
+/// The preview window itself needs the settings store, which this headless app lacks.
+async fn reson8_live(key: &str, samples: &[f32], interim: bool) -> Result<String, String> {
+    let manager = Reson8RealtimeManager::new(app()).map_err(|error| error.to_string())?;
+    let (chunks, on_chunk) = chunk_collector();
+    let options = Reson8RealtimeOptions {
+        language: Some("en".to_string()),
+        include_interim: interim,
+        ..Reson8RealtimeOptions::default()
+    };
+    manager
+        .start_session("transcribe", None, key, options, Some(on_chunk))
+        .map_err(|error| format!("{error:#}"))?;
+    feed_live(samples, |frame| manager.push_audio_frame(frame)).await;
+    let started = Instant::now();
+    let text = manager
+        .finish_session(RESON8_LIVE_FINALIZE_TIMEOUT_MS)
+        .await
+        .map_err(|error| format!("{error:#}"))?;
+    if manager.has_active_session() {
+        return Err("session still active after finish".to_string());
+    }
+    let chunks = chunks.lock().clone();
+    check_live(&text, &chunks, started.elapsed())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "paid Reson8 Rumble-2 requests with the saved key"]
+async fn stt_paid_reson8() {
+    let settings = reson8_settings();
+    let key = gemini_key(&settings).expect("no saved Reson8 key");
+    let samples = speech().await;
+    let mut report = Report::default();
+
+    report.record("Reson8 live", reson8_live(&key, samples, false).await);
+    report.record("Reson8 live with interim", reson8_live(&key, samples, true).await);
+
+    let manager = Reson8RealtimeManager::new(app()).expect("Reson8 live manager");
+    let guard = replay_guard(-9_401, samples);
+    report.record(
+        "Reson8 history replay",
+        timed_text(manager.transcribe_history_replay(
+            samples,
+            &key,
+            Reson8RealtimeOptions { include_interim: true, show_preview: true, ..Default::default() },
+            &guard.replay,
+        ))
+        .await,
+    );
+    drop(guard);
+
+    report.record(
+        "Reson8 recording",
+        timed_text(async {
+            let manager = RemoteSttManager::new(app())?;
+            manager
+                .transcribe_with_operation(
+                    manager.start_operation(), &settings.remote_stt, samples,
+                    None, Some("en".to_string()), false, None,
+                )
+                .await
+        })
+        .await,
+    );
+    report.record(
+        "Reson8 file",
+        timed_text(async {
+            let manager = RemoteSttManager::new(app())?;
+            manager
+                .transcribe_file_with_operation(
+                    manager.start_operation(), &settings.remote_stt, samples,
+                    None, Some("en".to_string()), false, false, None,
+                )
+                .await
+                .map(|transcription| transcription.text)
         })
         .await,
     );
