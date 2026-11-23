@@ -30,7 +30,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 
@@ -39,9 +39,6 @@ const MIN_CLIP_SAMPLES: usize = (WHISPER_SAMPLE_RATE as usize) / 10; // 100 ms
 const READY_WAIT_TIMEOUT: Duration = Duration::from_secs(2);
 const BENCHMARK_CANCELLED_MESSAGE: &str = "Benchmark run cancelled";
 const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(100);
-/// After Cancel, how long a batch STT request may take to wind down through its
-/// own cancellation path (which runs provider cleanup) before it is dropped.
-const BATCH_STT_CANCEL_GRACE: Duration = Duration::from_secs(5);
 const BENCHMARK_DIR_NAME: &str = "benchmark";
 const BENCHMARK_STATE_FILE: &str = "state.json";
 
@@ -683,19 +680,16 @@ async fn wait_for_benchmark_cancel() {
     }
 }
 
-/// Aborts in-flight batch STT requests through the providers' own cancellation,
-/// so their cleanup (for example Soniox file deletion) still runs. The managers
-/// are shared with dictation, so this is skipped while dictation is active.
-fn cancel_benchmark_batch_stt(app: &AppHandle) {
-    if ensure_dictation_idle(app).is_err() {
-        return;
+/// Post-processing shows the shared "thinking" overlay, which Benchmark has no
+/// dictation flow to hide. Hide it on every exit unless dictation now owns it.
+struct ThinkingOverlayGuard<'a>(&'a AppHandle);
+
+impl Drop for ThinkingOverlayGuard<'_> {
+    fn drop(&mut self) {
+        if ensure_dictation_idle(self.0).is_ok() {
+            crate::overlay::hide_recording_overlay(self.0);
+        }
     }
-    app.state::<Arc<crate::managers::remote_stt::RemoteSttManager>>()
-        .cancel();
-    app.state::<Arc<crate::managers::soniox_stt::SonioxSttManager>>()
-        .cancel();
-    app.state::<Arc<crate::managers::deepgram_stt::DeepgramSttManager>>()
-        .cancel();
 }
 
 fn ensure_dictation_idle(app: &AppHandle) -> Result<(), String> {
@@ -1192,19 +1186,27 @@ pub async fn benchmark_run_single(
             Err(err) => (String::new(), Some(err)),
         }
     } else {
-        let transcription = perform_transcription_for_profile(
-            &app,
-            processed_samples,
-            None,
-            Some(profile_id.clone()),
-            &effective_settings,
-        );
-        tokio::pin!(transcription);
+        // Run in its own task: on Cancel the benchmark stops waiting, while the
+        // request (or blocking local inference) finishes in the background with
+        // its provider cleanup intact. The shared STT managers are not cancelled,
+        // so dictation and History re-transcription are unaffected.
+        let task_app = app.clone();
+        let task_settings = effective_settings.clone();
+        let task_profile_id = profile_id.clone();
+        let transcription = tauri::async_runtime::spawn(async move {
+            perform_transcription_for_profile(
+                &task_app,
+                processed_samples,
+                None,
+                Some(task_profile_id),
+                &task_settings,
+            )
+            .await
+        });
         let outcome = tokio::select! {
-            outcome = &mut transcription => outcome,
+            outcome = transcription => outcome
+                .map_err(|err| format!("Benchmark transcription task failed: {err}"))?,
             _ = wait_for_benchmark_cancel() => {
-                cancel_benchmark_batch_stt(&app);
-                let _ = tokio::time::timeout(BATCH_STT_CANCEL_GRACE, &mut transcription).await;
                 return Err(BENCHMARK_CANCELLED_MESSAGE.to_string());
             }
         };
@@ -1227,6 +1229,7 @@ pub async fn benchmark_run_single(
         if error.is_none() && !stt_text.trim().is_empty() {
             // Post-processing has no provider-side state to clean up, so a
             // pending LLM request is simply dropped on Cancel.
+            let _overlay_guard = ThinkingOverlayGuard(&app);
             let processed = tokio::select! {
                 processed = process_transcription_output(
                     &app,
@@ -1236,13 +1239,7 @@ pub async fn benchmark_run_single(
                     "Benchmark",
                     false,
                 ) => processed,
-                _ = wait_for_benchmark_cancel() => {
-                    // The dropped request may have shown the "thinking" overlay.
-                    if ensure_dictation_idle(&app).is_ok() {
-                        crate::overlay::hide_recording_overlay(&app);
-                    }
-                    None
-                }
+                _ = wait_for_benchmark_cancel() => None,
             }
             .ok_or_else(|| BENCHMARK_CANCELLED_MESSAGE.to_string())?;
 
