@@ -30,7 +30,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 
@@ -38,6 +38,10 @@ const RNNOISE_FRAME_SAMPLES: usize = (WHISPER_SAMPLE_RATE as usize * 30) / 1000;
 const MIN_CLIP_SAMPLES: usize = (WHISPER_SAMPLE_RATE as usize) / 10; // 100 ms
 const READY_WAIT_TIMEOUT: Duration = Duration::from_secs(2);
 const BENCHMARK_CANCELLED_MESSAGE: &str = "Benchmark run cancelled";
+const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(100);
+/// After Cancel, how long a batch STT request may take to wind down through its
+/// own cancellation path (which runs provider cleanup) before it is dropped.
+const BATCH_STT_CANCEL_GRACE: Duration = Duration::from_secs(5);
 const BENCHMARK_DIR_NAME: &str = "benchmark";
 const BENCHMARK_STATE_FILE: &str = "state.json";
 
@@ -66,6 +70,9 @@ static ACTIVE_RECORDING: LazyLock<Mutex<Option<ActiveBenchmarkRecording>>> =
 static STATE_CACHE: LazyLock<Mutex<Option<PersistedBenchmarkState>>> =
     LazyLock::new(|| Mutex::new(None));
 static IS_RUNNING: AtomicBool = AtomicBool::new(false);
+/// Reserved while `benchmark_start_recording` opens the microphone, so a second
+/// start call is rejected before it can open another device.
+static RECORDING_STARTING: AtomicBool = AtomicBool::new(false);
 static CANCEL_REQUESTED: AtomicBool = AtomicBool::new(false);
 static ACTIVE_REPLAY_ID: AtomicI64 = AtomicI64::new(0);
 static NEXT_REPLAY_ID: AtomicI64 = AtomicI64::new(-1000);
@@ -92,6 +99,37 @@ impl Drop for BenchmarkRunGuard {
         ACTIVE_REPLAY_ID.store(0, Ordering::SeqCst);
         IS_RUNNING.store(false, Ordering::SeqCst);
     }
+}
+
+struct RecordingStartGuard;
+
+impl RecordingStartGuard {
+    fn acquire() -> Result<Self, String> {
+        if RECORDING_STARTING
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Err("Benchmark recording is already starting.".to_string());
+        }
+        Ok(Self)
+    }
+}
+
+impl Drop for RecordingStartGuard {
+    fn drop(&mut self) {
+        RECORDING_STARTING.store(false, Ordering::SeqCst);
+    }
+}
+
+/// True while a benchmark recording is starting or active.
+fn benchmark_recording_busy() -> Result<bool, String> {
+    if RECORDING_STARTING.load(Ordering::SeqCst) {
+        return Ok(true);
+    }
+    Ok(ACTIVE_RECORDING
+        .lock()
+        .map_err(|_| "Benchmark recorder lock poisoned".to_string())?
+        .is_some())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -218,15 +256,13 @@ fn save_state_to_disk(dir: &Path, state: &PersistedBenchmarkState) -> Result<(),
     let tmp_path = dir.join(format!("{BENCHMARK_STATE_FILE}.tmp"));
     fs::write(&tmp_path, serialized)
         .map_err(|err| format!("Failed to write benchmark state temp file: {err}"))?;
-    if let Err(rename_err) = fs::rename(&tmp_path, &state_path) {
-        // Fallback on Windows when target exists
-        let _ = fs::remove_file(&state_path);
-        fs::rename(&tmp_path, &state_path).map_err(|err| {
-            let _ = fs::remove_file(&tmp_path);
-            format!("Failed to save benchmark state ({rename_err}): {err}")
-        })?;
-    }
-    Ok(())
+    // `fs::rename` replaces an existing target on every platform (Windows uses
+    // MOVEFILE_REPLACE_EXISTING). Never delete the previous state first: if the
+    // replace fails, the last good state.json must survive.
+    fs::rename(&tmp_path, &state_path).map_err(|err| {
+        let _ = fs::remove_file(&tmp_path);
+        format!("Failed to save benchmark state: {err}")
+    })
 }
 
 fn with_state_mut<T>(
@@ -242,10 +278,15 @@ fn with_state_mut<T>(
         *guard = Some(load_state_from_disk(&dir));
     }
     let state = guard.as_mut().expect("benchmark state initialized");
-    let result = f(&dir, state)?;
-    if persist {
-        save_state_to_disk(&dir, state)?;
+    if !persist {
+        return f(&dir, state);
     }
+    // Mutate a copy and publish it only after it is on disk, so a failed save
+    // does not leave an unsaved change in the cache for a later save to persist.
+    let mut next = state.clone();
+    let result = f(&dir, &mut next)?;
+    save_state_to_disk(&dir, &next)?;
+    *state = next;
     Ok(result)
 }
 
@@ -636,6 +677,27 @@ fn format_settings_snapshot(args: &SettingsSnapshotArgs<'_>) -> String {
     out
 }
 
+async fn wait_for_benchmark_cancel() {
+    while !CANCEL_REQUESTED.load(Ordering::SeqCst) {
+        tokio::time::sleep(CANCEL_POLL_INTERVAL).await;
+    }
+}
+
+/// Aborts in-flight batch STT requests through the providers' own cancellation,
+/// so their cleanup (for example Soniox file deletion) still runs. The managers
+/// are shared with dictation, so this is skipped while dictation is active.
+fn cancel_benchmark_batch_stt(app: &AppHandle) {
+    if ensure_dictation_idle(app).is_err() {
+        return;
+    }
+    app.state::<Arc<crate::managers::remote_stt::RemoteSttManager>>()
+        .cancel();
+    app.state::<Arc<crate::managers::soniox_stt::SonioxSttManager>>()
+        .cancel();
+    app.state::<Arc<crate::managers::deepgram_stt::DeepgramSttManager>>()
+        .cancel();
+}
+
 fn ensure_dictation_idle(app: &AppHandle) -> Result<(), String> {
     let session_state = app.state::<ManagedSessionState>();
     let guard = session_state
@@ -654,6 +716,9 @@ fn ensure_dictation_idle(app: &AppHandle) -> Result<(), String> {
 #[specta::specta]
 pub async fn benchmark_start_recording(app: AppHandle) -> Result<(), String> {
     ensure_dictation_idle(&app)?;
+    // Reserve first, then check the run flag: `benchmark_run_single` does the
+    // mirror order, so a concurrent start and run cannot both proceed.
+    let _start_guard = RecordingStartGuard::acquire()?;
     if IS_RUNNING.load(Ordering::SeqCst) {
         return Err("Cannot record while a benchmark run is in progress.".to_string());
     }
@@ -754,12 +819,13 @@ pub async fn benchmark_stop_recording(app: AppHandle) -> Result<BenchmarkClipInf
 
     let dir = benchmark_dir(&app)?;
     let wav_path = clip_wav_path(&dir, &clip_id)?;
-    tauri::async_runtime::spawn_blocking(move || save_wav_file(&wav_path, &samples))
+    let wav_write_path = wav_path.clone();
+    tauri::async_runtime::spawn_blocking(move || save_wav_file(&wav_write_path, &samples))
         .await
         .map_err(|err| format!("Failed to save benchmark clip WAV: {err}"))?
         .map_err(|err| format!("Failed to write benchmark clip WAV: {err}"))?;
 
-    with_state_mut(&app, true, |_dir, state| {
+    let saved = with_state_mut(&app, true, |_dir, state| {
         let number = state.next_clip_number.max(1);
         state.next_clip_number = number.saturating_add(1);
         let clip = BenchmarkClipInfo {
@@ -772,7 +838,11 @@ pub async fn benchmark_stop_recording(app: AppHandle) -> Result<BenchmarkClipInf
         };
         state.clips.insert(0, clip.clone());
         Ok(clip)
-    })
+    });
+    if saved.is_err() {
+        let _ = fs::remove_file(&wav_path);
+    }
+    saved
 }
 
 /// Label shown as the clip's "device" for audio copied from History. History
@@ -842,11 +912,7 @@ pub async fn benchmark_import_history_entry(
     history_manager: tauri::State<'_, std::sync::Arc<crate::managers::history::HistoryManager>>,
     history_id: i64,
 ) -> Result<BenchmarkClipInfo, String> {
-    if ACTIVE_RECORDING
-        .lock()
-        .map_err(|_| "Benchmark recorder lock poisoned".to_string())?
-        .is_some()
-    {
+    if benchmark_recording_busy()? {
         return Err("Stop the active benchmark recording first.".to_string());
     }
 
@@ -902,17 +968,19 @@ pub fn benchmark_delete_clip(app: AppHandle, clip_id: String) -> Result<(), Stri
     if IS_RUNNING.load(Ordering::SeqCst) {
         return Err("Cannot delete a clip while a benchmark run is in progress.".to_string());
     }
-    with_state_mut(&app, true, |dir, state| {
+    let removed = with_state_mut(&app, true, |_dir, state| {
         let before = state.clips.len();
         state.clips.retain(|clip| clip.id != clip_id);
-        if state.clips.len() != before {
-            if let Ok(wav_path) = clip_wav_path(dir, &clip_id) {
-                let _ = fs::remove_file(wav_path);
-            }
-        }
         // Keep existing benchmark results intact so the user can delete them manually.
-        Ok(())
-    })
+        Ok(state.clips.len() != before)
+    })?;
+    // Delete the WAV only after state.json no longer lists the clip.
+    if removed {
+        if let Ok(wav_path) = clip_wav_path(&benchmark_dir(&app)?, &clip_id) {
+            let _ = fs::remove_file(wav_path);
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -954,16 +1022,10 @@ pub async fn benchmark_run_single(
     app: AppHandle,
     request: BenchmarkRunRequest,
 ) -> Result<BenchmarkRunResult, String> {
-    {
-        let guard = ACTIVE_RECORDING
-            .lock()
-            .map_err(|_| "Benchmark recorder lock poisoned".to_string())?;
-        if guard.is_some() {
-            return Err("Stop recording before running a benchmark.".to_string());
-        }
-    }
-
     let _run_guard = BenchmarkRunGuard::acquire()?;
+    if benchmark_recording_busy()? {
+        return Err("Stop recording before running a benchmark.".to_string());
+    }
 
     let (clip_info, wav_path) = with_state_mut(&app, false, |dir, state| {
         let info = state
@@ -1130,15 +1192,23 @@ pub async fn benchmark_run_single(
             Err(err) => (String::new(), Some(err)),
         }
     } else {
-        match perform_transcription_for_profile(
+        let transcription = perform_transcription_for_profile(
             &app,
             processed_samples,
             None,
             Some(profile_id.clone()),
             &effective_settings,
-        )
-        .await
-        {
+        );
+        tokio::pin!(transcription);
+        let outcome = tokio::select! {
+            outcome = &mut transcription => outcome,
+            _ = wait_for_benchmark_cancel() => {
+                cancel_benchmark_batch_stt(&app);
+                let _ = tokio::time::timeout(BATCH_STT_CANCEL_GRACE, &mut transcription).await;
+                return Err(BENCHMARK_CANCELLED_MESSAGE.to_string());
+            }
+        };
+        match outcome {
             TranscriptionOutcome::Success(text, _) => (text, None),
             TranscriptionOutcome::Cancelled => {
                 return Err(BENCHMARK_CANCELLED_MESSAGE.to_string());
@@ -1155,15 +1225,25 @@ pub async fn benchmark_run_single(
     // as normal dictation and History re-transcription.
     let (final_text, raw_text, llm_post_processed, llm_post_process_requested) =
         if error.is_none() && !stt_text.trim().is_empty() {
-            let processed = process_transcription_output(
-                &app,
-                &effective_settings,
-                &stt_text,
-                Some(profile_id.as_str()),
-                "Benchmark",
-                false,
-            )
-            .await
+            // Post-processing has no provider-side state to clean up, so a
+            // pending LLM request is simply dropped on Cancel.
+            let processed = tokio::select! {
+                processed = process_transcription_output(
+                    &app,
+                    &effective_settings,
+                    &stt_text,
+                    Some(profile_id.as_str()),
+                    "Benchmark",
+                    false,
+                ) => processed,
+                _ = wait_for_benchmark_cancel() => {
+                    // The dropped request may have shown the "thinking" overlay.
+                    if ensure_dictation_idle(&app).is_ok() {
+                        crate::overlay::hide_recording_overlay(&app);
+                    }
+                    None
+                }
+            }
             .ok_or_else(|| BENCHMARK_CANCELLED_MESSAGE.to_string())?;
 
             if CANCEL_REQUESTED.load(Ordering::SeqCst) {
