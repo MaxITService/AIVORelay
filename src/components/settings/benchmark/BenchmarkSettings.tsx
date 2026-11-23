@@ -251,6 +251,7 @@ export const BenchmarkSettings: React.FC = () => {
     clips,
     selectedClipId,
     isRecording,
+    recordingStarting,
     recordingStartedAt,
     targetMode,
     selectedProfileId,
@@ -451,7 +452,7 @@ export const BenchmarkSettings: React.FC = () => {
     return Boolean(settings.post_process_enabled);
   }, [activeProfileId, profiles, selectedProfileId, settings, targetMode]);
 
-  const isBusy = isRecording || isRunning;
+  const isBusy = isRecording || recordingStarting || isRunning;
   const canRun = Boolean(selectedClip) && !isBusy;
 
   const handleRunCurrent = () => {
@@ -543,7 +544,7 @@ export const BenchmarkSettings: React.FC = () => {
                   type="button"
                   variant="primary"
                   size="md"
-                  disabled={isRunning}
+                  disabled={isRunning || recordingStarting}
                   onClick={() => void startRecording()}
                   className="flex items-center gap-2"
                 >

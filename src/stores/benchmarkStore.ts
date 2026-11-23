@@ -135,6 +135,7 @@ interface BenchmarkStoreState {
   clips: BenchmarkClipInfo[];
   selectedClipId: string | null;
   isRecording: boolean;
+  recordingStarting: boolean;
   recordingStartedAt: number | null;
   targetMode: BenchmarkTargetMode;
   selectedProfileId: string | null;
@@ -217,6 +218,7 @@ export const useBenchmarkStore = create<BenchmarkStoreState>((set, get) => ({
   clips: [],
   selectedClipId: null,
   isRecording: false,
+  recordingStarting: false,
   recordingStartedAt: null,
   targetMode: "active",
   selectedProfileId: null,
@@ -263,14 +265,20 @@ export const useBenchmarkStore = create<BenchmarkStoreState>((set, get) => ({
     ),
 
   startRecording: async () => {
-    if (get().isRecording || get().isRunning) return;
-    set({ lastError: null });
+    const state = get();
+    if (state.isRecording || state.recordingStarting || state.isRunning) return;
+    set({ lastError: null, recordingStarting: true });
     try {
       await invoke("benchmark_start_recording");
-      set({ isRecording: true, recordingStartedAt: Date.now() });
+      set({
+        isRecording: true,
+        recordingStarting: false,
+        recordingStartedAt: Date.now(),
+      });
     } catch (error) {
       set({
         isRecording: false,
+        recordingStarting: false,
         recordingStartedAt: null,
         lastError: error instanceof Error ? error.message : String(error),
       });
