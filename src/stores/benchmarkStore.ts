@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import type { AppSettings, VadBackend } from "@/bindings";
 import {
   isElevenLabsLiveSelection,
@@ -53,6 +53,8 @@ export interface BenchmarkRunResult {
 export interface BenchmarkStateSnapshot {
   clips: BenchmarkClipInfo[];
   results: BenchmarkRunResult[];
+  isRunning?: boolean;
+  progress?: BenchmarkProgress | null;
 }
 
 export type BenchmarkTargetMode = "active" | "profile" | "custom";
@@ -147,7 +149,7 @@ interface BenchmarkStoreState {
   resultsFilter: BenchmarkResultsFilter;
   lastError: string | null;
 
-  syncState: () => Promise<void>;
+  syncState: (afterRun?: boolean) => Promise<void>;
   selectClip: (clipId: string) => void;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
@@ -212,7 +214,55 @@ const resolveEffectiveSelectionForLiveCheck = (
   return null;
 };
 
-let cancelSweepRequested = false;
+type BenchmarkRunEvent =
+  | { type: "progress"; data: BenchmarkProgress }
+  | { type: "result"; data: BenchmarkRunResult };
+
+let pendingCancellation: Promise<void> | null = null;
+let ownsRun = false;
+let latestSnapshotRequest = 0;
+let recoveryPoll: ReturnType<typeof setTimeout> | null = null;
+
+async function runBenchmarkRequests(requests: BenchmarkRunRequest[]): Promise<void> {
+  const { getState, setState } = useBenchmarkStore;
+  const state = getState();
+  if (state.isRecording || state.recordingStarting || state.isRunning) return;
+
+  ownsRun = true;
+  setState({ isRunning: true, cancelling: false, lastError: null, progress: null });
+  let acceptEvents = true;
+  try {
+    const onEvent = new Channel<BenchmarkRunEvent>();
+    onEvent.onmessage = (event) => {
+      if (!acceptEvents) return;
+      if (event.type === "progress") {
+        setState({ progress: event.data });
+      } else {
+        const result = event.data;
+        setState((prev) =>
+          prev.results.some((item) => item.id === result.id)
+            ? prev
+            : { results: [result, ...prev.results] },
+        );
+      }
+    };
+    await invoke("benchmark_run_batch", { requests, onEvent });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message !== BENCHMARK_CANCELLED_MESSAGE) setState({ lastError: message });
+  } finally {
+    acceptEvents = false;
+    setState({ progress: null });
+    // Wait for any cancellation sent against this run before admitting the next.
+    if (pendingCancellation) await pendingCancellation;
+    pendingCancellation = null;
+    // A large channel payload can arrive after invoke resolves. Load the
+    // persisted results before enabling edits, then ignore delayed deliveries.
+    await getState().syncState(true);
+    ownsRun = false;
+    setState({ isRunning: false, cancelling: false, progress: null });
+  }
+}
 
 export const useBenchmarkStore = create<BenchmarkStoreState>((set, get) => ({
   clips: [],
@@ -230,13 +280,32 @@ export const useBenchmarkStore = create<BenchmarkStoreState>((set, get) => ({
   resultsFilter: "selected",
   lastError: null,
 
-  syncState: async () => {
+  syncState: async (afterRun = false) => {
+    const initial = get();
+    const requestId = ++latestSnapshotRequest;
     try {
       const snapshot =
         await invoke<BenchmarkStateSnapshot>("benchmark_get_state");
+      if (requestId !== latestSnapshotRequest) return;
       set((prev) => {
-        const clips = snapshot.clips ?? [];
-        const results = snapshot.results ?? [];
+        // Reopening Benchmark can race a result or clip change while the snapshot
+        // is in flight. Keep the newer changes already delivered to the store.
+        const clips = prev.clips === initial.clips ? snapshot.clips ?? [] : prev.clips;
+        let results =
+          prev.results === initial.results ? snapshot.results ?? [] : prev.results;
+        if (afterRun && prev.results !== initial.results) {
+          const visibleIds = new Set(prev.results.map((result) => result.id));
+          const removedIds = new Set(
+            initial.results.filter((result) => !visibleIds.has(result.id)).map((result) => result.id),
+          );
+          results = (snapshot.results ?? []).filter((result) => !removedIds.has(result.id));
+        }
+        const isRunning = Boolean(snapshot.isRunning);
+        const recoveredRun = ownsRun || pendingCancellation ? {} : {
+          isRunning,
+          progress: isRunning ? snapshot.progress ?? null : null,
+          cancelling: isRunning && prev.cancelling,
+        };
         const selectedStillExists =
           prev.selectedClipId !== null &&
           clips.some((clip) => clip.id === prev.selectedClipId);
@@ -250,10 +319,22 @@ export const useBenchmarkStore = create<BenchmarkStoreState>((set, get) => ({
           results,
           selectedClipId: nextSelectedClipId,
           resultsFilter: nextFilter,
+          ...recoveredRun,
         };
       });
     } catch (error) {
       console.error("Failed to sync benchmark state:", error);
+    } finally {
+      const recovering = !ownsRun && get().isRunning;
+      if (recovering && recoveryPoll === null) {
+        recoveryPoll = setTimeout(() => {
+          recoveryPoll = null;
+          void get().syncState();
+        }, 750);
+      } else if (!recovering && recoveryPoll !== null) {
+        clearTimeout(recoveryPoll);
+        recoveryPoll = null;
+      }
     }
   },
 
@@ -355,74 +436,28 @@ export const useBenchmarkStore = create<BenchmarkStoreState>((set, get) => ({
   runCurrent: async (label) => {
     const state = get();
     const clipId = state.selectedClipId;
-    if (!clipId || state.isRecording || state.isRunning) return;
-    cancelSweepRequested = false;
-    set({
-      isRunning: true,
-      cancelling: false,
-      lastError: null,
-      progress: { current: 1, total: 1, stepLabel: label },
-    });
-    try {
-      const request: BenchmarkRunRequest = {
-        ...buildBaseRequest(state, clipId),
-        label,
-      };
-      const result = await invoke<BenchmarkRunResult>("benchmark_run_single", {
-        request,
-      });
-      set((prev) => ({ results: [result, ...prev.results] }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message !== BENCHMARK_CANCELLED_MESSAGE) {
-        set({ lastError: message });
-      }
-    } finally {
-      set({ isRunning: false, cancelling: false, progress: null });
-    }
+    if (!clipId) return;
+    await runBenchmarkRequests([{ ...buildBaseRequest(state, clipId), label }]);
   },
 
   runBoostSweep: async (formatStepLabel) => {
     const state = get();
     const clipId = state.selectedClipId;
-    if (!clipId || state.isRecording || state.isRunning) return;
+    if (!clipId) return;
     const base = buildBaseRequest(state, clipId);
-    const total = BOOST_SWEEP_DB_LEVELS.length;
-    cancelSweepRequested = false;
-    set({ isRunning: true, cancelling: false, lastError: null });
-
-    try {
-      for (let i = 0; i < total; i++) {
-        if (cancelSweepRequested) break;
-        const db = BOOST_SWEEP_DB_LEVELS[i];
-        const stepLabel = formatStepLabel(db);
-        set({ progress: { current: i + 1, total, stepLabel } });
-        const result = await invoke<BenchmarkRunResult>(
-          "benchmark_run_single",
-          {
-            request: {
-              ...base,
-              boostDbOverride: db,
-              label: stepLabel,
-            },
-          },
-        );
-        set((prev) => ({ results: [result, ...prev.results] }));
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message !== BENCHMARK_CANCELLED_MESSAGE) {
-        set({ lastError: message });
-      }
-    } finally {
-      set({ isRunning: false, cancelling: false, progress: null });
-    }
+    await runBenchmarkRequests(
+      BOOST_SWEEP_DB_LEVELS.map((db) => ({
+        ...base,
+        boostDbOverride: db,
+        label: formatStepLabel(db),
+      })),
+    );
   },
 
   runNoiseSweep: async (settings, formatLabels) => {
     const state = get();
     const clipId = state.selectedClipId;
-    if (!clipId || state.isRecording || state.isRunning) return;
+    if (!clipId) return;
     const base = buildBaseRequest(state, clipId);
     const effectiveSelection = resolveEffectiveSelectionForLiveCheck(
       settings,
@@ -466,45 +501,22 @@ export const useBenchmarkStore = create<BenchmarkStoreState>((set, get) => ({
           })),
         ];
 
-    const total = steps.length;
-    cancelSweepRequested = false;
-    set({ isRunning: true, cancelling: false, lastError: null });
-
-    try {
-      for (let i = 0; i < total; i++) {
-        if (cancelSweepRequested) break;
-        const step = steps[i];
-        set({
-          progress: {
-            current: i + 1,
-            total,
-            stepLabel: step.label ?? "",
-          },
-        });
-        const result = await invoke<BenchmarkRunResult>(
-          "benchmark_run_single",
-          { request: step },
-        );
-        set((prev) => ({ results: [result, ...prev.results] }));
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message !== BENCHMARK_CANCELLED_MESSAGE) {
-        set({ lastError: message });
-      }
-    } finally {
-      set({ isRunning: false, cancelling: false, progress: null });
-    }
+    await runBenchmarkRequests(steps);
   },
 
   cancelRun: async () => {
-    if (!get().isRunning) return;
-    cancelSweepRequested = true;
+    const { isRunning, progress, cancelling } = get();
+    const recovering = !ownsRun;
+    if (!isRunning || (!progress && !recovering) || cancelling) return;
     set({ cancelling: true });
-    try {
-      await invoke("benchmark_cancel_run");
-    } catch (error) {
+    pendingCancellation = invoke<void>("benchmark_cancel_run").catch((error) => {
       console.error("Failed to cancel benchmark run:", error);
+      set({ cancelling: false });
+    });
+    await pendingCancellation;
+    if (recovering) {
+      pendingCancellation = null;
+      await get().syncState();
     }
   },
 

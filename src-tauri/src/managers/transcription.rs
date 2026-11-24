@@ -2385,6 +2385,7 @@ impl TranscriptionManager {
     pub fn transcribe_with_overrides(
         &self,
         audio: Vec<f32>,
+        captured_settings: &AppSettings,
         language_override: Option<&str>,
         translate_override: Option<bool>,
         prompt_override: Option<String>,
@@ -2422,7 +2423,7 @@ impl TranscriptionManager {
             }
         }
 
-        let mut settings = get_settings(&self.app_handle);
+        let mut settings = captured_settings.clone();
         if let Some(script) = chinese_script_override { settings.chinese_script = script; }
         settings.spoken_languages = spoken_languages.to_vec();
         settings.language_detection = detection_mode;
@@ -2433,11 +2434,9 @@ impl TranscriptionManager {
             .map(|s| s.to_string())
             .unwrap_or_else(|| settings.selected_language.clone());
         let translate_to_english = translate_override.unwrap_or(settings.translate_to_english);
-        let active_model = self
-            .get_current_model()
-            .unwrap_or_else(|| settings.selected_model.clone());
+        let active_model = settings.selected_model.trim();
         let language_decision = self.language_for_audio(
-            &active_model, &selected_language, &settings, &audio, &check_cancelled,
+            active_model, &selected_language, &settings, &audio, &check_cancelled,
         )?;
         let effective_language = language_decision.intent().to_string();
         let recognition_language = if selected_language == "auto" && !settings.spoken_languages.is_empty() {
@@ -2445,7 +2444,7 @@ impl TranscriptionManager {
         } else {
             &selected_language
         };
-        let model_info = self.model_manager.get_model_info(&active_model);
+        let model_info = self.model_manager.get_model_info(active_model);
         let (output_language, supported_languages) = local_output_language_context(
             model_info.as_ref(),
             recognition_language,
@@ -2455,7 +2454,12 @@ impl TranscriptionManager {
 
         let mut language_applied = false;
         let result = {
-            let mut engine_guard = self.engine.lock().unwrap();
+            let loading = self.is_loading.lock().unwrap_or_else(|err| err.into_inner());
+            let mut engine_guard = self.lock_engine();
+            if *loading || self.current_model_id.lock().unwrap().as_deref() != Some(active_model) {
+                anyhow::bail!("Model changed before transcription began");
+            }
+            drop(loading);
             check_cancelled()?;
             let engine = engine_guard.as_mut().ok_or_else(|| {
                 anyhow::anyhow!("Model failed to load. Please check your model settings.")

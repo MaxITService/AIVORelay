@@ -15,6 +15,7 @@ import {
   Sparkles,
   FileText,
   FileAudio,
+  Clock3,
 } from "lucide-react";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { SettingContainer } from "@/components/ui/SettingContainer";
@@ -452,7 +453,8 @@ export const BenchmarkSettings: React.FC = () => {
     return Boolean(settings.post_process_enabled);
   }, [activeProfileId, profiles, selectedProfileId, settings, targetMode]);
 
-  const isBusy = isRecording || recordingStarting || isRunning;
+  const recordingBusy = isRecording || recordingStarting;
+  const isBusy = recordingBusy || isRunning;
   const canRun = Boolean(selectedClip) && !isBusy;
 
   const handleRunCurrent = () => {
@@ -698,7 +700,7 @@ export const BenchmarkSettings: React.FC = () => {
               options={targetDropdownOptions}
               selectedValue={selectedDropdownValue}
               onSelect={handleTargetSelect}
-              disabled={isBusy}
+              disabled={recordingBusy}
               className="w-full"
             />
             {targetMode === "custom" && (
@@ -707,8 +709,13 @@ export const BenchmarkSettings: React.FC = () => {
                 selection={customSelection}
                 localModels={models}
                 onChange={(next) => setCustomSelection(next)}
-                disabled={isBusy}
+                disabled={recordingBusy}
               />
+            )}
+            {isRunning && (
+              <p className="text-xs text-[#b8b8b8]">
+                {t("benchmark.run.backgroundNote")}
+              </p>
             )}
           </div>
         </SettingContainer>
@@ -758,6 +765,11 @@ export const BenchmarkSettings: React.FC = () => {
                 : t("benchmark.run.llmOffChip", "LLM Post-Processing Off")}
             </button>
           </div>
+
+          <p className="flex items-start gap-2 text-xs text-[#b8b8b8]">
+            <Clock3 className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>{t("benchmark.run.liveDurationNote")}</span>
+          </p>
 
           <div className="flex flex-wrap items-center gap-2">
             <Button

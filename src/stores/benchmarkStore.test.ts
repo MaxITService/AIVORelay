@@ -9,12 +9,16 @@ import {
   type BenchmarkRunResult,
 } from "./benchmarkStore";
 import { STT_MODEL_IDS, type SttModelSelection } from "@/lib/sttModelSelection";
+import { useNavigationStore } from "./navigationStore";
 
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 const initialState = useBenchmarkStore.getState();
+const initialNavigationState = useNavigationStore.getState();
 
 let calls: Array<{ command: string; args: any }>;
 let backend: (command: string, args: any) => Promise<any>;
+let executeStep: (request: BenchmarkRunRequest) => Promise<BenchmarkRunResult>;
+let dispatchResult: (deliver: () => void) => void;
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -101,13 +105,53 @@ function makeSettings(patch: Partial<AppSettings> = {}): AppSettings {
 beforeEach(() => {
   calls = [];
   backend = async () => undefined;
+  executeStep = async () => { throw new Error("Unexpected benchmark step"); };
+  dispatchResult = (deliver) => deliver();
+  let callbackId = 0;
+  const callbacks = new Map<number, (event: unknown) => void>();
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
       __TAURI_INTERNALS__: {
+        transformCallback: (callback: (event: unknown) => void) => {
+          callbacks.set(++callbackId, callback);
+          return callbackId;
+        },
+        unregisterCallback: (id: number) => callbacks.delete(id),
         invoke: async (command: string, args: any) => {
           calls.push({ command, args });
-          return backend(command, args);
+          if (command !== "benchmark_run_batch") {
+            const result = await backend(command, args);
+            if (command === "benchmark_get_state" && result === undefined) {
+              const { clips, results } = useBenchmarkStore.getState();
+              return { clips, results, isRunning: false };
+            }
+            return result;
+          }
+
+          const requests: BenchmarkRunRequest[] = args.requests;
+          const callback = callbacks.get(args.onEvent.id)!;
+          let index = 0;
+          try {
+            for (const [step, request] of requests.entries()) {
+              callback({
+                index: index++,
+                message: {
+                  type: "progress",
+                  data: {
+                    current: step + 1,
+                    total: requests.length,
+                    stepLabel: request.label ?? "",
+                  },
+                },
+              });
+              const result = await executeStep(request);
+              const resultIndex = index++;
+              dispatchResult(() => callback({ index: resultIndex, message: { type: "result", data: result } }));
+            }
+          } finally {
+            callback({ index, end: true });
+          }
         },
       },
     },
@@ -117,6 +161,7 @@ beforeEach(() => {
 
 afterEach(() => {
   useBenchmarkStore.setState(initialState, true);
+  useNavigationStore.setState(initialNavigationState, true);
   if (originalWindow) {
     Object.defineProperty(globalThis, "window", originalWindow);
   } else {
@@ -243,11 +288,9 @@ describe("benchmarkStore single run and sweeps", () => {
     });
 
     const receivedRequests: BenchmarkRunRequest[] = [];
-    backend = async (command, args) => {
-      if (command === "benchmark_run_single") {
-        receivedRequests.push(args.request);
-        return receivedRequests.length === 1 ? profileResult : customResult;
-      }
+    executeStep = async (request) => {
+      receivedRequests.push(request);
+      return receivedRequests.length === 1 ? profileResult : customResult;
     };
 
     useBenchmarkStore.setState({
@@ -306,20 +349,11 @@ describe("benchmarkStore single run and sweeps", () => {
     expect(useBenchmarkStore.getState().progress).toBeNull();
   });
 
-  test("runBoostSweep runs all 18 levels (0..17 dB) sequentially via benchmark_run_single", async () => {
+  test("runBoostSweep submits all 18 levels and streams each result", async () => {
     const clip = makeClip("clip-1", "Clip #1");
     const receivedRequests: BenchmarkRunRequest[] = [];
-    let activeCalls = 0;
-    let maxConcurrentCalls = 0;
-
-    backend = async (command, args) => {
-      if (command !== "benchmark_run_single") return;
-      activeCalls += 1;
-      maxConcurrentCalls = Math.max(maxConcurrentCalls, activeCalls);
-      const req = args.request as BenchmarkRunRequest;
+    executeStep = async (req) => {
       receivedRequests.push(req);
-      await Promise.resolve();
-      activeCalls -= 1;
       return makeResult(`res-boost-${req.boostDbOverride}`, req.clipId, {
         label: req.label ?? "",
       });
@@ -335,7 +369,7 @@ describe("benchmarkStore single run and sweeps", () => {
       .getState()
       .runBoostSweep((db) => (db === 0 ? "Boost Off (0 dB)" : `Boost +${db} dB`));
 
-    expect(maxConcurrentCalls).toBe(1);
+    expect(calls.map(({ command }) => command)).toEqual(["benchmark_run_batch", "benchmark_get_state"]);
     expect(receivedRequests).toHaveLength(18);
     expect(receivedRequests.map((r) => r.boostDbOverride)).toEqual([
       0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
@@ -358,9 +392,7 @@ describe("benchmarkStore single run and sweeps", () => {
     };
 
     let receivedRequests: BenchmarkRunRequest[] = [];
-    backend = async (command, args) => {
-      if (command !== "benchmark_run_single") return;
-      const req = args.request as BenchmarkRunRequest;
+    executeStep = async (req) => {
       receivedRequests.push(req);
       return makeResult(`res-noise-${receivedRequests.length}`, req.clipId, {
         label: req.label ?? "",
@@ -439,18 +471,11 @@ describe("benchmarkStore single run and sweeps", () => {
     const secondStep = deferred<BenchmarkRunResult>();
     const stepDbs: Array<number | null> = [];
 
-    backend = async (command, args) => {
-      if (command === "benchmark_run_single") {
-        const req = args.request as BenchmarkRunRequest;
-        stepDbs.push(req.boostDbOverride);
-        if (stepDbs.length === 1) {
-          return makeResult("res-0", req.clipId, { label: req.label ?? "" });
-        }
-        return secondStep.promise;
-      }
-      if (command === "benchmark_cancel_run") {
-        return undefined;
-      }
+    executeStep = async (req) => {
+      stepDbs.push(req.boostDbOverride);
+      return stepDbs.length === 1
+        ? makeResult("res-0", req.clipId, { label: req.label ?? "" })
+        : secondStep.promise;
     };
 
     useBenchmarkStore.setState({
@@ -481,6 +506,181 @@ describe("benchmarkStore single run and sweeps", () => {
     expect(useBenchmarkStore.getState().cancelling).toBe(false);
     expect(useBenchmarkStore.getState().progress).toBeNull();
     expect(useBenchmarkStore.getState().lastError).toBeNull();
+  });
+
+  test("keeps a sweep running across navigation while accepting a different model and clip for the next run", async () => {
+    const clip1 = makeClip("clip-1", "Clip #1");
+    const clip2 = makeClip("clip-2", "Clip #2");
+    const model1: SttModelSelection = {
+      provider: "remote_soniox",
+      provider_preset: "",
+      model_id: STT_MODEL_IDS.sonioxLive,
+    };
+    const model2: SttModelSelection = {
+      provider: "local",
+      provider_preset: "",
+      model_id: "whisper-large-v3-turbo",
+    };
+    const firstStep = deferred<BenchmarkRunResult>();
+    const secondStep = deferred<BenchmarkRunResult>();
+    const snapshot = deferred<{ clips: BenchmarkClipInfo[]; results: BenchmarkRunResult[] }>();
+    const receivedRequests: BenchmarkRunRequest[] = [];
+    let snapshotRequests = 0;
+    executeStep = async (request) => {
+      receivedRequests.push(request);
+      if (receivedRequests.length === 1) return firstStep.promise;
+      if (receivedRequests.length === 2) return secondStep.promise;
+      return makeResult("next-result", request.clipId);
+    };
+    backend = async (command) => {
+      if (command === "benchmark_get_state" && ++snapshotRequests === 1) return snapshot.promise;
+    };
+
+    const navigation = useNavigationStore.getState();
+    navigation.setSection("benchmark");
+    useBenchmarkStore.setState({
+      clips: [clip1, clip2],
+      selectedClipId: clip1.id,
+      targetMode: "custom",
+      customSelection: model1,
+    });
+    const store = useBenchmarkStore.getState();
+    const sweep = store.runNoiseSweep(makeSettings({ soniox_live_enabled: true }), {
+      rnnoiseOff: "Off",
+      rnnoiseOn: "On",
+      vadLevel: (level) => `VAD ${level}`,
+    });
+
+    navigation.setSection("models");
+    firstStep.resolve(makeResult("first", clip1.id));
+    await until(() => useBenchmarkStore.getState().progress?.current === 2);
+    expect(useNavigationStore.getState().currentSection).toBe("models");
+    expect(useBenchmarkStore.getState().results.map((result) => result.id)).toEqual(["first"]);
+
+    navigation.setSection("benchmark");
+    const sync = store.syncState();
+    store.setCustomSelection(model2);
+    store.selectClip(clip2.id);
+    await store.runCurrent("Must not replace the active run");
+    expect(calls.filter(({ command }) => command === "benchmark_run_batch")).toHaveLength(1);
+    expect(receivedRequests).toHaveLength(2);
+    expect(receivedRequests.every((request) =>
+      request.clipId === clip1.id && request.modelSelectionOverride === model1,
+    )).toBe(true);
+
+    secondStep.resolve(makeResult("second", clip1.id));
+    await sweep;
+    snapshot.resolve({ clips: [clip1, clip2], results: [makeResult("first", clip1.id)] });
+    await sync;
+    expect(useBenchmarkStore.getState().results.map((result) => result.id)).toEqual(["second", "first"]);
+    expect(useBenchmarkStore.getState().selectedClipId).toBe(clip2.id);
+
+    await store.runCurrent("Next model");
+    expect(receivedRequests[2]).toMatchObject({ clipId: clip2.id, modelSelectionOverride: model2 });
+    expect(useBenchmarkStore.getState().results[0].id).toBe("next-result");
+    expect(useBenchmarkStore.getState().progress).toBeNull();
+  });
+
+  test("holds a new run until a cancellation of the previous run is acknowledged", async () => {
+    const clip = makeClip("clip-1", "Clip #1");
+    const step = deferred<BenchmarkRunResult>();
+    const cancelResponse = deferred<void>();
+    executeStep = () => step.promise;
+    backend = async (command) => {
+      if (command === "benchmark_cancel_run") return cancelResponse.promise;
+    };
+    useBenchmarkStore.setState({ clips: [clip], selectedClipId: clip.id });
+
+    const store = useBenchmarkStore.getState();
+    const run = store.runCurrent("First run");
+    const cancel = store.cancelRun();
+    step.resolve(makeResult("first", clip.id));
+    await until(() => useBenchmarkStore.getState().results.length === 1);
+    await store.runCurrent("Too early");
+    expect(calls.map(({ command }) => command)).toEqual([
+      "benchmark_run_batch",
+      "benchmark_cancel_run",
+    ]);
+
+    cancelResponse.resolve(undefined);
+    await Promise.all([cancel, run]);
+    executeStep = async () => makeResult("next", clip.id);
+    await store.runCurrent("Next run");
+    expect(useBenchmarkStore.getState().results.map((result) => result.id)).toEqual(["next", "first"]);
+  });
+
+  test("preserves saved result order when a delayed event arrives after the page reloads its results", async () => {
+    const clip = makeClip("clip-1", "Clip #1");
+    const firstResult = makeResult("first", clip.id);
+    const secondResult = makeResult("second", clip.id);
+    const firstEvent = deferred<BenchmarkRunResult>();
+    let step = 0;
+    executeStep = async () => (++step === 1 ? firstEvent.promise : secondResult);
+    backend = async (command) => {
+      if (command === "benchmark_get_state") {
+        return { clips: [clip], results: [secondResult, firstResult] };
+      }
+    };
+    useBenchmarkStore.setState({ clips: [clip], selectedClipId: clip.id });
+
+    const store = useBenchmarkStore.getState();
+    const sweep = store.runNoiseSweep(makeSettings({
+      transcription_provider: "remote_soniox",
+      soniox_live_enabled: true,
+      soniox_model: STT_MODEL_IDS.sonioxLive,
+    }), { rnnoiseOff: "Off", rnnoiseOn: "On", vadLevel: String });
+    await store.syncState();
+    firstEvent.resolve(firstResult);
+    await sweep;
+
+    expect(step).toBe(2);
+    expect(useBenchmarkStore.getState().results).toEqual([secondResult, firstResult]);
+  });
+
+  test("loads the saved result before unlocking controls and ignores its event after clearing", async () => {
+    const clip = makeClip("clip-1", "Clip #1");
+    const result = makeResult("delayed", clip.id);
+    let deliver: () => void = () => {};
+    dispatchResult = (callback) => { deliver = callback; };
+    executeStep = async () => result;
+    backend = async (command) => {
+      if (command === "benchmark_get_state") return { clips: [clip], results: [result] };
+    };
+    useBenchmarkStore.setState({ clips: [clip], selectedClipId: clip.id });
+
+    const store = useBenchmarkStore.getState();
+    await store.runCurrent("Run");
+    expect(useBenchmarkStore.getState().results).toEqual([result]);
+    await store.clearResults(clip.id);
+    deliver();
+    expect(useBenchmarkStore.getState().results).toEqual([]);
+  });
+
+  test("restores a native batch in a fresh store and keeps it locked until its cancellation completes", async () => {
+    const clip = makeClip("clip-1", "Clip #1");
+    const progress = { current: 2, total: 18, stepLabel: "Boost +1 dB" };
+    const cancelReply = deferred<void>();
+    let nativeRunning = true;
+    backend = async (command) => {
+      if (command === "benchmark_get_state") {
+        return { clips: [clip], results: [], isRunning: nativeRunning, progress: nativeRunning ? progress : null };
+      }
+      if (command === "benchmark_cancel_run") return cancelReply.promise;
+    };
+
+    const store = useBenchmarkStore.getState();
+    await store.syncState();
+    expect(useBenchmarkStore.getState()).toMatchObject({ isRunning: true, progress });
+    const cancellation = store.cancelRun();
+    nativeRunning = false;
+    await store.syncState();
+    expect(useBenchmarkStore.getState()).toMatchObject({ isRunning: true, cancelling: true });
+    await store.runCurrent("Too early");
+    expect(calls.some(({ command }) => command === "benchmark_run_batch")).toBe(false);
+
+    cancelReply.resolve(undefined);
+    await cancellation;
+    expect(useBenchmarkStore.getState()).toMatchObject({ isRunning: false, progress: null, cancelling: false });
   });
 });
 

@@ -5820,6 +5820,8 @@
     "run": {
       "title": "2. Run Benchmark",
       "description": "Run the selected clip through the standard transcription pipeline (including profile LLM post-processing if enabled), or sweep all boost and noise-removal levels.",
+      "liveDurationNote": "Live models receive audio in real time. Each live run takes at least as long as the clip, and waiting for the final transcript can add time.",
+      "backgroundNote": "The benchmark keeps running if you leave this page. Changes to the profile or model apply to the next run.",
       "currentAudioSummary": "Current settings:",
       "boostOffChip": "Boost Off",
       "boostOnChip": "Boost +{{db}} dB",

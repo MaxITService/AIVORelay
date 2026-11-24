@@ -79,7 +79,7 @@ use specta_typescript::{BigIntExportBehavior, Typescript};
 use tauri_specta::{collect_commands, Builder};
 
 #[cfg(debug_assertions)]
-fn trim_generated_typescript_trailing_whitespace(source: &str) -> String {
+fn normalize_generated_typescript(source: &str) -> String {
     let mut output = String::with_capacity(source.len());
     for segment in source.split_inclusive('\n') {
         let (line, newline) = segment
@@ -88,7 +88,12 @@ fn trim_generated_typescript_trailing_whitespace(source: &str) -> String {
         let (line, carriage_return) = line
             .strip_suffix('\r')
             .map_or((line, ""), |line| (line, "\r"));
-        output.push_str(line.trim_end_matches([' ', '\t']));
+        let line = line.trim_end_matches([' ', '\t']);
+        // Specta emits a placeholder for Channel as well as the runtime import.
+        if line == "export type TAURI_CHANNEL<TSend> = null" {
+            continue;
+        }
+        output.push_str(line);
         output.push_str(carriage_return);
         output.push_str(newline);
     }
@@ -96,9 +101,9 @@ fn trim_generated_typescript_trailing_whitespace(source: &str) -> String {
 }
 
 #[cfg(debug_assertions)]
-fn normalize_generated_typescript_whitespace(path: &std::path::Path) -> std::io::Result<()> {
+fn normalize_generated_typescript_file(path: &std::path::Path) -> std::io::Result<()> {
     let source = std::fs::read_to_string(path)?;
-    let normalized = trim_generated_typescript_trailing_whitespace(&source);
+    let normalized = normalize_generated_typescript(&source);
     if normalized != source {
         std::fs::write(path, normalized)?;
     }
@@ -1128,13 +1133,26 @@ mod headless_guard_tests {
 
 #[cfg(test)]
 mod generated_typescript_tests {
-    use super::trim_generated_typescript_trailing_whitespace;
+    use super::normalize_generated_typescript;
 
     #[test]
     fn removes_spaces_and_tabs_without_changing_line_endings() {
         assert_eq!(
-            trim_generated_typescript_trailing_whitespace("one  \ntwo\t\r\nthree  "),
+            normalize_generated_typescript("one  \ntwo\t\r\nthree  "),
             "one\ntwo\r\nthree"
+        );
+    }
+
+    #[test]
+    fn preserves_the_channel_import_without_the_conflicting_placeholder() {
+        let channel_import = "import { Channel as TAURI_CHANNEL } from '@tauri-apps/api/core';";
+        let command = "declare function run(onEvent: TAURI_CHANNEL<RunEvent>): void;";
+        let source = format!(
+            "{command}\r\nexport type TAURI_CHANNEL<TSend> = null\r\n{channel_import}\r\n"
+        );
+        assert_eq!(
+            normalize_generated_typescript(&source),
+            format!("{command}\r\n{channel_import}\r\n")
         );
     }
 }
@@ -1857,6 +1875,7 @@ pub fn run(cli_args: CliArgs) {
         commands::benchmark::benchmark_delete_result,
         commands::benchmark::benchmark_clear_results,
         commands::benchmark::benchmark_run_single,
+        commands::benchmark::benchmark_run_batch,
         commands::benchmark::benchmark_cancel_run,
         commands::connector::connector_get_status,
         commands::connector::connector_is_online,
@@ -1952,7 +1971,7 @@ pub fn run(cli_args: CliArgs) {
                 &bindings_path,
             )
             .expect("Failed to export typescript bindings");
-        normalize_generated_typescript_whitespace(&bindings_path)
+        normalize_generated_typescript_file(&bindings_path)
             .expect("Failed to normalize generated typescript bindings");
     }
 
