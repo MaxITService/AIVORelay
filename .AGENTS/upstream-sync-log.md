@@ -6,6 +6,25 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Reviewed intake (2026-11-24)
+
+- Safe review cursor `a822741f9` — feat: add Armenian translation (#2550).
+  Reviewed all six ordinary commits after `aca898519`. The range has no merges.
+- Adapted `b14583ae0` — revert: stop resetting macOS permissions before asking
+  (#2546) (#2552) in `4c76b3dd4` — fix(macos): request onboarding permissions
+  without resetting them. The permission checks remain in place. The generated
+  TypeScript bindings still contain the unused reset command pending regeneration.
+- `939c9573a` — fix: let the output device pick the feedback sound buffer size
+  (#2525) is already covered on both branches. The pinned Rodio 0.20.1 fork uses
+  `BufferSize::Default` through `from_device` and `from_default_device`, including
+  the selected-device fast path.
+- Deferred `4807c21a7` (Thai), `bebbb962d` (Hungarian), and `a822741f9` (Armenian).
+  Each has 195 keys with identical English source text in the 4,369-key fork
+  catalog. Skipped the Handy version bump `f63ca141c` — release v0.10.2 (#2553).
+- Windows verification passed on both branches with 1,439 Rust library tests
+  (28 ignored), 433 frontend tests, TypeScript, and the release translation
+  check. macOS compilation and permission prompts are unverified.
+
 Reviewed intake (2026-11-14):
 - Completion follow-up: Windows ARM64 Opus flags and Linux Shift+Insert PRIMARY
   ownership/restore are now adapted. Combined Windows x64 verification passed:
