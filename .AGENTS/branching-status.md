@@ -6,7 +6,10 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## release/microsoft-store
 
-Last synced commit from `main`: `213eb619b` — chore: bump version to 1.0.54.
+Last synced commit from `main` is `4c76b3dd4` — fix(macos): request onboarding permissions without resetting them.
+
+Current alignment (2026-11-24) covers `bbcad443c` → `3c81a6f12` (Benchmark recording and Cancel), `f3ec572b1` → `93f99433b` (Soniox upload cleanup), `373317e1d` → `403e620b6` (Benchmark Cancel isolation), and `4c76b3dd4` → `4066f1ea6` (macOS permissions). Each branch passed 1,439 Rust library tests (28 ignored), 433 frontend tests, TypeScript and release translation checks. The existing Store What's New differences remain. The unused generated permission-reset binding is pending regeneration. macOS compilation and prompts are unverified.
+
 Current alignment (2026-11-23): main d5f756277 (test(stt): add paid Reson8 Rumble-2 checks for live, interim, replay, recording and file) maps to Store fae3057ae. 24 runtime/UI/test commits after the 1.0.56 bump (c5a4ce9fa..d5f756277) picked in order -> 669474ff6..fae3057ae; application source and bindings identical to main except the existing Store What's New. Excluded docs: f2962637e, 1ba238653 and the TESTING.md, CLI-TEXT-TO-SPEECH.md and code-notes hunks of 7b31d94b0, 158589cfb and bc4eac973. Main Rust 1439 passed / 27 ignored, frontend 433 passed, paid Reson8 5/5; no Store-side build or tests.
 Current alignment (2026-11-18): main c54d505ae (feat(onboarding): guide remote setup toward more providers and allow going back) maps to Store e6b115a1b. Clean pick; changed onboarding files identical to main. Main TypeScript passed; no Store-side build or tests.
 Current alignment (2026-11-18): main fb5e35401 (feat(autostart): disable administrator autostart in Microsoft Store installs and move it to a developer settings block) maps to Store 904887d99. Clean pick; application source and bindings identical to main. Main-only dev launcher fix e82c95e05 excluded. Main cargo check and TypeScript passed; no Store-side build or tests.
