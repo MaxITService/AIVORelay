@@ -1681,7 +1681,6 @@ pub fn run(cli_args: CliArgs) {
         commands::is_portable,
         commands::get_portable_storage,
         commands::set_portable_storage,
-        commands::reset_macos_permission,
         commands::get_app_settings,
         commands::take_settings_store_reset_notice,
         commands::consume_speech_only_recovery_notice,
