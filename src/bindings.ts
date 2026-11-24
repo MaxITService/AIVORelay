@@ -2776,14 +2776,6 @@ async setPortableStorage(mode: StorageMode) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async resetMacosPermission(permission: MacPermission) : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("reset_macos_permission", { permission }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async getAppSettings() : Promise<Result<AppSettings, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_app_settings") };
@@ -5441,7 +5433,6 @@ export type LocalModelStorageSnapshot = { entries: LocalModelStorageEntry[]; tot
 export type LocalTtsKind = "qwen" | "kokoro"
 export type LocalTtsStatus = { kind?: LocalTtsKind; installed: boolean; installing: boolean; phase: string; downloaded_bytes: number; total_bytes: number; percentage: number; runtime_profile: string; model_repository: string; model_revision: string; model_download_bytes: number; install_root?: string; installed_size_bytes?: number; estimated_install_bytes?: number; model_author?: string; model_source_url?: string; model_license_name?: string; model_license_url?: string; model_license_path?: string; model_license_declaration_path?: string; model_license_available?: boolean; error: string | null }
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
-export type MacPermission = "accessibility" | "microphone"
 /**
  * Startup notice that the saved local model is unknown to this build.
  */
