@@ -107,36 +107,6 @@ pub fn set_portable_storage(mode: crate::portable::StorageMode) -> Result<(), St
     crate::portable::set_storage_mode(mode)
 }
 
-#[derive(Clone, Copy, serde::Deserialize, Type)]
-#[serde(rename_all = "lowercase")]
-pub enum MacPermission {
-    Accessibility,
-    Microphone,
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn reset_macos_permission(app: AppHandle, permission: MacPermission) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        let service = match permission {
-            MacPermission::Accessibility => "Accessibility",
-            MacPermission::Microphone => "Microphone",
-        };
-        let output = std::process::Command::new("/usr/bin/tccutil")
-            .args(["reset", service, &app.config().identifier])
-            .output()
-            .map_err(|error| format!("Failed to run tccutil: {error}"))?;
-        if !output.status.success() {
-            log::warn!("tccutil reset {service} failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim());
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    let _ = (app, permission);
-    Ok(())
-}
-
 #[tauri::command]
 #[specta::specta]
 pub fn get_app_settings(app: AppHandle) -> Result<AppSettings, String> {
