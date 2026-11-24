@@ -161,10 +161,11 @@ Update this section every time new tests are added.
 
 ### STT Benchmark section and History import (2026-11-23)
 
-- `commands::benchmark::tests` (9 tests) covers input boost and RNNoise sample handling, settings snapshot text without secrets, clip ID path-traversal rejection, `state.json` roundtrip/corruption recovery, and importing a History WAV as an independent clip that survives deletion of the source recording, plus rejection of missing or too-short audio without mutating state.
-- `src/stores/benchmarkStore.test.ts` (9 tests) covers state sync, clip deletion, sweeps, and `importFromHistory` selecting the imported clip and propagating backend errors.
+- `commands::benchmark::tests` covers audio preprocessing, settings snapshots without secrets, clip storage and History imports, ordered batch progress and results, and cancellation between steps. A shared provider cancellation records a step error instead of stopping the batch.
+- `src/stores/benchmarkStore.test.ts` covers clip state and History imports, streamed and delayed results, navigation during a sweep, choosing the next target, restoring an active batch after a reload, and waiting for cancellation before allowing another run.
+- `managers::history_replay::tests` verifies real-time audio pacing for live providers and cancellation during finalization. `generated_typescript_tests` checks that generated IPC channel types resolve to the Tauri import.
 - `src/components/settings/history/historyExport.test.ts` covers the History JSON export (final text only, failed entries skipped, cursor pagination across all pages).
-- Run with `pwsh -NoProfile -File .\test-local.ps1 -LibOnly -Filter 'commands::benchmark::tests'`, `bun test ./src/stores/benchmarkStore.test.ts ./src/components/settings/history/`, and `bun run typecheck`.
+- Run in PowerShell with `.\test-local.ps1 -LibOnly -Filter 'commands::benchmark::tests','managers::history_replay::tests','generated_typescript_tests'`, `bun test ./src/stores/benchmarkStore.test.ts ./src/components/settings/history/`, and `bun run typecheck`.
 
 ### Optional elevated-window clipboard fallback (2026-11-14)
 

@@ -3691,6 +3691,7 @@ async fn perform_transcription_for_profile_with_retry_action(
             );
             tm.transcribe_with_overrides(
                 samples,
+                settings,
                 Some(&p.language),
                 Some(p.translate_to_english),
                 // Use resolve_stt_prompt to respect stt_prompt_override_enabled flag
@@ -3713,6 +3714,7 @@ async fn perform_transcription_for_profile_with_retry_action(
             );
             tm.transcribe_with_overrides(
                 samples,
+                settings,
                 Some(&settings.selected_language),
                 Some(settings.translate_to_english),
                 crate::settings::resolve_stt_prompt(

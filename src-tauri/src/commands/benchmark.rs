@@ -28,10 +28,12 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::fmt::Write as _;
 use std::fs;
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
 
 const RNNOISE_FRAME_SAMPLES: usize = (WHISPER_SAMPLE_RATE as usize * 30) / 1000;
@@ -67,6 +69,7 @@ static ACTIVE_RECORDING: LazyLock<Mutex<Option<ActiveBenchmarkRecording>>> =
 static STATE_CACHE: LazyLock<Mutex<Option<PersistedBenchmarkState>>> =
     LazyLock::new(|| Mutex::new(None));
 static IS_RUNNING: AtomicBool = AtomicBool::new(false);
+static RUN_PROGRESS: Mutex<Option<BenchmarkRunProgress>> = Mutex::new(None);
 /// Reserved while `benchmark_start_recording` opens the microphone, so a second
 /// start call is rejected before it can open another device.
 static RECORDING_STARTING: AtomicBool = AtomicBool::new(false);
@@ -94,6 +97,7 @@ impl BenchmarkRunGuard {
 impl Drop for BenchmarkRunGuard {
     fn drop(&mut self) {
         ACTIVE_REPLAY_ID.store(0, Ordering::SeqCst);
+        *RUN_PROGRESS.lock().unwrap_or_else(|err| err.into_inner()) = None;
         IS_RUNNING.store(false, Ordering::SeqCst);
     }
 }
@@ -145,6 +149,8 @@ pub struct BenchmarkClipInfo {
 pub struct BenchmarkStateSnapshot {
     pub clips: Vec<BenchmarkClipInfo>,
     pub results: Vec<BenchmarkRunResult>,
+    pub is_running: bool,
+    pub progress: Option<BenchmarkRunProgress>,
 }
 
 #[derive(Debug, Clone, Deserialize, Type)]
@@ -185,6 +191,21 @@ pub struct BenchmarkRunResult {
     pub clip_duration_seconds: f64,
     pub processed_duration_seconds: f64,
     pub settings_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BenchmarkRunProgress {
+    current: usize,
+    total: usize,
+    step_label: String,
+}
+
+#[derive(Clone, Serialize, Type)]
+#[serde(tag = "type", content = "data", rename_all = "camelCase")]
+pub enum BenchmarkRunEvent {
+    Progress(BenchmarkRunProgress),
+    Result(BenchmarkRunResult),
 }
 
 fn now_unix_ms() -> i64 {
@@ -944,6 +965,8 @@ pub fn benchmark_get_state(app: AppHandle) -> Result<BenchmarkStateSnapshot, Str
         Ok(BenchmarkStateSnapshot {
             clips: state.clips.clone(),
             results: state.results.clone(),
+            is_running: IS_RUNNING.load(Ordering::SeqCst),
+            progress: RUN_PROGRESS.lock().unwrap_or_else(|err| err.into_inner()).clone(),
         })
     })
 }
@@ -1020,8 +1043,64 @@ pub async fn benchmark_run_single(
     if benchmark_recording_busy()? {
         return Err("Stop recording before running a benchmark.".to_string());
     }
+    let settings = get_settings(&app);
+    run_benchmark_step(&app, request, settings).await
+}
 
-    let (clip_info, wav_path) = with_state_mut(&app, false, |dir, state| {
+#[tauri::command]
+#[specta::specta]
+pub async fn benchmark_run_batch(
+    app: AppHandle,
+    requests: Vec<BenchmarkRunRequest>,
+    on_event: Channel<BenchmarkRunEvent>,
+) -> Result<(), String> {
+    let _run_guard = BenchmarkRunGuard::acquire()?;
+    if benchmark_recording_busy()? {
+        return Err("Stop recording before running a benchmark.".to_string());
+    }
+
+    // A sweep must keep the profile and model from its start, even while the
+    // user navigates to other settings and changes the active profile or model.
+    let settings = get_settings(&app);
+    run_benchmark_batch_steps(requests, on_event, settings, |request, settings| {
+        run_benchmark_step(&app, request, settings)
+    })
+    .await
+}
+
+async fn run_benchmark_batch_steps<F>(
+    requests: Vec<BenchmarkRunRequest>,
+    on_event: Channel<BenchmarkRunEvent>,
+    settings: AppSettings,
+    mut run_step: impl FnMut(BenchmarkRunRequest, AppSettings) -> F,
+) -> Result<(), String>
+where
+    F: Future<Output = Result<BenchmarkRunResult, String>>,
+{
+    let total = requests.len();
+    for (index, request) in requests.into_iter().enumerate() {
+        if CANCEL_REQUESTED.load(Ordering::SeqCst) {
+            return Err(BENCHMARK_CANCELLED_MESSAGE.to_string());
+        }
+        let progress = BenchmarkRunProgress {
+            current: index + 1,
+            total,
+            step_label: request.label.clone().unwrap_or_default(),
+        };
+        *RUN_PROGRESS.lock().unwrap_or_else(|err| err.into_inner()) = Some(progress.clone());
+        let _ = on_event.send(BenchmarkRunEvent::Progress(progress));
+        let result = run_step(request, settings.clone()).await?;
+        let _ = on_event.send(BenchmarkRunEvent::Result(result));
+    }
+    Ok(())
+}
+
+async fn run_benchmark_step(
+    app: &AppHandle,
+    request: BenchmarkRunRequest,
+    mut effective_settings: AppSettings,
+) -> Result<BenchmarkRunResult, String> {
+    let (clip_info, wav_path) = with_state_mut(app, false, |dir, state| {
         let info = state
             .clips
             .iter()
@@ -1041,7 +1120,6 @@ pub async fn benchmark_run_single(
         return Err("Selected benchmark clip contains no audio samples.".to_string());
     }
 
-    let mut effective_settings = get_settings(&app);
     if let Some(profile_id) = request
         .profile_id
         .as_deref()
@@ -1160,7 +1238,7 @@ pub async fn benchmark_run_single(
         (String::new(), None)
     } else if is_live {
         let replay_id = NEXT_REPLAY_ID.fetch_sub(1, Ordering::SeqCst);
-        let guard = HistoryReplayGuard::start(&app, replay_id, processed_samples.len())
+        let guard = HistoryReplayGuard::start(app, replay_id, processed_samples.len())
             .map_err(|err| err.to_string())?;
         ACTIVE_REPLAY_ID.store(replay_id, Ordering::SeqCst);
         if CANCEL_REQUESTED.load(Ordering::SeqCst) {
@@ -1170,7 +1248,7 @@ pub async fn benchmark_run_single(
             biased;
             _ = guard.replay.cancelled() => Err(HISTORY_REPLAY_CANCELLED.to_string()),
             result = perform_history_live_transcription(
-                &app,
+                app,
                 &processed_samples,
                 &effective_settings,
                 &guard.replay,
@@ -1210,13 +1288,7 @@ pub async fn benchmark_run_single(
                 return Err(BENCHMARK_CANCELLED_MESSAGE.to_string());
             }
         };
-        match outcome {
-            TranscriptionOutcome::Success(text, _) => (text, None),
-            TranscriptionOutcome::Cancelled => {
-                return Err(BENCHMARK_CANCELLED_MESSAGE.to_string());
-            }
-            TranscriptionOutcome::Error { message, .. } => (String::new(), Some(message)),
-        }
+        benchmark_batch_transcript(outcome, CANCEL_REQUESTED.load(Ordering::SeqCst))?
     };
 
     if CANCEL_REQUESTED.load(Ordering::SeqCst) {
@@ -1229,10 +1301,10 @@ pub async fn benchmark_run_single(
         if error.is_none() && !stt_text.trim().is_empty() {
             // Post-processing has no provider-side state to clean up, so a
             // pending LLM request is simply dropped on Cancel.
-            let _overlay_guard = ThinkingOverlayGuard(&app);
+            let _overlay_guard = ThinkingOverlayGuard(app);
             let processed = tokio::select! {
                 processed = process_transcription_output(
-                    &app,
+                    app,
                     &effective_settings,
                     &stt_text,
                     Some(profile_id.as_str()),
@@ -1311,12 +1383,27 @@ pub async fn benchmark_run_single(
         settings_text,
     };
 
-    with_state_mut(&app, true, |_dir, state| {
+    with_state_mut(app, true, |_dir, state| {
         state.results.insert(0, result.clone());
         Ok(())
     })?;
 
     Ok(result)
+}
+
+fn benchmark_batch_transcript(
+    outcome: TranscriptionOutcome,
+    cancel_requested: bool,
+) -> Result<(String, Option<String>), String> {
+    match outcome {
+        TranscriptionOutcome::Success(text, _) => Ok((text, None)),
+        TranscriptionOutcome::Cancelled if cancel_requested => Err(BENCHMARK_CANCELLED_MESSAGE.to_string()),
+        TranscriptionOutcome::Cancelled => Ok((
+            String::new(),
+            Some("Transcription was cancelled outside Benchmark.".to_string()),
+        )),
+        TranscriptionOutcome::Error { message, .. } => Ok((String::new(), Some(message))),
+    }
 }
 
 #[cfg(test)]
@@ -1383,6 +1470,83 @@ mod tests {
             processed_duration_seconds: 1.5,
             settings_text: "Clip: Clip #1".to_string(),
         }
+    }
+
+    #[tokio::test]
+    async fn batch_streams_ordered_results_and_stops_before_the_next_step_on_cancel() {
+        let guard = BenchmarkRunGuard::acquire().unwrap();
+        let mut settings = get_default_settings();
+        settings.selected_model = "starting-model".to_string();
+        let requests = ["first", "second", "third"]
+            .into_iter()
+            .map(|label| BenchmarkRunRequest {
+                clip_id: "test-clip".to_string(),
+                profile_id: None,
+                model_selection_override: None,
+                boost_db_override: None,
+                noise_cancellation_override: None,
+                filter_silence_override: None,
+                vad_threshold_override: None,
+                vad_backend_override: None,
+                label: Some(label.to_string()),
+            })
+            .collect();
+        let (send_event, mut events) = tokio::sync::mpsc::unbounded_channel();
+        let on_event = Channel::new(move |body| {
+            send_event
+                .send(body.deserialize::<serde_json::Value>().unwrap())
+                .unwrap();
+            Ok(())
+        });
+
+        let outcome = run_benchmark_batch_steps(
+            requests,
+            on_event,
+            settings,
+            |request, mut settings| async move {
+                assert!(BenchmarkRunGuard::acquire().is_err());
+                assert_eq!(settings.selected_model, "starting-model");
+                let label = request.label.unwrap();
+                let mut result = sample_result(&label, &request.clip_id, "Test clip");
+                result.model_label = std::mem::take(&mut settings.selected_model);
+                if label == "second" {
+                    benchmark_cancel_run();
+                }
+                Ok(result)
+            },
+        )
+        .await;
+
+        assert_eq!(outcome.unwrap_err(), BENCHMARK_CANCELLED_MESSAGE);
+        for (current, label) in [(1, "first"), (2, "second")] {
+            assert_eq!(
+                events.try_recv().unwrap(),
+                serde_json::json!({"type": "progress", "data": {
+                    "current": current, "total": 3, "stepLabel": label,
+                }}),
+            );
+            let result = events.try_recv().unwrap();
+            assert_eq!(result["type"], "result");
+            assert_eq!(result["data"]["id"], label);
+            assert_eq!(result["data"]["modelLabel"], "starting-model");
+        }
+        assert!(events.try_recv().is_err());
+        assert_eq!(RUN_PROGRESS.lock().unwrap().as_ref().unwrap().current, 2);
+        drop(guard);
+        assert!(RUN_PROGRESS.lock().unwrap().is_none());
+        let _next_run = BenchmarkRunGuard::acquire().unwrap();
+        assert!(!CANCEL_REQUESTED.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_shared_provider_cancel_is_a_step_error_unless_the_user_cancelled_the_benchmark() {
+        let (text, error) = benchmark_batch_transcript(TranscriptionOutcome::Cancelled, false).unwrap();
+        assert!(text.is_empty());
+        assert_eq!(error.as_deref(), Some("Transcription was cancelled outside Benchmark."));
+        assert_eq!(
+            benchmark_batch_transcript(TranscriptionOutcome::Cancelled, true).unwrap_err(),
+            BENCHMARK_CANCELLED_MESSAGE,
+        );
     }
 
     #[test]
