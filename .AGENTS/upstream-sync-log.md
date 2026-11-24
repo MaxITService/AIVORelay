@@ -12,8 +12,9 @@ Reviewed intake (2026-11-24)
   Reviewed all six ordinary commits after `aca898519`. The range has no merges.
 - Adapted `b14583ae0` — revert: stop resetting macOS permissions before asking
   (#2546) (#2552) in `4c76b3dd4` — fix(macos): request onboarding permissions
-  without resetting them. The permission checks remain in place. The generated
-  TypeScript bindings still contain the unused reset command pending regeneration.
+  without resetting them. The permission checks remain in place. Regenerated
+  the TypeScript bindings in `931baa9c5` — chore(bindings): remove the retired
+  macOS permission reset command. The Store export matched byte for byte.
 - `939c9573a` — fix: let the output device pick the feedback sound buffer size
   (#2525) is already covered on both branches. The pinned Rodio 0.20.1 fork uses
   `BufferSize::Default` through `from_device` and `from_default_device`, including
