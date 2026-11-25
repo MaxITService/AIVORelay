@@ -763,7 +763,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Choose the appropriate initial icon based on theme
     let initial_icon_path = tray::get_icon_path(initial_theme, tray::TrayIconState::Idle);
 
-    let tray_builder = TrayIconBuilder::new()
+    #[cfg(target_os = "linux")]
+    let tray_builder = TrayIconBuilder::with_id("aivorelay");
+    #[cfg(not(target_os = "linux"))]
+    let tray_builder = TrayIconBuilder::new();
+    let tray_builder = tray_builder
         .icon(
             Image::from_path(
                 app_handle
