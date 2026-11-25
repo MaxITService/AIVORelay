@@ -61,6 +61,7 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
 }) => {
   const { t } = useTranslation();
   const {
+    settings,
     updateRemoteSttBaseUrl,
     updateRemoteSttModelId,
     setTranscriptionProvider,
@@ -846,6 +847,11 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
             <p className="text-xs text-mid-gray">
               {t("onboarding.remoteSttWizard.apiKey.hint")}
             </p>
+            {isElevenLabs && settings?.elevenlabs_stt_zero_retention && (
+              <p className="rounded-md border border-amber-400/35 bg-amber-400/10 p-2.5 text-xs text-amber-100">
+                {t("settings.advanced.remoteStt.elevenlabs.zeroRetention.warning")}
+              </p>
+            )}
           </div>
 
           {/* Connection status */}

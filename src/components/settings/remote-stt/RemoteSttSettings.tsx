@@ -262,9 +262,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const elevenLabsTagAudioEvents = Boolean(
     (settings as any)?.elevenlabs_stt_tag_audio_events ?? false,
   );
-  const elevenLabsZeroRetention = Boolean(
-    (settings as any)?.elevenlabs_stt_zero_retention ?? true,
-  );
+  const elevenLabsZeroRetention =
+    settings?.elevenlabs_stt_zero_retention ?? false;
   const deepgramEndpointingEnabled = Boolean(
     (settings as any)?.deepgram_endpointing_enabled ?? true,
   );
@@ -2239,20 +2238,22 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     grouped={grouped}
                   />
                   <ToggleSwitch
+                    id="settings-elevenlabs-zero-retention"
                     label={t(
                       "settings.advanced.remoteStt.elevenlabs.zeroRetention.title",
                       "Don't let ElevenLabs keep data",
                     )}
-                    description={t(
-                      "settings.advanced.remoteStt.elevenlabs.zeroRetention.description",
-                      "Sends enable_logging=false (zero retention) so ElevenLabs does not store audio or transcripts. ElevenLabs allows it only for Enterprise plans; on other plans requests fail until you turn this off.",
-                    )}
+                    description={
+                      <span className="font-medium text-red-300">
+                        {t("settings.advanced.remoteStt.elevenlabs.zeroRetention.warning")}
+                      </span>
+                    }
                     checked={elevenLabsZeroRetention}
                     onChange={(enabled) =>
                       void updateSetting("elevenlabs_stt_zero_retention" as any, enabled as any)
                     }
                     isUpdating={isUpdating("elevenlabs_stt_zero_retention")}
-                    descriptionMode={descriptionMode}
+                    descriptionMode="inline"
                     grouped={grouped}
                   />
                   <div className="mx-4 rounded-lg border border-cyan-400/25 bg-cyan-400/5 p-3 text-xs text-text/80">
@@ -3852,6 +3853,14 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   }
                 />
               )}
+
+              {isRemoteOpenAiProvider &&
+                currentRemoteInterface === "elevenlabs" &&
+                elevenLabsZeroRetention && (
+                  <p className="rounded-md border border-amber-400/35 bg-amber-400/10 p-2.5 text-xs text-amber-100">
+                    {t("settings.advanced.remoteStt.elevenlabs.zeroRetention.warning")}
+                  </p>
+                )}
 
               <div className="flex flex-col gap-2">
                 {showOpenAiFields &&

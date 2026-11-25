@@ -8,7 +8,15 @@ use crate::settings::{
 use serde::Serialize;
 use specta::Type;
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
+
+#[tauri::command]
+#[specta::specta]
+pub fn open_elevenlabs_stt_settings(app: AppHandle) -> Result<(), String> {
+    crate::show_main_window(&app);
+    app.emit("open-elevenlabs-stt-settings", ())
+        .map_err(|error| error.to_string())
+}
 
 #[derive(Serialize, Type)]
 #[serde(rename_all = "camelCase")]

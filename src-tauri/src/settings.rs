@@ -4118,8 +4118,8 @@ pub struct AppSettings {
     #[serde(default = "default_false")]
     pub elevenlabs_stt_tag_audio_events: bool,
     /// ElevenLabs Scribe: ask ElevenLabs not to keep audio or transcripts
-    /// (`enable_logging=false`). ElevenLabs accepts it for Enterprise plans only.
-    #[serde(default = "default_true")]
+    /// (`enable_logging=false`). Requires a plan that supports Zero Retention.
+    #[serde(default)]
     pub elevenlabs_stt_zero_retention: bool,
     #[serde(default = "default_always_on_microphone")]
     pub always_on_microphone: bool,
@@ -6596,7 +6596,7 @@ pub fn get_default_settings() -> AppSettings {
         elevenlabs_stt_no_verbatim: false,
         elevenlabs_stt_numbers_as_digits: false,
         elevenlabs_stt_tag_audio_events: false,
-        elevenlabs_stt_zero_retention: true,
+        elevenlabs_stt_zero_retention: false,
         always_on_microphone: false,
         selected_microphone: None,
         selected_channel: None,

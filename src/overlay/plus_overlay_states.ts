@@ -40,10 +40,12 @@ export type OverlayErrorCategory =
   | "LanguageDetectorMissing"
   | "NoText"
   | "GeminiEarlyFinalizationNoText"
+  | "ElevenLabsZeroRetention"
   | "Unknown";
 
 export type OverlayErrorProvider =
   | "soniox"
+  | "elevenlabs"
   | "open_ai_compatible"
   | "local"
   | "extension"
@@ -74,6 +76,7 @@ export type OverlayCanonicalErrorCode =
   | "E_PARSE"
   | "E_EXTENSION_OFFLINE"
   | "E_MIC_UNAVAILABLE"
+  | "E_ZERO_RETENTION"
   | "E_UNKNOWN";
 
 export interface OverlayErrorEnvelope {
@@ -146,6 +149,7 @@ export function fallbackCodeFromCategory(
     LanguageDetectorMissing: "E_UNKNOWN",
     NoText: "E_UNKNOWN",
     GeminiEarlyFinalizationNoText: "E_UNKNOWN",
+    ElevenLabsZeroRetention: "E_ZERO_RETENTION",
     Unknown: "E_UNKNOWN",
   };
   return map[category];

@@ -680,7 +680,7 @@ const MAX_ELEVENLABS_PRERECORDED_KEYTERMS: usize = 100;
 const MAX_ELEVENLABS_PRERECORDED_KEYTERM_CHARS: usize = 50;
 const MAX_ELEVENLABS_PRERECORDED_KEYTERM_WORDS: usize = 5;
 
-const ELEVENLABS_ZERO_RETENTION_HINT: &str = "Your ElevenLabs plan may not allow zero data retention. Turn off \"Don't let ElevenLabs keep data\" in Remote STT settings.";
+pub(crate) const ELEVENLABS_ZERO_RETENTION_HINT: &str = "Your ElevenLabs plan may not allow zero data retention. Turn off \"Don't let ElevenLabs keep data\" in Remote STT settings.";
 
 /// Appends a pointer to the zero-retention setting when ElevenLabs rejects
 /// `enable_logging=false`, which it allows only for Enterprise plans.
