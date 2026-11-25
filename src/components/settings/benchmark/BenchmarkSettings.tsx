@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useTranslation } from "react-i18next";
 import {
   Mic,
@@ -102,7 +101,7 @@ const BenchmarkResultRow: React.FC<ResultRowProps> = ({
   const handleCopy = async () => {
     if (!hasText) return;
     try {
-      await writeText(displayText);
+      await navigator.clipboard.writeText(displayText);
       if (copyTimerRef.current !== null) {
         window.clearTimeout(copyTimerRef.current);
       }
