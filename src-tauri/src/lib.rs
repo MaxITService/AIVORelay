@@ -1720,6 +1720,7 @@ pub fn run(cli_args: CliArgs) {
         commands::open_log_dir,
         commands::open_app_data_dir,
         commands::remote_stt::remote_stt_has_api_key,
+        commands::remote_stt::open_elevenlabs_stt_settings,
         commands::remote_stt::stt_model_selections_readiness,
         commands::remote_stt::remote_stt_set_api_key,
         commands::remote_stt::remote_stt_clear_api_key,

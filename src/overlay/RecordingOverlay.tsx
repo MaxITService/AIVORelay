@@ -6,7 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { TFunction } from "i18next";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { Check, Copy } from "lucide-react";
 import {
   MicrophoneIcon,
@@ -100,6 +100,7 @@ const COMPACT_ERROR_CODE_MAP: Record<string, string> = {
   E_PARSE: "PARSE",
   E_EXT: "EXT",
   E_MIC: "MIC",
+  E_ZERO_RETENTION: "ZRM",
   E_UNKNOWN: "UNKNOWN",
 };
 
@@ -192,7 +193,7 @@ function findRunningOverlayPortalAnimations(): Animation[] {
 
 type OverlayErrorCopy = {
   title: string;
-  hint: string;
+  hint: React.ReactNode;
 };
 
 const DEFAULT_OVERLAY_APPEARANCE: RecordingOverlayAppearanceState = {
@@ -487,6 +488,37 @@ function getOverlayErrorCopy(
           "Reconnect the browser extension and try again.",
         ),
       };
+    case "ElevenLabsZeroRetention":
+      return {
+        title: t("overlay.errors.elevenLabsZeroRetention.title"),
+        hint: (
+          <Trans
+            t={t}
+            i18nKey="overlay.errors.elevenLabsZeroRetention.hint"
+            values={{
+              setting: t("settings.advanced.remoteStt.elevenlabs.zeroRetention.title"),
+            }}
+            components={{
+              openSettings: (
+                <button
+                  type="button"
+                  className="error-settings-link"
+                  onClick={() => {
+                    void commands.openElevenlabsSttSettings()
+                      .then((result) => {
+                        if (result.status === "error") throw new Error(result.error);
+                        return commands.dismissErrorOverlay();
+                      })
+                      .catch((error) => {
+                        console.error("Failed to open ElevenLabs settings:", error);
+                      });
+                  }}
+                />
+              ),
+            }}
+          />
+        ),
+      };
     case "MicrophoneUnavailable":
       return {
         title: t("overlay.errors.microphone.title", "Microphone unavailable"),
@@ -572,7 +604,7 @@ const RecordingOverlay: React.FC = () => {
   const [activeApp, setActiveApp] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorModelsTarget, setErrorModelsTarget] = useState<"models" | "detector" | null>(null);
-  const [errorHint, setErrorHint] = useState<string | null>(null);
+  const [errorHint, setErrorHint] = useState<React.ReactNode>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [errorTechnical, setErrorTechnical] = useState<string | null>(null);
   const [errorContext, setErrorContext] =

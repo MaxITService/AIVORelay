@@ -2940,6 +2940,14 @@ async remoteSttHasApiKey() : Promise<Result<boolean, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async openElevenlabsSttSettings() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_elevenlabs_stt_settings") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async sttModelSelectionsReadiness(selections: SttModelSelection[]) : Promise<SttModelSelectionReadiness[]> {
     return await TAURI_INVOKE("stt_model_selections_readiness", { selections });
 },
@@ -4747,7 +4755,7 @@ elevenlabs_stt_numbers_as_digits?: boolean;
 elevenlabs_stt_tag_audio_events?: boolean;
 /**
  * ElevenLabs Scribe: ask ElevenLabs not to keep audio or transcripts
- * (`enable_logging=false`). ElevenLabs accepts it for Enterprise plans only.
+ * (`enable_logging=false`). Requires a plan that supports Zero Retention.
  */
 elevenlabs_stt_zero_retention?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null;
 /**

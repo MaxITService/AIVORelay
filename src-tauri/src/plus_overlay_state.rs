@@ -4,6 +4,7 @@
 //! This module handles error states with automatic categorization (TLS, timeout, network, etc.).
 //! Note: The "sending" state is handled by overlay.rs for consistency with other overlay states.
 
+use crate::managers::remote_stt::ELEVENLABS_ZERO_RETENTION_HINT;
 use crate::overlay;
 use crate::tray::{change_tray_icon, TrayIconState};
 use serde::Serialize;
@@ -155,6 +156,7 @@ pub enum OverlayErrorCategory {
     LanguageDetectorMissing,
     NoText,
     GeminiEarlyFinalizationNoText,
+    ElevenLabsZeroRetention,
     Unknown,
 }
 
@@ -179,6 +181,7 @@ impl OverlayErrorCategory {
             OverlayErrorCategory::LanguageDetectorMissing => "Download the language detector before recording",
             OverlayErrorCategory::NoText => "Recording ended, but no transcription text was received.",
             OverlayErrorCategory::GeminiEarlyFinalizationNoText => "Gemini early finalization ended, but no transcription text was received.",
+            OverlayErrorCategory::ElevenLabsZeroRetention => "ElevenLabs rejected Zero Retention",
             OverlayErrorCategory::Unknown => "Transcription failed",
         }
     }
@@ -188,6 +191,8 @@ impl OverlayErrorCategory {
 #[serde(rename_all = "snake_case")]
 pub enum OverlayErrorProvider {
     Soniox,
+    #[serde(rename = "elevenlabs")]
+    ElevenLabs,
     OpenAiCompatible,
     Local,
     Extension,
@@ -198,6 +203,7 @@ impl OverlayErrorProvider {
     fn code_prefix(&self) -> &'static str {
         match self {
             OverlayErrorProvider::Soniox => "SONIOX",
+            OverlayErrorProvider::ElevenLabs => "ELEVENLABS",
             OverlayErrorProvider::OpenAiCompatible => "OPENAI",
             OverlayErrorProvider::Local => "LOCAL",
             OverlayErrorProvider::Extension => "EXT",
@@ -264,6 +270,7 @@ pub enum OverlayCanonicalErrorCode {
     EParse,
     EExtensionOffline,
     EMicUnavailable,
+    EZeroRetention,
     EUnknown,
 }
 
@@ -280,6 +287,9 @@ impl OverlayCanonicalErrorCode {
             OverlayCanonicalErrorCode::EParse => "Invalid response",
             OverlayCanonicalErrorCode::EExtensionOffline => "Extension offline",
             OverlayCanonicalErrorCode::EMicUnavailable => "Mic unavailable",
+            OverlayCanonicalErrorCode::EZeroRetention => {
+                OverlayErrorCategory::ElevenLabsZeroRetention.display_text()
+            }
             OverlayCanonicalErrorCode::EUnknown => "Transcription failed",
         }
     }
@@ -289,6 +299,7 @@ impl OverlayCanonicalErrorCode {
             OverlayCanonicalErrorCode::EAuth
             | OverlayCanonicalErrorCode::EBadRequest
             | OverlayCanonicalErrorCode::EBilling
+            | OverlayCanonicalErrorCode::EZeroRetention
             | OverlayCanonicalErrorCode::EMicUnavailable => false,
             OverlayCanonicalErrorCode::ERateLimit
             | OverlayCanonicalErrorCode::ETimeout
@@ -616,6 +627,7 @@ fn canonical_to_category(code: &OverlayCanonicalErrorCode) -> OverlayErrorCatego
         OverlayCanonicalErrorCode::EParse => OverlayErrorCategory::ParseError,
         OverlayCanonicalErrorCode::EExtensionOffline => OverlayErrorCategory::ExtensionOffline,
         OverlayCanonicalErrorCode::EMicUnavailable => OverlayErrorCategory::MicrophoneUnavailable,
+        OverlayCanonicalErrorCode::EZeroRetention => OverlayErrorCategory::ElevenLabsZeroRetention,
         OverlayCanonicalErrorCode::EUnknown => OverlayErrorCategory::Unknown,
     }
 }
@@ -624,6 +636,9 @@ fn detect_specific_category(
     err_lower: &str,
     canonical_code: &OverlayCanonicalErrorCode,
 ) -> OverlayErrorCategory {
+    if matches!(canonical_code, OverlayCanonicalErrorCode::EZeroRetention) {
+        return OverlayErrorCategory::ElevenLabsZeroRetention;
+    }
     if err_lower.contains("certificate")
         || err_lower.contains("unknownissuer")
         || err_lower.contains("certnotvalidforname")
@@ -682,6 +697,7 @@ fn build_display_code(
         OverlayCanonicalErrorCode::EParse => "E_PARSE",
         OverlayCanonicalErrorCode::EExtensionOffline => "E_EXT",
         OverlayCanonicalErrorCode::EMicUnavailable => "E_MIC",
+        OverlayCanonicalErrorCode::EZeroRetention => "E_ZERO_RETENTION",
         OverlayCanonicalErrorCode::EUnknown => "E_UNKNOWN",
     };
     format!("{} {}", provider.code_prefix(), canonical_label)
@@ -708,11 +724,20 @@ fn sanitize_technical_message(message: &str) -> Option<String> {
 
 fn build_error_envelope_from_string(err_string: &str) -> OverlayErrorEnvelope {
     let err_lower = err_string.to_lowercase();
-    let provider = detect_provider(&err_lower);
     let transport = detect_transport(&err_lower);
     let status_code = extract_3_digit_status_code(err_string);
     let provider_code = detect_provider_code(&err_lower);
-    let canonical_code = detect_canonical_code(&err_lower, status_code, &provider);
+    // Only the ElevenLabs handlers append this hint after a retention rejection.
+    let (provider, canonical_code) = if err_string.trim_end().ends_with(ELEVENLABS_ZERO_RETENTION_HINT) {
+        (
+            OverlayErrorProvider::ElevenLabs,
+            OverlayCanonicalErrorCode::EZeroRetention,
+        )
+    } else {
+        let provider = detect_provider(&err_lower);
+        let canonical_code = detect_canonical_code(&err_lower, status_code, &provider);
+        (provider, canonical_code)
+    };
     let phase = detect_phase(&err_lower);
     let user_message = canonical_code.display_text().to_string();
     let display_code = build_display_code(
@@ -756,6 +781,7 @@ fn build_default_envelope_from_category(
         OverlayErrorCategory::ParseError => OverlayCanonicalErrorCode::EParse,
         OverlayErrorCategory::ExtensionOffline => OverlayCanonicalErrorCode::EExtensionOffline,
         OverlayErrorCategory::MicrophoneUnavailable => OverlayCanonicalErrorCode::EMicUnavailable,
+        OverlayErrorCategory::ElevenLabsZeroRetention => OverlayCanonicalErrorCode::EZeroRetention,
         OverlayErrorCategory::ModelDownloading
         | OverlayErrorCategory::LanguageDetectorDownloading
         | OverlayErrorCategory::LanguageDetectorMissing
@@ -766,6 +792,7 @@ fn build_default_envelope_from_category(
 
     let provider = match category {
         OverlayErrorCategory::ExtensionOffline => OverlayErrorProvider::Extension,
+        OverlayErrorCategory::ElevenLabsZeroRetention => OverlayErrorProvider::ElevenLabs,
         OverlayErrorCategory::MicrophoneUnavailable
         | OverlayErrorCategory::ModelDownloading
         | OverlayErrorCategory::LanguageDetectorDownloading
@@ -1078,6 +1105,27 @@ mod tests {
         let envelope = build_error_envelope_from_string(err_string);
         let err_lower = err_string.to_lowercase();
         detect_specific_category(&err_lower, &envelope.canonical_code)
+    }
+
+    #[test]
+    fn elevenlabs_zero_retention_rejection_takes_priority_over_generic_errors() {
+        for provider_error in [
+            "Zero retention mode was requested (enable_logging=false) but was not applied. Only users from the enterprise or trial tier can use ZRM mode. This session is still being logged.",
+            "ElevenLabs HTTP 403: Zero Retention is unavailable on your plan.",
+        ] {
+            let error = format!("{provider_error} {ELEVENLABS_ZERO_RETENTION_HINT}");
+            let envelope = build_error_envelope_from_string(&error);
+            assert!(matches!(
+                categorize_error(&error),
+                OverlayErrorCategory::ElevenLabsZeroRetention
+            ));
+            assert!(matches!(envelope.provider, OverlayErrorProvider::ElevenLabs));
+            assert!(!envelope.retryable);
+        }
+        assert!(matches!(
+            categorize_error("ElevenLabs HTTP 403: invalid API key"),
+            OverlayErrorCategory::Auth
+        ));
     }
 
     #[test]

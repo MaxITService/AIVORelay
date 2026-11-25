@@ -3681,7 +3681,7 @@
           },
           "zeroRetention": {
             "title": "Don't let ElevenLabs keep data",
-            "description": "Sends enable_logging=false (zero retention) so ElevenLabs does not store audio or transcripts. ElevenLabs allows it only for Enterprise plans; on other plans requests fail until you turn this off."
+            "warning": "If this setting is on and your ElevenLabs plan doesn't support Zero Retention, ElevenLabs transcription will fail until you turn this setting off."
           }
         }
       },
@@ -5389,6 +5389,10 @@
       "microphone": {
         "title": "Microphone unavailable",
         "hint": "Check mic access, selected device, or other apps using it."
+      },
+      "elevenLabsZeroRetention": {
+        "title": "ElevenLabs rejected Zero Retention",
+        "hint": "If you're OK with ElevenLabs storing data, turn off “{{setting}}” (<openSettings>Open now</openSettings>) and try again."
       },
       "unknown": {
         "title": "Transcription failed",

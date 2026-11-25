@@ -488,6 +488,12 @@ body,
   border-radius: 10px;
 }
 
+#settings-elevenlabs-zero-retention,
+#settings-elevenlabs-stt {
+  scroll-margin-top: var(--models-profile-notice-offset, 1rem);
+  scroll-margin-bottom: 1rem;
+}
+
 .settings-anchor-highlight {
   animation: settings-anchor-breathe 1.8s ease-out both;
 }

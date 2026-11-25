@@ -540,6 +540,8 @@ export const ModelsSettings: React.FC = () => {
       return (
         <React.Fragment key={row.id}>
           <div
+            id={row.id === "elevenlabs" ? "settings-elevenlabs-stt" : undefined}
+            tabIndex={row.id === "elevenlabs" ? -1 : undefined}
             className={`px-6 py-4 flex flex-col gap-3 first:rounded-t-xl last:rounded-b-xl transition-colors ${
               isActive ? "bg-green-500/5" : ""
             }`}
@@ -754,6 +756,9 @@ export const ModelsSettings: React.FC = () => {
       id="settings-models"
       tabIndex={-1}
       className="max-w-3xl w-full mx-auto space-y-8 pb-12 outline-none"
+      style={{
+        "--models-profile-notice-offset": `calc(${profileNoticeHeight}px + 2.25rem)`,
+      } as React.CSSProperties}
     >
       <div ref={profileNoticeRef} className="sticky top-3 z-40 rounded-xl bg-[#121212]">
         <ModelSelectionProfileNotice />

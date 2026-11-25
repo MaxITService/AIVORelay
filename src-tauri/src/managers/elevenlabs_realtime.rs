@@ -21,7 +21,9 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::elevenlabs_language::resolve_requested_language_for_elevenlabs;
 use crate::managers::provider_error::parse_provider_error_value;
-use crate::managers::remote_stt::{redact_remote_stt_api_key, record_external_remote_stt_debug};
+use crate::managers::remote_stt::{
+    redact_remote_stt_api_key, record_external_remote_stt_debug, ELEVENLABS_ZERO_RETENTION_HINT,
+};
 use crate::url_security::{validate_remote_stt_endpoint_url, REMOTE_STT_ELEVENLABS_BASE_URL};
 
 pub const ELEVENLABS_SCRIBE_V3_LIVE_MODEL: &str = "scribe_v3_live";
@@ -52,7 +54,6 @@ const CANCELLED_OPERATIONS_CAPACITY: usize = 64;
 const MAX_KEYTERM_LIBRARY_TERMS: usize = 10_000;
 const MAX_KEYTERM_CHARS: usize = 50;
 const MAX_KEYTERM_LIBRARY_JSON_BYTES: usize = 1_900_000;
-const ELEVENLABS_ZERO_RETENTION_HINT: &str = "Your ElevenLabs plan may not allow zero data retention. Turn off \"Don't let ElevenLabs keep data\" in Remote STT settings.";
 
 static XI_API_KEY_HEADER_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)(xi-api-key\s*[:=]\s*)([^\s,;]+)").expect("valid regex"));

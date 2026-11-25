@@ -449,6 +449,15 @@ function App() {
     const unlistenOpenModelDownloads = listen<{ detector: boolean }>("open-model-downloads", ({ payload }) => {
       openModelDownloads(payload.detector);
     });
+    const unlistenOpenElevenLabsSettings = listen("open-elevenlabs-stt-settings", () => {
+      navigateToSettingsAnchor({
+        activateSection: () => useNavigationStore.getState().setSection("models"),
+        targetId: "settings-elevenlabs-zero-retention",
+        readyId: "settings-api-keys",
+        fallbackId: "settings-elevenlabs-stt",
+        block: "nearest",
+      });
+    });
     const unlistenRecordingBlockedByDetector = listen<{ downloading: boolean }>("recording-blocked-language-detector", ({ payload }) => {
       toast.warning(t(payload.downloading ? "settings.spokenLanguage.blockedDownloadingTitle" : "settings.spokenLanguage.blockedMissingTitle"), {
         id: "recording-blocked-language-detector",
@@ -583,6 +592,7 @@ function App() {
       unlistenRecordingBlockedByDownload.then((unlisten) => unlisten());
       unlistenRecordingBlockedByDetector.then((unlisten) => unlisten());
       unlistenOpenModelDownloads.then((unlisten) => unlisten());
+      unlistenOpenElevenLabsSettings.then((unlisten) => unlisten());
       unlistenModelState.then((unlisten) => unlisten());
       unlistenModelDownloadFailed.then((unlisten) => unlisten());
       unlistenOnDemandModelDownload.then((unlisten) => unlisten());

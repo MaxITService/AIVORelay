@@ -979,6 +979,30 @@ body,
   text-shadow: 0 0 10px rgba(255, 120, 120, 0.12);
 }
 
+.recording-overlay .error-settings-link {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #bfdbfe;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+.recording-overlay .error-settings-link:hover,
+.recording-overlay .error-settings-link:focus-visible {
+  color: #eff6ff;
+}
+
+.recording-overlay .error-settings-link:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+}
+
 .recording-overlay.recording-overlay-custom .error-retry-shortcut,
 .recording-overlay.recording-overlay-legacy .error-retry-shortcut {
   color: #ffe7a3;
