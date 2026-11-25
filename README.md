@@ -382,11 +382,12 @@ supported methods are `ctrl_v`, `ctrl_shift_v`, `shift_insert`, `direct`, and
 `none` (hyphenated spellings are also accepted).
 
 The existing `--toggle-transcription`, `--toggle-post-process`, and `--cancel`
-flags remain available. Commands are sent through the existing single-instance
-transport; the caller exits after delivery, without a transcription result or
-execution acknowledgement. Structured recording/transcript commands do not
-support `--json`. Launch AivoRelay normally before using them; a command sent
-when no instance is running only launches the app.
+flags remain available. When AivoRelay is running, commands are forwarded to it
+and the caller exits after delivery without an execution acknowledgement.
+`recording start`, `recording toggle`, and the legacy toggle flags also start
+recording after launching AivoRelay. Other commands only launch the app if no
+instance is running. Structured recording and transcript commands do not support
+`--json`.
 
 ## ⌨️ File Conversion CLI
 
