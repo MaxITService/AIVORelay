@@ -1738,6 +1738,10 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const settingsWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingSettingsWritesRef = useRef(0);
   const settingsWriteGenerationRef = useRef(0);
+  const debouncedSettingsWriteRef = useRef<{
+    generation: number;
+    field: string;
+  } | null>(null);
   const keyStatusGenerationRef = useRef(0);
   const voiceCatalogGenerationRef = useRef(0);
 
@@ -2328,7 +2332,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     async (
       patch: Partial<TtsSettings>,
       field: string,
-      options: { propagateError?: boolean } = {},
+      options: { propagateError?: boolean; immediate?: boolean } = {},
     ) => {
       const writeGeneration = ++settingsWriteGenerationRef.current;
       const nextSettings: TtsSettings = { ...ttsRef.current, ...patch };
@@ -2359,12 +2363,20 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       setSavingField(field);
       setSettingsError(null);
       if (
-        COALESCED_TTS_FIELDS.has(field) ||
-        COALESCED_TTS_LLM_FIELDS.has(field)
+        !options.immediate &&
+        (COALESCED_TTS_FIELDS.has(field) ||
+          COALESCED_TTS_LLM_FIELDS.has(field))
       ) {
+        debouncedSettingsWriteRef.current = {
+          generation: writeGeneration,
+          field,
+        };
         await new Promise((resolve) =>
           window.setTimeout(resolve, SETTINGS_EDIT_DEBOUNCE_MS),
         );
+        if (debouncedSettingsWriteRef.current?.generation === writeGeneration) {
+          debouncedSettingsWriteRef.current = null;
+        }
         if (settingsWriteGenerationRef.current !== writeGeneration) {
           pendingSettingsWritesRef.current = Math.max(
             0,
@@ -2475,11 +2487,18 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   );
 
   const flushPendingSettingsWrites = useCallback(async () => {
-    if (pendingSettingsWritesRef.current === 0) {
+    // Send a debounced edit now under its own field, so the backend applies
+    // it to the operation's settings instead of discarding it.
+    const debounced = debouncedSettingsWriteRef.current;
+    if (
+      pendingSettingsWritesRef.current === 0 ||
+      !debounced ||
+      debounced.generation !== settingsWriteGenerationRef.current
+    ) {
       await settingsWriteQueueRef.current;
       return;
     }
-    await updateTts({}, "__tts_settings_flush__");
+    await updateTts({}, debounced.field, { immediate: true });
   }, [updateTts]);
 
   const runVoicePreview = useCallback(async () => {
