@@ -627,11 +627,9 @@ fn format_settings_snapshot(args: &SettingsSnapshotArgs<'_>) -> String {
                     vocab.len()
                 );
             } else if preset == "openai"
-                && settings
-                    .remote_stt
-                    .model_id
-                    .to_ascii_lowercase()
-                    .contains("realtime")
+                && crate::managers::openai_realtime_whisper::OpenAiRealtimeWhisperManager::is_realtime_model(
+                    &settings.remote_stt.model_id,
+                )
             {
                 let _ = writeln!(
                     out,
