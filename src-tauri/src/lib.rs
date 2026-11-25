@@ -1872,6 +1872,7 @@ pub fn run(cli_args: CliArgs) {
         commands::benchmark::benchmark_import_history_entry,
         commands::benchmark::benchmark_get_state,
         commands::benchmark::benchmark_get_clip_wav,
+        commands::benchmark::benchmark_update_clip,
         commands::benchmark::benchmark_delete_clip,
         commands::benchmark::benchmark_delete_result,
         commands::benchmark::benchmark_clear_results,

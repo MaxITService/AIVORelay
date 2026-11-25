@@ -4073,6 +4073,14 @@ async benchmarkGetClipWav(clipId: string) : Promise<Result<number[], string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async benchmarkUpdateClip(clipId: string, name: string | null, referenceText: string | null) : Promise<Result<BenchmarkClipInfo, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("benchmark_update_clip", { clipId, name, referenceText }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async benchmarkDeleteClip(clipId: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("benchmark_delete_clip", { clipId }) };
@@ -4100,6 +4108,14 @@ async benchmarkClearResults(clipId: string | null) : Promise<Result<null, string
 async benchmarkRunSingle(request: BenchmarkRunRequest) : Promise<Result<BenchmarkRunResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("benchmark_run_single", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async benchmarkRunBatch(requests: BenchmarkRunRequest[], onEvent: TAURI_CHANNEL<BenchmarkRunEvent>) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("benchmark_run_batch", { requests, onEvent }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -5215,10 +5231,12 @@ export type AutoUnavailableReason =
  */
 { kind: "no_match" }
 export type AvailableAccelerators = { whisper: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
-export type BenchmarkClipInfo = { id: string; name: string; durationSeconds: number; sampleCount: number; deviceName: string; recordedAtMs: number }
+export type BenchmarkClipInfo = { id: string; name: string; referenceText?: string | null; durationSeconds: number; sampleCount: number; deviceName: string; recordedAtMs: number }
+export type BenchmarkRunEvent = { type: "progress"; data: BenchmarkRunProgress } | { type: "result"; data: BenchmarkRunResult }
+export type BenchmarkRunProgress = { current: number; total: number; stepLabel: string }
 export type BenchmarkRunRequest = { clipId: string; profileId: string | null; modelSelectionOverride: SttModelSelection | null; boostDbOverride: number | null; noiseCancellationOverride: boolean | null; filterSilenceOverride: boolean | null; vadThresholdOverride: number | null; vadBackendOverride: VadBackend | null; label: string | null }
 export type BenchmarkRunResult = { id: string; clipId?: string; clipName?: string; timestampMs: number; label: string; profileName: string; providerLabel: string; modelLabel: string; isLive: boolean; text: string; rawText?: string | null; llmPostProcessed?: boolean; error: string | null; durationMs: number; clipDurationSeconds: number; processedDurationSeconds: number; settingsText: string }
-export type BenchmarkStateSnapshot = { clips: BenchmarkClipInfo[]; results: BenchmarkRunResult[] }
+export type BenchmarkStateSnapshot = { clips: BenchmarkClipInfo[]; results: BenchmarkRunResult[]; isRunning: boolean; progress: BenchmarkRunProgress | null }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type BundledExtensionExportResult = { exportPath: string; extensionId: string; configuredOrigin: string; generatedPassword: string; reusedExistingId: boolean; replacedExistingExport: boolean }
 export type ChineseScript = "as_transcribed" | "simplified" | "traditional" | "traditional_tw" | "traditional_hk"

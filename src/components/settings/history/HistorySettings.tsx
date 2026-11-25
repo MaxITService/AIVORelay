@@ -19,7 +19,7 @@ import {
   Copy,
   Download,
   Lightbulb,
-  Gauge,
+  Mic,
 } from "lucide-react";
 import { useBenchmarkStore } from "@/stores/benchmarkStore";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -1794,6 +1794,9 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
                 <path d="M7 3h6M8 3v7l-4 7.5A2 2 0 0 0 5.8 20h8.4a2 2 0 0 0 1.8-2.5L12 10V3M6 15h8" />
                 <path d="M17 3h4v4m0-4-4 4" />
               </svg>
+              <span className="ms-1.5 whitespace-nowrap text-xs font-medium">
+                {t("settings.history.openLlmBenchmark")}
+              </span>
             </IconButton>
           )}
           {!isAiReplace && hasAudioReference && (
@@ -1807,7 +1810,10 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
                 {t("settings.history.sendToBenchmarkDescription")}
               </>}
             >
-              <Gauge width={16} height={16} />
+              <Mic width={16} height={16} aria-hidden="true" />
+              <span className="ms-1.5 whitespace-nowrap text-xs font-medium">
+                {t("settings.history.sendToBenchmark")}
+              </span>
             </IconButton>
           )}
           {rawToggle !== "none" && (
