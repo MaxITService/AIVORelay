@@ -1,48 +1,53 @@
 import { useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { FileText } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Textarea";
-import { sessionToast as toast } from "@/lib/sessionToast";
-import { useBenchmarkStore, type BenchmarkClipInfo } from "@/stores/benchmarkStore";
+import type { BenchmarkClipInfo } from "@/stores/benchmarkStore";
 import { compareTranscripts, type TranscriptPart } from "./transcriptComparison";
 
-export function BenchmarkClipReferenceEditor({ clip }: { clip: BenchmarkClipInfo }) {
+export function BenchmarkClipReferenceEditor({
+  clip,
+  draft,
+  onDraftChange,
+  saving,
+  onSave,
+}: {
+  clip: BenchmarkClipInfo;
+  draft: string | null;
+  onDraftChange: (draft: string | null) => void;
+  saving: boolean;
+  onSave: (referenceText: string) => Promise<boolean>;
+}) {
   const { t } = useTranslation();
-  const updateClip = useBenchmarkStore((state) => state.updateClip);
-  const [draft, setDraft] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   const inputId = useId();
 
   const saveReference = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (draft === null || saving) return;
-    const referenceText = draft.trim();
-    if (referenceText === (clip.referenceText ?? "")) {
-      setDraft(null);
-      return;
-    }
-    setSaving(true);
-    try {
-      await updateClip(clip.id, { referenceText });
-      setDraft(null);
-    } catch (error) {
-      console.error("Failed to save benchmark reference:", error);
-      toast.error(t("benchmark.reference.saveFailed"));
-    } finally {
-      setSaving(false);
+    if (await onSave(draft.trim())) {
+      onDraftChange(null);
     }
   };
 
   if (draft === null) {
     return (
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={() => setDraft(clip.referenceText ?? "")}
-      >
-        {t(clip.referenceText ? "benchmark.reference.edit" : "benchmark.reference.add")}
-      </Button>
+      <div className="space-y-2 rounded-lg border border-[#9b5de5]/40 bg-[#9b5de5]/10 p-3">
+        <Button
+          type="button"
+          variant={clip.referenceText ? "secondary" : "primary"}
+          className="inline-flex items-center gap-2 text-left"
+          aria-describedby={`${inputId}-overview`}
+          disabled={saving}
+          onClick={() => onDraftChange(clip.referenceText ?? "")}
+        >
+          <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
+          {t(clip.referenceText ? "benchmark.reference.edit" : "benchmark.reference.add")}
+        </Button>
+        <p id={`${inputId}-overview`} className="text-sm text-[#ded7e7]">
+          {t("benchmark.reference.overview")}
+        </p>
+      </div>
     );
   }
 
@@ -54,7 +59,7 @@ export function BenchmarkClipReferenceEditor({ clip }: { clip: BenchmarkClipInfo
         if (e.key === "Escape" && !e.nativeEvent.isComposing && !saving) {
           e.preventDefault();
           e.stopPropagation();
-          setDraft(null);
+          onDraftChange(null);
         }
       }}
     >
@@ -69,7 +74,7 @@ export function BenchmarkClipReferenceEditor({ clip }: { clip: BenchmarkClipInfo
         className="block w-full"
         value={draft}
         readOnly={saving}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => onDraftChange(e.target.value)}
         aria-describedby={`${inputId}-hint`}
       />
       <p id={`${inputId}-hint`} className="text-xs text-[#9a9a9a]">
@@ -84,7 +89,7 @@ export function BenchmarkClipReferenceEditor({ clip }: { clip: BenchmarkClipInfo
           variant="ghost"
           size="sm"
           disabled={saving}
-          onClick={() => setDraft(null)}
+          onClick={() => onDraftChange(null)}
         >
           {t("benchmark.reference.cancel")}
         </Button>

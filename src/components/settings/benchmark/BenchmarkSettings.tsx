@@ -60,6 +60,9 @@ const clipActionClass =
 interface ResultRowProps {
   item: BenchmarkRunResult;
   clip?: BenchmarkClipInfo;
+  referenceSaving: boolean;
+  referenceEditing: boolean;
+  onUseAsReference: (clipId: string, text: string) => void;
   onSelectClip: (clipId: string) => void;
   onRemove: (id: string) => void;
 }
@@ -67,6 +70,9 @@ interface ResultRowProps {
 const BenchmarkResultRow: React.FC<ResultRowProps> = ({
   item,
   clip,
+  referenceSaving,
+  referenceEditing,
+  onUseAsReference,
   onSelectClip,
   onRemove,
 }) => {
@@ -91,6 +97,14 @@ const BenchmarkResultRow: React.FC<ResultRowProps> = ({
     item.rawText !== item.text;
   const displayText = hasRawDiff && showRaw ? (item.rawText ?? item.text) : item.text;
   const hasText = displayText.trim().length > 0;
+  const recognizedText = item.rawText ?? item.text;
+  const referenceCandidate = recognizedText.trim();
+  const alreadyReference = referenceCandidate === clip?.referenceText;
+  const referenceActionHint = alreadyReference
+    ? "benchmark.reference.alreadyReference"
+    : referenceEditing
+      ? "benchmark.reference.finishEditing"
+      : "benchmark.reference.useResultHint";
   const formattedTime = formatDateTime(
     String(Math.floor(item.timestampMs / 1000)),
     i18n.language,
@@ -244,11 +258,27 @@ const BenchmarkResultRow: React.FC<ResultRowProps> = ({
         </p>
       )}
 
-      {!item.error && clip?.referenceText && (
-        <BenchmarkTranscriptComparison
-          reference={clip.referenceText}
-          recognized={item.rawText ?? item.text}
-        />
+      {!item.error && clip && (referenceCandidate || clip.referenceText) && (
+        <div className="space-y-2">
+          {referenceCandidate && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              title={t(referenceActionHint)}
+              disabled={alreadyReference || referenceSaving || referenceEditing}
+              onClick={() => onUseAsReference(clip.id, referenceCandidate)}
+            >
+              {t("benchmark.reference.useResult")}
+            </Button>
+          )}
+          {clip.referenceText && (
+            <BenchmarkTranscriptComparison
+              reference={clip.referenceText}
+              recognized={recognizedText}
+            />
+          )}
+        </div>
       )}
 
       {showSettings && (
@@ -304,6 +334,9 @@ export const BenchmarkSettings: React.FC = () => {
     null,
   );
   const [isSavingClipName, setIsSavingClipName] = useState(false);
+  const [referenceDraft, setReferenceDraft] = useState<{ clipId: string; text: string } | null>(null);
+  const [isSavingReference, setIsSavingReference] = useState(false);
+  const referenceSavingRef = useRef(false);
 
   useEffect(() => {
     void syncState();
@@ -331,6 +364,7 @@ export const BenchmarkSettings: React.FC = () => {
     () => clips.find((clip) => clip.id === selectedClipId) ?? null,
     [clips, selectedClipId],
   );
+  const referenceEditingClipId = referenceDraft?.clipId === selectedClipId ? selectedClipId : null;
 
   const clipsById = useMemo(
     () => new Map(clips.map((clip) => [clip.id, clip])),
@@ -510,6 +544,39 @@ export const BenchmarkSettings: React.FC = () => {
       toast.error(t("benchmark.recording.renameFailed"));
     } finally {
       setIsSavingClipName(false);
+    }
+  };
+
+  const saveClipReference = async (clipId: string, referenceText: string) => {
+    if (referenceSavingRef.current) return false;
+    const clip = useBenchmarkStore.getState().clips.find((entry) => entry.id === clipId);
+    if (!clip) return false;
+    if ((clip.referenceText ?? "") === referenceText) return true;
+
+    referenceSavingRef.current = true;
+    setIsSavingReference(true);
+    try {
+      await updateClip(clipId, { referenceText });
+      return true;
+    } catch (error) {
+      console.error("Failed to save benchmark reference:", error);
+      toast.error(t("benchmark.reference.saveFailed"));
+      return false;
+    } finally {
+      referenceSavingRef.current = false;
+      setIsSavingReference(false);
+    }
+  };
+
+  const useResultAsReference = async (clipId: string, referenceText: string) => {
+    if (referenceSavingRef.current || referenceEditingClipId === clipId) return;
+    const clip = useBenchmarkStore.getState().clips.find((entry) => entry.id === clipId);
+    if (!clip || !referenceText || clip.referenceText === referenceText) return;
+    if (clip.referenceText && !window.confirm(t("benchmark.reference.replaceConfirm"))) return;
+
+    if (await saveClipReference(clipId, referenceText)) {
+      setReferenceDraft((draft) => (draft?.clipId === clipId ? null : draft));
+      toast.success(t("benchmark.reference.usedResult"));
     }
   };
 
@@ -786,7 +853,17 @@ export const BenchmarkSettings: React.FC = () => {
                   className="w-full"
                 />
               </AudioPlayerGroup>
-              <BenchmarkClipReferenceEditor key={selectedClip.id} clip={selectedClip} />
+              <BenchmarkClipReferenceEditor
+                key={selectedClip.id}
+                clip={selectedClip}
+                draft={referenceDraft?.clipId === selectedClip.id ? referenceDraft.text : null}
+                onDraftChange={(value) => setReferenceDraft((draft) => {
+                  if (value !== null) return { clipId: selectedClip.id, text: value };
+                  return draft?.clipId === selectedClip.id ? null : draft;
+                })}
+                saving={isSavingReference}
+                onSave={(text) => saveClipReference(selectedClip.id, text)}
+              />
             </div>
           )}
         </div>
@@ -1062,6 +1139,9 @@ export const BenchmarkSettings: React.FC = () => {
               key={item.id}
               item={item}
               clip={clipsById.get(item.clipId)}
+              referenceSaving={isSavingReference}
+              referenceEditing={referenceEditingClipId === item.clipId}
+              onUseAsReference={(clipId, text) => void useResultAsReference(clipId, text)}
               onSelectClip={(clipId) => {
                 selectClip(clipId);
               }}
