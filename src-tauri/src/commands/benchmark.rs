@@ -138,6 +138,8 @@ fn benchmark_recording_busy() -> Result<bool, String> {
 pub struct BenchmarkClipInfo {
     pub id: String,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reference_text: Option<String>,
     pub duration_seconds: f64,
     pub sample_count: u32,
     pub device_name: String,
@@ -846,6 +848,7 @@ pub async fn benchmark_stop_recording(app: AppHandle) -> Result<BenchmarkClipInf
         let clip = BenchmarkClipInfo {
             id: clip_id,
             name: format!("Clip #{number}"),
+            reference_text: None,
             duration_seconds,
             sample_count,
             device_name,
@@ -903,6 +906,7 @@ fn import_wav_into_benchmark_dir(
             Some(suffix) => format!("Clip #{number} · {suffix}"),
             None => format!("Clip #{number}"),
         },
+        reference_text: None,
         duration_seconds: samples.len() as f64 / WHISPER_SAMPLE_RATE as f64,
         sample_count: samples.len().min(u32::MAX as usize) as u32,
         device_name: device_label,
@@ -977,6 +981,35 @@ pub fn benchmark_get_clip_wav(app: AppHandle, clip_id: String) -> Result<Vec<u8>
     let dir = benchmark_dir(&app)?;
     let wav_path = clip_wav_path(&dir, &clip_id)?;
     fs::read(&wav_path).map_err(|err| format!("Failed to read benchmark clip WAV: {err}"))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn benchmark_update_clip(
+    app: AppHandle,
+    clip_id: String,
+    name: Option<String>,
+    reference_text: Option<String>,
+) -> Result<BenchmarkClipInfo, String> {
+    let name = name.as_deref().map(str::trim);
+    if name == Some("") {
+        return Err("Benchmark clip name cannot be empty.".to_string());
+    }
+
+    with_state_mut(&app, true, |_dir, state| {
+        let clip = state
+            .clips
+            .iter_mut()
+            .find(|clip| clip.id == clip_id)
+            .ok_or_else(|| "Selected benchmark clip was not found.".to_string())?;
+        if let Some(name) = name {
+            clip.name = name.to_owned();
+        }
+        if let Some(reference_text) = reference_text.as_deref().map(str::trim) {
+            clip.reference_text = (!reference_text.is_empty()).then(|| reference_text.to_owned());
+        }
+        Ok(clip.clone())
+    })
 }
 
 #[tauri::command]
@@ -1443,6 +1476,7 @@ mod tests {
         BenchmarkClipInfo {
             id: id.to_string(),
             name: name.to_string(),
+            reference_text: None,
             duration_seconds: 1.5,
             sample_count: 24_000,
             device_name: "Test Mic".to_string(),

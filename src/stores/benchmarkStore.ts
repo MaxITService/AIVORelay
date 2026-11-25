@@ -12,6 +12,7 @@ import {
 export interface BenchmarkClipInfo {
   id: string;
   name: string;
+  referenceText?: string | null;
   durationSeconds: number;
   sampleCount: number;
   deviceName: string;
@@ -155,6 +156,10 @@ interface BenchmarkStoreState {
   stopRecording: () => Promise<void>;
   /** Copies a History recording into Benchmark and selects it. Throws on failure. */
   importFromHistory: (historyId: number) => Promise<BenchmarkClipInfo>;
+  updateClip: (
+    clipId: string,
+    changes: { name?: string; referenceText?: string },
+  ) => Promise<void>;
   deleteClip: (clipId: string) => Promise<void>;
   setTargetMode: (mode: BenchmarkTargetMode) => void;
   setSelectedProfileId: (profileId: string | null) => void;
@@ -397,6 +402,24 @@ export const useBenchmarkStore = create<BenchmarkStoreState>((set, get) => ({
       lastError: null,
     }));
     return clip;
+  },
+
+  updateClip: async (clipId, changes) => {
+    const updatedClip = await invoke<BenchmarkClipInfo>("benchmark_update_clip", {
+      clipId,
+      name: changes.name ?? null,
+      referenceText: changes.referenceText ?? null,
+    });
+    // Merge only the saved fields so overlapping text and name edits can both succeed.
+    const savedChanges = {
+      ...(changes.name !== undefined && { name: updatedClip.name }),
+      ...(changes.referenceText !== undefined && { referenceText: updatedClip.referenceText }),
+    };
+    set((prev) => ({
+      clips: prev.clips.map((clip) =>
+        clip.id === clipId ? { ...clip, ...savedChanges } : clip,
+      ),
+    }));
   },
 
   deleteClip: async (clipId) => {

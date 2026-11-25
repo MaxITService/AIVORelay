@@ -15,11 +15,14 @@ import {
   Sparkles,
   FileText,
   FileAudio,
+  Pencil,
+  Check,
   Clock3,
 } from "lucide-react";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { SettingContainer } from "@/components/ui/SettingContainer";
 import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { AudioPlayer, AudioPlayerGroup } from "@/components/ui/AudioPlayer";
 import { CopyFeedbackIcon } from "@/components/ui/CopyFeedbackIcon";
@@ -31,11 +34,16 @@ import {
   BOOST_SWEEP_DB_LEVELS,
   VAD_SWEEP_THRESHOLDS,
   useBenchmarkStore,
+  type BenchmarkClipInfo,
   type BenchmarkRunResult,
 } from "@/stores/benchmarkStore";
 import { globalSttSelection } from "@/lib/sttModelSelection";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { formatDateTime } from "@/utils/dateFormat";
+import {
+  BenchmarkClipReferenceEditor,
+  BenchmarkTranscriptComparison,
+} from "./BenchmarkClipReference";
 
 const formatElapsedSeconds = (seconds: number): string => {
   const total = Math.max(0, Math.floor(seconds));
@@ -47,16 +55,19 @@ const formatElapsedSeconds = (seconds: number): string => {
 const formatDurationMs = (durationMs: number): string =>
   `${(durationMs / 1000).toFixed(2)} s`;
 
+const clipActionClass =
+  "p-1.5 rounded text-[#9a9a9a] hover:bg-white/[0.06] disabled:opacity-35 disabled:cursor-not-allowed transition-colors cursor-pointer shrink-0";
+
 interface ResultRowProps {
   item: BenchmarkRunResult;
-  clipExists: boolean;
+  clip?: BenchmarkClipInfo;
   onSelectClip: (clipId: string) => void;
   onRemove: (id: string) => void;
 }
 
 const BenchmarkResultRow: React.FC<ResultRowProps> = ({
   item,
-  clipExists,
+  clip,
   onSelectClip,
   onRemove,
 }) => {
@@ -85,7 +96,8 @@ const BenchmarkResultRow: React.FC<ResultRowProps> = ({
     String(Math.floor(item.timestampMs / 1000)),
     i18n.language,
   );
-  const clipBadgeLabel = item.clipName || t("benchmark.results.unknownClip", "Clip");
+  const clipBadgeLabel =
+    clip?.name ?? (item.clipName || t("benchmark.results.unknownClip", "Clip"));
 
   const handleCopy = async () => {
     if (!hasText) return;
@@ -110,15 +122,15 @@ const BenchmarkResultRow: React.FC<ResultRowProps> = ({
     <div className="px-4 py-3 flex flex-col gap-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2 min-w-0">
-          {clipExists ? (
+          {clip ? (
             <button
               type="button"
               onClick={() => onSelectClip(item.clipId)}
               title={t("benchmark.results.selectClipTooltip", "Select this test clip")}
-              className="inline-flex items-center gap-1 text-xs rounded border border-[#9b5de5]/35 bg-[#9b5de5]/15 px-2 py-0.5 text-[#d7b8ff] hover:bg-[#9b5de5]/25 transition-colors cursor-pointer"
+              className="inline-flex min-w-0 max-w-full items-center gap-1 text-xs rounded border border-[#9b5de5]/35 bg-[#9b5de5]/15 px-2 py-0.5 text-[#d7b8ff] hover:bg-[#9b5de5]/25 transition-colors cursor-pointer"
             >
               <FileAudio className="w-3 h-3 shrink-0" />
-              <span>
+              <span className="min-w-0 wrap-anywhere">
                 {clipBadgeLabel} · {item.clipDurationSeconds.toFixed(1)} s
               </span>
             </button>
@@ -233,6 +245,13 @@ const BenchmarkResultRow: React.FC<ResultRowProps> = ({
         </p>
       )}
 
+      {!item.error && clip?.referenceText && (
+        <BenchmarkTranscriptComparison
+          reference={clip.referenceText}
+          recognized={item.rawText ?? item.text}
+        />
+      )}
+
       {showSettings && (
         <pre className="rounded-md border border-white/[0.08] bg-[#101010]/85 px-3 py-2.5 text-xs font-mono text-[#d0d0d0] whitespace-pre-wrap break-words select-text overflow-x-auto">
           {item.settingsText}
@@ -267,6 +286,7 @@ export const BenchmarkSettings: React.FC = () => {
     selectClip,
     startRecording,
     stopRecording,
+    updateClip,
     deleteClip,
     setTargetMode,
     setSelectedProfileId,
@@ -281,6 +301,10 @@ export const BenchmarkSettings: React.FC = () => {
   } = useBenchmarkStore();
 
   const [recordingElapsed, setRecordingElapsed] = useState(0);
+  const [renameDraft, setClipRename] = useState<{ clipId: string; name: string } | null>(
+    null,
+  );
+  const [isSavingClipName, setIsSavingClipName] = useState(false);
 
   useEffect(() => {
     void syncState();
@@ -309,10 +333,12 @@ export const BenchmarkSettings: React.FC = () => {
     [clips, selectedClipId],
   );
 
-  const clipIdsSet = useMemo(
-    () => new Set(clips.map((clip) => clip.id)),
+  const clipsById = useMemo(
+    () => new Map(clips.map((clip) => [clip.id, clip])),
     [clips],
   );
+  const clipRename =
+    renameDraft && clipsById.has(renameDraft.clipId) ? renameDraft : null;
 
   const resultCountByClip = useMemo(() => {
     const counts = new Map<string, number>();
@@ -456,6 +482,37 @@ export const BenchmarkSettings: React.FC = () => {
   const recordingBusy = isRecording || recordingStarting;
   const isBusy = recordingBusy || isRunning;
   const canRun = Boolean(selectedClip) && !isBusy;
+  const renameClipLabel = t("benchmark.recording.renameClip");
+  const saveClipNameLabel = t("benchmark.recording.saveClipName");
+  const cancelRenameLabel = t("benchmark.recording.cancelRename");
+
+  const startClipRename = (clipId: string, name: string) => {
+    if (clipRename || isSavingClipName) return;
+    selectClip(clipId);
+    setClipRename({ clipId, name });
+  };
+
+  const saveClipRename = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!clipRename || isSavingClipName) return;
+    const name = clipRename.name.trim();
+    if (!name) return;
+    if (name === clipsById.get(clipRename.clipId)?.name) {
+      setClipRename(null);
+      return;
+    }
+
+    setIsSavingClipName(true);
+    try {
+      await updateClip(clipRename.clipId, { name });
+      setClipRename(null);
+    } catch (error) {
+      console.error("Failed to rename benchmark clip:", error);
+      toast.error(t("benchmark.recording.renameFailed"));
+    } finally {
+      setIsSavingClipName(false);
+    }
+  };
 
   const handleRunCurrent = () => {
     const label =
@@ -521,7 +578,7 @@ export const BenchmarkSettings: React.FC = () => {
         title={t("benchmark.recording.title", "1. Test Recordings")}
         description={t(
           "benchmark.recording.description",
-          "Record raw microphone clips (without boost, noise cancellation, or silence filtering). Clips are saved on disk until you delete them.",
+          "Run the same recording through different speech recognition models to compare transcription accuracy and speed. Test clips are recorded without audio processing and kept until you delete them.",
         )}
       >
         <div className="px-4 py-4 space-y-4">
@@ -581,6 +638,7 @@ export const BenchmarkSettings: React.FC = () => {
               <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
                 {clips.map((clip) => {
                   const isSelected = clip.id === selectedClipId;
+                  const editing = clipRename?.clipId === clip.id ? clipRename : null;
                   const runCount = resultCountByClip.get(clip.id) ?? 0;
                   const clipTime = formatDateTime(
                     String(Math.floor(clip.recordedAtMs / 1000)),
@@ -589,61 +647,118 @@ export const BenchmarkSettings: React.FC = () => {
                   return (
                     <div
                       key={clip.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => selectClip(clip.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          selectClip(clip.id);
-                        }
-                      }}
-                      className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 transition-colors cursor-pointer ${
+                      className={`flex items-center gap-1 rounded-lg border px-3 py-2 transition-colors ${
                         isSelected
                           ? "border-[#9b5de5]/70 bg-[#9b5de5]/15"
                           : "border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]"
                       }`}
                     >
-                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 min-w-0">
-                        <FileAudio
-                          className={`w-4 h-4 shrink-0 ${
-                            isSelected ? "text-[#d7b8ff]" : "text-[#8a8a8a]"
-                          }`}
-                        />
-                        <span className="text-sm font-medium text-[#f5f5f5]">
-                          {clip.name}
-                        </span>
-                        <span className="text-xs font-mono text-[#c8c8c8]">
-                          {clip.durationSeconds.toFixed(1)} s
-                        </span>
-                        <span className="text-xs text-[#8a8a8a] truncate">
-                          {clip.deviceName}
-                        </span>
-                        <span className="text-xs text-[#707070]">
-                          {clipTime}
-                        </span>
-                        {runCount > 0 && (
-                          <span className="text-[11px] rounded bg-white/[0.07] px-1.5 py-0.5 text-[#c8c8c8]">
-                            {t("benchmark.recording.runsBadge", {
-                              defaultValue: "{{count}} runs",
-                              count: runCount,
-                            })}
-                          </span>
-                        )}
-                      </div>
+                      {editing ? (
+                        <form
+                          className="flex flex-1 items-center gap-1 min-w-0"
+                          onSubmit={(e) => void saveClipRename(e)}
+                          onKeyDown={(e) => {
+                            if (
+                              e.key === "Escape" &&
+                              !e.nativeEvent.isComposing &&
+                              !isSavingClipName
+                            ) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setClipRename(null);
+                            }
+                          }}
+                        >
+                          <Input
+                            autoFocus
+                            onFocus={(e) => e.currentTarget.select()}
+                            variant="compact"
+                            className="flex-1 min-w-0"
+                            aria-label={t("benchmark.recording.clipName")}
+                            value={editing.name}
+                            onChange={(e) => setClipRename({ ...editing, name: e.target.value })}
+                            readOnly={isSavingClipName}
+                          />
+                          <button
+                            type="submit"
+                            className={`${clipActionClass} hover:text-green-400`}
+                            disabled={isSavingClipName || !editing.name.trim()}
+                            title={saveClipNameLabel}
+                            aria-label={saveClipNameLabel}
+                          >
+                            <Check className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            className={clipActionClass}
+                            disabled={isSavingClipName}
+                            onClick={() => setClipRename(null)}
+                            title={cancelRenameLabel}
+                            aria-label={cancelRenameLabel}
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </form>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => selectClip(clip.id)}
+                            onDoubleClick={() => startClipRename(clip.id, clip.name)}
+                            aria-pressed={isSelected}
+                            className="flex flex-1 flex-wrap items-center gap-x-2.5 gap-y-0.5 min-w-0 text-left cursor-pointer"
+                          >
+                            <FileAudio
+                              className={`w-4 h-4 shrink-0 ${
+                                isSelected ? "text-[#d7b8ff]" : "text-[#8a8a8a]"
+                              }`}
+                            />
+                            <span
+                              className="min-w-0 wrap-anywhere text-sm font-medium text-[#f5f5f5]"
+                              title={t("benchmark.recording.doubleClickToRename")}
+                            >
+                              {clip.name}
+                            </span>
+                            <span className="text-xs font-mono text-[#c8c8c8]">
+                              {clip.durationSeconds.toFixed(1)} s
+                            </span>
+                            <span className="text-xs text-[#8a8a8a] truncate">
+                              {clip.deviceName}
+                            </span>
+                            <span className="text-xs text-[#707070]">
+                              {clipTime}
+                            </span>
+                            {runCount > 0 && (
+                              <span className="text-[11px] rounded bg-white/[0.07] px-1.5 py-0.5 text-[#c8c8c8]">
+                                {t("benchmark.recording.runsBadge", {
+                                  defaultValue: "{{count}} runs",
+                                  count: runCount,
+                                })}
+                              </span>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            className={`${clipActionClass} hover:text-[#d7b8ff]`}
+                            disabled={clipRename !== null || isSavingClipName}
+                            onClick={() => startClipRename(clip.id, clip.name)}
+                            title={renameClipLabel}
+                            aria-label={renameClipLabel}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
 
                       <button
                         type="button"
-                        disabled={isBusy}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void deleteClip(clip.id);
-                        }}
+                        disabled={isBusy || editing !== null}
+                        onClick={() => void deleteClip(clip.id)}
                         title={t(
                           "benchmark.recording.deleteClip",
                           "Delete clip (results remain in list)",
                         )}
-                        className="p-1.5 rounded text-[#9a9a9a] hover:text-red-400 hover:bg-white/[0.06] disabled:opacity-35 disabled:cursor-not-allowed transition-colors cursor-pointer shrink-0"
+                        className={`${clipActionClass} hover:text-red-400`}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -656,7 +771,7 @@ export const BenchmarkSettings: React.FC = () => {
 
           {selectedClip && (
             <div className="space-y-2 pt-1 border-t border-white/[0.06]">
-              <div className="text-xs text-[#a0a0a0]">
+              <div className="text-xs text-[#a0a0a0] wrap-anywhere">
                 {t("benchmark.recording.selectedClipSummary", {
                   defaultValue: "Selected: {{name}} · {{seconds}} s from {{device}}",
                   name: selectedClip.name,
@@ -672,6 +787,7 @@ export const BenchmarkSettings: React.FC = () => {
                   className="w-full"
                 />
               </AudioPlayerGroup>
+              <BenchmarkClipReferenceEditor key={selectedClip.id} clip={selectedClip} />
             </div>
           )}
         </div>
@@ -879,12 +995,13 @@ export const BenchmarkSettings: React.FC = () => {
         )}
       >
         <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
             {selectedClip && (
               <Button
                 type="button"
                 variant={resultsFilter === "selected" ? "primary" : "secondary"}
                 size="sm"
+                className="max-w-full wrap-anywhere"
                 onClick={() => setResultsFilter("selected")}
               >
                 {t("benchmark.results.filterSelected", {
@@ -945,7 +1062,7 @@ export const BenchmarkSettings: React.FC = () => {
             <BenchmarkResultRow
               key={item.id}
               item={item}
-              clipExists={clipIdsSet.has(item.clipId)}
+              clip={clipsById.get(item.clipId)}
               onSelectClip={(clipId) => {
                 selectClip(clipId);
               }}
