@@ -77,6 +77,11 @@ export const VAD_SWEEP_THRESHOLDS = [
 
 const BENCHMARK_CANCELLED_MESSAGE = "Benchmark run cancelled";
 
+// Mirrors OpenAiRealtimeWhisperManager::is_realtime_model in the backend.
+const OPENAI_LIVE_MODELS = new Set(["gpt-realtime-whisper", "gpt-live-transcribe"]);
+const isOpenAiLiveModel = (modelId: string | null | undefined) =>
+  OPENAI_LIVE_MODELS.has((modelId || "").trim().toLowerCase());
+
 const isSelectionLiveForSettings = (
   settings: AppSettings | null,
   selection: SttModelSelection | null,
@@ -104,7 +109,7 @@ const isSelectionLiveForSettings = (
         isReson8Selection(sel) ||
         isElevenLabsLiveSelection(sel) ||
         (sel.provider_preset === "openai" &&
-          (sel.model_id || "").toLowerCase().includes("realtime") &&
+          isOpenAiLiveModel(sel.model_id) &&
           !settings.openai_realtime_whisper_flatten_enabled)
       );
     }
@@ -127,7 +132,7 @@ const isSelectionLiveForSettings = (
       isReson8Selection(selection) ||
       isElevenLabsLiveSelection(selection) ||
       (selection.provider_preset === "openai" &&
-        (selection.model_id || "").toLowerCase().includes("realtime") &&
+        isOpenAiLiveModel(selection.model_id) &&
         !settings.openai_realtime_whisper_flatten_enabled)
     );
   }
