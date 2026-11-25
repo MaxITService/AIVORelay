@@ -612,7 +612,7 @@ impl DeepgramRealtimeManager {
                         }
                     }
                 }
-                audio_chunk = audio_rx.recv() => {
+                audio_chunk = audio_rx.recv(), if !audio_input_closed => {
                     let Some(audio_chunk) = audio_chunk else {
                         audio_input_closed = true;
                         continue;
