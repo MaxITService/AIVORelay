@@ -745,12 +745,14 @@
       }
     },
     "whatsNew": {
-      "since": "Since version 1.0.55",
+      "since": "Since version 1.0.56",
       "title": "What's New",
       "description": "Highlights added since the previous release:",
       "items": {
-        "administratorAutostart": "Starting AivoRelay automatically as Administrator is now more reliable: it also starts on battery power and is no longer stopped after a few days, and a Repair button fixes a broken setup in one click. These options now live in a separate developer block at the bottom of Advanced settings.",
-        "firstRunSetup": "The first-run setup is friendlier: you can go back from the remote speech recognition choice, and it points you to more cloud services you can set up later in Models."
+        "benchmark": "Compare speech recognition models on the same recording in Benchmark. Select a clip and add the exact words, or choose Use as reference on a result. Each run can then show missing, extra, and changed words.",
+        "liveOutput": "Cloud live models can recognize speech while you talk and insert the finished text only after you stop. You can turn this on for each transcription profile.",
+        "historyExport": "Export your entire transcription history as JSON to a file or the clipboard. You can also send a saved recording straight to Benchmark.",
+        "cloudSpeech": "Reson8 Rumble-2 shows words as you speak in Live Preview and Live Monitor. Connection tests are now available for Gemini and the Vercel AI Gateway."
       }
     },
     "aboutLinkPrefix": "Version, updates, licenses, and project information:"
