@@ -6,7 +6,9 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## release/microsoft-store
 
-Last synced commit from `main` is `931baa9c5` — chore(bindings): remove the retired macOS permission reset command.
+Last synced commit from `main` is `a177a84cb` — feat(benchmark): make reference text easy to find and set from results.
+
+Current alignment (2026-11-25) covers the ten source commits `51caafea9` through `a177a84cb`, ending at Store `8f59911d5`. The picks include Benchmark, ElevenLabs, TTS, Deepgram, CLI, and Linux tray fixes. The Store copy of TESTING and README and the branch-specific package configuration were preserved. Shared source and bindings match after the 1.0.57 What's New update. Both Windows lockfiles were resolved independently with only the app version changed.
 
 Current alignment (2026-11-24) covers `bbcad443c` → `3c81a6f12` (Benchmark recording and Cancel), `f3ec572b1` → `93f99433b` (Soniox upload cleanup), `373317e1d` → `403e620b6` (Benchmark Cancel isolation), and `4c76b3dd4` → `4066f1ea6` (macOS permissions). Each branch passed 1,439 Rust library tests (28 ignored), 433 frontend tests, TypeScript and release translation checks. The existing Store What's New differences remain. macOS compilation and prompts are unverified.
 
