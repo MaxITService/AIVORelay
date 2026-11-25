@@ -6,6 +6,16 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Reviewed intake (2026-11-25)
+
+- Safe review cursor `1f2e9ea9` — build(linux): drop the OpenBLAS dependency (#2565).
+  Reviewed the three commits after `a822741f9`. The range has no merges.
+- `ca2334c9` was adapted in `a6e2f061c` — fix(cli): honor recording commands on
+  a cold start. The app dispatches start and toggle after initialization.
+- `bdb68c85` was adapted in `c447e7170` — fix(linux): keep a stable tray icon ID.
+- Deferred `1f2e9ea9`. It changes Linux build and package dependencies together
+  and needs its own package verification. It has no Windows runtime change.
+
 Reviewed intake (2026-11-24)
 
 - Safe review cursor `a822741f9` — feat: add Armenian translation (#2550).
