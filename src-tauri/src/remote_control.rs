@@ -1,4 +1,4 @@
-//! One-shot commands delivered to the running app by the single-instance plugin.
+//! One-shot CLI commands handled by the running app or after startup.
 use crate::cli::{RecordingCommand, RemoteCommand, TranscriptCommand};
 use crate::managers::history::HistoryManager;
 use crate::{clipboard, utils};

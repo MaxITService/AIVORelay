@@ -1343,6 +1343,12 @@ pub fn run(cli_args: CliArgs) {
         || cli_file_conversion::is_file_conversion_requested(&cli_args)
         || cli_local_tts::is_local_tts_requested(&cli_args)
         || cli_tts_history::is_tts_history_requested(&cli_args);
+    let startup_recording = match cli_args.remote_command() {
+        Some(command @ cli::RemoteCommand::Recording(
+            cli::RecordingCommand::Start { .. } | cli::RecordingCommand::Toggle { .. },
+        )) => Some(command),
+        _ => None,
+    };
 
     // Release keeps the existing RUST_LOG filter. Dev builds instead use the
     // process-local Dev Console Log Level selector below, so it can reliably
@@ -2339,8 +2345,14 @@ pub fn run(cli_args: CliArgs) {
     apply_startup_activation_policy(&mut app, headless_mode);
 
     #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
-    app.run(|app, event| {
+    app.run(move |app, event| {
         match &event {
+            tauri::RunEvent::Ready => {
+                // A cold start must wait for the recording coordinator from setup.
+                if let Some(command) = startup_recording {
+                    remote_control::dispatch(app, command);
+                }
+            }
             tauri::RunEvent::ExitRequested { code: None, api, .. } => {
                 // Rebuilding the webviews after a WebView2 crash briefly leaves
                 // the app without windows; that is not "all windows closed".

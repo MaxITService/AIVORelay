@@ -22,11 +22,11 @@ pub struct CliArgs {
     #[command(subcommand)]
     pub command: Option<CliCommand>,
 
-    /// Toggle transcription on/off (sent to running instance).
+    /// Toggle transcription on/off, launching AivoRelay if needed.
     #[arg(long)]
     pub toggle_transcription: bool,
 
-    /// Toggle transcription with post-processing on/off (sent to running instance).
+    /// Toggle transcription with post-processing on/off, launching AivoRelay if needed.
     #[arg(long)]
     pub toggle_post_process: bool,
 
